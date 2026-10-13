@@ -8,9 +8,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
@@ -55,7 +57,7 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 		"reads_state":             report.Reads,
 		"saves_state":             report.Saves,
 		"library":                 report.Library,
-		"libraries":               report.Libraries,
+		"libraries":               report.Libraries, "resources": report.Resources,
 		// The managed-resource libraries the exports file in (#2080); {} is
 		// the library of the person the run acts for.
 		"resource_libraries": report.ResourceLibraries,
@@ -95,7 +97,7 @@ func (h *Handle) handleTest(ctx context.Context, input manageScriptInput) (*mcp.
 	report, err := scripttest.Run(ctx, scripttest.Request{
 		Source: source, Name: orScriptName(input.Name), Destinations: h.destinations,
 		Load: h.gate.Loader(target, caller), MaxMemoryBytes: h.runLimits.MaxMemoryBytes,
-		Contracts: h.gate.Contracts, Libraries: h.gate.Libraries,
+		Contracts: h.gate.Contracts, Libraries: scriptres.With(h.gate.Libraries, h.sources, nil, new(resourcewrite.CallerClaims(ctx))),
 	})
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
@@ -205,25 +207,41 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	if pc == nil {
 		return errorResult(scriptdraft.ErrNoIdentity.Error()), nil, nil
 	}
-	outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).
-		WithExports(h.draftExports).WithMemoryBudget(h.runLimits.MaxMemoryBytes).
-		WithStatementCeiling(h.runLimits.MaxStatementTimeout).
-		WithRecordings(h.recordings).WithLibraries(h.gate.Libraries).Run(ctx, scriptdraft.Request{
-		Source: source, Name: sc.Name, Script: sc, Params: params,
-		// The live state, so the draft reads what a platform run created now
-		// would read. Nothing is written back: what the draft would have saved
-		// is reported beside the outputs it would have written.
-		State: h.liveState(ctx, sc),
-		Identity: scriptdraft.Identity{
-			UserID: pc.UserID, Email: pc.UserEmail, Claims: pc.UserClaims,
-			Roles: pc.Roles, AuthType: pc.AuthType,
-		},
-		AllowWrites: input.AllowWrites,
-	})
+	limit, background, err := h.longDrafts.Plan(input.TimeoutSeconds, h.isAdminPersona(ctx))
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
-	return jsonResult(draftResult(sc, outcome))
+	exec := func(ctx context.Context, long scriptdraft.Long) (map[string]any, bool, error) {
+		outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).
+			WithExports(h.draftExports).WithMemoryBudget(h.runLimits.MaxMemoryBytes).
+			WithStatementCeiling(h.runLimits.MaxStatementTimeout).
+			WithRecordings(h.recordings).WithLibraries(h.gate.Libraries).WithResources(h.sources).Run(ctx, scriptdraft.Request{
+			Source: source, Name: sc.Name, Script: sc, Params: params,
+			// The live state, so the draft reads what a platform run created now
+			// would read. Nothing is written back: what the draft would have saved
+			// is reported beside the outputs it would have written.
+			State: h.liveState(ctx, sc),
+			Identity: scriptdraft.Identity{
+				UserID: pc.UserID, Email: pc.UserEmail, Claims: pc.UserClaims,
+				Roles: pc.Roles, AuthType: pc.AuthType, Resources: new(resourcewrite.CallerClaims(ctx)),
+			},
+			AllowWrites: input.AllowWrites, Long: long,
+		})
+		if err != nil {
+			return nil, false, err //nolint:wrapcheck // the runner's sentence
+		}
+		return draftResult(sc, outcome), outcome.Err != nil, nil
+	}
+	var out map[string]any
+	if background {
+		out, err = h.longDrafts.Begin(ctx, resolveEmail(ctx), sc.Name, limit, exec)
+	} else {
+		out, _, err = exec(ctx, scriptdraft.Long{Timeout: limit})
+	}
+	if err != nil {
+		return errorResult(err.Error()), nil, nil
+	}
+	return jsonResult(out)
 }
 
 // draftScript resolves the script a draft runs as: the saved one the name

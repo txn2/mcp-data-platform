@@ -31,6 +31,22 @@ import (
 // Prefix is the scheme a library load names.
 const Prefix = "lib:"
 
+// ResourcePrefix is the scheme a load of a managed resource's text names
+// (#2113): load("res:<library>/<path>/<file>", PAGE_JS = "text") binds the
+// file's text, as it was when the script was saved, to PAGE_JS. The rest of
+// the module is the file's mcp:// address after the scheme.
+const ResourcePrefix = "res:"
+
+// resourceSymbol is the one name a resource module exports.
+const resourceSymbol = "text"
+
+// ResourceSource reads the text a res: module names, as a Source that can
+// answers it. A run reads the version its script version pinned; a draft and
+// a test read the file as it is now.
+type ResourceSource interface {
+	ResourceText(ctx context.Context, module string) (string, error)
+}
+
 // MaxDepth is how many libraries deep a chain of loads may go. A chain longer
 // than this is refused on save and at run time alike.
 const MaxDepth = 8
@@ -67,12 +83,14 @@ func ParseModule(module string) (Ref, error) {
 	return Ref{Name: m[1], Version: v}, nil
 }
 
-// Load is one load statement: the library version it names, or the error
-// its module string is, and its line.
+// Load is one load statement: the library version it names, or the
+// resource module it names (#2113), or the error its module string is, and
+// its line.
 type Load struct {
-	Ref  Ref
-	Err  error
-	Line int
+	Ref      Ref
+	Resource string
+	Err      error
+	Line     int
 }
 
 // Loads is every load statement of file, in source order.
@@ -84,8 +102,12 @@ func Loads(file *syntax.File) []Load {
 			continue
 		}
 		module, _ := ld.Module.Value.(string)
-		ref, err := ParseModule(module)
 		start, _ := ld.Span()
+		if strings.HasPrefix(module, ResourcePrefix) {
+			out = append(out, Load{Resource: module, Err: resourceLoadErr(ld, module), Line: int(start.Line)})
+			continue
+		}
+		ref, err := ParseModule(module)
 		out = append(out, Load{Ref: ref, Err: err, Line: int(start.Line)})
 	}
 	return out
@@ -94,14 +116,14 @@ func Loads(file *syntax.File) []Load {
 // Refs is the library versions source loads, in source order, each once. A
 // source that does not parse, and a load naming no library, contribute none.
 func Refs(source string) []Ref {
-	file, err := scriptdialect.Options.Parse("script", source, 0)
+	file, err := scriptdialect.Options.Parse(parseName, source, 0)
 	if err != nil {
 		return []Ref{}
 	}
 	out := []Ref{}
 	seen := map[Ref]bool{}
 	for _, l := range Loads(file) {
-		if l.Err == nil && !seen[l.Ref] {
+		if l.Err == nil && l.Resource == "" && !seen[l.Ref] {
 			seen[l.Ref] = true
 			out = append(out, l.Ref)
 		}
@@ -123,7 +145,7 @@ func IsLibrary(file *syntax.File) bool {
 // SourceIsLibrary is IsLibrary over source; a source that does not parse is
 // not a library.
 func SourceIsLibrary(source string) bool {
-	file, err := scriptdialect.Options.Parse("script", source, 0)
+	file, err := scriptdialect.Options.Parse(parseName, source, 0)
 	return err == nil && IsLibrary(file)
 }
 
@@ -132,7 +154,10 @@ func SourceIsLibrary(source string) bool {
 // its frozen globals handed to every load of it. A load while the same version
 // is still loading is a cycle; a chain deeper than MaxDepth is refused.
 func Loader(ctx context.Context, src Source, env starlark.StringDict) func(*starlark.Thread, string) (starlark.StringDict, error) {
-	l := &loader{ctx: ctx, src: src, env: env, done: map[Ref]starlark.StringDict{}, loading: map[Ref]bool{}}
+	l := &loader{
+		ctx: ctx, src: src, env: env, done: map[Ref]starlark.StringDict{}, loading: map[Ref]bool{},
+		texts: map[string]starlark.StringDict{},
+	}
 	return l.load
 }
 
@@ -143,9 +168,13 @@ type loader struct {
 	done    map[Ref]starlark.StringDict
 	loading map[Ref]bool
 	depth   int
+	texts   map[string]starlark.StringDict
 }
 
 func (l *loader) load(thread *starlark.Thread, module string) (starlark.StringDict, error) {
+	if strings.HasPrefix(module, ResourcePrefix) {
+		return l.resource(module)
+	}
 	ref, err := ParseModule(module)
 	if err != nil {
 		return nil, err
@@ -202,7 +231,7 @@ func describe(ref Ref, err error) error {
 // names itself is reported as the cycle it is. The findings are returned as
 // one sentence each with its line in source.
 func Check(ctx context.Context, src Source, source, self string) []Problem {
-	file, err := scriptdialect.Options.Parse("script", source, 0)
+	file, err := scriptdialect.Options.Parse(parseName, source, 0)
 	if err != nil {
 		return nil
 	}
@@ -233,6 +262,14 @@ type checker struct {
 func (c *checker) check(ld Load, chain []Ref) string {
 	if ld.Err != nil {
 		return ld.Err.Error()
+	}
+	if ld.Resource != "" {
+		// The file itself is resolved and pinned by the save (scriptres);
+		// here a library loading one is refused.
+		if c.self != "" || len(chain) > 0 {
+			return fmt.Sprintf("load(%q): a library is pure code and loads no resource; load the file in the script", ld.Resource)
+		}
+		return ""
 	}
 	ref := ld.Ref
 	if msg := c.refuse(ref, chain); msg != "" || c.checked[ref] {
@@ -284,4 +321,60 @@ func path(chain []Ref) string {
 		parts = append(parts, r.String())
 	}
 	return strings.Join(parts, " loads ")
+}
+
+// resource answers a res: load with the file's text, read once per module.
+func (l *loader) resource(module string) (starlark.StringDict, error) {
+	if l.depth > 0 {
+		return nil, fmt.Errorf("load(%q): a library is pure code and loads no resource", module)
+	}
+	if globals, ok := l.texts[module]; ok {
+		return globals, nil
+	}
+	rs, ok := l.src.(ResourceSource)
+	if !ok {
+		return nil, fmt.Errorf("load(%q) cannot be read here: no managed-resource library is available", module)
+	}
+	text, err := rs.ResourceText(l.ctx, module)
+	if err != nil {
+		return nil, fmt.Errorf("load(%q): %w", module, err)
+	}
+	globals := starlark.StringDict{resourceSymbol: starlark.String(text)}
+	globals.Freeze()
+	l.texts[module] = globals
+	return globals, nil
+}
+
+// resourceLoadErr is what a res: load gets wrong: a module naming no file,
+// or a name other than text taken from it.
+func resourceLoadErr(ld *syntax.LoadStmt, module string) error {
+	if strings.Count(strings.TrimPrefix(module, ResourcePrefix), "/") < 2 { //nolint:mnd // library, folder, file
+		return fmt.Errorf("load(%q) names no file: a resource is loaded as \"res:<library>/<path>/<file>\", "+
+			"its mcp:// address after the scheme, as load(\"res:global/flows/sync/page.js\", PAGE_JS = \"text\")", module)
+	}
+	for _, from := range ld.From {
+		if from.Name != resourceSymbol {
+			return fmt.Errorf("load(%q) binds the file's text: write NAME = %q, not %q", module, resourceSymbol, from.Name)
+		}
+	}
+	return nil
+}
+
+// parseName is the file name a parse of a source reports positions in.
+const parseName = "script"
+
+// ResourceModules is the res: modules source loads, in source order, each
+// once. A source that does not parse names none.
+func ResourceModules(source string) []string {
+	file, err := scriptdialect.Options.Parse(parseName, source, 0)
+	if err != nil {
+		return []string{}
+	}
+	out := []string{}
+	for _, l := range Loads(file) {
+		if l.Resource != "" && l.Err == nil && !slices.Contains(out, l.Resource) {
+			out = append(out, l.Resource)
+		}
+	}
+	return out
 }

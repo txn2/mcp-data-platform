@@ -3,8 +3,10 @@ package portalstore
 import (
 	"context"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceholds"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
@@ -28,6 +30,8 @@ type ResourceWriteDeps struct {
 	Registered   func(*resource.Resource)
 	Unregistered func(uri string)
 	Attachments  resourceholds.Attachments
+	// IndexPolicy decides how a written file is indexed for search (#2111).
+	IndexPolicy *indexpolicy.Resolver
 }
 
 // BindResourceWrites builds and binds everything that writes a managed resource
@@ -40,9 +44,14 @@ type ResourceWriteDeps struct {
 // manage_resource says so. A blob client that cannot read by range gets no
 // extractor, and extract says so.
 func (h *Handle) BindResourceWrites(d ResourceWriteDeps) {
+	// What a managed script reads from the library: a source named by
+	// reference and the text a res: load names (#2113, #2114).
+	if h != nil {
+		h.sources = scriptsrc.New(d.Store, d.Blobs, d.Bucket, d.URIScheme)
+	}
 	w := resourcewrite.New(resourcewrite.Deps{
 		Store: d.Store, Blobs: d.Blobs, Bucket: d.Bucket, URIScheme: d.URIScheme, MaxVersions: d.MaxVersions,
-		Registered: d.Registered, Unregistered: d.Unregistered,
+		Registered: d.Registered, Unregistered: d.Unregistered, IndexPolicy: d.IndexPolicy,
 		// The same record the asset write funnels fill, so an agent's resource
 		// write and its asset write name the same producer (#1569).
 		Producers: h.Producers(),
@@ -83,7 +92,7 @@ func (a extractorAdapter) ExtractArchive(
 	out, err := a.x.ExtractArchive(ctx, resourcewrite.Extraction{
 		ArchiveID: req.ArchiveID, Scope: req.Scope, ScopeID: req.ScopeID, Path: req.Path,
 		Members: req.Members, Filename: req.Filename, Replace: req.Replace,
-		Description: req.Description, Tags: req.Tags, ChangeSummary: req.ChangeSummary,
+		Description: req.Description, Tags: req.Tags, ChangeSummary: req.ChangeSummary, Index: req.Index,
 	}, claims)
 	if out == nil {
 		return nil, err //nolint:wrapcheck // the writer's sentence names the archive and what stopped it
@@ -95,4 +104,13 @@ func (a extractorAdapter) ExtractArchive(
 		result.Members = append(result.Members, portalkit.ExtractedMember{Member: m.Member, ResourceLanding: m.Landing})
 	}
 	return result, err //nolint:wrapcheck // as above
+}
+
+// ResourceSources reads the managed-resource text a managed script is made
+// from, or nil before the library is bound or on a deployment with none.
+func (h *Handle) ResourceSources() *scriptsrc.Reader {
+	if h == nil {
+		return nil
+	}
+	return h.sources
 }

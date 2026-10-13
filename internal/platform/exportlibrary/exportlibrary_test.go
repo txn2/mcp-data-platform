@@ -1,6 +1,7 @@
 package exportlibrary
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -107,4 +108,25 @@ func TestSorted(t *testing.T) {
 	assert.Equal(t, []Library{}, Sorted(nil))
 	assert.Equal(t, []Library{{}, {Scope: "global"}, {Scope: "persona", ScopeID: "a"}, {Scope: "persona", ScopeID: "b"}},
 		Sorted(map[Library]bool{{Scope: "persona", ScopeID: "b"}: true, {}: true, {Scope: "global"}: true, {Scope: "persona", ScopeID: "a"}: true}))
+}
+
+// TestCheckArgsReadsIndex: index= says how search indexes a library file
+// (#2111), so it is refused for any other destination and read as a policy.
+func TestCheckArgsReadsIndex(t *testing.T) {
+	got, err := CheckArgs(true, "", "", " None ")
+	if err != nil || got != "none" {
+		t.Fatalf("CheckArgs = %q, %v; want none", got, err)
+	}
+	if got, err := CheckArgs(true, "global", "", ""); err != nil || got != "" {
+		t.Fatalf("no index = %q, %v; want empty", got, err)
+	}
+	if _, err := CheckArgs(false, "", "", "none"); !errors.Is(err, ErrIndexNotLibrary) {
+		t.Fatalf("portal index err = %v", err)
+	}
+	if _, err := CheckArgs(true, "", "", "most"); err == nil {
+		t.Fatal("an index that is no policy must be refused")
+	}
+	if _, err := CheckArgs(false, "global", "", ""); !errors.Is(err, ErrNotLibrary) {
+		t.Fatalf("scope check err = %v", err)
+	}
 }

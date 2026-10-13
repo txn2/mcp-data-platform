@@ -187,7 +187,29 @@ func visibleIn(scopes []resource.ScopeFilter, r *resource.Resource) bool {
 	return false
 }
 
-func (*memStore) Update(_ context.Context, _ string, _ resource.Update) error { return nil }
+// Update writes what the Postgres store writes: the metadata it names, and a
+// policy recorded as chosen (#2111).
+func (m *memStore) Update(_ context.Context, id string, u resource.Update) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.resources[id]
+	if !ok {
+		return fmt.Errorf("resource not found: %s", id)
+	}
+	if u.DisplayName != nil {
+		r.DisplayName = *u.DisplayName
+	}
+	if u.Description != nil {
+		r.Description = *u.Description
+	}
+	if u.Tags != nil {
+		r.Tags = u.Tags
+	}
+	if u.Index != nil {
+		r.IndexPolicy, r.IndexPolicyExplicit = *u.Index, true
+	}
+	return nil
+}
 
 // Move refiles the resources named, the way the Postgres store does in one
 // transaction: the address is rewritten along with the library and the folder,
@@ -275,6 +297,10 @@ func (m *memStore) AddRevision(_ context.Context, rev resource.Revision) (*resou
 	m.versions[rev.ResourceID] = append(m.versions[rev.ResourceID], v)
 	r.S3Key, r.MIMEType, r.SizeBytes = rev.S3Key, rev.MIMEType, rev.SizeBytes
 	r.UpdatedAt = v.CreatedAt
+	// A revision naming a policy moves it, as the head update does (#2111).
+	if rev.IndexPolicy != "" {
+		r.IndexPolicy, r.IndexPolicyExplicit = rev.IndexPolicy, rev.IndexExplicit
+	}
 	return &v, nil
 }
 

@@ -20,6 +20,7 @@ import (
 
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -107,6 +108,31 @@ func CheckFor(library bool, scope, scopeID string) error {
 		return ErrNotLibrary
 	}
 	return Check(scope, scopeID)
+}
+
+// ErrIndexNotLibrary is index= given to a destination that files nothing in
+// the library.
+var ErrIndexNotLibrary = errors.New(`index is how the managed-resource library indexes a file; it applies to destination="resources" only`)
+
+// CheckArgs is CheckFor and index= together (#2111): index says how search
+// indexes the file, which only a library file has. It returns the policy
+// index names, empty when it names none.
+func CheckArgs(library bool, scope, scopeID, index string) (string, error) {
+	if err := CheckFor(library, scope, scopeID); err != nil {
+		return "", err
+	}
+	index = strings.TrimSpace(index)
+	if index == "" {
+		return "", nil
+	}
+	if !library {
+		return "", ErrIndexNotLibrary
+	}
+	p, err := indexpolicy.Parse(index)
+	if err != nil {
+		return "", err //nolint:wrapcheck // the sentence names the argument's values
+	}
+	return string(p), nil
 }
 
 // Reader reads an argument as the string it is written as, directly or

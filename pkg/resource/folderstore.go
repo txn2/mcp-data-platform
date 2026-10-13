@@ -222,9 +222,7 @@ func (s *postgresStore) MoveFolderTree(ctx context.Context, tree FolderRename, m
 		}
 		return fmt.Errorf("committing folder move: %w", err)
 	}
-	for _, m := range moves {
-		s.index.NotifyWrite(ctx, m.ID)
-	}
+	s.notifyMoved(ctx, moves)
 	return nil
 }
 

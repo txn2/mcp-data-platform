@@ -6,6 +6,8 @@ package resource
 
 import (
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 )
 
 // Scope defines the visibility level of a resource.
@@ -69,6 +71,14 @@ type Resource struct {
 	// the capture time, and without it a browser would show the old picture
 	// for the hour it is cached for (#1789).
 	ThumbnailRenderer int `json:"thumbnail_renderer"`
+	// IndexPolicy is how search indexes this file (#2111): "full" (its
+	// metadata and a prefix of its content), "metadata" (name, description,
+	// folder, filename and tags), or "none" (not indexed; found by listing and
+	// by its folder's own search entry). IndexPolicyExplicit is whether a
+	// writer chose it; a policy the operator's rules gave is the one a
+	// reclassification may change.
+	IndexPolicy         string `json:"index_policy" example:"full"`
+	IndexPolicyExplicit bool   `json:"index_policy_explicit" example:"false"`
 	// ThumbnailFailure is why the renderer could not draw this file's tile,
 	// and ThumbnailFailedAt the UpdatedAt of the file it tried. The failure
 	// holds until the file changes or the tile is asked for again, so a file
@@ -211,6 +221,13 @@ type Update struct {
 	// the global library. It is read only when Scope is set: a scope id on its
 	// own names no library.
 	ScopeID *string `json:"scope_id,omitempty"`
+	// Index changes how search indexes the file: "full", "metadata" or "none"
+	// (#2111). The value stored is the one the operator's ceiling allows, and
+	// it is recorded as chosen.
+	Index *string `json:"index,omitempty"`
+	// Origin is the writer a rule matches an index change by; the PATCH route
+	// leaves it empty, an upload. Not part of the request body.
+	Origin indexpolicy.Origin `json:"-"`
 	// ThumbnailS3Key and ThumbnailCapturedAt record a capture (#1554). They are
 	// written by the capture route alone and are not part of the metadata edit
 	// the PATCH route accepts: a person editing a description is not saying
@@ -226,7 +243,7 @@ type Update struct {
 // only a move has none, and applying an empty Update would still bump
 // updated_at and drop the stored embedding for nothing.
 func (u Update) Fields() bool {
-	return u.DisplayName != nil || u.Description != nil || u.Tags != nil
+	return u.DisplayName != nil || u.Description != nil || u.Tags != nil || u.Index != nil
 }
 
 // Relocates reports whether the update moves the resource: into another
@@ -253,4 +270,21 @@ type Move struct {
 	Path    string
 	URI     string
 	FromURI string
+	// From is where the resource was filed and the policy it is indexed under
+	// (#2111): a file that is not indexed itself changes the summary of the
+	// folder it leaves and of the one it joins. An unset policy is read as
+	// indexed, so the file is handed to the index worker as before.
+	From From
+}
+
+// From is a moved resource's place before the move.
+type From struct {
+	Library     ScopeFilter
+	Path        string
+	IndexPolicy string
+}
+
+// fromOf records where r is before it moves.
+func fromOf(r *Resource) From {
+	return From{Library: ScopeFilter{Scope: r.Scope, ScopeID: r.ScopeID}, Path: r.Path, IndexPolicy: r.IndexPolicy}
 }

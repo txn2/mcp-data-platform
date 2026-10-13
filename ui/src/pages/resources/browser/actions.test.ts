@@ -6,7 +6,7 @@ vi.mock("@/api/resources/client", () => ({ resourceFetch: fetchJSON, resourceFet
 
 import type { Resource } from "@/api/resources/types";
 import type { ResourceRoot } from "../scopes";
-import { deleteMany, filesUnder, MAX_FOLDER_FILES, moveMany, summarize, undoMoves } from "./actions";
+import { deleteMany, describeFolder, filesUnder, folderDescription, MAX_FOLDER_FILES, moveMany, summarize, undoMoves } from "./actions";
 
 const root: ResourceRoot = {
   key: "global",
@@ -89,5 +89,29 @@ describe("deleting", () => {
   it("reports a folder the server kept because a file is still in it", async () => {
     fetchRaw.mockResolvedValue(new Response(JSON.stringify({ error: "the folder still holds files" }), { status: 409 }));
     expect(await deleteMany(root, [], ["a"])).toEqual([{ name: "a/", error: "the folder still holds files" }]);
+  });
+});
+
+// A folder's description is what search matches a folder of files that are
+// not indexed one by one on (#2111).
+describe("describing a folder", () => {
+  it("reads the description, and an absent one as empty", async () => {
+    fetchRaw.mockResolvedValueOnce(new Response(JSON.stringify({ description: "NLTV archive" }), { status: 200 }));
+    expect(await folderDescription(root, "pipelines/nltv")).toBe("NLTV archive");
+    expect(String(fetchRaw.mock.calls[0]![0])).toContain("/folders/description?scope=global&path=pipelines%2Fnltv");
+    fetchRaw.mockResolvedValueOnce(new Response(null, { status: 404 }));
+    expect(await folderDescription(root, "gone")).toBe("");
+  });
+
+  it("writes the description for the folder's library", async () => {
+    fetchRaw.mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    await describeFolder(root, "pipelines/nltv", "NLTV archive");
+    const [path, init] = fetchRaw.mock.calls[0]! as [string, RequestInit];
+    expect(path).toBe("/folders/description");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(String(init.body))).toEqual({ scope: "global", path: "pipelines/nltv", description: "NLTV archive" });
+
+    fetchRaw.mockResolvedValueOnce(new Response(JSON.stringify({ error: "you may not change folders in that library" }), { status: 403 }));
+    await expect(describeFolder(root, "x", "y")).rejects.toThrow("you may not change folders");
   });
 });

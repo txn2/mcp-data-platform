@@ -12,6 +12,7 @@ import { usePersonas } from "@/api/admin/hooks";
 import { useAuthStore } from "@/stores/auth";
 import { ModalShell } from "@/components/ModalShell";
 import { PathField } from "../parts/PathField";
+import { IndexPolicyField, INDEX_POLICY_DEFAULT, type IndexChoice } from "../parts/IndexPolicyField";
 import { pathProblem } from "../parts/pathRules";
 import { folderPaths } from "../parts/tree";
 import { LibraryField } from "./LibraryField";
@@ -56,6 +57,7 @@ interface EditDraft {
   description: string;
   tagsInput: string;
   path: string;
+  index: IndexChoice;
 }
 
 /**
@@ -78,6 +80,11 @@ function buildUpdate(r: Resource, draft: EditDraft): { update: ResourceUpdate } 
     const problem = pathProblem(draft.path);
     if (problem) return { error: problem };
     update.path = draft.path;
+  }
+  // Sent only when it changed: the server records a policy it is sent as the
+  // person's choice, which a later reclassification by the rules leaves alone.
+  if (draft.index !== INDEX_POLICY_DEFAULT && draft.index !== (r.index_policy ?? "full")) {
+    update.index = draft.index;
   }
   return { update };
 }
@@ -114,6 +121,7 @@ export function EditModal({
   const [description, setDescription] = useState(r.description);
   const [tagsInput, setTagsInput] = useState(r.tags.join(", "));
   const [path, setPath] = useState(r.path);
+  const [index, setIndex] = useState<IndexChoice>(r.index_policy ?? "full");
   const [error, setError] = useState("");
   const ids = useId();
 
@@ -132,7 +140,7 @@ export function EditModal({
   const [personEmail, setPersonEmail] = useState("");
 
   const handleSave = useCallback(async () => {
-    const built = buildUpdate(r, { displayName, description, tagsInput, path });
+    const built = buildUpdate(r, { displayName, description, tagsInput, path, index });
     if ("error" in built) {
       setError(built.error);
       return;
@@ -163,7 +171,7 @@ export function EditModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Update failed");
     }
-  }, [displayName, description, tagsInput, path, library, libraries, personEmail, here, r, update, onClose]);
+  }, [displayName, description, tagsInput, path, index, library, libraries, personEmail, here, r, update, onClose]);
 
   return (
     <ModalShell
@@ -247,6 +255,8 @@ export function EditModal({
           onChange={(e) => setTagsInput(e.target.value)}
         />
       </div>
+
+      <IndexPolicyField id={ids} value={index} onChange={setIndex} />
     </ModalShell>
   );
 }

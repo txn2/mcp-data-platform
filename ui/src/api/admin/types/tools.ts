@@ -130,6 +130,8 @@ export interface PersonaDetail {
    * not added to Calls, and the records it already wrote are removed.
    */
   service_account: boolean;
+  /** The persona takes Automations out of the portal for its people (#2109). */
+  hide_automations: boolean;
 }
 
 export interface PersonaListResponse {
@@ -155,6 +157,8 @@ export interface PersonaCreateRequest {
   api_routes?: APIRouteRule[];
   /** Absent is false. */
   service_account?: boolean;
+  /** Absent is false, which shows Automations. */
+  hide_automations?: boolean;
 }
 
 /** One api-kind connection and every operation its catalog declares. */

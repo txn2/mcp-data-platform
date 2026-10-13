@@ -20,9 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // The three ways a write does not happen, told apart because each is the
@@ -74,6 +77,9 @@ type Deps struct {
 	Unregistered func(uri string)
 	// Producers records what wrote each resource (#1569). Nil records nothing.
 	Producers producedby.Store
+	// IndexPolicy decides how a written file is indexed (#2111). Nil applies
+	// the built-in rules alone.
+	IndexPolicy *indexpolicy.Resolver
 }
 
 // New builds the writer, or nil when the deployment has no managed-resource
@@ -90,6 +96,7 @@ func New(d Deps) *Writer {
 		return nil
 	}
 	versions, _ := d.Store.(resource.VersionStore)
+	folders, _ := d.Store.(resource.FolderStore)
 	return &Writer{
 		deps: resource.Deps{
 			Store:       d.Store,
@@ -99,6 +106,8 @@ func New(d Deps) *Writer {
 			URIScheme:   d.URIScheme,
 			MaxVersions: d.MaxVersions,
 			Producers:   d.Producers,
+			IndexPolicy: d.IndexPolicy,
+			Folders:     folders,
 		},
 		registered:   d.Registered,
 		unregistered: d.Unregistered,
@@ -155,6 +164,51 @@ func (w *Writer) Replace(
 	}
 	w.notify(updated)
 	return updated, version.Version, nil
+}
+
+// Update writes the metadata half of an edit -- display name, description,
+// tags, and how search indexes the file (#2111) -- under the authority to
+// change the file, which is the authority a replacement needs.
+func (w *Writer) Update(
+	ctx context.Context, id string, u resource.Update, claims resource.Claims,
+) (*resource.Resource, error) {
+	res, err := w.Get(ctx, id, claims)
+	if err != nil {
+		return nil, err
+	}
+	if !resource.CanModifyResource(claims, res) {
+		return nil, fmt.Errorf("you cannot change a file in %s: %w", ScopePhrase(res.Scope, res.ScopeID), ErrRefused)
+	}
+	if err := resource.UpdateFields(ctx, w.deps, &claims, res, u); err != nil {
+		return nil, fmt.Errorf("could not update the managed resource: %w", err)
+	}
+	updated, err := w.deps.Store.Get(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the updated resource: %w", err)
+	}
+	w.notify(updated)
+	return updated, nil
+}
+
+// DescribeFolder sets what a folder holds, which its one search entry is
+// matched on when its files are not indexed themselves (#2111), under the
+// authority to add files to the library.
+func (w *Writer) DescribeFolder(ctx context.Context, addr toolkit.ResourceAddress, description string, claims resource.Claims) error {
+	scope, scopeID := resource.ResolveScopeFor(resource.Scope(strings.TrimSpace(addr.Scope)),
+		strings.TrimSpace(addr.ScopeID), claims)
+	err := resource.DescribeFolder(ctx, w.deps, &claims, resource.NewFolder{
+		Library: resource.ScopeFilter{Scope: scope, ScopeID: scopeID}, Path: addr.Path,
+	}, description)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, resource.ErrMoveForbidden):
+		return fmt.Errorf("you cannot describe a folder in %s: %w", ScopePhrase(scope, scopeID), ErrRefused)
+	case errors.Is(err, resource.ErrFolderEmpty):
+		return fmt.Errorf("there is no folder %q in %s: %w", addr.Path, ScopePhrase(scope, scopeID), ErrNoSuchResource)
+	default:
+		return fmt.Errorf("could not describe the folder: %w", err)
+	}
 }
 
 // Get reads a resource the caller may see, so a surface can settle what a

@@ -8,6 +8,7 @@ import { formatBytes } from "@/lib/format";
 import { resourceSubject } from "@/lib/thumbnailSubject";
 import type { Resource } from "@/api/resources/types";
 import { UsagePanel } from "./UsagePanel";
+import { INDEX_POLICY_LABELS } from "./IndexPolicyField";
 import { ProducersPanel } from "@/components/producers/ProducersPanel";
 import { UsedByAssets } from "@/components/references/UsedByAssets";
 import { UsedByPrompts } from "./UsedByPrompts";
@@ -45,6 +46,13 @@ export function ResourceSidebar({
             <span className="font-mono text-xs">{r.mime_type}</span>
           </DetailRow>
           <DetailRow label="Size">{formatBytes(r.size_bytes)}</DetailRow>
+          {r.index_policy && (
+            <DetailRow label="Search">
+              <span title={r.index_policy_explicit ? "Chosen for this file" : "Set by this deployment's rules"}>
+                {INDEX_POLICY_LABELS[r.index_policy]}
+              </span>
+            </DetailRow>
+          )}
           <DetailRow label="Uploader">
             <span className="block max-w-[160px] truncate text-xs">
               {r.uploader_email || r.uploader_sub}

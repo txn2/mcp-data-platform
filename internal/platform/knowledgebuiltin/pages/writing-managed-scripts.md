@@ -238,9 +238,7 @@ hands over all of that at once.
 
 ## The dialect contract
 
-The following is the same text `manage_script command=help` returns, shipped
-with this release:
-
-```text
-{{DIALECT_CONTRACT}}
-```
+Every module, member and argument a script has, and every rule a save holds it
+to, is the dialect contract: `manage_script command=help` returns it, and so
+does `mcp:knowledge_page:platform-managed-script-dialect`, shipped with this
+release.

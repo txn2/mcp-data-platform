@@ -330,6 +330,28 @@ Who wrote the call catalog: up to ten callers (a principal under one persona) an
 }
 ```
 
+### Resource Search Indexing
+
+```
+GET /api/v1/admin/resources/index
+POST /api/v1/admin/resources/index/reclassify
+```
+
+How managed resources are indexed for search (#2111). `GET` counts the resources under each policy (`full`, `metadata`, `none`), how many of them a writer chose (`explicit`) rather than the `resources.index` rules, the bytes of extracted text kept for search (`content_bytes`), and the folders searchable as one entry (`folders`), with the last reclassification, whichever replica ran it (kept in `resource_reclassify_runs`):
+
+```json
+{
+  "counts": { "full": 412, "metadata": 1873, "none": 96, "explicit": 38, "content_bytes": 52428800, "folders": 14 },
+  "last_run": {
+    "started_at": "2026-10-12T15:00:00Z",
+    "finished_at": "2026-10-12T15:01:00Z",
+    "result": { "examined": 2381, "changed": 1204, "cleared": 1190 }
+  }
+}
+```
+
+`POST` starts a reclassification and answers `202` with its `started_at`: a walk over every resource that applies the rules again to each one no writer chose a policy for, in batches of 500 with a pause between them. A resource whose policy changes drops its vector and kept text and is re-indexed for what its new policy reads (`changed`); a resource under a policy that reads no content gives up any text it still kept (`cleared`). A policy a writer chose is never changed. It answers `409` while one runs on any replica. A run unfinished after an hour is taken to have stopped with its replica, so a later start is accepted. The admin portal's **Indexing** page shows both under **Resource search**. Registered only when the deployment has managed resources and a database.
+
 ### Index Jobs Summary
 
 ```

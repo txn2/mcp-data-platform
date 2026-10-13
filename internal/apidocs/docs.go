@@ -8191,6 +8191,74 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/resources/index": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns how many managed resources search indexes in full (metadata and a prefix of their contents), on their metadata alone, and not at all; how many of those a writer chose rather than the resources.index rules; the bytes of extracted text kept for search; how many folders are searchable as one entry; and the last reclassification, whichever replica ran it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Read how managed resources are indexed",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resindexapi.IndexState"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/resources/index/reclassify": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Starts a walk over every managed resource that applies the resources.index rules again to each one no writer chose a policy for, in batches of 500 with a pause between them. A resource whose policy changes drops its vector and its kept text, and is re-indexed for what its new policy reads; a resource under a policy that reads no content keeps no extracted text. A policy a writer chose is never changed. Answers 202 at once; GET reports the result when the walk ends. Answers 409 while one is running.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Reclassify managed resources by the index rules",
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/resindexapi.Run"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/resources/{id}/prompts": {
             "get": {
                 "security": [
@@ -24008,6 +24076,17 @@ const docTemplate = `{
                         "description": "What happens when this library, folder and filename already hold a resource: fail (the default) answers 409; skip_unchanged answers 200 with outcome unchanged when the bytes are the ones stored (nothing is written) and otherwise records them as that resource's next version (outcome revised), leaving its name, description and tags as they are",
                         "name": "if_exists",
                         "in": "formData"
+                    },
+                    {
+                        "enum": [
+                            "full",
+                            "metadata",
+                            "none"
+                        ],
+                        "type": "string",
+                        "description": "How search indexes the file: full (its metadata and a prefix of its content), metadata (name, description, folder, filename and tags), or none (not in ranked search; listed in its folder and found through the folder's own entry). Absent applies the operator's resources.index rules. A rule's ceiling lowers a request above it",
+                        "name": "index",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
@@ -24244,6 +24323,155 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/folders/description": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns what a folder holds, as its description says. Empty when none was written.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Read a folder's description",
+                "parameters": [
+                    {
+                        "enum": [
+                            "global",
+                            "persona",
+                            "user"
+                        ],
+                        "type": "string",
+                        "description": "Library scope",
+                        "name": "scope",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Persona name or user for a persona or user library",
+                        "name": "scope_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Folder path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.folderDescriptionRequest"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets what a folder holds, in a sentence. A folder holding files that are not indexed one by one is found by search as one entry, and the description is part of what that entry is matched on, with the folder's path, how many files it holds and of which types, and a few of their names. An empty description clears it. Requires the authority to add files to the library.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Describe a folder",
+                "parameters": [
+                    {
+                        "description": "The folder and its description",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resource.folderDescriptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.folderDescriptionRequest"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
                         }
@@ -24670,6 +24898,17 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Why the content changed, recorded on the version this writes so the version panel says what a revision did. Must precede the file part. Empty for a plain re-upload, which says nothing beyond that the file was replaced",
                         "name": "change_summary",
+                        "in": "formData"
+                    },
+                    {
+                        "enum": [
+                            "full",
+                            "metadata",
+                            "none"
+                        ],
+                        "type": "string",
+                        "description": "How search indexes the file from now on: full, metadata or none. Absent keeps the policy the file has. Must precede the file part",
+                        "name": "index",
                         "in": "formData"
                     },
                     {
@@ -26866,6 +27105,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "Data Viewer"
                 },
+                "hide_automations": {
+                    "description": "HideAutomations takes the portal's Automations section, its pages and\nits script routes away from the persona's people; an administrator\nkeeps them. Absent is false, which shows Automations.",
+                    "type": "boolean",
+                    "example": false
+                },
                 "name": {
                     "type": "string",
                     "example": "viewer"
@@ -26942,6 +27186,11 @@ const docTemplate = `{
                 "display_name": {
                     "type": "string",
                     "example": "Data Engineer"
+                },
+                "hide_automations": {
+                    "description": "HideAutomations takes the portal's Automations section away from the\npersona's people (#2109). False shows it.",
+                    "type": "boolean",
+                    "example": false
                 },
                 "name": {
                     "type": "string",
@@ -30912,6 +31161,15 @@ const docTemplate = `{
                     "type": "string",
                     "example": "res_01HK7R9F"
                 },
+                "index_policy": {
+                    "description": "IndexPolicy is how search indexes this file (#2111): \"full\" (its\nmetadata and a prefix of its content), \"metadata\" (name, description,\nfolder, filename and tags), or \"none\" (not indexed; found by listing and\nby its folder's own search entry). IndexPolicyExplicit is whether a\nwriter chose it; a policy the operator's rules gave is the one a\nreclassification may change.",
+                    "type": "string",
+                    "example": "full"
+                },
+                "index_policy_explicit": {
+                    "type": "boolean",
+                    "example": false
+                },
                 "last_read_at": {
                     "description": "LastReadAt is when the resource's content was last served through any\nsurface, stamped by the read recorder. NULL means never read since the\ndeployment began auditing reads (#1014). It is the durable answer, unlike\nthe audit-derived Usage.LastReadAt, which is bounded by audit retention.",
                     "type": "string"
@@ -33597,6 +33855,11 @@ const docTemplate = `{
         "portal.meResponse": {
             "type": "object",
             "properties": {
+                "automations": {
+                    "description": "Automations is whether the portal shows this caller its Automations\nsection (#2109): false when their persona hides it, always true for an\nadministrator.",
+                    "type": "boolean",
+                    "example": true
+                },
                 "csrf_token": {
                     "description": "CSRFToken is set only for cookie sessions; the SPA echoes it in the\nX-CSRF-Token header on mutations. API-key clients are exempt.",
                     "type": "string"
@@ -34813,6 +35076,34 @@ const docTemplate = `{
                 }
             }
         },
+        "resindexapi.IndexState": {
+            "type": "object",
+            "properties": {
+                "counts": {
+                    "$ref": "#/definitions/resourceindex.PolicyCounts"
+                },
+                "last_run": {
+                    "$ref": "#/definitions/resindexapi.Run"
+                }
+            }
+        },
+        "resindexapi.Run": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "result": {
+                    "$ref": "#/definitions/resourcereclass.ReclassifyResult"
+                },
+                "started_at": {
+                    "type": "string"
+                }
+            }
+        },
         "resource.Folder": {
             "type": "object",
             "properties": {
@@ -34907,6 +35198,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "display_name": {
+                    "type": "string"
+                },
+                "index": {
+                    "description": "Index changes how search indexes the file: \"full\", \"metadata\" or \"none\"\n(#2111). The value stored is the one the operator's ceiling allows, and\nit is recorded as chosen.",
                     "type": "string"
                 },
                 "path": {
@@ -35036,6 +35331,15 @@ const docTemplate = `{
                 "id": {
                     "type": "string",
                     "example": "res_01HK7R9F"
+                },
+                "index_policy": {
+                    "description": "IndexPolicy is how search indexes this file (#2111): \"full\" (its\nmetadata and a prefix of its content), \"metadata\" (name, description,\nfolder, filename and tags), or \"none\" (not indexed; found by listing and\nby its folder's own search entry). IndexPolicyExplicit is whether a\nwriter chose it; a policy the operator's rules gave is the one a\nreclassification may change.",
+                    "type": "string",
+                    "example": "full"
+                },
+                "index_policy_explicit": {
+                    "type": "boolean",
+                    "example": false
                 },
                 "last_read_at": {
                     "description": "LastReadAt is when the resource's content was last served through any\nsurface, stamped by the read recorder. NULL means never read since the\ndeployment began auditing reads (#1014). It is the durable answer, unlike\nthe audit-derived Usage.LastReadAt, which is bounded by audit retention.",
@@ -35172,6 +35476,31 @@ const docTemplate = `{
                 }
             }
         },
+        "resource.folderDescriptionRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "NLTV station daily reach and frequency archive, one CSV per station day since 2019"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "pipelines/nltv"
+                },
+                "scope": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Scope"
+                        }
+                    ],
+                    "example": "global"
+                },
+                "scope_id": {
+                    "type": "string",
+                    "example": ""
+                }
+            }
+        },
         "resource.folderMoveRequest": {
             "type": "object",
             "properties": {
@@ -35265,6 +35594,15 @@ const docTemplate = `{
                 "id": {
                     "type": "string",
                     "example": "res_01HK7R9F"
+                },
+                "index_policy": {
+                    "description": "IndexPolicy is how search indexes this file (#2111): \"full\" (its\nmetadata and a prefix of its content), \"metadata\" (name, description,\nfolder, filename and tags), or \"none\" (not indexed; found by listing and\nby its folder's own search entry). IndexPolicyExplicit is whether a\nwriter chose it; a policy the operator's rules gave is the one a\nreclassification may change.",
+                    "type": "string",
+                    "example": "full"
+                },
+                "index_policy_explicit": {
+                    "type": "boolean",
+                    "example": false
                 },
                 "last_read_at": {
                     "description": "LastReadAt is when the resource's content was last served through any\nsurface, stamped by the read recorder. NULL means never read since the\ndeployment began auditing reads (#1014). It is the durable answer, unlike\nthe audit-derived Usage.LastReadAt, which is bounded by audit retention.",
@@ -35386,6 +35724,46 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/resource.Version"
                     }
+                }
+            }
+        },
+        "resourceindex.PolicyCounts": {
+            "type": "object",
+            "properties": {
+                "content_bytes": {
+                    "description": "ContentBytes is the extracted text the library keeps for search.",
+                    "type": "integer"
+                },
+                "explicit": {
+                    "type": "integer"
+                },
+                "folders": {
+                    "description": "Folders is the folders searchable as one entry.",
+                    "type": "integer"
+                },
+                "full": {
+                    "type": "integer"
+                },
+                "metadata": {
+                    "type": "integer"
+                },
+                "none": {
+                    "type": "integer"
+                }
+            }
+        },
+        "resourcereclass.ReclassifyResult": {
+            "type": "object",
+            "properties": {
+                "changed": {
+                    "type": "integer"
+                },
+                "cleared": {
+                    "description": "Cleared is rows whose kept content text was removed because their\npolicy reads none.",
+                    "type": "integer"
+                },
+                "examined": {
+                    "type": "integer"
                 }
             }
         },
@@ -35940,6 +36318,17 @@ const docTemplate = `{
                 }
             }
         },
+        "script.ResourcePin": {
+            "type": "object",
+            "properties": {
+                "resource_id": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
         "script.RunMetrics": {
             "type": "object",
             "properties": {
@@ -36207,6 +36596,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/script.Param"
+                    }
+                },
+                "resource_pins": {
+                    "description": "ResourcePins is the version of each managed resource the source loads\nas text with load(\"res:...\"), keyed by module (#2113): set by the save\nthat resolved them and written with the version it creates, so every\nrun of that version reads the bytes its save read. Nil on a save that\ncarried none, which keeps the pins of the latest version with the same\nsource.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/script.ResourcePin"
                     }
                 },
                 "source": {
@@ -39956,6 +40352,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "handshake": {
+                    "type": "string"
+                },
+                "index": {
+                    "description": "Index is how search indexes the source's compacted windows (#2111):\n\"full\", \"metadata\" or \"none\". Empty leaves it to the operator's\nresources.index rules, which can match these writes by origin webhook.\nIt applies to windows written from the next compaction on.",
                     "type": "string"
                 },
                 "key_path": {

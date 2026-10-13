@@ -335,3 +335,35 @@ func TestVersions_StoreFailureIsReportedAsSuch(t *testing.T) {
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "version history")
 }
+
+// TestPatchOfALongLineReturnsASmallDiff is #2115 through manage_script: one
+// word changed inside a 15 KB single-line constant is a patch response that
+// shows the word, and verbose=true restores the whole line.
+func TestPatchOfALongLineReturnsASmallDiff(t *testing.T) {
+	h, _ := newHandle()
+	js := strings.Repeat("var a = document.querySelector('#form'); ", 360)
+	source := tested("PAGE_JS = \"" + js + "waitFor('ready');\"\n\n" + inMain("print(len(PAGE_JS))\n"))
+	created := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "flow", Source: source})
+	require.Equal(t, "created", resultFields(t, created)["status"], resultText(created))
+
+	edits := []textpatch.Edit{{Op: "replace", Find: "waitFor('ready')", Replace: "waitFor('built')"}}
+	dry := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdPatch, Name: "flow", Edits: edits, DryRun: true,
+	}))
+	diff, _ := dry[textpatch.FieldDiff].(string)
+	assert.Less(t, len(diff), 800)
+	assert.Contains(t, diff, "waitFor('built')")
+
+	full := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdPatch, Name: "flow", Edits: edits, DryRun: true, Verbose: true,
+	}))
+	fullDiff, _ := full[textpatch.FieldDiff].(string)
+	assert.Greater(t, len(fullDiff), 29000, "the whole line, twice")
+
+	applied := call(t, h, authorCtx(), manageScriptInput{Command: cmdPatch, Name: "flow", Edits: edits})
+	require.False(t, applied.IsError, resultText(applied))
+	versions := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdDiff, Name: "flow"}))
+	vdiff, _ := versions[textpatch.FieldDiff].(string)
+	assert.Less(t, len(vdiff), 900, "diff between versions is shortened the same way")
+	assert.Contains(t, vdiff, "waitFor('ready')")
+}

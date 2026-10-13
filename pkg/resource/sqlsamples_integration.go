@@ -51,14 +51,22 @@ func SQLSamples() map[string]string {
 	direct.Direct = true
 
 	name, desc := "Q4 report", "the quarterly numbers"
+	policy := "metadata"
 	update := Update{
 		DisplayName: &name,
 		Description: &desc,
 		Tags:        []string{"finance", "q4"},
+		Index:       &policy,
 	}
 
 	hybrid, _ := buildHybridSearch(q)
 	lexical, _ := buildLexicalSearch(q)
+	// A folder's search entry (#2111): the vector arm, and the lexical one a
+	// query with no embedding takes.
+	folderHybrid, _ := buildFolderSearch(q)
+	lexicalOnly := q
+	lexicalOnly.Embedding = nil
+	folderLexical, _ := buildFolderSearch(lexicalOnly)
 	updateSQL, _ := buildUpdate("r-1", update)
 	count, page, _ := buildList(filter)
 	_, lastReadPage, _ := buildList(lastRead)
@@ -94,6 +102,8 @@ func SQLSamples() map[string]string {
 	return map[string]string{
 		"buildHybridSearch":       hybrid,
 		"buildLexicalSearch":      lexical,
+		"buildFolderSearch":       folderHybrid,
+		"buildFolderSearch/lex":   folderLexical,
 		"buildUpdate":             updateSQL,
 		"buildList/count":         count,
 		"buildList/page":          page,

@@ -12,6 +12,16 @@ type Example struct {
 	Source      string
 }
 
+// Fields renders the example as manage_script get answers it. It is marked
+// builtin so nobody mistakes it for a stored script and tries to patch it.
+func (e Example) Fields() map[string]any {
+	return map[string]any{
+		"name": e.Name, "description": e.Description, "source": e.Source,
+		"builtin": true,
+		"message": "This is a built-in worked example, not a stored script. Copy it into create and edit from there.",
+	}
+}
+
 // ReferenceName is the complete reference script: every idiom a saved
 // automation is built from, and the tests it is saved with (#1939). The
 // built-in knowledge page platform-reference-script shows it verbatim.

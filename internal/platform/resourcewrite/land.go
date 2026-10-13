@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -198,6 +199,8 @@ func (l *Lander) create(ctx context.Context, plan landing, w write) (*toolkit.Re
 		MIMEType:         w.mimeType,
 		DeclaredMIMEType: w.declaredType,
 		Metadata:         w.dest.Metadata,
+		Index:            w.dest.Index,
+		Origin:           indexpolicy.OriginExport,
 	}, w.claims)
 	if err != nil {
 		return nil, w.content.refuseOr(err)
@@ -214,6 +217,7 @@ func (l *Lander) replace(ctx context.Context, plan landing, w write) (*toolkit.R
 	}
 	res, version, err := l.w.Replace(ctx, plan.existing.ID, resource.RevisionUpload{
 		Content: w.content, MIMEType: w.mimeType, ChangeSummary: summary, Metadata: w.dest.Metadata,
+		Index: w.dest.Index, Origin: indexpolicy.OriginExport,
 	}, w.claims)
 	if err != nil {
 		return nil, w.content.refuseOr(err)
@@ -315,6 +319,11 @@ func (l *Lander) address(dest toolkit.ResourceDestination, claims resource.Claim
 	}
 	if err := resource.ValidateTags(normalizedTags(dest.Tags)); err != nil {
 		return landing{}, err //nolint:wrapcheck // the validator's sentence names the field and the rule
+	}
+	if dest.Index != "" {
+		if _, err := indexpolicy.Parse(dest.Index); err != nil {
+			return landing{}, err //nolint:wrapcheck // the sentence names the field's values
+		}
 	}
 	return p, nil
 }

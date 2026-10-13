@@ -283,6 +283,20 @@ platform.result({"ok": True})
 	assert.Equal(t, KindResult, g.Nodes[0].Kind)
 }
 
+// TestDerive_PacingIsNotAStep: a polling loop's wait and its look at the
+// clock reach nothing, so the loop draws only the call it repeats (#2112).
+func TestDerive_PacingIsNotAStep(t *testing.T) {
+	g := deriveGraph(`for _ in range(30):
+    if platform.remaining_ms() < 15000:
+        break
+    platform.sleep(10)
+platform.result({"ok": True})
+`)
+	require.True(t, g.OK, "%+v", g.Findings)
+	require.Len(t, g.Nodes, 1)
+	assert.Equal(t, KindResult, g.Nodes[0].Kind)
+}
+
 func TestDerive_ExecuteCard(t *testing.T) {
 	g := deriveGraph(`
 platform.execute("INSERT INTO scratch.s.t SELECT * FROM :src", connection="acme", params={"src": run.params["t"]})

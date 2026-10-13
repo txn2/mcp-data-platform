@@ -1365,6 +1365,7 @@ personas:
 | `<name>.context.description_override` | string | - | Replaces platform description entirely |
 | `<name>.context.agent_instructions_suffix` | string | - | Appended to the admin `agent_instructions` layer |
 | `<name>.context.agent_instructions_override` | string | - | Replaces the admin `agent_instructions` layer only; the platform baseline is always present |
+| `<name>.hide_automations` | bool | `false` | Hides Automations from the portal for this persona: the sidebar entry is gone, its pages show a notice, and the portal's script routes answer `403`. The MCP tools are governed by `tools:` as before. Administrators always see Automations (#2109) |
 
 !!! warning "No persona means no access"
     A caller whose roles match no persona has **no access at all**: tool calls resolve to the built-in deny-all persona and are refused, the portal answers `403` with a branded page, and the managed-resources API refuses the request. There is no fallback persona, so every user who should reach anything needs a role one of your personas lists.
@@ -1578,6 +1579,70 @@ resources:
 
 Managed resources require a database. With none configured the block has no
 effect, and the platform runs the read-only templates alone.
+
+### Search indexing
+
+Every managed resource is indexed for search under one of three policies
+(#2111). The portal's upload form, file details and webhook source editor show
+them under a field named **Search**:
+
+| Policy | Portal label | What search reads |
+|--------|--------------|-------------------|
+| `full` | Contents | The name, description, folder, filename, tags and a prefix of the extracted contents |
+| `metadata` | Details only | The name, description, folder, filename and tags. No content is read or kept |
+| `none` | Not indexed | Nothing: no index job, no vector, no kept text. The file is still listed in its folder and readable by its URI, and its folder is found by search as one entry |
+
+The writer decides first: `manage_resource` (`index`), the upload form and the
+REST API (`index` form field or JSON key), `platform.export(..., index=...)`, a
+managed-resource destination's `index`, and a webhook source's `config.index`.
+A writer that says nothing gets the default `resources.index` gives the file:
+
+```yaml
+resources:
+  index:
+    default: full              # the policy no rule decides (default full)
+    rules:
+      - path: "pipelines/**"   # a bulk backfill: found through its folder
+        index: none
+      - path: "brand/**"
+        mime: ["image/*"]
+        index: metadata
+      - origin: [script, webhook]
+        size_over: 5MiB
+        max: metadata          # a ceiling: a writer may ask for less, never more
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `index.default` | string | `full` | The policy a resource no rule decides gets: `full`, `metadata` or `none` |
+| `index.rules` | list | `[]` | Rules matched in order. Every matcher a rule sets must hold. The first matching rule that sets `index` decides the default; the first matching rule that sets `max` caps what a writer may ask for |
+| `index.rules.path` | string | - | A slash glob over the folder path, where `**` matches any number of folders: `pipelines/**` is everything filed under `pipelines` |
+| `index.rules.mime` | list | - | Media types, each exact (`text/csv`) or a family (`image/*`) |
+| `index.rules.size_over` | string | - | Matches a file larger than this: `1MiB`, `500KB`, or a number of bytes |
+| `index.rules.scope` | string | - | The library: `global`, `persona` or `user` |
+| `index.rules.origin` | list | - | Where the write came from: `upload` (the portal or REST API), `agent` (a session's `manage_resource`), `script` (any write while a managed script runs), `export` (an export tool's output), `webhook` (a webhook source's compacted window). Being written by a script decides nothing on its own; it is a matcher a rule may use |
+| `index.rules.index` | string | - | The policy a writer that says nothing gets. A rule may set only `max` |
+| `index.rules.max` | string | - | The most indexing a writer may ask for where the rule matches. A request above it is lowered to it |
+
+After the operator's rules come the built-in ones: a CSV, TSV or JSON-lines
+file is indexed on its details alone, since its contents are a table of values.
+An operator rule that matches first decides instead. A value the section does
+not know is refused at startup.
+
+A file's policy is fixed when it is written. Changing the rules later changes
+nothing until an administrator reclassifies: **Admin > Indexing > Resource
+search > Reclassify** (`POST /api/v1/admin/resources/index/reclassify`) applies
+the rules again to every resource no writer chose a policy for, in batches of
+500, and a resource whose policy drops to `metadata` or `none` loses the text
+it kept for search. A policy a writer chose is never changed by it. The same
+section reports how many files are under each policy (`GET
+/api/v1/admin/resources/index`).
+
+A folder holding files that are not indexed one by one is found by search as
+one entry, matched on its path, the number and types of the files it holds, a
+few of their names, and a description of what it holds, written with
+`manage_resource` (`action: update` with `path` and `description`), the file
+manager's **Describe...** action, or `PUT /api/v1/resources/folders/description`.
 
 ### Archive extraction limits
 

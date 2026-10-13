@@ -64,6 +64,23 @@ describe("sendForm", () => {
     expect(sent.type).toBe("image/png");
   });
 
+  it("names how search indexes the batch ahead of the file (#2111)", () => {
+    const fd = sendForm({
+      target: { scope: "global", scope_id: "" },
+      path: "pipelines/nltv",
+      displayName: "2019-01-01",
+      description: "One station day",
+      tags: [],
+      index: "none",
+      filename: "2019-01-01.csv",
+      file: new File(["a,b\n"], "2019-01-01.csv", { type: "text/csv" }),
+      mimeType: "text/csv",
+    });
+    const keys = Array.from(fd.keys());
+    expect(fd.get("index")).toBe("none");
+    expect(keys.indexOf("index")).toBeLessThan(keys.indexOf("file"));
+  });
+
   it("keeps a typed file's own type and omits an empty scope id", () => {
     const fd = sendForm({
       target: { scope: "global", scope_id: "" },

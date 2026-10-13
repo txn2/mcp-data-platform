@@ -800,6 +800,8 @@ the gates hold the example to every rule a save applies.
 |---|---|
 | `testing.replay("<run id>")` | the recording every host call in the test is answered from |
 | `testing.answer(tool, args, answer)` | the answer a call gets, declared by the test: a call to `tool` whose arguments include every key and value in `args` is answered with `answer`, or with `error="..."` fails instead |
+| `testing.answer(tool, args, answer, times=n)` | the same answer for `n` matching calls (1 to 1000), so a flow that makes nine alike declares it once (#2116) |
+| `testing.answers(tool, args, [a1, a2, ...])` | successive matching calls answered in order, one each: how a test polls a job until its third answer says done |
 | `testing.set_run(state=, params=)` | what `run.state` and `run.params` read for the rest of the test, in place of the recording's |
 | `testing.outputs()` | what the execution produced so far, written nowhere (an appended output as one output, page by page as it is written): `exports` (each with `name`, `format`, `destination`, `key`, `columns`, `rows`, `row_count`, `body`), `publishes`, `notifies` (each notify call's arguments), `calls` (every tool call, with `declared` true when a declared answer answered it), `state`, `result`, `log` |
 
@@ -815,6 +817,11 @@ test. A call the recording holds no answer for fails the test naming the call,
 for example `the recording holds no answer for platform.query("select 1")`. A
 test that names no recording answers only what it declares, and its exports
 are previewed.
+
+A function no run can reach, one that neither `main()` nor anything it names
+calls, may use `testing` and `assert`, so the tests of one flow share a helper
+such as `fake_login()` that declares the answers they have in common. A test
+still names its own recording: `testing.replay` in a helper is refused.
 
 #### Declaring the answer a call gets
 
@@ -1026,6 +1033,50 @@ its parameters as written and the first sentence of its docstring, and the
 shown. A function whose name begins with an underscore is private to the
 library, and a `test_` function is its test; neither is listed.
 
+### Loading a file's text
+
+A page script, a SQL file, an HTML template or a GraphQL document is kept as a
+managed resource of its own, edited and reviewed as itself, and loaded by the
+script that uses it instead of being escaped into one Starlark string (#2113):
+
+```python
+load("res:global/flows/sync/page.js", PAGE_JS = "text")
+```
+
+The module is `res:` followed by the file's `mcp://` address after the scheme
+(`res:global/...`, `res:persona/<name>/...`, `res:user/<you>/...`). It binds the
+file's text, and `NAME = "text"` is the only binding it takes. A save reads each
+such file under the saver's access and pins the version it read: every run of
+that script version reads that file version, whatever the file holds now. Edit
+the file with `manage_resource`, then save the script again to pin the new
+version. `run_draft` reads the file as it is now. A run's and a draft's
+recording keeps the version each load read, so a test replaying an older run
+reads the text that run read, and a test naming no recording reads the file as
+it is now. `validate` reports the files a script loads as `resources`.
+
+A pinned version is kept however often the file is replaced, past
+`resources.managed.max_versions`, and `manage_resource delete` refuses a file a
+script's current version loads unless given `force`; the file's details say how
+many managed scripts load it. A library loads no file.
+
+### Sending source by reference
+
+`manage_script create` and `update` take `source_ref` in place of `source`: a
+managed resource holding the source, as `mcp:resource:<id>` or its `mcp://`
+URI, written once with `manage_resource` (#2114). A long script is then sent
+once rather than in every call that revises it.
+
+A create the gates refuse is kept as a pending create of its name. Fix it with
+`command=patch name=<name>` rather than sending the whole source again; the
+patch that passes every gate saves the script, and `get` reads the pending
+source meanwhile. A refusal leaves the formatted source out unless
+`verbose=true`; its findings' line numbers refer to that formatted source.
+
+A `diff`, and the diff a `patch` answers with, show a changed line longer than
+400 characters as the span that changed with its surroundings elided, and a
+behavior comparison elides a long result or state difference the same way
+(#2115). `verbose=true` shows each line whole.
+
 ### Checking an edit before saving it
 
 The editor offers the same two checks `manage_script` offers an agent, on the
@@ -1083,6 +1134,31 @@ saved. The response carries `saved: false`. With `allow_writes` it can write to
 `resources` and to a bucket destination; a `portal` output belongs to a saved
 script's own asset, so it is refused until the script is saved. The editor's
 dry run always runs a saved script, because the editor edits one.
+
+**A long draft.** A draft stops after 60 seconds. A flow a short draft cannot
+get through, such as driving a slow web application or waiting on a long
+export, is drafted by an administrator with `timeout_seconds` up to the
+deployment's `scripts.draft.max_seconds` (#2117):
+
+```yaml
+scripts:
+  draft:
+    max_seconds: 900   # the longest an administrator's draft may run; 60 to 3600 (default 60)
+```
+
+A draft longer than 60 seconds runs in the background, and `run_draft` answers
+its `run_id` at once. `manage_script command=get_run run_id=<id>` reads its log
+and progress as it goes, and once it ends returns what `run_draft` would have
+answered, its recording among it, so a test can be written from it without
+saving first. It is the same draft in every other respect: it runs as the
+caller, writes only with `allow_writes`, and is recorded. A background draft is
+kept in `script_draft_runs` for seven days after it ends, so `get_run` answers
+it on any replica; one whose replica stopped reads as failed once its deadline
+has passed or, sooner, once its replica has not written it for a minute. One
+replica runs at most four background drafts at once; a fifth is refused until
+one ends. Anyone else asking for more than 60 seconds is refused and told to
+save the script and run it with `run_script`; `help` reports the cap as
+`draft_max_seconds`.
 
 Which calls count is decided by a declared table (`internal/toolwrite`), and it
 is deny-by-default: a tool no rule names is treated as one that persists.
@@ -2281,6 +2357,33 @@ interpreter time. `platform.remaining_ms()` returns the milliseconds left
 before the deadline (#2004). Each value is recorded with the run the way a tool
 answer is, so a test replays exactly what the run read, and
 `testing.set_run(remaining_ms=10)` takes a test down the out-of-time branch.
+
+**Waiting on something slow: `platform.sleep(seconds)`.** A script that polls a
+job, a report or a page an upstream is building waits between short calls
+instead of holding one call open until the upstream answers (#2112). One call
+waits at most 60 seconds, fractions allowed, and a wait that would pass the
+run's deadline is refused before it starts, so a polling loop checks
+`platform.remaining_ms()` first and is bounded by `range()`:
+
+```python
+def main():
+    """Waits for the report to be built, then reads it."""
+    for _ in range(30):
+        report = platform.call("api_invoke_endpoint", {
+            "connection": "reports",
+            "method": "GET",
+            "path": "/v1/reports/weekly",
+        })
+        if report["body"]["state"] == "ready":
+            break
+        if platform.remaining_ms() < 15000:
+            fail("the report was not ready in time")
+        platform.sleep(10)
+```
+
+A test and a replay do not wait: the call returns at once and is not recorded,
+so a test of a polling script runs in no time. `help` reports the bound as
+`sleep_max_seconds`.
 
 **Two runs, one revision.** The schedule overlap policy already keeps two fires
 of one schedule from running at once. A `run_script` call during a scheduled

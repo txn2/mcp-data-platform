@@ -86,6 +86,8 @@ func TestPersonaDef_ToPersonaCarriesEveryField(t *testing.T) {
 		Priority:    7,
 		// #1980: a file persona can be marked as a service account too.
 		ServiceAccount: true,
+		// #2109: and can take Automations out of the portal.
+		HideAutomations: true,
 	}
 	p := def.ToPersona("analyst", "database")
 
@@ -105,6 +107,7 @@ func TestPersonaDef_ToPersonaCarriesEveryField(t *testing.T) {
 		{"instructions suffix", p.Context.AgentInstructionsSuffix, "bye"},
 		{"priority", p.Priority, 7},
 		{"service account", p.ServiceAccount, true},
+		{"hide automations", p.HideAutomations, true},
 		{"source", p.Source, "database"},
 	}
 	for _, c := range checks {

@@ -25,8 +25,8 @@ export function BehaviorTab({
       </p>
       <fieldset disabled={isReadOnly} className="contents">
         <div className="space-y-5">
-          {/* A native checkbox: no checkbox primitive is vendored, and this is
-              the persona's one binary setting (#1980). */}
+          {/* Native checkboxes: no checkbox primitive is vendored, and these
+              are the persona's two binary settings (#1980, #2109). */}
           <label className="flex items-start gap-2 text-sm">
             <input
               type="checkbox"
@@ -42,6 +42,24 @@ export function BehaviorTab({
                 className="block text-xs text-muted-foreground"
               >
                 Its calls are audited but not added to Calls.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={draft.showAutomations}
+              onChange={(e) => onUpdate({ showAutomations: e.target.checked })}
+              aria-describedby="persona-automations-help"
+            />
+            <span>
+              <span className="font-medium">Automations</span>
+              <span
+                id="persona-automations-help"
+                className="block text-xs text-muted-foreground"
+              >
+                Shown in the portal. Administrators always see Automations.
               </span>
             </span>
           </label>

@@ -70,6 +70,11 @@ func (f *fakeVersions) AddRevision(_ context.Context, rev Revision) (*Version, e
 	if head, ok := f.store.resources[rev.ResourceID]; ok {
 		head.MIMEType, head.SizeBytes, head.S3Key = rev.MIMEType, rev.SizeBytes, rev.S3Key
 		head.UpdatedAt = v.CreatedAt
+		// As updateHeadQuery does: a revision naming a policy moves the head
+		// onto it, and one naming none keeps the head's (#2111).
+		if rev.IndexPolicy != "" {
+			head.IndexPolicy, head.IndexPolicyExplicit = rev.IndexPolicy, rev.IndexExplicit
+		}
 	}
 	return &v, nil
 }
@@ -1054,5 +1059,46 @@ func TestReplaceContent_ASummarylessReplacementSaysNothing(t *testing.T) {
 	}
 	if latest := written[len(written)-1]; latest.ChangeSummary != "" {
 		t.Errorf("change_summary = %q, want empty", latest.ChangeSummary)
+	}
+}
+
+// TestReplaceContent_NamesTheIndexPolicy is #2111 at the replace route: a
+// replacement naming index records it as the writer's choice, one that names
+// none keeps the file's policy, and an unknown value is refused.
+func TestReplaceContent_NamesTheIndexPolicy(t *testing.T) {
+	fx := newVersionedHandler(t, okExtractor)
+	h, store, s3, versions := fx.handler, fx.store, fx.s3, fx.versions
+	seedResource(store, s3, "res-1", ScopeGlobal, "", "user-123")
+
+	replace := func(fields map[string]string) *httptest.ResponseRecorder {
+		req := buildMultipartRequest(t, fields, []byte("revised,content\n1,2\n"), "seasonal.csv")
+		req.URL.Path = "/api/v1/resources/res-1/content"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+
+	w := replace(map[string]string{"index": "none"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if head := store.resources["res-1"]; head.IndexPolicy != "none" || !head.IndexPolicyExplicit {
+		t.Errorf("the replacement left the file under %q (writer's choice %v); want none, chosen", head.IndexPolicy, head.IndexPolicyExplicit)
+	}
+	if len(versions.byResource["res-1"]) != 1 {
+		t.Fatalf("versions recorded = %d, want 1", len(versions.byResource["res-1"]))
+	}
+
+	w = replace(nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if head := store.resources["res-1"]; head.IndexPolicy != "none" {
+		t.Errorf("a replacement naming no policy moved the file to %q; it keeps the file's", head.IndexPolicy)
+	}
+
+	w = replace(map[string]string{"index": "most"})
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "index must be one of") {
+		t.Errorf("index=most answered %d %s; want 400 naming the values", w.Code, w.Body.String())
 	}
 }

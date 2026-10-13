@@ -26,8 +26,9 @@ func (f *fakeEnqueuer) Enqueue(_ context.Context, key indexjobs.Key, trigger ind
 	return true, nil
 }
 
-// indexedResourceStore returns a resource store wired to a bound producer, the
-// arrangement the platform builds in production.
+// indexedResourceStore returns a resource store wired to bound producers for
+// the resource and its folder, the arrangement the platform builds in
+// production. One enqueuer records both, so a test reads the kind of each job.
 func indexedResourceStore(t *testing.T) (Store, sqlmock.Sqlmock, *fakeEnqueuer) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
@@ -37,7 +38,9 @@ func indexedResourceStore(t *testing.T) (Store, sqlmock.Sqlmock, *fakeEnqueuer) 
 	enq := &fakeEnqueuer{}
 	producer := indexjobs.NewProducer("resources")
 	producer.Bind(enq)
-	return NewPostgresStore(db, indexjobs.WithProducer(producer)), mock, enq
+	folders := indexjobs.NewProducer(FolderIndexKind)
+	folders.Bind(enq)
+	return NewPostgresStore(db, indexjobs.WithProducer(producer), indexjobs.WithAlsoProducer(folders)), mock, enq
 }
 
 func testResource() Resource {
@@ -84,7 +87,7 @@ func TestResourceUpdateEnqueuesIndexJob(t *testing.T) {
 	store, mock, enq := indexedResourceStore(t)
 
 	name := "Renamed"
-	mock.ExpectExec("UPDATE resources SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("UPDATE resources SET").WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "samples"))
 
 	require.NoError(t, store.Update(context.Background(), "res-1", Update{DisplayName: &name}))
 	require.Len(t, enq.keys, 1)
@@ -98,7 +101,7 @@ func TestResourceUpdateMissingRowEnqueuesNothing(t *testing.T) {
 	store, mock, enq := indexedResourceStore(t)
 
 	name := "Renamed"
-	mock.ExpectExec("UPDATE resources SET").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("UPDATE resources SET").WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}))
 
 	require.Error(t, store.Update(context.Background(), "gone", Update{DisplayName: &name}))
 	assert.Empty(t, enq.keys)
@@ -120,7 +123,7 @@ func TestResourceAddRevisionEnqueuesIndexJob(t *testing.T) {
 			"resource_id", "version", "mime_type", "size_bytes", "s3_key",
 			"uploader_sub", "uploader_email", "restored_from", "change_summary", "content_sha256", "metadata", "created_at",
 		}).AddRow("res-1", 2, "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", nil, []byte(`{}`), now))
-	mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("UPDATE resources").WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "samples"))
 	mock.ExpectCommit()
 
 	_, err := versions.AddRevision(context.Background(), Revision{
@@ -139,9 +142,97 @@ func TestResourceAddRevisionEnqueuesIndexJob(t *testing.T) {
 func TestResourceDeleteEnqueuesNothing(t *testing.T) {
 	store, mock, enq := indexedResourceStore(t)
 
-	mock.ExpectExec("DELETE FROM resources").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("DELETE FROM resources").WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "samples"))
 
 	require.NoError(t, store.Delete(context.Background(), "res-1"))
 	assert.Empty(t, enq.keys)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// folderJob is the job a file that is not indexed itself owes its folder.
+var folderJob = indexjobs.Key{SourceKind: FolderIndexKind, SourceID: "global::samples"}
+
+// TestResourceInsertNotIndexedFeedsItsFolder is the #2111 cost contract: a
+// file written with index none enqueues no job of its own, only its folder's,
+// and the queue coalesces a folder's jobs while one is pending.
+func TestResourceInsertNotIndexedFeedsItsFolder(t *testing.T) {
+	store, mock, enq := indexedResourceStore(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO resources").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO resource_folders").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	r := testResource()
+	r.IndexPolicy = "none"
+	require.NoError(t, store.Insert(context.Background(), r))
+	assert.Equal(t, []indexjobs.Key{folderJob}, enq.keys)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestResourceUpdateOfPolicyFeedsBoth: a file made searchable again owes its
+// own job, and the folder it stops being summarized in owes one too.
+func TestResourceUpdateOfPolicyFeedsBoth(t *testing.T) {
+	store, mock, enq := indexedResourceStore(t)
+
+	policy := "metadata"
+	mock.ExpectQuery("UPDATE resources SET .*index_policy = \\$1, index_policy_explicit = TRUE, content_text = ''").
+		WithArgs("metadata", "res-1").
+		WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("metadata", "global", "", "samples"))
+
+	require.NoError(t, store.Update(context.Background(), "res-1", Update{Index: &policy}))
+	assert.Equal(t, []indexjobs.Key{{SourceKind: "resources", SourceID: "res-1"}, folderJob}, enq.keys)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestResourceDeleteOfUnindexedFileFeedsItsFolder: the folder's summary loses
+// a file.
+func TestResourceDeleteOfUnindexedFileFeedsItsFolder(t *testing.T) {
+	store, mock, enq := indexedResourceStore(t)
+
+	mock.ExpectQuery("DELETE FROM resources").WillReturnRows(
+		sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("none", "global", "", "samples"))
+
+	require.NoError(t, store.Delete(context.Background(), "res-1"))
+	assert.Equal(t, []indexjobs.Key{folderJob}, enq.keys)
+}
+
+// TestResourceMoveOfUnindexedFileFeedsBothFolders: the folder it left and the
+// one it joined each owe a summary; the file owes none.
+func TestResourceMoveOfUnindexedFileFeedsBothFolders(t *testing.T) {
+	store, mock, enq := indexedResourceStore(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE resources SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO resource_folders").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := store.Move(context.Background(), []Move{{
+		ID: "res-1", Scope: ScopeGlobal, Path: "archive", URI: "mcp://global/archive/test.csv",
+		FromURI: "mcp://global/samples/test.csv",
+		From:    From{Library: ScopeFilter{Scope: ScopeGlobal}, Path: "samples", IndexPolicy: "none"},
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, []indexjobs.Key{folderJob, {SourceKind: FolderIndexKind, SourceID: "global::archive"}}, enq.keys)
+}
+
+func TestFolderKeyRoundTrips(t *testing.T) {
+	for _, c := range []struct {
+		lib  ScopeFilter
+		path string
+	}{
+		{ScopeFilter{Scope: ScopeGlobal}, "pipelines/nltv"},
+		{ScopeFilter{Scope: ScopeUser, ScopeID: "a:b/c@example.com"}, "x:y"},
+	} {
+		lib, path, err := ParseFolderKey(FolderKey(c.lib, c.path))
+		require.NoError(t, err)
+		assert.Equal(t, c.lib, lib)
+		assert.Equal(t, c.path, path)
+	}
+	for _, bad := range []string{"global", "global:%zz:path", "user:only"} {
+		_, _, err := ParseFolderKey(bad)
+		assert.Error(t, err, bad)
+	}
 }

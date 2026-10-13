@@ -67,6 +67,37 @@ type PortalIdentity struct {
 	// Claims are the caller's claims, an API key's attributes among them: a
 	// parameter bound to caller.<claim> takes its value from here (#1846).
 	Claims map[string]any
+	// AutomationsHidden is the caller's persona taking Automations out of the
+	// portal (#2109). An administrator is never refused for it.
+	AutomationsHidden bool
+}
+
+// errAutomationsHidden is the refusal a caller whose persona hides
+// Automations reads on every portal script route.
+const errAutomationsHidden = "automations are not available to your persona"
+
+// GatedWrap is wrap with GatePortal inside it: the portal's authentication
+// puts the caller on the request, and the gate then reads them.
+func GatedWrap(wrap func(http.Handler) http.Handler, user func(r *http.Request) *PortalIdentity) func(http.Handler) http.Handler {
+	gate := GatePortal(user)
+	return func(h http.Handler) http.Handler { return wrap(gate(h)) }
+}
+
+// GatePortal refuses every portal script route to a caller whose persona
+// takes Automations out of the portal (#2109), with 403. It wraps the routes
+// inside the portal's authentication, so the caller is already on the request;
+// an administrator, a caller no persona hides it from, and a request the
+// authenticator let through without a user pass to the handler unchanged.
+func GatePortal(user func(r *http.Request) *PortalIdentity) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if id := user(r); id != nil && id.AutomationsHidden && !id.IsAdmin {
+				httpjson.WriteError(w, http.StatusForbidden, errAutomationsHidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // caller is this caller in the terms a run grant names.

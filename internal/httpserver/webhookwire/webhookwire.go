@@ -107,6 +107,7 @@ func buildFrom(p platformSource, address string, exec whtable.Executor) *Webhook
 		Store: p.ResourceStore(), Blobs: p.ResourceS3Client(), Bucket: cfg.Resources.Managed.S3Bucket,
 		URIScheme: uriScheme, MaxVersions: cfg.Resources.Managed.MaxVersions,
 		Registered: p.RegisterManagedResource, Unregistered: p.UnregisterManagedResource,
+		IndexPolicy: cfg.Resources.Index.Resolver(),
 	})
 	return assemble(parts{
 		db: p, objects: objects{c: client}, bucket: cfg.Resources.Managed.S3Bucket,

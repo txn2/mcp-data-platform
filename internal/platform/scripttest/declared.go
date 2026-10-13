@@ -23,8 +23,9 @@ type Contracts interface {
 
 // declared is the answers one test declared with testing.answer (#1953). It
 // is consulted before the recording, in the order the answers were declared,
-// and each answers one call: the first unused answer for the call's tool whose
-// arguments are all among the call's.
+// and each answers as many calls as it was declared for (times=, #2116): the
+// first answer with calls left for the call's tool whose arguments are all
+// among the call's.
 type declared struct {
 	answers   []declaredAnswer
 	contracts Contracts
@@ -44,17 +45,22 @@ type declaredAnswer struct {
 	args map[string]any
 	out  map[string]any
 	fail error
-	used bool
+	// left is how many more calls the answer answers.
+	left int
 }
+
+// maxTimes bounds times=: a flow a test drives a thousand times over is not
+// one a test should describe call by call.
+const maxTimes = 1000
 
 // Answer implements scriptrec.Answerer.
 func (d *declared) Answer(tool string, args map[string]any) (scriptrec.Answered, bool) {
 	for i := range d.answers {
 		a := &d.answers[i]
-		if a.used || a.tool != tool || !within(a.args, args) {
+		if a.left == 0 || a.tool != tool || !within(a.args, args) {
 			continue
 		}
-		a.used = true
+		a.left--
 		return scriptrec.Answered{Out: a.out, Fail: a.fail}, true
 	}
 	return scriptrec.Answered{}, false
@@ -87,19 +93,22 @@ func jsonMap(m map[string]any) map[string]any {
 	return out
 }
 
-// answerBuiltin is testing.answer(tool, args, answer=None, error=None): the
-// answer a call to tool whose arguments include every key and value of args
-// gets, or with error= the failure it gets instead. error= is the failure's
-// text, or the structuredContent.error envelope a tool classifies its failure
-// with (#2032), so a script's branch on a temporary failure can be tested.
+// answerBuiltin is testing.answer(tool, args, answer=None, error=None,
+// times=1): the answer the next times calls to tool whose arguments include
+// every key and value of args get, or with error= the failure they get
+// instead. error= is the failure's text, or the structuredContent.error
+// envelope a tool classifies its failure with (#2032), so a script's branch
+// on a temporary failure can be tested.
 func (d *declared) answerBuiltin(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var (
 		tool     string
 		callArgs *starlark.Dict
 		answer   starlark.Value = starlark.None
 		failure  starlark.Value = starlark.None
+		times                   = 1
 	)
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "tool", &tool, "args", &callArgs, "answer?", &answer, "error?", &failure); err != nil {
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "tool", &tool, "args", &callArgs,
+		"answer?", &answer, "error?", &failure, "times?", &times); err != nil {
 		return nil, err //nolint:wrapcheck // the interpreter's message names the builtin
 	}
 	_, isNone := answer.(starlark.NoneType)
@@ -107,7 +116,10 @@ func (d *declared) answerBuiltin(_ *starlark.Thread, b *starlark.Builtin, args s
 	if isNone == noFailure {
 		return nil, fmt.Errorf("in %s: declare an answer or an error=, one of the two", b.Name())
 	}
-	a := declaredAnswer{tool: tool}
+	if times < 1 || times > maxTimes {
+		return nil, fmt.Errorf("in %s: times is how many calls the answer answers, 1 to %d", b.Name(), maxTimes)
+	}
+	a := declaredAnswer{tool: tool, left: times}
 	var err error
 	if !noFailure {
 		refusal, err := declaredFailure(failure)
@@ -132,6 +144,45 @@ func (d *declared) answerBuiltin(_ *starlark.Thread, b *starlark.Builtin, args s
 		}
 	}
 	d.answers = append(d.answers, a)
+	return starlark.None, nil
+}
+
+// answersBuiltin is testing.answers(tool, args, answers): successive calls to
+// tool whose arguments include args get the answers in order, one each
+// (#2116) -- a job polled until its third answer says it is done. Each is
+// held to the tool's contract as testing.answer's is.
+func (d *declared) answersBuiltin(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var (
+		tool     string
+		callArgs *starlark.Dict
+		answers  *starlark.List
+	)
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "tool", &tool, "args", &callArgs, "answers", &answers); err != nil {
+		return nil, err //nolint:wrapcheck // the interpreter's message names the builtin
+	}
+	if answers.Len() == 0 || answers.Len() > maxTimes {
+		return nil, fmt.Errorf("in %s: answers is a list of 1 to %d answers, one per call", b.Name(), maxTimes)
+	}
+	matched, err := dictArg(callArgs)
+	if err != nil {
+		return nil, fmt.Errorf("in %s: args: %w", b.Name(), err)
+	}
+	declaredNow := make([]declaredAnswer, 0, answers.Len())
+	for i := range answers.Len() {
+		dict, ok := answers.Index(i).(*starlark.Dict)
+		if !ok {
+			return nil, fmt.Errorf("in %s: answers[%d] is a dict, as the tool answers, not %s", b.Name(), i, answers.Index(i).Type())
+		}
+		out, err := dictArg(dict)
+		if err != nil {
+			return nil, fmt.Errorf("in %s: answers[%d]: %w", b.Name(), i, err)
+		}
+		if err := d.hold(tool, matched, out); err != nil {
+			return nil, fmt.Errorf("in %s: answers[%d]: %w", b.Name(), i, err)
+		}
+		declaredNow = append(declaredNow, declaredAnswer{tool: tool, args: matched, out: out, left: 1})
+	}
+	d.answers = append(d.answers, declaredNow...)
 	return starlark.None, nil
 }
 

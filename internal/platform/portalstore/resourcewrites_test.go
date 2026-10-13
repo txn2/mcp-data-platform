@@ -130,3 +130,10 @@ func TestExtractorAdapterCarriesEveryField(t *testing.T) {
 	assert.Nil(t, out)
 	assert.EqualError(t, err, "refused")
 }
+
+func TestResourceSourcesOfNoHandleIsNil(t *testing.T) {
+	var h *Handle
+	if h.ResourceSources() != nil {
+		t.Error("a nil handle has no library to read sources from")
+	}
+}

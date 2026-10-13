@@ -33,11 +33,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
@@ -78,6 +82,10 @@ type Identity struct {
 	Roles    []string
 	AuthType string
 	Claims   map[string]any
+	// Resources is the caller as the managed-resource rules read them, which
+	// a res: load reads its file under (#2113). Nil reads it under the roles
+	// above, with no persona.
+	Resources *resource.Claims
 }
 
 // Request is one draft execution: the code, what to call it, and the values it
@@ -115,6 +123,17 @@ type Request struct {
 	// one created cannot be exercised without the create — and the person
 	// making that call is the one who owns what it writes.
 	AllowWrites bool
+	// Long is a background draft (#2117): the id it was started under, the
+	// reporter get_run reads its log and progress from, and how long it may
+	// run. The zero value is an inline draft held to scriptrun.DraftTimeout.
+	Long Long
+}
+
+// Long is what a draft longer than the inline wait runs with (#2117).
+type Long struct {
+	RunID   string
+	Live    *scriptlive.Live
+	Timeout time.Duration
 }
 
 // Outcome is what one draft execution did. Failure is a normal outcome and is
@@ -174,6 +193,32 @@ type Runner struct {
 	recordings scriptrec.Store
 	// libraries is where a draft's loads are read from (#1941).
 	libraries scriptlib.Source
+	// resources reads the files a draft loads as text (#2113); nil refuses them.
+	resources *scriptsrc.Reader
+}
+
+// WithResources returns the Runner reading the files a draft loads with
+// load("res:...") (#2113), as they are now under the caller's access.
+func (r *Runner) WithResources(src *scriptsrc.Reader) *Runner {
+	r.resources = src
+	return r
+}
+
+// resourceClaims is the caller a draft's res: loads are read under.
+func resourceClaims(id Identity) *resource.Claims {
+	if id.Resources != nil {
+		return id.Resources
+	}
+	c := resource.BuildClaims(id.UserID, id.Email, "", id.Roles, false)
+	return &c
+}
+
+// draftLibraries is where a draft reads its loads: each file at the version
+// it has as the draft starts, which its recording keeps, under the caller's
+// access.
+func (r *Runner) draftLibraries(ctx context.Context, req Request) scriptlib.Source {
+	claims := resourceClaims(req.Identity)
+	return scriptres.With(r.libraries, r.resources, scriptres.Current(ctx, r.resources, req.Source, *claims), claims)
 }
 
 // WithLibraries returns the Runner reading the libraries a draft loads from
@@ -283,9 +328,12 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 	// records the same session id in audit. Without it a run issuing three
 	// queries would write three unrelated ids and nothing would group them, and
 	// the id handed back would appear in no audit row at all.
-	runID, err := pkgsession.GenerateScriptSessionID()
-	if err != nil {
-		return nil, fmt.Errorf("minting a run id: %w", err)
+	runID := req.Long.RunID
+	if runID == "" {
+		var err error
+		if runID, err = pkgsession.GenerateScriptSessionID(); err != nil {
+			return nil, fmt.Errorf("minting a run id: %w", err)
+		}
 	}
 	release, err := r.acquire(ctx)
 	if err != nil {
@@ -312,9 +360,15 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		Classifier:     r.classifier,
 		Exporter:       r.exporterFor(req, runID, caller),
 		MaxMemoryBytes: r.memoryBudget,
-		Libraries:      r.libraries,
+		Libraries:      r.draftLibraries(ctx, req),
 
 		MaxStatementTimeout: r.statementCeiling,
+		Timeout:             req.Long.Timeout, Live: req.Long.Live,
+	}
+	if req.Long.Timeout > scriptrun.DraftTimeout {
+		// A long draft is held to a platform run's step budget, which is what
+		// lets it get as far as its time limit does.
+		opts.MaxSteps = scriptrun.RunMaxSteps
 	}
 	rec := r.record(&opts)
 	result, runErr := scriptrun.Run(ctx, opts)
@@ -341,6 +395,7 @@ func (r *Runner) record(opts *scriptrun.Options) *scriptrec.Recorder {
 	rec := scriptrec.NewRecorder(scriptrec.Header{
 		RunID: opts.RunID, FireTime: opts.FireTime, Params: opts.Params, State: opts.State,
 		MaxRows: scriptrun.DraftMaxRows, Preview: opts.Exporter == nil,
+		Files: scriptres.PinsOf(opts.Libraries),
 	})
 	opts.OnCall = rec.OnCall
 	opts.Exporter = rec.Exporter(opts.Exporter)

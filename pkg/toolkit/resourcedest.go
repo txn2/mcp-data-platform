@@ -34,6 +34,11 @@ type ResourceDestination struct {
 	// ChangeSummary is what the version history shows beside the revision a
 	// replacement records. Empty takes the platform's default.
 	ChangeSummary string `json:"change_summary,omitempty"`
+	// Index is how search indexes the file (#2111): "full", "metadata" or
+	// "none". On a create it is the writer's choice; on a replacement it
+	// changes the file's policy, which is otherwise kept. Empty leaves it to
+	// the operator's rules.
+	Index string `json:"index,omitempty"`
 
 	// DisplayName, Description and Tags label the file, and are deliberately
 	// NOT wire fields: every export tool already takes a name, a description
@@ -95,6 +100,11 @@ const ResourceDestinationSchema = `{
         "change_summary": {
           "type": "string",
           "description": "What the version history shows beside this revision, for example \"nightly pull 2026-09-09\"."
+        },
+        "index": {
+          "type": "string",
+          "enum": ["full", "metadata", "none"],
+          "description": "How search indexes the file: full (its details and a prefix of its contents), metadata (its name, description, folder, filename and tags), or none (not in search one by one; listed in its folder, and the folder is found by search). Pass none for exported data nobody searches by value. Omitted, the deployment's rules decide, and a later export to the same file keeps the policy it has."
         }
       }
     }`

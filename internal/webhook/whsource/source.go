@@ -185,6 +185,12 @@ type Config struct {
 	// CompactedRetentionDays is how long a compacted window is kept. Nil is
 	// the default; zero keeps it forever.
 	CompactedRetentionDays *int `json:"compacted_retention_days,omitempty"`
+
+	// Index is how search indexes the source's compacted windows (#2111):
+	// "full", "metadata" or "none". Empty leaves it to the operator's
+	// resources.index rules, which can match these writes by origin webhook.
+	// It applies to windows written from the next compaction on.
+	Index string `json:"index,omitempty"`
 }
 
 // TableName is the name readers query the source by, in the scratch schema of

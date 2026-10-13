@@ -90,6 +90,12 @@ interface Props {
 export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, mobile, onClose }: Props) {
   const logout = useAuthStore((s) => s.logout);
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  const showsAutomations = useAuthStore((s) => s.showsAutomations());
+  // A persona can take Automations out of the portal (#2109); the server
+  // reports an administrator as always shown.
+  const moreItems = showsAutomations
+    ? portalMoreNavItems
+    : portalMoreNavItems.filter((item) => item.path !== "/automations");
   const badges = useNavBadges(isAdmin);
   const { portalLogo, fallbackLogo, portalTitle, brandURL } = useSidebarBrand();
 
@@ -133,7 +139,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
         {/* Lighter than the rule above Admin: the same section, a second group. */}
         <div className="mx-3 my-1.5 border-t border-border/60" data-testid="portal-nav-group-break" />
         <NavSection
-          items={portalMoreNavItems}
+          items={moreItems}
           currentPath={currentPath}
           collapsed={effectiveCollapsed}
           badges={badges}

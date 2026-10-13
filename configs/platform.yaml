@@ -585,6 +585,18 @@ tuning:
 #     # one buffer and handed to blob storage as one, so size the container for
 #     # the ceiling times the uploads you expect at once before raising it.
 #     max_upload_bytes: 104857600   # default: 104857600 (100 MB)
+#   # How search indexes a resource whose writer did not say (#2111): full
+#   # (details and contents), metadata (details only) or none (found through
+#   # its folder). The first matching rule with index decides; max caps what a
+#   # writer may ask for. CSV/TSV/JSON-lines default to metadata after these.
+#   index:
+#     default: full
+#     rules:
+#       - path: "pipelines/**"
+#         index: none
+#       - origin: [script, webhook]
+#         size_over: 5MiB
+#         max: metadata
 
 # Progress notifications
 # Sends granular progress updates to MCP clients during long-running

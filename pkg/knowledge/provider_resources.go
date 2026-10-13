@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/docread"
@@ -125,6 +126,11 @@ func (p *ResourcesProvider) Search(ctx context.Context, q Query) ([]Hit, error) 
 			},
 		})
 	}
+	// Folder entries rank among the files on the same scale. The router cuts
+	// each provider's list at its depth assuming it is ranked, so a folder hit
+	// appended after a full page of files would never be shown.
+	hits = append(hits, p.folderHits(ctx, q)...)
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
 	attachTables(ctx, p.tables, hits, func(h Hit) (TableSubject, bool) {
 		r, ok := byID[h.Ref]
 		if !ok {
@@ -346,4 +352,52 @@ func resourceHitText(r resource.Resource) string {
 		parts = append(parts, r.Filename)
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+// FolderSearcher ranks the search entries of folders whose files are not
+// indexed one by one (#2111). The postgres resource store implements it; a
+// searcher that does not yields no folder hits.
+type FolderSearcher interface {
+	SearchFolders(ctx context.Context, q resource.SearchQuery) ([]resource.ScoredFolder, error)
+}
+
+// folderHits returns the folder entries visible to the caller. A folder whose
+// files a pipeline wrote by the thousand is one hit, naming how to list it.
+// A failure is logged and leaves the file hits standing: a folder entry is an
+// addition to the resource results, not a condition of them.
+func (p *ResourcesProvider) folderHits(ctx context.Context, q Query) []Hit {
+	fs, ok := p.searcher.(FolderSearcher)
+	if !ok {
+		return nil
+	}
+	folders, err := fs.SearchFolders(ctx, resource.SearchQuery{
+		Embedding: q.Embedding,
+		QueryText: q.Intent,
+		Scopes:    resource.VisibleScopes(ResourceClaimsOf(q.Caller)),
+		Limit:     q.Limit,
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "resource search: folder entries unavailable", "error", err) //nolint:gosec // structured slog of a store error
+		return nil
+	}
+	hits := make([]Hit, 0, len(folders))
+	for _, f := range folders {
+		hits = append(hits, Hit{
+			Text:   f.Summary + "\n" + folderListing(f),
+			Source: SourceResources,
+			Ref:    resource.FolderKey(f.Library, f.Path),
+			Score:  f.Score,
+		})
+	}
+	return hits
+}
+
+// folderListing says how to open a folder hit: its files are listed by
+// manage_resource, by library and path.
+func folderListing(f resource.ScoredFolder) string {
+	args := "action=list, scope=" + string(f.Library.Scope)
+	if f.Library.ScopeID != "" {
+		args += ", scope_id=" + f.Library.ScopeID
+	}
+	return "Its files are not in search one by one. List them with manage_resource " + args + ", path=" + f.Path + "."
 }

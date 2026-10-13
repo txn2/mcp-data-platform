@@ -222,6 +222,10 @@ func (m *mockStore) Update(_ context.Context, id string, u Update) error {
 	if u.Tags != nil {
 		r.Tags = u.Tags
 	}
+	// The policy is written as the store writes it: chosen (#2111).
+	if u.Index != nil {
+		r.IndexPolicy, r.IndexPolicyExplicit = *u.Index, true
+	}
 	// Deliberately not the path: the real buildUpdate writes no path column,
 	// because refiling a resource in another folder rewrites its URI and takes
 	// the Move transaction. A fake that wrote it here would let a handler that

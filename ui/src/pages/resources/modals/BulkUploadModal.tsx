@@ -1,3 +1,4 @@
+import { IndexPolicyField, INDEX_POLICY_DEFAULT, type IndexChoice } from "../parts/IndexPolicyField";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
@@ -66,6 +67,7 @@ export function BulkUploadModal({
   const [chosen, setChosen] = useState(() => (choices[0] ? targetKey(choices[0]) : ""));
   const [base, setBase] = useState(folder || "samples");
   const [tagsInput, setTagsInput] = useState("");
+  const [index, setIndex] = useState<IndexChoice>(INDEX_POLICY_DEFAULT);
   const [template, setTemplate] = useState("{name}");
   const [unpack, setUnpack] = useState(true);
   const [error, setError] = useState("");
@@ -100,7 +102,10 @@ export function BulkUploadModal({
       return;
     }
     setError("");
-    await batch.run({ target, base, tags: parseTags(tagsInput), template }, onlyFailed);
+    await batch.run({
+      target, base, tags: parseTags(tagsInput), template,
+      index: index === INDEX_POLICY_DEFAULT ? undefined : index,
+    }, onlyFailed);
   };
 
   return (
@@ -183,6 +188,7 @@ export function BulkUploadModal({
           />
         </div>
       </div>
+      <IndexPolicyField id="bulk-upload" value={index} onChange={setIndex} allowDefault />
       <BulkSources
         onAdd={(sources) => void batch.add(sources, unpack)}
         unpack={unpack}

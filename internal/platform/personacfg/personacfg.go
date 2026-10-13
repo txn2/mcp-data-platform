@@ -48,6 +48,9 @@ type PersonaDef struct {
 	// calls are audited but not cataloged (#1980). The same rule as naming
 	// the persona in calls.exclude_personas, stated on the persona itself.
 	ServiceAccount bool `yaml:"service_account,omitempty"`
+	// HideAutomations takes the portal's Automations section away from the
+	// people signed in under this persona (#2109). Absent shows it.
+	HideAutomations bool `yaml:"hide_automations,omitempty"`
 }
 
 // APIRouteDef defines one per-(connection, method, path) rule for the HTTP API
@@ -111,9 +114,10 @@ func (d PersonaDef) ToPersona(name, source string) *persona.Persona {
 			AgentInstructionsSuffix:   d.Context.AgentInstructionsSuffix,
 			AgentInstructionsOverride: d.Context.AgentInstructionsOverride,
 		},
-		Priority:       d.Priority,
-		ServiceAccount: d.ServiceAccount,
-		Source:         source,
+		Priority:        d.Priority,
+		ServiceAccount:  d.ServiceAccount,
+		HideAutomations: d.HideAutomations,
+		Source:          source,
 	}
 }
 

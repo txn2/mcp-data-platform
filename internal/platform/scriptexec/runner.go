@@ -17,8 +17,10 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -66,8 +68,10 @@ type runner struct {
 	// recordings keeps what each run's host calls were answered (#1939);
 	// nil keeps nothing.
 	recordings scriptrec.Store
-	// libraries is where a run's loads are read from (#1941).
+	// libraries is where a run's loads are read from (#1941), and sources
+	// the files a version loads as text (#2113).
 	libraries scriptlib.Source
+	sources   *scriptsrc.Reader
 }
 
 // newRunner builds the executor the worker drives.
@@ -76,7 +80,7 @@ func newRunner(runs script.RunStore, cfg Config) *runner {
 		runs: runs, server: cfg.Server, export: cfg.Export,
 		audit: cfg.Audit, destinations: cfg.Destinations, subjects: cfg.Subjects,
 		portalURL: cfg.PortalURL, limits: cfg.Limits.WithDefaults(),
-		reportEvery: liveReportEvery, recordings: cfg.Recordings, libraries: cfg.libraries(),
+		reportEvery: liveReportEvery, recordings: cfg.Recordings, libraries: cfg.libraries(), sources: cfg.Sources,
 	}
 }
 
@@ -120,7 +124,9 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.State = run.StateRead
 	opts.Caller = caller
 	opts.Destinations = r.destinations
-	opts.Libraries = r.libraries
+	if opts.Libraries, err = r.librariesFor(ctx, v); err != nil {
+		return *retryable("reading the files the version loads failed: " + err.Error())
+	}
 	opts.RunURL = r.runURL(sc.ID, run.ID)
 	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v, subject: subject}, caller)
 	opts.Live = scriptlive.New(opts.MaxLogBytes, r.limits.ResultMaxBytes)
@@ -161,6 +167,7 @@ func (r *runner) record(opts *scriptrun.Options) *scriptrec.Recorder {
 	rec := scriptrec.NewRecorder(scriptrec.Header{
 		RunID: opts.RunID, FireTime: opts.FireTime, Params: opts.Params, State: opts.State,
 		RunURL: opts.RunURL, MaxRows: opts.MaxRows, Preview: opts.Exporter == nil,
+		Files: scriptres.PinsOf(opts.Libraries),
 	})
 	opts.OnCall = rec.OnCall
 	opts.Exporter = rec.Exporter(opts.Exporter)
@@ -404,4 +411,24 @@ func (r *runner) recordAudit(ctx context.Context, run *script.Run, sc *script.Sc
 // link, so an unconfigured portal address omits it rather than guessing one.
 func (r *runner) runURL(scriptID, runID string) string {
 	return scriptincident.RunPage(r.portalURL, scriptID, runID)
+}
+
+// pinReader reads the resource versions a script version pinned (#2113).
+// The script store implements it.
+type pinReader interface {
+	ResourcePins(ctx context.Context, versionID string) (map[string]script.ResourcePin, error)
+}
+
+// librariesFor is where a run of v reads its loads: the library versions, and
+// each file it loads at the version its save pinned, so a run and a replay of
+// it read the bytes the save read. A load the version did not pin is refused.
+func (r *runner) librariesFor(ctx context.Context, v *script.Version) (scriptlib.Source, error) {
+	pins := map[string]script.ResourcePin{}
+	if pr, ok := r.libraries.(pinReader); ok && r.sources != nil {
+		var err error
+		if pins, err = pr.ResourcePins(ctx, v.ID); err != nil {
+			return nil, err //nolint:wrapcheck // the store names the read
+		}
+	}
+	return scriptres.With(r.libraries, r.sources, pins, nil), nil
 }

@@ -46,6 +46,7 @@ function detail(name: string, serviceAccount: boolean): PersonaDetail {
     tools: [],
     api_routes: [],
     service_account: serviceAccount,
+    hide_automations: false,
   };
 }
 

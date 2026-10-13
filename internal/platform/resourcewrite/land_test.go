@@ -472,3 +472,34 @@ func TestLandUnderARunIsHeldToTheLibraryItNames(t *testing.T) {
 	_, err = lf.lander.Land(context.Background(), sales, strings.NewReader("id\n1\n"), "text/csv", financeAdmin)
 	require.ErrorIs(t, err, resourcewrite.ErrRefused)
 }
+
+// TestLandCarriesTheExportsIndexPolicy is #2111 for exports: the destination's
+// index decides the file's policy on a create, a later landing that says
+// nothing keeps it, and one that names another changes it.
+func TestLandCarriesTheExportsIndexPolicy(t *testing.T) {
+	lf := newLandFixture(t)
+	dest := orders()
+	dest.Index = "none"
+	out, err := lf.lander.LandResource(context.Background(), dest, strings.NewReader("id\n1\n"), "text/csv")
+	require.NoError(t, err)
+	assert.Equal(t, "none", mustGet(t, lf, out.ResourceID).IndexPolicy)
+	assert.True(t, mustGet(t, lf, out.ResourceID).IndexPolicyExplicit)
+
+	again := land(t, lf, "id\n1\n2\n")
+	assert.Equal(t, "none", mustGet(t, lf, again.ResourceID).IndexPolicy, "a refresh keeps the policy")
+
+	dest.Index = "metadata"
+	_, err = lf.lander.LandResource(context.Background(), dest, strings.NewReader("id\n3\n"), "text/csv")
+	require.NoError(t, err)
+	assert.Equal(t, "metadata", mustGet(t, lf, out.ResourceID).IndexPolicy)
+}
+
+func TestLandRefusesAnIndexItCannotRead(t *testing.T) {
+	lf := newLandFixture(t)
+	dest := orders()
+	dest.Index = "everything"
+	_, err := lf.lander.LandResource(context.Background(), dest, strings.NewReader("id\n1\n"), "text/csv")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "index must be one of")
+	assert.Empty(t, lf.store.resources, "nothing is written")
+}

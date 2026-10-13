@@ -36,6 +36,7 @@ function emptyDraft(): PersonaDraft {
     agentInstructionsSuffix: "",
     agentInstructionsOverride: "",
     serviceAccount: false,
+    showAutomations: true,
   };
 }
 
@@ -59,6 +60,7 @@ function detailToDraft(d: PersonaDetail): PersonaDraft {
     agentInstructionsSuffix: d.context?.agent_instructions_suffix ?? "",
     agentInstructionsOverride: d.context?.agent_instructions_override ?? "",
     serviceAccount: d.service_account ?? false,
+    showAutomations: !(d.hide_automations ?? false),
   };
 }
 

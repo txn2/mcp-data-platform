@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/docread"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -756,4 +757,111 @@ func TestResourcesProvider_SearchIsUnchangedForAnAdministrator(t *testing.T) {
 	if len(admin) != 0 {
 		t.Fatalf("an administrator's search returned a library they are not a member of: %v", admin)
 	}
+}
+
+// folderSearchingStore is a resource store that also ranks folder entries
+// (#2111), visible by the same scope rule as the files.
+type folderSearchingStore struct {
+	fakeResourceStore
+	folders   []resource.ScoredFolder
+	folderErr error
+	asked     resource.SearchQuery
+}
+
+func (f *folderSearchingStore) SearchFolders(_ context.Context, q resource.SearchQuery) ([]resource.ScoredFolder, error) {
+	f.asked = q
+	if f.folderErr != nil {
+		return nil, f.folderErr
+	}
+	var out []resource.ScoredFolder
+	for _, fo := range f.folders {
+		for _, s := range q.Scopes {
+			if s == fo.Library {
+				out = append(out, fo)
+			}
+		}
+	}
+	return out, nil
+}
+
+// TestResourcesProvider_AFolderOfUnindexedFilesIsOneHit is #2111's search
+// criterion: the folder a backfill writes into is one result, saying how to
+// list its files, and a caller outside its library does not see it.
+func TestResourcesProvider_AFolderOfUnindexedFilesIsOneHit(t *testing.T) {
+	store := &folderSearchingStore{folders: []resource.ScoredFolder{
+		{
+			Library: resource.ScopeFilter{Scope: resource.ScopeGlobal}, Path: "pipelines/nltv",
+			Summary: "Folder pipelines/nltv\nNLTV station daily archive", Score: 0.8,
+		},
+		{
+			Library: resource.ScopeFilter{Scope: resource.ScopePersona, ScopeID: "finance"}, Path: "ledgers",
+			Summary: "Folder ledgers", Score: 0.7,
+		},
+	}}
+	p := NewResourcesProvider(store, nil, "", nil)
+
+	hits, err := p.Search(context.Background(), Query{Intent: "nltv station daily", Embedding: []float32{1}})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("hits = %+v, want the one global folder", hits)
+	}
+	h := hits[0]
+	assert.Equal(t, "global::pipelines/nltv", h.Ref)
+	assert.Contains(t, h.Text, "NLTV station daily archive")
+	assert.Contains(t, h.Text, "manage_resource action=list, scope=global, path=pipelines/nltv")
+	assert.Empty(t, h.Reference, "a folder is listed, not fetched")
+	assert.Equal(t, []float32{1}, store.asked.Embedding)
+
+	member, _ := p.Search(context.Background(), Query{
+		Intent: "ledgers", Caller: Caller{UserID: "u", Persona: "finance", Personas: []string{"finance"}},
+	})
+	found := false
+	for _, h := range member {
+		if strings.Contains(h.Text, "scope=persona, scope_id=finance, path=ledgers") {
+			found = true
+		}
+	}
+	assert.True(t, found, "a persona folder names its library: %+v", member)
+}
+
+func TestResourcesProvider_AFolderSearchFailureLeavesTheFileHits(t *testing.T) {
+	store := &folderSearchingStore{
+		fakeResourceStore: fakeResourceStore{resources: []resource.Resource{
+			{ID: "res_g", Scope: resource.ScopeGlobal, DisplayName: "Sales Dictionary"},
+		}},
+		folderErr: errors.New("db down"),
+	}
+	hits, err := NewResourcesProvider(store, nil, "", nil).Search(context.Background(), Query{Intent: "sales"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Ref != "res_g" {
+		t.Errorf("hits = %+v, want the file hit alone", hits)
+	}
+}
+
+// TestResourcesProvider_AFolderOutranksFilesItBeats: a folder entry that
+// scores above the files is ranked above them, so the router's cut at its
+// depth keeps it rather than the files after it.
+func TestResourcesProvider_AFolderOutranksFilesItBeats(t *testing.T) {
+	files := make([]resource.Resource, 0, 3)
+	for _, id := range []string{"f1", "f2", "f3"} {
+		files = append(files, resource.Resource{ID: id, Scope: resource.ScopeGlobal, DisplayName: "station " + id})
+	}
+	store := &folderSearchingStore{
+		fakeResourceStore: fakeResourceStore{resources: files},
+		folders: []resource.ScoredFolder{{
+			Library: resource.ScopeFilter{Scope: resource.ScopeGlobal}, Path: "pipelines/nltv",
+			Summary: "Folder pipelines/nltv\nstation archive", Score: 0.9,
+		}},
+	}
+	hits, err := NewResourcesProvider(store, nil, "", nil).Search(context.Background(),
+		Query{Intent: "station", Embedding: []float32{1}})
+	require.NoError(t, err)
+	require.Len(t, hits, 4)
+	assert.Equal(t, "global::pipelines/nltv", hits[0].Ref, "the folder outscores every file")
+	kept, _ := trimToDepth(hits, 3)
+	assert.Equal(t, "global::pipelines/nltv", kept[0].Ref, "the router's cut keeps it")
 }

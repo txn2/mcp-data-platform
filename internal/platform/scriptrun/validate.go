@@ -92,6 +92,8 @@ type Report struct {
 	// (#1941). Libraries is the library versions it loads, in source order.
 	Library   bool            `json:"library"`
 	Libraries []scriptlib.Ref `json:"libraries"`
+	// Resources is the managed-resource files it loads as text (#2113).
+	Resources []string `json:"resources"`
 	// StateUse reports whether the source reads run.state and whether it calls
 	// platform.save_state (#1537), so a reader learns from the contract whether
 	// a run continues from the previous run's save. Both are read from the
@@ -113,7 +115,7 @@ func hasErrors(findings []Finding) bool {
 func Validate(source string) Report {
 	report := Report{
 		Capabilities: []string{}, Connections: []string{}, Tools: []string{},
-		Destinations: []string{}, RefreshTargets: []string{}, Libraries: []scriptlib.Ref{},
+		Destinations: []string{}, RefreshTargets: []string{}, Libraries: []scriptlib.Ref{}, Resources: []string{},
 		ResourceLibraries: []ResourceLibrary{},
 	}
 	findings := scanSource(source)
@@ -148,6 +150,8 @@ func Validate(source string) Report {
 	for _, ld := range scriptlib.Loads(file) {
 		if ld.Err != nil {
 			findings = append(findings, Finding{Severity: SeverityError, Line: ld.Line, Message: ld.Err.Error()})
+		} else if ld.Resource != "" {
+			report.Resources = append(report.Resources, ld.Resource)
 		} else if !slices.Contains(report.Libraries, ld.Ref) {
 			report.Libraries = append(report.Libraries, ld.Ref)
 		}

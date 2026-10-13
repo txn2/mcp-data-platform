@@ -44,6 +44,8 @@ export interface WebhookForm {
   compactEveryMinutes: string;
   rawRetentionDays: string;
   compactedRetentionDays: string;
+  /** "default" leaves the choice to the deployment's resources.index rules. */
+  index: string;
 }
 
 export const EMPTY_FORM: WebhookForm = {
@@ -78,6 +80,7 @@ export const EMPTY_FORM: WebhookForm = {
   rateLimitBurst: "",
   compactEveryMinutes: "60",
   rawRetentionDays: "",
+  index: "default",
   compactedRetentionDays: "",
 };
 
@@ -150,6 +153,7 @@ function configFields(c: WebhookConfig): Partial<WebhookForm> {
     compactEveryMinutes: text(c.compact_every_minutes) || EMPTY_FORM.compactEveryMinutes,
     rawRetentionDays: text(c.raw_retention_days),
     compactedRetentionDays: text(c.compacted_retention_days),
+    index: c.index ?? "default",
   };
 }
 
@@ -185,6 +189,7 @@ export function toInput(f: WebhookForm, creating: boolean): WebhookSourceInput {
     compact_every_minutes: num(f.compactEveryMinutes),
     raw_retention_days: num(f.rawRetentionDays),
     compacted_retention_days: num(f.compactedRetentionDays),
+    index: f.index === "default" ? undefined : (f.index as WebhookConfig["index"]),
   };
   const input: WebhookSourceInput = {
     enabled: f.enabled,

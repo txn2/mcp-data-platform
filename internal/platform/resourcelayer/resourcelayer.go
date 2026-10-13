@@ -90,6 +90,9 @@ type Handle struct {
 	// indexProducer is the write-path index-job producer the resource store was
 	// built with, exposed for the index-jobs queue to bind once it exists.
 	indexProducer *indexjobs.Producer
+	// folderProducer is the producer of a folder's one search entry, which a
+	// write of a file that is not indexed itself feeds (#2111).
+	folderProducer *indexjobs.Producer
 	// docs renders a stored file into what a reader can use, and pdfText is
 	// the WebAssembly PDF extractor behind it (#1657). Both surfaces that hand
 	// a managed resource to a model -- search `fetch` and the content index --
@@ -194,13 +197,16 @@ func New(db *sql.DB, cfg Config) (*Handle, error) {
 	// this layer), and a no-op if no queue is ever wired: resources then reach
 	// the index on the reconciler's next sweep (#1256).
 	producer := indexjobs.NewProducer(resourceindex.SourceKind)
+	folders := indexjobs.NewProducer(resourceindex.FolderKind)
 	extractor := pdftext.New()
 	h := &Handle{
-		store:         resource.NewPostgresStore(db, indexjobs.WithProducer(producer)),
-		uriScheme:     uriScheme(cfg),
-		indexProducer: producer,
-		pdfText:       extractor,
-		docs:          docread.New(extractor),
+		store: resource.NewPostgresStore(db,
+			indexjobs.WithProducer(producer), indexjobs.WithAlsoProducer(folders)),
+		uriScheme:      uriScheme(cfg),
+		indexProducer:  producer,
+		folderProducer: folders,
+		pdfText:        extractor,
+		docs:           docread.New(extractor),
 	}
 
 	connName := s3Connection(cfg)
@@ -327,13 +333,14 @@ func (h *Handle) Store() resource.Store {
 	return h.store
 }
 
-// IndexProducer returns the write-path index-job producer behind the resource
-// store, for the index-jobs queue to bind. Nil on a nil Handle (no database).
-func (h *Handle) IndexProducer() *indexjobs.Producer {
+// IndexProducers returns the write-path index-job producers behind the
+// resource store -- the resources' own and their folders' (#2111) -- for the
+// index-jobs queue to bind. Empty on a nil Handle (no database).
+func (h *Handle) IndexProducers() []*indexjobs.Producer {
 	if h == nil {
-		return nil
+		return []*indexjobs.Producer{}
 	}
-	return h.indexProducer
+	return []*indexjobs.Producer{h.indexProducer, h.folderProducer}
 }
 
 // S3Client returns the S3 blob client for managed resources, or nil on a nil

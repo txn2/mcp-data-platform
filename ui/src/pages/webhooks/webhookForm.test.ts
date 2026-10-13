@@ -31,6 +31,14 @@ describe("webhook form", () => {
     expect(toInput(fromSource(token), false).config.compacted_retention_days).toBe(0);
   });
 
+  it("sends how search indexes the compacted files, and nothing for the default", () => {
+    expect(toInput(EMPTY_FORM, true).config.index).toBeUndefined();
+    expect(toInput({ ...EMPTY_FORM, index: "metadata" }, true).config.index).toBe("metadata");
+    const form = fromSource({ ...hmac, config: { ...hmac.config, index: "none" } });
+    expect(form.index).toBe("none");
+    expect(fromSource(token).index).toBe("default");
+  });
+
   it("carries the compaction window, an hour unless the source set one", () => {
     expect(toInput(fromSource(hmac), false).config.compact_every_minutes).toBe(15);
     expect(toInput(fromSource(token), false).config.compact_every_minutes).toBe(60);

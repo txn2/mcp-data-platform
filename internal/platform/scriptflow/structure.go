@@ -191,7 +191,7 @@ func (a *analyzer) drawableFuncs() map[string]bool {
 func (a *analyzer) drawsDirectly(d *syntax.DefStmt) (direct bool, callees []string) {
 	for _, st := range d.Body {
 		walkCalls(st, func(c *syntax.CallExpr) {
-			if m, ok := platformMember(c); (ok && m != memberProgress) || isFail(c) {
+			if m, ok := platformMember(c); (ok && !nonStep(m)) || isFail(c) {
 				direct = true
 			}
 			if callee, ok := a.userCall(c); ok {
@@ -370,7 +370,7 @@ func (w *structWalk) holds(list []syntax.Stmt, cx sctx) bool {
 // drawsCall reports whether a call draws a node or a box.
 func (w *structWalk) drawsCall(c *syntax.CallExpr) bool {
 	if m, ok := platformMember(c); ok {
-		return m != memberProgress
+		return !nonStep(m)
 	}
 	if isFail(c) {
 		return true
@@ -435,7 +435,7 @@ func (w *structWalk) comprehension(c *syntax.Comprehension, cx sctx, in []pendin
 // expanded in a box.
 func (w *structWalk) call(c *syntax.CallExpr, cx sctx, in []pending) []pending {
 	if m, ok := platformMember(c); ok {
-		if m == memberProgress {
+		if nonStep(m) {
 			return in
 		}
 		site := append(slices.Clone(cx.sites), position(c.Lparen))

@@ -85,6 +85,11 @@ func TestValidateAccepts(t *testing.T) {
 			s.Config.EventIDPath = "id"
 			return s
 		}(),
+		"windows not indexed": func() Source {
+			s := validHMAC()
+			s.Config.Index = "none"
+			return s
+		}(),
 		"header token": {Name: "a", Connection: "c", Auth: Auth{Mode: AuthHeaderToken, Secret: "t", Header: "X-Token"}},
 		"basic":        {Name: "a", Connection: "c", Auth: Auth{Mode: AuthBasic, Secret: "p", Username: "u"}},
 		"path token":   {Name: "a", Connection: "c", Auth: Auth{Mode: AuthPathToken, Secret: "t"}},
@@ -137,6 +142,7 @@ func TestValidateRefuses(t *testing.T) {
 			s.Auth.Signed = SignedTimestampBody
 		}),
 		"bad signed":        mutate(func(s *Source) { s.Auth.Signed = "headers" }),
+		"bad index":         mutate(func(s *Source) { s.Config.Index = "partial" }),
 		"bad id header":     mutate(func(s *Source) { s.Auth.IDHeader = "X Id" }),
 		"bad header format": mutate(func(s *Source) { s.Auth.HeaderFormat = "svix" }),
 		"id signed without id header": mutate(func(s *Source) {

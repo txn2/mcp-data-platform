@@ -19,13 +19,18 @@ const (
 )
 
 // tests applies them: testing and assert are used only inside a test_*
-// function, and nothing calls a test_* function, which only the test runner
-// does. A run never calls a test, and a test the script called would run on
-// every schedule.
+// function or a helper no run can reach, and nothing calls a test_* function,
+// which only the test runner does. A run never calls a test, and a test the
+// script called would run on every schedule.
 func (l *linter) tests() {
+	helpers := l.testOnlyHelpers()
 	for _, s := range l.file.Stmts {
 		if scriptdialect.IsTest(s) {
 			l.constantAssertions(s)
+			continue
+		}
+		if d, ok := s.(*syntax.DefStmt); ok && helpers[d.Name.Name] {
+			l.inTestHelper(d)
 			continue
 		}
 		syntax.Walk(s, func(n syntax.Node) bool {
@@ -63,7 +68,8 @@ func (l *linter) testModuleOutsideTest(id *syntax.Ident) {
 	l.add(finding{
 		rule: RuleTestModuleOutsideTest, line: int(id.NamePos.Line),
 		message: fmt.Sprintf("`%s` is used outside a test", id.Name),
-		hint:    fmt.Sprintf("`%s` exists only inside a %s* function; a run fails where it is used.", id.Name, scriptdialect.TestPrefix),
+		hint: fmt.Sprintf("`%s` exists only inside a %s* function, or a helper only tests call; a run fails where it is used.",
+			id.Name, scriptdialect.TestPrefix),
 	})
 }
 

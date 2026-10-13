@@ -64,7 +64,13 @@ func TestGates_CreateRefusesAFindingAndNamesIt(t *testing.T) {
 	}
 	assert.True(t, rules[scriptlint.RuleLibraryEffect], "%v", rules)
 	assert.True(t, rules[scriptlint.RuleTopLevelWork], "%v", rules)
-	assert.Contains(t, fields, "formatted_source")
+	// The formatted source is the whole script again; a refusal leaves it out
+	// unless asked (#2114).
+	assert.NotContains(t, fields, "formatted_source")
+	verbose := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "daily", Source: "rows = platform.query(\"SELECT 1\")\nprint(rows)\n", Verbose: true,
+	}))
+	assert.Contains(t, verbose, "formatted_source")
 
 	res = call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "daily", Source: tested(inMain("rows = [1]\nprint(rows)\n")),

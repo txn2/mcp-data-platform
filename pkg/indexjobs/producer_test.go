@@ -161,3 +161,17 @@ func TestResolveStoreOptions(t *testing.T) {
 	})
 	assert.Same(t, p, resolved.Producer, "the last option wins")
 }
+
+// TestStoreOptionsForReturnsTheProducerOfAKind: a store feeding further kinds
+// (#2111) reaches each one's producer by kind, and an unwired kind is nil.
+func TestStoreOptionsForReturnsTheProducerOfAKind(t *testing.T) {
+	files, folders := indexjobs.NewProducer("resources"), indexjobs.NewProducer("resource_folders")
+	resolved := indexjobs.ResolveStoreOptions([]indexjobs.StoreOption{
+		indexjobs.WithProducer(files),
+		indexjobs.WithAlsoProducer(folders),
+	})
+	assert.Same(t, files, resolved.For("resources"))
+	assert.Same(t, folders, resolved.For("resource_folders"))
+	assert.Nil(t, resolved.For("prompts"))
+	assert.Nil(t, indexjobs.ResolveStoreOptions(nil).For("resources"), "no producer wired, no producer of any kind")
+}

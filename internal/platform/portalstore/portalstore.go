@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceholds"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefstore"
@@ -81,6 +82,10 @@ type Config struct {
 // the shutdown seam Platform wires into its own lifecycle (only the S3 client
 // needs closing — the stores share Platform's *sql.DB, which Platform closes).
 type Handle struct {
+	// sources reads managed-resource text for managed scripts (#2113, #2114),
+	// and db counts the scripts loading a file before it is deleted.
+	sources            *scriptsrc.Reader
+	db                 *sql.DB
 	assetStore         portal.AssetStore
 	shareStore         portal.ShareStore
 	versionStore       portal.VersionStore
@@ -176,6 +181,7 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 	// straight from the script tables: a store over the pool, as the HTTP
 	// mounts build their own.
 	h.notices = notices.New(db, h.assetStore, h.shareStore, h.threadStore, scriptstore.New(db))
+	h.db = db
 	return h
 }
 
@@ -292,6 +298,7 @@ func (h *Handle) BindResourceHolds(attachments resourceholds.Attachments) {
 	h.toolkit.SetResourceHolds(holdReader{checker: resourceholds.New(resourceholds.Deps{
 		Refs:        h.contentRefs,
 		Attachments: attachments,
+		Scripts:     resourceholds.ScriptPins{DB: h.db},
 	})})
 }
 
@@ -309,7 +316,7 @@ func (h holdReader) ResourceHolds(ctx context.Context, resourceID string) (porta
 		return portalkit.ResourceHolds{}, err //nolint:wrapcheck // the checker's sentence names the lookup
 	}
 	return portalkit.ResourceHolds{
-		Assets: holds.Assets, Prompts: holds.Prompts, More: holds.More,
+		Assets: holds.Assets, Prompts: holds.Prompts, Scripts: holds.Scripts, More: holds.More,
 	}, nil
 }
 

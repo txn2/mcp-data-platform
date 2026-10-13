@@ -218,3 +218,36 @@ platform.export(name="last", rows=[{"a": 1}])
 		})
 	}
 }
+
+// index= decides how search indexes a "resources" output (#2111): the request
+// carries it to the lander, and it is refused where no library is written.
+func TestExport_IndexReachesTheLander(t *testing.T) {
+	exporter := newScopedExporter()
+	_, err := destinationRun(t,
+		`platform.export(name="day", rows=[{"a": 1}], destination="resources", key="pipelines/nltv/2019-01-01.csv", index=" None ")`,
+		nil, exporter)
+	require.NoError(t, err)
+	require.Len(t, exporter.requests, 1)
+	assert.Equal(t, "none", exporter.requests[0].Index)
+
+	exporter = newScopedExporter()
+	_, err = destinationRun(t, `platform.export(name="day", rows=[{"a": 1}], destination="resources", key="d/o.csv")`, nil, exporter)
+	require.NoError(t, err)
+	assert.Empty(t, exporter.requests[0].Index, "unsaid is left to the deployment's rules")
+}
+
+func TestExport_AnIndexWithNoLibraryIsRefused(t *testing.T) {
+	cases := map[string]struct{ call, want string }{
+		"to the portal": {`platform.export(name="o", rows=[{"a": 1}], index="none")`, `destination="resources" only`},
+		"a bad value":   {`platform.export(name="o", rows=[{"a": 1}], destination="resources", key="d/o.csv", index="most")`, `index must be one of`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			exporter := newScopedExporter()
+			_, err := destinationRun(t, tc.call, nil, exporter)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+			assert.Empty(t, exporter.requests)
+		})
+	}
+}

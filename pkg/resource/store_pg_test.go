@@ -26,7 +26,7 @@ func TestPostgresStore_Insert(t *testing.T) {
 		WithArgs(
 			"id-1", "global", sqlmock.AnyArg(), "samples", "test.csv", "Test",
 			"A test resource", "text/csv", int64(100), "s3/key", "mcp://global/samples/test.csv",
-			pq.Array([]string{"tag1"}), "sub-1", "user@example.com",
+			pq.Array([]string{"tag1"}), "sub-1", "user@example.com", "full", false,
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	// The folder is recorded with the file, in the same transaction (#1872).
@@ -64,10 +64,11 @@ func TestPostgresStore_Get(t *testing.T) {
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
 		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
+		"index_policy", "index_policy_explicit",
 	}).AddRow(
 		"id-1", "global", nil, "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://global/samples/test.csv",
-		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil, 0, "", nil,
+		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil, 0, "", nil, "full", false,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = \\$1").
 		WithArgs("id-1").
@@ -100,10 +101,11 @@ func TestPostgresStore_GetByURI(t *testing.T) {
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
 		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
+		"index_policy", "index_policy_explicit",
 	}).AddRow(
 		"id-1", "user", "sub-1", "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://user/sub-1/samples/test.csv",
-		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil, 0, "", nil,
+		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil, 0, "", nil, "full", false,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE uri = \\$1").
 		WithArgs("mcp://user/sub-1/samples/test.csv").
@@ -138,10 +140,11 @@ func TestPostgresStore_List(t *testing.T) {
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
 		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
+		"index_policy", "index_policy_explicit",
 	}).AddRow(
 		"id-1", "global", nil, "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://global/samples/test.csv",
-		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil, 0, "", nil,
+		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil, 0, "", nil, "full", false,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE").WillReturnRows(rows)
 
@@ -174,6 +177,7 @@ func TestPostgresStore_List_ClampsLimit(t *testing.T) {
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
 		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
+		"index_policy", "index_policy_explicit",
 	})
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE").
 		WithArgs(string(ScopeGlobal), MaxListLimit, 7).
@@ -263,8 +267,8 @@ func TestPostgresStore_Update(t *testing.T) {
 
 	store := NewPostgresStore(db)
 	name := "Updated Name"
-	mock.ExpectExec("UPDATE resources SET").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("UPDATE resources SET").
+		WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "samples"))
 
 	err = store.Update(context.Background(), "id-1", Update{DisplayName: &name})
 	if err != nil {
@@ -281,8 +285,8 @@ func TestPostgresStore_Update_NotFound(t *testing.T) {
 
 	store := NewPostgresStore(db)
 	name := "Updated"
-	mock.ExpectExec("UPDATE resources SET").
-		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("UPDATE resources SET").
+		WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}))
 
 	err = store.Update(context.Background(), "missing", Update{DisplayName: &name})
 	if err == nil {
@@ -298,9 +302,9 @@ func TestPostgresStore_Delete(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := NewPostgresStore(db)
-	mock.ExpectExec("DELETE FROM resources WHERE id = \\$1").
+	mock.ExpectQuery("DELETE FROM resources WHERE id = \\$1").
 		WithArgs("id-1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "samples"))
 
 	if err := store.Delete(context.Background(), "id-1"); err != nil {
 		t.Fatalf("Delete: %v", err)
@@ -315,9 +319,9 @@ func TestPostgresStore_Delete_NotFound(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := NewPostgresStore(db)
-	mock.ExpectExec("DELETE FROM resources WHERE id = \\$1").
+	mock.ExpectQuery("DELETE FROM resources WHERE id = \\$1").
 		WithArgs("missing").
-		WillReturnResult(sqlmock.NewResult(0, 0))
+		WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}))
 
 	err = store.Delete(context.Background(), "missing")
 	if err == nil {
@@ -338,8 +342,8 @@ func TestPostgresStore_Update_AllFields(t *testing.T) {
 	cat := "references"
 	tags := []string{"a", "b"}
 
-	mock.ExpectExec("UPDATE resources SET").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("UPDATE resources SET").
+		WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "samples"))
 
 	err = store.Update(context.Background(), "id-1", Update{
 		DisplayName: &name,
@@ -370,10 +374,11 @@ func TestPostgresStore_Get_NullTagsAndScopeID(t *testing.T) {
 			"created_at", "updated_at", "last_read_at",
 			"thumbnail_s3_key", "thumbnail_dark_s3_key",
 			"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
+			"index_policy", "index_policy_explicit",
 		}).AddRow(
 			"id-null", "global", nil, "samples", "t.csv", "T", "d",
 			"text/csv", int64(1), "k", "mcp://global/samples/t.csv",
-			nil, "sub", "u@example.com", now, now, nil, "", "", nil, nil, 0, "", nil,
+			nil, "sub", "u@example.com", now, now, nil, "", "", nil, nil, 0, "", nil, "full", false,
 		))
 
 	got, err := NewPostgresStore(db).Get(context.Background(), "id-null")
@@ -430,6 +435,7 @@ var resourceColumns = []string{
 	"created_at", "updated_at", "last_read_at",
 	"thumbnail_s3_key", "thumbnail_dark_s3_key",
 	"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
+	"index_policy", "index_policy_explicit",
 }
 
 // resourceRow builds one result row in the column order resourceScan expects,
@@ -444,6 +450,8 @@ func resourceRow(id, name string) []driver.Value {
 		// No tile drawn, which is every resource until the renderer draws
 		// one (#1554, #1787).
 		"", "", nil, nil, 0, "", nil,
+		// Indexed in full, which every resource was before #2111.
+		"full", false,
 	}
 }
 

@@ -83,6 +83,9 @@ type occupantUpload struct {
 	uri   string
 	file  *uploadStream
 	limit int64
+	// index is the policy the upload asked for (#2111); empty keeps the one
+	// the occupant has.
+	index string
 }
 
 // headSHA256 is the hash of the content res holds now: the recorded version
@@ -129,7 +132,7 @@ func (h *Handler) reviseOccupant(w http.ResponseWriter, r *http.Request, claims 
 		return true
 	}
 	revised, err := h.storeRevision(r.Context(), existing, claims, RevisionUpload{
-		Content: up.file.body, MIMEType: up.file.mimeType, SkipIfSHA256: head,
+		Content: up.file.body, MIMEType: up.file.mimeType, SkipIfSHA256: head, Index: up.index,
 	})
 	switch {
 	case errors.Is(err, errContentUnchanged):

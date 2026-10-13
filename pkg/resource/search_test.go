@@ -103,6 +103,7 @@ func searchRows(extraCols []string) *sqlmock.Rows {
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
 		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
+		"index_policy", "index_policy_explicit",
 	}, extraCols...))
 }
 
@@ -111,7 +112,7 @@ func addSearchRow(rows *sqlmock.Rows, id, displayName string, extra ...driver.Va
 	base := []driver.Value{
 		id, "global", nil, "references", "d.csv", displayName, "desc",
 		"text/csv", int64(10), "k", "mcp://global/references/" + id, pq.Array([]string{"t"}),
-		"sub", "u@example.com", now, now, nil, "", "", nil, nil, 0, "", nil,
+		"sub", "u@example.com", now, now, nil, "", "", nil, nil, 0, "", nil, "full", false,
 	}
 	vals := make([]driver.Value, 0, len(base)+len(extra))
 	vals = append(vals, base...)
@@ -230,8 +231,8 @@ func TestUpdate_ClearsEmbeddingForReindex(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	mock.ExpectExec("UPDATE resources SET updated_at = now\\(\\), embedding = NULL, embedding_model = '', embedding_text_hash = NULL, description = \\$1 WHERE id = \\$2").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("UPDATE resources SET updated_at = now\\(\\), embedding = NULL, embedding_model = '', embedding_text_hash = NULL, description = \\$1 WHERE id = \\$2").
+		WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "references"))
 
 	desc := "new description"
 	if err := NewPostgresStore(db).Update(context.Background(), "res_1", Update{Description: &desc}); err != nil {
@@ -265,17 +266,17 @@ func TestIsObjectNotFound(t *testing.T) {
 	}
 }
 
-// TestEmbedsContent names the tables of values whose content stays out of the
-// embedding (#1988), in every spelling a writer may declare them with.
-func TestEmbedsContent(t *testing.T) {
-	for mime, want := range map[string]bool{
-		"text/csv": false, "text/csv; charset=utf-8": false, "TEXT/CSV": false,
-		"text/tab-separated-values": false,
-		"application/x-ndjson":      false, "application/jsonl": false, "application/ndjson": false,
-		"text/markdown": true, "application/pdf": true, "application/json": true, "text/plain": true, "": true,
-	} {
-		if got := EmbedsContent(mime); got != want {
-			t.Errorf("EmbedsContent(%q) = %v, want %v", mime, got, want)
-		}
+// TestSearchLeavesOutFilesThatAreNotIndexed pins #2111: a file whose policy is
+// none matches neither lexical arm, though its name is in the full-text
+// expression.
+func TestSearchLeavesOutFilesThatAreNotIndexed(t *testing.T) {
+	q := SearchQuery{Embedding: []float32{1}, QueryText: "nltv", Scopes: []ScopeFilter{{Scope: ScopeGlobal}}}
+	hybrid, _ := buildHybridSearch(q)
+	lexical, _ := buildLexicalSearch(q)
+	if got := strings.Count(hybrid, searchableClause); got != 1 {
+		t.Errorf("hybrid statement carries the predicate %d times, want 1 (the lexical arm): %s", got, hybrid)
+	}
+	if !strings.Contains(lexical, searchableClause) {
+		t.Errorf("lexical statement lacks %q: %s", searchableClause, lexical)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"golang.org/x/net/http/httpguts"
 
 	"github.com/txn2/mcp-data-platform/internal/hmacsig"
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/webhook/jsonpath"
 )
 
@@ -164,6 +165,11 @@ func validateConfig(c Config) error {
 	}
 	if strings.TrimSpace(c.Persona) != c.Persona || strings.ContainsAny(c.Persona, "/ \t") {
 		return invalid("config.persona must be a persona name")
+	}
+	if c.Index != "" {
+		if _, err := indexpolicy.Parse(c.Index); err != nil {
+			return invalid("config.index: %v", err)
+		}
 	}
 	if c.MaxBodyBytes < 1 || c.MaxBodyBytes > maxBodyBytesCeiling {
 		return invalid("config.max_body_bytes must be between 1 and %d", maxBodyBytesCeiling)

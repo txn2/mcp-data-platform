@@ -76,7 +76,7 @@ const ApisPage = lazy(() =>
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { SectionIntro } from "@/components/patterns/SectionIntro";
 import { AdminPages } from "./AdminPages";
-import { AdminOnlyNotice, PageNotFound } from "./RouteFallbacks";
+import { AdminOnlyNotice, AutomationsHiddenNotice, PageNotFound } from "./RouteFallbacks";
 import {
   redirectFor,
   isAdminRoute,
@@ -265,6 +265,7 @@ function useIsMobile() {
 export function AppShell() {
   const [currentPath, setCurrentPath] = useState(readPath);
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  const showsAutomations = useAuthStore((s) => s.showsAutomations());
   const isMobile = useIsMobile();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -552,7 +553,10 @@ export function AppShell() {
               onBack={() => navigate("/prompts")}
             />
           )}
-          {!adminRoute && isInSection(route, "/automations") && (
+          {!adminRoute && isInSection(route, "/automations") && !showsAutomations && (
+            <AutomationsHiddenNotice />
+          )}
+          {!adminRoute && isInSection(route, "/automations") && showsAutomations && (
             <PortalScriptRoutes route={route} onNavigate={navigate} />
           )}
           {collectionAssetMatch && (

@@ -73,6 +73,12 @@ var pageMetas = []pageMeta{
 		tags:    []string{"scripts", "automation", "starlark", "authoring"},
 	},
 	{
+		file:    "managed-script-dialect.md",
+		slug:    "platform-managed-script-dialect",
+		summary: "The managed-script dialect contract, the text manage_script help returns: every module, member and argument a script has, and every rule a save holds it to.",
+		tags:    []string{"scripts", "automation", "starlark", "reference"},
+	},
+	{
 		file:    "reference-script.md",
 		slug:    "platform-reference-script",
 		summary: "A whole automation written as a saved one is: helpers with docstrings, the work in main(), a pinned date window, a watermark in state, bound SQL, a failure that says why, an export and a result, and the tests it is saved with, with how each test is recorded and written.",

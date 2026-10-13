@@ -35,6 +35,7 @@ var resourceCols = []string{
 	"created_at", "updated_at", "last_read_at",
 	"thumbnail_s3_key", "thumbnail_dark_s3_key",
 	"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
+	"index_policy", "index_policy_explicit",
 }
 
 // claimCols is what the claim returns: a resource row and the attempts it

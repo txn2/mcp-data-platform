@@ -245,3 +245,52 @@ export function useTopCallers() {
     refetchInterval: 60_000,
   });
 }
+
+// ResourceIndexCounts is how the managed-resource library is indexed for
+// search (#2111): files under each policy, how many a writer chose, the
+// extracted text kept for search, and the folders searchable as one entry.
+export interface ResourceIndexCounts {
+  full: number;
+  metadata: number;
+  none: number;
+  explicit: number;
+  content_bytes: number;
+  folders: number;
+}
+
+// ReclassifyRun is a reclassification by the resources.index rules; every
+// replica reports the same last run.
+export interface ReclassifyRun {
+  started_at: string;
+  finished_at?: string;
+  result?: { examined: number; changed: number; cleared: number };
+  error?: string;
+}
+
+export interface ResourceIndexState {
+  counts: ResourceIndexCounts;
+  last_run?: ReclassifyRun;
+}
+
+// useResourceIndex reads the counts; it polls while a reclassification runs.
+export function useResourceIndex() {
+  return useQuery({
+    queryKey: ["admin", "resources", "index"],
+    queryFn: () => apiFetch<ResourceIndexState>("/resources/index"),
+    refetchInterval: (q) => {
+      const run = q.state.data?.last_run;
+      return run && !run.finished_at ? 2_000 : 30_000;
+    },
+  });
+}
+
+// useReclassify starts a reclassification by the rules.
+export function useReclassify() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<ReclassifyRun>("/resources/index/reclassify", { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["admin", "resources", "index"] });
+    },
+  });
+}

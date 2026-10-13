@@ -81,6 +81,7 @@ The sender is then given `https://platform.example.com/hooks/email-events`.
 | `config.rate_limit_per_minute`, `config.rate_limit_burst` | Optional. The limit is on the source, not on a client address, and each replica holds it for itself: with N replicas behind a load balancer, a sender can be admitted up to N times the rate and the burst. Size it as what one replica should take for this source, as `buffer_limit` is. |
 | `config.raw_retention_days` | How long a compacted window's raw segments are kept. Default 7. |
 | `config.compacted_retention_days` | How long a compacted window is kept. Default 400; `0` keeps it forever. |
+| `config.index` | How search indexes each compacted window's file: `full`, `metadata` or `none`. Absent leaves it to the deployment's `resources.index` rules, which can match these files with `origin: [webhook]` ([Search indexing](configuration.md#search-indexing)). Applies from the next compaction on. The portal's source editor shows it as **Search**. |
 
 A JSON path is `$` for the document, `.name` or `['name']` for a member, and
 `[n]` for an array element: `$.data.events`, `$.contact['id']`, `$[0].id`.

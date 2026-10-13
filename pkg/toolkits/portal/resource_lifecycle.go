@@ -35,6 +35,8 @@ import (
 type ResourceHolds struct {
 	Assets  int `json:"assets"`
 	Prompts int `json:"prompts"`
+	// Scripts is the managed scripts that load the file as text (#2113).
+	Scripts int `json:"scripts,omitempty"`
 	// More says a count was cut at the bound rather than being the whole of
 	// what points at the file. It is reported rather than left implicit
 	// because a short count read as a complete one is the mistake this answer
@@ -44,7 +46,7 @@ type ResourceHolds struct {
 
 // Any reports whether anything at all points at the file.
 func (h ResourceHolds) Any() bool {
-	return h.Assets > 0 || h.Prompts > 0
+	return h.Assets > 0 || h.Prompts > 0 || h.Scripts > 0
 }
 
 // Describe renders the counts as the phrases a refusal lists, one per kind that
@@ -58,6 +60,7 @@ func (h ResourceHolds) Describe() []string {
 	}{
 		{h.Assets, "1 asset references this file", "%d assets reference this file"},
 		{h.Prompts, "1 prompt attaches this file", "%d prompts attach this file"},
+		{h.Scripts, "1 managed script loads this file", "%d managed scripts load this file"},
 	} {
 		switch {
 		case part.n == 1:

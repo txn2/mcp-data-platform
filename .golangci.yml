@@ -658,6 +658,15 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      # internal/indexpolicy's surface is the values a search-indexing
+      # decision is described by (#2111): a rule, the configuration of rules,
+      # the file a rule is matched against, the decision, and the resolver that
+      # applies them. Folding any of them into another would put a second
+      # concept in one type.
+      - path: internal/indexpolicy/
+        linters:
+          - revive
+        text: "max-public-structs"
       # internal/unarchive's surface is the five values an extraction is
       # described by: the limits, the refusal naming one, the source read by
       # range, a member, and the opened archive (#1879). Folding any of them

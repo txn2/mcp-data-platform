@@ -76,3 +76,11 @@ func TestPersisted(t *testing.T) {
 		})
 	}
 }
+
+func TestWithResourcesSetsTheLibraryADraftLoadsFrom(t *testing.T) {
+	r := &Runner{}
+	assert.Same(t, r, r.WithResources(nil))
+	assert.Nil(t, r.resources)
+	id := Identity{UserID: "u", Email: "u@example.com", Roles: []string{"analyst"}}
+	assert.Equal(t, "u@example.com", resourceClaims(id).Email)
+}

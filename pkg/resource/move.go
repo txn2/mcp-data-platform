@@ -126,7 +126,7 @@ func MoveResource(ctx context.Context, deps Deps, claims *Claims, res *Resource,
 		ToScope: to.Scope, ToScopeID: to.ScopeID, ToPath: to.Path, ToURI: uri,
 		UserID: claims.Sub, UserEmail: PersonAddress(*claims),
 	}
-	dest := Move{ID: res.ID, Scope: to.Scope, ScopeID: to.ScopeID, Path: to.Path, URI: uri, FromURI: res.URI}
+	dest := Move{ID: res.ID, Scope: to.Scope, ScopeID: to.ScopeID, Path: to.Path, URI: uri, FromURI: res.URI, From: fromOf(res)}
 	if err := deps.Store.Move(ctx, []Move{dest}); err != nil {
 		if errors.Is(err, ErrURIConflict) {
 			return "", &moveConflictError{msg: fmt.Sprintf(

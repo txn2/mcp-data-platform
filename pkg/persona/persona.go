@@ -68,6 +68,14 @@ type Persona struct {
 	// leaves it false, and its calls are cataloged.
 	ServiceAccount bool `json:"service_account,omitempty" yaml:"service_account,omitempty"`
 
+	// HideAutomations takes the Automations section out of the portal for the
+	// people signed in under this persona: the nav entry, the pages and the
+	// portal's script routes (#2109). False, the zero value every persona
+	// written before it carries, shows it. An administrator keeps Automations
+	// whatever the persona says, and the script tools an agent calls are
+	// governed by Tools, not by this.
+	HideAutomations bool `json:"hide_automations,omitempty" yaml:"hide_automations,omitempty"`
+
 	// Source indicates where this persona was loaded from at runtime.
 	// Values: "file" (YAML config), "database" (DB-managed), "both" (file
 	// with DB override). This is runtime metadata — not persisted.

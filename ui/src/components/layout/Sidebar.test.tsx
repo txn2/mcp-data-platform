@@ -112,3 +112,25 @@ describe("Sidebar portal sections", () => {
     expect(screen.getAllByText("User")).toHaveLength(1);
   });
 });
+
+describe("Sidebar Automations (#2109)", () => {
+  const user = { user_id: "u1", roles: ["viewer"], is_admin: false };
+
+  it("lists Automations for a persona that shows them", () => {
+    useAuthStore.setState({ user: { ...user, automations: true } });
+    renderSidebar();
+    expect(screen.getByRole("button", { name: /Automations/ })).toBeInTheDocument();
+  });
+
+  it("leaves Automations out for a persona that hides them", () => {
+    useAuthStore.setState({ user: { ...user, automations: false } });
+    renderSidebar();
+    expect(screen.queryByRole("button", { name: /Automations/ })).not.toBeInTheDocument();
+  });
+
+  it("lists Automations when the server does not report the setting", () => {
+    useAuthStore.setState({ user });
+    renderSidebar();
+    expect(screen.getByRole("button", { name: /Automations/ })).toBeInTheDocument();
+  });
+});

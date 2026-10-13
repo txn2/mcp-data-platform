@@ -5126,3 +5126,38 @@ func TestListAssetsTagsAndMetadata(t *testing.T) {
 	assert.Len(t, metadataFilter(many), maxMetadataFilters)
 	assert.Nil(t, metadataFilter(url.Values{"tag": {"x"}}))
 }
+
+func TestGetMeReportsWhetherThePortalShowsAutomations(t *testing.T) {
+	cases := []struct {
+		name  string
+		roles []string
+		info  *PersonaInfo
+		want  bool
+	}{
+		{"persona hides automations", []string{"viewer"}, &PersonaInfo{Name: "viewer", HideAutomations: true}, false},
+		{"persona shows automations", []string{"analyst"}, &PersonaInfo{Name: "analyst"}, true},
+		{"administrator under a persona that hides them", []string{"dp_admin"}, &PersonaInfo{Name: "viewer", HideAutomations: true}, true},
+		{"no persona resolved", []string{"nobody"}, nil, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			user := &User{UserID: "user-7", Roles: c.roles}
+			h := NewHandler(Deps{
+				AssetStore:      &mockAssetStore{},
+				ShareStore:      &mockShareStore{},
+				S3Client:        &mockS3Client{},
+				AdminRoles:      []string{"dp_admin"},
+				PersonaResolver: func([]string) *PersonaInfo { return c.info },
+			}, testAuthMiddleware(user))
+
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/me", http.NoBody)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			var resp meResponse
+			require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+			assert.Equal(t, c.want, resp.Automations)
+		})
+	}
+}

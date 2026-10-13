@@ -410,13 +410,14 @@ func TestIndexProducer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New = %v, want nil error", err)
 	}
-	if got := h.IndexProducer().Kind(); got != resourceindex.SourceKind {
-		t.Errorf("IndexProducer().Kind() = %q, want %q", got, resourceindex.SourceKind)
+	producers := h.IndexProducers()
+	if len(producers) != 2 || producers[0].Kind() != resourceindex.SourceKind || producers[1].Kind() != resourceindex.FolderKind {
+		t.Errorf("IndexProducers() = %v, want the %s and %s producers", producers, resourceindex.SourceKind, resourceindex.FolderKind)
 	}
 
 	var nilHandle *Handle
-	if nilHandle.IndexProducer() != nil {
-		t.Error("nil handle IndexProducer() should be nil")
+	if got := nilHandle.IndexProducers(); len(got) != 0 {
+		t.Errorf("nil handle IndexProducers() = %v, want none", got)
 	}
 }
 

@@ -266,7 +266,7 @@ func (p folderPlan) relocate(claims *Claims, r *Resource, taken map[string]strin
 	}
 	return Move{
 		ID: r.ID, Scope: p.lib.Scope, ScopeID: p.lib.ScopeID,
-		Path: path, URI: uri, FromURI: r.URI,
+		Path: path, URI: uri, FromURI: r.URI, From: fromOf(r),
 	}, nil
 }
 

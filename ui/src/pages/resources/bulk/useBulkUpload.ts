@@ -1,3 +1,4 @@
+import type { IndexPolicy } from "@/api/resources/types";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useInvalidateResources } from "@/api/resources/hooks";
 import type { ScopeTarget } from "../scopes";
@@ -18,6 +19,8 @@ export interface BatchSettings {
   base: string;
   tags: string[];
   template: string;
+  /** How search indexes every file of the batch; absent leaves it to the rules (#2111). */
+  index?: IndexPolicy;
 }
 
 /** The request one file is sent with, injectable for a test. */
@@ -83,6 +86,7 @@ export function useBulkUpload(maxBytes: number, send: Sender = sendFile, unzip: 
         displayName: item.displayName,
         description: describe(settings.template, item.displayName.trim()),
         tags: settings.tags,
+        index: settings.index,
         filename: item.filename,
         file: item.file,
         mimeType: typeFromName(item.filename),

@@ -64,6 +64,10 @@ type Header struct {
 	// Preview is true when the run's outputs were previewed rather than
 	// written: a draft. A replay of it previews them too.
 	Preview bool `json:"preview"`
+	// Files is the version of each file the run's res: loads read (#2113),
+	// keyed by module, so a replay of it reads the same text whatever the
+	// file holds now.
+	Files map[string]script.ResourcePin `json:"files,omitempty"`
 }
 
 // Call is one host call and its answer: a tool call, or an output the run

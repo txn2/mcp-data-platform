@@ -24,6 +24,12 @@ export interface UserProfile {
    * the field, where the dialog falls back to the shipped default.
    */
   max_upload_bytes?: number;
+  /**
+   * Whether the portal shows this caller its Automations section (#2109):
+   * false when their persona hides it. Absent from a server that predates the
+   * field, which shows it.
+   */
+  automations?: boolean;
 }
 
 type AuthMethod = "cookie" | "apikey" | null;
@@ -78,6 +84,8 @@ interface AuthState {
 
   /** Convenience: true when user is admin. */
   isAdmin: () => boolean;
+  /** Whether the portal shows this caller Automations (#2109). */
+  showsAutomations: () => boolean;
 }
 
 const API_KEY_STORAGE = "mcp-portal-api-key";
@@ -273,4 +281,5 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   isAuthenticated: () => get().user !== null,
   isAdmin: () => get().user?.is_admin === true,
+  showsAutomations: () => get().user?.automations !== false,
 }));

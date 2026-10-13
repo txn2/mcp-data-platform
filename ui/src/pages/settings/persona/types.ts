@@ -27,6 +27,9 @@ export interface PersonaDraft {
   // serviceAccount marks the persona an automated caller signs in under: its
   // calls are audited but not added to Calls.
   serviceAccount: boolean;
+  // showAutomations is whether the portal shows the persona's people its
+  // Automations section; stored inverted, as hide_automations (#2109).
+  showAutomations: boolean;
 }
 
 // Scope selects the axis the allow/deny editor and the explorer address:

@@ -79,3 +79,116 @@ func TestAComputedValueIsNotAConstantAssertion(t *testing.T) {
 	source := "def main():\n    \"\"\"Prints.\"\"\"\n    print(1)\n\ndef test_main():\n    \"\"\"Runs.\"\"\"\n    main()\n    assert.eq([1, len(testing.outputs().log)], [1, 2])\n"
 	assert.NotContains(t, rulesOf(source), RuleConstantAssertion)
 }
+
+// TestAHelperOnlyTestsReachMayUseTesting is #2116: a shared helper that
+// declares a flow's answers is a test's helper when no run can reach it, and
+// the save still refuses testing anywhere a run could.
+func TestAHelperOnlyTestsReachMayUseTesting(t *testing.T) {
+	helper := `def main():
+    """Logs in and reads the list."""
+    platform.call("api_invoke_endpoint", {"path": "/login"})
+
+def fake_login(times = 1):
+    """Declares the login the flow makes."""
+    testing.answer("api_invoke_endpoint", {"path": "/login"}, {"status": 200, "body": {}}, times = times)
+
+def answers_for(n):
+    """A second helper, reached only through the first's callers."""
+    fake_login(n)
+
+def test_main():
+    """Runs main."""
+    answers_for(1)
+    main()
+    assert.eq(len(testing.outputs().calls), 1)
+`
+	rules := rulesOf(helper)
+	assert.NotContains(t, rules, RuleTestModuleOutsideTest, "a helper only tests reach may declare answers")
+
+	for name, source := range map[string]string{
+		"main calls it": `def main():
+    """Calls the helper."""
+    fake_login()
+
+def fake_login():
+    """Declares the login."""
+    testing.answer("api_invoke_endpoint", {"path": "/login"}, {"status": 200})
+`,
+		"a run reaches it through another function": `def main():
+    """Calls a step."""
+    step()
+
+def step():
+    """The step."""
+    fake_login()
+
+def fake_login():
+    """Declares the login."""
+    testing.answer("x", {}, {})
+`,
+		"passed as a value": `def main():
+    """Maps over it."""
+    print([f() for f in [fake]])
+
+def fake():
+    """Asserts."""
+    assert.true(True)
+`,
+		"top-level code reaches it": `def fake():
+    """Asserts."""
+    assert.true(True)
+
+FIRST = fake
+
+def main():
+    """Prints."""
+    print(1)
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Contains(t, rulesOf(source), RuleTestModuleOutsideTest)
+		})
+	}
+}
+
+// A helper may declare answers, but a test names the recording it replays
+// itself, which is how a save knows which recordings to keep.
+func TestAHelperMayNotNameARecording(t *testing.T) {
+	source := `def main():
+    """Prints."""
+    print(1)
+
+def replayed():
+    """Replays a recording."""
+    testing.replay("run_1")
+
+def test_main():
+    """Runs main."""
+    replayed()
+    main()
+    assert.eq(testing.outputs().log, "1\n")
+`
+	found := lint(source)
+	var messages []string
+	for _, f := range found {
+		if f.rule == RuleTestModuleOutsideTest {
+			messages = append(messages, f.message)
+		}
+	}
+	assert.Equal(t, []string{"`testing.replay` is called in replayed, which is not a test"}, messages)
+
+	calls := `def main():
+    """Prints."""
+    print(1)
+
+def helper():
+    """Calls a test."""
+    test_main()
+
+def test_main():
+    """Runs main."""
+    main()
+    assert.eq(testing.outputs().log, "1\n")
+`
+	assert.Contains(t, rulesOf(calls), RuleTestCalled)
+}

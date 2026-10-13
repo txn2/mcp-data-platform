@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptpace"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsql"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
@@ -110,7 +111,7 @@ const (
 // by Validate, which reports the tool names it names.
 var Capabilities = []string{
 	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
-	CapabilityCheckpoint, CapabilityRemainingMS, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
+	CapabilityCheckpoint, CapabilityRemainingMS, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
 }
 
 // The formats platform.export accepts, split by what serializes them. A format
@@ -318,54 +319,23 @@ type HostValuer interface {
 	HostValue(name string) (map[string]any, error)
 }
 
-// remainingKey is the reserved name the time left is recorded under, beside
-// the run's tool calls, so a replay answers it in the order it was read.
-const remainingKey = "platform.remaining_ms"
-
-// remainingMS reports the milliseconds the run has before its deadline
-// (#2004). A script has no clock, so a long job that budgets its time would
-// otherwise add up duration_ms from its answers, which misses everything that
-// is not a tool answer. Each value is recorded with the run, and a test reads
-// the recorded value back, or the one testing.set_run(remaining_ms=...) sets,
-// so a test reaches the "out of time" branch deterministically.
-func (h *hostState) remainingMS(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs); err != nil {
-		return nil, argErr(b, err)
-	}
+// clock is the run's time as platform.remaining_ms and platform.sleep read
+// it (#2004, #2112): the deadline, and in a test the value set_run pinned or
+// the recording holds.
+func (h *hostState) clock() scriptpace.Clock {
+	c := scriptpace.Clock{Ctx: h.ctx, Testing: h.opts.Test != nil, Record: h.opts.OnCall}
 	if h.opts.Test != nil {
-		return h.testRemaining(b)
-	}
-	ms := max(h.remaining().Milliseconds(), 0)
-	if h.opts.OnCall != nil {
-		h.opts.OnCall(remainingKey, map[string]any{}, map[string]any{"remaining_ms": ms}, nil)
-	}
-	return starlark.MakeInt64(ms), nil
-}
-
-// testRemaining is remaining_ms in a test: the value testing.set_run set, or
-// the next one the recording holds.
-func (h *hostState) testRemaining(b *starlark.Builtin) (starlark.Value, error) {
-	if in := h.opts.Test.Inputs; in != nil && in.RemainingMS != nil {
-		return starlark.MakeInt64(*in.RemainingMS), nil
-	}
-	values, ok := h.opts.Caller.(HostValuer)
-	if !ok {
-		return nil, fmt.Errorf("in %s: this test has no recording to read the value from; "+
-			"set it with testing.set_run(remaining_ms=...)", b.Name())
-	}
-	out, err := values.HostValue(remainingKey)
-	if err != nil {
-		return nil, fmt.Errorf("in %s: %w; set the value a test reads with testing.set_run(remaining_ms=...)", b.Name(), err)
-	}
-	ms, ok := out["remaining_ms"].(float64)
-	if !ok {
-		n, isInt := out["remaining_ms"].(int64)
-		if !isInt {
-			return nil, fmt.Errorf("in %s: the recording holds no value", b.Name())
+		c.Pinned = func() *int64 {
+			if in := h.opts.Test.Inputs; in != nil {
+				return in.RemainingMS
+			}
+			return nil
 		}
-		ms = float64(n)
 	}
-	return starlark.MakeInt64(int64(ms)), nil
+	if values, ok := h.opts.Caller.(HostValuer); ok {
+		c.Recorded = values.HostValue
+	}
+	return c
 }
 
 // stateObject converts the dict a script passed to save_state into the plain
@@ -1046,17 +1016,17 @@ func PublishRowCount(data any) int {
 // destination's configured prefix, and the rows themselves.
 func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (ExportRequest, error) {
 	var (
-		name           string
-		format         string
-		destination    string
-		key            string
-		rows           starlark.Value
-		register       starlark.Value
-		references     starlark.Value
-		tags           starlark.Value
-		metadata       starlark.Value
-		appendRows     bool
-		scope, scopeID string
+		name                  string
+		format                string
+		destination           string
+		key                   string
+		rows                  starlark.Value
+		register              starlark.Value
+		references            starlark.Value
+		tags                  starlark.Value
+		metadata              starlark.Value
+		appendRows            bool
+		scope, scopeID, index string
 	)
 	// destination and key must be NAMED. The static validator reads keyword
 	// arguments, so a destination passed by position would be invisible to it —
@@ -1071,7 +1041,7 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 		"name", &name, "rows", &rows, "format?", &format,
 		"destination?", &destination, "key?", &key, "register?", &register,
 		"references?", &references, "tags?", &tags, "metadata?", &metadata, "append?", &appendRows,
-		"scope?", &scope, "scope_id?", &scopeID); err != nil {
+		"scope?", &scope, "scope_id?", &scopeID, "index?", &index); err != nil {
 		return ExportRequest{}, argErr(b, err)
 	}
 	if format == "" {
@@ -1098,12 +1068,12 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 		return ExportRequest{}, err
 	}
 	scope, scopeID = strings.TrimSpace(scope), strings.TrimSpace(scopeID)
-	if err := exportlibrary.CheckFor(resolved.IsResource(), scope, scopeID); err != nil {
+	if index, err = exportlibrary.CheckArgs(resolved.IsResource(), scope, scopeID, index); err != nil {
 		return ExportRequest{}, argErr(b, err)
 	}
 	req := ExportRequest{
 		Name: name, Format: format, Columns: starlarkconv.ColumnOrder(rows), Destination: resolved, Key: key,
-		Library: ResourceLibrary{Scope: scope, ScopeID: scopeID}.Normalized(), Append: appendRows,
+		Library: ResourceLibrary{Scope: scope, ScopeID: scopeID}.Normalized(), Append: appendRows, Index: index,
 	}
 	if err := exportContent(b, format, rows, &req); err != nil {
 		return ExportRequest{}, err

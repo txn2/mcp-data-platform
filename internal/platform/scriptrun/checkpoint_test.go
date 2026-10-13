@@ -28,7 +28,7 @@ func TestRemainingMSIsRecordedLive(t *testing.T) {
 		Source: "def main():\n    \"\"\"Reads the time left.\"\"\"\n    platform.result(platform.remaining_ms())\n",
 		Name:   "t", Caller: noCaller{}, Timeout: 2 * time.Minute,
 		OnCall: func(tool string, _, out map[string]any, _ error) {
-			if tool == remainingKey {
+			if tool == CapabilityRemainingMS {
 				recorded = append(recorded, out)
 			}
 		},
@@ -58,7 +58,8 @@ func TestCheckpointAndRemainingRefuseBadArguments(t *testing.T) {
 // TestRemainingMSInATestWithoutARecording names the way out.
 func TestRemainingMSInATestWithoutARecording(t *testing.T) {
 	h := &hostState{ctx: context.Background(), opts: Options{Test: &TestHooks{}, Caller: noCaller{}}}
-	_, err := h.testRemaining(starlark.NewBuiltin(CapabilityRemainingMS, nil))
+	b := starlark.NewBuiltin(CapabilityRemainingMS, nil)
+	_, err := h.clock().RemainingMS(nil, b, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "testing.set_run(remaining_ms=")
 }

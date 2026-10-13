@@ -1,3 +1,4 @@
+import type { IndexPolicy } from "@/api/resources/types";
 /**
  * Sending one file of a bulk upload to POST /api/v1/resources (#1862).
  *
@@ -35,6 +36,8 @@ export interface SendFields {
   displayName: string;
   description: string;
   tags: string[];
+  /** How search indexes the file; absent leaves it to the rules (#2111). */
+  index?: IndexPolicy;
   filename: string;
   file: File;
   /** Declared for a file the browser handed over untyped. */
@@ -54,6 +57,7 @@ export function sendForm(f: SendFields): FormData {
   fd.set("display_name", f.displayName.trim());
   fd.set("description", f.description);
   for (const t of f.tags) fd.append("tags", t);
+  if (f.index) fd.set("index", f.index);
   // An address already holding the same bytes is left alone and one holding
   // different bytes gets a new version, so re-uploading a folder that is
   // mostly unchanged writes only what changed.

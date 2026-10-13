@@ -58,6 +58,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptpace"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
@@ -448,7 +449,9 @@ type ExportRequest struct {
 	// configured prefix, empty when it named none and never set for the portal.
 	Key string
 	// Library is the library scope= names for "resources" (#2080); Key is the path in it.
+	// Index is index= (#2111): how search indexes the file, empty for the deployment's rules.
 	Library ResourceLibrary
+	Index   string
 	// Register is the table the script asked to register over the written
 	// file (#1820), nil when it asked for none. The host binding makes the
 	// registration once the Exporter has written the file; a writer ignores it.
@@ -724,6 +727,7 @@ const (
 //
 // Its keys are PredeclaredNames, which TestPredeclaredMatchesNames pins.
 func predeclared(host *hostState) starlark.StringDict {
+	clock := host.clock()
 	env := starlark.StringDict{
 		"platform": &starlarkstruct.Module{
 			Name: "platform",
@@ -735,7 +739,8 @@ func predeclared(host *hostState) starlark.StringDict {
 				"call":         starlark.NewBuiltin(CapabilityCall, host.guarded(host.call)),
 				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.guarded(host.saveState)),
 				"checkpoint":   starlark.NewBuiltin(CapabilityCheckpoint, host.guarded(host.checkpoint)),
-				"remaining_ms": starlark.NewBuiltin(CapabilityRemainingMS, host.guarded(host.remainingMS)),
+				"remaining_ms": starlark.NewBuiltin(CapabilityRemainingMS, host.guarded(clock.RemainingMS)),
+				"sleep":        starlark.NewBuiltin(scriptpace.SleepCapability, host.guarded(clock.Sleep)),
 				"notify":       starlark.NewBuiltin(CapabilityNotify, host.guarded(host.notify)),
 				"publish":      starlark.NewBuiltin(CapabilityPublish, host.guarded(host.publish)),
 				"progress":     host.log.Bindings()["progress"],

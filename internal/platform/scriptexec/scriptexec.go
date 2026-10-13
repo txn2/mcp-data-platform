@@ -43,6 +43,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
@@ -163,6 +164,10 @@ type Config struct {
 	// (#1941). Nil falls back to PostgreSQL over DB, and with no DB every
 	// load is refused.
 	Libraries scriptlib.Source
+
+	// Sources reads the managed-resource files a run's version loads as
+	// text, at the versions it pinned (#2113). Nil refuses such a load.
+	Sources *scriptsrc.Reader
 
 	// Limits are a platform run's ceilings: its wall-clock timeout, its
 	// interpreter steps, and the rows one platform.query may return. Zero

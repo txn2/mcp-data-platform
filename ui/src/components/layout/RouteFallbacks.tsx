@@ -34,6 +34,24 @@ export function AdminOnlyNotice() {
 }
 
 /**
+ * AutomationsHiddenNotice is what /automations renders for a caller whose
+ * persona takes Automations out of the portal (#2109). The server refuses the
+ * section's routes as well; this says why the page is empty.
+ */
+export function AutomationsHiddenNotice() {
+  return (
+    <Alert variant="destructive" className="mx-auto max-w-md">
+      <ShieldAlert />
+      <AlertTitle>Access denied</AlertTitle>
+      <AlertDescription>
+        Automations are not available to your persona. Ask an administrator if
+        you need them.
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
  * PageNotFound is what a path with no page renders (#1359).
  *
  * It exists because the alternative is not an error, it is a false statement:

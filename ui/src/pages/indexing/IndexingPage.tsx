@@ -1,3 +1,4 @@
+import { ResourceSearchSection } from "./components/resourcesearch";
 import { useMemo, useState } from "react";
 import { Loader2, Database } from "lucide-react";
 import {
@@ -124,6 +125,9 @@ export function IndexingPage() {
 
           {/* Asked only of a deployment that indexes the call catalog. */}
           {kinds.some((k) => k.kind === "calls") && <TopCallersSection />}
+
+          {/* Asked only of a deployment that indexes managed resources (#2111). */}
+          {kinds.some((k) => k.kind === "resources") && <ResourceSearchSection />}
 
           <QueueMetricPanels />
 

@@ -61,6 +61,7 @@ func TestUpdateWithVersion_SnapshotsOnlyWhenTheSubstanceMoved(t *testing.T) {
 		expectNextVersion(mock, 2)
 		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 			WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 		expectLiveRowUpdate(mock, true)
 		mock.ExpectCommit()
 
@@ -210,6 +211,7 @@ func TestCreate_SnapshotsAnAuthorWithNoRoles(t *testing.T) {
 			AddRow("script_1", rowTime, rowTime))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
 	sc := &script.Script{Name: "daily", Source: "print(1)"}
@@ -279,6 +281,7 @@ func TestCreate_WritesTheTestReport(t *testing.T) {
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sql.NullString{String: `{"tests":[],"passed":2,"failed":0,"coverage":{"statements":4,"covered":4,"percent":100,"missed_lines":[]}}`, Valid: true}).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
 	sc := &script.Script{Name: "daily", Source: "print(1)", Tests: &testreport.Report{

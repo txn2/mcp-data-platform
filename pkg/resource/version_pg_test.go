@@ -84,9 +84,9 @@ func TestAddRevision(t *testing.T) {
 			WithArgs("r1", "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", "", []byte(`{}`)).
 			WillReturnRows(versionRows().
 				AddRow("r1", 3, "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", nil, []byte(`{}`), now))
-		mock.ExpectExec("UPDATE resources").
-			WithArgs("text/csv", int64(12), "k/v/rev1/f.csv", "r1").
-			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery("UPDATE resources").
+			WithArgs("text/csv", int64(12), "k/v/rev1/f.csv", "r1", "", false).
+			WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "samples"))
 		mock.ExpectCommit()
 
 		v, err := store.AddRevision(context.Background(), Revision{
@@ -118,7 +118,7 @@ func TestAddRevision(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		mock.ExpectQuery("INSERT INTO resource_versions").
 			WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "sub", "", nil, "", nil, []byte(`{}`), time.Now()))
-		mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectQuery("UPDATE resources").WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}))
 		mock.ExpectRollback()
 
 		if _, err := store.AddRevision(context.Background(), Revision{ResourceID: "r1"}); err == nil {
@@ -145,7 +145,7 @@ func TestAddRevision(t *testing.T) {
 		mock.ExpectQuery("INSERT INTO resource_versions").
 			WithArgs("r1", "", int64(0), "", "", "", int64(2), "", "", []byte(`{}`)).
 			WillReturnRows(versionRows().AddRow("r1", 5, "", int64(0), "", "", "", 2, "", nil, []byte(`{}`), time.Now()))
-		mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery("UPDATE resources").WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "samples"))
 		mock.ExpectCommit()
 
 		v, err := store.AddRevision(context.Background(), Revision{ResourceID: "r1", RestoredFrom: &from})
@@ -397,7 +397,7 @@ func TestVersionMetadataRoundTrips(t *testing.T) {
 	mock.ExpectQuery("INSERT INTO resource_versions").
 		WithArgs("r1", "text/csv", int64(1), "k", "", "", nil, "", "", []byte(`{"truncated":true}`)).
 		WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "", "", nil, "", nil, []byte(`{"truncated":true}`), now))
-	mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("UPDATE resources").WillReturnRows(sqlmock.NewRows([]string{"index_policy", "scope", "scope_id", "path"}).AddRow("full", "global", "", "samples"))
 	mock.ExpectCommit()
 	v, err := store.AddRevision(context.Background(), Revision{
 		ResourceID: "r1", MIMEType: "text/csv", SizeBytes: 1, S3Key: "k", Metadata: map[string]any{"truncated": true},
