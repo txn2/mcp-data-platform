@@ -3080,6 +3080,80 @@ definitions:
       title:
         type: string
     type: object
+  catalogscan.Exclusion:
+    properties:
+      connection:
+        type: string
+      connection_kind:
+        type: string
+      entries:
+        items:
+          type: string
+        type: array
+    type: object
+  catalogscan.Outcome:
+    properties:
+      connection:
+        type: string
+      connection_kind:
+        type: string
+      datasets:
+        type: integer
+      error:
+        description: |-
+          Error is why the scan of this connection stopped. A failed scan marks
+          nothing removed: what it did not read is not evidence of absence.
+        type: string
+      finished_at:
+        type: string
+      removed:
+        type: integer
+      started_at:
+        type: string
+      unread:
+        description: |-
+          Unread are the parts of the connection the scan could not read, such
+          as a Trino catalog whose connector is down. The rest is cataloged, and
+          nothing under an unread part is marked removed.
+        items:
+          $ref: '#/definitions/catalogscan.Unread'
+        type: array
+    type: object
+  catalogscan.Settings:
+    properties:
+      exclusions:
+        items:
+          $ref: '#/definitions/catalogscan.Exclusion'
+        type: array
+      scan_interval:
+        description: |-
+          ScanInterval is how often every connection is scanned, as a Go
+          duration ("6h"). Empty means DefaultScanInterval.
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+    type: object
+  catalogscan.Unread:
+    properties:
+      error:
+        type: string
+      path:
+        type: string
+    type: object
+  catalogscanapi.ScanList:
+    properties:
+      scans:
+        items:
+          $ref: '#/definitions/catalogscan.Outcome'
+        type: array
+    type: object
+  catalogscanapi.ScanRequested:
+    properties:
+      status:
+        type: string
+    type: object
   channelhttp.PublishRequest:
     properties:
       asset_id:
@@ -14189,6 +14263,108 @@ paths:
       summary: Who wrote the call catalog
       tags:
       - Calls
+  /admin/catalog/scans:
+    get:
+      description: 'Returns the last scan of every connection: when it ran, how many
+        datasets it wrote, how many it marked removed, and why it stopped when it
+        failed. A failed scan marks nothing removed.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalogscanapi.ScanList'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List catalog scans
+      tags:
+      - Catalog
+    post:
+      description: Records a request to scan every connection without waiting for
+        the interval, and returns before the scan runs. Whichever replica next takes
+        the scan lock runs it, so a request made while another replica is scanning
+        is kept. Read its outcome from GET /admin/catalog/scans.
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/catalogscanapi.ScanRequested'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Scan every connection now
+      tags:
+      - Catalog
+  /admin/catalog/settings:
+    get:
+      description: Returns how often every connection is scanned into the catalog
+        and the dotted catalog, schema or operation prefixes each connection keeps
+        out of it. A deployment that never saved settings reads the defaults.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalogscan.Settings'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get catalog settings
+      tags:
+      - Catalog
+    put:
+      consumes:
+      - application/json
+      description: 'Replaces the catalog settings. scan_interval is a duration such
+        as 6h, at least 5m. Each exclusion names a connection by kind and name and
+        lists dotted prefixes: a Trino catalog, catalog.schema, or catalog.schema.table;
+        an operation id; a GraphQL query or mutation path. The next scan leaves excluded
+        datasets out and marks any it cataloged before as removed.'
+      parameters:
+      - description: The settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/catalogscan.Settings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalogscan.Settings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Save catalog settings
+      tags:
+      - Catalog
   /admin/collections:
     get:
       description: Returns all asset collections without owner restriction, with active
@@ -29275,6 +29451,8 @@ tags:
     description: "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version — which binds the capability grant it executes under and is the only thing that makes a script executable."
   - name: "Secrets"
     description: "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."
+  - name: "Catalog"
+    description: "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."
   - name: "Webhooks"
     description: "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."
   - name: "System"
@@ -29330,6 +29508,7 @@ x-tagGroups:
       - "Audit"
       - "Auth Keys"
       - "Calls"
+      - "Catalog"
       - "Config"
       - "Connections"
       - "Notifications"

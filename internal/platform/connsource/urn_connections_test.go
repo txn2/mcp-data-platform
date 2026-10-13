@@ -108,3 +108,20 @@ func TestConnectionNamesForURN(t *testing.T) {
 			"no live connection can serve the URN")
 	})
 }
+
+// TestConnectionNamesForURN_CatalogReference proves a platform catalog
+// reference is served by the connection it names, and only that one, by the
+// name a persona's rules match (#1919).
+func TestConnectionNamesForURN_CatalogReference(t *testing.T) {
+	toolkits := []registry.Toolkit{
+		&mockToolkit{kind: "trino", name: "warehouse", connection: "Warehouse"},
+		&mockToolkit{kind: "trino", name: "archive"},
+	}
+	assert.Equal(t, []string{"Warehouse"},
+		ConnectionNamesForURN(nil, toolkits, "mcp:dataset:(trino,warehouse,hive.sales.orders)"))
+	assert.Equal(t, []string{"Warehouse"},
+		ConnectionNamesForURN(nil, toolkits, "mcp:column:(trino,warehouse,hive.sales.orders,id)"))
+	assert.Equal(t, []string{"gone"},
+		ConnectionNamesForURN(nil, toolkits, "mcp:dataset:(trino,gone,a.b.c)"), "a connection nothing serves keeps its own name")
+	assert.Empty(t, ConnectionNamesForURN(nil, toolkits, "mcp:glossary_term:t1"))
+}

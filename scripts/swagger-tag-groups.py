@@ -108,6 +108,11 @@ TAG_DESCRIPTIONS = {
         "Each secret names the connections it may be sent through and, optionally, the "
         "personas that may use it. Values are write-only."
     ),
+    "Catalog": (
+        "The platform catalog's scan of every connection: how often it runs, the catalogs, "
+        "schemas and operations each connection keeps out of the catalog, each connection's "
+        "last scan, and a request to scan now."
+    ),
     "Webhooks": (
         "Inbound webhook sources: the addresses external systems post events to at "
         "/hooks/{source}. Create, change, rotate the secret of, and delete a source, and "
@@ -200,6 +205,7 @@ TAG_GROUPS = [
             "Audit",
             "Auth Keys",
             "Calls",
+            "Catalog",
             "Config",
             "Connections",
             "Notifications",

@@ -1315,9 +1315,9 @@ storage:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `semantic.provider` | string | - | Provider type: `datahub` or `noop` |
-| `semantic.instance` | string | - | Toolkit instance name |
-| `semantic.cache.enabled` | bool | `false` | Enable semantic metadata caching. A read that reports the catalog holds no entity for a URN is cached for the same TTL as one that returns an entity, so a table absent from the catalog is looked up once per TTL rather than once per tool call. |
+| `semantic.provider` | string | - | With a database, the [platform catalog](catalog.md) is the semantic provider. `datahub` is read as the platform catalog until this setting is removed; `noop` turns the semantic layer off. Any other value is refused at startup. |
+| `semantic.instance` | string | - | No effect on the platform catalog |
+| `semantic.cache.enabled` | bool | `false` | No effect on the platform catalog, which is read from the platform's own database. Enabled semantic metadata caching for a DataHub provider. A read that reports the catalog holds no entity for a URN is cached for the same TTL as one that returns an entity, so a table absent from the catalog is looked up once per TTL rather than once per tool call. |
 | `semantic.cache.ttl` | duration | `5m` | Cache TTL |
 | `query.provider` | string | - | Provider type: `trino` or `noop` |
 | `query.instance` | string | - | Toolkit instance name |
@@ -1398,6 +1398,7 @@ knowledge:
     sync_interval: 30m
     max_entries: 5000
   verifiable_insights: true
+  index_reconcile_interval: 5m
   search_provider_timeout: 5s
   search_embed_timeout: 5s
 ```
@@ -1413,8 +1414,9 @@ knowledge:
 | `pages.oversize_bytes` | int | `16384` | Body size, in bytes, at or above which a page write returns a non-blocking suggestion to split it. A negative value disables this arm. This is an editorial nudge toward focused, cross-linked pages, not a bound on what search can reach: a page's content is embedded as chunks sized to the provider's input budget, so a page of any size is semantically searchable end to end |
 | `pages.oversize_sections` | int | `12` | Markdown heading count at or above which the same split suggestion fires. A negative value disables this arm |
 | `reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction when a Trino query errors and a later related same-session query on the same connection succeeds (#635). Source `automation`, reviewed sink-class (enters review, never live), gated by the persona's `memory_capture` grant. Default-on when the memory subsystem is available; set `false` to disable |
-| `catalog_index.enabled` | bool | `true` | Index the catalog's dataset descriptions into the platform's own semantic search, so a fact applied to a description is reachable from a topical query that names no entity. Requires a DataHub semantic provider, a database, and an embedding provider; without any of those it is inert. Set `false` to opt out, leaving catalog datasets ranked by DataHub's own keyword search alone |
-| `catalog_index.sync_interval` | duration | `30m` | How often the catalog is re-enumerated into that index. The sweep runs as a background index job, so raising it trades freshness for load on DataHub; lowering it makes a newly applied description searchable sooner |
+| `catalog_index.enabled` | bool | `true` | Index the [platform catalog](catalog.md)'s dataset descriptions into the platform's own semantic search, so a fact applied to a description is reachable from a topical query that names no entity. Requires a database and an embedding provider; without either it is inert. Set `false` to opt out |
+| `catalog_index.sync_interval` | duration | `30m` | The longest the index goes without re-reading the catalog. A catalog that changed since the last read is re-read on the index queue's next check (`index_reconcile_interval`) whatever this says |
+| `index_reconcile_interval` | duration | `5m` | How often the index queue checks every index for work it owes: a catalog changed since its last read, a vector from an old embedding model. Lowering it makes a catalog change searchable sooner, at the cost of checking every index that often |
 | `catalog_index.max_entries` | int | `5000` | Cap on how many datasets are mirrored. The cap bounds both the table and one sweep's working set. A catalog larger than this indexes the first `max_entries` datasets in catalog order and logs the truncation |
 | `verifiable_insights` | bool | `true` | Mark a delivered insight as checkable: when the catalog entity its claim is about resolves to a queryable table, the delivered record carries a `verifiable` block naming that table and connection, on every delivery surface (`search` insight hits, `fetch` of `mcp:insight:<id>`, and the `memory_context` enrichment block). Additive and absent whenever nothing resolves, so a deployment with no query provider is unaffected; it honors the persona connection boundary, and resolves without running the `COUNT(*)` that `enrichment.estimate_row_counts` enables. Set `false` to deliver insights with no marker |
 | `search_provider_timeout` | duration | `5s` | Per-provider deadline for the `search` fan-out arms. Each knowledge source (catalog, memory, insights, endpoints, …) is bounded by this, so one slow source drops out as a collected error while the rest still return, instead of stalling the whole search. Set a negative duration to disable the bound (a search then waits for its slowest provider). |

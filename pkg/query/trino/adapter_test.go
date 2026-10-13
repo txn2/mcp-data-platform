@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -637,3 +639,17 @@ func TestResolveTableWithCatalogMapping(t *testing.T) {
 
 // Verify Adapter implements Provider interface.
 var _ query.Provider = (*Adapter)(nil)
+
+// TestResolveTableCatalogReference resolves a platform catalog reference
+// (#1919) to the table and connection it names, with no mapping applied.
+func TestResolveTableCatalogReference(t *testing.T) {
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test-conn", CatalogMapping: map[string]string{"x": "y"}}, &mockTrinoClient{})
+	got, err := adapter.ResolveTable(context.Background(), "mcp:dataset:(trino,warehouse,x.sales.orders)")
+	require.NoError(t, err)
+	assert.Equal(t, query.TableIdentifier{Catalog: "x", Schema: "sales", Table: "orders", Connection: "warehouse"}, *got)
+
+	for _, ref := range []string{"mcp:dataset:(api,stripe,listCharges)", "mcp:dataset:(trino,w,a.b)"} {
+		_, err = adapter.ResolveTable(context.Background(), ref)
+		assert.Error(t, err, ref)
+	}
+}

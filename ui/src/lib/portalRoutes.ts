@@ -57,6 +57,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/admin/users",
   "/admin/secrets",
   "/admin/webhooks",
+  "/admin/catalog",
   "/admin/changelog",
   "/admin/settings",
 ];

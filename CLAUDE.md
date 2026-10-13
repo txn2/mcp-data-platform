@@ -174,7 +174,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 43 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 44 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter); helper subpackages are omitted for brevity. Regenerate this list with
 `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and diff against the packages
@@ -188,12 +188,13 @@ an implementation seam and belongs under `internal/`.
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (43 top-level packages)
+├── pkg/                            # PUBLIC API (44 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
 │   ├── authevents/                 # Durable audit history for the OAuth authorization flow
 │   ├── blobserve/                  # Raw-content HTTP writer: sanitized type, nosniff, disposition, byte ranges
+│   ├── catalog/                    # The platform's own catalog: datasets, columns, glossary, tags, domains, data products, their curation as versioned aspects with rollback, and the mcp:dataset:(kind,connection,path) reference form; its PostgreSQL store is internal/platform/catalogstore (#1917)
 │   ├── browsersession/             # Browser-based OIDC authentication (cookie sessions)
 │   ├── configstore/                # Granular key/value storage for platform config (postgres/)
 │   ├── connoauth/                  # Shared OAuth-to-upstream-MCP implementation across connection kinds
@@ -201,7 +202,7 @@ mcp-data-platform/
 │   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 178 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 196 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
@@ -244,6 +245,8 @@ mcp-data-platform/
 │   ├── urnbuild/                   # Constructs DataHub dataset URNs from query-engine table identifiers
 │   └── user/                       # Directory of known people keyed by email
 ├── internal/                       # Non-exported implementation (not part of the supported library surface)
+│   ├── catalogscan/                # (under internal/platform) the platform catalog's scan (#1918): Trino/API/GraphQL sources, per-connection exclusions and the interval (platform_settings section "catalog"), each connection's last scan (catalog_scans), the advisory-locked loop; internal/httpserver/catalogwire assembles it from the live toolkits and internal/admin/catalogscanapi serves it
+│   ├── catalogsemantic/            # (under internal/platform) the semantic.Provider over the platform catalog (#1919), the only provider on a deployment with a database; resolves a table by the calling connection, else the first connection that catalogs its path, and accepts urn:li:dataset URNs by path
 │   ├── agentinstructions/          # The deployment's customized agent-instruction layer as a policy rather than a config value (#1607): the byte bound and size advisory both its writers enforce, the config-store adapter it is read and written through, and the `mcp:knowledge_page:<slug>` index-entry form BOTH instruction layers point at a page with
 │   ├── admin/                      # Admin-API seams built only by pkg/admin: auditapi/ (events + metrics), callapi/ (the call catalog + its review actions), catalogapi/ (OpenAPI spec bundles + embedding jobs), connoauthapi/ (connection OAuth, unified + legacy per-kind), secretapi/ (stored secrets, #2051), mapsapi/ (the maps settings, regions, refresh and size estimate, #2068), graphqlapi/ (a graphql connection's schema: read the state, re-read it from the endpoint, or take the one an operator pastes for an endpoint that disables introspection), notifyapi/ (notification delivery history + status counts), settingsapi/ (SMTP + review-queue-alert settings REST) — extracted by #1078
 │   ├── apigwmetrics/               # The api gateway's outbound HTTP instrumentation as an http.RoundTripper: the connection/status labels, and the persona the call was authorized under, read off the request context the tool call carries (#1615). Holds no gateway types, and was extracted when pkg/toolkits/apigateway reached its package-size budget
@@ -264,6 +267,7 @@ mcp-data-platform/
 │   ├── hmacsig/                    # The one definition of a webhook HMAC signature (#1996): the bytes signed (body, timestamp.body, id.timestamp.body), the signature header written and read back (prefix, space-separated signatures, Stripe's t=,v1= format), the Standard Webhooks whsec_ key, and the standard_webhooks/github/stripe/platform presets. Inbound sources verify with it (internal/webhook/whauth) and an outbound auth_mode=hmac connection signs with it (internal/upstreamauth), so the two agree by construction
 │   ├── buildinfo/                  # The identity of the running binary: the version, commit and build date the release stamps in through ldflags. The one place those live, so --version, the admin system route and the outbound User-Agent report the same build; it imports nothing first-party because the transport seam needs it and cannot import internal/server (#1679)
 │   ├── useragent/                  # The User-Agent the platform presents to an upstream (`mcp-data-platform/<version>`) and the one rule for when it is sent: on every outbound request that does not already carry one, applied as an http.RoundTripper over every client internal/upstreamauth and pkg/connoauth build. A static_headers or per-call value is already on the request and is left alone (#1679) Since #1895 the outbound chain (internal/outbound) is what applies it.
+│   ├── sqllineage/                 # (under internal/platform) lineage recorded from the statements the platform runs and from managed-script runs (#1922): an audit decorator turns a trino_execute write (CTAS, INSERT ... SELECT, MERGE, CREATE VIEW) into edges from each table read to the table written; a per-run collector records edges from the tables a script read to the files it exported
 │   ├── scratchcatalog/             # The query engine's refusals of the scratch catalog's partition procedures read into the setting that fixes each (#1888): a procedure access control denies the connection's Trino user (add a procedures rule) and register_partition disabled by the catalog (set hive.allow-register-partition-procedure). One copy for the webhook source pre-check and the Trino connection test
 │   ├── connprobe/                  # Opening one of a toolkit's connections on request and reporting what its upstream said: the Prober a kind implements, the Result an operator reads, and the scrub that keeps a DSN's password out of it. Its own package rather than a corner of pkg/toolkit, which describes what a toolkit reports about a connection WITHOUT being asked (#1805)
 │   ├── connstate/                  # Each connection's state as the calls that used it last found it (#1898): healthy, unreachable, auth_failed. Fed by the outbound chain (api, graphql, mcp), the Trino telemetry (mcp-trino's failure classification) and the S3 toolkit, read by mcp_platform_connections; nothing in it sends a request, and a connection no call has used reads configured
@@ -411,6 +415,8 @@ needs its own `connections:` block; `personas.default_persona` was removed and
 a config that still sets it is refused at startup (`pkg/platform/config.go`).
 
 ### Semantic Layer
+
+With a database, the platform catalog (`pkg/catalog`, `internal/platform/catalogstore`, `docs/server/catalog.md`) is the semantic provider; `semantic.provider: datahub` is read as the catalog until the key is removed (#1925), and `noop` turns the layer off. The block below is the historical DataHub shape.
 ```yaml
 semantic:
   provider: datahub

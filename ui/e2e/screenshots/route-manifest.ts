@@ -485,6 +485,22 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   {
+    // The platform catalog's scan (#1918): each connection's last scan, and
+    // the Settings tab with the interval and the per-connection exclusions.
+    slug: "admin-catalog",
+    path: "/portal/admin/catalog",
+    category: "admin",
+  },
+  {
+    slug: "admin-catalog-settings",
+    path: "/portal/admin/catalog",
+    category: "admin",
+    beforeCapture: async (page) => {
+      await page.getByRole("tab", { name: "Settings" }).click();
+      await page.waitForTimeout(300);
+    },
+  },
+  {
     slug: "admin-changelog",
     path: "/portal/admin/changelog",
     category: "admin",

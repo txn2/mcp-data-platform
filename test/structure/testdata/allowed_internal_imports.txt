@@ -28,6 +28,8 @@ internal/admin/catalogapi -> pkg/toolkits/apigateway
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalog
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalogindex
 internal/admin/catalogapi -> pkg/toolkits/graphql
+internal/admin/catalogscanapi -> internal/httpjson
+internal/admin/catalogscanapi -> internal/platform/catalogscan
 internal/admin/connoauthapi -> internal/httpjson
 internal/admin/connoauthapi -> internal/logsan
 internal/admin/connoauthapi -> internal/outbound
@@ -97,7 +99,6 @@ internal/httpobs -> internal/logsan
 internal/httpobs -> pkg/observability
 internal/httpserver -> internal/admin/resindexapi
 internal/httpserver -> internal/admin/secretapi
-internal/httpserver -> internal/admin/webhookapi
 internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/apikeyissue
@@ -109,6 +110,7 @@ internal/httpserver -> internal/httpserver/adminwire
 internal/httpserver -> internal/httpserver/alertwire
 internal/httpserver -> internal/httpserver/apiwire
 internal/httpserver -> internal/httpserver/attachhttp
+internal/httpserver -> internal/httpserver/catalogwire
 internal/httpserver -> internal/httpserver/corshttp
 internal/httpserver -> internal/httpserver/datahubapi
 internal/httpserver -> internal/httpserver/gatewayhttp
@@ -223,6 +225,17 @@ internal/httpserver/attachhttp -> internal/wirejson
 internal/httpserver/attachhttp -> pkg/prompt
 internal/httpserver/attachhttp -> pkg/prompt/attachserve
 internal/httpserver/attachhttp -> pkg/resource
+internal/httpserver/catalogwire -> internal/admin/catalogscanapi
+internal/httpserver/catalogwire -> internal/platform/catalogscan
+internal/httpserver/catalogwire -> internal/platform/catalogstore
+internal/httpserver/catalogwire -> internal/platform/tableregister
+internal/httpserver/catalogwire -> pkg/catalog
+internal/httpserver/catalogwire -> pkg/connid
+internal/httpserver/catalogwire -> pkg/platform
+internal/httpserver/catalogwire -> pkg/registry
+internal/httpserver/catalogwire -> pkg/toolkits/apigateway
+internal/httpserver/catalogwire -> pkg/toolkits/graphql
+internal/httpserver/catalogwire -> pkg/toolkits/trino
 internal/httpserver/channelhttp -> internal/httpjson
 internal/httpserver/channelhttp -> internal/inprocess
 internal/httpserver/channelhttp -> internal/platform/toolratelimit
@@ -395,13 +408,16 @@ internal/httpserver/userkeyhttp -> pkg/auth
 internal/httpserver/userkeyhttp -> pkg/middleware
 internal/httpserver/versionhttp -> internal/wirejson
 internal/httpserver/versionhttp -> pkg/prompt
+internal/httpserver/webhookwire -> internal/admin/webhookapi
 internal/httpserver/webhookwire -> internal/bgloop
 internal/httpserver/webhookwire -> internal/httpobs
+internal/httpserver/webhookwire -> internal/httpserver/catalogwire
 internal/httpserver/webhookwire -> internal/httpserver/instanceheader
 internal/httpserver/webhookwire -> internal/indexpolicy
 internal/httpserver/webhookwire -> internal/objectobs
 internal/httpserver/webhookwire -> internal/platform/resourcelayer
 internal/httpserver/webhookwire -> internal/platform/resourcewrite
+internal/httpserver/webhookwire -> internal/platform/tableregister
 internal/httpserver/webhookwire -> internal/platform/tableregister/regstore
 internal/httpserver/webhookwire -> internal/tableparquet
 internal/httpserver/webhookwire -> internal/webhook/compactor
@@ -475,7 +491,9 @@ internal/platform/assetbucket -> internal/logsan
 internal/platform/assetindex -> pkg/indexjobs
 internal/platform/assetindex -> pkg/portal
 internal/platform/auditwiring -> internal/platform/callrecord
+internal/platform/auditwiring -> internal/platform/catalogstore
 internal/platform/auditwiring -> internal/platform/provenance
+internal/platform/auditwiring -> internal/platform/sqllineage
 internal/platform/auditwiring -> pkg/audit
 internal/platform/auditwiring -> pkg/audit/postgres
 internal/platform/auditwiring -> pkg/middleware
@@ -513,6 +531,14 @@ internal/platform/capacity -> internal/outbound
 internal/platform/capacity -> internal/platform/toolkitcfg
 internal/platform/capacity -> pkg/observability
 internal/platform/capacity -> pkg/portal/s3adapter
+internal/platform/catalogscan -> internal/bgloop
+internal/platform/catalogscan -> internal/logsan
+internal/platform/catalogscan -> pkg/catalog
+internal/platform/catalogsemantic -> pkg/catalog
+internal/platform/catalogsemantic -> pkg/middleware
+internal/platform/catalogsemantic -> pkg/semantic
+internal/platform/catalogsemantic -> pkg/urnbuild
+internal/platform/catalogstore -> pkg/catalog
 internal/platform/collectionindex -> pkg/indexjobs
 internal/platform/collectionindex -> pkg/portal
 internal/platform/completionlayer -> internal/platform/resourcetemplates
@@ -545,6 +571,7 @@ internal/platform/connreach -> pkg/connview
 internal/platform/connreach -> pkg/persona
 internal/platform/connreach -> pkg/registry
 internal/platform/connscope -> pkg/persona
+internal/platform/connsource -> pkg/catalog
 internal/platform/connsource -> pkg/connid
 internal/platform/connsource -> pkg/registry
 internal/platform/connstored -> internal/logsan
@@ -857,6 +884,7 @@ internal/platform/scriptexec -> internal/platform/scriptrun
 internal/platform/scriptexec -> internal/platform/scriptsession
 internal/platform/scriptexec -> internal/platform/scriptsrc
 internal/platform/scriptexec -> internal/platform/scriptstore
+internal/platform/scriptexec -> internal/platform/sqllineage
 internal/platform/scriptexec -> internal/portal/portaldomain
 internal/platform/scriptexec -> internal/producedby
 internal/platform/scriptexec -> internal/runstate
@@ -1032,6 +1060,7 @@ internal/platform/scripttest -> internal/platform/scriptrun
 internal/platform/scripttest -> internal/platform/scriptsession
 internal/platform/scripttest -> internal/platform/starlarkconv
 internal/platform/scripttest -> pkg/script
+internal/platform/scriptwiring -> internal/platform/catalogstore
 internal/platform/scriptwiring -> internal/platform/resourcewrite
 internal/platform/scriptwiring -> internal/platform/scriptadmit
 internal/platform/scriptwiring -> internal/platform/scriptbgdraft
@@ -1043,6 +1072,7 @@ internal/platform/scriptwiring -> internal/platform/scriptrec/recstore
 internal/platform/scriptwiring -> internal/platform/scriptrun
 internal/platform/scriptwiring -> internal/platform/scriptsrc
 internal/platform/scriptwiring -> internal/platform/scriptstmt
+internal/platform/scriptwiring -> internal/platform/sqllineage
 internal/platform/scriptwiring -> pkg/middleware
 internal/platform/scriptwiring -> pkg/observability
 internal/platform/scriptwiring -> pkg/portal
@@ -1052,6 +1082,7 @@ internal/platform/searchfed -> internal/docread
 internal/platform/searchfed -> internal/producedby
 internal/platform/searchfed -> internal/producedview
 internal/platform/searchfed -> internal/tableavail
+internal/platform/searchfed -> pkg/connid
 internal/platform/searchfed -> pkg/embedding
 internal/platform/searchfed -> pkg/knowledge
 internal/platform/searchfed -> pkg/knowledge/federation
@@ -1075,6 +1106,14 @@ internal/platform/sessionview -> internal/httpjson
 internal/platform/sessionview -> pkg/memory
 internal/platform/sessionview -> pkg/session
 internal/platform/sessionview -> pkg/toolkits/knowledge
+internal/platform/sqllineage -> internal/logsan
+internal/platform/sqllineage -> internal/platform/scriptout/exportrecord
+internal/platform/sqllineage -> internal/sqltables
+internal/platform/sqllineage -> pkg/audit
+internal/platform/sqllineage -> pkg/catalog
+internal/platform/sqllineage -> pkg/connid
+internal/platform/sqllineage -> pkg/registry
+internal/platform/sqllineage -> pkg/toolkits/trino
 internal/platform/startup -> internal/buildinfo
 internal/platform/startup -> internal/logsan
 internal/platform/startup -> pkg/observability
@@ -1097,6 +1136,7 @@ internal/platform/tableregister -> internal/platform/tablejsonl
 internal/platform/tableregister -> internal/tableparquet
 internal/platform/tableregister -> internal/tabletype
 internal/platform/tableregister -> pkg/audit
+internal/platform/tableregister -> pkg/catalog
 internal/platform/tableregister -> pkg/contenttype
 internal/platform/tableregister -> pkg/knowledge
 internal/platform/tableregister -> pkg/middleware
@@ -1407,6 +1447,7 @@ pkg/knowledge -> internal/platform/sessionview
 pkg/knowledge -> internal/portal/portaldomain
 pkg/knowledge -> internal/producedby
 pkg/knowledge -> internal/tableavail
+pkg/knowledge -> pkg/catalog
 pkg/knowledge -> pkg/embedding
 pkg/knowledge -> pkg/memory
 pkg/knowledge -> pkg/portal
@@ -1425,6 +1466,7 @@ pkg/knowledge/federation -> pkg/toolkit
 pkg/knowledge/federation -> pkg/toolkits/apigateway
 pkg/knowledge/federation -> pkg/toolkits/graphql
 pkg/memory -> internal/bgloop
+pkg/memory -> pkg/catalog
 pkg/memory -> pkg/semantic
 pkg/memory -> pkg/urnbuild
 pkg/middleware -> internal/bgloop
@@ -1439,6 +1481,7 @@ pkg/middleware -> internal/tableavail
 pkg/middleware -> internal/upstreamretry
 pkg/middleware -> internal/wirejson
 pkg/middleware -> pkg/audit
+pkg/middleware -> pkg/catalog
 pkg/middleware -> pkg/contenttype
 pkg/middleware -> pkg/mcpcontext
 pkg/middleware -> pkg/memory
@@ -1489,6 +1532,8 @@ pkg/platform -> internal/platform/branding
 pkg/platform -> internal/platform/browserauth
 pkg/platform -> internal/platform/callcatchup
 pkg/platform -> internal/platform/callrecord
+pkg/platform -> internal/platform/catalogsemantic
+pkg/platform -> internal/platform/catalogstore
 pkg/platform -> internal/platform/completionlayer
 pkg/platform -> internal/platform/configenv
 pkg/platform -> internal/platform/configwarn
@@ -1542,6 +1587,7 @@ pkg/platform -> internal/platform/searchfed
 pkg/platform -> internal/platform/servercaps
 pkg/platform -> internal/platform/sessionsync
 pkg/platform -> internal/platform/sessionview
+pkg/platform -> internal/platform/sqllineage
 pkg/platform -> internal/platform/startup
 pkg/platform -> internal/platform/storeresync
 pkg/platform -> internal/platform/taskwiring
@@ -1562,6 +1608,7 @@ pkg/platform -> internal/wirejson
 pkg/platform -> pkg/auth
 pkg/platform -> pkg/authevents
 pkg/platform -> pkg/browsersession
+pkg/platform -> pkg/catalog
 pkg/platform -> pkg/configstore
 pkg/platform -> pkg/configstore/postgres
 pkg/platform -> pkg/connid
@@ -1609,7 +1656,6 @@ pkg/platform -> pkg/toolkits/knowledge
 pkg/platform -> pkg/toolkits/tools/toolsindex
 pkg/platform -> pkg/toolkits/trino
 pkg/platform -> pkg/tuning
-pkg/platform -> pkg/urnbuild
 pkg/platform -> pkg/user
 pkg/platform/instructions -> internal/agentinstructions
 pkg/platform/instructions -> pkg/persona
@@ -1672,6 +1718,7 @@ pkg/prompt/attachserve -> pkg/script
 pkg/prompt/postgres -> pkg/indexjobs
 pkg/prompt/postgres -> pkg/prompt
 pkg/query/trino -> internal/sqltables
+pkg/query/trino -> pkg/catalog
 pkg/query/trino -> pkg/observability
 pkg/query/trino -> pkg/query
 pkg/query/trino -> pkg/urnbuild

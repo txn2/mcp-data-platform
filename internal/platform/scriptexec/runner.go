@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
+	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -72,6 +73,9 @@ type runner struct {
 	// the files a version loads as text (#2113).
 	libraries scriptlib.Source
 	sources   *scriptsrc.Reader
+	// lineage records an edge from each table a run read to each file it
+	// wrote (#1922); nil records none.
+	lineage *sqllineage.Scripts
 }
 
 // newRunner builds the executor the worker drives.
@@ -81,6 +85,7 @@ func newRunner(runs script.RunStore, cfg Config) *runner {
 		audit: cfg.Audit, destinations: cfg.Destinations, subjects: cfg.Subjects,
 		portalURL: cfg.PortalURL, limits: cfg.Limits.WithDefaults(),
 		reportEvery: liveReportEvery, recordings: cfg.Recordings, libraries: cfg.libraries(), sources: cfg.Sources,
+		lineage: cfg.Lineage,
 	}
 }
 
@@ -131,6 +136,8 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v, subject: subject}, caller)
 	opts.Live = scriptlive.New(opts.MaxLogBytes, r.limits.ResultMaxBytes)
 	rec := r.record(&opts)
+	reads := r.lineage.Begin()
+	opts.OnCall = reads.Observe(opts.OnCall)
 
 	// The reporter writes what the run has reported so far to its row while
 	// it executes, and stops it when a cancel is requested (#1847).
@@ -146,6 +153,9 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 		RecordedBy: sc.OwnerEmail, Version: v.Version, SourceSHA256: scriptrec.SourceHash(v.Source),
 		Succeeded: runErr == nil,
 	})
+	if runErr == nil && result != nil {
+		reads.Record(ctx, sc.ID, sc.OwnerEmail, result.Exports)
+	}
 	outcome := attemptFrom(result, runErr)
 	// A run stopped on request ends canceled, not failed. One that reported
 	// success as the request landed finished, and the request decided nothing.

@@ -124,6 +124,7 @@ const pageTitles: Record<string, string> = {
   "/admin/users": "Users",
   "/admin/secrets": "Secrets",
   "/admin/webhooks": "Webhooks",
+  "/admin/catalog": "Catalog",
   "/admin/changelog": "Change Log",
   "/admin/settings": "Settings",
 };

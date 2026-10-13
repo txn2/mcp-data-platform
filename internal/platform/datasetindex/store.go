@@ -196,12 +196,11 @@ func updateVectors(ctx context.Context, tx *sql.Tx, rows []indexjobs.Vector) err
 	return nil
 }
 
-// NeedsSweep reports whether the corpus owes work: either the enumeration is
-// older than interval (or has never run), or some mirrored dataset carries no
-// vector or one produced by a model other than currentModel. It is the whole of
-// gap detection for this kind — the corpus lives in DataHub, so "what is
-// missing" cannot be answered by diffing two local tables, and the freshness
-// half is what turns the reconciler's tick into the sweep schedule.
+// NeedsSweep reports whether the corpus owes work: the enumeration is older
+// than interval (or has never run), the platform catalog changed since it ran,
+// or some mirrored dataset carries no vector or one produced by a model other
+// than currentModel. The freshness halves are what turn the reconciler's tick
+// into the sweep schedule.
 func (s *Store) NeedsSweep(ctx context.Context, currentModel string, interval time.Duration) (bool, error) {
 	const q = `
 		SELECT
@@ -209,6 +208,13 @@ func (s *Store) NeedsSweep(ctx context.Context, currentModel string, interval ti
 			             WHERE synced_at > NOW() - make_interval(secs => $1))
 			OR EXISTS (SELECT 1 FROM catalog_datasets
 			            WHERE embedding IS NULL OR embedding_model IS DISTINCT FROM $2)
+			-- The platform catalog changed since the last sync (#1919): a
+			-- dataset declared or curated after it is re-read on the next pass
+			-- rather than when the interval runs out.
+			OR EXISTS (SELECT 1 FROM catalog_aspects a, catalog_dataset_sync s
+			            WHERE a.written_at > s.synced_at)
+			OR EXISTS (SELECT 1 FROM catalog_entities e, catalog_dataset_sync s
+			            WHERE e.kind = 'dataset' AND e.updated_at > s.synced_at)
 	`
 	var needs bool
 	if err := s.db.QueryRowContext(ctx, q, interval.Seconds(), currentModel).Scan(&needs); err != nil {

@@ -20,7 +20,9 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
+	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -199,7 +201,12 @@ func Assemble(cfg Config) *Layer {
 	// call reference hands back no citation to a record that will not exist,
 	// and the store's sweep removes the ones written before the deployment
 	// declared the persona or before a run's calls were declined.
-	logger := NewLogger(callrecord.NewRecorder(store, calls, cfg.BuildURN, calls.Exclusion()), cfg.SyncDelivery, cfg.Metrics)
+	recorded := callrecord.NewRecorder(store, calls, cfg.BuildURN, calls.Exclusion())
+	// A statement that writes a table from what it reads records a lineage
+	// edge from each source to the table it wrote (#1922), on the same
+	// writer goroutine the call catalog uses.
+	lineage := sqllineage.New(recorded, catalogstore.New(cfg.DB), sqllineage.TrinoResolver(cfg.Toolkits))
+	logger := NewLogger(lineage, cfg.SyncDelivery, cfg.Metrics)
 
 	return &Layer{
 		store:    store,

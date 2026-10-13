@@ -55,6 +55,7 @@ const (
 	NameWebhookRawWindows   = "webhook_raw_windows"
 	NameMapFetch            = "map_fetch"
 	NameMapFetchRegion      = "map_fetch_region"
+	NameCatalogScan         = "catalog_scan"
 	NameCallTaskHeartbeat   = "call_task_heartbeat"
 
 	// Alerts, keepalives and watchers.

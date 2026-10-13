@@ -20,11 +20,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/webhookapi"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
+	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister/regstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/compactor"
 	"github.com/txn2/mcp-data-platform/internal/webhook/receiver"
@@ -118,7 +121,19 @@ func buildFrom(p platformSource, address string, exec whtable.Executor) *Webhook
 		encryptor: p.RestEncryptor(), metrics: p.Metrics(), observe: p.Metrics(), cfg: cfg,
 		replica: instanceheader.HostName(address), address: address,
 		personaExists: personaLookup(p.PersonaRegistry()),
+		registrations: sourceRegistrations(p),
 	})
+}
+
+// sourceRegistrations is the registration store a source's table is recorded
+// in: one that also catalogs the table (#1918) when the platform can build the
+// catalog, the plain store otherwise.
+func sourceRegistrations(p platformSource) tableregister.Store {
+	inner := regstore.NewPostgresStore(p.DB())
+	if cp, ok := p.(catalogwire.Platform); ok {
+		return catalogwire.RegistrationStore(cp, inner)
+	}
+	return inner
 }
 
 // dbSource is the part of the platform the stores are built on.
@@ -144,6 +159,9 @@ type parts struct {
 	address string
 	// personaExists reports whether a persona is defined; nil accepts any.
 	personaExists func(string) bool
+	// registrations records a source's table; nil records it in the plain
+	// store.
+	registrations tableregister.Store
 }
 
 // metricsSink is the platform's metrics, which report for both the receiver
@@ -174,8 +192,12 @@ func assemble(pt parts) *Webhooks {
 			Tables: pt.tables, Resources: pt.resources, Metrics: pt.metrics,
 		})
 	}
+	registrations := pt.registrations
+	if registrations == nil {
+		registrations = regstore.NewPostgresStore(db)
+	}
 	w.Service = whadmin.New(whadmin.Deps{
-		Sources: sources, Tables: pt.tables, Registrations: regstore.NewPostgresStore(db),
+		Sources: sources, Tables: pt.tables, Registrations: registrations,
 		Windows: windows, Objects: pt.objects, Resources: pt.resources, Bucket: pt.bucket,
 		Changed: w.receiver.Reload, NewID: newRegistrationID, Logger: slog.Default(),
 		PersonaExists: pt.personaExists,
@@ -266,4 +288,17 @@ func (w *Webhooks) Stop() {
 	}
 	w.receiver.Stop()
 	w.compactor.Stop()
+}
+
+// MountAdmin registers the webhook source routes behind the admin API's
+// authentication, when there are webhooks and the admin API is enabled.
+func (w *Webhooks) MountAdmin(
+	mux *http.ServeMux, p *platform.Platform,
+	auth func(*platform.Platform) func(http.Handler) http.Handler, author func(*http.Request) string,
+) {
+	if w == nil || p == nil || !p.Config().Admin.IsEnabled() {
+		return
+	}
+	webhookapi.Register(mux, auth(p), webhookapi.Config{Service: w.Service, Author: author})
+	slog.Info("Webhook source admin API enabled on /api/v1/admin/webhooks/sources and /api/v1/admin/webhooks/status")
 }

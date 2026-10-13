@@ -1873,6 +1873,79 @@ A persona deleted on one replica is removed on the others too, or reverted to
 the configuration file's definition when the file has one, the same as on the
 replica that deleted it.
 
+## Catalog Endpoints
+
+The [platform catalog](catalog.md)'s scan of every connection: its settings,
+each connection's last scan, and a request to scan now. The settings are
+stored in the database whatever the operating mode.
+
+### Get Settings
+
+```
+GET /api/v1/admin/catalog/settings
+```
+
+**Response (`200 OK`):** a deployment that never saved settings reads the
+defaults.
+
+```json
+{
+  "scan_interval": "6h",
+  "exclusions": [
+    {"connection_kind": "trino", "connection": "acme", "entries": ["hive.tmp"]}
+  ],
+  "updated_by": "admin@example.com",
+  "updated_at": "2026-09-27T09:15:00Z"
+}
+```
+
+### Save Settings
+
+```
+PUT /api/v1/admin/catalog/settings
+```
+
+The body is `scan_interval` and `exclusions` as above. `scan_interval` is a
+duration of at least `5m`; each exclusion names a connection by kind and
+instance name and lists dotted prefixes. Returns `400` for an interval that
+does not parse or is too short, an exclusion with no connection, or an unknown
+field, and the saved settings otherwise.
+
+### List Scans
+
+```
+GET /api/v1/admin/catalog/scans
+```
+
+**Response (`200 OK`):**
+
+```json
+{
+  "scans": [
+    {
+      "connection_kind": "trino",
+      "connection": "acme",
+      "started_at": "2026-09-28T18:02:11Z",
+      "finished_at": "2026-09-28T18:04:37Z",
+      "datasets": 1212,
+      "removed": 3
+    }
+  ]
+}
+```
+
+`error` is set on a scan that stopped; such a scan marks nothing removed.
+
+### Scan Now
+
+```
+POST /api/v1/admin/catalog/scans
+```
+
+Records a request to scan every connection and returns `202` before the scan
+runs. Whichever replica next takes the scan lock runs it, so a request made
+while another replica is scanning is kept rather than dropped.
+
 ## Gateway Endpoints
 
 Gateway connections (kind `mcp`) proxy upstream MCP servers and re-expose

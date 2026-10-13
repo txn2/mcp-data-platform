@@ -45,6 +45,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
+	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -159,6 +160,10 @@ type Config struct {
 	// Recordings keeps each run's host calls and their answers (#1939), and
 	// is swept at RunRetention with the runs. Nil keeps none.
 	Recordings scriptrec.Store
+
+	// Lineage records what each run read and wrote as catalog lineage
+	// (#1922). Nil records none.
+	Lineage *sqllineage.Scripts
 
 	// Libraries is where the libraries a run's source loads are read from
 	// (#1941). Nil falls back to PostgreSQL over DB, and with no DB every

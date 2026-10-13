@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -27,6 +28,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/browserauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogsemantic"
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
@@ -64,6 +67,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/servercaps"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
+	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/internal/platform/startup"
 	"github.com/txn2/mcp-data-platform/internal/platform/storeresync"
 	"github.com/txn2/mcp-data-platform/internal/platform/taskwiring"
@@ -74,8 +78,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	configpostgres "github.com/txn2/mcp-data-platform/pkg/configstore/postgres"
+	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -98,7 +104,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/searchgate"
 	searchgatepostgres "github.com/txn2/mcp-data-platform/pkg/searchgate/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
@@ -109,7 +114,6 @@ import (
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
-	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // providerNoop is the provider name for no-op (disabled) providers.
@@ -1665,7 +1669,7 @@ func (p *Platform) initSearch() error {
 		ToolkitName:        instanceDefault,
 		ProviderTimeout:    p.config.Knowledge.SearchProviderTimeout, // 0 keeps the default
 		EmbedTimeout:       p.config.Knowledge.SearchEmbedTimeout,    // 0 keeps the default
-		CatalogEnabled:     p.config.Semantic.Provider == kindDataHub,
+		CatalogEnabled:     nativeCatalog(p.semanticProvider),
 		SemanticProvider:   p.semanticProvider,
 		CatalogIndex:       datasetindex.Searcher(p.db, p.config.Knowledge.CatalogIndex),
 		MemoryStore:        p.memory.MemoryStore(),
@@ -1685,6 +1689,7 @@ func (p *Platform) initSearch() error {
 		CollectionStore:    p.portalStore.CollectionStore(),
 		CallCatalog:        callSearcher(p.audit.Calls()),
 		Sessions:           sessionview.ReaderFor(p.db),
+		Catalog:            catalogstore.StoreFor(p.db),
 		VerifiableInsights: p.config.Knowledge.IsVerifiableInsightsEnabled(),
 		QueryProvider:      p.queryProvider,
 		PersonasForRoles:   iam.PersonasForRoles(p.personaRegistry),
@@ -2357,24 +2362,31 @@ func callSearcher(calls *callrecord.PostgresStore) knowledge.CallSearcher {
 	return calls
 }
 
-// datasetURNFor builds the dataset URN a table is known by in the catalog,
-// resolving the connection — identified by KIND and name together (#1384) — to
-// its DataHub platform name and catalog mapping, and falling back to the
-// query-provider mapping when the connection is unknown.
+// datasetURNFor builds the mcp:dataset reference a table is known by in the
+// platform catalog (#1919), resolving the connection -- identified by KIND and
+// name together (#1384) -- to its instance name, and an unqualified name to the
+// connection's default catalog and schema. A connection it cannot resolve
+// names no dataset.
 //
 // It is the platform's one answer to "which catalog entity is this table", and
 // every path that must agree with enrichment about that — reflexive capture
 // entity-keying a correction, the call catalog naming a query's targets — takes
 // it rather than composing its own.
-func (p *Platform) datasetURNFor(connectionKind, connection, catalog, schema, table string) string {
-	mapping := p.config.Query.URNMapping
-	platform, catalogMapping := mapping.Platform, mapping.CatalogMapping
-	if p.connectionSources != nil && connection != "" && connectionKind != "" {
-		if src := p.connectionSources.ForConnection(connectionKind, connection); src != nil {
-			platform, catalogMapping = src.DataHubSourceName, src.CatalogMapping
-		}
+func (p *Platform) datasetURNFor(connectionKind, connection, catalogName, schema, table string) string {
+	if connectionKind == "" {
+		connectionKind = toolkitKindTrino
 	}
-	return urnbuild.DatasetURN(platform, catalogMapping, catalog, schema, table)
+	var conn sqllineage.Connection
+	if connectionKind == toolkitKindTrino {
+		conn, _ = sqllineage.TrinoResolver(p.toolkitRegistry)(connection)
+	} else if c, ok := connectionResolver(p).ByBound(connectionKind, connid.Bound(connection)); ok {
+		conn.Instance = string(c.Instance)
+	}
+	catalogName, schema = cmp.Or(catalogName, conn.Catalog), cmp.Or(schema, conn.Schema)
+	if conn.Instance == "" || catalogName == "" || schema == "" || table == "" {
+		return ""
+	}
+	return catalog.DatasetRef(connectionKind, conn.Instance, catalogName, schema, table).String()
 }
 
 // reflexivePersonaAllowsTool returns the persona tool-access predicate, or nil
@@ -2647,15 +2659,11 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		MemorySummaryBytes:          p.config.Enrichment.EffectiveMemorySummaryBytes(),
 	}
 
-	// Wire connection source map lookups as closures to avoid import cycles.
+	// A table is named as the platform catalog names it (#1919); no catalog
+	// mapping applies, because the catalog keys a dataset by the connection's
+	// own catalog names.
+	cfg.DatasetURN = p.datasetURNFor
 	if p.connectionSources != nil {
-		cfg.ForConnection = func(connectionKind, connectionName string) (string, map[string]string) {
-			src := p.connectionSources.ForConnection(connectionKind, connectionName)
-			if src == nil {
-				return "", nil
-			}
-			return src.DataHubSourceName, src.CatalogMapping
-		}
 		cfg.ConnectionsForURN = func(urn string) []string {
 			return connsource.ConnectionNamesForURN(p.connectionSources, p.toolkitRegistry.All(), urn)
 		}
@@ -2683,54 +2691,26 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 
 // createSemanticProvider creates the semantic provider based on config.
 func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
+	// The platform's own catalog is the semantic layer wherever there is a
+	// database (#1919); semantic.provider: noop still turns it off, and
+	// "datahub" is read as the catalog until the key is removed (#1925).
 	switch p.config.Semantic.Provider {
-	case kindDataHub:
-		// Get DataHub config from toolkits
-		datahubCfg := toolkitcfg.DataHubConfig(p.config.Toolkits, p.config.Semantic.Instance)
-		if datahubCfg == nil {
-			return nil, fmt.Errorf("datahub instance %q not found in toolkits config", p.config.Semantic.Instance)
-		}
-
-		// Determine platform for URN building
-		platform := p.config.Semantic.URNMapping.Platform
-		if platform == "" {
-			platform = toolkitKindTrino // Default platform if not configured
-		}
-
-		adapter, err := datahubsemantic.New(datahubsemantic.Config{
-			URL:            datahubCfg.URL,
-			Token:          datahubCfg.Token,
-			Platform:       platform,
-			Timeout:        datahubCfg.Timeout,
-			Debug:          datahubCfg.Debug,
-			CatalogMapping: p.config.Semantic.URNMapping.CatalogMapping,
-			Lineage:        p.config.Semantic.Lineage,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("creating datahub semantic provider: %w", err)
-		}
-
-		// Instrument before the cache wrap so DataHub request metrics and
-		// spans are recorded on the underlying client, not skipped by
-		// cache hits. Installed only when metrics or tracing is on.
-		if p.obs.Enabled() {
-			adapter.SetMetrics(p.obs.Metrics())
-		}
-
-		// Wrap with caching if enabled
-		if p.config.Semantic.Cache.Enabled {
-			return semantic.NewCachedProvider(adapter, semantic.CacheConfig{
-				TTL: p.config.Semantic.Cache.TTL,
-			}), nil
-		}
-		return adapter, nil
-
-	case providerNoop, "":
-		return semantic.NewNoopProvider(), nil
-
+	case "", kindDataHub, providerNoop:
 	default:
 		return nil, fmt.Errorf("unknown semantic provider: %s", p.config.Semantic.Provider)
 	}
+	if p.db == nil || p.config.Semantic.Provider == providerNoop {
+		return semantic.NewNoopProvider(), nil
+	}
+	return catalogsemantic.New(catalogstore.New(p.db), func(bound string) (string, bool) {
+		c, ok := connectionResolver(p).ByBound(toolkitKindTrino, connid.Bound(bound))
+		return string(c.Instance), ok
+	}), nil
+}
+
+// nativeCatalog reports whether the platform catalog is the semantic layer.
+func nativeCatalog(sp semantic.Provider) bool {
+	return sp != nil && sp.Name() == catalogsemantic.Name
 }
 
 // createQueryProvider creates the query provider based on config.

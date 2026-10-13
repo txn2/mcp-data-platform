@@ -289,29 +289,19 @@ func TestBuildConnectionSourceMap_EveryServedConnection(t *testing.T) {
 	}
 }
 
-// TestDatasetURNFor_UsesConnectionMapping is the end-to-end assertion behind
-// #1396: the map built from the live registry is read by the platform's one
-// answer to "which catalog entity is this table", keyed by the connection name
-// the middleware puts on PlatformContext. Before the fix the lookup missed and
-// the URN carried the query-provider fallback instead of the connection's own
-// platform and catalog mapping.
-func TestDatasetURNFor_UsesConnectionMapping(t *testing.T) {
+// TestDatasetURNFor_NamesTheConnectionInstance is the platform's one answer
+// to "which catalog entity is this table" (#1919): the connection a call binds
+// by name is resolved to the instance a catalog reference carries, and a
+// connection nothing serves names no dataset.
+func TestDatasetURNFor_NamesTheConnectionInstance(t *testing.T) {
 	reg := registry.NewRegistry()
 	require.NoError(t, reg.Register(&mockToolkit{
 		kind: "s3", name: "lake", connection: "Data Lake", tools: []string{"s3_list"},
 	}))
-
 	p := &Platform{toolkitRegistry: reg, config: &Config{}}
-	p.config.Query.URNMapping = URNMappingConfig{Platform: "fallback-platform"}
-	p.connectionSources = p.buildConnectionSourceMap()
 
-	urn := p.datasetURNFor("s3", "Data Lake", "bucket", "raw", "events")
-	assert.Contains(t, urn, "urn:li:dataPlatform:s3",
-		"the connection's own source name builds the URN")
-	assert.NotContains(t, urn, "fallback-platform")
-
-	assert.Contains(t, p.datasetURNFor("s3", "unknown", "bucket", "raw", "events"), "fallback-platform",
-		"an unknown connection still falls back, so the fix narrows nothing")
+	assert.Equal(t, "mcp:dataset:(s3,lake,bucket.raw.events)", p.datasetURNFor("s3", "Data Lake", "bucket", "raw", "events"))
+	assert.Empty(t, p.datasetURNFor("s3", "unknown", "bucket", "raw", "events"))
 }
 
 // TestBuildConnectionSourceMap_StoredOverrideReachesTheBoundName proves the DB

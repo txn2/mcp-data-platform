@@ -24,6 +24,7 @@ import (
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
@@ -218,7 +219,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// routes, and the compactor, which starts once the mux is complete.
 	hooks := buildWebhooks(p, address)
 	hooks.Mount(mux)
-	mountWebhookAdminAPI(mux, p, hooks)
+	hooks.MountAdmin(mux, p, buildAdminAuth, adminEmail)
 	mountDatabaseAdminAPIs(mux, p)
 
 	// Street maps (#2068): the basemap archives and their listing, served
@@ -227,6 +228,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	streetMaps := mapwire.Build(p)
 	streetMaps.Mount(mux, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail)
 
+	catalogScan := catalogwire.Build(p) // the catalog scan (#1918)
+	catalogScan.MountAdmin(mux, buildAdminAuth, adminEmail)
 	// The built-in platform-admin self-connection (issue #543) that lets an
 	// admin drive /api/v1/admin/* through the api gateway is seeded by
 	// p.WireRuntime (caller), after the gateway integrations it depends
@@ -275,6 +278,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 
 	hooks.Start(ctx)
 	defer hooks.Stop()
+	catalogScan.Start(ctx)
+	defer catalogScan.Stop()
 
 	streetMaps.Start(ctx)
 	defer streetMaps.Stop()

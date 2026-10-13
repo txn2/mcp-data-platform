@@ -4,13 +4,16 @@ package datasetindex
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 )
@@ -179,4 +182,36 @@ func TestCatalogIndexSyncUpdatesRealDB(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, existing, urn)
 	assert.Equal(t, []byte("h1"), existing[urn].TextHash)
+}
+
+// TestCatalogIndexNoticesACatalogChangeRealDB proves a dataset declared or
+// curated after the last sync owes a sweep at once, rather than when the sync
+// interval runs out (#1919).
+func TestCatalogIndexNoticesACatalogChangeRealDB(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	store := NewStore(db)
+	cat := catalogstore.New(db)
+	require.NoError(t, store.StampSync(ctx))
+	needs, err := store.NeedsSweep(ctx, "m", time.Hour)
+	require.NoError(t, err)
+	require.False(t, needs, "a fresh sync over an empty catalog owes nothing")
+
+	ref := catalog.DatasetRef("trino", "w", "hive", "sales", "orders")
+	_, err = cat.PutDataset(ctx, catalog.DatasetInput{Ref: ref, Type: catalog.DatasetTable})
+	require.NoError(t, err)
+	needs, err = store.NeedsSweep(ctx, "m", time.Hour)
+	require.NoError(t, err)
+	assert.True(t, needs, "a dataset declared after the sync is read on the next check")
+
+	require.NoError(t, store.StampSync(ctx))
+	needs, err = store.NeedsSweep(ctx, "m", time.Hour)
+	require.NoError(t, err)
+	require.False(t, needs)
+
+	_, err = cat.WriteAspect(ctx, ref, catalog.AspectDescription, json.RawMessage(`"new"`), "a")
+	require.NoError(t, err)
+	needs, err = store.NeedsSweep(ctx, "m", time.Hour)
+	require.NoError(t, err)
+	assert.True(t, needs, "a description written after the sync is read on the next check")
 }
