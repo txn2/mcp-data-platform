@@ -22,6 +22,7 @@ func TestParseEntityRef_Catalog(t *testing.T) {
 		"mcp:tag:pii",
 		"mcp:domain:sales",
 		"mcp:data_product:revenue",
+		`mcp:schema_document:(api,billing,"openapi.json")`,
 	} {
 		ref, err := ParseEntityRef(s)
 		require.NoError(t, err, s)
@@ -43,9 +44,9 @@ func TestStore_ValidateRefTargets_Catalog(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 	mock.ExpectQuery("SELECT 1 FROM catalog_entities").
-		WithArgs(testDatasetRef, "dataset", "").WillReturnRows(oneRow())
+		WithArgs(testDatasetRef, "dataset", "", "trino", "acme").WillReturnRows(oneRow())
 	mock.ExpectQuery("SELECT 1 FROM catalog_entities").
-		WithArgs("mcp:glossary_term:net-revenue", "glossary_term", "net-revenue").
+		WithArgs("mcp:glossary_term:net-revenue", "glossary_term", "net-revenue", "", "").
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}))
 
 	store := NewPostgresStore(db)
@@ -56,7 +57,9 @@ func TestStore_ValidateRefTargets_Catalog(t *testing.T) {
 	require.ErrorIs(t, err, ErrRefTargetNotFound)
 	assert.NoError(t, mock.ExpectationsWereMet())
 
-	assert.Equal(t, []any{"not a reference", "", ""}, catalogEntityArgs("not a reference"))
+	assert.Equal(t, []any{"not a reference", "", "", "", ""}, catalogEntityArgs("not a reference"))
+	assert.Equal(t, []any{`mcp:schema_document:(api,billing,"openapi.json")`, "schema_document", "openapi.json", "api", "billing"},
+		catalogEntityArgs(`mcp:schema_document:(api,billing,"openapi.json")`))
 }
 
 // A catalog citation is found by the page that cites it.

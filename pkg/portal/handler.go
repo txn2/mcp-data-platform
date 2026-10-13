@@ -106,6 +106,11 @@ type PersonaInfo struct {
 	// HideAutomations is the persona taking Automations out of the portal
 	// (#2109).
 	HideAutomations bool
+	// ReachesCatalogRef reports whether the persona may reach the connection a
+	// platform catalog reference names: a dataset, a column, a schema document
+	// (#1918). A reference naming no connection is reachable. Nil reaches every
+	// reference.
+	ReachesCatalogRef func(reference string) bool
 }
 
 // PersonaResolver resolves a user's roles to their persona info.

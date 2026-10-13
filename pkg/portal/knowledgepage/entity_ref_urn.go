@@ -156,7 +156,7 @@ func parseMCPRef(s string) (EntityRef, error) {
 func isCatalogKind(typ string) bool {
 	switch catalog.Kind(typ) {
 	case catalog.KindDataset, catalog.KindColumn, catalog.KindGlossaryTerm, catalog.KindGlossaryNode,
-		catalog.KindTag, catalog.KindDomain, catalog.KindDataProduct:
+		catalog.KindTag, catalog.KindDomain, catalog.KindDataProduct, catalog.KindSchemaDocument:
 		return true
 	default:
 		return false

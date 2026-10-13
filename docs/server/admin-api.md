@@ -1946,6 +1946,45 @@ Records a request to scan every connection and returns `202` before the scan
 runs. Whichever replica next takes the scan lock runs it, so a request made
 while another replica is scanning is kept rather than dropped.
 
+### List Schema Documents
+
+```
+GET /api/v1/admin/catalog/documents
+```
+
+Lists the schema document the scan keeps for each API and GraphQL connection,
+without its content. `version` moves only when a scan reads different content
+or a different media type. See [Schema documents](catalog.md#schema-documents).
+
+**Response (`200 OK`):**
+
+```json
+{
+  "documents": [
+    {
+      "id": "4d1e2f3a-6b7c-4d8e-9f0a-1b2c3d4e5f60",
+      "reference": "mcp:schema_document:(api,billing,\"openapi.json\")",
+      "connection_kind": "api",
+      "connection": "billing",
+      "filename": "openapi.json",
+      "mime_type": "application/json",
+      "size_bytes": 184322,
+      "version": 3,
+      "updated_at": "2026-10-13T12:00:04Z"
+    }
+  ]
+}
+```
+
+### Download a Schema Document
+
+```
+GET /api/v1/admin/catalog/documents/{kind}/{connection}/{filename}
+```
+
+Returns the document's content as an attachment in its own media type, or
+`404` when the connection keeps no document by that name.
+
 ### Import from DataHub
 
 ```

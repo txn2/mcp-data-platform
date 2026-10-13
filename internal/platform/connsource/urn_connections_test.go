@@ -123,5 +123,8 @@ func TestConnectionNamesForURN_CatalogReference(t *testing.T) {
 		ConnectionNamesForURN(nil, toolkits, "mcp:column:(trino,warehouse,hive.sales.orders,id)"))
 	assert.Equal(t, []string{"gone"},
 		ConnectionNamesForURN(nil, toolkits, "mcp:dataset:(trino,gone,a.b.c)"), "a connection nothing serves keeps its own name")
+	assert.Equal(t, []string{"Warehouse"},
+		ConnectionNamesForURN(nil, toolkits, `mcp:schema_document:(trino,warehouse,"schema.sql")`),
+		"a schema document is its connection's")
 	assert.Empty(t, ConnectionNamesForURN(nil, toolkits, "mcp:glossary_term:t1"))
 }

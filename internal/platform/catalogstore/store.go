@@ -54,8 +54,8 @@ type entity struct {
 }
 
 const upsertDataset = `
-INSERT INTO catalog_entities (kind, reference, connection_kind, connection_name, path, name, dataset_type, schema_resource_id)
-VALUES ('dataset', $1, $2, $3, $4, $5, $6, $7)
+INSERT INTO catalog_entities (kind, reference, connection_kind, connection_name, path, name, dataset_type, schema_resource_id, schema_document)
+VALUES ('dataset', $1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (reference) DO UPDATE SET
     name = EXCLUDED.name,
     -- A table the platform registered stays one when a scan of the engine
@@ -67,6 +67,8 @@ ON CONFLICT (reference) DO UPDATE SET
         ELSE EXCLUDED.dataset_type END,
     schema_resource_id = CASE WHEN EXCLUDED.schema_resource_id = ''
         THEN catalog_entities.schema_resource_id ELSE EXCLUDED.schema_resource_id END,
+    schema_document = CASE WHEN EXCLUDED.schema_document = ''
+        THEN catalog_entities.schema_document ELSE EXCLUDED.schema_document END,
     removed_at = NULL,
     updated_at = NOW()
 RETURNING id`
@@ -97,7 +99,7 @@ func (s *Store) PutDataset(ctx context.Context, in catalog.DatasetInput) (*catal
 		var id string
 		if err := tx.QueryRowContext(ctx, upsertDataset,
 			in.Ref.String(), in.Ref.ConnectionKind, in.Ref.Connection, in.Ref.PathString(),
-			name, string(in.Type), in.SchemaResourceID,
+			name, string(in.Type), in.SchemaResourceID, in.SchemaDocument,
 		).Scan(&id); err != nil {
 			return fmt.Errorf("upserting dataset: %w", err)
 		}
@@ -148,7 +150,7 @@ func checkDatasetInput(in catalog.DatasetInput) error {
 }
 
 const selectDataset = `
-SELECT id, name, dataset_type, schema_resource_id, removed_at, created_at, updated_at
+SELECT id, name, dataset_type, schema_resource_id, schema_document, removed_at, created_at, updated_at
 FROM catalog_entities WHERE kind = 'dataset' AND reference = $1`
 
 const selectColumns = `
@@ -169,10 +171,10 @@ func (s *Store) GetDataset(ctx context.Context, ref catalog.Ref) (*catalog.Datas
 		return nil, fmt.Errorf("want a dataset reference, got %s: %w", ref.Kind, catalog.ErrInvalidRef)
 	}
 	d := &catalog.Dataset{Reference: ref.String(), Ref: ref}
-	var typ string
+	var typ, document string
 	var removed sql.NullTime
 	err := s.db.QueryRowContext(ctx, selectDataset, d.Reference).Scan(
-		&d.ID, &d.Name, &typ, &d.SchemaResourceID, &removed, &d.CreatedAt, &d.UpdatedAt)
+		&d.ID, &d.Name, &typ, &d.SchemaResourceID, &document, &removed, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, catalog.ErrNotFound
 	}
@@ -180,6 +182,9 @@ func (s *Store) GetDataset(ctx context.Context, ref catalog.Ref) (*catalog.Datas
 		return nil, fmt.Errorf("reading dataset: %w", err)
 	}
 	d.Type = catalog.DatasetType(typ)
+	if document != "" {
+		d.SchemaDocument = catalog.SchemaDocumentRef(ref.ConnectionKind, ref.Connection, document).String()
+	}
 	if removed.Valid {
 		d.RemovedAt = &removed.Time
 	}

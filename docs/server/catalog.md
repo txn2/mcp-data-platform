@@ -31,6 +31,7 @@ A catalog entity is cited and fetched with an `mcp:` reference:
 |-----------|-------|
 | `mcp:dataset:(kind,connection,path)` | a dataset. The connection is its instance name; the path is the dotted name the connection uses: `catalog.schema.table` for Trino, the operation id for an API, `query.<field path>` or `mutation.<field path>` for GraphQL. |
 | `mcp:column:(kind,connection,path,column)` | one column of a dataset |
+| `mcp:schema_document:(kind,connection,filename)` | an API or GraphQL connection's schema document |
 | `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>` | a definition, by the id it is stored under. The slug works in place of the id when reading, and renaming a definition changes no reference to it. |
 | `mcp:tag:<name>` | a tag |
 
@@ -39,8 +40,8 @@ is double-quoted the way SQL quotes an identifier, with an inner `"` doubled:
 `mcp:dataset:(trino,warehouse,hive.sales."orders.v2")`.
 
 `fetch` dereferences every form. A dataset comes back with its type, the
-managed resource holding its schema document when it has one, its columns in
-order with each column's curation, every aspect written on it, and the lineage
+schema document it was read from when it has one, its columns in order with
+each column's curation, every aspect written on it, and the lineage
 edges within three hops `upstream` and `downstream` of it.
 
 ## Curation
@@ -75,15 +76,23 @@ it is written.
 ## Schema documents
 
 An API connection's OpenAPI spec and a GraphQL connection's schema (as SDL) are
-kept as managed resources in the global library, under
-`catalog/<kind>/<connection>`, written by the scan as `system:catalog`. Each
-operation's dataset links the document it was read from: `fetch` on the
-dataset lists it as an `mcp:resource:<id>` reference, and its
-`schema_resource_id` names it. A scan revises the resource only when the
-document changed, so an unchanged spec keeps one version. The search index's
-`resources.index` rules match these files with `origin: [catalog]`. A
-deployment with no object storage for managed resources catalogs the
-operations without their documents.
+kept in the catalog, one per connection, addressed as
+`mcp:schema_document:(kind,connection,filename)`, for example
+`mcp:schema_document:(api,billing,"openapi.json")`. Each operation's dataset
+names the document it was read from: `fetch` on the dataset lists it as a
+reference, and its `schema_document` field holds it. A scan records a new
+version only when the document's content or media type changed, so an
+unchanged spec stays at its version.
+
+A document belongs to its connection. `fetch` returns it only to a caller whose
+persona may reach that connection, the rule its datasets are read under, and
+answers not found to anyone else. Its text is the body, up to the 1 MiB every
+fetched file is held to; a longer one is cut at a character boundary with a
+note saying how much was shown. An administrator lists every document on
+**Admin > Catalog > Documents**, or with `GET /api/v1/admin/catalog/documents`,
+and downloads one from there. A knowledge page may cite one. A page's citation of a schema document, a dataset or a column is listed, by `fetch` and on the portal, only to a reader whose persona may reach its connection; another reader's `fetch` counts it in `references_withheld`.
+
+![Schema documents](../images/screenshots/light/admin-admin-catalog-documents-light.webp#only-light)![Schema documents](../images/screenshots/dark/admin-admin-catalog-documents-dark.webp#only-dark)
 
 ## Scans
 
@@ -127,7 +136,8 @@ The **Settings** tab holds the two settings, stored in the database:
   any it cataloged before as removed.
 
 The same settings and scans are served at `/api/v1/admin/catalog/settings` and
-`/api/v1/admin/catalog/scans`; see the [Admin API](admin-api.md).
+`/api/v1/admin/catalog/scans`, and the schema documents at
+`/api/v1/admin/catalog/documents`; see the [Admin API](admin-api.md).
 
 ## Search
 

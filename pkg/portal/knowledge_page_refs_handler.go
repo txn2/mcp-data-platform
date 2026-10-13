@@ -492,14 +492,41 @@ func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowle
 	case knowledgepage.RefTargetDataHub:
 		out.Label = catalogLabel(ref.EntityURN, labels)
 	case knowledgepage.RefTargetCatalog:
+		if !h.reachesCatalogRef(user, ref.EntityURN) {
+			out.Accessible = false
+			return out
+		}
 		out.Label = platformCatalogLabel(ref.EntityURN, labels)
 	}
 	return out
 }
 
+// reachesCatalogRef reports whether the reader may see a platform catalog
+// citation: an administrator sees every one; anyone else sees one whose
+// connection their persona may reach, the rule fetching it applies, and a
+// reader with no persona sees only the ones that name no connection.
+func (h *Handler) reachesCatalogRef(user *User, reference string) bool {
+	if user != nil && h.access.IsAdmin(user) {
+		return true
+	}
+	if h.deps.PersonaResolver == nil {
+		return true
+	}
+	var info *PersonaInfo
+	if user != nil {
+		info = h.deps.PersonaResolver(user.Roles)
+	}
+	if info == nil {
+		ref, err := catalog.ParseRef(reference)
+		return err == nil && ref.Connection == ""
+	}
+	return info.ReachesCatalogRef == nil || info.ReachesCatalogRef(reference)
+}
+
 // platformCatalogLabel is the display name of a platform catalog reference:
 // the name the batch resolved, and otherwise the table (and column) a dataset
-// or column reference names, or the key a definition reference carries.
+// or column reference names, the connection and filename of a schema document,
+// or the key a definition reference carries.
 func platformCatalogLabel(reference string, labels map[string]string) string {
 	if name, ok := labels[reference]; ok && name != "" {
 		return name
@@ -513,6 +540,8 @@ func platformCatalogLabel(reference string, labels map[string]string) string {
 		return ref.Path[len(ref.Path)-1] + "." + ref.Column
 	case ref.Kind == catalog.KindDataset && len(ref.Path) > 0:
 		return ref.Path[len(ref.Path)-1]
+	case ref.Kind == catalog.KindSchemaDocument:
+		return ref.Connection + " " + ref.Key
 	default:
 		return ref.Key
 	}

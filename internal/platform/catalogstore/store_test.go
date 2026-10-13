@@ -30,8 +30,8 @@ func expectDatasetRead(mock sqlmock.Sqlmock) {
 	now := time.Now()
 	mock.ExpectQuery("FROM catalog_entities WHERE kind = 'dataset'").
 		WithArgs(dsRef.String()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "dataset_type", "schema_resource_id", "removed_at", "created_at", "updated_at"}).
-			AddRow("d1", "t", "table", "", now, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "dataset_type", "schema_resource_id", "schema_document", "removed_at", "created_at", "updated_at"}).
+			AddRow("d1", "t", "table", "", "openapi.json", now, now, now))
 	mock.ExpectQuery("kind = 'column' AND parent_id").WithArgs("d1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "data_type", "ordinal", "nullable"}).
 			AddRow("c1", "a", "varchar", 0, true).AddRow("c2", "b", "bigint", 1, false))
@@ -45,7 +45,7 @@ func TestPutDataset(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO catalog_entities").
-		WithArgs(dsRef.String(), "trino", "w", "c.s.t", "t", "table", "").
+		WithArgs(dsRef.String(), "trino", "w", "c.s.t", "t", "table", "", "openapi.json").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("d1"))
 	mock.ExpectExec("INSERT INTO catalog_entities").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO catalog_entities").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -54,10 +54,12 @@ func TestPutDataset(t *testing.T) {
 	expectDatasetRead(mock)
 
 	d, err := s.PutDataset(context.Background(), catalog.DatasetInput{
-		Ref: dsRef, Type: catalog.DatasetTable,
+		Ref: dsRef, Type: catalog.DatasetTable, SchemaDocument: "openapi.json",
 		Columns: []catalog.ColumnInput{{Name: "a", DataType: "varchar", Nullable: true}, {Name: "b", DataType: "bigint"}},
 	})
 	require.NoError(t, err)
+	assert.Equal(t, `mcp:schema_document:(trino,w,"openapi.json")`, d.SchemaDocument,
+		"the document is named under the dataset's own connection")
 	assert.Equal(t, "table desc", d.Aspects.Description)
 	require.NotNil(t, d.RemovedAt, "the removed time reads back")
 	require.Len(t, d.Columns, 2)
@@ -141,8 +143,8 @@ func TestGetDatasetFailures(t *testing.T) {
 	now := time.Now()
 	head := func() {
 		mock.ExpectQuery("kind = 'dataset'").WillReturnRows(
-			sqlmock.NewRows([]string{"id", "name", "dataset_type", "schema_resource_id", "removed_at", "created_at", "updated_at"}).
-				AddRow("d1", "t", "table", "", nil, now, now))
+			sqlmock.NewRows([]string{"id", "name", "dataset_type", "schema_resource_id", "schema_document", "removed_at", "created_at", "updated_at"}).
+				AddRow("d1", "t", "table", "", "", nil, now, now))
 	}
 	head()
 	mock.ExpectQuery("kind = 'column'").WillReturnError(errDB)

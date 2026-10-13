@@ -1621,7 +1621,7 @@ resources:
 | `index.rules.mime` | list | - | Media types, each exact (`text/csv`) or a family (`image/*`) |
 | `index.rules.size_over` | string | - | Matches a file larger than this: `1MiB`, `500KB`, or a number of bytes |
 | `index.rules.scope` | string | - | The library: `global`, `persona` or `user` |
-| `index.rules.origin` | list | - | Where the write came from: `upload` (the portal or REST API), `agent` (a session's `manage_resource`), `script` (any write while a managed script runs), `export` (an export tool's output), `webhook` (a webhook source's compacted window), `catalog` (a connection's schema document the [catalog scan](catalog.md#schema-documents) keeps). Being written by a script decides nothing on its own; it is a matcher a rule may use |
+| `index.rules.origin` | list | - | Where the write came from: `upload` (the portal or REST API), `agent` (a session's `manage_resource`), `script` (any write while a managed script runs), `export` (an export tool's output), `webhook` (a webhook source's compacted window). Being written by a script decides nothing on its own; it is a matcher a rule may use |
 | `index.rules.index` | string | - | The policy a writer that says nothing gets. A rule may set only `max` |
 | `index.rules.max` | string | - | The most indexing a writer may ask for where the rule matches. A request above it is lowered to it |
 

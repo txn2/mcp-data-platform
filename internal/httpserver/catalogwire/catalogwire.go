@@ -21,14 +21,12 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogimport"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogscan"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
-	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
-	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
@@ -39,6 +37,8 @@ import (
 type Catalog struct {
 	Settings *catalogscan.Store
 	Loop     *catalogscan.Loop
+	// Documents holds the schema documents the scan keeps (#1918).
+	Documents *catalogstore.Store
 	// Import runs the one-time import from DataHub (#1923).
 	Import   *catalogimport.Runner
 	platform *platform.Platform
@@ -56,7 +56,7 @@ func Build(p *platform.Platform) *Catalog {
 	if p == nil || p.DB() == nil {
 		return nil
 	}
-	c := assemble(p.DB(), p.ToolkitRegistry(), keeper(p))
+	c := assemble(p.DB(), p.ToolkitRegistry())
 	c.platform, c.admin = p, p.Config().Admin.IsEnabled()
 	c.Import = importRunner(p.DB(), p.Config().Semantic.URNMapping)
 	return c
@@ -84,36 +84,17 @@ func openDataHub(url, token string) (catalogimport.Source, error) {
 	return catalogimport.NewDataHub(c), nil
 }
 
-// keeper is where the scan keeps schema documents: the managed-resource
-// library, or nowhere on a deployment with no object storage for it.
-func keeper(p *platform.Platform) catalogscan.DocumentKeeper {
-	cfg := p.Config().Resources.Managed
-	uriScheme := cfg.URIScheme
-	if uriScheme == "" {
-		uriScheme = resource.DefaultURIScheme
-	}
-	w := resourcewrite.New(resourcewrite.Deps{
-		Store: p.ResourceStore(), Blobs: p.ResourceS3Client(), Bucket: cfg.S3Bucket,
-		URIScheme: uriScheme, MaxVersions: cfg.MaxVersions,
-		Registered: p.RegisterManagedResource, Unregistered: p.UnregisterManagedResource,
-		IndexPolicy: p.Config().Resources.Index.Resolver(),
-	})
-	if w == nil {
-		return nil
-	}
-	return documentKeeper{w: w, byURI: p.ResourceStore(), uriScheme: uriScheme}
-}
-
-// assemble builds the scan over a database and the live toolkits, keeping
-// schema documents through docs when it is set.
-func assemble(db *sql.DB, reg *registry.Registry, docs catalogscan.DocumentKeeper) *Catalog {
+// assemble builds the scan over a database and the live toolkits, keeping each
+// API and GraphQL connection's schema document in the catalog.
+func assemble(db *sql.DB, reg *registry.Registry) *Catalog {
 	settings := catalogscan.NewStore(db)
-	scanner := catalogscan.New(catalogstore.New(db), settings, settings,
+	docs := catalogstore.New(db)
+	scanner := catalogscan.New(docs, settings, settings,
 		catalogscan.NewTrinoSource(trinoReader{reg: reg}),
 		catalogscan.NewAPISource(apiReader{reg: reg}).KeepDocuments(docs),
 		catalogscan.NewGraphQLSource(graphqlReader{reg: reg}).KeepDocuments(docs),
 	)
-	return &Catalog{Settings: settings, Loop: catalogscan.NewLoop(scanner, settings, db)}
+	return &Catalog{Settings: settings, Loop: catalogscan.NewLoop(scanner, settings, db), Documents: docs}
 }
 
 // MountAdmin mounts the scan's settings and scan routes behind the admin API's
@@ -124,7 +105,9 @@ func (c *Catalog) MountAdmin(
 	if c == nil || !c.admin {
 		return
 	}
-	catalogscanapi.Register(mux, auth(c.platform), catalogscanapi.Config{Store: c.Settings, Scanner: c.Loop, Author: author})
+	catalogscanapi.Register(mux, auth(c.platform), catalogscanapi.Config{
+		Store: c.Settings, Scanner: c.Loop, Documents: c.Documents, Author: author,
+	})
 	if c.Import != nil {
 		catalogimportapi.Register(mux, auth(c.platform), catalogimportapi.Config{Runner: c.Import, Author: author})
 	}

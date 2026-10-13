@@ -214,7 +214,7 @@ func (r *Reclassifier) move(ctx context.Context, conn *sql.Conn, changed map[ind
 }
 
 // originOfUploader reads where a stored file came from for the rules: the
-// principal a script, the webhook receiver or the catalog scan writes under. A file a person
+// principal a script or the webhook receiver writes under. A file a person
 // uploaded and one an agent or an export wrote cannot be told apart once
 // stored, and both read as an upload.
 func originOfUploader(sub string) indexpolicy.Origin {
@@ -223,8 +223,6 @@ func originOfUploader(sub string) indexpolicy.Origin {
 		return indexpolicy.OriginScript
 	case sub == "system:webhooks":
 		return indexpolicy.OriginWebhook
-	case sub == "system:catalog":
-		return indexpolicy.OriginCatalog
 	default:
 		return indexpolicy.OriginUpload
 	}

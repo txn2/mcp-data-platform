@@ -79,3 +79,17 @@ export interface CatalogImport {
   report?: CatalogImportReport;
   error?: string;
 }
+
+/** CatalogDocument is a connection's schema document the scan keeps (#1918):
+ * an API connection's OpenAPI spec, a GraphQL connection's SDL. */
+export interface CatalogDocument {
+  id: string;
+  reference: string;
+  connection_kind: string;
+  connection: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  version: number;
+  updated_at: string;
+}

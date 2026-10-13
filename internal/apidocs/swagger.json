@@ -3153,6 +3153,103 @@
                 }
             }
         },
+        "/admin/catalog/documents": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every schema document the catalog scan keeps, one per API connection's OpenAPI spec and GraphQL connection's SDL, without its content: the connection, the filename, the media type, the size, and the version, which moves only when a scan reads different content. A document is read through fetch by its mcp:schema_document reference under the same connection boundary as the connection's datasets.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Catalog"
+                ],
+                "summary": "List schema documents",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/catalogscanapi.DocumentList"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/catalog/documents/{kind}/{connection}/{filename}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one schema document's content as the scan last read it, as a download in its own media type.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Catalog"
+                ],
+                "summary": "Download a schema document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection kind: api or graphql",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "connection",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Document filename",
+                        "name": "filename",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/catalog/imports": {
             "get": {
                 "security": [
@@ -29626,6 +29723,39 @@
                 }
             }
         },
+        "catalog.SchemaDocument": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "connection_kind": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "mime_type": {
+                    "type": "string"
+                },
+                "reference": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "Version counts the times the document's content changed; a scan that\nreads the same content again does not move it.",
+                    "type": "integer"
+                }
+            }
+        },
         "catalogapi.catalogResponse": {
             "type": "object",
             "properties": {
@@ -30124,6 +30254,17 @@
                 },
                 "path": {
                     "type": "string"
+                }
+            }
+        },
+        "catalogscanapi.DocumentList": {
+            "type": "object",
+            "properties": {
+                "documents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/catalog.SchemaDocument"
+                    }
                 }
             }
         },

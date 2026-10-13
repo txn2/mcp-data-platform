@@ -295,6 +295,30 @@ func TestBuildPersonaResolver(t *testing.T) {
 	}
 }
 
+// TestBuildPersonaResolver_ReachesCatalogRef proves a persona reaches a
+// catalog citation through the connection it names, by the persona's own
+// connection rules (#1918).
+func TestBuildPersonaResolver_ReachesCatalogRef(t *testing.T) {
+	pr := persona.NewRegistry()
+	_ = pr.Register(&persona.Persona{
+		Name: "analyst", Roles: []string{"dp_analyst"},
+		Connections: persona.ConnectionRules{Allow: []string{"warehouse"}},
+	})
+	info := buildPersonaResolver(pr, registry.NewRegistry())([]string{"dp_analyst"})
+	if info == nil || info.ReachesCatalogRef == nil {
+		t.Fatalf("expected a catalog reference check, got %+v", info)
+	}
+	if !info.ReachesCatalogRef("mcp:dataset:(trino,warehouse,hive.sales.orders)") {
+		t.Error("a dataset on an allowed connection is out of reach")
+	}
+	if info.ReachesCatalogRef(`mcp:schema_document:(api,billing,"openapi.json")`) {
+		t.Error("a document on a connection the persona is not allowed is reachable")
+	}
+	if !info.ReachesCatalogRef("mcp:glossary_term:revenue") {
+		t.Error("a definition names no connection and is reachable")
+	}
+}
+
 // TestWirePortalOptionalDeps drives the optional-dependency wiring against a
 // memory-backed platform: the nil-guarded branches are skipped, and the
 // persona-resolver and datahub-registrar paths run.

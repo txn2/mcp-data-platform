@@ -157,14 +157,14 @@ type OperationSource struct {
 	kind   string
 	typ    catalog.DatasetType
 	reader OperationReader
-	docs   DocumentKeeper
+	docs   catalog.DocumentStore
 }
 
-// KeepDocuments has the source keep each connection's schema documents as
-// managed resources, linked from the datasets read from them (#1918). A nil
-// keeper keeps none.
-func (s *OperationSource) KeepDocuments(k DocumentKeeper) *OperationSource {
-	s.docs = k
+// KeepDocuments has the source keep each connection's schema documents in the
+// catalog, linked from the datasets read from them (#1918). A nil store keeps
+// none.
+func (s *OperationSource) KeepDocuments(store catalog.DocumentStore) *OperationSource {
+	s.docs = store
 	return s
 }
 
@@ -200,10 +200,10 @@ func (s *OperationSource) Datasets(ctx context.Context, c Connection, skip Exclu
 			continue
 		}
 		if err := yield(catalog.DatasetInput{
-			Ref:              catalog.DatasetRef(s.kind, c.Instance, op.Path...),
-			Type:             s.typ,
-			Columns:          op.Columns,
-			SchemaResourceID: kept[op.Document],
+			Ref:            catalog.DatasetRef(s.kind, c.Instance, op.Path...),
+			Type:           s.typ,
+			Columns:        op.Columns,
+			SchemaDocument: kept[op.Document],
 		}); err != nil {
 			return err
 		}
@@ -212,7 +212,7 @@ func (s *OperationSource) Datasets(ctx context.Context, c Connection, skip Exclu
 }
 
 // keptDocuments keeps the connection's schema documents and returns their
-// resource ids by key. A document that cannot be kept leaves its datasets
+// filenames by key. A document that cannot be kept leaves its datasets
 // without one: the operations are still cataloged, and the next scan tries
 // again.
 func (s *OperationSource) keptDocuments(ctx context.Context, c Connection) map[string]string {
@@ -227,14 +227,16 @@ func (s *OperationSource) keptDocuments(ctx context.Context, c Connection) map[s
 		return kept
 	}
 	for _, d := range docs {
-		id, err := s.docs.Keep(ctx, s.kind, c.Instance, d)
+		_, _, err := s.docs.PutDocument(ctx, catalog.DocumentInput{
+			ConnectionKind: s.kind, Connection: c.Instance, Filename: d.Filename, MIMEType: d.MIMEType, Content: d.Content,
+		})
 		if err != nil {
 			slog.WarnContext(ctx, "catalog scan: keeping a schema document failed",
 				"kind", s.kind, "connection", c.Instance, "document", logsan.SanitizeForLog(d.Key),
 				"error", logsan.SanitizeForLog(err.Error()))
 			continue
 		}
-		kept[d.Key] = id
+		kept[d.Key] = d.Filename
 	}
 	return kept
 }

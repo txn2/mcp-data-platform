@@ -17,10 +17,7 @@
 package resourcewrite
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -167,36 +164,6 @@ func (w *Writer) Replace(
 	}
 	w.notify(updated)
 	return updated, version.Version, nil
-}
-
-// ReplaceIfChanged records content as the resource's next revision unless it
-// is the content the resource already holds, so a writer that writes the same
-// document on every pass leaves one version, not one per pass. It reports
-// whether a revision was recorded.
-func (w *Writer) ReplaceIfChanged(
-	ctx context.Context, id string, content []byte, mimeType string, claims resource.Claims,
-) (*resource.Resource, bool, error) {
-	res, err := w.Get(ctx, id, claims)
-	if err != nil {
-		return nil, false, err
-	}
-	if w.deps.Versions != nil {
-		versions, err := w.deps.Versions.ListVersions(ctx, res.ID)
-		if err != nil {
-			return nil, false, fmt.Errorf("reading the versions of %s: %w", res.ID, err)
-		}
-		sum := sha256.Sum256(content)
-		for _, v := range versions {
-			if v.S3Key == res.S3Key && v.ContentSHA256 == hex.EncodeToString(sum[:]) {
-				return res, false, nil
-			}
-		}
-	}
-	updated, _, err := w.Replace(ctx, id, resource.RevisionUpload{Content: bytes.NewReader(content), MIMEType: mimeType}, claims)
-	if err != nil {
-		return nil, false, err
-	}
-	return updated, true, nil
 }
 
 // Update writes the metadata half of an edit -- display name, description,

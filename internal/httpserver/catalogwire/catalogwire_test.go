@@ -137,7 +137,7 @@ func TestBuildMountsAndRuns(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	c := assemble(db, registry.NewRegistry(), nil)
+	c := assemble(db, registry.NewRegistry())
 	require.NotNil(t, c.Settings)
 
 	mux := http.NewServeMux()

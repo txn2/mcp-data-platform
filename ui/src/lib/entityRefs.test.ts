@@ -87,6 +87,7 @@ describe("parseRef", () => {
     expect(parseRef("mcp:column:(trino,acme,hive.sales.orders,amount)")?.fallbackLabel).toBe("orders.amount");
     expect(parseRef("mcp:glossary_term:net-revenue")?.fallbackLabel).toBe("net-revenue");
     expect(parseRef("mcp:tag:pii")?.type).toBe("catalog");
+    expect(parseRef('mcp:schema_document:(api,billing,"openapi.json")')?.fallbackLabel).toBe("billing openapi.json");
     expect(refHref("catalog", "", "mcp:tag:pii")).toBeNull();
   });
 

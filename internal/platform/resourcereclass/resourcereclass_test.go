@@ -113,7 +113,6 @@ func TestReclassifyStopsWithItsContext(t *testing.T) {
 func TestOriginOfUploader(t *testing.T) {
 	assert.Equal(t, indexpolicy.OriginScript, originOfUploader("script:nltv"))
 	assert.Equal(t, indexpolicy.OriginWebhook, originOfUploader("system:webhooks"))
-	assert.Equal(t, indexpolicy.OriginCatalog, originOfUploader("system:catalog"))
 	assert.Equal(t, indexpolicy.OriginUpload, originOfUploader("550e8400"))
 }
 

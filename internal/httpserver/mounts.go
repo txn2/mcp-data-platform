@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
+	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
@@ -512,6 +513,13 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 		if tr != nil {
 			filter := persona.NewToolFilter(pr)
 			info.Tools = filter.FilterTools(per, tr.AllTools())
+			info.ReachesCatalogRef = func(reference string) bool {
+				names := connsource.ConnectionNamesForURN(nil, tr.All(), reference)
+				if len(names) == 0 {
+					return true
+				}
+				return slices.ContainsFunc(names, func(n string) bool { return filter.IsConnectionAllowed(per, n) })
+			}
 		}
 		return info
 	}

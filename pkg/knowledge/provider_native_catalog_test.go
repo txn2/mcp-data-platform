@@ -1,14 +1,17 @@
 package knowledge
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
 type fakeCatalog struct {
@@ -75,14 +78,98 @@ func TestNativeCatalogFetchDataset(t *testing.T) {
 	assert.Empty(t, doc.References, "a dataset with no schema document links none")
 }
 
-// A dataset whose schema document is kept links it as a resource reference
-// the caller can fetch in turn (#1918).
-func TestNativeCatalogFetchLinksTheSchemaDocument(t *testing.T) {
+// A dataset links the schema document a scan read it from, and the resource a
+// registered table was created from, as references the caller can fetch in
+// turn (#1918).
+func TestNativeCatalogFetchLinksTheSourceDocuments(t *testing.T) {
 	f := nativeFixture()
+	f.datasets[nativeOrders.String()].SchemaDocument = billingSpec.String()
 	f.datasets[nativeOrders.String()].SchemaResourceID = "res-1"
 	doc, _, err := NewNativeCatalogProvider(f, nil).Fetch(context.Background(), nativeOrders.String(), Caller{})
 	require.NoError(t, err)
-	assert.Equal(t, []DocumentRef{{Reference: "mcp:resource:res-1", Type: "resource"}}, doc.References)
+	assert.Equal(t, []DocumentRef{
+		{Reference: billingSpec.String(), Type: "catalog"},
+		{Reference: "mcp:resource:res-1", Type: "resource"},
+	}, doc.References)
+}
+
+var billingSpec = catalog.SchemaDocumentRef("api", "billing", "openapi.json")
+
+// documentCatalog adds schema documents to the fake catalog.
+type documentCatalog struct {
+	*fakeCatalog
+	docs map[string]*catalog.SchemaDocument
+	err  error
+}
+
+func (d documentCatalog) GetDocument(_ context.Context, ref catalog.Ref) (*catalog.SchemaDocument, error) {
+	if d.err != nil {
+		return nil, d.err
+	}
+	doc, ok := d.docs[ref.String()]
+	if !ok {
+		return nil, catalog.ErrNotFound
+	}
+	return doc, nil
+}
+
+func specCatalog(content []byte) documentCatalog {
+	spec := &catalog.SchemaDocument{
+		Reference: billingSpec.String(), ConnectionKind: "api", Connection: "billing",
+		Filename: "openapi.json", MIMEType: "application/json", Content: content, SizeBytes: len(content),
+	}
+	return documentCatalog{fakeCatalog: nativeFixture(), docs: map[string]*catalog.SchemaDocument{billingSpec.String(): spec}}
+}
+
+// A schema document is read only by a caller whose persona may reach its
+// connection, the boundary its datasets are read under (#1918).
+func TestNativeCatalogFetchSchemaDocument(t *testing.T) {
+	p := NewNativeCatalogProvider(specCatalog([]byte(`{"openapi":"3.0.0"}`)), nil)
+	allowed, _ := scopedCaller(stubScope{allowed: map[string]bool{"billing": true}})
+	doc, owned, err := p.Fetch(context.Background(), billingSpec.String(), allowed)
+	require.True(t, owned)
+	require.NoError(t, err)
+	assert.Equal(t, `{"openapi":"3.0.0"}`, doc.Body)
+	assert.Equal(t, "billing openapi.json", doc.Title)
+	assert.Equal(t, SourceCatalog, doc.Source)
+	assert.Empty(t, doc.Note, "a whole document carries no note")
+
+	denied, _ := scopedCaller(stubScope{allowed: map[string]bool{"warehouse": true}})
+	_, owned, err = p.Fetch(context.Background(), billingSpec.String(), denied)
+	assert.True(t, owned)
+	require.ErrorIs(t, err, ErrNotFound, "a persona without the connection does not learn the document exists")
+
+	_, _, err = p.Fetch(context.Background(), catalog.SchemaDocumentRef("api", "billing", "absent.json").String(), allowed)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	broken := specCatalog(nil)
+	broken.err = errors.New("db down")
+	_, _, err = NewNativeCatalogProvider(broken, nil).Fetch(context.Background(), billingSpec.String(), allowed)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrNotFound)
+
+	_, owned, err = NewNativeCatalogProvider(nativeFixture(), nil).Fetch(context.Background(), billingSpec.String(), allowed)
+	assert.True(t, owned)
+	require.ErrorIs(t, err, ErrNotFound, "a store that keeps no documents has none to read")
+}
+
+// A document past the inline limit is cut at a character boundary and says so.
+func TestNativeCatalogFetchCutsALongSchemaDocument(t *testing.T) {
+	// A three-byte character straddles the limit, so the cut backs up to it.
+	content := append(bytes.Repeat([]byte("a"), resource.MaxInlineContentBytes), "ab"...)
+	copy(content[resource.MaxInlineContentBytes-1:], "€")
+	doc, _, err := NewNativeCatalogProvider(specCatalog(content), nil).Fetch(context.Background(), billingSpec.String(), Caller{})
+	require.NoError(t, err)
+	assert.Len(t, doc.Body, resource.MaxInlineContentBytes-1)
+	assert.True(t, utf8.ValidString(doc.Body))
+	assert.Contains(t, doc.Note, "Only the first 1048575 of this document's 1048578 bytes")
+}
+
+func TestRuneCut(t *testing.T) {
+	assert.Equal(t, 3, runeCut([]byte("abcd"), 3))
+	assert.Equal(t, 1, runeCut([]byte("a€b"), 2), "backs up to the start of the character")
+	invalid := bytes.Repeat([]byte{0x80}, 10)
+	assert.Equal(t, 8, runeCut(invalid, 8), "bytes with no character start are cut where asked")
 }
 
 type lineageCatalog struct {

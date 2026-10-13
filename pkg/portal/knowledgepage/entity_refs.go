@@ -307,19 +307,24 @@ func (s *postgresStore) refTargetExists(ctx context.Context, ref EntityRef) (boo
 	}
 }
 
-// selectCatalogEntity finds a catalog entity by its canonical reference, or a
-// definition by the slug its reference may use in place of the id.
+// selectCatalogEntity finds a catalog entity by its canonical reference, a
+// definition by the slug its reference may use in place of the id, or a
+// connection's schema document by its connection and filename.
 const selectCatalogEntity = `
-SELECT 1 FROM catalog_entities WHERE reference = $1 OR (kind = $2 AND slug = $3 AND $3 <> '')`
+SELECT 1 FROM catalog_entities WHERE reference = $1 OR (kind = $2 AND slug = $3 AND $3 <> '')
+UNION ALL
+SELECT 1 FROM catalog_documents
+WHERE $2 = 'schema_document' AND connection_kind = $4 AND connection_name = $5 AND filename = $3
+LIMIT 1`
 
 // catalogEntityArgs are selectCatalogEntity's arguments for a catalog
-// reference: its canonical form, and its kind and key.
+// reference: its canonical form, its kind and key, and its connection.
 func catalogEntityArgs(reference string) []any {
 	ref, err := catalog.ParseRef(reference)
 	if err != nil {
-		return []any{reference, "", ""}
+		return []any{reference, "", "", "", ""}
 	}
-	return []any{ref.String(), string(ref.Kind), ref.Key}
+	return []any{ref.String(), string(ref.Kind), ref.Key, ref.ConnectionKind, ref.Connection}
 }
 
 // AddEntityRefs inserts the given references for a page (union semantics): a

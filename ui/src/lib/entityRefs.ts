@@ -262,6 +262,7 @@ export function parseRef(urn: string): ParsedRef | null {
     case "tag":
     case "domain":
     case "data_product":
+    case "schema_document":
       return { urn: trimmed, type: "catalog", id: "", fallbackLabel: platformCatalogLabel(type, id) };
     default:
       return null;
@@ -271,12 +272,21 @@ export function parseRef(urn: string): ParsedRef | null {
 /**
  * platformCatalogLabel names a platform catalog reference before the server
  * resolves it (#1923): the table (and column) a dataset or column reference
- * names, the key a definition reference carries.
+ * names, the connection and filename of a schema document (#1918), the key a
+ * definition reference carries.
  */
 function platformCatalogLabel(type: string, key: string): string {
+  if (type === "schema_document") return schemaDocumentLabel(key);
   if (type !== "dataset" && type !== "column") return key;
   const parts = key.replace(/^\(|\)$/g, "").split(",");
   const path = (parts[2] ?? "").split(".");
   const table = path[path.length - 1] || key;
   return type === "column" && parts[3] ? `${table}.${parts[3]}` : table;
+}
+
+/** schemaDocumentLabel is a schema document reference's connection and
+ * filename: (api,billing,"openapi.json") reads "billing openapi.json". */
+function schemaDocumentLabel(key: string): string {
+  const parts = key.replace(/^\(|\)$/g, "").split(",");
+  return `${parts[1] ?? ""} ${(parts[2] ?? "").replace(/^"|"$/g, "")}`.trim() || key;
 }

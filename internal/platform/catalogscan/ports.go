@@ -61,10 +61,3 @@ type Document struct {
 	MIMEType string
 	Content  []byte
 }
-
-// DocumentKeeper keeps a connection's schema document as a managed resource
-// and returns the resource's id, revising the resource only when the document
-// changed.
-type DocumentKeeper interface {
-	Keep(ctx context.Context, kind, connection string, doc Document) (resourceID string, err error)
-}

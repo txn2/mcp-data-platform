@@ -32,6 +32,8 @@ internal/admin/catalogimportapi -> internal/httpjson
 internal/admin/catalogimportapi -> internal/platform/catalogimport
 internal/admin/catalogscanapi -> internal/httpjson
 internal/admin/catalogscanapi -> internal/platform/catalogscan
+internal/admin/catalogscanapi -> pkg/blobserve
+internal/admin/catalogscanapi -> pkg/catalog
 internal/admin/connoauthapi -> internal/httpjson
 internal/admin/connoauthapi -> internal/logsan
 internal/admin/connoauthapi -> internal/outbound
@@ -142,6 +144,7 @@ internal/httpserver -> internal/platform/callcatchup
 internal/httpserver -> internal/platform/callrecord
 internal/httpserver -> internal/platform/connreach
 internal/httpserver -> internal/platform/connscope
+internal/httpserver -> internal/platform/connsource
 internal/httpserver -> internal/platform/knowledgebuiltin
 internal/httpserver -> internal/platform/listenbridge
 internal/httpserver -> internal/platform/notifydelivery
@@ -230,18 +233,15 @@ internal/httpserver/attachhttp -> pkg/prompt/attachserve
 internal/httpserver/attachhttp -> pkg/resource
 internal/httpserver/catalogwire -> internal/admin/catalogimportapi
 internal/httpserver/catalogwire -> internal/admin/catalogscanapi
-internal/httpserver/catalogwire -> internal/indexpolicy
 internal/httpserver/catalogwire -> internal/platform/catalogimport
 internal/httpserver/catalogwire -> internal/platform/catalogscan
 internal/httpserver/catalogwire -> internal/platform/catalogstore
-internal/httpserver/catalogwire -> internal/platform/resourcewrite
 internal/httpserver/catalogwire -> internal/platform/tableregister
 internal/httpserver/catalogwire -> pkg/catalog
 internal/httpserver/catalogwire -> pkg/connid
 internal/httpserver/catalogwire -> pkg/contenttype
 internal/httpserver/catalogwire -> pkg/platform
 internal/httpserver/catalogwire -> pkg/registry
-internal/httpserver/catalogwire -> pkg/resource
 internal/httpserver/catalogwire -> pkg/toolkits/apigateway
 internal/httpserver/catalogwire -> pkg/toolkits/apigateway/catalog
 internal/httpserver/catalogwire -> pkg/toolkits/graphql

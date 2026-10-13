@@ -520,3 +520,37 @@ func TestPagesProvider_FetchWithholdsReferencesTheCallerCannotOpen(t *testing.T)
 		t.Errorf("with no rule wired: References = %+v, withheld %d; want only the page, 5 withheld", doc.References, doc.ReferencesWithheld)
 	}
 }
+
+// A page's catalog citation that names a connection is listed only for a
+// reader whose persona may reach that connection, and counted otherwise; a
+// definition names none and is listed for everyone (#1918).
+func TestPagesProvider_FetchWithholdsCatalogCitationsOutsideTheConnection(t *testing.T) {
+	spec := `mcp:schema_document:(api,billing,"openapi.json")`
+	orders := "mcp:dataset:(trino,warehouse,hive.sales.orders)"
+	s := &fakePageSearcher{
+		page: &knowledgepage.Page{ID: "kp_1", Title: "Index", Body: "b"},
+		entityRefs: []knowledgepage.EntityRef{
+			{TargetType: knowledgepage.RefTargetCatalog, EntityURN: spec},
+			{TargetType: knowledgepage.RefTargetCatalog, EntityURN: orders},
+			{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:glossary_term:revenue"},
+		},
+	}
+	caller, _ := scopedCaller(stubScope{
+		allowed: map[string]bool{"warehouse": true},
+		urns:    map[string][]string{spec: {"billing"}, orders: {"warehouse"}},
+	})
+	doc, _, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("kp_1"), caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DocumentRef{
+		{Reference: orders, Type: knowledgepage.RefTargetCatalog},
+		{Reference: "mcp:glossary_term:revenue", Type: knowledgepage.RefTargetCatalog},
+	}
+	if len(doc.References) != len(want) || doc.References[0] != want[0] || doc.References[1] != want[1] {
+		t.Errorf("References = %+v, want %+v", doc.References, want)
+	}
+	if doc.ReferencesWithheld != 1 {
+		t.Errorf("ReferencesWithheld = %d, want 1", doc.ReferencesWithheld)
+	}
+}

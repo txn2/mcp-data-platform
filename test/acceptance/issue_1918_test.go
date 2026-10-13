@@ -26,8 +26,13 @@ import (
 // `exclusions` an array of objects, its one form.
 //
 // The schema-document criterion reads the stored API operation's dataset
-// through fetch and follows the mcp:resource: reference it lists, the same
-// string parameter.
+// through fetch and follows the mcp:schema_document: reference it lists, the
+// same string parameter, as an administrator and as two personas created for
+// it: one allowed the API connection, one allowed only another connection. It
+// writes a page citing the document with apply_knowledge, whose `page` is a
+// JSON object with `references` an array of strings (its one form), and
+// resolves the citation with POST /api/v1/portal/knowledge-pages/refs/resolve,
+// whose `urns` is an array of strings (its one form).
 
 // conn1918 is the writable dev Trino connection the criteria create tables on.
 const conn1918 = scratchConnection
@@ -303,9 +308,12 @@ func TestIssue1918_AnExcludedSchemaIsNotCataloged(t *testing.T) {
 }
 
 // TestIssue1918_ASchemaDocumentIsKeptAndLinked: a scan keeps an API
-// connection's OpenAPI spec as a managed resource and links it from each
-// operation's dataset; fetch on the dataset lists the resource and fetch on
-// the resource returns the spec. Scanning again adds no version.
+// connection's OpenAPI spec in the catalog and links it from each operation's
+// dataset. fetch on the dataset lists the document; fetch on the document
+// returns the spec to a persona that may use the connection and nothing to one
+// that may not, and a knowledge page citing it lists the citation only to the
+// first. The admin route downloads it, a second scan of the unchanged spec
+// records no version, and no file is written to the resource library.
 func TestIssue1918_ASchemaDocumentIsKeptAndLinked(t *testing.T) {
 	const apiConn = "api-test-fixture"
 	c := connectFor(t, 2*scanTimeout+time.Minute)
@@ -326,27 +334,138 @@ func TestIssue1918_ASchemaDocumentIsKeptAndLinked(t *testing.T) {
 		t.Fatalf("the operation %s lists no schema document: %v", ref, doc)
 	}
 	first, _ := refs[0].(map[string]any)
-	resourceRef, _ := first["reference"].(string)
-	if !strings.HasPrefix(resourceRef, "mcp:resource:") || first["type"] != "resource" {
-		t.Fatalf("schema document reference: %v", first)
-	}
-	spec := c.call("fetch", map[string]any{"reference": resourceRef, "purpose": "Acceptance: reading a kept schema document."})
-	specDoc, _ := spec["document"].(map[string]any)
-	if spec["found"] != true || !strings.Contains(fmt.Sprint(specDoc), "openapi") {
-		t.Fatalf("fetch %s did not return the spec: %v", resourceRef, spec)
+	docRef, _ := first["reference"].(string)
+	parsed, err := catalog.ParseRef(docRef)
+	if err != nil || parsed.Kind != catalog.KindSchemaDocument || parsed.Connection != apiConn || first["type"] != "catalog" {
+		t.Fatalf("schema document reference: %v (%v)", first, err)
 	}
 
-	versions := func() int {
-		var n int
-		if err := db.QueryRow(`SELECT count(*) FROM resource_versions WHERE resource_id = $1`,
-			strings.TrimPrefix(resourceRef, "mcp:resource:")).Scan(&n); err != nil {
-			t.Fatalf("counting versions: %v", err)
-		}
-		return n
+	readsSpec := func(reader *client) bool {
+		out := reader.call("fetch", map[string]any{"reference": docRef, "purpose": "Acceptance: reading a kept schema document."})
+		body, _ := out["document"].(map[string]any)
+		return out["found"] == true && strings.Contains(fmt.Sprint(body["body"]), "openapi")
 	}
-	before := versions()
+	allowed := connectAs(t, member1918(t, c, apiConn))
+	denied := connectAs(t, member1918(t, c, scratchConnection))
+	if !readsSpec(c) {
+		t.Fatalf("fetch %s did not return the spec to an administrator", docRef)
+	}
+	if !readsSpec(allowed) {
+		t.Fatalf("fetch %s did not return the spec to a persona allowed %s", docRef, apiConn)
+	}
+	if readsSpec(denied) {
+		t.Fatalf("fetch %s returned the spec to a persona not allowed %s", docRef, apiConn)
+	}
+	citedOnAPage1918(t, c, allowed, denied, docRef)
+
+	path := "/api/v1/admin/catalog/documents/api/" + apiConn + "/" + parsed.Key
+	status, body := c.restText(path)
+	if status != http.StatusOK || !strings.Contains(body, "openapi") {
+		t.Fatalf("GET %s answered %d: %.200s", path, status, body)
+	}
+
+	version := func() int {
+		var v int
+		if err := db.QueryRow(`SELECT version FROM catalog_documents
+			WHERE connection_kind = 'api' AND connection_name = $1 AND filename = $2`, apiConn, parsed.Key).Scan(&v); err != nil {
+			t.Fatalf("reading the document's version: %v", err)
+		}
+		return v
+	}
+	before := version()
 	scanOf1918(t, c, "api", apiConn)
-	if after := versions(); after != before {
+	if after := version(); after != before {
 		t.Fatalf("a scan of an unchanged spec recorded a version: %d before, %d after", before, after)
 	}
+
+	var files int
+	if err := db.QueryRow(`SELECT count(*) FROM resources WHERE path LIKE 'catalog/%'`).Scan(&files); err != nil {
+		t.Fatalf("counting resource library files: %v", err)
+	}
+	if files != 0 {
+		t.Fatalf("the scan wrote %d schema documents to the resource library", files)
+	}
+}
+
+// citedOnAPage1918 writes a knowledge page citing docRef and checks that the
+// citation is listed, by fetch and by the portal, for the persona allowed its
+// connection and withheld from the one that is not.
+func citedOnAPage1918(t *testing.T, admin, allowed, denied *client, docRef string) {
+	t.Helper()
+	page := admin.call("apply_knowledge", map[string]any{
+		"action": "apply", "sink": "knowledge_page", "confirm": true,
+		"page": map[string]any{
+			"slug": fmt.Sprintf("acceptance-1918-%d", time.Now().UnixNano()), "title": "Acceptance 1918 spec",
+			"summary": "Written by the #1918 acceptance run.", "force_new": true,
+			"body":       "The fixture's operations are described by " + docRef + ".",
+			"references": []any{docRef},
+		},
+	})
+	pageID, _ := page["page_id"].(string)
+	if pageID == "" {
+		t.Fatalf("apply_knowledge wrote no page: %v", page)
+	}
+	if cs, _ := page["changeset_id"].(string); cs != "" {
+		rollback1696(t, admin, cs)
+	}
+	cites := func(reader *client) (bool, float64) {
+		out := reader.call("fetch", map[string]any{"reference": "mcp:knowledge_page:" + pageID, "purpose": "Acceptance: reading a page that cites a schema document."})
+		doc, _ := out["document"].(map[string]any)
+		refs, _ := doc["references"].([]any)
+		for _, r := range refs {
+			if m, _ := r.(map[string]any); m["reference"] == docRef {
+				return true, 0
+			}
+		}
+		withheld, _ := doc["references_withheld"].(float64)
+		return false, withheld
+	}
+	if listed, _ := cites(allowed); !listed {
+		t.Errorf("the page's citation of %s is not listed for a persona allowed its connection", docRef)
+	}
+	if listed, withheld := cites(denied); listed || withheld < 1 {
+		t.Errorf("the page's citation of %s for a persona not allowed its connection: listed %v, withheld %v", docRef, listed, withheld)
+	}
+	resolve := func(reader *client) bool {
+		status, out := reader.rest(http.MethodPost, "/api/v1/portal/knowledge-pages/refs/resolve",
+			jsonBody(t, map[string]any{"urns": []any{docRef}}))
+		refs, _ := out["refs"].([]any)
+		if status != http.StatusOK || len(refs) != 1 {
+			t.Fatalf("resolving %s answered %d %v", docRef, status, out)
+		}
+		m, _ := refs[0].(map[string]any)
+		return m["accessible"] == true
+	}
+	if !resolve(allowed) || resolve(denied) {
+		t.Errorf("the portal resolves %s for the allowed persona %v and the denied one %v", docRef, resolve(allowed), resolve(denied))
+	}
+}
+
+// member1918 creates a database persona allowed only the named connection, and
+// an API key reaching it, both removed at cleanup.
+func member1918(t *testing.T, admin *client, connection string) string {
+	t.Helper()
+	suffix := time.Now().UnixNano()
+	name := fmt.Sprintf("acc-1918-%d", suffix)
+	role := fmt.Sprintf("acc_1918_%d", suffix)
+	status, out := admin.rest(http.MethodPost, "/api/v1/admin/personas", jsonBody(t, map[string]any{
+		"name": name, "display_name": "Acceptance 1918 member", "roles": []any{role},
+		"allow_tools": []any{"*"}, "allow_connections": []any{connection},
+	}))
+	if status != http.StatusCreated {
+		t.Fatalf("creating persona %s answered %d %v", name, status, out)
+	}
+	t.Cleanup(func() { admin.rest(http.MethodDelete, "/api/v1/admin/personas/"+name, http.NoBody) })
+	status, out = admin.rest(http.MethodPost, "/api/v1/admin/auth/keys", jsonBody(t, map[string]any{
+		"name": name, "roles": []any{role}, "description": "Acceptance #1918 member",
+	}))
+	if status != http.StatusCreated && status != http.StatusOK {
+		t.Fatalf("creating key %s answered %d %v", name, status, out)
+	}
+	t.Cleanup(func() { admin.rest(http.MethodDelete, "/api/v1/admin/auth/keys/"+name, http.NoBody) })
+	key, _ := out["key"].(string)
+	if key == "" {
+		t.Fatalf("key %s was created without a secret: %v", name, out)
+	}
+	return key
 }

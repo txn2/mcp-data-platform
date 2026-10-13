@@ -721,29 +721,3 @@ func TestDescribeFolder(t *testing.T) {
 	err = plain.DescribeFolder(t.Context(), toolkit.ResourceAddress{Path: "datasets"}, "x", analyst())
 	require.Error(t, err, "a store that keeps no folders cannot describe one")
 }
-
-// ReplaceIfChanged records nothing for the content the file already holds,
-// and a revision for anything else (#1918).
-func TestReplaceIfChangedSkipsTheContentAlreadyHeld(t *testing.T) {
-	f := newFixture(t)
-	original := mustCreate(t, f)
-
-	same, changed, err := f.writer.ReplaceIfChanged(t.Context(), original.ID, []byte("day,high\nmon,71\n"), "text/csv", analyst())
-	require.NoError(t, err)
-	assert.False(t, changed)
-	assert.Equal(t, original.S3Key, same.S3Key)
-	versions, err := f.store.ListVersions(t.Context(), original.ID)
-	require.NoError(t, err)
-	assert.Len(t, versions, 1, "the same bytes add no version")
-
-	updated, changed, err := f.writer.ReplaceIfChanged(t.Context(), original.ID, []byte("day,high\nmon,72\n"), "text/csv", analyst())
-	require.NoError(t, err)
-	assert.True(t, changed)
-	assert.NotEqual(t, original.S3Key, updated.S3Key)
-	versions, err = f.store.ListVersions(t.Context(), original.ID)
-	require.NoError(t, err)
-	assert.Len(t, versions, 2)
-
-	_, _, err = f.writer.ReplaceIfChanged(t.Context(), "missing", []byte("x"), "text/plain", analyst())
-	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource)
-}

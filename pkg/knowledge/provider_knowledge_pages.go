@@ -234,6 +234,12 @@ func (p *PagesProvider) outboundRefs(ctx context.Context, pageID string, caller 
 			withheld++
 			continue
 		}
+		// A catalog citation that names a connection is handed only to a
+		// reader whose persona may reach it, the rule fetching it applies.
+		if refs[i].TargetType == knowledgepage.RefTargetCatalog && !caller.allowsURN(urn) {
+			withheld++
+			continue
+		}
 		out = append(out, DocumentRef{Reference: urn, Type: refs[i].TargetType})
 	}
 	if len(out) == 0 {
