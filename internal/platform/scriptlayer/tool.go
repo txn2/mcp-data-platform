@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
@@ -71,8 +72,10 @@ type manageScriptInput struct {
 	// distinguishable from "not sent". Its two siblings above keep the
 	// zero-value convention they were written with; this one is new (#1369) and
 	// is clearable, as the tag list beside it already was.
-	Category   *string        `json:"category,omitempty"`
-	Source     string         `json:"source,omitempty"`
+	Category *string `json:"category,omitempty"`
+	Source   string  `json:"source,omitempty"`
+	// SourceRef names a managed resource whose text is the source (#2114).
+	SourceRef  string         `json:"source_ref,omitempty"`
 	Params     []script.Param `json:"params,omitempty"`
 	OwnerEmail string         `json:"owner_email,omitempty"`
 	Tags       []string       `json:"tags,omitempty"`
@@ -142,6 +145,11 @@ type manageScriptInput struct {
 	ContextBytes int              `json:"context_bytes,omitempty"`
 	FromVersion  int              `json:"from_version,omitempty"`
 	ToVersion    int              `json:"to_version,omitempty"`
+	// TimeoutSeconds is how long an administrator's run_draft may run (#2117).
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+	// Verbose restores what a response shortens (#2115, #2114): long changed
+	// lines in full, and a refused save's formatted source.
+	Verbose bool `json:"verbose,omitempty"`
 }
 
 // RegisterTool registers manage_script; where the deployment can execute
@@ -158,7 +166,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 	toolkit.AddTool(server, &mcp.Tool{
 		Name:        ToolNameManageScript,
 		Title:       "Manage Scripts",
-		Description: manageScriptDescription,
+		Description: scriptcontract.ManageScriptDescription,
 		InputSchema: manageScriptSchema(),
 		// delete removes a script, and update and the content verbs
 		// overwrite one.
@@ -428,6 +436,15 @@ func manageScriptSchema() any {
 		},
 	}
 	maps.Copy(props, textpatchProperties())
+	props["timeout_seconds"] = map[string]any{keyType: "integer", keyDescription: "For run_draft: how long the draft may run. " +
+		"Up to 60 for anyone; an administrator may ask for up to scripts.draft.max_seconds, and a draft longer " +
+		"than 60 runs in the background: run_draft answers its run_id at once and get_run reads it."}
+	props["source_ref"] = map[string]any{keyType: valString, keyDescription: "For create and update: a managed " +
+		"resource whose text is the source, as mcp:resource:<id> or its mcp:// uri, instead of sending source. " +
+		"Write the file once with manage_resource and save from it; you must be able to read it."}
+	props["verbose"] = map[string]any{keyType: "boolean", keyDescription: "Show in full what a response shortens: " +
+		"a changed line longer than 400 characters in a patch or diff (shown otherwise as the span that changed), " +
+		"and the formatted source a refused save would otherwise leave out."}
 	return map[string]any{
 		keyType:                valObject,
 		"properties":           props,

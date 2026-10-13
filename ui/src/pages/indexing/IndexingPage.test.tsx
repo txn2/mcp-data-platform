@@ -26,6 +26,7 @@ let failuresState: {
 };
 let topCallersState: { data?: TopCallers; isError: boolean };
 const topCallersAsked = vi.fn();
+const resourceIndexAsked = vi.fn();
 
 // jobsFor answers useIndexJobs the way the server does: jobsState is the whole
 // table, and a request gets its filter applied, newest first, cut at its
@@ -75,6 +76,14 @@ vi.mock("@/api/admin/indexjobs", () => ({
     topCallersAsked();
     return topCallersState;
   },
+  useResourceIndex: () => {
+    resourceIndexAsked();
+    return {
+      data: { counts: { full: 5, metadata: 7, none: 1, explicit: 0, content_bytes: 0, folders: 2 } },
+      isError: false,
+    };
+  },
+  useReclassify: () => ({ mutate: vi.fn(), isPending: false }),
   useReindex: () => ({
     mutate: reindexMutate,
     isPending: false,
@@ -199,6 +208,7 @@ beforeEach(() => {
   failuresState = { data: { failures } };
   topCallersState = { data: topCallers, isError: false };
   topCallersAsked.mockReset();
+  resourceIndexAsked.mockReset();
 });
 
 const topCallers: TopCallers = {
@@ -645,6 +655,12 @@ describe("IndexingPage during a backlog larger than one page", () => {
     expect(screen.queryByText("No jobs in flight.")).not.toBeInTheDocument();
   });
 
+  it("shows how resources are indexed on a deployment that indexes them", () => {
+    render(<IndexingPage />);
+    expect(screen.getByText("Resource search")).toBeInTheDocument();
+    expect(resourceIndexAsked).toHaveBeenCalled();
+  });
+
   it("lists the jobs in retry backoff under the whole table's count", () => {
     render(<IndexingPage />);
     expect(screen.getByText("resources/backing-off")).toBeInTheDocument();
@@ -767,6 +783,7 @@ describe("IndexingPage top callers (#1980)", () => {
     render(<IndexingPage />);
     expect(topCallersAsked).not.toHaveBeenCalled();
     expect(screen.queryByText("Top callers")).not.toBeInTheDocument();
+    expect(resourceIndexAsked).not.toHaveBeenCalled();
   });
 
   it("says so when the count fails, and when the catalog is empty", () => {

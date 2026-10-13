@@ -1332,6 +1332,7 @@ export const handlers = [
       // What this deployment accepts for a resource upload (#1628). The stock
       // default, which is what a deployment that configures no ceiling has.
       max_upload_bytes: 104857600,
+      automations: true,
     }),
   ),
 
@@ -1656,6 +1657,19 @@ export const handlers = [
 
   // Indexing dashboard: cross-kind summary, job drill-down, re-index.
   http.get(`${ADMIN_BASE}/index-jobs`, () => HttpResponse.json(mockIndexJobsSummary)),
+  http.get(`${ADMIN_BASE}/resources/index`, () =>
+    HttpResponse.json({
+      counts: { full: 412, metadata: 1873, none: 96, explicit: 38, content_bytes: 52_428_800, folders: 14 },
+      last_run: {
+        started_at: new Date(Date.now() - 3_600_000).toISOString(),
+        finished_at: new Date(Date.now() - 3_540_000).toISOString(),
+        result: { examined: 2381, changed: 1204, cleared: 1190 },
+      },
+    }),
+  ),
+  http.post(`${ADMIN_BASE}/resources/index/reclassify`, () =>
+    HttpResponse.json({ started_at: new Date().toISOString() }, { status: 202 }),
+  ),
 
   http.get(`${ADMIN_BASE}/index-jobs/jobs`, ({ request }) => {
     const url = new URL(request.url);
@@ -2228,6 +2242,7 @@ export const handlers = [
       api_routes?: APIRouteRule[];
       priority?: number;
       service_account?: boolean;
+      hide_automations?: boolean;
     };
 
     if (!body.name || !body.display_name) {
@@ -2254,6 +2269,7 @@ export const handlers = [
       deny_tools: body.deny_tools ?? [],
       api_routes: body.api_routes ?? [],
       service_account: body.service_account ?? false,
+      hide_automations: body.hide_automations ?? false,
       tools: [] as string[],
     };
 
@@ -2282,6 +2298,7 @@ export const handlers = [
       api_routes?: APIRouteRule[];
       priority?: number;
       service_account?: boolean;
+      hide_automations?: boolean;
     };
 
     if (!body.display_name) {
@@ -2302,6 +2319,7 @@ export const handlers = [
     if (body.priority !== undefined) existing.priority = body.priority;
     // Absent is false, as on the server: the editor sends it only when set.
     existing.service_account = body.service_account ?? false;
+    existing.hide_automations = body.hide_automations ?? false;
 
     const idx = mockPersonas.findIndex((p) => p.name === name);
     if (idx !== -1) {

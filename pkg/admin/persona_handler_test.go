@@ -1268,3 +1268,54 @@ func TestPersonaSavedAsServiceAccountWithoutASweepingCatalog(t *testing.T) {
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 }
+
+func TestPersonaSavesWhetherThePortalShowsAutomations(t *testing.T) {
+	cases := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		status   int
+		wantHide bool
+	}{
+		{
+			name: "create hiding", method: http.MethodPost, path: "/api/v1/admin/personas",
+			body:   `{"name":"viewer","display_name":"Viewer","roles":["viewer"],"hide_automations":true}`,
+			status: http.StatusCreated, wantHide: true,
+		},
+		{
+			name: "update hiding", method: http.MethodPut, path: "/api/v1/admin/personas/analyst",
+			body:   `{"display_name":"Analyst","roles":["analyst"],"hide_automations":true}`,
+			status: http.StatusOK, wantHide: true,
+		},
+		{
+			// A persona saved without the field shows Automations, as every
+			// persona did before the setting existed.
+			name: "update without it", method: http.MethodPut, path: "/api/v1/admin/personas/analyst",
+			body:   `{"display_name":"Analyst","roles":["analyst"]}`,
+			status: http.StatusOK, wantHide: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ps := &mockPersonaStore{}
+			h := NewHandler(Deps{
+				PersonaRegistry: &mockPersonaRegistry{allResult: testPersonas("admin", "analyst")},
+				Config:          testConfig(),
+				ConfigStore:     &mockConfigStore{mode: "database"},
+				PersonaStore:    ps,
+			}, nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), c.method, c.path, strings.NewReader(c.body))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			require.Equal(t, c.status, w.Code, w.Body.String())
+			require.Len(t, ps.setCalls, 1)
+			assert.Equal(t, c.wantHide, ps.setCalls[0].HideAutomations, "the choice is stored")
+			var detail map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &detail))
+			assert.Equal(t, c.wantHide, detail["hide_automations"], "the choice is in the response")
+		})
+	}
+}

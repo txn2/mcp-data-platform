@@ -4,14 +4,15 @@ import { BulkUploadModal } from "../modals/BulkUploadModal";
 import { UploadModal } from "../modals/UploadModal";
 import type { SourceFile } from "../bulk/plan";
 import type { ResourceRoot } from "../scopes";
-import { deleteMany, expandPicked, summarize, tagMany, type Picked } from "./actions";
-import { DeleteDialog, MoveDialog, TagDialog } from "./ActionDialogs";
+import { deleteMany, describeFolder, expandPicked, folderDescription, summarize, tagMany, type Picked } from "./actions";
+import { DeleteDialog, DescribeDialog, MoveDialog, TagDialog } from "./ActionDialogs";
 import type { useActions } from "./useActions";
 
 /** Which dialog the file manager has open, if any. */
 export type FmDialog =
   | { kind: "move" | "tag" | "delete"; picked: Picked }
   | { kind: "upload" | "uploadMany"; folder: string; files?: SourceFile[]; root: ResourceRoot }
+  | { kind: "describe"; folder: string }
   | null;
 
 /** The open dialog: an action over the selection, or an upload. */
@@ -92,6 +93,18 @@ export function FmDialogs({
       );
     case "delete":
       return <Deleting root={root} picked={dialog.picked} actions={actions} onClose={onClose} onDone={onDone} />;
+    case "describe":
+      return (
+        <DescribeDialog
+          folder={dialog.folder}
+          load={() => folderDescription(root, dialog.folder)}
+          onClose={onClose}
+          onSave={async (text) => {
+            await describeFolder(root, dialog.folder, text);
+            onDone("Description saved");
+          }}
+        />
+      );
   }
 }
 

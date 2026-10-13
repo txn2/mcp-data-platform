@@ -51,6 +51,7 @@ type loadFixture struct {
 	contentText string
 	size        int64
 	settled     bool // content_indexed_at IS NOT NULL
+	policy      string
 }
 
 // expectLoad scripts the Source's metadata read for a normally-sized resource
@@ -66,9 +67,18 @@ func expectLoadRow(mock sqlmock.Sqlmock, id string, f loadFixture) {
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"display_name", "description", "category", "filename", "tags", "mime_type", "size_bytes", "s3_key",
-			"content_text", "content_settled",
+			"content_text", "content_settled", "index_policy",
 		}).AddRow("Sales Dictionary", "Field reference", "references", "sales.csv",
-			pq.Array([]string{"finance"}), f.mime, f.size, f.s3Key, f.contentText, f.settled))
+			pq.Array([]string{"finance"}), f.mime, f.size, f.s3Key, f.contentText, f.settled, policyOr(f.policy)))
+}
+
+// policyOr is the fixture's policy, full when it names none: what every
+// resource was before #2111.
+func policyOr(p string) string {
+	if p == "" {
+		return "full"
+	}
+	return p
 }
 
 // The framework routes a job to the Source and Sink registered under one kind,
@@ -116,38 +126,54 @@ func TestLoadItems_ExtractsAndPersistsContent(t *testing.T) {
 	}
 }
 
-// TestLoadItems_TableOfValuesEmbedsMetadataOnly is #1988's type rule: a CSV,
-// TSV or newline-delimited JSON file still has its content extracted into
-// content_text, which lexical search reads, but its vector is built from the
-// metadata alone.
-func TestLoadItems_TableOfValuesEmbedsMetadataOnly(t *testing.T) {
-	for _, mime := range []string{"text/csv", "text/tab-separated-values", "application/x-ndjson", "application/jsonl"} {
-		t.Run(mime, func(t *testing.T) {
-			store, mock := newDB(t)
-			expectLoad(mock, "res_1", mime, "resources/global/res_1/daily", "")
-			mock.ExpectExec("UPDATE resources SET content_text").
-				WithArgs("res_1", sqlmock.AnyArg()).
-				WillReturnResult(sqlmock.NewResult(0, 1))
-			blobs := &fakeBlobs{objects: map[string][]byte{
-				"resources/global/res_1/daily": []byte("{\"store\":\"gross_margin_pct\",\"sold\":1}\n"),
-			}}
-			items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
-			if err != nil {
-				t.Fatalf("LoadItems: %v", err)
-			}
-			if strings.Contains(items[0].Text, "gross_margin_pct") {
-				t.Errorf("a table of values must not reach the embedding: %q", items[0].Text)
-			}
-			if !strings.Contains(items[0].Text, "Sales Dictionary") || !strings.Contains(items[0].Text, "finance") {
-				t.Errorf("the metadata must still be embedded: %q", items[0].Text)
-			}
-			if blobs.calls != 1 {
-				t.Errorf("blob reads = %d; the content is still extracted for lexical search", blobs.calls)
-			}
-			if err := mock.ExpectationsWereMet(); err != nil {
-				t.Errorf("unmet expectations (content_text must still be written): %v", err)
-			}
-		})
+// TestLoadItems_MetadataPolicyReadsNoContent is #2111's metadata policy: the
+// name, description, folder, filename and tags are embedded, the blob is
+// never read, and no content is kept for the lexical arm.
+func TestLoadItems_MetadataPolicyReadsNoContent(t *testing.T) {
+	store, mock := newDB(t)
+	expectLoadRow(mock, "res_1", loadFixture{
+		mime: "text/csv", s3Key: "k", contentText: "stale values", size: 1024, policy: "metadata",
+	})
+	mock.ExpectExec("UPDATE resources SET content_text").
+		WithArgs("res_1", "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	blobs := &fakeBlobs{objects: map[string][]byte{"k": []byte("gross_margin_pct,1\n")}}
+	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
+	if err != nil {
+		t.Fatalf("LoadItems: %v", err)
+	}
+	if blobs.calls != 0 {
+		t.Errorf("blob reads = %d, want none", blobs.calls)
+	}
+	if len(items) != 1 || strings.Contains(items[0].Text, "stale values") ||
+		!strings.Contains(items[0].Text, "Sales Dictionary") || !strings.Contains(items[0].Text, "finance") {
+		t.Errorf("items = %+v, want the metadata alone", items)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestLoadItems_NonePolicyIndexesNothing: a resource taken out of search
+// yields no item, which clears its vector, reads no blob, and keeps no text.
+func TestLoadItems_NonePolicyIndexesNothing(t *testing.T) {
+	store, mock := newDB(t)
+	expectLoadRow(mock, "res_1", loadFixture{
+		mime: "text/markdown", s3Key: "k", contentText: "old prefix", size: 1024, settled: true, policy: "none",
+	})
+	mock.ExpectExec("UPDATE resources SET content_text").
+		WithArgs("res_1", "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	blobs := &fakeBlobs{objects: map[string][]byte{"k": []byte("body")}}
+	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
+	if err != nil {
+		t.Fatalf("LoadItems: %v", err)
+	}
+	if len(items) != 0 || blobs.calls != 0 {
+		t.Errorf("items = %+v, blob reads = %d; want nothing", items, blobs.calls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
 	}
 }
 
@@ -371,7 +397,9 @@ func TestSink_VectorRoundTrip(t *testing.T) {
 		t.Fatalf("Upsert: %v", err)
 	}
 
-	// An empty row set writes nothing.
+	// An empty row set is a resource with nothing to index: its vector is
+	// cleared (#2111).
+	mock.ExpectExec("UPDATE resources SET embedding = NULL").WithArgs("res_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := sink.UpsertBatch(context.Background(), key, nil); err != nil {
 		t.Fatalf("UpsertBatch(empty): %v", err)
 	}
@@ -387,7 +415,7 @@ func TestSink_FindGapsAndCoverage(t *testing.T) {
 	store, mock := newDB(t)
 	sink := NewSink(store, "model-a")
 
-	mock.ExpectQuery("SELECT id FROM resources\\s+WHERE embedding IS NULL OR embedding_model IS DISTINCT FROM \\$1 OR content_indexed_at IS NULL").
+	mock.ExpectQuery("SELECT id FROM resources\\s+WHERE index_policy <> 'none'\\s+AND \\(embedding IS NULL OR embedding_model IS DISTINCT FROM \\$1 OR content_indexed_at IS NULL\\)").
 		WithArgs("model-a").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("res_1").AddRow("res_2"))
 	gaps, err := sink.FindGaps(context.Background())

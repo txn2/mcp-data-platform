@@ -18,7 +18,7 @@ import (
 // author has since lost the authority is refused again when it writes.
 func checkLibraryReach(req Request, source string) string {
 	report := scriptrun.Validate(source)
-	claims := resource.BuildClaims(req.Caller.Email, req.Caller.Email, req.Caller.Persona, req.Caller.Roles, req.Caller.Admin)
+	claims := callerClaims(req.Caller)
 	var refused []string
 	for _, lib := range report.ResourceLibraries {
 		if lib.Own() {

@@ -183,3 +183,33 @@ describe("the library field on the edit dialog", () => {
     expect(screen.queryByRole("option", { name: "finance persona" })).toBeNull();
   });
 });
+
+// How search indexes the file is editable afterwards (#2111), and sent only
+// when it changed: the server records a policy it is sent as chosen.
+describe("the search field on the edit dialog", () => {
+  async function pickSearch(name: string) {
+    fireEvent.click(screen.getByRole("combobox", { name: "Search" }));
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+    fireEvent.click(await screen.findByRole("option", { name }));
+  }
+
+  it("takes a file out of search", async () => {
+    signIn();
+    renderModal();
+    expect(screen.getByRole("combobox", { name: "Search" }).textContent).toContain("Contents");
+    await pickSearch("Not indexed");
+    expect(screen.getByText(/still listed in its folder/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() => expect(patched).not.toBeNull());
+    expect(patched).toEqual({ index: "none" });
+  });
+
+  it("sends nothing about search when it did not change", async () => {
+    signIn();
+    renderModal();
+    fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Renamed" } });
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() => expect(patched).not.toBeNull());
+    expect(patched).toEqual({ display_name: "Renamed" });
+  });
+});

@@ -113,6 +113,7 @@ func TestObjects(t *testing.T) {
 type fakeWriter struct {
 	created  []resource.NewResource
 	replaced []string
+	revised  []resource.RevisionUpload
 	rows     map[string]*resource.Resource
 	err      map[string]error
 	claims   resource.Claims
@@ -129,7 +130,8 @@ func (f *fakeWriter) Create(_ context.Context, in resource.NewResource, c resour
 	return r, nil
 }
 
-func (f *fakeWriter) Replace(_ context.Context, id string, _ resource.RevisionUpload, _ resource.Claims) (*resource.Resource, int, error) {
+func (f *fakeWriter) Replace(_ context.Context, id string, up resource.RevisionUpload, _ resource.Claims) (*resource.Resource, int, error) {
+	f.revised = append(f.revised, up)
 	if err := f.err["replace"]; err != nil {
 		return nil, 0, err
 	}
@@ -472,4 +474,27 @@ func TestPersonaLookup(t *testing.T) {
 	exists := personaLookup(reg)
 	assert.True(t, exists("marketing"))
 	assert.False(t, exists("nobody"))
+}
+
+// TestWindowResourcesCarryTheSourcesIndexPolicy is #2111 for webhook sinks:
+// the source's index setting reaches every window it writes, and a source
+// with none leaves it to the operator's rules, which see the webhook origin.
+func TestWindowResourcesCarryTheSourcesIndexPolicy(t *testing.T) {
+	h, w := newWindowResources(fakeByURI{err: sql.ErrNoRows})
+	src := whsource.Source{Name: "esp", Config: whsource.Config{Index: "none"}}
+	stored, err := h.Put(ctx, src, start, "", []byte("x"))
+	require.NoError(t, err)
+	require.Len(t, w.created, 1)
+	assert.Equal(t, "none", w.created[0].Index)
+	assert.Equal(t, "webhook", string(w.created[0].Origin))
+
+	_, err = h.Put(ctx, src, start, stored.ResourceID, []byte("y"))
+	require.NoError(t, err)
+	require.Len(t, w.revised, 1)
+	assert.Equal(t, "none", w.revised[0].Index)
+
+	h, w = newWindowResources(fakeByURI{err: sql.ErrNoRows})
+	_, err = h.Put(ctx, esp, start, "", []byte("x"))
+	require.NoError(t, err)
+	assert.Empty(t, w.created[0].Index)
 }

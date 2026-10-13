@@ -382,10 +382,15 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 	// through search by what is inside it (#1012).
 	tryRegister(cfg.Consumers.Resources, "resources", func() error {
 		resStore := resourceindex.NewStore(cfg.DB)
-		return h.registry.Register(
+		if err := h.registry.Register(
 			resourceindex.NewSource(resStore, cfg.ResourceBlobs, cfg.ResourceBucket, cfg.ResourceDocs),
 			resourceindex.NewSink(resStore, cfg.ModelName),
-		)
+		); err != nil {
+			return err //nolint:wrapcheck // tryRegister names the consumer
+		}
+		// A folder holding files that are not indexed one by one is searchable
+		// as one entry (#2111).
+		return h.registry.Register(resourceindex.NewFolderSource(resStore), resourceindex.NewFolderSink(resStore, cfg.ModelName))
 	})
 	// Scripts consumer: embeds each script's card and its source, chunked to
 	// the provider's input, so a person asking for what they want done

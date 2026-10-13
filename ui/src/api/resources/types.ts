@@ -1,3 +1,9 @@
+/**
+ * How search indexes a file (#2111): its metadata and contents, its metadata
+ * alone, or not at all (listed in its folder, which search finds as one entry).
+ */
+export type IndexPolicy = "full" | "metadata" | "none";
+
 export interface Resource {
   id: string;
   scope: "global" | "persona" | "user";
@@ -49,6 +55,10 @@ export interface Resource {
   // or large_source_bytes (#2072). Absent while a tile is drawn or pending.
   thumbnail_skipped?: string;
   thumbnail_source_limit?: number;
+  // How search indexes the file, and whether its writer chose that rather than
+  // the deployment's rules (#2111). Absent from a server that predates it.
+  index_policy?: IndexPolicy;
+  index_policy_explicit?: boolean;
 }
 
 // ResourceUsage is the audit-derived read activity of a resource. Both counts
@@ -155,6 +165,9 @@ export interface ResourceUpdate {
   // this is not a field to echo back unchanged.
   scope?: "global" | "persona" | "user";
   scope_id?: string;
+  // index changes how search indexes the file; the server lowers it to the
+  // deployment's ceiling for the folder and records it as chosen (#2111).
+  index?: IndexPolicy;
 }
 
 // FolderMoveEntry is one resource a folder move carried.

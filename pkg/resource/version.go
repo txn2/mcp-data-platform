@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -80,6 +81,10 @@ type Revision struct {
 	// Metadata is what the writer records about the content (#2057). Nil
 	// records none.
 	Metadata map[string]any
+	// IndexPolicy and IndexExplicit are the policy the head is indexed under
+	// after the revision (#2111). Empty keeps the one the resource has.
+	IndexPolicy   string
+	IndexExplicit bool
 }
 
 // VersionStore persists the content-revision trail of a resource and moves the
@@ -189,8 +194,11 @@ const updateHeadQuery = `
 	   SET mime_type = $1, size_bytes = $2, s3_key = $3, updated_at = now(),
 	       content_text = '', content_indexed_at = NULL,
 	       embedding = NULL, embedding_model = '', embedding_text_hash = NULL,
-	       thumbnail_attempts = 0
-	 WHERE id = $4`
+	       thumbnail_attempts = 0,
+	       index_policy = COALESCE(NULLIF($5, ''), index_policy),
+	       index_policy_explicit = CASE WHEN $5 = '' THEN index_policy_explicit ELSE $6 END
+	 WHERE id = $4
+	 RETURNING index_policy, scope, COALESCE(scope_id, ''), path`
 
 func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version, error) { //nolint:revive // interface impl
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -222,13 +230,15 @@ func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version
 		return nil, fmt.Errorf("recording resource revision: %w", err)
 	}
 
-	res, err := tx.ExecContext(ctx, updateHeadQuery,
-		rev.MIMEType, rev.SizeBytes, rev.S3Key, rev.ResourceID)
+	target := indexTarget{id: rev.ResourceID}
+	err = tx.QueryRowContext(ctx, updateHeadQuery,
+		rev.MIMEType, rev.SizeBytes, rev.S3Key, rev.ResourceID, rev.IndexPolicy, rev.IndexExplicit,
+	).Scan(&target.policy, &target.lib.Scope, &target.lib.ScopeID, &target.path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("resource not found: %s", rev.ResourceID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("pointing resource at revision: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return nil, fmt.Errorf("resource not found: %s", rev.ResourceID)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -237,7 +247,7 @@ func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version
 	// The revision replaced the resource's blob, so both the extracted content
 	// text and the vector are gone (updateHeadQuery): the row owes a fresh
 	// content extract plus embed, not just a re-embed.
-	s.index.NotifyWrite(ctx, rev.ResourceID)
+	s.notifyIndex(ctx, rev.IndexPolicy != "", target)
 	return v, nil
 }
 
@@ -281,6 +291,11 @@ func (s *postgresStore) PruneVersions(ctx context.Context, resourceID string, ke
 	// the returned keys, and a key the head still points at would be a deleted
 	// resource that still lists.
 	//
+	// A version a managed script loads with load("res:...") is kept past the
+	// cap while a script version pins it (#2113): every run of that version
+	// reads it, and pruning it would break the script without its source
+	// changing.
+	//
 	// Every returned column is table-qualified: joining `resources` puts
 	// mime_type, size_bytes, s3_key, uploader_sub, uploader_email and created_at
 	// in scope from both tables, and an unqualified RETURNING list is rejected as
@@ -293,6 +308,10 @@ func (s *postgresStore) PruneVersions(ctx context.Context, resourceID string, ke
 		   AND v.s3_key <> r.s3_key
 		   AND v.version <= (
 		       SELECT MAX(version) - $2 FROM resource_versions WHERE resource_id = $1
+		   )
+		   AND NOT EXISTS (
+		       SELECT 1 FROM script_resource_pins p
+		        WHERE p.resource_id = v.resource_id AND p.resource_version = v.version
 		   )
 		RETURNING `+versionColumnsQualified, resourceID, keep)
 	if err != nil {

@@ -103,6 +103,9 @@ type InsightSearcher = knowledge.InsightSearcher
 type PersonaInfo struct {
 	Name  string
 	Tools []string // resolved tool names from Allow/Deny patterns
+	// HideAutomations is the persona taking Automations out of the portal
+	// (#2109).
+	HideAutomations bool
 }
 
 // PersonaResolver resolves a user's roles to their persona info.
@@ -673,6 +676,10 @@ type meResponse struct {
 	// on the payload the SPA already bootstraps from so the upload dialog can
 	// state it without a second copy of the number in the page.
 	MaxUploadBytes int64 `json:"max_upload_bytes" example:"104857600"`
+	// Automations is whether the portal shows this caller its Automations
+	// section (#2109): false when their persona hides it, always true for an
+	// administrator.
+	Automations bool `json:"automations" example:"true"`
 }
 
 // getMe handles GET /api/v1/portal/me.
@@ -699,6 +706,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		Roles:          user.Roles,
 		IsAdmin:        h.access.IsAdmin(user),
 		MaxUploadBytes: resource.NormalizeMaxUploadBytes(h.deps.ResourceMaxUploadBytes),
+		Automations:    true,
 	}
 	// Cookie sessions carry a CSRF token the SPA echoes on mutations; API-key
 	// callers are exempt. Issued here since only /me needs it.
@@ -710,6 +718,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		if info := h.deps.PersonaResolver(user.Roles); info != nil {
 			resp.Persona = info.Name
 			resp.Tools = info.Tools
+			resp.Automations = resp.IsAdmin || !info.HideAutomations
 		}
 	}
 

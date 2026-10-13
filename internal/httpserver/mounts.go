@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/resindexapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/secretapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/webhookapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
@@ -509,7 +510,7 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 		if !ok || per == nil {
 			return nil
 		}
-		info := &portal.PersonaInfo{Name: per.Name}
+		info := &portal.PersonaInfo{Name: per.Name, HideAutomations: per.HideAutomations}
 		if tr != nil {
 			filter := persona.NewToolFilter(pr)
 			info.Tools = filter.FilterTools(per, tr.AllTools())
@@ -929,15 +930,19 @@ func citedScripts(lookup func(context.Context, string) (*scriptstore.Citation, e
 	}
 }
 
-// mountSecretAdminAPI registers the stored-secret routes (#2051), behind the
-// admin API's authentication. A secret lives in the database, so there is
-// nothing to mount without one.
-func mountSecretAdminAPI(mux *http.ServeMux, p *platform.Platform) {
+// mountDatabaseAdminAPIs registers the admin routes over database rows, behind
+// the admin API's authentication: the stored secrets (#2051), and how managed
+// resources are indexed (#2111) where there are resources. There is nothing to
+// mount without a database.
+func mountDatabaseAdminAPIs(mux *http.ServeMux, p *platform.Platform) {
 	if p == nil || p.DB() == nil || !p.Config().Admin.IsEnabled() {
 		return
 	}
 	secretapi.Register(mux, buildAdminAuth(p), secretapi.Config{Store: secretstore.NewStore(p.DB(), p.RestEncryptor()), Author: adminEmail})
 	slog.Info("Stored secret admin API enabled on /api/v1/admin/secrets")
+	if p.ResourceStore() != nil {
+		resindexapi.Mount(mux, buildAdminAuth(p), p.DB(), p.Config().Resources.Index.Resolver())
+	}
 }
 
 // mountWebhookAdminAPI registers the webhook source routes, behind the admin

@@ -72,6 +72,7 @@ func (stubStore) Counts(context.Context, string) (*indexjobs.KindCounts, error) 
 func (stubStore) ActiveFailures(context.Context, string, int) ([]indexjobs.FailedUnit, error) {
 	return nil, nil
 }
+
 func (stubStore) ParkCandidates(context.Context, int, int) ([]indexjobs.ParkCandidate, error) {
 	return nil, nil
 }
@@ -175,12 +176,14 @@ func TestNew_ConsumerGating(t *testing.T) {
 		t.Fatal("New must return a handle")
 	}
 	// tools + memory + prompts + assets + collections + knowledge pages +
-	// resources + scripts.
-	if kinds := h.registry.Kinds(); len(kinds) != 8 {
-		t.Errorf("kinds = %v; want 8 (tools + 7 gated consumers)", kinds)
+	// resources and their folders (#2111) + scripts.
+	if kinds := h.registry.Kinds(); len(kinds) != 9 {
+		t.Errorf("kinds = %v; want 9 (tools + 8 gated consumers)", kinds)
 	}
-	if !slices.Contains(h.registry.Kinds(), resourceindex.SourceKind) {
-		t.Errorf("kinds = %v; want the resources consumer registered", h.registry.Kinds())
+	for _, kind := range []string{resourceindex.SourceKind, resourceindex.FolderKind} {
+		if !slices.Contains(h.registry.Kinds(), kind) {
+			t.Errorf("kinds = %v; want the %s consumer registered", h.registry.Kinds(), kind)
+		}
 	}
 	if !slices.Contains(h.registry.Kinds(), scriptindex.SourceKind) {
 		t.Errorf("kinds = %v; want the scripts consumer registered", h.registry.Kinds())

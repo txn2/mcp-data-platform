@@ -13,6 +13,7 @@ import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import { ModalShell } from "@/components/ModalShell";
 import { scopeLabel } from "../shared";
 import { PathField } from "../parts/PathField";
+import { IndexPolicyField, INDEX_POLICY_DEFAULT, type IndexChoice } from "../parts/IndexPolicyField";
 import { pathProblem } from "../parts/pathRules";
 import { UploadTargets } from "./UploadTargets";
 import { DestinationPicker } from "./DestinationPicker";
@@ -33,6 +34,8 @@ interface UploadDraft {
   /** The folder the file is filed into. */
   path: string;
   tagsInput: string;
+  /** How search indexes the file, or the deployment's rules (#2111). */
+  index: IndexChoice;
 }
 
 // rejectDraft states why a draft cannot be sent, or null when it can. The
@@ -61,6 +64,7 @@ function draftForm(draft: UploadDraft, target: { scope: string; scope_id: string
   fd.set("display_name", draft.displayName.trim());
   fd.set("description", draft.description.trim());
   for (const t of parseTags(draft.tagsInput)) fd.append("tags", t);
+  if (draft.index !== INDEX_POLICY_DEFAULT) fd.set("index", draft.index);
   fd.set("file", draft.file!);
   return fd;
 }
@@ -130,6 +134,7 @@ export function UploadModal({
   const [displayName, setDisplayName] = useState("");
   const [description, setDescription] = useState("");
   const [tagsInput, setTagsInput] = useState("");
+  const [index, setIndex] = useState<IndexChoice>(INDEX_POLICY_DEFAULT);
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -173,6 +178,7 @@ export function UploadModal({
       description,
       path,
       tagsInput,
+      index,
     };
     const targets = resolveTargets();
     const rejection = rejectDraft(draft, maxBytes) ?? rejectTargets(targets.length, scope);
@@ -207,7 +213,7 @@ export function UploadModal({
       return;
     }
     onClose();
-  }, [file, displayName, description, scope, path, tagsInput, upload, onClose, resolveTargets, user, maxBytes]);
+  }, [file, displayName, description, scope, path, tagsInput, index, upload, onClose, resolveTargets, user, maxBytes]);
 
   return (
     <ModalShell
@@ -340,6 +346,8 @@ export function UploadModal({
           <input ref={fileRef} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </div>
       </div>
+
+      <IndexPolicyField id="upload" value={index} onChange={setIndex} allowDefault />
     </ModalShell>
   );
 }

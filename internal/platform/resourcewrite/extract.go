@@ -86,6 +86,9 @@ type Extraction struct {
 	Description   string
 	Tags          []string
 	ChangeSummary string
+	// Index is how search indexes every member (#2111); empty leaves each to
+	// the resources.index rules.
+	Index string
 }
 
 // ExtractedMember is one member written: its name in the archive, and the
@@ -265,6 +268,7 @@ func memberDestination(
 		DisplayName:   displayName(m.Base),
 		Description:   description,
 		Tags:          req.Tags,
+		Index:         req.Index,
 	}, nil
 }
 

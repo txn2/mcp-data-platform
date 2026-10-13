@@ -62,6 +62,7 @@ func TestCreateEnqueuesItsOwnIndexJob(t *testing.T) {
 			AddRow("script_1", rowTime, rowTime))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
 	require.NoError(t, s.Create(context.Background(),

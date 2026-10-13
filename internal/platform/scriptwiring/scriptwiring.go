@@ -17,12 +17,14 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptbgdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -69,7 +71,8 @@ func Wire(deps Deps) *scriptexec.Handle {
 			// held to the authority the run's own session has (#2080).
 			Authority: deps.Authority,
 		},
-		Audit: deps.Audit,
+		Audit:   deps.Audit,
+		Sources: deps.Sources,
 		// The subject a run's author authenticates as, so the run files
 		// managed resources where that person's own session does (#1677).
 		Subjects:              deps.Subjects,
@@ -102,6 +105,8 @@ func Wire(deps Deps) *scriptexec.Handle {
 		// platform run uses, over the same stores (#1822).
 		DraftExports: draftExports(scripts),
 		Recordings:   recordings,
+		Sources:      deps.Sources,
+		DraftLimit:   deps.Draft,
 	})
 	layer.RegisterTool(deps.Server)
 	deps.Bind(layer)
@@ -148,6 +153,9 @@ type Deps struct {
 	Prefix       string
 	FollowTables func(ctx context.Context, assetID string, version int) []string
 	Lander       *resourcewrite.Ref
+	// Sources reads managed-resource text a script is saved from or loads
+	// (#2113, #2114). Nil refuses both.
+	Sources *scriptsrc.Reader
 	// Authority resolves what the roles a run presents act as (#2080).
 	Authority scriptexec.Authority
 
@@ -161,7 +169,10 @@ type Deps struct {
 	// platform run's ceilings (#1843).
 	Worker scriptadmit.Config
 	// SQL is the scripts.sql section: the most a statement may run (#2073).
-	SQL                  scriptstmt.Config
+	SQL scriptstmt.Config
+	// Draft is the scripts.draft section: how long an administrator's draft
+	// may run (#2117).
+	Draft                scriptbgdraft.Config
 	WorkerEnabled        bool
 	NotificationsEnabled bool
 	DigestHourUTC        int

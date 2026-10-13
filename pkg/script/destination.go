@@ -44,8 +44,8 @@ const (
 	DestinationKindResource = "resource"
 )
 
-// DestinationKinds is the full set of destination kinds.
-var DestinationKinds = []string{DestinationKindPortal, DestinationKindS3, DestinationKindResource}
+// destinationKinds is the full set of destination kinds.
+var destinationKinds = []string{DestinationKindPortal, DestinationKindS3, DestinationKindResource}
 
 // Key limits. maxObjectKeyLength is S3's own limit on a full key; a
 // destination's prefix is bounded well inside it so the key a script writes
@@ -71,7 +71,7 @@ type Destination struct {
 	// configured set.
 	Name string `json:"name" yaml:"name" example:"acme-drop"`
 
-	// Kind is one of DestinationKinds. Configuration declares only bucket
+	// Kind is one of destinationKinds. Configuration declares only bucket
 	// destinations, so it defaults to s3 there.
 	Kind string `json:"kind" yaml:"kind" example:"s3"`
 
@@ -138,9 +138,9 @@ func (d Destination) Validate() error {
 	if d.Name == "" {
 		return errors.New("a destination must be named, because the name is what a script writes")
 	}
-	if !slices.Contains(DestinationKinds, d.Kind) {
+	if !slices.Contains(destinationKinds, d.Kind) {
 		return fmt.Errorf("destination %q has unknown kind %q: the platform implements %v",
-			d.Name, d.Kind, DestinationKinds)
+			d.Name, d.Kind, destinationKinds)
 	}
 	if d.IsBuiltIn() {
 		return d.validateBuiltIn()

@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -33,7 +33,7 @@ func TestBuiltinPages_RealDB_FetchBySlug(t *testing.T) {
 	provider := knowledge.NewKnowledgePagesProvider(searcher)
 
 	// Every page the help payload names is fetchable by the slug it names.
-	for _, named := range scriptlayer.KnowledgePages {
+	for _, named := range scriptcontract.KnowledgePages {
 		t.Run(named.Slug, func(t *testing.T) {
 			doc, owned, err := provider.Fetch(ctx, named.Reference, knowledge.Caller{})
 			require.True(t, owned)

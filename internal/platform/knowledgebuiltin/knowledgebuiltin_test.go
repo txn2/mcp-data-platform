@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/maps"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
@@ -57,20 +59,22 @@ func TestPages_ShippedSetIsWellFormed(t *testing.T) {
 	}
 }
 
-// The authoring page's dialect section is the same constant `manage_script
-// help` returns — derived, not restated, so the two cannot drift (#1390).
-func TestPages_AuthoringPageCarriesTheDialectContract(t *testing.T) {
+// The dialect page is the same constant `manage_script help` returns —
+// derived, not restated, so the two cannot drift (#1390). It is a page of its
+// own so the contract grows without carrying the authoring page past the
+// edit-surface bound.
+func TestPages_DialectPageCarriesTheDialectContract(t *testing.T) {
 	pages, err := Pages()
 	require.NoError(t, err)
 
-	var authoring *knowledgepage.BuiltinPage
+	var dialect *knowledgepage.BuiltinPage
 	for i := range pages {
-		if pages[i].Slug == "platform-writing-managed-scripts" {
-			authoring = &pages[i]
+		if pages[i].Slug == "platform-managed-script-dialect" {
+			dialect = &pages[i]
 		}
 	}
-	require.NotNil(t, authoring, "the authoring page left the shipped set")
-	assert.Contains(t, authoring.Body, scriptlayer.DialectContract)
+	require.NotNil(t, dialect, "the dialect page left the shipped set")
+	assert.Contains(t, dialect.Body, scriptlayer.DialectContract)
 }
 
 func TestSplitTitle(t *testing.T) {
@@ -199,8 +203,8 @@ func TestKnowledgePages_HelpNamesOnlyShippedPages(t *testing.T) {
 	for _, m := range pageMetas {
 		shipped = append(shipped, m.slug)
 	}
-	require.NotEmpty(t, scriptlayer.KnowledgePages, "help names no page at all")
-	for _, p := range scriptlayer.KnowledgePages {
+	require.NotEmpty(t, scriptcontract.KnowledgePages, "help names no page at all")
+	for _, p := range scriptcontract.KnowledgePages {
 		assert.Containsf(t, shipped, p.Slug, "help names %q, which this release does not ship", p.Slug)
 		assert.NotEmptyf(t, p.Summary, "%s: help names the page with no summary to choose it by", p.Slug)
 		assert.Equalf(t, "mcp:knowledge_page:"+p.Slug, p.Reference,
@@ -323,10 +327,16 @@ func TestBaselinePagesAreShipped(t *testing.T) {
 	}
 
 	// And the other direction: a page shipped but named by nothing is guidance
-	// no agent is told exists.
+	// no agent is told exists. manage_script help, which the baseline tells a
+	// script author to call first, names pages of its own: the dialect page is
+	// reached that way rather than by a line every session carries.
+	reachable := slices.Clone(named)
+	for _, p := range scriptcontract.KnowledgePages {
+		reachable = append(reachable, p.Slug)
+	}
 	for _, p := range pages {
-		assert.Containsf(t, named, p.Slug,
-			"page %q ships but the instruction baseline never names it, so no agent knows it exists", p.Slug)
+		assert.Containsf(t, reachable, p.Slug,
+			"page %q ships but neither the instruction baseline nor manage_script help names it, so no agent knows it exists", p.Slug)
 	}
 }
 

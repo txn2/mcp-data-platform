@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
+	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
 // The kinds of difference.
@@ -75,11 +76,15 @@ func Compare(run string, before, after scripttest.Outcome) (diffs []Difference, 
 	diffs = append(diffs, compareExports(run, before.Exports, after.Exports)...)
 	diffs = append(diffs, comparePublishes(run, before.Publishes, after.Publishes)...)
 	if !sameJSON(before.State, after.State) {
-		add(KindState, "state", "saves a different state: %s, where the saved version saved %s", jsonText(after.State), jsonText(before.State))
+		was, now := textpatch.ElidePair(jsonText(before.State), jsonText(after.State), 0)
+		add(KindState, "state", "saves a different state: %s, where the saved version saved %s", now, was)
 	}
 	diffs = append(diffs, compareNotifies(run, before.Calls, after.Calls)...)
 	if !sameJSON(raw(before.Result), raw(after.Result)) {
-		add(KindResult, "platform.result", "returns %s from platform.result, where the saved version returned %s", orNone(after.Result), orNone(before.Result))
+		// A long value is shown as the span that differs (#2115): a result
+		// carrying a page of rows otherwise prints twice in full.
+		was, now := textpatch.ElidePair(orNone(before.Result), orNone(after.Result), 0)
+		add(KindResult, "platform.result", "returns %s from platform.result, where the saved version returned %s", now, was)
 	}
 	return diffs, true
 }

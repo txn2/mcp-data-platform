@@ -119,7 +119,64 @@ func insertVersionRow(ctx context.Context, tx *sql.Tx, ins versionInsert) error 
 	if err != nil {
 		return fmt.Errorf("insert script version: %w", err)
 	}
+	return insertPins(ctx, tx, ins)
+}
+
+// insertPins records the resource versions the new version loads (#2113). A
+// snapshot that carries none -- an owner transfer, a description edit --
+// keeps the pins of the latest version with the same source, as it keeps that
+// version's test report: the source is what was pinned.
+func insertPins(ctx context.Context, tx *sql.Tx, ins versionInsert) error {
+	if ins.Snapshot.ResourcePins == nil {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO script_resource_pins (version_id, module, resource_id, resource_version)
+			SELECT nv.id, p.module, p.resource_id, p.resource_version
+			FROM script_versions nv
+			JOIN script_versions prior ON prior.script_id = nv.script_id AND prior.source_code = nv.source_code
+			                          AND prior.version < nv.version
+			JOIN script_resource_pins p ON p.version_id = prior.id
+			WHERE nv.script_id = $1 AND nv.version = $2
+			  AND prior.version = (SELECT MAX(v.version) FROM script_versions v
+			                       WHERE v.script_id = $1 AND v.version < $2 AND v.source_code = nv.source_code)`,
+			ins.ScriptID, ins.Version)
+		if err != nil {
+			return fmt.Errorf("carry script resource pins: %w", err)
+		}
+		return nil
+	}
+	for module, pin := range ins.Snapshot.ResourcePins {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO script_resource_pins (version_id, module, resource_id, resource_version)
+			SELECT id, $3, $4, $5 FROM script_versions WHERE script_id = $1 AND version = $2`,
+			ins.ScriptID, ins.Version, module, pin.ResourceID, pin.Version); err != nil {
+			return fmt.Errorf("insert script resource pin: %w", err)
+		}
+	}
 	return nil
+}
+
+// ResourcePins reads the resource versions a script version loads (#2113),
+// keyed by module. A version that loads none has none.
+func (s *Store) ResourcePins(ctx context.Context, versionID string) (map[string]script.ResourcePin, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT module, resource_id, resource_version
+		FROM script_resource_pins WHERE version_id = $1`, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("reading script resource pins: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // close error on read-only iteration is not actionable
+	out := map[string]script.ResourcePin{}
+	for rows.Next() {
+		var module string
+		var pin script.ResourcePin
+		if err := rows.Scan(&module, &pin.ResourceID, &pin.Version); err != nil {
+			return nil, fmt.Errorf("scanning script resource pin: %w", err)
+		}
+		out[module] = pin
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating script resource pins: %w", err)
+	}
+	return out, nil
 }
 
 // testsColumn is a version's test report as the tests column stores it: NULL

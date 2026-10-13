@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Folder, Loader2, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { ModalShell } from "@/components/ModalShell";
 import { parseTags } from "@/lib/tags";
 import { cn } from "@/lib/utils";
@@ -233,6 +234,74 @@ export function TagDialog({
         />
         <p className="text-xs text-muted-foreground">
           Added to what each file already carries, including every file inside a selected folder; nothing is removed.
+        </p>
+      </div>
+    </Frame>
+  );
+}
+
+/**
+ * Describe: what a folder holds, in a sentence. A folder whose files are not
+ * in search one by one is found by search as one entry, and this is part of
+ * what that entry is matched on (#2111).
+ */
+export function DescribeDialog({
+  folder,
+  load,
+  onClose,
+  onSave,
+}: {
+  folder: string;
+  load: () => Promise<string>;
+  onClose: () => void;
+  onSave: (description: string) => Promise<void>;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
+  useEffect(() => {
+    let live = true;
+    load()
+      .then((d) => live && setText(d))
+      .catch((err: unknown) => live && setLoadError(err instanceof Error ? err.message : "Could not read it."));
+    return () => {
+      live = false;
+    };
+  }, [load]);
+  const run = useRun(async () => {
+    await onSave((text ?? "").trim());
+    return [];
+  }, onClose);
+  return (
+    <Frame
+      title={`Describe ${folder}`}
+      busy={run.busy}
+      onClose={onClose}
+      action="Save"
+      ready={text !== null}
+      onRun={() => void run.go()}
+      report={run.report}
+    >
+      {(loadError || run.error) && (
+        <Alert variant="destructive">
+          <AlertDescription>{loadError || run.error}</AlertDescription>
+        </Alert>
+      )}
+      <div className="space-y-1">
+        <Label htmlFor="fm-describe" className="text-xs text-muted-foreground">
+          Description
+        </Label>
+        <Textarea
+          id="fm-describe"
+          autoFocus
+          rows={3}
+          value={text ?? ""}
+          disabled={text === null}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Daily station reach and frequency files, one CSV per station day"
+        />
+        <p className="text-xs text-muted-foreground">
+          When the files in this folder are not in search one by one, search finds the folder by this, its
+          path, and what it holds.
         </p>
       </div>
     </Frame>

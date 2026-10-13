@@ -73,6 +73,9 @@ func (h *Handle) handleLocate(ctx context.Context, input manageScriptInput) (*mc
 // leaves the script unparseable is a mistake caught now rather than at the next
 // run.
 func (h *Handle) handlePatch(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	if p := h.pendingCreate(ctx, input); p != nil {
+		return h.patchPending(ctx, input, p)
+	}
 	existing, errResult := h.editable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
@@ -86,6 +89,7 @@ func (h *Handle) handlePatch(ctx context.Context, input manageScriptInput) (*mcp
 	}
 
 	report := textpatch.PatchFields(res)
+	report[textpatch.FieldDiff] = shortened(res.Diff, input)
 	if input.DryRun {
 		maps.Copy(report, identity(existing))
 		report["dry_run"] = true
@@ -146,8 +150,8 @@ func (h *Handle) handleDiff(ctx context.Context, input manageScriptInput) (*mcp.
 	}
 	return jsonResult(map[string]any{
 		fieldName: sc.Name, "from_version": from, "to_version": to,
-		textpatch.FieldDiff: textpatch.UnifiedDiffLabeled(
-			oldBody, newBody, fmt.Sprintf("v%d", from), fmt.Sprintf("v%d", to), 0),
+		textpatch.FieldDiff: shortened(textpatch.UnifiedDiffLabeled(
+			oldBody, newBody, fmt.Sprintf("v%d", from), fmt.Sprintf("v%d", to), 0), input),
 	})
 }
 
@@ -247,4 +251,13 @@ func versionFields(v *script.Version, withRoles bool) map[string]any {
 		fields["change_agreed_at"] = v.ChangeAgreedAt
 	}
 	return fields
+}
+
+// shortened is a diff with its long changed lines cut to the span that
+// changed (#2115), or whole when the caller asked for verbose.
+func shortened(diff string, input manageScriptInput) string {
+	if input.Verbose {
+		return diff
+	}
+	return textpatch.ElideDiff(diff, 0)
 }

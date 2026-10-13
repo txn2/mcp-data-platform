@@ -306,6 +306,13 @@ function spaceItems(fm: ReturnType<typeof useFileManager>): MenuItem[] {
   ];
 }
 
+/** The items only one row has: a file's URI, a folder's description (#2111). */
+function singleItems(fm: ReturnType<typeof useFileManager>, first: Entry): MenuItem[] {
+  if (first.kind === "file") return [{ id: "copy", label: "Copy URI", run: () => fm.copyURI(first.resource) }];
+  if (!fm.canWrite) return [];
+  return [{ id: "describe", label: "Describe...", run: () => fm.setDialog({ kind: "describe", folder: first.path }) }];
+}
+
 /** The context menu's items for a row, or for empty space. */
 export function contextItems(fm: ReturnType<typeof useFileManager>): MenuItem[] {
   if (!fm.menu?.key) return spaceItems(fm);
@@ -316,7 +323,7 @@ export function contextItems(fm: ReturnType<typeof useFileManager>): MenuItem[] 
   if (fm.canAct) {
     items.push({ id: "move", label: "Move to...", run: () => fm.act("move") }, { id: "tag", label: "Tag...", run: () => fm.act("tag") });
   }
-  if (one && first?.kind === "file") items.push({ id: "copy", label: "Copy URI", run: () => fm.copyURI(first.resource) });
+  if (one && first) items.push(...singleItems(fm, first));
   if (fm.canAct) {
     items.push({ id: "delete", label: "Delete", shortcut: "\u2318\u232B", danger: true, separated: true, run: () => fm.act("delete") });
   }

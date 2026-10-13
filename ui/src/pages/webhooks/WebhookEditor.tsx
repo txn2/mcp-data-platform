@@ -1,3 +1,4 @@
+import { INDEX_POLICY_LABELS } from "@/pages/resources/parts/IndexPolicyField";
 import { useState } from "react";
 import { Webhook } from "lucide-react";
 import {
@@ -443,6 +444,18 @@ function LimitsGroup({ form, set }: { form: WebhookForm; set: Setter }) {
           help="0 keeps them forever."
         />
       </div>
+      <ConfigSelect
+        label="Search"
+        value={form.index}
+        onChange={set("index")}
+        options={[
+          { value: "default", label: "Default" },
+          { value: "full", label: INDEX_POLICY_LABELS.full },
+          { value: "metadata", label: INDEX_POLICY_LABELS.metadata },
+          { value: "none", label: INDEX_POLICY_LABELS.none },
+        ]}
+        help="How search indexes each compacted file, from the next compaction on. Default leaves it to this deployment's resources.index rules."
+      />
     </ConfigGroup>
   );
 }

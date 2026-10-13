@@ -11,6 +11,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
@@ -134,7 +135,8 @@ const selectColumns = `id, scope, scope_id, path, filename, display_name, descri
 		       created_at, updated_at, last_read_at,
 		       thumbnail_s3_key, thumbnail_dark_s3_key,
 		       thumbnail_captured_at, thumbnail_dark_captured_at,
-		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_at`
+		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_at,
+		       index_policy, index_policy_explicit`
 
 // selectResource opens every read with that column list, so the projection is
 // written once rather than at each of the five call sites.
@@ -157,6 +159,9 @@ type postgresStore struct {
 	// roughly the time one embed takes rather than on the reconciler's next
 	// sweep (#1256). Nil when no queue is wired; every call on it is nil-safe.
 	index *indexjobs.Producer
+	// folderIndex receives the enqueue for a folder's one search entry when a
+	// file that is not indexed itself is written, moved or removed (#2111).
+	folderIndex *indexjobs.Producer
 }
 
 // NewPostgresStore creates a resource store backed by PostgreSQL. Pass
@@ -167,15 +172,17 @@ type postgresStore struct {
 // the row still holds its pre-write text (or its previous blob) would have the
 // worker stamp that snapshot as current.
 func NewPostgresStore(db *sql.DB, opts ...indexjobs.StoreOption) Store {
-	return &postgresStore{db: db, index: indexjobs.ResolveStoreOptions(opts).Producer}
+	resolved := indexjobs.ResolveStoreOptions(opts)
+	return &postgresStore{db: db, index: resolved.Producer, folderIndex: resolved.For(FolderIndexKind)}
 }
 
 func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint:revive // interface impl
 	query := `
 		INSERT INTO resources
 		(id, scope, scope_id, path, filename, display_name, description,
-		 mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		 mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
+		 index_policy, index_policy_explicit)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 	`
 	scopeID := sql.NullString{String: r.ScopeID, Valid: r.ScopeID != ""}
 	// Normalize nil tags to empty: pq.Array(nil) binds SQL NULL, which violates
@@ -194,6 +201,7 @@ func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint
 		r.ID, string(r.Scope), scopeID, r.Path, r.Filename, r.DisplayName,
 		r.Description, r.MIMEType, r.SizeBytes, r.S3Key, r.URI,
 		pq.Array(r.Tags), r.UploaderSub, r.UploaderEmail,
+		indexPolicyOrFull(r.IndexPolicy), r.IndexPolicyExplicit,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting resource: %w", err)
@@ -207,7 +215,7 @@ func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("committing insert: %w", err)
 	}
-	s.index.NotifyWrite(ctx, r.ID)
+	s.notifyIndex(ctx, false, indexTarget{id: r.ID, policy: indexPolicyOrFull(r.IndexPolicy), lib: lib, path: r.Path})
 	return nil
 }
 
@@ -377,7 +385,17 @@ func buildUpdate(id string, u Update) (query string, args []any) {
 		args = append(args, pq.Array(u.Tags))
 		idx++
 	}
-	query = fmt.Sprintf("UPDATE resources SET %s WHERE id = $%d", // #nosec G201 -- dynamic SET clause with parameterized values
+	if u.Index != nil {
+		// A policy that reads no content keeps none: the stored prefix is
+		// cleared with the change, and a full policy re-opens the content pass
+		// the index worker settles (#2111).
+		setClauses = append(setClauses, fmt.Sprintf("index_policy = $%d", idx),
+			"index_policy_explicit = TRUE", "content_text = ''", "content_indexed_at = NULL")
+		args = append(args, *u.Index)
+		idx++
+	}
+	query = fmt.Sprintf("UPDATE resources SET %s WHERE id = $%d"+ // #nosec G201 -- dynamic SET clause with parameterized values
+		" RETURNING index_policy, scope, COALESCE(scope_id, ''), path",
 		strings.Join(setClauses, ", "), idx)
 	return query, append(args, id)
 }
@@ -564,15 +582,15 @@ func (s *postgresStore) Folders(ctx context.Context, filter Filter) ([]Folder, e
 func (s *postgresStore) Update(ctx context.Context, id string, u Update) error { //nolint:revive // interface impl
 	query, args := buildUpdate(id, u)
 
-	res, err := s.db.ExecContext(ctx, query, args...)
+	t := indexTarget{id: id}
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&t.policy, &t.lib.Scope, &t.lib.ScopeID, &t.path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("resource not found: %s", id)
+	}
 	if err != nil {
 		return fmt.Errorf("updating resource: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("resource not found: %s", id)
-	}
-	s.index.NotifyWrite(ctx, id)
+	s.notifyIndex(ctx, u.Index != nil, t)
 	return nil
 }
 
@@ -613,9 +631,7 @@ func (s *postgresStore) Move(ctx context.Context, moves []Move) error { //nolint
 	// hands the row to the index worker rather than waiting for a reconciler
 	// sweep. A library-only move changed no indexed text, and the worker dedups
 	// by text hash, so the notify costs a hash compare and no embed call.
-	for _, m := range moves {
-		s.index.NotifyWrite(ctx, m.ID)
-	}
+	s.notifyMoved(ctx, moves)
 	return nil
 }
 
@@ -745,13 +761,20 @@ func isUniqueViolation(err error) bool {
 const uniqueViolationCode = "23505"
 
 func (s *postgresStore) Delete(ctx context.Context, id string) error { //nolint:revive // interface impl
-	res, err := s.db.ExecContext(ctx, "DELETE FROM resources WHERE id = $1", id)
+	t := indexTarget{id: id}
+	err := s.db.QueryRowContext(ctx,
+		`DELETE FROM resources WHERE id = $1 RETURNING index_policy, scope, COALESCE(scope_id, ''), path`, id,
+	).Scan(&t.policy, &t.lib.Scope, &t.lib.ScopeID, &t.path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("resource not found: %s", id)
+	}
 	if err != nil {
 		return fmt.Errorf("deleting resource: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("resource not found: %s", id)
+	// An indexed file takes its vector with its row; one that was not indexed
+	// leaves its folder's summary a file short (#2111).
+	if !indexpolicy.Policy(t.policy).Indexed() {
+		s.folderIndex.NotifyWrite(ctx, FolderKey(t.lib, t.path))
 	}
 	return nil
 }
@@ -783,6 +806,7 @@ func (s *resourceScan) dest(r *Resource) []any {
 		&r.CreatedAt, &r.UpdatedAt, &s.lastRead,
 		&r.ThumbnailS3Key, &r.ThumbnailDarkS3Key, &s.captured, &s.darkCapture,
 		&r.ThumbnailRenderer, &r.ThumbnailFailure, &s.failedAt,
+		&r.IndexPolicy, &r.IndexPolicyExplicit,
 	}
 }
 

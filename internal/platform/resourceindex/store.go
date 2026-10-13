@@ -9,6 +9,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/pgvector/pgvector-go"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -45,19 +46,21 @@ type Row struct {
 	// Source skip a redundant write while still guaranteeing that a row which has
 	// never settled gets stamped, including when the extracted text is empty.
 	ContentSettled bool
+	// Policy is how the resource is indexed (#2111).
+	Policy indexpolicy.Policy
 }
 
 // Load returns the indexable state of one resource. A resource deleted between
 // enqueue and claim yields errGone.
 func (s *Store) Load(ctx context.Context, id string) (Row, error) {
 	const q = `SELECT display_name, description, path, filename, tags, mime_type, size_bytes, s3_key,
-		content_text, content_indexed_at IS NOT NULL
+		content_text, content_indexed_at IS NOT NULL, index_policy
 		FROM resources WHERE id = $1`
 	var r Row
 	err := s.db.QueryRowContext(ctx, q, id).Scan(
 		&r.Resource.DisplayName, &r.Resource.Description, &r.Resource.Path, &r.Resource.Filename,
 		pq.Array(&r.Resource.Tags), &r.Resource.MIMEType, &r.Resource.SizeBytes, &r.Resource.S3Key,
-		&r.ContentText, &r.ContentSettled,
+		&r.ContentText, &r.ContentSettled, &r.Policy,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Row{}, errGone
@@ -118,10 +121,17 @@ func (s *Store) ListVectors(ctx context.Context, id string) (map[string]indexjob
 }
 
 // UpsertVectors writes the embedding back onto the resource. The resource unit
-// holds exactly one item; a missing or empty row set is a no-op. updated_at is
+// holds exactly one item; an empty row set is a resource with nothing to index
+// -- its policy is none, or the row is gone -- and clears any vector it
+// carries, so a file taken out of search stops ranking (#2111). updated_at is
 // deliberately left untouched (see SetContentText).
 func (s *Store) UpsertVectors(ctx context.Context, id string, rows []indexjobs.Vector) error {
 	if len(rows) == 0 {
+		const clearVector = `UPDATE resources SET embedding = NULL, embedding_model = '', embedding_text_hash = NULL
+			WHERE id = $1 AND embedding IS NOT NULL`
+		if _, err := s.db.ExecContext(ctx, clearVector, id); err != nil {
+			return fmt.Errorf("resourceindex: clear vectors: %w", err)
+		}
 		return nil
 	}
 	r := rows[0]
@@ -148,7 +158,8 @@ func (s *Store) UpsertVectors(ctx context.Context, id string, rows []indexjobs.V
 // content is still owed keeps coming back until it settles.
 func (s *Store) FindGaps(ctx context.Context, currentModel string) ([]string, error) {
 	const q = `SELECT id FROM resources
-		WHERE embedding IS NULL OR embedding_model IS DISTINCT FROM $1 OR content_indexed_at IS NULL`
+		WHERE index_policy <> 'none'
+		  AND (embedding IS NULL OR embedding_model IS DISTINCT FROM $1 OR content_indexed_at IS NULL)`
 	rows, err := s.db.QueryContext(ctx, q, currentModel)
 	if err != nil {
 		return nil, fmt.Errorf("resourceindex: find gaps: %w", err)
@@ -176,7 +187,7 @@ func (s *Store) FindGaps(ctx context.Context, currentModel string) ([]string, er
 // coverage must not report that as done.
 func (s *Store) Coverage(ctx context.Context) (indexed, expected int, err error) {
 	const q = `SELECT COUNT(*) FILTER (WHERE embedding IS NOT NULL AND content_indexed_at IS NOT NULL) AS indexed,
-		COUNT(*) AS expected FROM resources`
+		COUNT(*) AS expected FROM resources WHERE index_policy <> 'none'`
 	if err := s.db.QueryRowContext(ctx, q).Scan(&indexed, &expected); err != nil {
 		return 0, 0, fmt.Errorf("resourceindex: coverage: %w", err)
 	}

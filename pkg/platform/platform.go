@@ -1930,6 +1930,7 @@ func (p *Platform) initManagedResources() error {
 		MaxUploadBytes: p.config.Resources.Managed.MaxUploadBytes, Extract: p.config.Resources.Managed.Extract,
 		Registered: p.RegisterManagedResource, Unregistered: p.UnregisterManagedResource,
 		Attachments: prompt.AsAttachmentStore(p.PromptStore()),
+		IndexPolicy: p.config.Resources.Index.Resolver(),
 	})
 
 	// The document reader's PDF extractor holds a WebAssembly instance pool
@@ -2894,13 +2895,13 @@ func (p *Platform) Start(ctx context.Context) error {
 		Assets: p.portalStore.AssetStore(), Versions: p.portalStore.VersionStore(),
 		S3: p.portalStore.ScriptS3Client(), Bucket: p.config.Portal.S3Bucket,
 		Prefix: p.config.Portal.S3Prefix, FollowTables: p.portalStore.FollowAssetTables,
-		Lander: p.portalStore.ResourceLanding(), Audit: p.audit.Logger(),
+		Lander: p.portalStore.ResourceLanding(), Sources: p.portalStore.ResourceSources(), Audit: p.audit.Logger(),
 		Authority: iam.Authority(p.authorizer, p.config.Admin.Persona),
 		Subjects:  p.users.Subjects(), Metrics: p.obs.Metrics(),
-		Destinations:         p.config.Scripts.ScriptDestinations(),
-		RunRetention:         p.config.Scripts.RunRetention(),
-		Worker:               p.config.Scripts.Worker.Config,
-		SQL:                  p.config.Scripts.SQL,
+		Destinations: p.config.Scripts.ScriptDestinations(),
+		RunRetention: p.config.Scripts.RunRetention(),
+		Worker:       p.config.Scripts.Worker.Config,
+		SQL:          p.config.Scripts.SQL, Draft: p.config.Scripts.Draft,
 		WorkerEnabled:        p.config.Scripts.IsWorkerEnabled(),
 		NotificationsEnabled: p.config.Notifications.IsEnabled(),
 		DigestHourUTC:        p.config.Notifications.DigestHour(),

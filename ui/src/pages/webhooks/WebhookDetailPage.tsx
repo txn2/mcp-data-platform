@@ -1,3 +1,4 @@
+import { INDEX_POLICY_LABELS } from "@/pages/resources/parts/IndexPolicyField";
 import { useState } from "react";
 import { AlertTriangle, Pencil, Trash2, Webhook } from "lucide-react";
 import { useDeleteWebhookSource, useWebhookSource } from "@/api/admin/hooks";
@@ -301,6 +302,7 @@ function StorageSection({ source, status }: { source: WebhookSource; status: Web
         <Fact label="Raw events kept after compaction" value={`${c.raw_retention_days ?? 7} days`} />
         <Fact label="Compacted files kept" value={keep} />
         <Fact label="Compacted files visible to" value={c.persona ? `The ${c.persona} persona` : "Administrators only"} />
+        <Fact label="Search" value={c.index ? INDEX_POLICY_LABELS[c.index] : "Default"} />
       </dl>
       <p className="mt-3 text-xs text-muted-foreground">
         Each window is compacted shortly after it ends. Until then its events are read straight from what

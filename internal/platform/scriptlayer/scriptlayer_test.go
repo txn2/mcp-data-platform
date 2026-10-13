@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -915,13 +916,13 @@ func TestHelp_PointsAtTheBuiltInPages(t *testing.T) {
 
 	seeAlso, ok := fields["see_also"].([]any)
 	require.True(t, ok, "help returned no see_also list: %+v", fields["see_also"])
-	require.Len(t, seeAlso, len(KnowledgePages))
+	require.Len(t, seeAlso, len(scriptcontract.KnowledgePages))
 
 	for i, raw := range seeAlso {
 		entry, ok := raw.(map[string]any)
 		require.True(t, ok)
-		assert.Equal(t, KnowledgePages[i].Slug, entry["slug"])
-		assert.Equal(t, "mcp:knowledge_page:"+KnowledgePages[i].Slug, entry["reference"])
+		assert.Equal(t, scriptcontract.KnowledgePages[i].Slug, entry["slug"])
+		assert.Equal(t, "mcp:knowledge_page:"+scriptcontract.KnowledgePages[i].Slug, entry["reference"])
 		assert.NotEmpty(t, entry["summary"])
 	}
 	assert.Contains(t, fields["read_a_page"], "fetch")
@@ -1129,8 +1130,8 @@ func TestHasStore(t *testing.T) {
 // agent (#1912): a request to automate work is a manage_script request, and
 // run_script runs an automation on request.
 func TestToolDescriptions_SayTheyBuildAutomations(t *testing.T) {
-	assert.True(t, strings.HasPrefix(manageScriptDescription, "Build and change automations."))
-	assert.Contains(t, manageScriptDescription, "managed script")
+	assert.True(t, strings.HasPrefix(scriptcontract.ManageScriptDescription, "Build and change automations."))
+	assert.Contains(t, scriptcontract.ManageScriptDescription, "managed script")
 	assert.True(t, strings.HasPrefix(runScriptDescription, "Run an automation on request"))
 }
 

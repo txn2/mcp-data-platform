@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 )
@@ -107,6 +108,7 @@ func (h *Handler) resolveRevisable(w http.ResponseWriter, r *http.Request) (*Res
 // @Produce      json
 // @Param        id    path      string  true  "Resource ID"
 // @Param        change_summary  formData  string  false  "Why the content changed, recorded on the version this writes so the version panel says what a revision did. Must precede the file part. Empty for a plain re-upload, which says nothing beyond that the file was replaced"
+// @Param        index  formData  string  false  "How search indexes the file from now on: full, metadata or none. Absent keeps the policy the file has. Must precede the file part"  Enums(full, metadata, none)
 // @Param        file  formData  file    true  "Replacement file; the ceiling is resources.managed.max_upload_bytes (default 100 MB). It must be the last part of the multipart form: it is streamed to blob storage where the walk finds it"
 // @Success      200  {object}  resource.revisedResource
 // @Failure      400  {object}  resource.errorResponse
@@ -137,6 +139,14 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, refusalFor(err, limit))
 		return
 	}
+	// A replacement keeps the file's index policy unless it names one (#2111).
+	index := fields.Get("index")
+	if index != "" {
+		if _, err := indexpolicy.Parse(index); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 
 	// The uploaded file's own name is deliberately ignored. The canonical URI
 	// embeds the resource's filename, and a revision that changed the URI would
@@ -151,6 +161,7 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 		Content:       file.body,
 		MIMEType:      file.mimeType,
 		ChangeSummary: strings.TrimSpace(fields.Get(changeSummaryField)),
+		Index:         index,
 	})
 	if err != nil {
 		if refusal, caller := uploadRefusal(err, limit); caller {
@@ -207,6 +218,12 @@ type RevisionUpload struct {
 	// Metadata is what the writer records about the content (#2057). Nil
 	// records none.
 	Metadata map[string]any
+	// Index changes how search indexes the file (#2111). Empty keeps the
+	// policy the resource has.
+	Index string
+	// Origin is the writer a rule matches the change by; empty reads as an
+	// upload unless the caller is a script or the webhook receiver.
+	Origin indexpolicy.Origin
 }
 
 // errContentUnchanged reports a revision that was not recorded because its
@@ -245,7 +262,26 @@ func ReviseContent(
 		return res, nil, errContentUnchanged
 	}
 
+	// A revision keeps the policy the resource has unless the writer names
+	// one; an empty policy on the revision is what says so to the store.
+	var (
+		policy   string
+		explicit bool
+	)
+	if up.Index != "" {
+		decision, err := decideIndex(deps, indexpolicy.File{
+			Path: res.Path, MIMEType: up.MIMEType, SizeBytes: stored.size,
+			Scope: string(res.Scope), Origin: originOf(claims, up.Origin),
+		}, up.Index)
+		if err != nil {
+			_ = deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key)
+			return nil, nil, err
+		}
+		policy, explicit = string(decision.Policy), decision.Explicit
+	}
 	version, err := deps.Versions.AddRevision(ctx, Revision{
+		IndexPolicy:   policy,
+		IndexExplicit: explicit,
 		ResourceID:    res.ID,
 		MIMEType:      up.MIMEType,
 		SizeBytes:     stored.size,

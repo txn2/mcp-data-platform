@@ -56,6 +56,34 @@ type fakeResourceWriter struct {
 
 	deletedID string
 	deleteErr error
+
+	updated   resource.Update
+	updateErr error
+
+	describedAddr toolkit.ResourceAddress
+	described     string
+	describeErr   error
+}
+
+func (f *fakeResourceWriter) DescribeFolder(
+	_ context.Context, addr toolkit.ResourceAddress, description string, _ resource.Claims,
+) error {
+	f.describedAddr, f.described = addr, description
+	return f.describeErr
+}
+
+func (f *fakeResourceWriter) Update(
+	_ context.Context, id string, u resource.Update, claims resource.Claims,
+) (*resource.Resource, error) {
+	f.gotID, f.updated, f.claims = id, u, claims
+	if f.updateErr != nil {
+		return nil, f.updateErr
+	}
+	res := *f.existingOrDefault()
+	if u.Index != nil {
+		res.IndexPolicy = *u.Index
+	}
+	return &res, nil
 }
 
 func (f *fakeResourceWriter) Locate(
@@ -227,7 +255,7 @@ func TestManageResourceUnknownAction(t *testing.T) {
 	result := callResource(t, tk, manageResourceInput{Action: "rename"})
 
 	require.True(t, result.IsError)
-	assert.Contains(t, errText(t, result), "create, replace_content, get, list, delete, extract")
+	assert.Contains(t, errText(t, result), "create, replace_content, update, get, list, delete, extract")
 }
 
 func TestCreateBuildsTheResourceFromTheCall(t *testing.T) {

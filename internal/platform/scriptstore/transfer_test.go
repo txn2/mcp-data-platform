@@ -38,6 +38,7 @@ func expectTransferWrites(t *testing.T, mock sqlmock.Sqlmock) {
 	expectNextVersion(mock, 4)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 	expectLiveRowUpdate(mock, false)
 }
 
@@ -54,6 +55,7 @@ func TestTransfer_WritesTheVersionThatCarriesTheNewAuthority(t *testing.T) {
 			pq.Array([]string{}), "admin@example.com", pq.Array([]string{"admin"}),
 			script.VersionStatusApplied, "", "", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 	expectLiveRowUpdate(mock, false)
 	mock.ExpectCommit()
 
@@ -72,6 +74,7 @@ func TestTransfer_RefusesANameTheNewOwnerAlreadyUses(t *testing.T) {
 	expectNextVersion(mock, 4)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta("UPDATE scripts")).
 		WillReturnError(&pq.Error{Code: pgUniqueViolation})
 	mock.ExpectRollback()
@@ -119,6 +122,7 @@ func TestTransfer_WriteFailureIsNotAConflict(t *testing.T) {
 	expectNextVersion(mock, 4)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta("UPDATE scripts")).WillReturnError(errors.New("down"))
 	mock.ExpectRollback()
 

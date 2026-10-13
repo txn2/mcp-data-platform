@@ -22,13 +22,16 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptbgdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptpending"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/toolanswer"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
@@ -78,12 +81,25 @@ type Config struct {
 	// a script's tests and a save's replay (#1939, #1942). Nil builds one over
 	// DB.
 	Recordings scriptrec.Store
+	// Sources reads the managed-resource text a save names by source_ref and
+	// a script loads with load("res:...") (#2113, #2114). Nil refuses both.
+	Sources *scriptsrc.Reader
+	// Pending keeps a refused create to patch (#2114). Nil builds one over DB.
+	Pending scriptpending.Store
+	// DraftLimit is scripts.draft (#2117): how long an administrator's draft
+	// may run, a long one kept in the background over DB.
+	DraftLimit scriptbgdraft.Config
 }
 
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
 // deployment without a database holds a Handle that registers nothing.
 type Handle struct {
 	store script.Store
+	// sources reads resource text (#2113, #2114); pending keeps a refused
+	// create to patch (#2114). Either may be nil.
+	sources    *scriptsrc.Reader
+	pending    scriptpending.Store
+	longDrafts *scriptbgdraft.Launcher
 	// versions is the same store narrowed to its version contract, held
 	// separately because run_script must load the code the execution gate
 	// points at and a store without versioning cannot answer that.
@@ -142,10 +158,15 @@ func New(cfg Config) *Handle {
 	if h.recordings == nil && cfg.DB != nil {
 		h.recordings = recstore.New(cfg.DB)
 	}
+	h.sources, h.pending = cfg.Sources, cfg.Pending
+	h.longDrafts = scriptbgdraft.NewLauncher(scriptbgdraft.NewStore(cfg.DB), cfg.DraftLimit)
+	if h.pending == nil && cfg.DB != nil {
+		h.pending = scriptpending.NewPostgres(cfg.DB)
+	}
 	h.gate = &scriptsave.Gate{
 		Recordings: h.recordings, Destinations: cfg.Destinations, MaxMemoryBytes: h.runLimits.MaxMemoryBytes,
 		Contracts:   toolanswer.Live{Kits: cfg.Toolkits, Extra: notifylayer.AnswerContracts()},
-		CannotServe: scriptsave.PassthroughConnections{Kits: cfg.Toolkits}.CannotServe,
+		CannotServe: scriptsave.PassthroughConnections{Kits: cfg.Toolkits}.CannotServe, Resources: cfg.Sources,
 	}
 	h.gate.Libraries, _ = h.store.(scriptlib.Source)
 	h.versions, _ = h.store.(script.VersionStore)

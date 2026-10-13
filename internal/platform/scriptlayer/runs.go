@@ -58,6 +58,11 @@ func (h *Handle) handleGetRun(ctx context.Context, input manageScriptInput) (*mc
 	if input.RunID == "" {
 		return errorResult("run_id is required"), nil, nil
 	}
+	if out, ok, err := h.longDrafts.Answer(ctx, input.RunID, resolveEmail(ctx), h.isAdminPersona(ctx)); ok && err != nil {
+		return errorResult(err.Error()), nil, nil
+	} else if ok {
+		return jsonResult(out)
+	}
 	run, err := h.runs.GetRun(ctx, input.RunID)
 	if errors.Is(err, script.ErrRunNotFound) {
 		return errorResult("run not found"), nil, nil

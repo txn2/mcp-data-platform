@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
@@ -45,6 +46,13 @@ type NewResource struct {
 	// Metadata is what the writer records about the content on version 1
 	// (#2057). Nil records none.
 	Metadata map[string]any
+	// Index is how the writer asks search to index the file: "full",
+	// "metadata" or "none" (#2111). Empty leaves it to the operator's rules.
+	Index string
+	// Origin is the surface the write came through, for the operator's rules.
+	// A write under a script's or the webhook principal is theirs whatever
+	// this says; empty is an upload.
+	Origin indexpolicy.Origin
 }
 
 // CreateResource stores the blob, inserts the metadata row, and records the
@@ -102,6 +110,14 @@ func insertResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 	// the pairing every other surface records for a run, and the one the
 	// version trail has to carry or a scheduled refresh reads as having been
 	// made by whoever happens to own the script.
+	decision, err := decideIndex(deps, indexpolicy.File{
+		Path: in.Path, MIMEType: in.MIMEType, SizeBytes: stored.size,
+		Scope: string(in.Scope), Origin: originOf(claims, in.Origin),
+	}, in.Index)
+	if err != nil {
+		_ = deps.S3Client.DeleteObject(ctx, deps.S3Bucket, s3Key)
+		return nil, err
+	}
 	res := Resource{
 		ID: id, Scope: in.Scope, ScopeID: in.ScopeID,
 		Path: in.Path, Filename: in.Filename,
@@ -109,6 +125,7 @@ func insertResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 		MIMEType: in.MIMEType, SizeBytes: stored.size,
 		S3Key: s3Key, URI: uri, Tags: in.Tags,
 		UploaderSub: claims.Sub, UploaderEmail: PersonAddress(*claims),
+		IndexPolicy: string(decision.Policy), IndexPolicyExplicit: decision.Explicit,
 	}
 
 	if err := deps.Store.Insert(ctx, res); err != nil {

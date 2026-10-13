@@ -38,6 +38,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/contenturl"
@@ -248,7 +249,7 @@ func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string
 // the cadence and the source (#1307), and neither grants anything: a cadence
 // carries no authority, and an edit to an approved script becomes a draft for
 // review. Approval stays on the admin surface.
-func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, adminRoles []string) {
+func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap func(http.Handler) http.Handler, adminRoles []string) {
 	deps, ok := scriptDeps(p)
 	if !ok {
 		return
@@ -276,7 +277,8 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
 		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports()).
 		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).WithStatementCeiling(p.Config().Scripts.SQL.MaxTimeout()).
-		WithRecordings(deps.Gate.Recordings).WithLibraries(deps.Gate.Libraries)
+		WithRecordings(deps.Gate.Recordings).WithLibraries(deps.Gate.Libraries).WithResources(deps.Gate.Resources)
+	wrap := scripthttp.GatedWrap(portalWrap, deps.PortalUser) // a persona hiding Automations is refused (#2109)
 	scripts := scripthttp.New(deps)
 	scripts.RegisterPortal(mux, wrap)
 	// A version drawn as a diagram (#1906) and a run drawn on it (#1907).
@@ -320,6 +322,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 			MaxMemoryBytes: p.Config().Scripts.Worker.ProcessRunMemoryBudget(),
 			Contracts:      toolanswer.Live{Kits: p.ToolkitRegistry(), Extra: notifylayer.AnswerContracts()},
 			Libraries:      store,
+			Resources:      scriptsrc.New(p.ResourceStore(), p.ResourceS3Client(), p.Config().Resources.Managed.S3Bucket, p.Config().Resources.Managed.URIScheme),
 			CannotServe:    scriptsave.PassthroughConnections{Kits: p.ToolkitRegistry()}.CannotServe,
 		},
 	}
@@ -356,6 +359,7 @@ func scriptPortalIdentity(adminRoles []string, resolver portal.PersonaResolver) 
 		if resolver != nil {
 			if pi := resolver(user.Roles); pi != nil {
 				id.Persona = pi.Name
+				id.AutomationsHidden = pi.HideAutomations
 			}
 		}
 		return id
@@ -470,7 +474,8 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		// database, as the script store on this mux is: the store holds no
 		// state of its own, so one built here is the same record the portal's
 		// write funnels fill.
-		Producers: producedby.NewPostgres(p.DB()),
+		Producers:   producedby.NewPostgres(p.DB()),
+		IndexPolicy: p.Config().Resources.Index.Resolver(), // when the uploader does not say (#2111)
 	}
 	// Content revision and version history are a capability of the store, not a
 	// requirement of it: the Postgres store implements VersionStore, and a store

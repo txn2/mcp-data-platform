@@ -469,6 +469,10 @@ func TestResourceHoldsDescribe(t *testing.T) {
 		[]string{"1 asset references this file", "2 prompts attach this file"},
 		ResourceHolds{Assets: 1, Prompts: 2}.Describe())
 	assert.True(t, ResourceHolds{Prompts: 1}.Any())
+	// A script loading the file with load("res:...") holds it too (#2113).
+	assert.Equal(t, []string{"2 managed scripts load this file"}, ResourceHolds{Scripts: 2}.Describe())
+	assert.Equal(t, []string{"1 managed script loads this file"}, ResourceHolds{Scripts: 1}.Describe())
+	assert.True(t, ResourceHolds{Scripts: 1}.Any())
 }
 
 func TestDeleteSaysWhenMorePointAtTheFileThanWereCounted(t *testing.T) {

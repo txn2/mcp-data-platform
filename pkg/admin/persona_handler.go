@@ -75,6 +75,9 @@ type personaDetail struct {
 	// ServiceAccount marks the persona an automated caller signs in under:
 	// its calls are audited but not added to the call catalog (#1980).
 	ServiceAccount bool `json:"service_account" example:"false"`
+	// HideAutomations takes the portal's Automations section away from the
+	// persona's people (#2109). False shows it.
+	HideAutomations bool `json:"hide_automations" example:"false"`
 }
 
 // MarshalJSON enforces the non-nil wire invariant for the required arrays.
@@ -122,6 +125,10 @@ type personaCreateRequest struct {
 	// Saving it true removes the call records the persona already wrote on a
 	// sweep started at once. Absent is false.
 	ServiceAccount bool `json:"service_account,omitempty" example:"false"`
+	// HideAutomations takes the portal's Automations section, its pages and
+	// its script routes away from the persona's people; an administrator
+	// keeps them. Absent is false, which shows Automations.
+	HideAutomations bool `json:"hide_automations,omitempty" example:"false"`
 }
 
 // personaListResponse wraps a list of personas.
@@ -491,15 +498,7 @@ func (h *Handler) allowedTools(p *persona.Persona) []string {
 	if h.deps.ToolkitRegistry == nil {
 		return nil
 	}
-	filter := persona.NewToolFilter(nil)
-	all := h.deps.ToolkitRegistry.AllTools()
-	tools := make([]string, 0, len(all))
-	for _, t := range all {
-		if filter.IsAllowed(p, t) {
-			tools = append(tools, t)
-		}
-	}
-	return tools
+	return persona.NewToolFilter(nil).FilterTools(p, h.deps.ToolkitRegistry.AllTools())
 }
 
 // resolveTools is allowedTools sorted, as personaDetail.Tools ships it. Every
@@ -544,6 +543,7 @@ func toPersonaDetail(p *persona.Persona, tools []string) personaDetail {
 		Source:           p.Source,
 		APIRoutes:        p.APIRoutes,
 		ServiceAccount:   p.ServiceAccount,
+		HideAutomations:  p.HideAutomations,
 	}
 }
 
@@ -587,8 +587,9 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 			AgentInstructionsSuffix:   req.AgentInstructionsSuffix,
 			AgentInstructionsOverride: req.AgentInstructionsOverride,
 		},
-		Priority:       req.Priority,
-		ServiceAccount: req.ServiceAccount,
+		Priority:        req.Priority,
+		ServiceAccount:  req.ServiceAccount,
+		HideAutomations: req.HideAutomations,
 	}
 }
 

@@ -30,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -155,6 +156,9 @@ func runOne(ctx context.Context, req Request, name, recording string, seen tally
 			return res
 		}
 		rec = loaded
+		// A replay reads each file at the version the recorded run read
+		// (#2113), so a test of an older run reads that run's text.
+		req.Libraries = scriptres.Replaying(req.Libraries, rec.Files)
 	}
 	out, result, err := execute(ctx, req, execution{entry: name, recording: recording, rec: rec, cover: seen.cover, reads: seen.reads})
 	out.register(seen.reads)
@@ -252,6 +256,7 @@ func testingModule(recording string, out *produced, inputs *scriptrun.TestInputs
 			return out.value()
 		}),
 		"answer":  starlark.NewBuiltin("testing.answer", out.declared.answerBuiltin),
+		"answers": starlark.NewBuiltin("testing.answers", out.declared.answersBuiltin),
 		"set_run": setRunBuiltin(inputs),
 	}}
 }

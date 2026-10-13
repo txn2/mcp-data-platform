@@ -23,6 +23,7 @@ const draft: PersonaDraft = {
   agentInstructionsSuffix: "",
   agentInstructionsOverride: "",
   serviceAccount: false,
+  showAutomations: true,
 };
 
 afterEach(cleanup);
@@ -43,6 +44,26 @@ describe("BehaviorTab service account (#1980)", () => {
     render(<BehaviorTab draft={{ ...draft, serviceAccount: true }} onUpdate={vi.fn()} isReadOnly />);
     const box = screen.getByRole("checkbox", { name: /Service account/ });
     expect(box).toBeChecked();
+    expect(box).toBeDisabled();
+  });
+});
+
+describe("BehaviorTab Automations (#2109)", () => {
+  it("shows Automations by default and saves hiding them into the draft", () => {
+    const onUpdate = vi.fn();
+    render(<BehaviorTab draft={draft} onUpdate={onUpdate} isReadOnly={false} />);
+    const box = screen.getByRole("checkbox", { name: /^Automations/ });
+    expect(box).toBeChecked();
+    expect(screen.getByText("Shown in the portal. Administrators always see Automations.")).toBeInTheDocument();
+
+    fireEvent.click(box);
+    expect(onUpdate).toHaveBeenCalledWith({ showAutomations: false });
+  });
+
+  it("reflects a persona that hides them", () => {
+    render(<BehaviorTab draft={{ ...draft, showAutomations: false }} onUpdate={vi.fn()} isReadOnly />);
+    const box = screen.getByRole("checkbox", { name: /^Automations/ });
+    expect(box).not.toBeChecked();
     expect(box).toBeDisabled();
   });
 });

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -105,4 +106,43 @@ func TestResourceHoldsReportsAFailedLookup(t *testing.T) {
 			assert.ErrorIs(t, err, boom)
 		})
 	}
+}
+
+// loadingScripts counts the scripts loading a file (#2113).
+type loadingScripts struct {
+	n   int
+	err error
+}
+
+func (l loadingScripts) CountLoading(context.Context, string, int) (int, error) { return l.n, l.err }
+
+func TestResourceHoldsCountsTheScriptsLoadingTheFile(t *testing.T) {
+	holds, err := resourceholds.New(resourceholds.Deps{Scripts: loadingScripts{n: 2}}).ResourceHolds(context.Background(), "res_1")
+	require.NoError(t, err)
+	assert.Equal(t, 2, holds.Scripts)
+	assert.False(t, holds.More)
+
+	holds, err = resourceholds.New(resourceholds.Deps{Scripts: loadingScripts{n: 50}}).ResourceHolds(context.Background(), "res_1")
+	require.NoError(t, err)
+	assert.True(t, holds.More)
+
+	_, err = resourceholds.New(resourceholds.Deps{Scripts: loadingScripts{err: errors.New("down")}}).ResourceHolds(context.Background(), "res_1")
+	assert.ErrorContains(t, err, "scripts loading this file")
+}
+
+func TestScriptPinsCountsTheRunningVersions(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectQuery("FROM script_resource_pins p").WithArgs("res_1", 50).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	n, err := resourceholds.ScriptPins{DB: db}.CountLoading(context.Background(), "res_1", 50)
+	require.NoError(t, err)
+	assert.Equal(t, 3, n)
+	mock.ExpectQuery("FROM script_resource_pins p").WillReturnError(errors.New("down"))
+	_, err = resourceholds.ScriptPins{DB: db}.CountLoading(context.Background(), "res_1", 50)
+	assert.Error(t, err)
+	n, err = resourceholds.ScriptPins{}.CountLoading(context.Background(), "res_1", 50)
+	require.NoError(t, err)
+	assert.Zero(t, n)
 }

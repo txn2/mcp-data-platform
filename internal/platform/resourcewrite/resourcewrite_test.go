@@ -10,8 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 const (
@@ -39,10 +41,17 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newFixtureWith(t, nil)
+}
+
+// newFixtureWith is newFixture deciding index policies by the given rules.
+func newFixtureWith(t *testing.T, policy *indexpolicy.Resolver) *fixture {
+	t.Helper()
 	f := &fixture{store: newMemStore(), blobs: newMemBlobs()}
 	f.writer = resourcewrite.New(resourcewrite.Deps{
 		Store: f.store, Blobs: f.blobs, Bucket: testBucket, URIScheme: testScheme,
-		Registered: func(r *resource.Resource) { f.registered = append(f.registered, r) },
+		Registered:  func(r *resource.Resource) { f.registered = append(f.registered, r) },
+		IndexPolicy: policy,
 	})
 	require.NotNil(t, f.writer)
 	return f
@@ -592,4 +601,123 @@ func TestARunRefreshesAFileItsAuthorsOtherScriptFiled(t *testing.T) {
 	}, stranger)
 	require.ErrorIs(t, err, resourcewrite.ErrRefused,
 		"another person's script of the same name is another person's script")
+}
+
+// TestUpdateChangesTheIndexPolicy is #2111's "editable afterwards" through the
+// tool's writer: the policy is recorded as chosen, under the authority to
+// change the file.
+func TestUpdateChangesTheIndexPolicy(t *testing.T) {
+	f := newFixture(t)
+	original := mustCreate(t, f)
+	f.registered = nil
+
+	policy := "none"
+	updated, err := f.writer.Update(t.Context(), original.ID, resource.Update{Index: &policy}, analyst())
+	require.NoError(t, err)
+	assert.Equal(t, "none", updated.IndexPolicy)
+	assert.True(t, updated.IndexPolicyExplicit)
+	require.Len(t, f.registered, 1, "an update re-registers the file under its current record")
+}
+
+func TestUpdateRefusesAFileTheCallerMaySeeButNotChange(t *testing.T) {
+	f := newFixture(t)
+	in := newResource()
+	in.Scope, in.ScopeID = resource.ScopePersona, "analyst"
+	res, err := f.writer.Create(t.Context(), in, admin())
+	require.NoError(t, err)
+
+	policy := "none"
+	_, err = f.writer.Update(t.Context(), res.ID, resource.Update{Index: &policy}, analyst())
+	require.ErrorIs(t, err, resourcewrite.ErrRefused)
+
+	_, err = f.writer.Update(t.Context(), "nope", resource.Update{Index: &policy}, analyst())
+	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource)
+
+	bad := "most"
+	_, err = f.writer.Update(t.Context(), res.ID, resource.Update{Index: &bad}, admin())
+	assert.ErrorContains(t, err, "index must be one of")
+}
+
+// TestCreateDecidesTheIndexPolicyByTheRules: a writer that says nothing gets
+// the operator's rule, and the rule's ceiling lowers a request above it.
+func TestCreateDecidesTheIndexPolicyByTheRules(t *testing.T) {
+	resolver, err := indexpolicy.NewResolver(indexpolicy.Config{Rules: []indexpolicy.Rule{
+		{Path: "datasets/**", Index: "none", Max: "metadata"},
+	}})
+	require.NoError(t, err)
+	f := newFixtureWith(t, resolver)
+
+	res, err := f.writer.Create(t.Context(), newResource(), analyst())
+	require.NoError(t, err)
+	assert.Equal(t, "none", res.IndexPolicy)
+	assert.False(t, res.IndexPolicyExplicit)
+
+	in := newResource()
+	in.Filename, in.Index = "other.csv", "full"
+	res, err = f.writer.Create(t.Context(), in, analyst())
+	require.NoError(t, err)
+	assert.Equal(t, "metadata", res.IndexPolicy)
+	assert.True(t, res.IndexPolicyExplicit)
+}
+
+// describingStore is a memStore whose folders can be described, as the
+// Postgres store's can (#2111).
+type describingStore struct {
+	*memStore
+	folders map[string]string
+}
+
+func (*describingStore) CreateFolder(context.Context, resource.ScopeFilter, string, string) error {
+	return nil
+}
+
+func (*describingStore) DeleteFolder(context.Context, resource.ScopeFilter, string) error {
+	return nil
+}
+
+func (d *describingStore) FolderExists(_ context.Context, _ resource.ScopeFilter, path string) (bool, error) {
+	_, ok := d.folders[path]
+	return ok, nil
+}
+
+func (*describingStore) MoveFolderTree(context.Context, resource.FolderRename, []resource.Move) error {
+	return nil
+}
+
+func (d *describingStore) FolderDescription(_ context.Context, _ resource.ScopeFilter, path string) (string, error) {
+	desc, ok := d.folders[path]
+	if !ok {
+		return "", resource.ErrFolderEmpty
+	}
+	return desc, nil
+}
+
+func (d *describingStore) DescribeFolder(_ context.Context, _ resource.ScopeFilter, path, desc string) error {
+	if _, ok := d.folders[path]; !ok {
+		return resource.ErrFolderEmpty
+	}
+	d.folders[path] = desc
+	return nil
+}
+
+func TestDescribeFolder(t *testing.T) {
+	store := &describingStore{memStore: newMemStore(), folders: map[string]string{"datasets": ""}}
+	w := resourcewrite.New(resourcewrite.Deps{Store: store, Blobs: newMemBlobs(), Bucket: testBucket, URIScheme: testScheme})
+	require.NotNil(t, w)
+
+	require.NoError(t, w.DescribeFolder(t.Context(), toolkit.ResourceAddress{Path: "datasets"}, "Daily weather files", analyst()))
+	assert.Equal(t, "Daily weather files", store.folders["datasets"])
+
+	err := w.DescribeFolder(t.Context(), toolkit.ResourceAddress{Path: "nowhere"}, "x", analyst())
+	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource)
+
+	err = w.DescribeFolder(t.Context(), toolkit.ResourceAddress{Scope: "global", Path: "datasets"}, "x", analyst())
+	require.ErrorIs(t, err, resourcewrite.ErrRefused, "the global library is administrators only")
+
+	err = w.DescribeFolder(t.Context(), toolkit.ResourceAddress{Path: "Bad Path!"}, "x", analyst())
+	require.Error(t, err)
+
+	plain := resourcewrite.New(resourcewrite.Deps{Store: newMemStore(), Blobs: newMemBlobs(), Bucket: testBucket})
+	err = plain.DescribeFolder(t.Context(), toolkit.ResourceAddress{Path: "datasets"}, "x", analyst())
+	require.Error(t, err, "a store that keeps no folders cannot describe one")
 }

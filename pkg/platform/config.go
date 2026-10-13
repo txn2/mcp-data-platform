@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
 	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
@@ -23,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/resultbudget"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptbgdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/taskwiring"
@@ -1177,6 +1179,9 @@ type ResourcesConfig struct {
 	Enabled *bool               `yaml:"enabled"`
 	Custom  []CustomResourceDef `yaml:"custom"`  // always registered when non-empty
 	Managed ManagedResourcesCfg `yaml:"managed"` // human-uploaded resources via portal
+	// Index decides how a resource is indexed for search when its writer does
+	// not say (#2111); see internal/indexpolicy.
+	Index indexpolicy.Config `yaml:"index"`
 }
 
 // IsEnabled reports whether the resource templates and DataHub->Trino resource
@@ -1386,8 +1391,9 @@ type ScriptsConfig struct {
 	// Worker decides whether this replica executes queued runs or only
 	// enqueues them for another deployment to execute.
 	Worker ScriptsWorkerConfig `yaml:"worker"`
-	// SQL bounds how long a script's statement may run (#2073).
-	SQL scriptstmt.Config `yaml:"sql"`
+	// SQL bounds how long a statement may run (#2073), Draft an administrator's run_draft (#2117).
+	SQL   scriptstmt.Config    `yaml:"sql"`
+	Draft scriptbgdraft.Config `yaml:"draft"`
 }
 
 // ScriptDestinations returns the configured destinations normalized, with the
@@ -2084,7 +2090,7 @@ func (c *Config) Validate() error {
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
 	_, thumbSources := c.Thumbnails.SourceLimits()
-	for _, err := range []error{admission, runBudget, thumbs, thumbSources, c.Scripts.SQL.Validate(), c.Webhooks.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
+	for _, err := range []error{admission, runBudget, thumbs, thumbSources, c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}

@@ -368,12 +368,12 @@ var manageResourceSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["create", "replace_content", "get", "list", "delete", "extract"],
-      "description": "What to do: file new content as a managed resource (create), write new content over an existing one (replace_content), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), remove a file and its version history (delete), or write the files inside a stored zip, gzip or gzipped tar archive out as managed resources of their own (extract). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
+      "enum": ["create", "replace_content", "update", "get", "list", "delete", "extract"],
+      "description": "What to do: file new content as a managed resource (create), write new content over an existing one (replace_content), change an existing one's display_name, description, tags or index without touching its content (update; given a path and a description and no reference, update describes the folder instead, which is what search matches a folder of files that are not indexed one by one on), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), remove a file and its version history (delete), or write the files inside a stored zip, gzip or gzipped tar archive out as managed resources of their own (extract). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
     },
     "reference": {
       "type": "string",
-      "description": "The managed resource to act on, named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Required for replace_content, and for extract, where it names the archive. For get and delete it is the alternative to naming the address (scope + path + filename); pass one or the other, and pass it verbatim."
+      "description": "The managed resource to act on, named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Required for replace_content and update, and for extract, where it names the archive. For get and delete it is the alternative to naming the address (scope + path + filename); pass one or the other, and pass it verbatim."
     },
     "if_exists": {
       "type": "string",
@@ -414,7 +414,7 @@ var manageResourceSchema = json.RawMessage(`{
     },
     "display_name": {
       "type": "string",
-      "description": "Human-readable name shown in the resource library (required for create)."
+      "description": "Human-readable name shown in the resource library (required for create; update changes it)."
     },
     "path": {
       "type": "string",
@@ -427,7 +427,12 @@ var manageResourceSchema = json.RawMessage(`{
     "tags": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "Tags for filtering in the library (create). Lowercase letters, digits and hyphens."
+      "description": "Tags for filtering in the library (create, update, where they replace the file's tags). Lowercase letters, digits and hyphens."
+    },
+    "index": {
+      "type": "string",
+      "enum": ["full", "metadata", "none"],
+      "description": "How search indexes the file (create, replace_content, update, extract). full: its name, description, folder, filename, tags and a prefix of its contents. metadata: the name, description, folder, filename and tags, no contents read. none: not in search one by one; the file is still listed, fetched, versioned and referenced like any other, and the folder it is in is found by search as one entry. Pass none when writing many files of data nobody searches by value, such as a backfill of daily exports, and metadata for many files people search by name, such as poster art. Omit it and the deployment's rules decide; a rule can also cap what you ask for, and the result reports the policy the file got. replace_content and update keep the file's policy unless you pass one."
     },
     "scope": {
       "type": "string",

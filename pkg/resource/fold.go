@@ -116,7 +116,7 @@ func (f *folder) batch(ctx context.Context, found []Resource) error {
 			f.out.Skipped = append(f.out.Skipped, FoldEntry{ID: r.ID, URI: r.URI, FromURI: r.URI})
 			continue
 		}
-		moves = append(moves, Move{ID: r.ID, Scope: f.to.Scope, ScopeID: f.to.ScopeID, Path: r.Path, URI: uri, FromURI: r.URI})
+		moves = append(moves, Move{ID: r.ID, Scope: f.to.Scope, ScopeID: f.to.ScopeID, Path: r.Path, URI: uri, FromURI: r.URI, From: fromOf(r)})
 		events = append(events, MoveEvent{
 			ResourceID: r.ID, DisplayName: r.DisplayName,
 			FromScope: r.Scope, FromScopeID: r.ScopeID, FromPath: r.Path, FromURI: r.URI,

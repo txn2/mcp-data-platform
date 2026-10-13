@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/docread"
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -67,13 +68,21 @@ func (s *Source) LoadItems(ctx context.Context, sourceID string) ([]indexjobs.It
 		return nil, fmt.Errorf("resourceSource: load items: %w", err)
 	}
 
-	content := s.resolveContentText(ctx, sourceID, row)
-	// A table of values is embedded on its metadata alone (#1988); its content
-	// was still settled into content_text above, which the lexical arm reads.
-	if !resource.EmbedsContent(row.Resource.MIMEType) {
-		content = ""
+	// The resource's policy decides what is read (#2111). A table of values
+	// is metadata by the built-in rule, which is what #1988 did in code.
+	switch row.Policy {
+	case indexpolicy.None:
+		// Nothing is indexed: no blob is read, no text is kept, and the empty
+		// item set clears any vector the row still carries.
+		s.settleContent(ctx, sourceID, row, "")
+		return nil, nil
+	case indexpolicy.Metadata:
+		s.settleContent(ctx, sourceID, row, "")
+		return []indexjobs.Item{{ItemID: sourceID, Text: resource.IndexText(row.Resource, "")}}, nil
+	default:
+		content := s.resolveContentText(ctx, sourceID, row)
+		return []indexjobs.Item{{ItemID: sourceID, Text: resource.IndexText(row.Resource, content)}}, nil
 	}
-	return []indexjobs.Item{{ItemID: sourceID, Text: resource.IndexText(row.Resource, content)}}, nil
 }
 
 // resolveContentText returns the text to index from the resource's content and

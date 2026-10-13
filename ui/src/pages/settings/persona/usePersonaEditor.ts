@@ -12,6 +12,17 @@ import { resolve, aggregateTools, type Resolution } from "./resolve";
 import type { Bucket } from "./tints";
 import type { PersonaDraft, Scope, StatusFilter, Item } from "./types";
 
+// contextPayload is the draft's description and instruction overrides, each
+// sent only when written.
+function contextPayload(draft: PersonaDraft) {
+  return {
+    description_prefix: draft.descriptionPrefix || undefined,
+    description_override: draft.descriptionOverride || undefined,
+    agent_instructions_suffix: draft.agentInstructionsSuffix || undefined,
+    agent_instructions_override: draft.agentInstructionsOverride || undefined,
+  };
+}
+
 // toPayload converts the flat editor draft into the admin API body. Empty
 // strings and empty connection lists are sent as undefined rather than as
 // empty values: the API treats an absent field as "unset", and a persona with
@@ -34,13 +45,13 @@ function toPayload(draft: PersonaDraft) {
     // connection the operator did not touch.
     api_routes: draft.apiRoutes.length > 0 ? draft.apiRoutes : undefined,
     priority: draft.priority,
-    description_prefix: draft.descriptionPrefix || undefined,
-    description_override: draft.descriptionOverride || undefined,
-    agent_instructions_suffix: draft.agentInstructionsSuffix || undefined,
-    agent_instructions_override: draft.agentInstructionsOverride || undefined,
+    ...contextPayload(draft),
     // Sent only when set: absent is false, and a persona that is not a service
     // account is saved the way it was before the setting existed.
     service_account: draft.serviceAccount || undefined,
+    // Sent only when hidden: absent shows Automations, as every persona did
+    // before the setting existed.
+    hide_automations: draft.showAutomations ? undefined : true,
   };
 }
 

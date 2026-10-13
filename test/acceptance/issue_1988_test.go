@@ -25,9 +25,9 @@ import (
 // resource index job per file, every one embedding a dense prefix of raw
 // values, and a CPU-only embedder spent minutes on them while every search and
 // capture waited behind the backlog. A table of values (CSV, TSV, NDJSON) is
-// now embedded on its metadata alone while its contents stay lexically
-// searchable, and on each replica the index worker yields to an interactive
-// embed in flight.
+// now indexed on its metadata alone -- since #2111 its contents are neither
+// embedded nor read and kept -- and on each replica the index worker yields to
+// an interactive embed in flight.
 //
 // The criteria write files through manage_resource, the tool a script's writes
 // and an agent's reach the resource store through, against the dev stack's own
@@ -113,9 +113,10 @@ func issue1988DB(t *testing.T) *sql.DB {
 
 // TestIssue1988_ATableOfValuesIsEmbeddedOnItsMetadata is the ticket's second
 // criterion: a script writes a bulk data file and no content embed is made for
-// it. The CSV's vector is built from its metadata alone, its values are still
-// extracted for the lexical arm and found by search, and a markdown document
-// with the same text is still embedded on its contents.
+// it. The CSV's vector is built from its metadata alone and, under the
+// metadata policy #2111 gives a table of values, no text is extracted from it;
+// a markdown document with the same text is still embedded on its contents and
+// found by a value inside it.
 func TestIssue1988_ATableOfValuesIsEmbeddedOnItsMetadata(t *testing.T) {
 	c := connectFor(t, issue1988Indexed+2*time.Minute)
 	db := issue1988DB(t)
@@ -129,8 +130,8 @@ func TestIssue1988_ATableOfValuesIsEmbeddedOnItsMetadata(t *testing.T) {
 	md := issue1988Create(t, c, fmt.Sprintf("notes-%d.md", stamp), "text/markdown", body)
 
 	csvRow := issue1988AwaitIndexed(t, db, csv)
-	if !strings.Contains(csvRow.contentText, token) {
-		t.Errorf("the CSV's values were not extracted for lexical search: %q", csvRow.contentText)
+	if csvRow.contentText != "" {
+		t.Errorf("text was extracted from a CSV indexed on its metadata: %q", csvRow.contentText)
 	}
 	if want := indexjobs.TextHash(resource.IndexText(csvRow.meta, "")); !bytes.Equal(csvRow.textHash, want) {
 		t.Errorf("the CSV's vector was not built from its metadata alone: text hash %x, metadata-only %x, with contents %x",
@@ -146,11 +147,14 @@ func TestIssue1988_ATableOfValuesIsEmbeddedOnItsMetadata(t *testing.T) {
 		"intent":  token,
 		"sources": []any{"resources"},
 		"limit":   10,
-		"purpose": "Acceptance #1988: a value inside a CSV is found by search.",
+		"purpose": "Acceptance #1988: a value inside a document is found by search.",
 	})
 	raw, _ := json.Marshal(out)
-	if !strings.Contains(string(raw), csv) {
-		t.Errorf("search for a value inside the CSV did not return it: %s", raw)
+	if !strings.Contains(string(raw), md) {
+		t.Errorf("search for a value inside the markdown document did not return it: %s", raw)
+	}
+	if strings.Contains(string(raw), csv) {
+		t.Errorf("search found the CSV by a value inside it, which is read for no file under metadata: %s", raw)
 	}
 }
 

@@ -594,6 +594,16 @@ resources:
     # the number /api/v1/portal/me reports to the upload dialog, and the
     # number a refusal names all have to be this one rather than the default.
     max_upload_bytes: 262144000   # 250 MB
+  # Search indexing by rule (#2111): a bulk pipeline folder is found through
+  # its folder rather than file by file, and posters a script writes are
+  # searchable by their details. The acceptance suite writes under both.
+  index:
+    rules:
+      - path: "pipelines/**"
+        index: none
+      - path: "posters/**"
+        mime: ["image/*"]
+        index: metadata
 
 memory:
   embedding:
@@ -645,6 +655,10 @@ scripts:
     # worker, which #1897's stopped-scheduler criterion needs.
     enabled: ${DEV_SCRIPT_WORKER_ENABLED:-true}
     max_run_memory: 128MiB
+  # An administrator's run_draft may run up to fifteen minutes, in the
+  # background past the first minute (#2117).
+  draft:
+    max_seconds: 900
 
 # Inbound webhooks (#1870). Sources are created in the portal (Admin >
 # Webhooks) on acme-scratch-resources, whose catalog reads the MinIO store the

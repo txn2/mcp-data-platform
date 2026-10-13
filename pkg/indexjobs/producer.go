@@ -135,6 +135,24 @@ type StoreOptions struct {
 	// Producer receives a write-path enqueue after each row mutation the
 	// store commits. Nil means no queue is wired.
 	Producer *Producer
+	// Also are the producers of further kinds the same store's writes feed,
+	// such as a folder's one entry over the files it holds (#2111). Read
+	// through For.
+	Also []*Producer
+}
+
+// For returns the producer of kind among the resolved options, or nil when
+// none was given; every Producer method is nil-safe.
+func (o StoreOptions) For(kind string) *Producer {
+	if o.Producer.Kind() == kind {
+		return o.Producer
+	}
+	for _, p := range o.Also {
+		if p.Kind() == kind {
+			return p
+		}
+	}
+	return nil
 }
 
 // WithProducer sets the Producer a store's write path notifies after a
@@ -143,6 +161,11 @@ type StoreOptions struct {
 // nil check.
 func WithProducer(p *Producer) StoreOption {
 	return func(o *StoreOptions) { o.Producer = p }
+}
+
+// WithAlsoProducer adds the Producer of a further kind a store's writes feed.
+func WithAlsoProducer(p *Producer) StoreOption {
+	return func(o *StoreOptions) { o.Also = append(o.Also, p) }
 }
 
 // ResolveStoreOptions applies opts in order and returns the result. Store

@@ -316,7 +316,7 @@ func (a *analyzer) argOrigins(f *frame, c *syntax.CallExpr) origins {
 // platformCall records one step and returns its result as a new origin.
 func (a *analyzer) platformCall(f *frame, c *syntax.CallExpr, member string) origins {
 	args := a.argOrigins(f, c)
-	if member == memberProgress {
+	if nonStep(member) {
 		return origins{}
 	}
 	key := fmt.Sprintf("%s|%d:%d", f.chain, c.Lparen.Line, c.Lparen.Col)

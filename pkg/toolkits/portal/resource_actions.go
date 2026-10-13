@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -38,6 +39,12 @@ type ResourceWriter interface {
 	Replace(
 		ctx context.Context, id string, up resource.RevisionUpload, claims resource.Claims,
 	) (*resource.Resource, int, error)
+	// Update writes the display name, description, tags and index policy of a
+	// file the caller may change (#2111).
+	Update(ctx context.Context, id string, u resource.Update, claims resource.Claims) (*resource.Resource, error)
+	// DescribeFolder sets what a folder holds, which its one search entry is
+	// matched on (#2111).
+	DescribeFolder(ctx context.Context, addr toolkit.ResourceAddress, description string, claims resource.Claims) error
 	// Get reads a resource the caller may see. A replacement resolves the file
 	// before it decodes anything, so a reference naming a file that is not
 	// there is refused without the payload being read, and so type detection
@@ -104,6 +111,10 @@ type manageResourceInput struct {
 	// Limit and Offset page a listing.
 	Limit  int `json:"limit,omitempty"`
 	Offset int `json:"offset,omitempty"`
+	// Index is how search indexes the file (#2111): full, metadata or none.
+	// On create it is the writer's choice; on replace_content and update it
+	// changes the policy, which is otherwise kept.
+	Index string `json:"index,omitempty"`
 }
 
 // resourceOutput is what the two content-writing actions report. It leads with
@@ -123,6 +134,9 @@ type resourceOutput struct {
 	Path        string `json:"path"`
 	ContentType string `json:"content_type"`
 	SizeBytes   int64  `json:"size_bytes"`
+	// IndexPolicy is how search indexes the file (#2111): full, metadata, or
+	// none, in which case it is listed in its folder but not ranked itself.
+	IndexPolicy string `json:"index_policy,omitempty"`
 	// Version is the version number a replacement was recorded as, and is
 	// absent on a create: a create records version 1 only where the deployment
 	// keeps a version trail, and reporting a number the history may not hold
@@ -162,9 +176,11 @@ func (t *Toolkit) handleManageResource(
 		return t.handleDeleteResource(ctx, input)
 	case resourceActionExtract:
 		return t.handleExtractResource(ctx, input)
+	case resourceActionUpdate:
+		return t.handleUpdateResource(ctx, input)
 	default:
 		return toolkit.ErrorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: create, replace_content, get, list, delete, extract",
+			"invalid action %q: must be one of: create, replace_content, update, get, list, delete, extract",
 			input.Action)), nil, nil
 	}
 }
@@ -216,6 +232,7 @@ func (t *Toolkit) handleCreateResource(
 		DisplayName: input.DisplayName, Description: input.Description,
 		Tags:    normalizeTags(input.Tags),
 		Content: bytes.NewReader(data), MIMEType: mimeType, DeclaredMIMEType: input.ContentType,
+		Index: input.Index, Origin: indexpolicy.OriginAgent,
 	}, claims)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
@@ -290,7 +307,8 @@ func (t *Toolkit) replaceResourceContent(
 	}
 
 	res, version, err := t.resourceWriter.Replace(ctx, id, resource.RevisionUpload{
-		Content: bytes.NewReader(data), MIMEType: mimeType, ChangeSummary: summary,
+		Content: bytes.NewReader(data), MIMEType: mimeType, ChangeSummary: summary, Index: input.Index,
+		Origin: indexpolicy.OriginAgent,
 	}, claims)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
@@ -405,6 +423,18 @@ func validateResourcePlacement(scope resource.Scope, scopeID string, input manag
 	if err := resource.ValidateTags(normalizeTags(input.Tags)); err != nil {
 		return fmt.Errorf(validationFmt, err)
 	}
+	return validateIndex(input.Index)
+}
+
+// validateIndex refuses an index policy that is none of the three, naming
+// them. Empty is "not said".
+func validateIndex(index string) error {
+	if index == "" {
+		return nil
+	}
+	if _, err := indexpolicy.Parse(index); err != nil {
+		return fmt.Errorf(validationFmt, err)
+	}
 	return nil
 }
 
@@ -452,6 +482,7 @@ func resourceReport(res *resource.Resource, version int, message string) resourc
 		Path:        res.Path,
 		ContentType: res.MIMEType,
 		SizeBytes:   res.SizeBytes,
+		IndexPolicy: res.IndexPolicy,
 		Version:     version,
 		Message:     message,
 	}

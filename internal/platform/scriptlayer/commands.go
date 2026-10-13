@@ -1,6 +1,7 @@
 package scriptlayer
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -12,11 +13,15 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/libraryuse"
 	"github.com/txn2/mcp-data-platform/internal/openrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptpending"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
+	"github.com/txn2/mcp-data-platform/pkg/textpatch"
+	"github.com/txn2/mcp-data-platform/pkg/textpatch/patchmcp"
 )
 
 // logKeyError is the slog key for error values.
@@ -31,6 +36,9 @@ const (
 // is not a draft, it is a typo, and keeping it out means every stored version
 // is one a reviewer could meaningfully read.
 func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	if errResult := h.sourceFromRef(ctx, &input); errResult != nil {
+		return errResult, nil, nil
+	}
 	sc := &script.Script{
 		Name: input.Name, DisplayName: input.DisplayName, Description: input.Description,
 		Category: derefOr(input.Category), Source: input.Source, Params: input.Params,
@@ -41,12 +49,12 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 		return errorResult(err.Error()), nil, nil
 	}
 	if report := scriptrun.Validate(sc.Source); !report.OK {
-		return jsonResult(refusedReport("the source does not parse, so it was not saved", report))
+		return jsonResult(h.keepPending(ctx, input, sc.Source, refusedReport("the source does not parse, so it was not saved", report)))
 	}
 	sent := sc.Source
 	gated := h.gate.Check(ctx, h.saveRequest(ctx, nil, sc.Name, sent, input))
 	if gated.Refused() {
-		return jsonResult(saveRefusal(gated))
+		return jsonResult(h.keepPending(ctx, input, cmp.Or(gated.Lint.Source, sent), saveRefusal(gated, input.Verbose)))
 	}
 	gated.Apply(sc)
 	author := callerAuthor(ctx)
@@ -55,6 +63,7 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 		return errorResult("failed to create script"), nil, nil
 	}
 	h.keepRecordings(ctx, sc)
+	h.dropPending(ctx, sc.Name)
 	out := map[string]any{
 		fieldStatus: "created", "id": sc.ID, fieldName: sc.Name, fieldVersion: sc.Version,
 		"next": "Saved, and it runs: run_script executes it under the access you held when you saved it, and a schedule you set will fire it. Use run_draft to iterate on changes before saving them.",
@@ -128,6 +137,9 @@ func orEmpty(v []string) []string {
 // caller sent is decided by their zero value except for enabled, which is a
 // pointer precisely because false is a meaningful value.
 func (h *Handle) handleUpdate(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	if errResult := h.sourceFromRef(ctx, &input); errResult != nil {
+		return errResult, nil, nil
+	}
 	existing, errResult := h.editable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
@@ -190,7 +202,7 @@ func (h *Handle) gateSource(ctx context.Context, sc *script.Script, source, what
 	}
 	gated := h.gate.Check(ctx, h.saveRequest(ctx, sc, sc.Name, source, input))
 	if gated.Refused() {
-		result, _, _ := jsonResult(saveRefusal(gated))
+		result, _, _ := jsonResult(saveRefusal(gated, input.Verbose))
 		return nil, result
 	}
 	gated.Apply(sc)
@@ -296,10 +308,13 @@ func (h *Handle) handleDelete(ctx context.Context, input manageScriptInput) (*mc
 func (h *Handle) handleGet(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	sc, errResult := h.viewable(ctx, input)
 	if errResult != nil {
+		if p := h.pendingCreate(ctx, input); p != nil {
+			return jsonResult(p.Fields())
+		}
 		// A built-in example answers only when no stored script does, so a real
 		// script named after an example is never shadowed by it.
 		if ex, ok := scriptexamples.Lookup(input.Name); ok {
-			return jsonResult(exampleFields(ex))
+			return jsonResult(ex.Fields())
 		}
 		return errResult, nil, nil
 	}
@@ -431,17 +446,20 @@ func (h *Handle) validateTarget(ctx context.Context, input manageScriptInput) *s
 }
 
 // saveRefusal renders a save the gate refused: the reason, every finding on
-// the formatted source (the refused ones as errors), the formatted source the
-// findings' lines refer to, and the tests' report and behavior comparison when
-// the gate got that far.
-func saveRefusal(res scriptsave.Result) map[string]any {
+// the formatted source (the refused ones as errors), and the tests' report and
+// behavior comparison when the gate got that far. The formatted source the
+// findings' lines refer to is echoed only when asked for (#2114): it is the
+// whole script again, and the line numbers say where to look.
+func saveRefusal(res scriptsave.Result, verbose bool) map[string]any {
 	out := map[string]any{
-		fieldStatus:        "invalid",
-		fieldMessage:       res.Refusal,
-		"findings":         res.Lint.Findings,
-		"formatted_source": res.Lint.Source,
-		"help": fmt.Sprintf("Fix what the message names and save again. Line numbers refer to formatted_source, "+
-			"which is how the script is stored. Call %s with command=help for the rules.", ToolNameManageScript),
+		fieldStatus:  "invalid",
+		fieldMessage: res.Refusal,
+		"findings":   res.Lint.Findings,
+		"help": fmt.Sprintf("Fix what the message names and save again. Line numbers refer to the source as it is stored, "+
+			"in the canonical format; pass verbose=true to see it. Call %s with command=help for the rules.", ToolNameManageScript),
+	}
+	if verbose {
+		out["formatted_source"] = res.Lint.Source
 	}
 	addTestNotes(out, res)
 	return out
@@ -475,4 +493,87 @@ func addGateNotes(out map[string]any, sent string, gated scriptsave.Result) {
 		out["formatted_note"] = "The source was stored in the canonical format; read it back with get before patching it."
 	}
 	addTestNotes(out, gated)
+}
+
+// sourceFromRef reads the source a create or an update names by reference
+// instead of carrying it (#2114): the agent writes the file once with
+// manage_resource and saves from it.
+func (h *Handle) sourceFromRef(ctx context.Context, input *manageScriptInput) *mcp.CallToolResult {
+	if input.SourceRef == "" {
+		return nil
+	}
+	if input.Source != "" {
+		return errorResult("pass source or source_ref, not both")
+	}
+	text, err := h.sources.Source(ctx, input.SourceRef, resourcewrite.CallerClaims(ctx), script.MaxSourceBytes)
+	if err != nil {
+		return errorResult(err.Error())
+	}
+	input.Source = text
+	return nil
+}
+
+// keepPending keeps the source of a create the gates refused, for the author
+// to patch, and says so on the refusal.
+func (h *Handle) keepPending(ctx context.Context, input manageScriptInput, source string, out map[string]any) map[string]any {
+	if h.pending == nil || input.Name == "" {
+		return out
+	}
+	err := h.pending.Put(ctx, resolveEmail(ctx), scriptpending.Create{
+		Name: input.Name, DisplayName: input.DisplayName, Description: input.Description,
+		Category: input.Category, Params: input.Params, Tags: input.Tags, Source: source,
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "scripts: keeping a refused create failed", fieldName, input.Name, logKeyError, err)
+		return out
+	}
+	out["pending"] = scriptpending.Notice(input.Name)
+	return out
+}
+
+// dropPending removes a pending create once its name is saved.
+func (h *Handle) dropPending(ctx context.Context, name string) {
+	if h.pending == nil {
+		return
+	}
+	if err := h.pending.Delete(ctx, resolveEmail(ctx), name); err != nil {
+		slog.WarnContext(ctx, "scripts: removing a saved pending create failed", fieldName, name, logKeyError, err)
+	}
+}
+
+// pendingCreate is the caller's pending create of the name a command names,
+// when the caller has no saved script by that name.
+func (h *Handle) pendingCreate(ctx context.Context, input manageScriptInput) *scriptpending.Create {
+	if h.pending == nil || input.Name == "" || (input.OwnerEmail != "" && input.OwnerEmail != resolveEmail(ctx)) {
+		return nil
+	}
+	if saved, err := h.store.GetByName(ctx, resolveEmail(ctx), input.Name); err != nil || saved != nil {
+		return nil
+	}
+	p, err := h.pending.Get(ctx, resolveEmail(ctx), input.Name)
+	if err != nil {
+		slog.WarnContext(ctx, "scripts: reading a pending create failed", fieldName, input.Name, logKeyError, err)
+		return nil
+	}
+	return p
+}
+
+// patchPending applies a patch to a pending create and saves the result as a
+// create: refused again, the patched source is kept for the next patch.
+func (h *Handle) patchPending(ctx context.Context, input manageScriptInput, p *scriptpending.Create) (*mcp.CallToolResult, any, error) {
+	res, err := textpatch.Apply(p.Source, input.Edits, textpatch.Options{Syntax: scriptSyntax})
+	if err != nil {
+		return patchmcp.ErrorResult(err), nil, nil
+	}
+	if input.DryRun {
+		report := textpatch.PatchFields(res)
+		report[textpatch.FieldDiff] = shortened(res.Diff, input)
+		report["dry_run"], report["pending"] = true, true
+		return jsonResult(report)
+	}
+	return h.handleCreate(ctx, manageScriptInput{
+		Command: cmdCreate, Name: p.Name, DisplayName: p.DisplayName, Description: p.Description,
+		Category: p.Category, Params: p.Params, Tags: p.Tags, Source: res.Body,
+		ChangeSummary: input.ChangeSummary, UserAgreed: input.UserAgreed, Verbose: input.Verbose,
+	})
 }

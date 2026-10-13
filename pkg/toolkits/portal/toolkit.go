@@ -111,6 +111,9 @@ const (
 	// Extracting an archive's members is the way a delivered zip becomes
 	// files a table can be registered over (#1879).
 	resourceActionExtract = "extract"
+	// Updating a file's name, description, tags and index policy is the
+	// authority to change it, like a replacement (#2111).
+	resourceActionUpdate = "update"
 
 	// Content editing and navigation actions (#1033). These make the cost of
 	// an edit proportional to the size of the edit rather than the size of

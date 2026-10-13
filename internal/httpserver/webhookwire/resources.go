@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/tableparquet"
 	"github.com/txn2/mcp-data-platform/internal/webhook/compactor"
@@ -96,6 +97,7 @@ func (h windowResources) Put(ctx context.Context, src whsource.Source, start tim
 	if id != "" {
 		res, _, err := h.w.Replace(ctx, id, resource.RevisionUpload{
 			Content: bytes.NewReader(content), MIMEType: tableparquet.ContentType, ChangeSummary: recompactedSummary,
+			Index: src.Config.Index,
 		}, systemClaims())
 		if err == nil {
 			return compactor.StoredWindow{ResourceID: res.ID, Key: res.S3Key}, nil
@@ -114,6 +116,8 @@ func (h windowResources) Put(ctx context.Context, src whsource.Source, start tim
 		Tags:        []string{"webhook", source},
 		Content:     bytes.NewReader(content),
 		MIMEType:    tableparquet.ContentType,
+		Index:       src.Config.Index,
+		Origin:      indexpolicy.OriginWebhook,
 	}, systemClaims())
 	if err != nil {
 		return compactor.StoredWindow{}, err //nolint:wrapcheck // the writer's message names the resource

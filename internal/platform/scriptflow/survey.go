@@ -117,7 +117,7 @@ func (a *analyzer) scanBody(d *syntax.DefStmt) bodyCalls {
 	var out bodyCalls
 	for _, st := range d.Body {
 		walkCalls(st, func(c *syntax.CallExpr) {
-			if member, ok := platformMember(c); ok && member != memberProgress {
+			if member, ok := platformMember(c); ok && !nonStep(member) {
 				out.platform++
 			}
 			if name, ok := a.userCall(c); ok {
@@ -225,9 +225,19 @@ func (a *analyzer) wholeScript() string {
 	return ""
 }
 
-// memberProgress is the one platform member that is not a step: it reports
-// how far a run has got, and reaches nothing.
-const memberProgress = "progress"
+// The platform members that are not steps, because they reach nothing:
+// progress reports how far a run has got, and remaining_ms and sleep pace it
+// (#2004, #2112). A wait in a polling loop is the loop's, not a card of its own.
+const (
+	memberProgress  = "progress"
+	memberRemaining = "remaining_ms"
+	memberSleep     = "sleep"
+)
+
+// nonStep reports whether a platform member draws no step.
+func nonStep(member string) bool {
+	return member == memberProgress || member == memberRemaining || member == memberSleep
+}
 
 // platformMember recognizes a call on the platform module and names the
 // member.

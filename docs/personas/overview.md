@@ -303,6 +303,23 @@ integration:
 
 The portal's persona editor shows the same setting as the **Service account** checkbox on the AI Assistant Behavior tab. It changes nothing about what the persona may call: access is decided by its tool, connection and API route rules as before. See [Excluding an automated caller](../server/configuration.md#excluding-an-automated-caller).
 
+## Hiding Automations
+
+A persona whose people have no use for managed scripts can have Automations left out of their portal:
+
+```yaml
+analyst:
+  display_name: "Data Analyst"
+  roles: ["analyst"]
+  hide_automations: true
+```
+
+| Field | Type | Default | Effect |
+|-------|------|---------|--------|
+| `hide_automations` | bool | `false` | The portal sidebar has no Automations entry, an Automations address shows a notice that they are not available to this persona, and the portal's script routes answer `403`. |
+
+The portal's persona editor shows the same setting as the **Automations** checkbox on the AI Assistant Behavior tab. `GET /api/v1/portal/me` reports it to the browser as `automations`. The setting is read from the persona the caller resolves to ([Persona Priority](#persona-priority)). Administrators always see Automations. It changes nothing about the MCP tools: `manage_script` and `run_script` are governed by the persona's `tools:` rules as before (#2109).
+
 ## Connection Access Control
 
 Personas can restrict which toolkit connections a user may access. The boundary applies to both halves of using the platform: a tool call must pass the tool pattern check and the connection check, and the discovery surfaces show only the connections a persona is granted.

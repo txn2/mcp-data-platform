@@ -344,3 +344,17 @@ func TestLibraryAddressIsTheLibraryAndThePath(t *testing.T) {
 		libraryAddress(scriptrun.ResourceLibrary{Scope: "persona", ScopeID: "a/b"}, "c.csv"))
 	assert.True(t, strings.HasPrefix(libraryAddress(own, "a/b.csv"), "library"))
 }
+
+// index= reaches the lander with the destination (#2111), so a backfill that
+// says none is not indexed file by file.
+func TestExportToTheLibraryCarriesTheIndexPolicy(t *testing.T) {
+	h, lander := landingHarness(t)
+	req := libraryRequest("day", "pipelines/nltv/2019-01-01.csv")
+	req.Index = "none"
+
+	_, err := h.writer.Export(context.Background(), req)
+
+	require.NoError(t, err)
+	require.Len(t, lander.landed, 1)
+	assert.Equal(t, "none", lander.landed[0].Index)
+}

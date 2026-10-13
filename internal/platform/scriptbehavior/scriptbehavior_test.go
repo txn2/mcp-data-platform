@@ -2,6 +2,7 @@ package scriptbehavior
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -144,4 +145,20 @@ func TestTypeNamesAndNormalizing(t *testing.T) {
 	assert.Equal(t, "nothing", orNone(nil))
 	assert.Nil(t, raw(nil))
 	assert.Equal(t, "{bad", raw(json.RawMessage("{bad")))
+}
+
+// TestALongResultDifferenceShowsWhatChanged is #2115 for the behavior
+// comparison: a result carrying a page of rows that differs in one value is
+// shown as the span that differs, not the page twice.
+func TestALongResultDifferenceShowsWhatChanged(t *testing.T) {
+	rows := strings.Repeat(`{"region":"east","n":1},`, 200)
+	before := scripttest.Outcome{Result: json.RawMessage(`{"rows":[` + rows + `{"region":"west","n":2}]}`)}
+	after := scripttest.Outcome{Result: json.RawMessage(`{"rows":[` + rows + `{"region":"west","n":3}]}`)}
+	diffs, _ := Compare("r", before, after)
+	got := details(diffs)
+	require.Len(t, got, 1)
+	assert.Less(t, len(got[0]), 800)
+	assert.Contains(t, got[0], `"n":3`)
+	assert.Contains(t, got[0], `"n":2`)
+	assert.Contains(t, got[0], "characters]")
 }

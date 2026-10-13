@@ -64,11 +64,25 @@ func TestWebhookSourceRefs(t *testing.T) {
 // with no platform or no database the routes are not mounted.
 func TestSecretAdminAPIMountsOnlyWithADatabase(t *testing.T) {
 	mux := http.NewServeMux()
-	mountSecretAdminAPI(mux, nil)
+	mountDatabaseAdminAPIs(mux, nil)
 	p := newTestPlatform(t, &platform.Config{Server: platform.ServerConfig{Name: "test"}, Admin: platform.AdminConfig{Enabled: new(true), Persona: "admin"}})
 	defer func() { _ = p.Close() }()
-	mountSecretAdminAPI(mux, p)
+	mountDatabaseAdminAPIs(mux, p)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/secrets", http.NoBody))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestResourceIndexAdminAPIMountsOnlyWithADatabase: the counts and the
+// reclassification read and write resources rows (#2111), so with no
+// platform or no database the routes are not mounted.
+func TestResourceIndexAdminAPIMountsOnlyWithADatabase(t *testing.T) {
+	mux := http.NewServeMux()
+	mountDatabaseAdminAPIs(mux, nil)
+	p := newTestPlatform(t, &platform.Config{Server: platform.ServerConfig{Name: "test"}, Admin: platform.AdminConfig{Enabled: new(true), Persona: "admin"}})
+	defer func() { _ = p.Close() }()
+	mountDatabaseAdminAPIs(mux, p)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/resources/index", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

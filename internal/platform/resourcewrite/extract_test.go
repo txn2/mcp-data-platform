@@ -342,3 +342,19 @@ func TestExtractLabelsAndSummaries(t *testing.T) {
 	}
 	assert.Contains(t, fmt.Sprint(summaries), "member a.csv of "+again.URI)
 }
+
+// TestExtractFilesEveryMemberUnderTheIndexAskedFor is #2111 for extract: the
+// index an extraction names is every member's, chosen by the writer.
+func TestExtractFilesEveryMemberUnderTheIndexAskedFor(t *testing.T) {
+	xf := newExtractFixture(t, unarchive.Limits{}, 0)
+	archive := xf.storeArchive(t, zipOf(t, member{"a.csv", "1"}, member{"b.csv", "2"}))
+	out, err := xf.extract(t, resourcewrite.Extraction{ArchiveID: archive.ID, Path: "staging", Index: "none"})
+	require.NoError(t, err)
+	require.Len(t, out.Members, 2)
+	for _, m := range out.Members {
+		res, err := xf.store.GetByURI(context.Background(), m.Landing.URI)
+		require.NoError(t, err)
+		assert.Equal(t, "none", res.IndexPolicy, m.Member)
+		assert.True(t, res.IndexPolicyExplicit, m.Member)
+	}
+}

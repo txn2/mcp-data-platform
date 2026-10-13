@@ -36,6 +36,8 @@ type ArchiveExtraction struct {
 	Description   string
 	Tags          []string
 	ChangeSummary string
+	// Index is how search indexes every member (#2111).
+	Index string
 }
 
 // ExtractedMember is one member written: its name in the archive, and the
@@ -122,6 +124,9 @@ func extractionOf(input manageResourceInput) (ArchiveExtraction, error) {
 	if err := validateIfExists(input.IfExists); err != nil && !replaceIfExists(input.IfExists) {
 		return ArchiveExtraction{}, err
 	}
+	if err := validateIndex(input.Index); err != nil {
+		return ArchiveExtraction{}, err
+	}
 	return ArchiveExtraction{
 		ArchiveID: id,
 		Scope:     input.Scope, ScopeID: input.ScopeID, Path: input.Path,
@@ -131,6 +136,7 @@ func extractionOf(input manageResourceInput) (ArchiveExtraction, error) {
 		Description:   input.Description,
 		Tags:          normalizeTags(input.Tags),
 		ChangeSummary: input.ChangeSummary,
+		Index:         input.Index,
 	}, nil
 }
 

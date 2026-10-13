@@ -40,6 +40,8 @@ export interface WebhookConfig {
   rate_limit_burst?: number;
   raw_retention_days?: number;
   compacted_retention_days?: number;
+  /** How search indexes the compacted windows; absent leaves it to resources.index. */
+  index?: "full" | "metadata" | "none";
 }
 
 export interface WebhookSource {

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
@@ -97,6 +98,10 @@ type Deps struct {
 	Versions VersionStore
 	// MaxVersions is the retention cap; non-positive selects DefaultMaxVersions.
 	MaxVersions int
+	// IndexPolicy decides how a written file is indexed for search from the
+	// writer's request and the operator's resources.index rules (#2111). Nil
+	// applies the built-in rules alone.
+	IndexPolicy *indexpolicy.Resolver
 	// MaxUploadBytes is the largest file the write routes accept, from
 	// resources.managed.max_upload_bytes; non-positive selects MaxUploadBytes
 	// (#1628). It bounds the bytes a write will stream, not the bytes it
@@ -203,6 +208,8 @@ func (h *Handler) registerRoutesOn(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/resources/folders/move", h.handleFolderMove)
 	mux.HandleFunc("POST /api/v1/resources/folders", h.handleFolderCreate)
 	mux.HandleFunc("DELETE /api/v1/resources/folders", h.handleFolderDelete)
+	mux.HandleFunc("GET /api/v1/resources/folders/description", h.handleFolderDescription)
+	mux.HandleFunc("PUT /api/v1/resources/folders/description", h.handleFolderDescribe)
 	mux.HandleFunc("GET /api/v1/resources/people", h.handlePeople)
 	mux.HandleFunc("GET /api/v1/resources", h.handleList)
 	mux.HandleFunc("GET /api/v1/resources/{id}", h.handleGet)
@@ -229,6 +236,9 @@ type createInput struct {
 	// holds a resource takes these bytes as its next version, or nothing when
 	// they are the bytes it holds.
 	skipUnchanged bool
+	// index is how the uploader asks search to index the file (#2111); empty
+	// leaves it to the operator's rules.
+	index string
 }
 
 // validateCreateInput parses and validates the form fields for resource creation.
@@ -262,6 +272,12 @@ func validateCreateInput(fields url.Values) (*createInput, error) {
 	if err != nil {
 		return nil, err
 	}
+	index := fields.Get("index")
+	if index != "" {
+		if _, err := indexpolicy.Parse(index); err != nil {
+			return nil, err //nolint:wrapcheck // the sentence names the field's values
+		}
+	}
 
 	return &createInput{
 		scope:       scope,
@@ -272,6 +288,7 @@ func validateCreateInput(fields url.Values) (*createInput, error) {
 		tags:        tags,
 
 		skipUnchanged: skipUnchanged,
+		index:         index,
 	}, nil
 }
 
@@ -573,6 +590,7 @@ type facetsResponse struct { //nolint:unused // swagger model
 // @Param        description  formData  string  false  "Optional description"
 // @Param        tags         formData  []string false  "Optional tags" collectionFormat(multi)
 // @Param        if_exists    formData  string  false  "What happens when this library, folder and filename already hold a resource: fail (the default) answers 409; skip_unchanged answers 200 with outcome unchanged when the bytes are the ones stored (nothing is written) and otherwise records them as that resource's next version (outcome revised), leaving its name, description and tags as they are"  Enums(fail, skip_unchanged)
+// @Param        index        formData  string  false  "How search indexes the file: full (its metadata and a prefix of its content), metadata (name, description, folder, filename and tags), or none (not in ranked search; listed in its folder and found through the folder's own entry). Absent applies the operator's resources.index rules. A rule's ceiling lowers a request above it"  Enums(full, metadata, none)
 // @Success      201  {object}  resource.createdResource
 // @Success      200  {object}  resource.createdResource
 // @Failure      400  {object}  resource.errorResponse
@@ -616,7 +634,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.skipUnchanged {
 		uri := BuildURI(schemeOf(h.deps), input.scope, input.scopeID, input.path, file.filename)
-		if h.reviseOccupant(w, r, claims, occupantUpload{uri: uri, file: file, limit: limit}) {
+		if h.reviseOccupant(w, r, claims, occupantUpload{uri: uri, file: file, limit: limit, index: input.index}) {
 			return
 		}
 	}
@@ -627,6 +645,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		DisplayName: input.displayName, Description: input.description,
 		Tags:    input.tags,
 		Content: file.body, MIMEType: file.mimeType, DeclaredMIMEType: file.declaredMIMEType,
+		Index: input.index, Origin: indexpolicy.OriginUpload,
 	})
 	if err != nil {
 		writeUploadError(w, err, limit)
@@ -894,7 +913,52 @@ func validateUpdate(u Update) error {
 			return err
 		}
 	}
+	if u.Index != nil {
+		if _, err := indexpolicy.Parse(*u.Index); err != nil {
+			return err //nolint:wrapcheck // the sentence names the field's values
+		}
+	}
 	return nil
+}
+
+// UpdateFields writes the metadata half of an edit to res, which the caller
+// has already authorized: the display name, description and tags, and the
+// index policy, which is lowered to the operator's ceiling for the file and
+// recorded as chosen (#2111). An update with no fields writes nothing.
+func UpdateFields(ctx context.Context, deps Deps, claims *Claims, res *Resource, u Update) error {
+	if !u.Fields() {
+		return nil
+	}
+	if err := validateUpdate(u); err != nil {
+		return &validationError{msg: err.Error()}
+	}
+	if u.Index != nil {
+		decision, err := decideIndex(deps, indexpolicy.File{
+			Path: res.Path, MIMEType: res.MIMEType, SizeBytes: res.SizeBytes,
+			Scope: string(res.Scope), Origin: originOf(claims, u.Origin),
+		}, *u.Index)
+		if err != nil {
+			return err
+		}
+		policy := string(decision.Policy)
+		u.Index = &policy
+	}
+	if err := deps.Store.Update(ctx, res.ID, u); err != nil {
+		return fmt.Errorf("updating resource: %w", err)
+	}
+	return nil
+}
+
+// validationError is an edit refused for its content, which the caller
+// reports as the request's fault.
+type validationError struct{ msg string }
+
+func (e *validationError) Error() string { return e.msg }
+
+// isInvalid reports whether err refuses an edit for what it asked for.
+func isInvalid(err error) bool {
+	var e *validationError
+	return errors.As(err, &e)
 }
 
 // handleUpdate handles PATCH /api/v1/resources/{id}.
@@ -948,7 +1012,15 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !h.applyFields(w, r, id, u) {
+	// The operator's rules are matched against where the file now is.
+	moved := *res
+	if u.Path != nil {
+		moved.Path = *u.Path
+	}
+	if u.Scope != nil {
+		moved.Scope = *u.Scope
+	}
+	if !h.applyFields(w, r, claims, &moved, u) {
 		return
 	}
 
@@ -970,11 +1042,8 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 // applyFields writes the metadata half of a PATCH. A request that carries only
 // a move has no fields, and writing an empty Update would still bump updated_at
 // and drop the stored embedding for nothing.
-func (h *Handler) applyFields(w http.ResponseWriter, r *http.Request, id string, u Update) bool {
-	if !u.Fields() {
-		return true
-	}
-	if err := h.deps.Store.Update(r.Context(), id, u); err != nil {
+func (h *Handler) applyFields(w http.ResponseWriter, r *http.Request, claims *Claims, res *Resource, u Update) bool {
+	if err := UpdateFields(r.Context(), h.deps, claims, res, u); err != nil {
 		slog.Error("resource update failed", msgError, err)
 		writeError(w, http.StatusInternalServerError, "updating resource")
 		return false

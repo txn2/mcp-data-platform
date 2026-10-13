@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -210,7 +211,8 @@ func (h *Handler) portalDryRunSource(w http.ResponseWriter, r *http.Request, use
 		State: h.liveState(r.Context(), sc),
 		Identity: scriptdraft.Identity{
 			UserID: user.UserID, Email: user.Email, Roles: user.Roles,
-			AuthType: user.AuthType,
+			AuthType:  user.AuthType,
+			Resources: new(resource.BuildClaims(user.UserID, user.Email, user.Persona, user.Roles, user.IsAdmin)),
 		},
 		AllowWrites: req.AllowWrites,
 	})

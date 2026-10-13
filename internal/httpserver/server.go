@@ -219,7 +219,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	hooks := buildWebhooks(p, address)
 	hooks.Mount(mux)
 	mountWebhookAdminAPI(mux, p, hooks)
-	mountSecretAdminAPI(mux, p)
+	mountDatabaseAdminAPIs(mux, p)
 
 	// Street maps (#2068): the basemap archives and their listing, served
 	// with no session ahead of the portal UI's catch-all, the settings routes,

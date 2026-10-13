@@ -62,8 +62,8 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
     invalid-format-string          a literal format string % or .format()
                                    would refuse when the run reaches it
     invalid-pattern                a literal re pattern RE2 cannot compile
-    test-module-outside-test       testing or assert used outside a test_*
-                                   function; a run fails where it is used
+    test-module-outside-test       testing or assert used where a run can
+                                   reach it; a run fails where it is used
     constant-assertion             an assertion comparing only values written
                                    into the test, which holds whatever the
                                    script does
@@ -122,7 +122,7 @@ WHAT IS AVAILABLE
       ceiling.
   platform.export(name, rows, format="csv", destination="portal", key=None,
                   register=None, references=None, tags=None, metadata=None,
-                  append=False, scope=None, scope_id=None)
+                  append=False, scope=None, scope_id=None, index=None)
       Declare an output. rows is a list of dicts serialized in the declared
       format, or a string body written verbatim so a script can compose a
       document: an HTML or JSX dashboard, a prose report, a hand-assembled
@@ -246,6 +246,16 @@ WHAT IS AVAILABLE
       naming it, writing nothing. key is the path inside that library, so the
       same key and scope next run record the next version of the same file,
       and the record carries scope and scope_id: where the file is.
+      index decides how search indexes a "resources" output: "full" (its
+      name, description, folder and a prefix of its contents), "metadata"
+      (name, description, folder, filename and tags, nothing read), or
+      "none" (not in search one by one: still listed, fetched, versioned and
+      referenced, and the folder it is filed in is found by search as one
+      entry). A script writing hundreds of data files says index="none" once;
+      one writing poster art people search by name says "metadata". Omitted,
+      the deployment's rules decide, and a later run keeps the file's policy.
+      A rule can cap what a script asks for. Refused for any other
+      destination.
       destination, key, scope and scope_id must be passed BY NAME, and scope
       and scope_id written out as strings. Only name, rows and format may be
       positional, because where a script writes has to be readable from its
@@ -405,6 +415,20 @@ WHAT IS AVAILABLE
             return
       Each value is recorded with the run, so a test replays it exactly, and
       testing.set_run(remaining_ms=) sets it in a test.
+  platform.sleep(seconds)  Wait, at most 60 seconds per call (a number,
+      fractions allowed). It is how a script polls something slow -- a job,
+      a report, a page an upstream is building -- with short calls instead
+      of one call held open until the upstream answers. A wait that would
+      pass the run's deadline is refused before it starts, so check the
+      time left first, and bound the loop by range():
+        for _ in range(30):
+            if poll()["state"] == "ready":
+                break
+            if platform.remaining_ms() < 15000:
+                fail("not ready in time")
+            platform.sleep(10)
+      A test and a replay do not wait: the call returns at once and is not
+      recorded, so a test of a polling script runs in no time.
   platform.result(value)  Hand one JSON value back to whoever ran the script:
       run_script, get_run and the portal's run route return it as "result".
       Use it for a small answer -- the numbers a tile needs, the ids that
@@ -617,6 +641,24 @@ LIBRARIES
   library. A library is never run or scheduled itself, and it cannot be
   deleted while a script's current source loads it. A script and a library do
   not turn into each other: a script keeps its main(), and a library gets none.
+  A script loads a managed resource's text the same way, which is how a page
+  script, a SQL file, an HTML template or a GraphQL document is kept as a
+  file of its own, edited and reviewed as itself, instead of escaped into one
+  Starlark string:
+      load("res:global/flows/sync/page.js", PAGE_JS = "text")
+  The module is res: and the file's mcp:// address after the scheme
+  (res:user/<you>/..., res:persona/<name>/..., res:global/...); it binds the
+  file's text, and NAME = "text" is the only binding it takes. A save reads
+  each such file under your access and pins the version it read: every run
+  of that version reads that version, whatever the file holds now. Edit the
+  file with manage_resource, then save the script again to pin the new
+  version. run_draft reads the file as it is now. A run's and a draft's
+  recording keeps the version each load read, so a test replaying it reads
+  the text that run read; a test naming no recording reads the file as it is
+  now. validate reports the files a script loads as resources.
+  The pinned version is kept however often the file is replaced, and
+  manage_resource delete refuses a file a script's running version loads
+  unless given force. A library loads no file.
 
 WHAT DETERMINISTIC MEANS HERE
   Same script version + same parameters + same state read + same underlying
@@ -634,9 +676,25 @@ THE LOOP
   allow_writes. run_draft also runs source that is not saved yet: send it
   with the name it will have, the params it declares and the args to bind,
   and it runs as that script with empty state, saving nothing.
+  A draft stops after 60 seconds. An administrator may give run_draft
+  timeout_seconds up to the deployment's scripts.draft.max_seconds (help
+  reports it as draft_max_seconds), for a flow a short draft cannot get
+  through; a draft longer than 60 seconds runs in the background and
+  run_draft answers its run_id at once. get_run with that run_id reads its
+  log and progress as it goes, and once it ends returns what run_draft would
+  have, its recording among it, to write a test from without saving first.
   Both act on the source you send with the call, and on the saved version when
   you send none: a save is immediately the version run_script executes and a
   schedule fires, so sending the edit is how you try it without making it live.
+  create and update take source_ref instead of source: a managed resource
+  holding the source, as mcp:resource:<id> or its mcp:// uri, written once
+  with manage_resource. A create the gates refuse is kept as a pending create
+  of its name: fix it with command=patch name=<name> rather than sending the
+  whole source again, and the patch that passes every gate saves it; get reads
+  it. A refusal leaves the formatted source out unless verbose=true; its
+  findings' lines refer to it. A diff and a patch's diff show a changed line
+  longer than 400 characters as the span that changed; verbose=true shows it
+  whole.
   validate also reports a destination this deployment does not declare, which
   the run would otherwise refuse only after your queries had already run.
   A draft reads the script's live state and reports what it would have saved;
@@ -669,7 +727,14 @@ TESTS, AND WHAT A SAVE RUNS
   "upstream_unavailable", "retryable": True, "message": "...", "trino":
   {"error_type": "EXTERNAL", "sql_state": "08001"}}, which reaches the
   script's on_error="return" branch as the tool's would. Declared answers are matched in the order
-  they were declared, before the recording, and each answers one call. That
+  they were declared, before the recording, and each answers one call, or
+  times=n calls: testing.answer(tool, args, answer, times=9) answers nine
+  calls alike. testing.answers(tool, args, [a1, a2, ...]) answers successive
+  matching calls in order, one each, which is how a test polls a job until
+  its third answer says done. A function no run can reach -- one that neither
+  main() nor anything it names calls -- may use testing and assert, so tests
+  share a fake_login() that declares a flow's common answers; the test still
+  names its own recording with testing.replay. That
   is how a test reaches a write no draft performed (a draft without
   allow_writes stops at the write, and its recording holds every call before
   it), a failure path, or a branch no recording takes:

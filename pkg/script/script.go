@@ -179,6 +179,14 @@ type Script struct {
 	Library bool     `json:"library"`
 	Loads   []string `json:"loads"`
 
+	// ResourcePins is the version of each managed resource the source loads
+	// as text with load("res:..."), keyed by module (#2113): set by the save
+	// that resolved them and written with the version it creates, so every
+	// run of that version reads the bytes its save read. Nil on a save that
+	// carried none, which keeps the pins of the latest version with the same
+	// source.
+	ResourcePins map[string]ResourcePin `json:"resource_pins,omitempty"`
+
 	// ChangeSummary is the agreed behavior change the save in progress
 	// carries (#1942): what the automation now does differently, in plain
 	// language, and ChangeAgreedBy who confirmed that the person it runs for
@@ -430,4 +438,11 @@ type Store interface {
 	// runs created move with it, in the same transaction, and the receipt
 	// counts them (#1588).
 	Transfer(ctx context.Context, req TransferRequest, author Author) (Transferred, error)
+}
+
+// ResourcePin is the version of one managed resource a script version loads
+// (#2113).
+type ResourcePin struct {
+	ResourceID string `json:"resource_id"`
+	Version    int    `json:"version"`
 }

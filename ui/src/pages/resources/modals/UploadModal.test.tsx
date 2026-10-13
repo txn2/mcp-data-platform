@@ -212,3 +212,58 @@ describe("the size ceiling the upload dialog states and enforces", () => {
     expect(alert.textContent).not.toContain("100 MB");
   });
 });
+
+// The uploader may say how search indexes the file (#2111). Left at Default,
+// the form names no index and the deployment's rules decide; a choice is sent
+// before the file part, which the server reads last.
+describe("the search field on the upload dialog", () => {
+  function captureForm(): { form: () => FormData | null } {
+    let sent: FormData | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          sent = init.body as FormData;
+          return new Response(JSON.stringify({ id: "r1" }), { status: 201 });
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    return { form: () => sent };
+  }
+
+  function render2() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <UploadModal admin={false} personaNames={[]} destination={{ scope: "user", scope_id: SUBJECT }}
+          folder="samples" folders={[]} onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("leaves the choice to the deployment by default", async () => {
+    signIn();
+    const sent = captureForm();
+    const { container } = render2();
+    expect(screen.getByRole("combobox", { name: "Search" }).textContent).toContain("Default");
+    fillDraft(container);
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await waitFor(() => expect(sent.form()).not.toBeNull());
+    expect(sent.form()!.get("index")).toBeNull();
+  });
+
+  it("sends the uploader's choice ahead of the file", async () => {
+    signIn();
+    const sent = captureForm();
+    const { container } = render2();
+    fireEvent.click(screen.getByRole("combobox", { name: "Search" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Not indexed" }));
+    fillDraft(container);
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await waitFor(() => expect(sent.form()).not.toBeNull());
+    const keys = [...sent.form()!.keys()];
+    expect(sent.form()!.get("index")).toBe("none");
+    expect(keys.indexOf("index")).toBeLessThan(keys.indexOf("file"));
+  });
+});

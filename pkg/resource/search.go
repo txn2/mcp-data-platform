@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/pgvector/pgvector-go"
-
-	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
 // Search result limits, mirroring the asset/prompt/memory ranked surfaces so
@@ -61,26 +59,6 @@ func IndexText(r Resource, contentText string) string {
 		}
 	}
 	return strings.Join(parts, "\n")
-}
-
-// EmbedsContent reports whether a resource's extracted content goes into its
-// embedding, or only its metadata does (#1988).
-//
-// A table of values -- CSV, TSV, newline-delimited JSON -- is what a pipeline
-// writes in bulk, it says little a sentence-level vector can use, and it is
-// the densest text for the tokenizer, so embedding its prefix costs the most
-// of anything the index embeds. One script archiving a backfill of reports
-// kept a CPU-only embedder saturated for minutes, and every interactive embed
-// queued behind it. Its content is still extracted into content_text, so the
-// lexical arm of search matches the values in it; only the vector is built
-// from the name, description, folder, filename and tags.
-func EmbedsContent(mimeType string) bool {
-	switch contenttype.Normalize(mimeType) {
-	case contenttype.CSV, contenttype.TSV, contenttype.NDJSON:
-		return false
-	default:
-		return true
-	}
 }
 
 // SearchQuery describes a relevance ranking request over managed resources.
@@ -168,6 +146,13 @@ func (s *postgresStore) Search(ctx context.Context, q SearchQuery) ([]ScoredReso
 	return s.searchLexical(ctx, q)
 }
 
+// searchableClause keeps a file whose policy is none out of ranked search
+// (#2111). Its vector is never written, which keeps it out of the vector arm;
+// its name and folder are still in the full-text expression, so the lexical
+// arms need the predicate. It is found by listing its folder, and by the
+// folder's own entry.
+const searchableClause = "index_policy <> 'none'"
+
 // buildHybridSearch renders the two-arm hybrid statement and its arguments.
 //
 // It is a function rather than inline SQL so a test can hand the statement to a
@@ -192,7 +177,7 @@ func buildHybridSearch(q SearchQuery) (query string, args []any) {
 		searchColumns, ftsExpr, tsQuery, scopeWhere, limit)
 	lexArm := fmt.Sprintf(
 		"SELECT %s, CASE WHEN embedding IS NOT NULL THEN 1 - (embedding <=> $1) ELSE 0 END AS vec_score, TRUE AS lex_match "+
-			"FROM resources WHERE %s @@ %s AND %s "+
+			"FROM resources WHERE %s @@ %s AND %s AND "+searchableClause+" "+
 			"ORDER BY ts_rank_cd(%s, %s) DESC LIMIT %d",
 		searchColumns, ftsExpr, tsQuery, scopeWhere, ftsExpr, tsQuery, limit)
 	// #nosec G202 -- both arms are assembled from constant column/expression
@@ -279,7 +264,7 @@ func buildLexicalSearch(q SearchQuery) (query string, args []any) {
 	// are sanitized ints.
 	return fmt.Sprintf(
 		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank FROM resources "+
-			"WHERE %s @@ %s AND %s ORDER BY lex_rank DESC LIMIT %d",
+			"WHERE %s @@ %s AND %s AND "+searchableClause+" ORDER BY lex_rank DESC LIMIT %d",
 		searchColumns, ftsExpr, tsQuery, lexRankNormalization,
 		ftsExpr, tsQuery, scopeWhere, q.EffectiveLimit()), args
 }

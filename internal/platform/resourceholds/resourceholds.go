@@ -27,6 +27,7 @@ package resourceholds
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -42,6 +43,9 @@ import (
 type Holds struct {
 	Assets  int
 	Prompts int
+	// Scripts is the managed scripts whose running version loads the file
+	// with load("res:...") (#2113).
+	Scripts int
 	// More says a count was cut at the bound rather than being the whole of
 	// what points at the file.
 	More bool
@@ -70,19 +74,27 @@ type Attachments interface {
 type Deps struct {
 	Refs        Refs
 	Attachments Attachments
+	Scripts     ScriptLoads
+}
+
+// ScriptLoads counts the managed scripts whose running version loads a file
+// (#2113).
+type ScriptLoads interface {
+	CountLoading(ctx context.Context, resourceID string, limit int) (int, error)
 }
 
 // Checker gathers what points at a managed resource.
 type Checker struct {
 	refs        Refs
 	attachments Attachments
+	scripts     ScriptLoads
 }
 
 // New builds the checker. Every dependency being absent still yields one: it
 // answers zero of everything, which is the true answer for a deployment that
 // has no asset or prompt layer to point at a file with.
 func New(d Deps) *Checker {
-	return &Checker{refs: d.Refs, attachments: d.Attachments}
+	return &Checker{refs: d.Refs, attachments: d.Attachments, scripts: d.Scripts}
 }
 
 // ResourceHolds counts the records still pointing at a resource.
@@ -101,8 +113,12 @@ func (c *Checker) ResourceHolds(ctx context.Context, resourceID string) (Holds, 
 	if err != nil {
 		return out, err
 	}
-	out.Assets, out.Prompts = assets, prompts
-	out.More = assets >= maxCounted || prompts >= maxCounted
+	scripts, err := c.countScripts(ctx, resourceID)
+	if err != nil {
+		return out, err
+	}
+	out.Assets, out.Prompts, out.Scripts = assets, prompts, scripts
+	out.More = assets >= maxCounted || prompts >= maxCounted || scripts >= maxCounted
 	return out, nil
 }
 
@@ -128,4 +144,38 @@ func (c *Checker) countPrompts(ctx context.Context, resourceID string) (int, err
 		return 0, fmt.Errorf("reading the prompts attaching this file: %w", err)
 	}
 	return min(len(rows), maxCounted), nil
+}
+
+// countScripts counts the scripts whose running version loads the file.
+func (c *Checker) countScripts(ctx context.Context, resourceID string) (int, error) {
+	if c.scripts == nil {
+		return 0, nil
+	}
+	n, err := c.scripts.CountLoading(ctx, resourceID, maxCounted)
+	if err != nil {
+		return 0, fmt.Errorf("reading the scripts loading this file: %w", err)
+	}
+	return n, nil
+}
+
+// ScriptPins counts the scripts loading a file from the pins their versions
+// keep (script_resource_pins): a script counts when the version it runs, its
+// latest, pins any version of the file.
+type ScriptPins struct{ DB *sql.DB }
+
+// CountLoading implements ScriptLoads.
+func (s ScriptPins) CountLoading(ctx context.Context, resourceID string, limit int) (int, error) {
+	if s.DB == nil {
+		return 0, nil
+	}
+	var n int
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM (
+		SELECT DISTINCT sc.id FROM script_resource_pins p
+		JOIN script_versions v ON v.id = p.version_id
+		JOIN scripts sc ON sc.id = v.script_id AND sc.version = v.version
+		WHERE p.resource_id = $1 LIMIT $2) loading`, resourceID, limit).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("counting the scripts loading a file: %w", err)
+	}
+	return n, nil
 }

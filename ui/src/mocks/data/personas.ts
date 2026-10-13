@@ -39,6 +39,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     roles: ["admin"],
     priority: 0,
     service_account: false,
+    hide_automations: false,
     allow_tools: ["*"],
     deny_tools: [],
     tools: resolveTools(["*"], []),
@@ -59,6 +60,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     roles: ["data_engineer"],
     priority: 10,
     service_account: false,
+    hide_automations: false,
     allow_tools: ["trino_*", "datahub_*", "s3_*", "save_asset"],
     deny_tools: ["memory_capture"],
     api_routes: [],
@@ -80,6 +82,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     roles: ["inventory_analyst"],
     priority: 20,
     service_account: false,
+    hide_automations: false,
     allow_tools: [
       "trino_query",
       "trino_describe_table",
@@ -119,6 +122,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     roles: ["regional_director"],
     priority: 30,
     service_account: false,
+    hide_automations: false,
     allow_tools: ["trino_query", "datahub_search", "save_asset"],
     deny_tools: [
       "trino_explain",
@@ -152,6 +156,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     roles: ["finance_executive"],
     priority: 30,
     service_account: false,
+    hide_automations: false,
     // Read-only against the billing API, with the one destructive CRM
     // operation refused outright. The read rule is what closes the rest of
     // acme-billing: once any rule names a connection, an operation must match
@@ -205,6 +210,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     roles: ["store_manager"],
     priority: 20,
     service_account: false,
+    hide_automations: false,
     allow_tools: [
       "trino_query",
       "datahub_search",

@@ -26,7 +26,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
 	"github.com/txn2/mcp-data-platform/internal/testreport"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -54,6 +56,9 @@ type Gate struct {
 	// Libraries is where the libraries a source loads are read from
 	// (#1941); nil refuses a source that loads any.
 	Libraries scriptlib.Source
+	// Resources reads the managed-resource files a source loads as text,
+	// which a save pins (#2113); nil refuses a source that loads any.
+	Resources *scriptsrc.Reader
 	// CannotServe reports whether a saved script's run cannot call a
 	// connection, which the source is warned of for each one it names
 	// (#2086); nil warns of none.
@@ -108,6 +113,8 @@ type Result struct {
 	// empty when there is nothing.
 	ChangeSummary  string `json:"-"`
 	ChangeAgreedBy string `json:"-"`
+	// ResourcePins is the version of each file the source loads (#2113).
+	ResourcePins map[string]script.ResourcePin `json:"-"`
 }
 
 // Apply sets the formatted source, the change the save carries and its test
@@ -115,6 +122,7 @@ type Result struct {
 func (r Result) Apply(sc *script.Script) {
 	sc.Source, sc.ChangeSummary, sc.ChangeAgreedBy = r.Lint.Source, r.ChangeSummary, r.ChangeAgreedBy
 	sc.Tests = TestReport(r.Tests)
+	sc.ResourcePins = r.ResourcePins
 }
 
 // TestReport is the part of the tests' report a saved version keeps (#1972):
@@ -156,6 +164,9 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 		return res
 	}
 	if res.Refusal = g.checkLibraries(ctx, req, source); res.Refusal != "" {
+		return res
+	}
+	if res.Refusal = g.pinResources(ctx, req, source, &res); res.Refusal != "" {
 		return res
 	}
 	if res.Refusal = g.checkTests(ctx, req, source, &res); res.Refusal != "" {
@@ -206,7 +217,7 @@ func (g *Gate) testRequest(req Request, source string) scripttest.Request {
 	return scripttest.Request{
 		Source: source, Name: req.Name, Destinations: g.Destinations,
 		Load: g.Loader(req.Existing, req.Caller), MaxMemoryBytes: g.MaxMemoryBytes,
-		Contracts: g.Contracts, Libraries: g.Libraries,
+		Contracts: g.Contracts, Libraries: g.libraries(req.Caller),
 	}
 }
 
@@ -268,9 +279,11 @@ func (g *Gate) nameTaken(ctx context.Context, req Request) string {
 		"so it was not saved; choose another name", req.Name)
 }
 
-// compare fills the differences between the saved version and source.
+// compare fills the differences between the saved version and source. The
+// same source is compared too when it loads a file, since the file may have
+// changed since the saved version pinned it.
 func (g *Gate) compare(ctx context.Context, req Request, source string, res *Result) {
-	if req.Existing == nil || req.Existing.Source == source {
+	if req.Existing == nil || (req.Existing.Source == source && len(scriptlib.ResourceModules(source)) == 0) {
 		return
 	}
 	res.Differences = append(res.Differences,
@@ -291,7 +304,11 @@ func (g *Gate) compare(ctx context.Context, req Request, source string, res *Res
 			res.NotCompared = append(res.NotCompared, stored.RunID)
 			continue
 		}
-		before := scripttest.Replay(ctx, g.testRequest(req, req.Existing.Source), rec)
+		// The saved version replays reading the files the run read, so a file
+		// edited since is a difference the new version makes (#2113).
+		saved := g.testRequest(req, req.Existing.Source)
+		saved.Libraries = scriptres.Replaying(saved.Libraries, rec.Files)
+		before := scripttest.Replay(ctx, saved, rec)
 		after := scripttest.Replay(ctx, g.testRequest(req, source), rec)
 		diffs, compared := scriptbehavior.Compare(stored.RunID, before, after)
 		if !compared {

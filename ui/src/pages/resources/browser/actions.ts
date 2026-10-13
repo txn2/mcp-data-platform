@@ -159,6 +159,30 @@ export function renameFolder(root: ResourceRoot, from: string, name: string): Pr
   return moveFolderRequest(root, from, joinPath(parentPath(from), name));
 }
 
+/** folderDescription reads what a folder's description says it holds (#2111). */
+export async function folderDescription(root: ResourceRoot, path: string): Promise<string> {
+  const q = new URLSearchParams({ ...libraryBody(root), path });
+  const res = await resourceFetchRaw(`/folders/description?${q.toString()}`);
+  if (res.status === 404) return "";
+  await ok(res);
+  const body = (await res.json()) as { description?: string };
+  return body.description ?? "";
+}
+
+/**
+ * describeFolder sets what a folder holds. A folder whose files are not in
+ * search one by one is found by search as one entry, matched on this (#2111).
+ */
+export async function describeFolder(root: ResourceRoot, path: string, description: string): Promise<void> {
+  await ok(
+    await resourceFetchRaw("/folders/description", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...libraryBody(root), path, description }),
+    }),
+  );
+}
+
 /** createFolder records an empty folder. */
 export async function createFolder(root: ResourceRoot, path: string): Promise<void> {
   await ok(
