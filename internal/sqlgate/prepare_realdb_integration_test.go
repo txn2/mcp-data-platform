@@ -59,6 +59,9 @@ const pendingFile = "templated_pending.txt"
 var otherEngines = map[string]bool{
 	"github.com/txn2/mcp-data-platform/pkg/query/trino":    true,
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/trino": true,
+	// The catalog scan's reader of a Trino catalog's information_schema
+	// (#1918); the package holds no PostgreSQL.
+	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire": true,
 }
 
 // source is a package that renders its run-time SQL for this gate.

@@ -3862,3 +3862,20 @@ func TestBuildAdditionalTableContext_V14Fields(t *testing.T) {
 	assert.Equal(t, 1, result["active_incidents"])
 	assert.NotNil(t, result["data_contract"])
 }
+
+func TestParseDataHubURNComponents_CatalogReference(t *testing.T) {
+	c, s, tb := parseDataHubURNComponents("mcp:dataset:(trino,warehouse,hive.sales.orders)")
+	assert.Equal(t, []string{"hive", "sales", "orders"}, []string{c, s, tb})
+	c, s, tb = parseDataHubURNComponents("mcp:dataset:(api,stripe,listCharges)")
+	assert.Empty(t, c+s+tb)
+}
+
+func TestProvenQueriesDatasetURNUsesThePlatformsBuilder(t *testing.T) {
+	e := &semanticEnricher{cfg: EnrichmentConfig{
+		DatasetURN: func(kind, conn, cat, schema, table string) string {
+			return kind + "|" + conn + "|" + cat + "." + schema + "." + table
+		},
+	}}
+	assert.Equal(t, "trino|w|hive.sales.orders",
+		e.datasetURN(semantic.TableIdentifier{Catalog: "hive", Schema: "sales", Table: "orders"}, "trino", "w"))
+}

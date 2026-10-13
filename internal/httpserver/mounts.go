@@ -11,10 +11,8 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/admin/resindexapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/secretapi"
-	"github.com/txn2/mcp-data-platform/internal/admin/webhookapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
-	"github.com/txn2/mcp-data-platform/internal/httpserver/webhookwire"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -943,14 +941,4 @@ func mountDatabaseAdminAPIs(mux *http.ServeMux, p *platform.Platform) {
 	if p.ResourceStore() != nil {
 		resindexapi.Mount(mux, buildAdminAuth(p), p.DB(), p.Config().Resources.Index.Resolver())
 	}
-}
-
-// mountWebhookAdminAPI registers the webhook source routes, behind the admin
-// API's authentication.
-func mountWebhookAdminAPI(mux *http.ServeMux, p *platform.Platform, hooks *webhookwire.Webhooks) {
-	if p == nil || hooks == nil || !p.Config().Admin.IsEnabled() {
-		return
-	}
-	webhookapi.Register(mux, buildAdminAuth(p), webhookapi.Config{Service: hooks.Service, Author: adminEmail})
-	slog.Info("Webhook source admin API enabled on /api/v1/admin/webhooks/sources and /api/v1/admin/webhooks/status")
 }

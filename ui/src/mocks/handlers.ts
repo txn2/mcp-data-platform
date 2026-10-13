@@ -36,6 +36,7 @@ import { assetRefHandlers, rewriteRefs } from "./handlers/assetRefs";
 import { producerHandlers } from "./handlers/producers";
 import { secretHandlers } from "./handlers/secrets";
 import { webhookHandlers } from "./handlers/webhooks";
+import { catalogScanHandlers } from "./handlers/catalogScan";
 import {
   mockDataHubConnections,
   catalogBrowse,
@@ -4716,4 +4717,5 @@ export const handlers = [
   ...producerHandlers,
   ...secretHandlers,
   ...webhookHandlers,
+  ...catalogScanHandlers,
 ];

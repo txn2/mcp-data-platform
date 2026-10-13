@@ -622,6 +622,9 @@ memory:
 
 knowledge:
   enabled: true
+  # A catalog change reaches search on the index queue's next check; the dev
+  # stack checks often so the acceptance suite waits on the change, not a clock.
+  index_reconcile_interval: 15s
   apply:
     enabled: true
     require_confirmation: true

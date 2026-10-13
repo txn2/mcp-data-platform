@@ -39,6 +39,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/docread"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/tableavail"
+	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge/federation"
@@ -121,6 +122,13 @@ type Config struct {
 	// for. nil (no database, and so no audit history to derive a session from)
 	// leaves the source out entirely.
 	Sessions knowledge.SessionReader
+
+	// Catalog dereferences the platform catalog's own references
+	// (mcp:dataset:, mcp:column:, and the glossary, tag, domain and data
+	// product forms, #1917). A dataset names its connection by instance; the
+	// name a persona's connection rules match is resolved through Registry.
+	// Nil (no database) leaves the source out.
+	Catalog knowledge.CatalogReader
 
 	// ResourceBlobs and ResourceBucket let the resources provider return a
 	// resource's contents from `fetch`. Nil leaves fetch returning metadata
@@ -351,6 +359,9 @@ func appendScriptProvider(cfg Config, providers []knowledge.Provider) []knowledg
 	if cfg.CallCatalog != nil {
 		providers = append(providers, knowledge.NewCallsProvider(cfg.CallCatalog))
 	}
+	if cfg.Catalog != nil {
+		providers = append(providers, knowledge.NewNativeCatalogProvider(cfg.Catalog, catalogBound(cfg.Registry)))
+	}
 	return appendSessionProvider(cfg, providers)
 }
 
@@ -435,4 +446,14 @@ func scriptProducedAsset(store portal.AssetStore) knowledge.ScriptProducerLookup
 		has, err := reader.AssetHasProducer(ctx, assetID, producedby.KindScript, scriptID)
 		return err == nil && has
 	}
+}
+
+// catalogBound resolves the connection a catalog reference names by instance
+// to the name persona rules match, through the live registry. With no registry
+// the instance name is used as it stands.
+func catalogBound(reg *registry.Registry) knowledge.BoundName {
+	if reg == nil {
+		return nil
+	}
+	return connid.BoundByInstance(func() *connid.Resolver { return connid.NewResolver(reg.All(), nil) })
 }

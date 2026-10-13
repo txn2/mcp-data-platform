@@ -80,6 +80,10 @@ type Config struct {
 	// DB backs the queue store and every consumer sink. Required.
 	DB *sql.DB
 
+	// ReconcileInterval is how often every consumer is checked for work it
+	// owes. Zero uses indexjobs.ReconcilerInterval.
+	ReconcileInterval time.Duration
+
 	// Embedder is the worker's embedding provider, already resolved by the
 	// caller (e.g. a dedicated longer-timeout Ollama provider). ModelName is the
 	// platform embedder's model name, recorded on each consumer sink so a model
@@ -226,7 +230,7 @@ func New(cfg Config) *Handle {
 		Observer:      obs,
 	})
 	h.reaper = indexjobs.NewReaper(store, 0)
-	h.reconciler = indexjobs.NewReconciler(store, reg, 0, indexjobs.WithReconcilerObserver(obs))
+	h.reconciler = indexjobs.NewReconciler(store, reg, cfg.ReconcileInterval, indexjobs.WithReconcilerObserver(obs))
 	cfg.Metrics.RegisterIndexQueue(newQueueSampler(store, indexjobs.NewReporter(store, reg)).Sample)
 
 	// Retention sweep: bound finished history so the reconciler's per-unit

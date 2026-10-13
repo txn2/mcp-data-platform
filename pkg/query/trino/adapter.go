@@ -10,6 +10,7 @@ import (
 
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
@@ -140,9 +141,18 @@ func (*Adapter) Name() string {
 	return "trino"
 }
 
-// ResolveTable converts a URN to a table identifier.
-// Applies reverse catalog mapping if configured.
+// ResolveTable converts a URN to a table identifier. A platform catalog
+// reference (#1919) names its connection and path outright; a DataHub URN has
+// the reverse catalog mapping applied if one is configured.
 func (a *Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdentifier, error) {
+	if ref, err := catalog.ParseRef(urn); err == nil && ref.Kind == catalog.KindDataset {
+		if ref.ConnectionKind != "trino" || len(ref.Path) != tablePartsMinCount {
+			return nil, fmt.Errorf("reference %s is not a Trino table", urn)
+		}
+		return &query.TableIdentifier{
+			Catalog: ref.Path[0], Schema: ref.Path[1], Table: ref.Path[2], Connection: ref.Connection,
+		}, nil
+	}
 	parsed, err := urnbuild.ParseDatasetURN(urn)
 	if err != nil {
 		return nil, fmt.Errorf("parsing dataset URN: %w", err)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbgdraft"
@@ -26,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
+	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -81,6 +83,7 @@ func Wire(deps Deps) *scriptexec.Handle {
 		PortalURL:             deps.PortalURL,
 		RunRetention:          deps.RunRetention,
 		Recordings:            recordings,
+		Lineage:               scriptLineage(deps),
 		Limits:                runLimits(deps.Worker, deps.SQL),
 		Admission:             admission(deps.Worker),
 		MaxReclaims:           deps.Worker.MaxReclaims,
@@ -207,4 +210,13 @@ func admission(c scriptadmit.Config) scriptadmit.Admission {
 		return scriptadmit.Admission{}
 	}
 	return adm
+}
+
+// scriptLineage records the lineage of script runs in the platform catalog,
+// or nothing with no database.
+func scriptLineage(deps Deps) *sqllineage.Scripts {
+	if deps.DB == nil || deps.Toolkits == nil {
+		return nil
+	}
+	return sqllineage.NewScripts(catalogstore.New(deps.DB), sqllineage.TrinoResolver(deps.Toolkits))
 }

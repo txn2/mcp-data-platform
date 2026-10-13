@@ -1,6 +1,7 @@
 package connsource
 
 import (
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
@@ -18,6 +19,12 @@ import (
 // instance entry; a connection with neither is not a candidate, which leaves
 // the URN unattributable rather than attributed by guess.
 func ConnectionNamesForURN(sources *Map, toolkits []registry.Toolkit, urn string) []string {
+	// A platform catalog reference names its connection outright (#1919), so
+	// it is served by that connection alone.
+	if ref, err := catalog.ParseRef(urn); err == nil && (ref.Kind == catalog.KindDataset || ref.Kind == catalog.KindColumn) {
+		c := connid.NewResolver(toolkits, nil).ByInstance(ref.ConnectionKind, connid.Instance(ref.Connection))
+		return []string{string(c.Bound)}
+	}
 	platform := PlatformFromURN(urn)
 	if platform == "" || sources == nil {
 		return nil

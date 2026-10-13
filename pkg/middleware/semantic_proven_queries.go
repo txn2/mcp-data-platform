@@ -63,6 +63,9 @@ func (e *semanticEnricher) datasetURN(table semantic.TableIdentifier, connection
 	if table.Schema == "" || table.Table == "" {
 		return ""
 	}
+	if e.cfg.DatasetURN != nil {
+		return e.cfg.DatasetURN(connectionKind, connection, table.Catalog, table.Schema, table.Table)
+	}
 	var platform string
 	if e.cfg.ForConnection != nil && connection != "" {
 		platform, _ = e.cfg.ForConnection(connectionKind, connection)

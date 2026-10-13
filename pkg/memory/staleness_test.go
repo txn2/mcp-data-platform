@@ -345,3 +345,16 @@ func TestCheckBatchStillFlagsADeprecatedEntity(t *testing.T) {
 	assert.Equal(t, []string{"linked-1"}, store.staled)
 	assert.Empty(t, store.verified)
 }
+
+func TestParseURNToTable_CatalogReference(t *testing.T) {
+	got, err := ParseURNToTable("mcp:dataset:(trino,warehouse,hive.sales.orders)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Catalog != "hive" || got.Schema != "sales" || got.Table != "orders" {
+		t.Fatalf("got %+v", got)
+	}
+	if _, err := ParseURNToTable("mcp:dataset:(api,stripe,listCharges)"); err == nil {
+		t.Fatal("an operation is not a table")
+	}
+}

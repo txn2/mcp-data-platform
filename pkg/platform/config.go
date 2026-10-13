@@ -322,6 +322,10 @@ type KnowledgeConfig struct {
 	// nothing.
 	VerifiableInsights *bool `yaml:"verifiable_insights"`
 
+	// IndexReconcileInterval is how often the index queue checks every consumer
+	// for work it owes: a catalog changed since its last sweep, a vector from
+	// an old model. Zero uses the queue's default of five minutes.
+	IndexReconcileInterval time.Duration `yaml:"index_reconcile_interval"`
 	// SearchProviderTimeout bounds each knowledge provider arm in the `search`
 	// fan-out; default 5s, a negative value disables it.
 	SearchProviderTimeout time.Duration `yaml:"search_provider_timeout"`

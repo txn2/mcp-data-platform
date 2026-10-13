@@ -160,6 +160,17 @@ func (r *Resolver) ByInstance(kind string, inst Instance) Connection {
 	return r.connection(kind, inst, Bound(inst), string(inst), false)
 }
 
+// BoundByInstance returns the lookup from a connection's kind and instance
+// name to the name it binds by, for a caller holding a stored reference that
+// names the instance (an mcp:dataset:(kind,instance,path) catalog reference).
+// The resolver is obtained on every lookup, because the live connections change
+// as they are added and removed.
+func BoundByInstance(resolver func() *Resolver) func(kind, instance string) string {
+	return func(kind, instance string) string {
+		return string(resolver().ByInstance(kind, Instance(instance)).Bound)
+	}
+}
+
 // ByBound resolves the connection a tool call's argument, a persona rule, or a
 // source-map lookup names. The second result is false when no live toolkit
 // serves that name, which is the case a caller must not paper over by assuming

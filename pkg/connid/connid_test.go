@@ -153,3 +153,17 @@ func TestResolverAll(t *testing.T) {
 	}, nil)
 	assert.Empty(t, none.All("api"))
 }
+
+// TestBoundByInstance covers the lookup a stored reference naming an instance
+// is gated through, and that it asks for a resolver on every lookup, so a
+// connection added after the lookup was built is seen.
+func TestBoundByInstance(t *testing.T) {
+	calls := 0
+	lookup := BoundByInstance(func() *Resolver {
+		calls++
+		return resolverFixture(nil)
+	})
+	assert.Equal(t, "Data Lake", lookup("s3", "data_lake"))
+	assert.Equal(t, "gone", lookup("s3", "gone"), "a connection nothing serves answers under its own name")
+	assert.Equal(t, 2, calls)
+}

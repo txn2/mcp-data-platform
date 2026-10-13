@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	catalogref "github.com/txn2/mcp-data-platform/pkg/catalog"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
@@ -135,6 +137,11 @@ type EnrichmentConfig struct {
 	// ConnectionsForURN returns connection names that can access the dataset
 	// identified by a DataHub URN, based on the URN's platform component.
 	ConnectionsForURN func(urn string) []string
+
+	// DatasetURN names the catalog dataset a table belongs to, the key a
+	// recorded call's targets are stored under (#1919). When set it is used in
+	// place of building a DataHub URN from ForConnection's platform.
+	DatasetURN URNBuilder
 
 	// ProvenQueries returns the caller's recorded queries that already
 	// answered something on a table, appended when a table is described
@@ -1830,10 +1837,17 @@ func appendResourceLinks(result *mcp.CallToolResult, urns []string) *mcp.CallToo
 	return result
 }
 
-// parseDataHubURNComponents extracts catalog, schema, and table from a DataHub
-// dataset URN whose name is <catalog>.<schema>.<table>.
+// parseDataHubURNComponents extracts catalog, schema, and table from a platform
+// catalog reference to a Trino table (#1919) or a DataHub dataset URN whose
+// name is <catalog>.<schema>.<table>.
 // Returns empty strings if the URN doesn't match the expected format.
 func parseDataHubURNComponents(urn string) (catalog, schema, table string) {
+	if ref, err := catalogref.ParseRef(urn); err == nil && ref.Kind == catalogref.KindDataset {
+		if len(ref.Path) != 3 { //nolint:mnd,revive // 3 parts: catalog.schema.table
+			return "", "", ""
+		}
+		return ref.Path[0], ref.Path[1], ref.Path[2]
+	}
 	parsed, err := urnbuild.ParseDatasetURN(urn)
 	if err != nil {
 		return "", "", ""

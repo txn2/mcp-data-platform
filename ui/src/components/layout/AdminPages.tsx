@@ -119,6 +119,7 @@ const ChangelogPage = lazy(() =>
     default: m.ChangelogPage,
   })),
 );
+const CatalogPage = lazy(() => import("@/pages/catalog/CatalogPage").then((m) => ({ default: m.CatalogPage })));
 const AdminSettingsPage = lazy(() =>
   import("@/pages/settings/AdminSettingsPage").then((m) => ({
     default: m.AdminSettingsPage,
@@ -190,6 +191,12 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
     ["/admin/api-catalogs", () => <CatalogsPanel />],
     ["/admin/api-reference", () => <ApiReferencePage />],
     ["/admin/apis", () => <ApisPage scope="admin" />],
+    [
+      "/admin/catalog",
+      (p: PageContext) => (
+        <CatalogPage key={p.currentPath} initialTab={p.initialTab} />
+      ),
+    ],
     ["/admin/connections", () => <ConnectionsPanel />],
     ["/admin/personas", () => <PersonasPanel />],
     [

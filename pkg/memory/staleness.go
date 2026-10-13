@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
@@ -188,9 +189,16 @@ func (w *StalenessWatcher) checkEntityStaleness(ctx context.Context, record Reco
 	return strings.Join(reasons, "; ")
 }
 
-// ParseURNToTable attempts to extract a TableIdentifier from a DataHub dataset
-// URN whose name is <catalog>.<schema>.<table>.
+// ParseURNToTable attempts to extract a TableIdentifier from a platform catalog
+// reference to a Trino table (#1919), or from a DataHub dataset URN whose name
+// is <catalog>.<schema>.<table>.
 func ParseURNToTable(urn string) (semantic.TableIdentifier, error) {
+	if ref, err := catalog.ParseRef(urn); err == nil && ref.Kind == catalog.KindDataset {
+		if len(ref.Path) != urnTablePathParts {
+			return semantic.TableIdentifier{}, fmt.Errorf("reference %s does not name a table", urn)
+		}
+		return semantic.TableIdentifier{Catalog: ref.Path[0], Schema: ref.Path[1], Table: ref.Path[2]}, nil
+	}
 	parsed, err := urnbuild.ParseDatasetURN(urn)
 	if err != nil {
 		return semantic.TableIdentifier{}, fmt.Errorf("parsing dataset URN: %w", err)

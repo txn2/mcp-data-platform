@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablesource"
@@ -61,7 +62,7 @@ func buildTableRegistrar(p *platform.Platform) *tableregister.Registrar {
 	}
 
 	return tableregister.New(tableregister.Deps{
-		Store:    regstore.NewPostgresStore(p.DB()),
+		Store:    catalogwire.RegistrationStore(p, regstore.NewPostgresStore(p.DB())),
 		Trino:    exec,
 		Objects:  objects,
 		Revisers: tableRevisers(p),

@@ -11,3 +11,4 @@ export * from "./calls";
 export * from "./webhooks";
 export * from "./secrets";
 export * from "./maps";
+export * from "./catalogScan";

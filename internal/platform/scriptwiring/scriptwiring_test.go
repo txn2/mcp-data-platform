@@ -14,6 +14,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -76,4 +77,13 @@ func TestRecordingsOver(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	assert.NotNil(t, recordingsOver(db))
+}
+
+func TestScriptLineage(t *testing.T) {
+	assert.Nil(t, scriptLineage(Deps{}), "no database, no lineage")
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	assert.Nil(t, scriptLineage(Deps{DB: db}), "no toolkits, no lineage")
+	assert.NotNil(t, scriptLineage(Deps{DB: db, Toolkits: registry.NewRegistry()}))
 }

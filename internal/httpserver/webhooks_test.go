@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/webhookwire"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -38,7 +39,7 @@ func TestWithoutCORS_HooksAnswerTheirOwnOptions(t *testing.T) {
 
 func TestWebhookMountsWithoutPlatform(t *testing.T) {
 	assert.Nil(t, buildWebhooks(nil, ":8080"))
-	mountWebhookAdminAPI(http.NewServeMux(), nil, nil)
+	(*webhookwire.Webhooks)(nil).MountAdmin(http.NewServeMux(), nil, buildAdminAuth, adminEmail)
 }
 
 // TestWebhookSourceRefs names a webhook table's source in the Scratch Tables
@@ -85,4 +86,45 @@ func TestResourceIndexAdminAPIMountsOnlyWithADatabase(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/resources/index", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestWebhooksMountAdmin(t *testing.T) {
+	sources := func(mux *http.ServeMux) int {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+			"/api/v1/admin/webhooks/sources", http.NoBody))
+		return w.Code
+	}
+	on := newTestPlatform(t, &platform.Config{
+		Server:   platform.ServerConfig{Name: "test", Transport: "http"},
+		Semantic: platform.SemanticConfig{Provider: "noop"},
+		Query:    platform.QueryConfig{Provider: "noop"},
+		Storage:  platform.StorageConfig{Provider: "noop"},
+		Admin:    platform.AdminConfig{Enabled: new(true), Persona: "admin"},
+		Personas: platform.PersonasConfig{Definitions: map[string]platform.PersonaDef{
+			"admin": {Roles: []string{"admin"}, Tools: platform.ToolRulesDef{Allow: []string{"*"}}},
+		}},
+	})
+	t.Cleanup(func() { _ = on.Close() })
+	off := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{Name: "test"},
+		Admin:  platform.AdminConfig{Enabled: new(false)},
+	})
+	t.Cleanup(func() { _ = off.Close() })
+
+	mux := http.NewServeMux()
+	(*webhookwire.Webhooks)(nil).MountAdmin(mux, on, buildAdminAuth, adminEmail)
+	assert.Equal(t, http.StatusNotFound, sources(mux), "no webhooks, no routes")
+
+	mux = http.NewServeMux()
+	(&webhookwire.Webhooks{}).MountAdmin(mux, nil, buildAdminAuth, adminEmail)
+	assert.Equal(t, http.StatusNotFound, sources(mux), "no platform, no routes")
+
+	mux = http.NewServeMux()
+	(&webhookwire.Webhooks{}).MountAdmin(mux, off, buildAdminAuth, adminEmail)
+	assert.Equal(t, http.StatusNotFound, sources(mux), "the admin API off, no routes")
+
+	mux = http.NewServeMux()
+	(&webhookwire.Webhooks{}).MountAdmin(mux, on, buildAdminAuth, adminEmail)
+	assert.Equal(t, http.StatusUnauthorized, sources(mux), "mounted behind the admin API's authentication")
 }

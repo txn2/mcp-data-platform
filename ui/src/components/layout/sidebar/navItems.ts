@@ -23,6 +23,7 @@ import {
   Table2,
   Network,
   BookMarked,
+  Library,
   type LucideIcon,
 } from "lucide-react";
 
@@ -69,6 +70,7 @@ export const adminNavItems: NavItem[] = [
   { path: "/admin/assets", label: "Assets", icon: LayoutGrid },
   { path: "/admin/automations", label: "Automations", icon: FileCode2 },
   { path: "/admin/calls", label: "Calls", icon: PhoneCall },
+  { path: "/admin/catalog", label: "Catalog", icon: Library },
   { path: "/admin/changelog", label: "Change Log", icon: Clock },
   { path: "/admin/connections", label: "Connections", icon: Cable },
   { path: "/admin/description", label: "Description", icon: FileText },

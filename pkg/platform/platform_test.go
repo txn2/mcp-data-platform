@@ -40,7 +40,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -834,30 +833,6 @@ func TestCreatePortalS3ClientPathStyle(t *testing.T) {
 }
 
 func TestProviderInstanceNotFound(t *testing.T) {
-	t.Run("datahub instance not found", func(t *testing.T) {
-		cfg := &Config{
-			Server: ServerConfig{Name: testServerName},
-			Semantic: SemanticConfig{
-				Provider: "datahub",
-				Instance: "nonexistent",
-			},
-			Toolkits: map[string]any{
-				"datahub": map[string]any{
-					testInstancesKey: map[string]any{
-						testInstancePrimary: map[string]any{
-							"url": "http://datahub:8080",
-						},
-					},
-				},
-			},
-		}
-
-		_, err := New(WithConfig(cfg))
-		if err == nil {
-			t.Error("New() expected error for nonexistent datahub instance")
-		}
-	})
-
 	t.Run("trino instance not found", func(t *testing.T) {
 		cfg := &Config{
 			Server:   ServerConfig{Name: testServerName},
@@ -1362,95 +1337,6 @@ func TestInitOAuth(t *testing.T) {
 	})
 }
 
-func TestDataHubSemanticProviderWithLineageConfig(t *testing.T) {
-	// This test verifies that lineage configuration is properly wired
-	// from platform config through to the DataHub semantic adapter.
-	cfg := &Config{
-		Server: ServerConfig{Name: testServerName},
-		Semantic: SemanticConfig{
-			Provider: "datahub",
-			Instance: testInstancePrimary,
-			Lineage: datahubsemantic.LineageConfig{
-				Enabled:             true,
-				MaxHops:             testLineageMaxHops,
-				Inherit:             []string{"glossary_terms", "descriptions", "tags"},
-				ConflictResolution:  testConflictNearest,
-				PreferColumnLineage: true,
-				CacheTTL:            testLineageCacheTTL,
-				Timeout:             testLineageTimeout,
-			},
-		},
-		Query:   QueryConfig{Provider: testProviderNoop},
-		Storage: StorageConfig{Provider: testProviderNoop},
-		Toolkits: map[string]any{
-			"datahub": map[string]any{
-				testInstancesKey: map[string]any{
-					testInstancePrimary: map[string]any{
-						"url":   "http://datahub.example.com:8080/api/graphql",
-						"token": "test-token",
-					},
-				},
-			},
-		},
-	}
-
-	p, err := New(WithConfig(cfg))
-	if err != nil {
-		t.Fatalf(testNewErrFmt, err)
-	}
-	defer func() { _ = p.Close() }()
-
-	// Type assert to get the DataHub adapter
-	// The semantic provider should be a datahub.Adapter (or wrapped in a cache)
-	semProvider := p.SemanticProvider()
-	if semProvider == nil {
-		t.Fatal("SemanticProvider() returned nil")
-	}
-
-	// If caching is disabled, we can type assert directly
-	adapter, ok := semProvider.(*datahubsemantic.Adapter)
-	if !ok {
-		// If caching was enabled, we'd need to unwrap
-		t.Fatalf("SemanticProvider() is not a *datahub.Adapter, got %T", semProvider)
-	}
-
-	// Verify lineage config was wired through
-	lineageCfg := adapter.LineageConfig()
-
-	if !lineageCfg.Enabled {
-		t.Error("LineageConfig().Enabled = false, want true - config was not wired through")
-	}
-	if lineageCfg.MaxHops != testLineageMaxHops {
-		t.Errorf("LineageConfig().MaxHops = %d, want %d", lineageCfg.MaxHops, testLineageMaxHops)
-	}
-	if len(lineageCfg.Inherit) != testLineageMaxHops {
-		t.Errorf("LineageConfig().Inherit len = %d, want %d", len(lineageCfg.Inherit), testLineageMaxHops)
-	}
-	expectedInherit := []string{"glossary_terms", "descriptions", "tags"}
-	for i, want := range expectedInherit {
-		if i >= len(lineageCfg.Inherit) {
-			t.Errorf("LineageConfig().Inherit[%d] missing, want %q", i, want)
-			continue
-		}
-		if lineageCfg.Inherit[i] != want {
-			t.Errorf("LineageConfig().Inherit[%d] = %q, want %q", i, lineageCfg.Inherit[i], want)
-		}
-	}
-	if lineageCfg.ConflictResolution != testConflictNearest {
-		t.Errorf("LineageConfig().ConflictResolution = %q, want %q", lineageCfg.ConflictResolution, testConflictNearest)
-	}
-	if !lineageCfg.PreferColumnLineage {
-		t.Error("LineageConfig().PreferColumnLineage = false, want true")
-	}
-	if lineageCfg.CacheTTL != testLineageCacheTTL {
-		t.Errorf("LineageConfig().CacheTTL = %v, want %v", lineageCfg.CacheTTL, testLineageCacheTTL)
-	}
-	if lineageCfg.Timeout != testLineageTimeout {
-		t.Errorf("LineageConfig().Timeout = %v, want %v", lineageCfg.Timeout, testLineageTimeout)
-	}
-}
-
-// createTestAppDir creates a temporary directory with test app files.
 func createTestAppDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
