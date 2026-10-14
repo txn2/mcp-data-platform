@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -154,6 +155,11 @@ type Config struct {
 	APIGateway           APIGatewayConfig    `yaml:"apigateway"`
 	Observability        ObservabilityConfig `yaml:"observability"`
 
+	// DataHubImport is the DataHub a configuration upgrading from it names in
+	// toolkits.datahub, which the catalog import reads once (#2124); nil when
+	// it names none.
+	DataHubImport *DataHubImport `yaml:"-"`
+
 	// overrides resolves the database-overridable settings (server
 	// description, agent instructions, tools.deny, per-tool description
 	// overrides) on every read. No field of this struct is mutated after
@@ -251,14 +257,14 @@ func detectUnknownFields(expanded []byte) []string {
 // enforcing the config.strict unknown-key policy: unrecognized keys are a hard
 // error when config.strict is true, otherwise a logged warning.
 func decodeConfigStrict(expanded []byte) (*Config, error) {
-	if err := refuseRemovedCatalog(expanded); err != nil {
-		return nil, err
-	}
+	upgrade := readDataHubUpgrade(expanded)
 	cfg := &Config{}
 	unknown, err := strictDecode(expanded, cfg)
 	if err != nil {
 		return nil, err
 	}
+	unknown = slices.DeleteFunc(unknown, upgrade.accepts)
+	upgrade.apply(cfg)
 	if len(unknown) > 0 {
 		if cfg.Meta.IsStrict() {
 			return nil, fmt.Errorf(

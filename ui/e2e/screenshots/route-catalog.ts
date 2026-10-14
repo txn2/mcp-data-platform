@@ -2,8 +2,9 @@ import { type ScreenshotRoute } from "./route-types";
 
 // The platform catalog's admin page: the Scans tab (#1918) with each
 // connection's last scan, the Settings tab with the interval and the
-// per-connection exclusions, and the Documents tab with each connection's
-// schema document. Kept beside the manifest, like the connection and persona
+// per-connection exclusions, the Documents tab with each connection's
+// schema document, and the Import tab (#1923, #2124) with the configured
+// DataHub, its runs and the latest run's report. Kept beside the manifest, like the connection and persona
 // routes, so the manifest stays under its line budget.
 export const adminCatalogRoutes: ScreenshotRoute[] = [
   {
@@ -29,9 +30,20 @@ export const adminCatalogRoutes: ScreenshotRoute[] = [
       await page.waitForTimeout(300);
     },
   },
+  {
+    slug: "admin-catalog-import",
+    path: "/portal/admin/catalog",
+    category: "admin",
+    beforeCapture: async (page) => {
+      await page.getByRole("tab", { name: "Import" }).click();
+      await page.waitForTimeout(300);
+    },
+  },
 ];
 
-const DAILY_SALES = encodeURIComponent("mcp:dataset:(trino,acme-warehouse,analytics.public.daily_sales)");
+const DAILY_SALES = encodeURIComponent(
+  "mcp:dataset:(trino,acme-warehouse,analytics.public.daily_sales)",
+);
 
 // The Catalog section's curation pages (#1921): a dataset with its curation,
 // columns, notes, lineage and history; a column opened for editing; a glossary

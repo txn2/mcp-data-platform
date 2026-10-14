@@ -1266,7 +1266,7 @@ query:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `semantic.provider` | string | - | Empty (the default) makes the platform catalog the semantic provider wherever there is a database; `noop` turns the semantic layer off. Any other value is refused at startup, and `datahub` with a message naming the release that carries a DataHub catalog into the platform catalog ([Moving from DataHub](catalog.md#moving-from-datahub)). |
+| `semantic.provider` | string | - | Empty (the default) makes the platform catalog the semantic provider wherever there is a database; `noop` turns the semantic layer off. `datahub` is read as the platform catalog for this release, while the DataHub `toolkits.datahub` names is imported ([Moving from DataHub](catalog.md#moving-from-datahub)); any other value is refused at startup. |
 | `semantic.cache.enabled` | bool | `false` | No effect: the platform catalog is read from the platform's own database on every lookup. |
 | `semantic.cache.ttl` | duration | `5m` | The default for `enrichment.session_dedup.entry_ttl` |
 | `query.provider` | string | - | Provider type: `trino` or `noop` |

@@ -1,0 +1,1 @@
+-- The deleted DataHub connections are not restored.

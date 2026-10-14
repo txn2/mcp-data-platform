@@ -37,8 +37,11 @@ import (
 // conn1918 is the writable dev Trino connection the criteria create tables on.
 const conn1918 = scratchConnection
 
-// scanTimeout bounds how long a criterion waits for the scan it asked for.
-const scanTimeout = 3 * time.Minute
+// scanTimeout bounds how long a criterion waits for the scan it asked for. A
+// request made while another replica scans is run after that scan, so the
+// wait covers two; a connection whose host does not answer holds each scan
+// for its client's two-minute retry budget.
+const scanTimeout = 6 * time.Minute
 
 // exec1918 runs a statement on the writable connection.
 func exec1918(c *client, sql string) {

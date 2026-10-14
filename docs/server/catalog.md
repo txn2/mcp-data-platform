@@ -135,9 +135,13 @@ The **Settings** tab holds the two settings, stored in the database:
   out every mutation. The next scan leaves the excluded datasets out and marks
   any it cataloged before as removed.
 
+The **Import** tab carries a DataHub into the catalog; see
+[Moving from DataHub](#moving-from-datahub).
+
 The same settings and scans are served at `/api/v1/admin/catalog/settings` and
-`/api/v1/admin/catalog/scans`, and the schema documents at
-`/api/v1/admin/catalog/documents`; see the [Admin API](admin-api.md).
+`/api/v1/admin/catalog/scans`, the schema documents at
+`/api/v1/admin/catalog/documents` and the imports at
+`/api/v1/admin/catalog/imports`; see the [Admin API](admin-api.md).
 
 ## Search
 
@@ -252,22 +256,77 @@ See the [Admin API](admin-api.md) reference for each route's schema.
 
 ## Moving from DataHub
 
-The platform no longer reads or writes DataHub. A deployment that kept its
-catalog in DataHub carries its curation into the platform catalog once, with
-**Admin > Catalog > Import** on a release of the `v1.146` line, and then
-upgrades. A later release refuses to start with a configuration that still
-names DataHub: `semantic.provider: datahub`, `toolkits.datahub`,
-`enrichment.datahub_query_enrichment`, `enrichment.datahub_storage_enrichment`
-or `knowledge.apply.datahub_connection`. The refusal lists each one it found;
-remove them to start.
+The platform no longer reads or writes DataHub, apart from importing it once.
+A deployment upgrading with DataHub still in its configuration starts as
+before: the platform reads the DataHub `toolkits.datahub` names (the instance
+`semantic.instance` chose, else the kind's `default`, else the first by name;
+its `url` or `endpoint`, and its `token`) and imports it into the platform
+catalog after its first catalog scan, so the curation lands on the datasets
+the scan cataloged. Until an import against that address finishes without
+error, the platform tries again after each scan; after one has, a restart
+imports nothing. One import runs at a time across replicas.
 
-The settings that tuned the external catalog are gone with it, and a
-configuration that sets one is refused as naming an unknown key:
-`semantic.instance`, `semantic.urn_mapping`, `semantic.lineage`,
-`query.urn_mapping`, the `storage:` block, and
-`enrichment.search_schema_preview` and `enrichment.schema_preview_max_columns`.
-A dataset is keyed by its connection's own names, so no name mapping is needed,
-and lineage is the catalog's own (see [Lineage](#lineage)).
+Nothing else of DataHub runs: no `datahub_*` tools, no DataHub enrichment, and
+`semantic.provider: datahub` is read as the platform catalog.
+These settings are accepted for this release, strict parsing included, and
+logged once at startup as `deprecated_key`: `semantic.provider: datahub`,
+`toolkits.datahub`, `semantic.instance`, `semantic.urn_mapping`,
+`semantic.lineage`, `query.urn_mapping`, the `storage:` block,
+`enrichment.datahub_query_enrichment`, `enrichment.datahub_storage_enrichment`,
+`enrichment.s3_semantic_enrichment`, `enrichment.search_schema_preview`,
+`enrichment.schema_preview_max_columns` and
+`knowledge.apply.datahub_connection`. Remove them once the import has finished:
+the next release refuses them.
+
+### What the import carries over
+
+![Catalog import](../images/screenshots/light/admin-admin-catalog-import-light.webp#only-light)![Catalog import](../images/screenshots/dark/admin-admin-catalog-import-dark.webp#only-dark)
+
+**Admin > Catalog > Import** shows the configured DataHub, imports it again,
+or imports another DataHub given its address and an access token (used for that
+run and not kept), and lists each run with its report
+(`GET`/`POST /api/v1/admin/catalog/imports`). The import reads:
+
+- every dataset DataHub holds, including the records it has marked removed. A
+  live record's curation is taken; an aspect it lacks is taken from a removed
+  record of the same path, so curation that exists only on a removed record is
+  kept.
+- the description (DataHub's edited one over its ingested one), tags, glossary
+  terms, owners, domain, documentation links, custom and structured
+  properties, curated queries, incidents and context documents of each
+  dataset, and the description, tags and glossary terms of each top-level
+  column.
+- every glossary node, glossary term, tag, domain and data product, with its
+  description, owners and documentation links. A term keeps the node it sits
+  under.
+- lineage between the datasets the catalog holds, recorded as the import's.
+
+A dataset on a Trino platform is matched by its name, with a leading platform
+instance dropped and `semantic.urn_mapping.catalog_mapping` read backwards;
+`semantic.urn_mapping.platform` names the platform the deployment's datasets
+were recorded under when it is not `trino`. Tableau entities, and datasets on
+any other platform, are not imported.
+
+An aspect something other than the import has written in the platform catalog
+is kept, and the report says so. Importing again writes only what changed in
+DataHub since, and keeps each definition under the key it was first stored
+under.
+
+Then the import rewrites the DataHub URNs platform tables hold into catalog
+references: memories and insights (their entity references, column
+references and text), changesets, call records, knowledge pages (their body,
+summary and citations, which become catalog citations) and the rows of the
+dataset search index keyed by a DataHub URN, which the index reads again from
+the catalog. A URN the import has no catalog entity for (a user, a query
+entity, a dataset no connection catalogs) is left as it was and listed in the
+report with the table and row it was found in.
+
+The report counts the definitions and datasets imported, the datasets that took
+curation from a removed record, the aspects written, left unchanged and kept,
+the lineage edges, and the references rewritten, and lists what was not
+carried over and why.
+
+### After the import
 
 A catalog entity is referenced only by its `mcp:` reference. An `apply_knowledge`
 target, a knowledge page citation and a semantic lookup given a `urn:li:` URN

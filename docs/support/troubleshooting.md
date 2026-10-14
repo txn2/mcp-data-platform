@@ -69,8 +69,10 @@ toolkits:
         endpoint_url: "https://metadata.example.com:8080/graphql?tenant=a&env=b"
 ```
 
-A configuration that still names DataHub is refused at startup with a message
-listing each setting; see [Moving from DataHub](../server/catalog.md#moving-from-datahub).
+A configuration that still names DataHub starts, logs the DataHub settings it
+found once as `deprecated_key`, and imports that DataHub into the platform
+catalog after the first catalog scan; see
+[Moving from DataHub](../server/catalog.md#moving-from-datahub).
 
 WRONG: environment variable without braces (won't expand):
 

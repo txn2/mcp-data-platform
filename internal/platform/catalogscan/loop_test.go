@@ -181,3 +181,31 @@ func TestLoopScansAtStartAndOnRequest(t *testing.T) {
 	nilLoop.Start(context.Background())
 	nilLoop.Stop()
 }
+
+// What runs after a scan runs after each scan this replica finishes, and not
+// when none was due or another replica holds the lock.
+func TestAfterScanRunsAfterAFinishedScan(t *testing.T) {
+	ctx := context.Background()
+	l, mock := newLoopMock(t, Defaults(), nil)
+	after := 0
+	l.AfterScan(func(context.Context) { after++ })
+
+	expectLock(mock, true)
+	mock.ExpectQuery("FROM catalog_scan_state").WillReturnRows(dueRows(nil, nil))
+	expectStart(mock)
+	expectUnlock(mock)
+	require.NoError(t, l.runOnce(ctx))
+	assert.Equal(t, 1, after)
+
+	expectLock(mock, true)
+	mock.ExpectQuery("FROM catalog_scan_state").WillReturnRows(dueRows(time.Now(), nil))
+	expectUnlock(mock)
+	require.NoError(t, l.runOnce(ctx))
+	expectLock(mock, false)
+	assert.ErrorIs(t, l.runOnce(ctx), bgloop.ErrSkipped)
+	assert.Equal(t, 1, after, "no scan, nothing after it")
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var none *Loop
+	none.AfterScan(func(context.Context) {})
+}

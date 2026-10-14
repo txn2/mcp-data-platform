@@ -164,6 +164,33 @@ func TestBuildMountsAndRuns(t *testing.T) {
 	c.Stop()
 }
 
+// The import runner reads the DataHub the configuration names, and its routes
+// are mounted beside the scan's.
+func TestImportRunnerAndRoutes(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	assert.Empty(t, importRunner(db, nil).Configured())
+
+	c := assemble(db, registry.NewRegistry())
+	c.admin = true
+	c.Import = importRunner(db, &platform.DataHubImport{URL: "http://datahub:8080", Token: "t", Platform: "postgres"})
+	assert.Equal(t, "http://datahub:8080", c.Import.Configured())
+	mux := http.NewServeMux()
+	c.MountAdmin(mux, func(*platform.Platform) func(http.Handler) http.Handler {
+		return func(h http.Handler) http.Handler { return h }
+	}, nil)
+	mock.ExpectQuery("pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
+	mock.ExpectExec("pg_advisory_unlock").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM catalog_imports").WillReturnRows(sqlmock.NewRows(
+		[]string{"id", "source_url", "started_by", "started_at", "finished_at", "report", "error"}))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/admin/catalog/imports", http.NoBody))
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.JSONEq(t, `{"imports":[],"configured":"http://datahub:8080"}`, rec.Body.String())
+	c.Stop()
+}
+
 func TestTrinoInstance(t *testing.T) {
 	multi, err := trinokit.NewMulti(trinokit.MultiConfig{
 		DefaultConnection: "warehouse",
