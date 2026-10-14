@@ -3250,6 +3250,97 @@
                 }
             }
         },
+        "/admin/catalog/imports": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the latest imports from DataHub into the platform catalog, newest first, and the DataHub the configuration names, which the platform imports from after its first catalog scan until a run against it finishes without error: who started each, against which DataHub, whether it is running, and its report when it finished. The report counts the definitions and datasets imported, the aspects written, left unchanged, and kept because something other than the import wrote them in the catalog, the lineage edges recorded, the stored references rewritten, and lists what was skipped and why.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Catalog"
+                ],
+                "summary": "List DataHub imports",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/catalogimportapi.RunList"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Starts an import of a DataHub into the platform catalog and answers 202 at once; GET reports the run. An empty body reads the DataHub the configuration names, and answers 400 when it names none. It reads every dataset, the ones DataHub marked removed included, and every glossary node, glossary term, tag, domain and data product. A dataset's curation lands on the catalog dataset with the same path, so scan the connections first; a removed record fills what the live record of the same path lacks. An aspect something other than the import wrote in the catalog is kept. It then rewrites the DataHub URNs stored in memories, insights, changesets, knowledge pages and call records into catalog references. Running it again writes only what changed. Answers 409 while an import is running.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Catalog"
+                ],
+                "summary": "Import from DataHub",
+                "parameters": [
+                    {
+                        "description": "The DataHub to import; empty for the configured one",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/catalogimportapi.StartRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/catalogimport.Run"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/catalog/scans": {
             "get": {
                 "security": [
@@ -28997,6 +29088,170 @@
                 },
                 "title": {
                     "type": "string"
+                }
+            }
+        },
+        "catalogimport.DatasetCounts": {
+            "type": "object",
+            "properties": {
+                "from_removed": {
+                    "description": "FromRemoved is the catalog datasets that took curation from a record\nDataHub has marked removed.",
+                    "type": "integer"
+                },
+                "imported": {
+                    "description": "Imported is the catalog datasets the import wrote curation onto.",
+                    "type": "integer"
+                },
+                "read": {
+                    "description": "Read is every dataset record DataHub listed, removed ones included.",
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
+                }
+            }
+        },
+        "catalogimport.Report": {
+            "type": "object",
+            "properties": {
+                "aspects_kept": {
+                    "type": "integer"
+                },
+                "aspects_unchanged": {
+                    "type": "integer"
+                },
+                "aspects_written": {
+                    "description": "AspectsWritten counts the aspects the import wrote; AspectsUnchanged\nthose that already held DataHub's value; AspectsKept those it left\nalone because something other than the import wrote them in the\nplatform catalog.",
+                    "type": "integer"
+                },
+                "datasets": {
+                    "$ref": "#/definitions/catalogimport.DatasetCounts"
+                },
+                "definitions": {
+                    "description": "Definitions counts the definitions imported, by kind.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "lineage_edges": {
+                    "type": "integer"
+                },
+                "rewrite": {
+                    "description": "Rewrite is what the rewrite of stored references did.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/catalogimport.RewriteReport"
+                        }
+                    ]
+                },
+                "skipped": {
+                    "description": "Skipped lists what was not imported and why, at most maxListed of\nthem; SkippedByReason counts every one.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/catalogimport.Skip"
+                    }
+                },
+                "skipped_by_reason": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "catalogimport.RewriteReport": {
+            "type": "object",
+            "properties": {
+                "index_rows_dropped": {
+                    "description": "IndexRowsDropped counts the rows of the dataset search index keyed by a\nDataHub URN. The index reads the platform catalog; it re-reads the\ndatasets those rows named under their catalog references.",
+                    "type": "integer"
+                },
+                "rewritten": {
+                    "description": "Rewritten counts the rows changed, by table and column.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "unmapped": {
+                    "description": "Unmapped counts the references left as they were, because the import\nhas no catalog entity for them; each is listed in the report's skips\nwith where it was found.",
+                    "type": "integer"
+                }
+            }
+        },
+        "catalogimport.Run": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "report": {
+                    "$ref": "#/definitions/catalogimport.Report"
+                },
+                "running": {
+                    "description": "Running is true while the run holds the import's lock; a run with no\nfinished_at that does not was cut off when its replica stopped.",
+                    "type": "boolean"
+                },
+                "source_url": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "started_by": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogimport.Skip": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "urn": {
+                    "type": "string"
+                },
+                "where": {
+                    "description": "Where names the platform table and column a rewrite skip was found in.",
+                    "type": "string"
+                }
+            }
+        },
+        "catalogimportapi.RunList": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "description": "Configured is the address of the DataHub the configuration names in\ntoolkits.datahub, which the platform imports from after its first\ncatalog scan; empty when it names none.",
+                    "type": "string",
+                    "example": "https://datahub.example.com:8080"
+                },
+                "imports": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/catalogimport.Run"
+                    }
+                }
+            }
+        },
+        "catalogimportapi.StartRequest": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "description": "Token is a DataHub personal access token. It is used for this run and\nnot kept.",
+                    "type": "string"
+                },
+                "url": {
+                    "description": "URL is DataHub's GMS address, such as https://datahub.example.com:8080.",
+                    "type": "string",
+                    "example": "https://datahub.example.com:8080"
                 }
             }
         },

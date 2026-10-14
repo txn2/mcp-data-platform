@@ -3648,6 +3648,139 @@ definitions:
       title:
         type: string
     type: object
+  catalogimport.DatasetCounts:
+    properties:
+      from_removed:
+        description: |-
+          FromRemoved is the catalog datasets that took curation from a record
+          DataHub has marked removed.
+        type: integer
+      imported:
+        description: Imported is the catalog datasets the import wrote curation onto.
+        type: integer
+      read:
+        description: Read is every dataset record DataHub listed, removed ones included.
+        type: integer
+      skipped:
+        type: integer
+    type: object
+  catalogimport.Report:
+    properties:
+      aspects_kept:
+        type: integer
+      aspects_unchanged:
+        type: integer
+      aspects_written:
+        description: |-
+          AspectsWritten counts the aspects the import wrote; AspectsUnchanged
+          those that already held DataHub's value; AspectsKept those it left
+          alone because something other than the import wrote them in the
+          platform catalog.
+        type: integer
+      datasets:
+        $ref: '#/definitions/catalogimport.DatasetCounts'
+      definitions:
+        additionalProperties:
+          type: integer
+        description: Definitions counts the definitions imported, by kind.
+        type: object
+      lineage_edges:
+        type: integer
+      rewrite:
+        allOf:
+        - $ref: '#/definitions/catalogimport.RewriteReport'
+        description: Rewrite is what the rewrite of stored references did.
+      skipped:
+        description: |-
+          Skipped lists what was not imported and why, at most maxListed of
+          them; SkippedByReason counts every one.
+        items:
+          $ref: '#/definitions/catalogimport.Skip'
+        type: array
+      skipped_by_reason:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
+  catalogimport.RewriteReport:
+    properties:
+      index_rows_dropped:
+        description: |-
+          IndexRowsDropped counts the rows of the dataset search index keyed by a
+          DataHub URN. The index reads the platform catalog; it re-reads the
+          datasets those rows named under their catalog references.
+        type: integer
+      rewritten:
+        additionalProperties:
+          type: integer
+        description: Rewritten counts the rows changed, by table and column.
+        type: object
+      unmapped:
+        description: |-
+          Unmapped counts the references left as they were, because the import
+          has no catalog entity for them; each is listed in the report's skips
+          with where it was found.
+        type: integer
+    type: object
+  catalogimport.Run:
+    properties:
+      error:
+        type: string
+      finished_at:
+        type: string
+      id:
+        type: string
+      report:
+        $ref: '#/definitions/catalogimport.Report'
+      running:
+        description: |-
+          Running is true while the run holds the import's lock; a run with no
+          finished_at that does not was cut off when its replica stopped.
+        type: boolean
+      source_url:
+        type: string
+      started_at:
+        type: string
+      started_by:
+        type: string
+    type: object
+  catalogimport.Skip:
+    properties:
+      reason:
+        type: string
+      urn:
+        type: string
+      where:
+        description: Where names the platform table and column a rewrite skip was
+          found in.
+        type: string
+    type: object
+  catalogimportapi.RunList:
+    properties:
+      configured:
+        description: |-
+          Configured is the address of the DataHub the configuration names in
+          toolkits.datahub, which the platform imports from after its first
+          catalog scan; empty when it names none.
+        example: https://datahub.example.com:8080
+        type: string
+      imports:
+        items:
+          $ref: '#/definitions/catalogimport.Run'
+        type: array
+    type: object
+  catalogimportapi.StartRequest:
+    properties:
+      token:
+        description: |-
+          Token is a DataHub personal access token. It is used for this run and
+          not kept.
+        type: string
+      url:
+        description: URL is DataHub's GMS address, such as https://datahub.example.com:8080.
+        example: https://datahub.example.com:8080
+        type: string
+    type: object
   catalogscan.Exclusion:
     properties:
       connection:
@@ -14488,6 +14621,78 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Download a schema document
+      tags:
+      - Catalog
+  /admin/catalog/imports:
+    get:
+      description: 'Returns the latest imports from DataHub into the platform catalog,
+        newest first, and the DataHub the configuration names, which the platform
+        imports from after its first catalog scan until a run against it finishes
+        without error: who started each, against which DataHub, whether it is running,
+        and its report when it finished. The report counts the definitions and datasets
+        imported, the aspects written, left unchanged, and kept because something
+        other than the import wrote them in the catalog, the lineage edges recorded,
+        the stored references rewritten, and lists what was skipped and why.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalogimportapi.RunList'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List DataHub imports
+      tags:
+      - Catalog
+    post:
+      consumes:
+      - application/json
+      description: Starts an import of a DataHub into the platform catalog and answers
+        202 at once; GET reports the run. An empty body reads the DataHub the configuration
+        names, and answers 400 when it names none. It reads every dataset, the ones
+        DataHub marked removed included, and every glossary node, glossary term, tag,
+        domain and data product. A dataset's curation lands on the catalog dataset
+        with the same path, so scan the connections first; a removed record fills
+        what the live record of the same path lacks. An aspect something other than
+        the import wrote in the catalog is kept. It then rewrites the DataHub URNs
+        stored in memories, insights, changesets, knowledge pages and call records
+        into catalog references. Running it again writes only what changed. Answers
+        409 while an import is running.
+      parameters:
+      - description: The DataHub to import; empty for the configured one
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/catalogimportapi.StartRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/catalogimport.Run'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Import from DataHub
       tags:
       - Catalog
   /admin/catalog/scans:

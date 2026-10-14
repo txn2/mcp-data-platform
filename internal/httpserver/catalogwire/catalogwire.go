@@ -14,7 +14,9 @@ import (
 
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/catalogimportapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/catalogscanapi"
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogimport"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogscan"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
@@ -29,14 +31,18 @@ import (
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
-// Catalog is the assembled scan.
+// Catalog is the assembled scan, and the DataHub import beside it.
 type Catalog struct {
 	Settings *catalogscan.Store
 	Loop     *catalogscan.Loop
 	// Documents holds the schema documents the scan keeps (#1918).
 	Documents *catalogstore.Store
-	platform  *platform.Platform
-	admin     bool
+	// Import carries a DataHub into the catalog (#1923): once on upgrade,
+	// after a scan, from the DataHub the configuration names (#2124), and
+	// whenever an administrator starts it.
+	Import   *catalogimport.Runner
+	platform *platform.Platform
+	admin    bool
 }
 
 // Platform is what the scan is assembled from.
@@ -52,7 +58,24 @@ func Build(p *platform.Platform) *Catalog {
 	}
 	c := assemble(p.DB(), p.ToolkitRegistry())
 	c.platform, c.admin = p, p.Config().Admin.IsEnabled()
+	c.Import = importRunner(p.DB(), p.Config().DataHubImport)
+	c.Loop.AfterScan(c.Import.ImportOnUpgrade)
 	return c
+}
+
+// importRunner assembles the DataHub import over the platform catalog, set to
+// import from the DataHub the configuration names, if it names one.
+func importRunner(db *sql.DB, src *platform.DataHubImport) *catalogimport.Runner {
+	var opts catalogimport.Options
+	if src != nil {
+		opts = catalogimport.Options{Platform: src.Platform, CatalogMapping: src.CatalogMapping}
+	}
+	im := catalogimport.New(catalogstore.New(db), catalogimport.NewStore(db), opts)
+	rn := catalogimport.NewRunner(db, im, catalogimport.NewRewriter(db), catalogimport.Open)
+	if src != nil {
+		rn.Configure(&catalogimport.SourceConfig{URL: src.URL, Token: src.Token})
+	}
+	return rn
 }
 
 // assemble builds the scan over a database and the live toolkits, keeping each
@@ -79,6 +102,9 @@ func (c *Catalog) MountAdmin(
 	catalogscanapi.Register(mux, auth(c.platform), catalogscanapi.Config{
 		Store: c.Settings, Scanner: c.Loop, Documents: c.Documents, Author: author,
 	})
+	if c.Import != nil {
+		catalogimportapi.Register(mux, auth(c.platform), catalogimportapi.Config{Runner: c.Import, Author: author})
+	}
 }
 
 // Start begins scanning.
@@ -88,10 +114,11 @@ func (c *Catalog) Start(ctx context.Context) {
 	}
 }
 
-// Stop ends scanning.
+// Stop ends scanning and any import under way.
 func (c *Catalog) Stop() {
 	if c != nil {
 		c.Loop.Stop()
+		c.Import.Stop()
 	}
 }
 

@@ -32,6 +32,7 @@ type Loop struct {
 	db       *sql.DB
 	poll     time.Duration
 	trigger  chan struct{}
+	after    func(context.Context)
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -41,6 +42,14 @@ type Loop struct {
 // NewLoop builds the loop.
 func NewLoop(scanner *Scanner, settings SettingsReader, db *sql.DB) *Loop {
 	return &Loop{scanner: scanner, settings: settings, db: db, poll: pollInterval, trigger: make(chan struct{}, 1)}
+}
+
+// AfterScan names what runs after each scan this replica finishes without
+// error. Set it before Start.
+func (l *Loop) AfterScan(fn func(context.Context)) {
+	if l != nil {
+		l.after = fn
+	}
 }
 
 // Start begins the loop. It checks at once, so a deployment's first scan
@@ -121,6 +130,9 @@ func (l *Loop) runOnce(ctx context.Context) error {
 	}
 	if ran {
 		slog.InfoContext(ctx, "catalog scan finished")
+		if l.after != nil {
+			l.after(ctx)
+		}
 	}
 	return nil
 }

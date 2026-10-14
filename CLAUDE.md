@@ -411,7 +411,7 @@ a config that still sets it is refused at startup (`pkg/platform/config.go`).
 
 ### Semantic Layer
 
-With a database, the platform catalog (`pkg/catalog`, `internal/platform/catalogstore`, `docs/server/catalog.md`) is the semantic provider and needs no `semantic:` block; `noop` turns the layer off. A configuration that names DataHub (`semantic.provider: datahub`, `toolkits.datahub`, `enrichment.datahub_query_enrichment`, `enrichment.datahub_storage_enrichment`, `knowledge.apply.datahub_connection`) is refused at startup (`pkg/platform/config_refusal.go`), naming the release that carries a DataHub catalog into the platform catalog.
+With a database, the platform catalog (`pkg/catalog`, `internal/platform/catalogstore`, `docs/server/catalog.md`) is the semantic provider and needs no `semantic:` block; `noop` turns the layer off. A configuration that still names DataHub starts (`pkg/platform/config_datahub.go`, #2124): the DataHub `toolkits.datahub` names is imported into the catalog after the first catalog scan, once (`internal/platform/catalogimport`, Admin > Catalog > Import), nothing else of DataHub runs, and the DataHub settings are accepted, strict parsing included, and logged as `deprecated_key`; the next release refuses them.
 ```yaml
 semantic:
   provider: noop                   # Optional: turn the semantic layer off

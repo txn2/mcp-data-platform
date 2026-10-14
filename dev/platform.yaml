@@ -503,6 +503,16 @@ toolkits:
   mcp:
     enabled: true
 
+  # A deployment upgrading from DataHub (#2124): with DATAHUB_ENABLED=true the
+  # platform imports the DataHub at DATAHUB_ENDPOINT into its catalog after the
+  # first catalog scan. Off, the platform reads none of it.
+  datahub:
+    enabled: ${DATAHUB_ENABLED:-false}
+    instances:
+      acme:
+        endpoint: "${DATAHUB_ENDPOINT:-http://localhost:18080}"
+        token: "${DATAHUB_TOKEN:-}"
+
 # The platform catalog is the semantic layer wherever there is a database;
 # SEMANTIC_PROVIDER=noop turns it off.
 semantic:

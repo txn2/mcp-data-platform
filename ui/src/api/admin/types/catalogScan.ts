@@ -38,6 +38,48 @@ export interface CatalogScan {
   unread: CatalogScanUnread[];
 }
 
+// The one-time import of a deployment's DataHub into the catalog (#1923).
+
+/** Something an import did not carry over, and why; where names the platform
+ * table and column, or the catalog entity, it concerns. */
+export interface CatalogImportSkip {
+  urn: string;
+  reason: string;
+  where?: string;
+}
+
+/** What an import's rewrite of stored DataHub references did. */
+export interface CatalogImportRewrite {
+  rewritten: Record<string, number>;
+  unmapped: number;
+  index_rows_dropped: number;
+}
+
+/** What one import did. */
+export interface CatalogImportReport {
+  definitions: Record<string, number>;
+  datasets: { read: number; imported: number; from_removed: number; skipped: number };
+  aspects_written: number;
+  aspects_unchanged: number;
+  aspects_kept: number;
+  lineage_edges: number;
+  skipped: CatalogImportSkip[];
+  skipped_by_reason: Record<string, number>;
+  rewrite?: CatalogImportRewrite;
+}
+
+/** One run of the import. */
+export interface CatalogImport {
+  id: string;
+  source_url: string;
+  started_by: string;
+  started_at: string;
+  finished_at?: string;
+  running: boolean;
+  report?: CatalogImportReport;
+  error?: string;
+}
+
 /** CatalogDocument is a connection's schema document the scan keeps (#1918):
  * an API connection's OpenAPI spec, a GraphQL connection's SDL. */
 export interface CatalogDocument {

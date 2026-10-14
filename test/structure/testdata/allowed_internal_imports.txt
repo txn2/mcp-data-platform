@@ -28,6 +28,8 @@ internal/admin/catalogapi -> pkg/toolkits/apigateway
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalog
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalogindex
 internal/admin/catalogapi -> pkg/toolkits/graphql
+internal/admin/catalogimportapi -> internal/httpjson
+internal/admin/catalogimportapi -> internal/platform/catalogimport
 internal/admin/catalogscanapi -> internal/httpjson
 internal/admin/catalogscanapi -> internal/platform/catalogscan
 internal/admin/catalogscanapi -> pkg/blobserve
@@ -231,8 +233,10 @@ internal/httpserver/catalogapi -> internal/wirejson
 internal/httpserver/catalogapi -> pkg/audit
 internal/httpserver/catalogapi -> pkg/catalog
 internal/httpserver/catalogapi -> pkg/portal
+internal/httpserver/catalogwire -> internal/admin/catalogimportapi
 internal/httpserver/catalogwire -> internal/admin/catalogscanapi
 internal/httpserver/catalogwire -> internal/httpserver/catalogapi
+internal/httpserver/catalogwire -> internal/platform/catalogimport
 internal/httpserver/catalogwire -> internal/platform/catalogscan
 internal/httpserver/catalogwire -> internal/platform/catalogstore
 internal/httpserver/catalogwire -> internal/platform/tableregister
@@ -534,6 +538,9 @@ internal/platform/capacity -> internal/outbound
 internal/platform/capacity -> internal/platform/toolkitcfg
 internal/platform/capacity -> pkg/observability
 internal/platform/capacity -> pkg/portal/s3adapter
+internal/platform/catalogimport -> internal/logsan
+internal/platform/catalogimport -> internal/outbound
+internal/platform/catalogimport -> pkg/catalog
 internal/platform/catalogscan -> internal/bgloop
 internal/platform/catalogscan -> internal/logsan
 internal/platform/catalogscan -> pkg/catalog
