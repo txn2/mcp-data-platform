@@ -25,7 +25,7 @@ func TestNoopChangesetStore_InsertChangeset(t *testing.T) {
 	store := NewNoopChangesetStore()
 	err := store.InsertChangeset(context.Background(), Changeset{
 		ID:        "cs-1",
-		TargetURN: "urn:li:dataset:foo",
+		TargetURN: "mcp:dataset:(trino,warehouse,c.s.foo)",
 	})
 	assert.NoError(t, err)
 }
@@ -76,7 +76,7 @@ func TestPostgresChangesetStore_InsertChangeset(t *testing.T) {
 	store := NewPostgresChangesetStore(db)
 	cs := Changeset{
 		ID:               "cs-1",
-		TargetURN:        "urn:li:dataset:foo",
+		TargetURN:        "mcp:dataset:(trino,warehouse,c.s.foo)",
 		ChangeType:       "update_description",
 		PreviousValue:    map[string]any{"description": "old desc"},
 		NewValue:         map[string]any{"description": "new desc"},
@@ -108,7 +108,7 @@ func TestPostgresChangesetStore_InsertChangeset_DBError(t *testing.T) {
 	store := NewPostgresChangesetStore(db)
 	cs := Changeset{
 		ID:               "cs-2",
-		TargetURN:        "urn:li:dataset:bar",
+		TargetURN:        "mcp:dataset:(trino,warehouse,c.s.bar)",
 		ChangeType:       "add_tag",
 		PreviousValue:    map[string]any{},
 		NewValue:         map[string]any{"tag": "important"},
@@ -139,7 +139,7 @@ func TestPostgresChangesetStore_InsertChangeset_EmptyMaps(t *testing.T) {
 	store := NewPostgresChangesetStore(db)
 	cs := Changeset{
 		ID:               "cs-3",
-		TargetURN:        "urn:li:dataset:baz",
+		TargetURN:        "mcp:dataset:(trino,warehouse,c.s.baz)",
 		ChangeType:       "add_tag",
 		PreviousValue:    map[string]any{},
 		NewValue:         map[string]any{},
@@ -170,7 +170,7 @@ func TestPostgresChangesetStore_GetChangeset(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	rows := sqlmock.NewRows(changesetSelectColumns).AddRow(
-		"cs-1", now, "urn:li:dataset:foo", "update_description",
+		"cs-1", now, "mcp:dataset:(trino,warehouse,c.s.foo)", "update_description",
 		`{"description":"old"}`, `{"description":"new"}`,
 		`["ins-1","ins-2"]`,
 		"reviewer", "admin", false, //nolint:revive // test values
@@ -186,7 +186,7 @@ func TestPostgresChangesetStore_GetChangeset(t *testing.T) {
 	require.NotNil(t, cs)
 
 	assert.Equal(t, "cs-1", cs.ID)
-	assert.Equal(t, "urn:li:dataset:foo", cs.TargetURN)
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,c.s.foo)", cs.TargetURN)
 	assert.Equal(t, "update_description", cs.ChangeType)
 	assert.Equal(t, "old", cs.PreviousValue["description"])
 	assert.Equal(t, "new", cs.NewValue["description"])
@@ -208,7 +208,7 @@ func TestPostgresChangesetStore_GetChangeset_RolledBack(t *testing.T) {
 	rolledBackAt := now.Add(-time.Hour)
 
 	rows := sqlmock.NewRows(changesetSelectColumns).AddRow(
-		"cs-2", now, "urn:li:dataset:bar", "add_tag",
+		"cs-2", now, "mcp:dataset:(trino,warehouse,c.s.bar)", "add_tag",
 		`{}`, `{"tag":"important"}`,
 		`["ins-3"]`,
 		"reviewer", "admin", true,
@@ -256,7 +256,7 @@ func TestPostgresChangesetStore_GetChangeset_InvalidJSON(t *testing.T) {
 	now := time.Now()
 
 	rows := sqlmock.NewRows(changesetSelectColumns).AddRow(
-		"cs-bad", now, "urn:li:dataset:foo", "add_tag", //nolint:revive // test values
+		"cs-bad", now, "mcp:dataset:(trino,warehouse,c.s.foo)", "add_tag", //nolint:revive // test values
 		`invalid-json`, `{}`, `[]`,
 		"reviewer", "admin", false,
 		"", sql.NullTime{},
@@ -287,7 +287,7 @@ func TestPostgresChangesetStore_ListChangesets_NoFilter(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	rows := sqlmock.NewRows(changesetSelectColumns).AddRow(
-		"cs-1", now, "urn:li:dataset:foo", "update_description", //nolint:revive // test values
+		"cs-1", now, "mcp:dataset:(trino,warehouse,c.s.foo)", "update_description", //nolint:revive // test values
 		`{"description":"old"}`, `{"description":"new"}`,
 		`["ins-1"]`,
 		"reviewer", "admin", false,
@@ -312,15 +312,15 @@ func TestPostgresChangesetStore_ListChangesets_WithEntityURNFilter(t *testing.T)
 	store := NewPostgresChangesetStore(db)
 
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM knowledge_changesets WHERE").
-		WithArgs("urn:li:dataset:foo").
+		WithArgs("mcp:dataset:(trino,warehouse,c.s.foo)").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_changesets WHERE").
-		WithArgs("urn:li:dataset:foo").
+		WithArgs("mcp:dataset:(trino,warehouse,c.s.foo)").
 		WillReturnRows(sqlmock.NewRows(changesetSelectColumns))
 
 	changesets, total, err := store.ListChangesets(context.Background(), ChangesetFilter{
-		EntityURN: "urn:li:dataset:foo",
+		EntityURN: "mcp:dataset:(trino,warehouse,c.s.foo)",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 0, total)
@@ -339,7 +339,7 @@ func TestPostgresChangesetStore_ListChangesets_MultipleFilters(t *testing.T) {
 	rolledBack := false
 
 	filter := ChangesetFilter{
-		EntityURN:  "urn:li:dataset:foo",
+		EntityURN:  "mcp:dataset:(trino,warehouse,c.s.foo)",
 		AppliedBy:  "admin",
 		Since:      &since,
 		Until:      &until,
@@ -348,11 +348,11 @@ func TestPostgresChangesetStore_ListChangesets_MultipleFilters(t *testing.T) {
 	}
 
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM knowledge_changesets WHERE").
-		WithArgs("urn:li:dataset:foo", "admin", since, until, false).
+		WithArgs("mcp:dataset:(trino,warehouse,c.s.foo)", "admin", since, until, false).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_changesets WHERE").
-		WithArgs("urn:li:dataset:foo", "admin", since, until, false).
+		WithArgs("mcp:dataset:(trino,warehouse,c.s.foo)", "admin", since, until, false).
 		WillReturnRows(sqlmock.NewRows(changesetSelectColumns))
 
 	changesets, total, err := store.ListChangesets(context.Background(), filter)
@@ -436,7 +436,7 @@ func TestPostgresChangesetStore_ListChangesets_InvalidJSON(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	rows := sqlmock.NewRows(changesetSelectColumns).AddRow(
-		"cs-bad", now, "urn:li:dataset:foo", "add_tag",
+		"cs-bad", now, "mcp:dataset:(trino,warehouse,c.s.foo)", "add_tag",
 		`not-json`, `{}`, `[]`,
 		"reviewer", "admin", false,
 		"", sql.NullTime{},
@@ -466,13 +466,13 @@ func TestPostgresChangesetStore_ListChangesets_MultipleRows(t *testing.T) {
 
 	rows := sqlmock.NewRows(changesetSelectColumns).
 		AddRow(
-			"cs-1", now, "urn:li:dataset:foo", "update_description",
+			"cs-1", now, "mcp:dataset:(trino,warehouse,c.s.foo)", "update_description",
 			`{}`, `{}`, `["ins-1"]`,
 			"reviewer", "admin", false,
 			"", sql.NullTime{},
 		).
 		AddRow(
-			"cs-2", now, "urn:li:dataset:bar", "add_tag", //nolint:revive // test values
+			"cs-2", now, "mcp:dataset:(trino,warehouse,c.s.bar)", "add_tag", //nolint:revive // test values
 			`{}`, `{"tag":"x"}`, `["ins-2"]`, //nolint:revive // test values
 			"reviewer2", "admin2", true,
 			"rollback-user", rolledBackAt,
@@ -583,7 +583,7 @@ func TestApplyChangesetFilter(t *testing.T) {
 		},
 		{
 			name:         "entity_urn only",
-			filter:       ChangesetFilter{EntityURN: "urn:li:dataset:foo"},
+			filter:       ChangesetFilter{EntityURN: "mcp:dataset:(trino,warehouse,c.s.foo)"},
 			wantArgCount: 1,
 			wantContains: []string{"target_urn = $1"},
 		},
@@ -620,7 +620,7 @@ func TestApplyChangesetFilter(t *testing.T) {
 		{
 			name: "all filters",
 			filter: ChangesetFilter{
-				EntityURN:  "urn:li:dataset:foo",
+				EntityURN:  "mcp:dataset:(trino,warehouse,c.s.foo)",
 				AppliedBy:  "admin",
 				Since:      &since,
 				Until:      &until,
@@ -639,7 +639,7 @@ func TestApplyChangesetFilter(t *testing.T) {
 		{
 			name: "two filters with correct arg numbering",
 			filter: ChangesetFilter{
-				EntityURN: "urn:li:dataset:foo",
+				EntityURN: "mcp:dataset:(trino,warehouse,c.s.foo)",
 				AppliedBy: "admin",
 			},
 			wantArgCount: 2,

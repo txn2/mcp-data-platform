@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )
 
 const (
@@ -33,7 +31,6 @@ const (
 	cfgTestFilePerms         = 0o600
 	cfgTestConflictNearest   = "nearest"
 	cfgTestRoleAdmin         = "admin"
-	cfgTestToolkitDatahub    = "datahub"
 	cfgTestQualityThreshold  = 0.8
 	cfgTestRetentionDays     = 30
 	cfgTestStreamableSessTTL = 15 * time.Minute
@@ -150,30 +147,6 @@ server:
 `)
 	if cfg.Server.Name != "env-platform" {
 		t.Errorf("Server.Name = %q, want %q", cfg.Server.Name, "env-platform")
-	}
-}
-
-func TestLoadConfig_URNMapping(t *testing.T) {
-	cfg := loadTestConfig(t, `
-server:
-  name: test-platform
-semantic:
-  provider: datahub
-  instance: primary
-  urn_mapping:
-    platform: postgres
-    catalog_mapping:
-      rdbms: warehouse
-      iceberg: datalake
-`)
-	if cfg.Semantic.URNMapping.Platform != cfgTestProviderPostgres {
-		t.Errorf("Semantic.URNMapping.Platform = %q, want %q", cfg.Semantic.URNMapping.Platform, cfgTestProviderPostgres)
-	}
-	if cfg.Semantic.URNMapping.CatalogMapping[cfgTestCatalogRdbms] != cfgTestCatalogWarehouse {
-		t.Errorf("CatalogMapping[rdbms] = %q, want %q", cfg.Semantic.URNMapping.CatalogMapping[cfgTestCatalogRdbms], cfgTestCatalogWarehouse)
-	}
-	if cfg.Semantic.URNMapping.CatalogMapping[cfgTestCatalogIceberg] != cfgTestCatalogDatalake {
-		t.Errorf("CatalogMapping[iceberg] = %q, want %q", cfg.Semantic.URNMapping.CatalogMapping[cfgTestCatalogIceberg], cfgTestCatalogDatalake)
 	}
 }
 
@@ -716,20 +689,11 @@ func TestConfigTypes_PersonaDef(t *testing.T) {
 }
 
 func TestConfigTypes_EnrichmentConfig(t *testing.T) {
-	// The four cross-enrichment flags default to enabled when unset (#571): an
+	// The cross-enrichment flag defaults to enabled when unset (#571): an
 	// operator should not have to opt every deployment into the core feature.
 	var def EnrichmentConfig
 	if !def.IsTrinoSemanticEnrichmentEnabled() {
 		t.Error("TrinoSemanticEnrichment should default enabled")
-	}
-	if !def.IsDataHubQueryEnrichmentEnabled() {
-		t.Error("DataHubQueryEnrichment should default enabled")
-	}
-	if !def.IsS3SemanticEnrichmentEnabled() {
-		t.Error("S3SemanticEnrichment should default enabled")
-	}
-	if !def.IsDataHubStorageEnrichmentEnabled() {
-		t.Error("DataHubStorageEnrichment should default enabled")
 	}
 
 	// An explicit false disables.
@@ -765,86 +729,6 @@ func TestConfigTypes_AuditConfig(t *testing.T) {
 	}
 	if cfg.RetentionDays != cfgTestRetentionDays {
 		t.Errorf("RetentionDays = %d", cfg.RetentionDays)
-	}
-}
-
-func TestConfigTypes_URNMappingConfig(t *testing.T) {
-	cfg := URNMappingConfig{
-		Platform: cfgTestProviderPostgres,
-		CatalogMapping: map[string]string{
-			cfgTestCatalogRdbms:   cfgTestCatalogWarehouse,
-			cfgTestCatalogIceberg: cfgTestCatalogDatalake,
-		},
-	}
-	if cfg.Platform != cfgTestProviderPostgres {
-		t.Errorf("Platform = %q, want %q", cfg.Platform, cfgTestProviderPostgres)
-	}
-	if cfg.CatalogMapping[cfgTestCatalogRdbms] != cfgTestCatalogWarehouse {
-		t.Errorf("CatalogMapping[rdbms] = %q, want %q", cfg.CatalogMapping[cfgTestCatalogRdbms], cfgTestCatalogWarehouse)
-	}
-	if cfg.CatalogMapping[cfgTestCatalogIceberg] != cfgTestCatalogDatalake {
-		t.Errorf("CatalogMapping[iceberg] = %q, want %q", cfg.CatalogMapping[cfgTestCatalogIceberg], cfgTestCatalogDatalake)
-	}
-}
-
-func TestConfigTypes_SemanticConfigWithURNMapping(t *testing.T) {
-	cfg := SemanticConfig{
-		Provider: cfgTestToolkitDatahub,
-		Instance: "primary",
-		Cache: CacheConfig{
-			Enabled: true,
-			TTL:     cfgTestDefaultCacheTTL,
-		},
-		URNMapping: URNMappingConfig{
-			Platform:       cfgTestProviderPostgres,
-			CatalogMapping: map[string]string{cfgTestCatalogRdbms: cfgTestCatalogWarehouse},
-		},
-	}
-	if cfg.Provider != cfgTestToolkitDatahub {
-		t.Errorf("Provider = %q", cfg.Provider)
-	}
-	if cfg.URNMapping.Platform != cfgTestProviderPostgres {
-		t.Errorf("URNMapping.Platform = %q", cfg.URNMapping.Platform)
-	}
-	if cfg.URNMapping.CatalogMapping[cfgTestCatalogRdbms] != cfgTestCatalogWarehouse {
-		t.Errorf("URNMapping.CatalogMapping[rdbms] = %q", cfg.URNMapping.CatalogMapping[cfgTestCatalogRdbms])
-	}
-}
-
-func TestConfigTypes_SemanticConfigWithLineage(t *testing.T) {
-	cfg := SemanticConfig{
-		Provider: cfgTestToolkitDatahub,
-		Instance: "primary",
-		Lineage: datahubsemantic.LineageConfig{
-			Enabled:             true,
-			MaxHops:             cfgTestLineageMaxHops,
-			Inherit:             []string{"glossary_terms", "descriptions", "tags"},
-			ConflictResolution:  cfgTestConflictNearest,
-			PreferColumnLineage: true,
-			CacheTTL:            cfgTestCustomSessTTL,
-			Timeout:             cfgTestLineageTO,
-		},
-	}
-	if !cfg.Lineage.Enabled {
-		t.Error("Lineage.Enabled = false, want true")
-	}
-	if cfg.Lineage.MaxHops != cfgTestLineageMaxHops {
-		t.Errorf("Lineage.MaxHops = %d, want %d", cfg.Lineage.MaxHops, cfgTestLineageMaxHops)
-	}
-	if len(cfg.Lineage.Inherit) != cfgTestLineageInheritLen {
-		t.Errorf("Lineage.Inherit len = %d, want %d", len(cfg.Lineage.Inherit), cfgTestLineageInheritLen)
-	}
-	if cfg.Lineage.ConflictResolution != cfgTestConflictNearest {
-		t.Errorf("Lineage.ConflictResolution = %q, want %q", cfg.Lineage.ConflictResolution, cfgTestConflictNearest)
-	}
-	if !cfg.Lineage.PreferColumnLineage {
-		t.Error("Lineage.PreferColumnLineage = false, want true")
-	}
-	if cfg.Lineage.CacheTTL != cfgTestCustomSessTTL {
-		t.Errorf("Lineage.CacheTTL = %v, want %v", cfg.Lineage.CacheTTL, cfgTestCustomSessTTL)
-	}
-	if cfg.Lineage.Timeout != cfgTestLineageTO {
-		t.Errorf("Lineage.Timeout = %v, want %v", cfg.Lineage.Timeout, cfgTestLineageTO)
 	}
 }
 
@@ -1273,163 +1157,6 @@ admin:
 	}
 }
 
-func TestLoadConfig_DataHubDebugFromYAML(t *testing.T) {
-	cfg := loadTestConfig(t, `
-server:
-  name: test-platform
-toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        endpoint: "http://datahub.example.com:8080"
-        token: "test-token"
-        debug: true
-    default: primary
-`)
-	primaryInstance := requireDataHubPrimaryInstance(t, cfg)
-	debug, ok := primaryInstance["debug"].(bool)
-	if !ok {
-		t.Fatal("expected debug field in primary instance")
-	}
-	if !debug {
-		t.Error("expected debug to be true")
-	}
-}
-
-// requireDataHubPrimaryInstance extracts the primary datahub instance config from a loaded Config.
-func requireDataHubPrimaryInstance(t *testing.T, cfg *Config) map[string]any {
-	t.Helper()
-	datahubCfgAny, ok := cfg.Toolkits[cfgTestToolkitDatahub]
-	if !ok {
-		t.Fatal("expected datahub toolkit config")
-	}
-	datahubCfg, ok := datahubCfgAny.(map[string]any)
-	if !ok {
-		t.Fatal("expected datahub toolkit config to be a map")
-	}
-	instances, ok := datahubCfg["instances"].(map[string]any)
-	if !ok {
-		t.Fatal("expected datahub instances config")
-	}
-	primaryInstance, ok := instances["primary"].(map[string]any)
-	if !ok {
-		t.Fatal("expected datahub primary instance config")
-	}
-	return primaryInstance
-}
-
-func TestLoadConfig_DataHubDebugDefaultsFalse(t *testing.T) {
-	cfg := loadTestConfig(t, `
-server:
-  name: test-platform
-toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        endpoint: "http://datahub.example.com:8080"
-        token: "test-token"
-    default: primary
-`)
-	primaryInstance := requireDataHubPrimaryInstance(t, cfg)
-	_, hasDebug := primaryInstance["debug"]
-	if hasDebug {
-		t.Error("expected debug field to not be present when not specified")
-	}
-}
-
-// assertLineageBasics verifies the basic lineage config fields.
-func assertLineageBasics(t *testing.T, lineage datahubsemantic.LineageConfig) {
-	t.Helper()
-	if !lineage.Enabled {
-		t.Error("Lineage.Enabled = false, want true")
-	}
-	if lineage.MaxHops != cfgTestLineageMaxHops {
-		t.Errorf("Lineage.MaxHops = %d, want %d", lineage.MaxHops, cfgTestLineageMaxHops)
-	}
-	if len(lineage.Inherit) != cfgTestLineageInheritLen {
-		t.Errorf("Lineage.Inherit len = %d, want %d", len(lineage.Inherit), cfgTestLineageInheritLen)
-	}
-	if lineage.ConflictResolution != cfgTestConflictNearest {
-		t.Errorf("Lineage.ConflictResolution = %q, want %q", lineage.ConflictResolution, cfgTestConflictNearest)
-	}
-	if !lineage.PreferColumnLineage {
-		t.Error("Lineage.PreferColumnLineage = false, want true")
-	}
-}
-
-func TestLoadConfig_LineageFromYAML(t *testing.T) {
-	cfg := loadTestConfig(t, `
-server:
-  name: test-platform
-semantic:
-  provider: datahub
-  instance: primary
-  lineage:
-    enabled: true
-    max_hops: 3
-    inherit:
-      - glossary_terms
-      - descriptions
-      - tags
-    conflict_resolution: nearest
-    prefer_column_lineage: true
-    cache_ttl: 15m
-    timeout: 10s
-    column_transforms:
-      - target_pattern: "*_flattened"
-        strip_prefix: "payload."
-    aliases:
-      - source: "warehouse.raw.events"
-        targets:
-          - "warehouse.analytics.*"
-        column_mapping:
-          user_id: payload.user_id
-`)
-	assertLineageBasics(t, cfg.Semantic.Lineage)
-
-	expectedInherit := []string{"glossary_terms", "descriptions", "tags"}
-	for i, want := range expectedInherit {
-		if cfg.Semantic.Lineage.Inherit[i] != want {
-			t.Errorf("Semantic.Lineage.Inherit[%d] = %q, want %q", i, cfg.Semantic.Lineage.Inherit[i], want)
-		}
-	}
-	if cfg.Semantic.Lineage.CacheTTL != cfgTestLineageCacheTTL {
-		t.Errorf("Semantic.Lineage.CacheTTL = %v, want %v", cfg.Semantic.Lineage.CacheTTL, cfgTestLineageCacheTTL)
-	}
-	if cfg.Semantic.Lineage.Timeout != cfgTestLineageTimeout {
-		t.Errorf("Semantic.Lineage.Timeout = %v, want %v", cfg.Semantic.Lineage.Timeout, cfgTestLineageTimeout)
-	}
-
-	// Verify column transforms
-	if len(cfg.Semantic.Lineage.ColumnTransforms) != 1 {
-		t.Fatalf("ColumnTransforms len = %d, want 1", len(cfg.Semantic.Lineage.ColumnTransforms))
-	}
-	transform := cfg.Semantic.Lineage.ColumnTransforms[0]
-	if transform.TargetPattern != "*_flattened" {
-		t.Errorf("ColumnTransforms[0].TargetPattern = %q, want %q", transform.TargetPattern, "*_flattened")
-	}
-	if transform.StripPrefix != "payload." {
-		t.Errorf("ColumnTransforms[0].StripPrefix = %q, want %q", transform.StripPrefix, "payload.")
-	}
-
-	// Verify aliases
-	if len(cfg.Semantic.Lineage.Aliases) != 1 {
-		t.Fatalf("Aliases len = %d, want 1", len(cfg.Semantic.Lineage.Aliases))
-	}
-	alias := cfg.Semantic.Lineage.Aliases[0]
-	if alias.Source != "warehouse.raw.events" {
-		t.Errorf("Aliases[0].Source = %q, want %q", alias.Source, "warehouse.raw.events")
-	}
-	if len(alias.Targets) != 1 || alias.Targets[0] != "warehouse.analytics.*" {
-		t.Errorf("Aliases[0].Targets = %v, want [warehouse.analytics.*]", alias.Targets)
-	}
-	if alias.ColumnMapping["user_id"] != "payload.user_id" {
-		t.Errorf("Aliases[0].ColumnMapping[user_id] = %q, want %q", alias.ColumnMapping["user_id"], "payload.user_id")
-	}
-}
-
 func TestApplyDefaults_SessionsConfig(t *testing.T) {
 	cfg := &Config{}
 	applyDefaults(cfg)
@@ -1524,7 +1251,7 @@ server:
 tools:
   allow:
     - "trino_*"
-    - "datahub_*"
+    - "s3_*"
   deny:
     - "*_delete_*"
 `)
@@ -1534,8 +1261,8 @@ tools:
 		if cfg.Tools.Allow[0] != "trino_*" {
 			t.Errorf("Tools.Allow[0] = %q, want %q", cfg.Tools.Allow[0], "trino_*")
 		}
-		if cfg.Tools.Allow[1] != "datahub_*" {
-			t.Errorf("Tools.Allow[1] = %q, want %q", cfg.Tools.Allow[1], "datahub_*")
+		if cfg.Tools.Allow[1] != "s3_*" {
+			t.Errorf("Tools.Allow[1] = %q, want %q", cfg.Tools.Allow[1], "s3_*")
 		}
 		if len(cfg.Tools.Deny) != 1 {
 			t.Fatalf("Tools.Deny length = %d, want 1", len(cfg.Tools.Deny))
@@ -1667,72 +1394,6 @@ enrichment:
 `)
 		if !cfg.Enrichment.IsColumnContextFilteringEnabled() {
 			t.Error("expected missing column_context_filtering to default to true")
-		}
-	})
-}
-
-func TestEnrichmentConfig_IsSearchSchemaPreviewEnabled(t *testing.T) {
-	t.Run("nil defaults to true", func(t *testing.T) {
-		cfg := &EnrichmentConfig{}
-		if !cfg.IsSearchSchemaPreviewEnabled() {
-			t.Error("expected nil SearchSchemaPreview to default to true")
-		}
-	})
-
-	t.Run("explicit true", func(t *testing.T) {
-		v := true
-		cfg := &EnrichmentConfig{SearchSchemaPreview: &v}
-		if !cfg.IsSearchSchemaPreviewEnabled() {
-			t.Error("expected explicit true to return true")
-		}
-	})
-
-	t.Run("explicit false", func(t *testing.T) {
-		v := false
-		cfg := &EnrichmentConfig{SearchSchemaPreview: &v}
-		if cfg.IsSearchSchemaPreviewEnabled() {
-			t.Error("expected explicit false to return false")
-		}
-	})
-
-	t.Run("YAML loading with search_schema_preview false", func(t *testing.T) {
-		cfg := loadTestConfig(t, `
-server:
-  name: test-platform
-enrichment:
-  search_schema_preview: false
-`)
-		if cfg.Enrichment.IsSearchSchemaPreviewEnabled() {
-			t.Error("expected search_schema_preview: false to disable")
-		}
-	})
-}
-
-func TestEnrichmentConfig_EffectiveSchemaPreviewMaxColumns(t *testing.T) {
-	t.Run("nil defaults to 15", func(t *testing.T) {
-		cfg := &EnrichmentConfig{}
-		if cfg.EffectiveSchemaPreviewMaxColumns() != defaultSchemaPreviewMaxColumns {
-			t.Errorf("expected %d, got %d", defaultSchemaPreviewMaxColumns, cfg.EffectiveSchemaPreviewMaxColumns())
-		}
-	})
-
-	t.Run("explicit value", func(t *testing.T) {
-		v := 5
-		cfg := &EnrichmentConfig{SchemaPreviewMaxColumns: &v}
-		if cfg.EffectiveSchemaPreviewMaxColumns() != 5 {
-			t.Errorf("expected 5, got %d", cfg.EffectiveSchemaPreviewMaxColumns())
-		}
-	})
-
-	t.Run("YAML loading", func(t *testing.T) {
-		cfg := loadTestConfig(t, `
-server:
-  name: test-platform
-enrichment:
-  schema_preview_max_columns: 10
-`)
-		if cfg.Enrichment.EffectiveSchemaPreviewMaxColumns() != 10 {
-			t.Errorf("expected 10, got %d", cfg.Enrichment.EffectiveSchemaPreviewMaxColumns())
 		}
 	})
 }
@@ -2199,26 +1860,25 @@ func TestConfigValidate_RejectsBadAuditDelivery(t *testing.T) {
 
 // TestConfigValidate_RequiresDefaultForMultipleInstances covers the refusal
 // that keeps the platform from choosing a connection the operator never named.
-// Which instance an unqualified lookup (semantic.instance, query.instance,
-// storage.instance, knowledge.apply.datahub_connection) means is undefined when
+// Which instance an unqualified lookup (query.instance) means is undefined when
 // a kind holds several with no "default", so the config is refused at startup
 // with the candidates named rather than resolved to one of them.
 func TestConfigValidate_RequiresDefaultForMultipleInstances(t *testing.T) {
 	twoInstances := func(extra map[string]any) map[string]any {
 		kind := map[string]any{"instances": map[string]any{
-			"primary":   map[string]any{"url": "https://a.example.com"},
-			"secondary": map[string]any{"url": "https://b.example.com"},
+			"primary":   map[string]any{"region": "us-east-1"},
+			"secondary": map[string]any{"region": "us-west-2"},
 		}}
 		maps.Copy(kind, extra)
-		return map[string]any{"datahub": kind}
+		return map[string]any{"s3": kind}
 	}
 
 	t.Run("refused with the candidates named", func(t *testing.T) {
 		err := (&Config{Toolkits: twoInstances(nil)}).Validate()
 		if err == nil {
-			t.Fatal("expected Validate to refuse two datahub instances with no default")
+			t.Fatal("expected Validate to refuse two s3 instances with no default")
 		}
-		for _, want := range []string{"toolkits.datahub.default", "primary, secondary"} {
+		for _, want := range []string{"toolkits.s3.default", "primary, secondary"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("expected error to mention %q, got %v", want, err)
 			}

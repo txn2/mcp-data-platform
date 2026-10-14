@@ -37,9 +37,10 @@ import (
 // Promotion sinks accepted by the promote stage, mirroring the apply_knowledge
 // tool's `sink` argument.
 const (
-	// SinkDataHub promotes the insight to the anchored entity's catalog
-	// description; the fact then reaches any identity via cross-enrichment.
-	SinkDataHub = "datahub"
+	// SinkCatalog promotes the insight to the anchored dataset's description
+	// in the platform catalog; the fact then reaches any identity via
+	// cross-enrichment.
+	SinkCatalog = "catalog"
 	// SinkKnowledgePage promotes the insight to a canonical portal knowledge
 	// page; the fact then reaches any identity via the search tool.
 	SinkKnowledgePage = "knowledge_page"
@@ -54,13 +55,13 @@ type Protocol struct {
 	// Title is a human label for the report.
 	Title string `yaml:"title" json:"title"`
 	// Fact is the domain fact taught in the teach stage. It is also the text the
-	// runner verifies was captured as an insight and, for the datahub sink, the
+	// runner verifies was captured as an insight and, for the catalog sink, the
 	// description promoted onto the entity.
 	Fact string `yaml:"fact" json:"fact"`
-	// EntityURN anchors the captured insight and is the datahub-sink apply
+	// EntityURN anchors the captured insight and is the catalog-sink apply
 	// target. Recall/transfer questions concern this entity.
 	EntityURN string `yaml:"entity_urn" json:"entity_urn"`
-	// Sink selects the promotion destination: SinkDataHub or SinkKnowledgePage.
+	// Sink selects the promotion destination: SinkCatalog or SinkKnowledgePage.
 	// The two sinks are the two teach-once-answer-forever channels the S5
 	// definition requires exercising.
 	Sink string `yaml:"sink" json:"sink"`
@@ -190,7 +191,7 @@ func (p Protocol) validateHeader() error {
 // validateSink checks the sink is known and its payload is present.
 func (p Protocol) validateSink() error {
 	switch p.Sink {
-	case SinkDataHub:
+	case SinkCatalog:
 		return nil
 	case SinkKnowledgePage:
 		if p.Page == nil || p.Page.Slug == "" || p.Page.Title == "" || p.Page.Body == "" {

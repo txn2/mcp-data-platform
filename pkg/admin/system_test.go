@@ -217,7 +217,7 @@ func TestListTools(t *testing.T) {
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query", "trino_describe_table"}},
-				{kind: "datahub", name: "primary", connection: "primary-datahub", tools: []string{"datahub_search"}},
+				{kind: "graphql", name: "primary", connection: "primary-graphql", tools: []string{"graphql_discover"}},
 			},
 		}
 		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
@@ -366,7 +366,7 @@ func TestListConnections(t *testing.T) {
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
-				{kind: "datahub", name: "primary", connection: "primary-datahub", tools: []string{"datahub_search"}},
+				{kind: "graphql", name: "primary", connection: "primary-graphql", tools: []string{"graphql_discover"}},
 			},
 		}
 		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
@@ -392,7 +392,7 @@ func TestListConnections(t *testing.T) {
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query", "trino_describe_table"}},
-				{kind: "datahub", name: "primary", connection: "primary-datahub", tools: []string{"datahub_search", "datahub_get_lineage"}},
+				{kind: "graphql", name: "primary", connection: "primary-graphql", tools: []string{"graphql_discover", "graphql_query"}},
 			},
 		}
 		h := NewHandler(Deps{Config: cfg, ToolkitRegistry: reg}, nil)
@@ -407,20 +407,20 @@ func TestListConnections(t *testing.T) {
 		assert.Equal(t, 2, body.Total)
 
 		// Find connections by name (sorted alphabetically).
-		var trinoConn, datahubConn connectionInfo
+		var trinoConn, graphqlConn connectionInfo
 		for _, c := range body.Connections {
 			switch c.Kind {
 			case "trino":
 				trinoConn = c
-			case "datahub":
-				datahubConn = c
+			case "graphql":
+				graphqlConn = c
 			}
 		}
 
 		// Trino tools match allow pattern — nothing hidden.
 		assert.Empty(t, trinoConn.HiddenTools)
-		// DataHub tools do NOT match "trino_*" — all hidden.
-		assert.ElementsMatch(t, []string{"datahub_search", "datahub_get_lineage"}, datahubConn.HiddenTools)
+		// GraphQL tools do NOT match "trino_*" — all hidden.
+		assert.ElementsMatch(t, []string{"graphql_discover", "graphql_query"}, graphqlConn.HiddenTools)
 	})
 
 	t.Run("returns empty list when no registry", func(t *testing.T) {

@@ -131,7 +131,7 @@ func (toolkitLookup) GetToolkitForTool(tool string) registry.ToolkitMatch {
 }
 
 // curatedQueries records what a promotion wrote to the catalog. It models the
-// DataHub client's contract: a set of dataset URNs and the statement.
+// catalog writer's contract: a set of dataset references and the statement.
 type curatedQueries struct {
 	datasetURNs []string
 	name        string

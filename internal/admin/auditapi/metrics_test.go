@@ -397,7 +397,7 @@ func TestGetAuditDiscovery_Success(t *testing.T) {
 			DiscoveryRate:         0.60,
 			QueryWithoutDiscovery: 20,
 			TopDiscoveryTools: []audit.BreakdownEntry{
-				{Dimension: "datahub_search", Count: 120, SuccessRate: 0.98, AvgDurationMS: 15.5},
+				{Dimension: "search", Count: 120, SuccessRate: 0.98, AvgDurationMS: 15.5},
 			},
 		},
 	}
@@ -415,7 +415,7 @@ func TestGetAuditDiscovery_Success(t *testing.T) {
 	assert.Equal(t, 50, result.DiscoveryBeforeQuery)
 	assert.InDelta(t, 0.60, result.DiscoveryRate, 0.01)
 	require.Len(t, result.TopDiscoveryTools, 1)
-	assert.Equal(t, "datahub_search", result.TopDiscoveryTools[0].Dimension)
+	assert.Equal(t, "search", result.TopDiscoveryTools[0].Dimension)
 }
 
 func TestGetAuditDiscovery_QueryError(t *testing.T) {

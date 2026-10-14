@@ -8,8 +8,6 @@ export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api", "graphql"];
 // Kind badge colors for the list and viewer header.
 const KIND_COLORS: Record<string, string> = {
   trino: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  datahub:
-    "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
   s3: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
   mcp: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
   api: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",

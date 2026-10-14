@@ -20,7 +20,7 @@
 #        docs/**/*.md, bench doc, or README.md. This is what would have caught
 #        the reference the deleted bench/LOCOMO.md carried.
 #     4. Benchmark reference pages cite only registered tools — any
-#        trino_/datahub_/s3_/api_/memory_ token in docs/reference/benchmarks.md
+#        trino_/s3_/api_/memory_ token in docs/reference/benchmarks.md
 #        or benchmark-report.md must be a registered tool
 #        (scripts/registered-tools.txt) or an acknowledged non-tool identifier
 #        (scripts/doc-check-nontools.txt).
@@ -132,7 +132,7 @@ check_benchmark_tool_refs() {
             grep -qxF "$tok" <<<"$allow" && continue
             echo "  UNREGISTERED TOOL: '$tok' referenced in $f"
             violations=$((violations + 1))
-        done < <(grep -hoE '\b(trino|datahub|s3|api|memory)_[a-z][a-z0-9_]*' "$f" | sort -u)
+        done < <(grep -hoE '\b(trino|s3|api|memory)_[a-z][a-z0-9_]*' "$f" | sort -u)
     done
 
     if [ "$violations" -gt 0 ]; then

@@ -8,7 +8,6 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // A table's catalog entry says what the table means. What it never says is how
@@ -51,33 +50,15 @@ type ProvenQuery struct {
 // it, which lives outside this package.
 type ProvenQueryLister func(ctx context.Context, urn, userID string, limit int) []ProvenQuery
 
-// datasetURN names the catalog entity a described table belongs to, which is
-// the key a recorded call's targets are stored under. The table identifier has
-// already had the connection's catalog mapping applied by the enricher, so only
-// the platform name is resolved here, from the same connection lookup.
-//
-// The connection is named by kind and name together, so the platform this
-// returns is the one the statement ran against rather than one of the several a
-// shared name could mean.
+// datasetURN names the catalog dataset a described table belongs to on the
+// connection the statement ran against, which is the key a recorded call's
+// targets are stored under (#1919). Empty when no namer is wired or the table
+// is not fully named.
 func (e *semanticEnricher) datasetURN(table semantic.TableIdentifier, connectionKind, connection string) string {
-	if table.Schema == "" || table.Table == "" {
+	if table.Schema == "" || table.Table == "" || e.cfg.DatasetURN == nil {
 		return ""
 	}
-	if e.cfg.DatasetURN != nil {
-		return e.cfg.DatasetURN(connectionKind, connection, table.Catalog, table.Schema, table.Table)
-	}
-	var platform string
-	if e.cfg.ForConnection != nil && connection != "" {
-		platform, _ = e.cfg.ForConnection(connectionKind, connection)
-	}
-	name := table.Table
-	if table.Schema != "" {
-		name = table.Schema + "." + name
-	}
-	if table.Catalog != "" {
-		name = table.Catalog + "." + name
-	}
-	return urnbuild.DatasetURNFromName(platform, name)
+	return e.cfg.DatasetURN(connectionKind, connection, table.Catalog, table.Schema, table.Table)
 }
 
 // appendProvenQueries adds the caller's proven queries for a table to the

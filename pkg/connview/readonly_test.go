@@ -8,7 +8,7 @@ import (
 )
 
 // oneConnectionToolkit serves a single connection and lists none, which is the
-// shape the datahub kind has.
+// shape the s3 kind has.
 type oneConnectionToolkit struct {
 	registry.Toolkit
 	kind     string
@@ -32,8 +32,8 @@ func TestFallbackEntryReportsWritability(t *testing.T) {
 		wantSaid bool
 		want     bool
 	}{
-		{"a read-only single connection", oneConnectionToolkit{kind: "datahub", name: "acme", readOnly: true}, true, true},
-		{"a writable single connection", oneConnectionToolkit{kind: "datahub", name: "acme"}, true, false},
+		{"a read-only single connection", oneConnectionToolkit{kind: "s3", name: "acme", readOnly: true}, true, true},
+		{"a writable single connection", oneConnectionToolkit{kind: "s3", name: "acme"}, true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

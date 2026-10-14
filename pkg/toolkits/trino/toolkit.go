@@ -49,7 +49,7 @@ const (
 	// a subset crosses goconst's literal-repetition threshold — keeping
 	// the Tools() list uniformly constant-driven avoids a visually mixed
 	// list of constants and bare strings. Naming matches the convention
-	// used in sibling toolkit packages (datahub, s3): no kind prefix
+	// used in sibling toolkit packages (s3): no kind prefix
 	// since the package path already provides it.
 	toolQuery         = "trino_query"
 	toolExecute       = "trino_execute"

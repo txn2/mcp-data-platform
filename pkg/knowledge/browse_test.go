@@ -131,14 +131,14 @@ func TestRouter_Browse(t *testing.T) {
 
 func TestRouter_BrowsableSources(t *testing.T) {
 	r := NewRouter(nil, nil,
-		&stubBrowser{name: SourceContextDocuments, scope: ScopeShared},
+		&stubBrowser{name: SourceGovernance, scope: ScopeShared},
 		searchOnlyProvider{ScopeShared}, // not a Browser
 		&stubBrowser{name: SourceKnowledgePages, scope: ScopeShared},
 	)
 	got := r.BrowsableSources()
 	// Sorted, and only the Browser-implementing providers.
-	if len(got) != 2 || got[0] != SourceContextDocuments || got[1] != SourceKnowledgePages {
-		t.Errorf("BrowsableSources = %v, want [%s %s] sorted", got, SourceContextDocuments, SourceKnowledgePages)
+	if len(got) != 2 || got[0] != SourceGovernance || got[1] != SourceKnowledgePages {
+		t.Errorf("BrowsableSources = %v, want [%s %s] sorted", got, SourceGovernance, SourceKnowledgePages)
 	}
 }
 

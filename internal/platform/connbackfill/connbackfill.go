@@ -20,8 +20,7 @@ import (
 // config, secrets, or created_by — and it writes no secrets: the file config
 // remains the source of the real runtime configuration. The connection set is
 // exactly what list_connections advertises (via connview), so every reference it
-// emits resolves, including datahub, which the admin connection API does not
-// manage. A nil db is a no-op (a stateless deployment has nothing to back the
+// emits resolves. A nil db is a no-op (a stateless deployment has nothing to back the
 // references). Per-connection errors are logged and never abort the sweep.
 func Run(ctx context.Context, db *sql.DB, toolkits []registry.Toolkit) {
 	if db == nil {

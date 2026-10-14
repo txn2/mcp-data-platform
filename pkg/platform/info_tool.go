@@ -78,8 +78,6 @@ type PersonaInfo struct {
 // Features describes enabled platform features.
 type Features struct {
 	SemanticEnrichment bool                `json:"semantic_enrichment"`
-	QueryEnrichment    bool                `json:"query_enrichment"`
-	StorageEnrichment  bool                `json:"storage_enrichment"`
 	AuditLogging       bool                `json:"audit_logging"`
 	KnowledgeCapture   bool                `json:"knowledge_capture"`
 	KnowledgeApply     *KnowledgeApplyInfo `json:"knowledge_apply,omitempty"`
@@ -112,16 +110,12 @@ func (p *Platform) buildFeatures(ctx context.Context, accessibleTools []string) 
 	// Enrichment is reported on only when both its flag is enabled (default-on)
 	// AND the provider that performs it is configured. Reporting it on without a
 	// provider would mislead an agent into expecting context the platform cannot
-	// produce. Trino/S3 enrichment draws on the semantic provider; DataHub query
-	// enrichment on the query provider; DataHub storage enrichment on storage.
+	// produce. Trino enrichment draws on the semantic provider.
 	f := Features{
-		SemanticEnrichment: p.semanticProvider != nil &&
-			(p.config.Enrichment.IsTrinoSemanticEnrichmentEnabled() || p.config.Enrichment.IsS3SemanticEnrichmentEnabled()),
-		QueryEnrichment:   p.queryProvider != nil && p.config.Enrichment.IsDataHubQueryEnrichmentEnabled(),
-		StorageEnrichment: p.storageProvider != nil && p.config.Enrichment.IsDataHubStorageEnrichmentEnabled(),
-		AuditLogging:      !isExplicitlyDisabled(p.config.Audit.Enabled),
-		KnowledgeCapture:  canReach(toolMemoryCapture) && !isExplicitlyDisabled(p.config.Knowledge.Enabled),
-		ManagedResources:  p.resources.Store() != nil,
+		SemanticEnrichment: p.semanticProvider != nil && p.config.Enrichment.IsTrinoSemanticEnrichmentEnabled(),
+		AuditLogging:       !isExplicitlyDisabled(p.config.Audit.Enabled),
+		KnowledgeCapture:   canReach(toolMemoryCapture) && !isExplicitlyDisabled(p.config.Knowledge.Enabled),
+		ManagedResources:   p.resources.Store() != nil,
 	}
 
 	if p.config.Knowledge.Apply.IsEnabled() && canReach(toolApplyKnowledge) {

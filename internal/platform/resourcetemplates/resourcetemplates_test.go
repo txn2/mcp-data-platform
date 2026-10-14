@@ -319,6 +319,12 @@ func TestGlossary(t *testing.T) {
 	})
 }
 
+// datasetRefOn names a table on the default Trino connection the way the
+// platform does.
+func datasetRefOn(catalog, schema, table string) string {
+	return "mcp:dataset:(trino,default," + catalog + "." + schema + "." + table + ")"
+}
+
 func TestAvailability(t *testing.T) {
 	estRows := int64(1000)
 
@@ -332,6 +338,7 @@ func TestAvailability(t *testing.T) {
 					EstimatedRows: &estRows,
 				},
 			},
+			DatasetRef: datasetRefOn,
 		})
 
 		req := &mcp.ReadResourceRequest{
@@ -346,6 +353,14 @@ func TestAvailability(t *testing.T) {
 		}
 	})
 
+	t.Run("a table no dataset reference names is not found", func(t *testing.T) {
+		h := New(Deps{Query: &mockQueryProvider{}, DatasetRef: func(string, string, string) string { return "" }})
+		req := &mcp.ReadResourceRequest{Params: &mcp.ReadResourceParams{URI: "availability://rdbms.public/transactions"}}
+		if _, err := h.Availability(context.Background(), req); err == nil {
+			t.Fatal("expected not found")
+		}
+	})
+
 	t.Run("not available", func(t *testing.T) {
 		h := New(Deps{
 			Query: &mockQueryProvider{
@@ -354,6 +369,7 @@ func TestAvailability(t *testing.T) {
 					Error:     "table does not exist",
 				},
 			},
+			DatasetRef: datasetRefOn,
 		})
 
 		req := &mcp.ReadResourceRequest{

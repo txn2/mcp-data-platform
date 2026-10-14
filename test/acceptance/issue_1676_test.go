@@ -11,9 +11,9 @@ package acceptance
 // MCP_PEER_BASE_URL; see replicas), with a
 // connection whose endpoint refuses the introspection query the way the
 // ticket's did: HTTP 302 and no GraphQL body. The endpoint is the real GraphQL
-// server #1277's criteria run against, DataHub's GMS, reached through a
-// forwarder the test starts that answers the introspection query itself and
-// hands every other document to the server unchanged. The forwarder is the
+// server #1277's criteria run against, the dev stack's GraphQL fixture, reached
+// through a forwarder the test starts that answers the introspection query
+// itself and hands every other document to the server unchanged. The forwarder is the
 // firewall in the ticket; every answer a document gets is the server's.
 //
 // Wire forms: `POST .../refresh-schema` takes the schema as SDL or as a saved
@@ -51,9 +51,9 @@ const (
 )
 
 // issue1676SDL is the schema an operator uploads: a namespaced subset of the
-// real server's, so a document written against it runs there. appConfig holds
-// no scalar of its own, which makes analyticsConfig the only operation and
-// appConfig the namespace on the way to it.
+// fixture's, so a document written against it runs there. In the subset
+// appConfig holds no scalar of its own, which makes analyticsConfig the only
+// operation and appConfig the namespace on the way to it.
 const issue1676SDL = `
 schema { query: Query }
 type Query {

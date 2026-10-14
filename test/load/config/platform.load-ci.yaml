@@ -1,10 +1,9 @@
 # Platform configuration for the load smoke run in CI (.github/workflows/load.yml).
 #
-# Identical intent to platform.load.yaml but tuned for a GitHub runner: DataHub is
-# NOT in the CI compose stack (it needs `datahub docker quickstart`), so the
-# semantic provider is noop here — the platform starts cleanly without a DataHub
-# endpoint and enrichment simply no-ops. Numbers from this config on a shared
-# runner are indicative only and are never the published reference numbers.
+# Identical intent to platform.load.yaml but tuned for a GitHub runner. The
+# semantic layer is the platform catalog, which needs only the compose stack's
+# Postgres. Numbers from this config on a shared runner are indicative only and
+# are never the published reference numbers.
 apiVersion: v1
 
 server:
@@ -60,10 +59,6 @@ personas:
     connections:
       allow: ["*"]
 
-# noop semantic: no DataHub dependency in CI.
-semantic:
-  provider: noop
-  instance: primary
 
 query:
   provider: trino

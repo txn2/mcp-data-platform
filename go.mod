@@ -31,7 +31,6 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/ollama v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	github.com/trinodb/trino-go-client v0.337.0
-	github.com/txn2/mcp-datahub v1.15.1
 	github.com/txn2/mcp-s3 v1.5.1
 	github.com/txn2/mcp-trino v1.7.1
 	github.com/vektah/gqlparser/v2 v2.5.62

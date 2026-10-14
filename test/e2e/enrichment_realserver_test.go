@@ -5,14 +5,12 @@ package e2e
 // End-to-end enrichment + documented-parameter assertions through the REAL
 // assembled server. Unlike cross_enrichment_test.go (which mocks the tool result
 // and exercises only the enrichment middleware), this drives an in-process MCP
-// session against the platform's own mcp.Server, so the real trino_describe_table
-// / datahub_get_entity handlers run the real query -> URN -> enrichment path the
-// way a deployed client does.
+// session against the platform's own mcp.Server, so the real
+// trino_describe_table and fetch handlers run the real query -> catalog ->
+// enrichment path the way a deployed client does.
 //
-// The include_sample parameter assertion needs only Trino (make e2e-up). The
-// semantic/query enrichment assertions need DataHub seeded with
-// test/e2e/testdata/datahub (make e2e-seed) and skip cleanly when DataHub is
-// not reachable.
+// Every assertion needs only make e2e-up: the catalog the enrichment reads is
+// the platform's own, seeded by helpers.SeedCatalog when the platform is built.
 
 import (
 	"context"
@@ -26,9 +24,8 @@ import (
 	"github.com/txn2/mcp-data-platform/test/e2e/helpers"
 )
 
-// The seeded e2e fixture: Trino table memory.e2e_test.test_orders, mirrored in
-// DataHub (test/e2e/testdata/datahub/datasets.json) with owners alice/bob and
-// the ecommerce tag/domain.
+// The seeded e2e fixture: Trino table memory.e2e_test.test_orders, cataloged by
+// helpers.SeedCatalog with two owners and the ecommerce tag.
 const (
 	// The purpose every gated call in this suite states, as a real agent would.
 	enrichPurpose = "Verifying end-to-end cross-enrichment against the seeded e2e fixture."
@@ -36,9 +33,10 @@ const (
 	enrichCatalog = "memory"
 	enrichSchema  = "e2e_test"
 	enrichTable   = "test_orders"
-	// The dataset URN the fixture upserts, byte-for-byte.
-	enrichDatasetURN = "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)"
 )
+
+// enrichDatasetRef is the catalog reference the fixture seeds.
+var enrichDatasetRef = helpers.DatasetRef(helpers.TestOrdersPath).String()
 
 func TestEnrichment_RealAssembledServer(t *testing.T) {
 	cfg := helpers.DefaultE2EConfig()
@@ -77,33 +75,23 @@ func TestEnrichment_RealAssembledServer(t *testing.T) {
 		assert.Empty(t, emptySample, "include_sample=false must omit sample rows")
 	})
 
-	// Trino -> DataHub: the describe result must carry the seeded semantic
-	// context (owners/tags) when DataHub is up.
+	// Trino -> catalog: the describe result carries the seeded semantic
+	// context (owners, tags).
 	t.Run("trino_describe_table is enriched with semantic context", func(t *testing.T) {
-		if helpers.SkipIfDataHubUnavailable(cfg) {
-			t.Skip("DataHub not reachable; run `datahub docker quickstart` + `make e2e-seed` for enrichment assertions")
-		}
 		res := callTool(t, ctx, session, sessionID, "trino_describe_table", map[string]any{
 			"catalog": enrichCatalog, "schema": enrichSchema, "table": enrichTable,
 		})
 		sc := helpers.AssertHasSemanticContext(t, res)
-		helpers.AssertOwnerPresent(t, sc, "urn:li:corpuser:alice")
-		helpers.AssertOwnerPresent(t, sc, "urn:li:corpuser:bob")
+		helpers.AssertOwnerPresent(t, sc, helpers.TestOrdersOwnerA)
+		helpers.AssertOwnerPresent(t, sc, helpers.TestOrdersOwnerB)
 		helpers.AssertTagPresent(t, sc, "ecommerce")
 	})
 
-	// DataHub -> Trino: the catalog's read of a dataset must say whether and
-	// where it is queryable when DataHub is up. datahub_search was retired (its
-	// relevance role folded into the unified search, structured navigation into
-	// datahub_browse) and the by-URN reads were folded into fetch (#1590), so
-	// the read that names a dataset is fetch of its urn:li:dataset: reference,
-	// and the query side rides on the record as query_availability.
+	// Catalog -> Trino: fetching a dataset says whether and where it is
+	// queryable, on the record as query_availability.
 	t.Run("a fetched dataset carries query availability", func(t *testing.T) {
-		if helpers.SkipIfDataHubUnavailable(cfg) {
-			t.Skip("DataHub not reachable; run `datahub docker quickstart` + `make e2e-seed` for enrichment assertions")
-		}
 		res := callTool(t, ctx, session, sessionID, "fetch", map[string]any{
-			"reference": enrichDatasetURN,
+			"reference": enrichDatasetRef,
 		})
 		out, ok := res.StructuredContent.(map[string]any)
 		require.True(t, ok, "fetch returns a structured object, got %T", res.StructuredContent)

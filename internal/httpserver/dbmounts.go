@@ -11,7 +11,7 @@ package httpserver
 // and, like cmd/dev-mcp-mock, are excluded from the coverage gates in
 // scripts/patch-coverage.sh and codecov.yml. The unit-testable helpers they call
 // (portalRateLimitResolver, portalBrandName, wirePortalOptionalDeps,
-// buildResourceClaims, buildPersonaResolver, buildDataHubRegistrar) stay in
+// buildResourceClaims, buildPersonaResolver, catalogRegistrar) stay in
 // mounts.go where their coverage is measured normally.
 
 import (
@@ -495,7 +495,7 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	// the same switch that gates audit everywhere else. The writes go through the
 	// store directly rather than the platform's async writer: this surface serves
 	// a human clicking Download, not an agent's read path, and the audit row is
-	// one insert (the same choice the DataHub REST surface makes).
+	// one insert (the same choice the portal catalog surface makes).
 	if store := p.Audit().Store(); store != nil {
 		deps.Usage = store
 		tracker, _ := deps.Store.(resource.ReadTracker) // nil when unsupported

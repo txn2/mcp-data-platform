@@ -224,3 +224,57 @@ func checkIncidents(incidents []Incident) error {
 	}
 	return nil
 }
+
+// WithText returns a copy of the curation with every free-text value people
+// and agents write passed through fn: descriptions, owners, property values,
+// link and query descriptions, incident text and context documents. Names
+// and references (tags, glossary terms, the domain, a query's SQL) are kept
+// as they are. A reader that hands curation to a model scrubs it this way.
+func (a Aspects) WithText(fn func(string) string) Aspects {
+	out := a
+	out.Description = fn(a.Description)
+	out.Owners = mapSlice(a.Owners, func(o Owner) Owner { o.Owner = fn(o.Owner); return o })
+	if a.CustomProperties != nil {
+		out.CustomProperties = make(map[string]string, len(a.CustomProperties))
+		for k, v := range a.CustomProperties {
+			out.CustomProperties[k] = fn(v)
+		}
+	}
+	if a.StructuredProperties != nil {
+		out.StructuredProperties = make(map[string][]any, len(a.StructuredProperties))
+		for k, vs := range a.StructuredProperties {
+			out.StructuredProperties[k] = mapSlice(vs, func(v any) any {
+				if s, ok := v.(string); ok {
+					return fn(s)
+				}
+				return v
+			})
+		}
+	}
+	out.DocumentationLinks = mapSlice(a.DocumentationLinks, func(l Link) Link { l.Description = fn(l.Description); return l })
+	out.CuratedQueries = mapSlice(a.CuratedQueries, func(q CuratedQuery) CuratedQuery {
+		q.Name, q.Description = fn(q.Name), fn(q.Description)
+		return q
+	})
+	out.Incidents = mapSlice(a.Incidents, func(in Incident) Incident {
+		in.Title, in.Description, in.Resolution = fn(in.Title), fn(in.Description), fn(in.Resolution)
+		return in
+	})
+	out.ContextDocuments = mapSlice(a.ContextDocuments, func(d ContextDocument) ContextDocument {
+		d.Title, d.Content, d.Category = fn(d.Title), fn(d.Content), fn(d.Category)
+		return d
+	})
+	return out
+}
+
+// mapSlice applies fn to each element of a copy of s; nil stays nil.
+func mapSlice[T any](s []T, fn func(T) T) []T {
+	if s == nil {
+		return nil
+	}
+	out := make([]T, len(s))
+	for i, v := range s {
+		out[i] = fn(v)
+	}
+	return out
+}

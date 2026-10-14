@@ -59,7 +59,7 @@ func TestReverseLookupFilter(t *testing.T) {
 		{EntityRef{TargetType: RefTargetCollection, CollectionID: "c"}, "r.collection_id = $1", []any{"c"}},
 		{EntityRef{TargetType: RefTargetKnowledgePage, RefPageID: "kp"}, "r.ref_page_id = $1", []any{"kp"}},
 		{EntityRef{TargetType: RefTargetConnection, ConnectionKind: "k", ConnectionName: "n"}, "r.connection_kind = $1 AND r.connection_name = $2", []any{"k", "n"}},
-		{EntityRef{TargetType: RefTargetDataHub, EntityURN: "u"}, "r.entity_urn = $1", []any{"u"}},
+		{EntityRef{TargetType: RefTargetCatalog, EntityURN: "u"}, "r.entity_urn = $1", []any{"u"}},
 		{EntityRef{TargetType: "bogus"}, "", nil},
 	}
 	for _, c := range cases {
@@ -81,8 +81,8 @@ func TestStore_ListPagesReferencing_UnknownTypeAndError(t *testing.T) {
 	assert.Nil(t, pages)
 
 	// A query error propagates.
-	mock.ExpectQuery("entity_urn = ").WithArgs("urn:li:dataset:x").WillReturnError(errBoom)
+	mock.ExpectQuery("entity_urn = ").WithArgs("mcp:dataset:(trino,warehouse,c.s.x)").WillReturnError(errBoom)
 	_, err = store.ListPagesReferencing(context.Background(),
-		EntityRef{TargetType: RefTargetDataHub, EntityURN: "urn:li:dataset:x"})
+		EntityRef{TargetType: RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,c.s.x)"})
 	require.Error(t, err)
 }

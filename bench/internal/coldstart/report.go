@@ -49,7 +49,7 @@ type Manifest struct {
 	K int `json:"k"`
 	// Settle is the promote-to-eval cache-settle window the run was paced with
 	// (Duration string, e.g. "5m0s"; empty when disabled). Settle pacing affects
-	// how much of a datahub-sink lesson's lift the next checkpoint can see, so a
+	// how much of a catalog-sink lesson's lift the next checkpoint can see, so a
 	// kept result must record it to stay comparable with other runs.
 	Settle string `json:"settle,omitempty"`
 }

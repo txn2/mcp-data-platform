@@ -242,7 +242,7 @@ func misfiledProtocol() protocol.Protocol {
 
 func misfiledScript() map[string]llm.Script {
 	misfiled := llm.Step{ToolCalls: []llm.ToolCall{{Name: "memory_capture", Args: map[string]any{
-		"text": "net revenue fact", "entity_urns": []any{"urn:li:dataset:(urn:li:dataPlatform:trino,bench.other.table,PROD)"},
+		"text": "net revenue fact", "entity_urns": []any{"mcp:dataset:(trino,e2e,bench.other.table)"},
 		"category": "definition",
 	}}}}
 	return map[string]llm.Script{

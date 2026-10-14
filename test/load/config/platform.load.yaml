@@ -1,7 +1,7 @@
 # Platform configuration for the load-test harness (issue #921).
 #
-# Targets the E2E compose stack (make e2e-up: Postgres, Trino, SeaweedFS) plus a
-# DataHub quickstart. Env-expanded toggles let a single binary serve every
+# Targets the E2E compose stack (make e2e-up: Postgres, Trino, SeaweedFS), with
+# the platform catalog as the semantic layer. Env-expanded toggles let a single binary serve every
 # scenario:
 #   API_KEY_ADMIN        admin API key the harness authenticates with (Bearer)
 #   OAUTH_RL_ENABLED     "true"/"false"/unset  -> oauth.rate_limit.enabled
@@ -79,8 +79,6 @@ personas:
       allow: ["*"]
 
 semantic:
-  provider: datahub
-  instance: primary
   cache:
     enabled: true
     ttl: 5m
@@ -104,17 +102,6 @@ toolkits:
       default_limit: 1000
       max_limit: 10000
       read_only: true
-
-  datahub:
-    enabled: true
-    default: primary
-    instances:
-      primary:
-        url: "http://localhost:8080/api/graphql"
-        # DataHub quickstart ships with metadata-service auth disabled; the
-        # provider requires a non-empty token, so a placeholder is supplied.
-        token: "load-placeholder-token"
-        read_only: true
 
   s3:
     enabled: true

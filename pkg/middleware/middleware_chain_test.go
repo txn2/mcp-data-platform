@@ -18,7 +18,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
-	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
 // Test constants for middleware chain integration tests.
@@ -581,7 +580,7 @@ func (*denyAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _, 
 // TestMiddlewareChain_EnrichmentAddsSemanticContext verifies that the semantic
 // enrichment middleware actually appends semantic_context to Trino tool results
 // when wired through a real mcp.Server. This tests Feature 1 (Semantic-First)
-// and Feature 2 (Cross-Enrichment Trino→DataHub).
+// and Feature 2 (Cross-Enrichment Trino to the catalog).
 func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 	semProvider := &mockSemanticProvider{
 		tableContext: &semantic.TableContext{
@@ -628,7 +627,7 @@ func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 
 	// Middleware order (innermost first): enrichment, then auth (outermost)
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
-		semProvider, nil, nil,
+		semProvider, nil,
 		middleware.EnrichmentConfig{EnrichTrinoResults: true}, nil,
 	))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
@@ -669,91 +668,6 @@ func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 	depVal, _ := dep["deprecated"].(bool)
 	if !ok || !depVal {
 		t.Error("deprecation not propagated")
-	}
-}
-
-// TestMiddlewareChain_EnrichmentAddsQueryContext verifies that DataHub tool
-// results get enriched with query_context from the QueryProvider (Trino).
-// This tests Feature 2 (Cross-Enrichment DataHub→Trino direction).
-func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
-	rowCount := int64(chainTestRowCount)
-	queryProv := &mockQueryProvider{
-		availability: &query.TableAvailability{
-			Available:     true,
-			QueryTable:    "catalog.schema.orders",
-			Connection:    chainTestProdTrino,
-			EstimatedRows: &rowCount,
-		},
-	}
-
-	authenticator := &testAuthenticator{
-		userInfo: &middleware.UserInfo{
-			UserID: chainTestUser,
-			Roles:  []string{chainTestAnalyst},
-		},
-	}
-	authorizer := &testAuthorizer{persona: chainTestAnalyst}
-	toolkitLookup := &testToolkitLookup{
-		tools: map[string]struct{ kind, name, conn string }{
-			"datahub_get_lineage": {kind: "datahub", name: "primary", conn: "datahub-gms"},
-		},
-	}
-
-	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "test-platform",
-		Version: "v0.0.1",
-	}, nil)
-
-	// The tool returns a JSON body with a URN — enrichment should pick it up
-	server.AddTool(&mcp.Tool{
-		Name:        "datahub_get_lineage",
-		Description: "Get entity details",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"urn":{"type":"string"}}}`),
-	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		result := map[string]any{
-			"urn":      chainTestOrdersURN,
-			"name":     "orders",
-			"platform": "trino",
-		}
-		data, _ := json.Marshal(result)
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-		}, nil
-	})
-
-	// Middleware order: enrichment (innermost), auth (outermost)
-	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
-		nil, queryProv, nil,
-		middleware.EnrichmentConfig{EnrichDataHubResults: true}, nil,
-	))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
-
-	ctx := context.Background()
-	session, err := connectClientServer(ctx, server)
-	if err != nil {
-		t.Fatalf(chainTestConnecting, err)
-	}
-	defer func() { _ = session.Close() }()
-
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "datahub_get_lineage",
-		Arguments: map[string]any{"urn": chainTestOrdersURN},
-	})
-	if err != nil {
-		t.Fatalf(chainTestCallingTool, err)
-	}
-	if result.IsError {
-		t.Fatalf("tool returned error")
-	}
-
-	// Find and validate the query_context enrichment using helper
-	enrichment := assertContentContainsKey(t, result, "query_context")
-	qCtx, ok := enrichment["query_context"].(map[string]any)
-	if !ok {
-		t.Fatal("query_context not found or wrong type")
-	}
-	if len(qCtx) == 0 {
-		t.Error("query_context is empty")
 	}
 }
 
@@ -875,7 +789,7 @@ func TestMiddlewareChain_FullStack(t *testing.T) {
 	// Add ALL middleware in correct order (innermost first):
 	// 1. Enrichment (innermost)
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
-		semProvider, nil, nil,
+		semProvider, nil,
 		middleware.EnrichmentConfig{EnrichTrinoResults: true}, nil,
 	))
 	// 2. Audit
@@ -1061,7 +975,7 @@ func newDedupTestServer(t *testing.T, mode middleware.DedupMode, cache *middlewa
 
 	// Middleware order (innermost first): enrichment, then auth (outermost)
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
-		semProvider, nil, nil,
+		semProvider, nil,
 		middleware.EnrichmentConfig{
 			EnrichTrinoResults: true,
 			SessionCache:       cache,
@@ -1414,7 +1328,7 @@ func TestMiddlewareChain_EnrichmentAppliedInAudit(t *testing.T) {
 	// Middleware order (innermost first):
 	// 1. Enrichment (innermost)
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
-		semProvider, nil, nil,
+		semProvider, nil,
 		middleware.EnrichmentConfig{EnrichTrinoResults: true}, nil,
 	))
 	// 2. Audit
@@ -1592,7 +1506,7 @@ func newHTTPDedupTestSession(t *testing.T, includeQueryTool bool) httpDedupTestR
 
 	// Middleware order (innermost first): enrichment, then auth (outermost)
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
-		semProvider, nil, nil,
+		semProvider, nil,
 		middleware.EnrichmentConfig{
 			EnrichTrinoResults: true,
 			SessionCache:       cache,
@@ -1736,7 +1650,7 @@ func TestMiddlewareChain_SessionDedup_StreamableHTTP_Stateless(t *testing.T) {
 	})
 
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
-		semProvider, nil, nil,
+		semProvider, nil,
 		middleware.EnrichmentConfig{
 			EnrichTrinoResults: true,
 			SessionCache:       cache,
@@ -1858,7 +1772,7 @@ func TestMiddlewareChain_SessionDedup_SSE(t *testing.T) {
 	})
 
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
-		semProvider, nil, nil,
+		semProvider, nil,
 		middleware.EnrichmentConfig{
 			EnrichTrinoResults: true,
 			SessionCache:       cache,
@@ -1990,7 +1904,7 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 		Version: "v0.0.1",
 	}, nil)
 
-	for _, name := range []string{chainTestTrinoQuery, "search", "datahub_delete", "s3_list"} {
+	for _, name := range []string{chainTestTrinoQuery, "search", "graphql_delete", "s3_list"} {
 		server.AddTool(&mcp.Tool{
 			Name:        name,
 			Description: "Test tool " + name,
@@ -2002,9 +1916,9 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 		})
 	}
 
-	// Deny datahub_delete* only
+	// Deny graphql_delete* only
 	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(middleware.ToolVisibilityConfig{
-		ResolveGlobalDeny: func(context.Context) []string { return []string{"datahub_delete*"} },
+		ResolveGlobalDeny: func(context.Context) []string { return []string{"graphql_delete*"} },
 	}))
 
 	ctx := context.Background()
@@ -2028,8 +1942,8 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 	}
 
 	for _, tool := range listResult.Tools {
-		if tool.Name == "datahub_delete" {
-			t.Error("datahub_delete should have been filtered out")
+		if tool.Name == "graphql_delete" {
+			t.Error("graphql_delete should have been filtered out")
 		}
 	}
 }
@@ -2190,11 +2104,11 @@ func TestWorkflowGating_WithDiscovery(t *testing.T) {
 	}
 }
 
-// TestWorkflowGating_DataHubDiscoveryOpensGate proves that a datahub_* discovery
-// tool (not just search) opens the gate. This is the guard against the deadlock
-// where a persona granted datahub_* but not search could never satisfy a
-// narrower gate and would be locked out of query tools forever.
-func TestWorkflowGating_DataHubDiscoveryOpensGate(t *testing.T) {
+// TestWorkflowGating_FetchOpensGate proves that fetch, not just search, opens
+// the gate. This is the guard against the deadlock where a persona granted
+// fetch but not search could never satisfy a narrower gate and would be locked
+// out of query tools forever.
+func TestWorkflowGating_FetchOpensGate(t *testing.T) {
 	tracker := middleware.NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
 	authenticator := &testAuthenticator{
 		userInfo: &middleware.UserInfo{UserID: chainTestUser, Roles: []string{chainTestAnalyst}},
@@ -2203,9 +2117,9 @@ func TestWorkflowGating_DataHubDiscoveryOpensGate(t *testing.T) {
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
 	server.AddTool(&mcp.Tool{
-		Name:        "datahub_get_lineage",
-		Description: "Get entity",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"urn":{"type":"string"}}}`),
+		Name:        "fetch",
+		Description: "Fetch",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"reference":{"type":"string"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"entity":{}}`}}}, nil
 	})
@@ -2227,15 +2141,15 @@ func TestWorkflowGating_DataHubDiscoveryOpensGate(t *testing.T) {
 	}
 	defer func() { _ = session.Close() }()
 
-	// Discover via a datahub_* tool (no search call at all).
+	// Discover via fetch (no search call at all).
 	if _, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "datahub_get_lineage",
-		Arguments: map[string]any{"urn": "urn:li:dataset:x"},
+		Name:      "fetch",
+		Arguments: map[string]any{"reference": "mcp:dataset:(trino,w,c.s.x)"},
 	}); err != nil {
-		t.Fatalf("calling datahub_get_lineage: %v", err)
+		t.Fatalf("calling fetch: %v", err)
 	}
 
-	// The query must now be allowed — the datahub tool opened the gate.
+	// The query must now be allowed: fetch opened the gate.
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      chainTestTrinoQuery,
 		Arguments: map[string]any{"sql": "SELECT 1"},
@@ -2244,7 +2158,7 @@ func TestWorkflowGating_DataHubDiscoveryOpensGate(t *testing.T) {
 		t.Fatalf(chainTestCallingTool, err)
 	}
 	if result.IsError {
-		t.Fatal("query after datahub discovery should not be gated")
+		t.Fatal("query after fetch discovery should not be gated")
 	}
 }
 
@@ -2382,7 +2296,7 @@ func TestDescriptionOverrides_ToolsList(t *testing.T) {
 
 	server.AddTool(&mcp.Tool{
 		Name:        "search",
-		Description: "Search DataHub",
+		Description: "Search the catalog",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{}, nil
@@ -2534,6 +2448,3 @@ func TestMiddlewareChain_AwareHandler_SessionIDReachesAudit(t *testing.T) {
 		t.Fatalf("each call must carry its own minted event id, got %q and %q", queryEvent.ID, saveEvent.ID)
 	}
 }
-
-// Suppress unused import warnings for storage (used in EnrichmentConfig).
-var _ storage.Provider = nil

@@ -25,9 +25,8 @@ import (
 // mirrors the same set the list_connections tool falls back to, so the search
 // connections corpus and that tool report the same connections.
 var fallbackConnectionKinds = map[string]bool{
-	"trino":   true,
-	"datahub": true,
-	"s3":      true,
+	"trino": true,
+	"s3":    true,
 }
 
 // EndpointSearchers adapts every operation-serving gateway toolkit registered

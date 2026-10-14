@@ -23,14 +23,13 @@ var ErrRefTargetNotFound = errors.New("entity reference target does not exist")
 const pgForeignKeyViolation = "23503"
 
 // Entity-reference target types. Exactly one target is set on a reference row:
-// an internal entity by foreign key, or an external DataHub URN.
+// an internal entity by foreign key, or a platform catalog entity by reference.
 const (
 	RefTargetAsset         = "asset"
 	RefTargetPrompt        = "prompt"
 	RefTargetCollection    = "collection"
 	RefTargetKnowledgePage = "knowledge_page"
 	RefTargetConnection    = "connection"
-	RefTargetDataHub       = "datahub"
 	// RefTargetCatalog is an entity of the platform catalog (#1923): a dataset,
 	// a column, or a glossary term, glossary node, tag, domain or data product.
 	// Its mcp: reference is stored in entity_urn, and it is checked against the
@@ -39,8 +38,9 @@ const (
 	// RefTargetInsight is a captured insight (a knowledge-dimension memory record).
 	// It is fetchable by its owner, but NOT citable on a shared knowledge page (#699):
 	// an insight is ScopePerUser, so a citation would resolve only for its capturer.
-	// Promote the insight to the catalog via apply_knowledge and cite the resulting
-	// urn:li:... entity instead. The page-citation path rejects it (ParseCitableRef).
+	// Promote the insight to the catalog via apply_knowledge and cite the catalog
+	// entity it was applied to instead. The page-citation path rejects it
+	// (ParseCitableRef).
 	RefTargetInsight = "insight"
 	// RefTargetResource is a managed resource: human-uploaded reference material
 	// (#1012). It is fetchable by anyone whose visible scopes include it, but is
@@ -77,7 +77,7 @@ const (
 	// what fetch dereferences to the cataloged record. Like memory and
 	// insights it is per-user and so NOT citable on a shared knowledge page:
 	// the record resolves only for the caller who made the call. Promote the
-	// record and cite the resulting urn:li:query:... entity instead.
+	// record to a curated query on its dataset and cite the dataset instead.
 	RefTargetCall = "call"
 )
 
@@ -139,13 +139,6 @@ type EntityRef struct {
 // refKeySep separates the target type from its id in a reference identity key.
 const refKeySep = ":"
 
-// DataHubRef builds a reference to an external DataHub entity (a urn:li: URN).
-// This is the only reference type Phase 0 writes: the references apply_knowledge
-// carries from a promoted insight.
-func DataHubRef(urn, source string) EntityRef {
-	return EntityRef{TargetType: RefTargetDataHub, EntityURN: urn, Source: source}
-}
-
 // identity returns a stable key for a reference's target, used to de-duplicate
 // within a page (the union on promotion) and mirrors each per-type unique index.
 func (r EntityRef) identity() string {
@@ -160,8 +153,6 @@ func (r EntityRef) identity() string {
 		return RefTargetKnowledgePage + refKeySep + r.RefPageID
 	case RefTargetConnection:
 		return RefTargetConnection + refKeySep + r.ConnectionKind + "/" + r.ConnectionName
-	case RefTargetDataHub:
-		return RefTargetDataHub + refKeySep + r.EntityURN
 	case RefTargetCatalog:
 		return RefTargetCatalog + refKeySep + r.EntityURN
 	case RefTargetInsight:
@@ -228,8 +219,8 @@ func (s *postgresStore) ListEntityRefs(ctx context.Context, pageID string) ([]En
 // ValidateRefTargets checks that each foreign-key-backed reference target exists,
 // so a caller (the apply_knowledge page promotion) can reject a citation to a
 // missing entity BEFORE writing the page rather than after, where the insert-time
-// foreign key would otherwise leave a partially written page behind. DataHub URN
-// references are free text with no catalog foreign key, so they are not checked.
+// foreign key would otherwise leave a partially written page behind. A catalog
+// reference is checked against the catalog.
 // Returns ErrRefTargetNotFound (wrapped with the ref identity) on the first miss.
 func (s *postgresStore) ValidateRefTargets(ctx context.Context, refs []EntityRef) error { //nolint:revive // interface impl
 	for i := range refs {
@@ -248,7 +239,7 @@ func (s *postgresStore) ValidateRefTargets(ctx context.Context, refs []EntityRef
 // dropping the rest. It is the tolerant counterpart of ValidateRefTargets, used
 // for references carried from a source insight (#690): a stale reference the
 // caller cannot fix is skipped so the promotion still succeeds, rather than
-// rejecting the whole apply. DataHub URN references are free text and always kept.
+// rejecting the whole apply.
 func (s *postgresStore) FilterExistingRefTargets(ctx context.Context, refs []EntityRef) ([]EntityRef, error) { //nolint:revive // interface impl
 	kept := make([]EntityRef, 0, len(refs))
 	for i := range refs {
@@ -266,8 +257,8 @@ func (s *postgresStore) FilterExistingRefTargets(ctx context.Context, refs []Ent
 // refTargetExists reports whether one reference's foreign-key target row exists.
 // The table set mirrors the foreign keys in migrations 000073 and 000154
 // (portal_assets, prompts, portal_collections, portal_knowledge_pages,
-// connection_instances, scripts). Types without a catalog foreign key (datahub,
-// unknown) are reported present.
+// connection_instances, scripts), plus the platform catalog for a catalog
+// reference. An unknown type is reported present.
 func (s *postgresStore) refTargetExists(ctx context.Context, ref EntityRef) (bool, error) {
 	var query string
 	var args []any
@@ -294,7 +285,7 @@ func (s *postgresStore) refTargetExists(ctx context.Context, ref EntityRef) (boo
 	case RefTargetCatalog:
 		query, args = selectCatalogEntity, catalogEntityArgs(ref.EntityURN)
 	default:
-		return true, nil // datahub URN and unknown types have no catalog FK to check
+		return true, nil // an unknown type has no table to check
 	}
 	var one int
 	switch err := s.db.QueryRowContext(ctx, query, args...).Scan(&one); {
@@ -360,7 +351,7 @@ func refConflictTarget(targetType string) string {
 		return "(page_id, ref_page_id) WHERE ref_page_id IS NOT NULL"
 	case RefTargetConnection:
 		return "(page_id, connection_kind, connection_name) WHERE connection_kind IS NOT NULL"
-	case RefTargetDataHub, RefTargetCatalog:
+	case RefTargetCatalog:
 		return "(page_id, entity_urn) WHERE entity_urn IS NOT NULL"
 	case RefTargetScript:
 		return "(page_id, script_id) WHERE script_id IS NOT NULL"

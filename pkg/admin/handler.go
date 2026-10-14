@@ -175,12 +175,11 @@ type Deps struct {
 	S3Bucket      string
 	// S3Prefix is portal.s3_prefix, the prefix asset objects the admin routes
 	// write are stored under (#1903).
-	S3Prefix          string
-	ConnectionStore   ConnectionStore
-	ConnectionSources *platform.ConnectionSourceMap
-	ToolkitsConfig    map[string]any
-	PersonaStore      personastore.Store
-	APIKeyStore       platform.APIKeyStore
+	S3Prefix        string
+	ConnectionStore ConnectionStore
+	ToolkitsConfig  map[string]any
+	PersonaStore    personastore.Store
+	APIKeyStore     platform.APIKeyStore
 	// UserStore is the known-users directory (#614). nil disables the
 	// /api/v1/admin/users routes (no database configured).
 	UserStore user.Store

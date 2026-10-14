@@ -210,21 +210,20 @@ func sourceSet(sources []string) map[string]bool {
 // (A name present here but unavailable on a given deployment, e.g. memory without a
 // database, is still "known": it is scope-filtered, not a typo.)
 var knownSourceNames = map[string]bool{
-	SourceCatalog:          true,
-	SourceContextDocuments: true,
-	SourceGovernance:       true,
-	SourceKnowledgePages:   true,
-	SourceMemory:           true,
-	SourceInsights:         true,
-	SourceFeedback:         true,
-	SourceAssets:           true,
-	SourceResources:        true,
-	SourcePrompts:          true,
-	SourceScripts:          true,
-	SourceCalls:            true,
-	SourceSessions:         true,
-	SourceEndpoints:        true,
-	SourceConnections:      true,
+	SourceCatalog:        true,
+	SourceGovernance:     true,
+	SourceKnowledgePages: true,
+	SourceMemory:         true,
+	SourceInsights:       true,
+	SourceFeedback:       true,
+	SourceAssets:         true,
+	SourceResources:      true,
+	SourcePrompts:        true,
+	SourceScripts:        true,
+	SourceCalls:          true,
+	SourceSessions:       true,
+	SourceEndpoints:      true,
+	SourceConnections:    true,
 }
 
 // KnownSources returns the valid search-source names (the Source* provenance
@@ -404,7 +403,7 @@ func (r *Router) selectProviders(q Query) []Provider {
 //
 // The applicable providers are independent (each Search shares no state with the
 // others, and several issue their own DB or network call), so the fan-out runs them
-// concurrently: a DataHub-backed deployment otherwise pays one serial round trip per
+// concurrently: a deployment otherwise pays one serial round trip per
 // source. Results land in index-keyed slots so the assembled output keeps
 // provider-registration order regardless of completion order, keeping the downstream
 // allocation deterministic. A WaitGroup (not errgroup) is used deliberately: every

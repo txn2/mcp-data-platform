@@ -8,7 +8,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	"github.com/txn2/mcp-data-platform/pkg/storage"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
@@ -57,18 +56,6 @@ func TestWithQueryProvider(t *testing.T) {
 
 	if opts.QueryProvider != provider {
 		t.Error("WithQueryProvider did not set provider")
-	}
-}
-
-func TestWithStorageProvider(t *testing.T) {
-	provider := storage.NewNoopProvider()
-	opt := WithStorageProvider(provider)
-
-	opts := &Options{}
-	opt(opts)
-
-	if opts.StorageProvider != provider {
-		t.Error("WithStorageProvider did not set provider")
 	}
 }
 
@@ -151,7 +138,6 @@ func TestOptionsStruct(t *testing.T) {
 		DB:               nil,
 		SemanticProvider: semantic.NewNoopProvider(),
 		QueryProvider:    query.NewNoopProvider(),
-		StorageProvider:  storage.NewNoopProvider(),
 		Authenticator:    &middleware.NoopAuthenticator{},
 		Authorizer:       &middleware.NoopAuthorizer{},
 		AuditLogger:      &middleware.NoopAuditLogger{},

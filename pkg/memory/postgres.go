@@ -664,7 +664,7 @@ func collectScoredRows(rows *sql.Rows, minScore float64) ([]ScoredRecord, error)
 	return results, nil
 }
 
-// EntityLookup returns active memories linked to a DataHub URN.
+// EntityLookup returns active memories linked to a catalog reference.
 func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona, createdBy string) ([]Record, error) {
 	urnJSON, err := json.Marshal([]string{urn})
 	if err != nil {

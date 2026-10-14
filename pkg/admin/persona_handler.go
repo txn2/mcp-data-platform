@@ -61,11 +61,11 @@ type personaDetail struct {
 	Description      string                `json:"description,omitempty" example:"ETL pipeline development and schema management"`
 	Roles            []string              `json:"roles" example:"data_engineer"`
 	Priority         int                   `json:"priority" example:"10"`
-	AllowTools       []string              `json:"allow_tools" example:"trino_*,datahub_*,s3_*"`
+	AllowTools       []string              `json:"allow_tools" example:"trino_*,search,fetch,s3_*"`
 	DenyTools        []string              `json:"deny_tools" example:"trino_execute"`
 	AllowConnections []string              `json:"allow_connections,omitempty"`
 	DenyConnections  []string              `json:"deny_connections,omitempty"`
-	Tools            []string              `json:"tools" example:"trino_query,trino_describe_table,datahub_search"`
+	Tools            []string              `json:"tools" example:"trino_query,trino_describe_table,search"`
 	Context          *personaContextDetail `json:"context,omitempty"`
 	Source           string                `json:"source,omitempty" example:"file"` // "file", "database", or "both"
 	// APIRoutes are the persona's per-(connection, method, path) rules for
@@ -106,9 +106,9 @@ func (p personaDetail) MarshalJSON() ([]byte, error) {
 type personaCreateRequest struct {
 	Name                      string   `json:"name" example:"viewer"`
 	DisplayName               string   `json:"display_name" example:"Data Viewer"`
-	Description               string   `json:"description,omitempty" example:"Read-only access to DataHub"`
+	Description               string   `json:"description,omitempty" example:"Read-only access to the catalog"`
 	Roles                     []string `json:"roles" example:"viewer"`
-	AllowTools                []string `json:"allow_tools" example:"datahub_*"`
+	AllowTools                []string `json:"allow_tools" example:"search,fetch"`
 	DenyTools                 []string `json:"deny_tools,omitempty"`
 	AllowConnections          []string `json:"allow_connections,omitempty"`
 	DenyConnections           []string `json:"deny_connections,omitempty"`

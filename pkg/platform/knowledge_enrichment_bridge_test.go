@@ -24,7 +24,7 @@ func TestKnowledgePageEnrichmentBridge_PagesForEntities(t *testing.T) {
 		{ID: "kp1", Slug: "vocab", Title: "ACME Vocabulary"},
 	}}}
 	got, err := b.PagesForEntities(context.Background(),
-		[]string{"urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)"}, 5)
+		[]string{"mcp:dataset:(trino,warehouse,a.b.c)"}, 5)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, middleware.KnowledgePageSnippet{ID: "kp1", Slug: "vocab", Title: "ACME Vocabulary"}, got[0])

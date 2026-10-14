@@ -5,10 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
-
-	catalogref "github.com/txn2/mcp-data-platform/pkg/catalog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -16,8 +13,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	"github.com/txn2/mcp-data-platform/pkg/storage"
-	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // tokenDivisor is the approximate characters-per-token ratio for estimation.
@@ -28,9 +23,6 @@ var criticalTagPrefixes = []string{sensitivityPII, "sensitive", "quality", "rest
 
 // toolPrefixTrino is the toolkit kind identifier for Trino tools.
 const toolPrefixTrino = "trino"
-
-// toolPrefixDatahub is the toolkit kind identifier for DataHub tools.
-const toolPrefixDatahub = "datahub"
 
 // toolPrefixS3 is the toolkit kind identifier for S3 tools.
 const toolPrefixS3 = "s3"
@@ -50,10 +42,10 @@ const (
 	fieldName = "name"
 	// fieldNote is the JSON/map key for note text appended to enrichment payloads.
 	fieldNote = "note"
-	// fieldURN is the canonical (uppercase) JSON key for DataHub entity URNs as
+	// fieldURN is the canonical (uppercase) JSON key for entity references as
 	// emitted by some upstream payloads. Used alongside keyURN for case-insensitive matching.
 	fieldURN = "URN"
-	// fieldDomain is the JSON/map key for the DataHub domain attached to a table.
+	// fieldDomain is the JSON/map key for the catalog domain attached to a table.
 	fieldDomain = "domain"
 	// fieldGlossaryTerms is the JSON/map key for glossary term lists.
 	fieldGlossaryTerms = "glossary_terms"
@@ -64,8 +56,8 @@ const (
 	// sensitivityConfidential marks tags/columns classified as confidential.
 	sensitivityConfidential = "confidential"
 
-	// assertionStatusFailing is the DataHub data-contract status indicating a
-	// failing assertion.
+	// assertionStatusFailing is the data-contract status indicating a failing
+	// assertion.
 	assertionStatusFailing = "FAILING"
 
 	// noteNoColumnMetadata is the note appended when columns exist but none have
@@ -80,19 +72,6 @@ const tablePartsWithCatalog = 3
 type EnrichmentConfig struct {
 	// EnrichTrinoResults adds semantic context to Trino tool results.
 	EnrichTrinoResults bool
-
-	// EnrichDataHubResults adds query context to DataHub tool results.
-	EnrichDataHubResults bool
-
-	// EnrichS3Results adds semantic context to S3 tool results.
-	EnrichS3Results bool
-
-	// EnrichDataHubStorageResults adds storage context to DataHub tool results.
-	EnrichDataHubStorageResults bool
-
-	// ResourceLinksEnabled adds resource links to DataHub search results,
-	// pointing to schema:// and availability:// resource templates.
-	ResourceLinksEnabled bool
 
 	// SessionCache enables session-level metadata deduplication.
 	// If nil, dedup is disabled and full enrichment is always sent.
@@ -109,38 +88,18 @@ type EnrichmentConfig struct {
 	// always shows all columns. Defaults to true.
 	ColumnContextFiltering bool
 
-	// SearchSchemaPreview adds a bounded column-name+type preview to
-	// a DataHub result's query_context for available tables, so agents can
-	// write SQL without an intermediate schema read.
-	SearchSchemaPreview bool
-
-	// SchemaPreviewMaxColumns caps how many columns appear per entity
-	// in the schema preview. Zero disables the preview.
-	SchemaPreviewMaxColumns int
-
 	// WorkflowTracker enables a soft discovery note appended to enriched
 	// results when the session has not yet called any discovery tool.
 	// If nil, no discovery note is appended.
 	WorkflowTracker *SessionWorkflowTracker
 
-	// ForConnection returns the DataHub source name and catalog mapping for
-	// a connection, identified by kind and name together. Returns ("", nil) if
-	// the connection has no mapping. This avoids an import cycle between
-	// middleware and platform packages.
-	//
-	// The kind is required because a name alone does not identify a connection:
-	// a deployment may carry one name across several kinds, and resolving by
-	// name matched an arbitrary one of them (#1384). Every call site here takes
-	// it from the PlatformContext it already holds.
-	ForConnection func(connectionKind, connectionName string) (datahubSourceName string, catalogMapping map[string]string)
-
-	// ConnectionsForURN returns connection names that can access the dataset
-	// identified by a DataHub URN, based on the URN's platform component.
+	// ConnectionsForURN returns the names of the connections that can access the
+	// dataset a catalog reference names.
 	ConnectionsForURN func(urn string) []string
 
 	// DatasetURN names the catalog dataset a table belongs to, the key a
-	// recorded call's targets are stored under (#1919). When set it is used in
-	// place of building a DataHub URN from ForConnection's platform.
+	// recorded call's targets are stored under (#1919). Nil leaves a described
+	// table without its proven queries.
 	DatasetURN URNBuilder
 
 	// ProvenQueries returns the caller's recorded queries that already
@@ -196,29 +155,10 @@ type EnrichmentConfig struct {
 	MemorySummaryBytes int
 }
 
-// schemaPreviewColumn is a minimal column entry for search result schema previews.
-type schemaPreviewColumn struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
-
-// queryContextEntry extends TableAvailability with an optional schema preview.
-type queryContextEntry struct {
-	Available            bool                  `json:"available"`
-	QueryTable           string                `json:"query_table,omitempty"`
-	Connection           string                `json:"connection,omitempty"`
-	AvailableConnections []string              `json:"available_connections,omitempty"`
-	EstimatedRows        *int64                `json:"estimated_rows,omitempty"`
-	Error                string                `json:"error,omitempty"`
-	SchemaPreview        []schemaPreviewColumn `json:"schema_preview,omitempty"`
-	TotalColumns         int                   `json:"total_columns,omitempty"`
-}
-
 // semanticEnricher holds the enrichment dependencies.
 type semanticEnricher struct {
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
-	storageProvider  storage.Provider
 	memoryProvider   MemoryProvider
 	pageProvider     KnowledgePageProvider
 	cfg              EnrichmentConfig
@@ -235,16 +175,6 @@ func (e *semanticEnricher) enrich(
 		if e.cfg.EnrichTrinoResults && e.semanticProvider != nil {
 			return e.enrichTrinoResultWithDedup(ctx, result, request, pc)
 		}
-	case toolPrefixDatahub:
-		return e.enrichDataHubResultWithAll(ctx, result, request)
-	case toolPrefixS3:
-		if e.cfg.EnrichS3Results && e.semanticProvider != nil {
-			var catalogMapping map[string]string
-			if e.cfg.ForConnection != nil && pc.Connection != "" {
-				_, catalogMapping = e.cfg.ForConnection(pc.ToolkitKind, pc.Connection)
-			}
-			return enrichS3Result(ctx, result, request, e.semanticProvider, catalogMapping)
-		}
 	}
 	return result, nil
 }
@@ -258,17 +188,11 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 	request mcp.CallToolRequest,
 	pc *PlatformContext,
 ) (*mcp.CallToolResult, error) {
-	// Resolve catalog mapping for the current connection.
-	var catalogMapping map[string]string
-	if e.cfg.ForConnection != nil && pc.Connection != "" {
-		_, catalogMapping = e.cfg.ForConnection(pc.ToolkitKind, pc.Connection)
-	}
-
 	cache := e.cfg.SessionCache
 	if cache == nil {
 		slog.DebugContext(ctx, "dedup: cache is nil, full enrichment")
 		pc.EnrichmentMode = enrichmentModeFull
-		return e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)
+		return e.enrichTrinoResult(ctx, result, request, pc)
 	}
 
 	// Identify tables from the request
@@ -279,7 +203,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 			keySessionID, pc.SessionID,
 			"has_params", request.Params != nil,
 		)
-		return e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)
+		return e.enrichTrinoResult(ctx, result, request, pc)
 	}
 
 	slog.DebugContext(ctx, "dedup: checking cache",
@@ -317,13 +241,7 @@ func (e *semanticEnricher) handleFullEnrichment(
 	cache := e.cfg.SessionCache
 	beforeChars := contentChars(result)
 
-	// Resolve catalog mapping for the current connection.
-	var catalogMapping map[string]string
-	if e.cfg.ForConnection != nil && pc.Connection != "" {
-		_, catalogMapping = e.cfg.ForConnection(pc.ToolkitKind, pc.Connection)
-	}
-
-	enrichedResult, err := e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)
+	enrichedResult, err := e.enrichTrinoResult(ctx, result, request, pc)
 	if err != nil {
 		return enrichedResult, err
 	}
@@ -474,76 +392,7 @@ func (e *semanticEnricher) appendSemanticSummary(
 	return result, nil
 }
 
-// enrichDataHubResultWithAll enriches DataHub results with query, storage, and curated query context.
-func (e *semanticEnricher) enrichDataHubResultWithAll(
-	ctx context.Context,
-	result *mcp.CallToolResult,
-	request mcp.CallToolRequest,
-) (*mcp.CallToolResult, error) {
-	enrichedResult, err := e.enrichDataHubQueryAndStorage(ctx, result, request)
-	if err != nil {
-		return enrichedResult, err
-	}
-
-	// Enrich with curated query availability
-	if e.cfg.EnrichDataHubResults && e.semanticProvider != nil {
-		enrichedResult, err = enrichDataHubResultWithCuratedQueries(ctx, enrichedResult, e.semanticProvider)
-		if err != nil {
-			return enrichedResult, err
-		}
-	}
-
-	// Add resource links to DataHub search results
-	if e.cfg.ResourceLinksEnabled {
-		enrichedResult = appendResourceLinks(enrichedResult, extractURNsFromResult(enrichedResult))
-	}
-
-	return enrichedResult, nil
-}
-
-// enrichDataHubQueryAndStorage enriches DataHub results with query context (Trino) and storage context (S3).
-func (e *semanticEnricher) enrichDataHubQueryAndStorage(
-	ctx context.Context,
-	result *mcp.CallToolResult,
-	request mcp.CallToolRequest,
-) (*mcp.CallToolResult, error) {
-	enrichedResult := result
-
-	// Enrich with query context (Trino) and optional schema preview
-	if e.cfg.EnrichDataHubResults && e.queryProvider != nil {
-		var err error
-		enrichedResult, err = e.enrichDataHubResult(ctx, enrichedResult, request)
-		if err != nil {
-			return enrichedResult, err
-		}
-	}
-
-	// Enrich with storage context (S3)
-	if e.cfg.EnrichDataHubStorageResults && e.storageProvider != nil {
-		var err error
-		enrichedResult, err = enrichDataHubStorageResult(ctx, enrichedResult, e.storageProvider)
-		if err != nil {
-			return enrichedResult, err
-		}
-	}
-
-	return enrichedResult, nil
-}
-
-// applyCatalogMapping replaces the table's catalog using the given mapping.
-// If mapping is nil or the catalog has no entry, the table is returned unchanged.
-func applyCatalogMapping(table semantic.TableIdentifier, mapping map[string]string) semantic.TableIdentifier {
-	if mapping == nil {
-		return table
-	}
-	if mapped, ok := mapping[table.Catalog]; ok {
-		table.Catalog = mapped
-	}
-	return table
-}
-
 // enrichTrinoResult adds semantic context to Trino tool results.
-// catalogMapping optionally remaps connection catalog names to DataHub catalog names.
 // pc may be nil in test paths; when non-nil, EnrichmentMatchKind is set to
 // enrichmentMatchURN on exact resolution or enrichmentMatchSemantic when the
 // issue #444 similarity fallback fires.
@@ -551,7 +400,6 @@ func (e *semanticEnricher) enrichTrinoResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
 	request mcp.CallToolRequest,
-	catalogMapping map[string]string,
 	pc *PlatformContext,
 ) (*mcp.CallToolResult, error) {
 	// Check for SQL query first (multi-table support)
@@ -567,7 +415,7 @@ func (e *semanticEnricher) enrichTrinoResult(
 			if e.cfg.ColumnContextFiltering {
 				filterSQL = sql
 			}
-			return e.enrichTrinoQueryResult(ctx, result, tables, filterSQL, catalogMapping)
+			return e.enrichTrinoQueryResult(ctx, result, tables, filterSQL)
 		}
 	}
 
@@ -577,8 +425,7 @@ func (e *semanticEnricher) enrichTrinoResult(
 		return result, nil
 	}
 
-	// Parse table identifier and apply catalog mapping
-	table := applyCatalogMapping(parseTableIdentifier(tableName), catalogMapping)
+	table := parseTableIdentifier(tableName)
 
 	enriched, err := e.enrichTrinoTable(ctx, result, table, tableName, pc)
 	if err != nil {
@@ -780,7 +627,6 @@ func (e *semanticEnricher) enrichTrinoQueryResult(
 	result *mcp.CallToolResult,
 	tables []sqltables.Ref,
 	filterSQL string,
-	catalogMapping map[string]string,
 ) (*mcp.CallToolResult, error) {
 	if len(tables) == 0 {
 		return result, nil
@@ -788,7 +634,7 @@ func (e *semanticEnricher) enrichTrinoQueryResult(
 
 	// Primary table gets full context
 	primary := tables[0]
-	tableID := applyCatalogMapping(refToTableIdentifier(primary), catalogMapping)
+	tableID := refToTableIdentifier(primary)
 
 	tableCtx, err := e.semanticProvider.GetTableContext(ctx, tableID)
 	if err != nil {
@@ -815,7 +661,7 @@ func (e *semanticEnricher) enrichTrinoQueryResult(
 	// Additional tables get summary context
 	additionalTables := make([]map[string]any, 0, len(tables)-1)
 	for _, t := range tables[1:] {
-		tID := applyCatalogMapping(refToTableIdentifier(t), catalogMapping)
+		tID := refToTableIdentifier(t)
 		tCtx, tErr := e.semanticProvider.GetTableContext(ctx, tID)
 		if tErr != nil {
 			slog.DebugContext(ctx, "semantic enrichment failed for additional table",
@@ -948,173 +794,6 @@ func appendSemanticContextWithAdditional(
 	return result, nil
 }
 
-// enrichDataHubResult adds query context (and optional schema preview) to DataHub tool results.
-func (e *semanticEnricher) enrichDataHubResult(
-	ctx context.Context,
-	result *mcp.CallToolResult,
-	request mcp.CallToolRequest,
-) (*mcp.CallToolResult, error) {
-	provider := e.queryProvider
-
-	// Extract URNs from result content, keeping only dataset URNs.
-	// Non-dataset URNs (domains, tags, queries, owners) cannot be
-	// resolved to queryable tables and would produce spurious errors.
-	urns := filterDatasetURNs(extractURNsFromResult(result))
-
-	// Also extract URN from request (for tools like datahub_get_lineage that take a urn param)
-	if reqURN := extractURNFromRequest(request); reqURN != "" {
-		if isDatasetURN(reqURN) && !slices.Contains(urns, reqURN) {
-			urns = append(urns, reqURN)
-		}
-	}
-
-	if len(urns) == 0 {
-		return result, nil
-	}
-
-	// Get query context for each URN
-	queryContexts := make(map[string]*queryContextEntry, len(urns))
-	for _, urn := range urns {
-		entry := e.buildQueryContextEntry(ctx, provider, urn)
-		if entry != nil {
-			queryContexts[urn] = entry
-		}
-	}
-
-	// Append query context to result
-	return appendQueryContext(result, queryContexts)
-}
-
-// buildQueryContextEntry builds a single query context entry for a URN,
-// including availability, connections, and optional schema preview.
-func (e *semanticEnricher) buildQueryContextEntry(
-	ctx context.Context,
-	provider query.Provider,
-	urn string,
-) *queryContextEntry {
-	availability, err := provider.GetTableAvailability(ctx, urn)
-	if err != nil {
-		return nil
-	}
-	entry := &queryContextEntry{
-		Available:     availability.Available,
-		QueryTable:    availability.QueryTable,
-		Connection:    availability.Connection,
-		EstimatedRows: availability.EstimatedRows,
-		Error:         availability.Error,
-	}
-	// Add all connections that can access this URN via source map lookup.
-	if e.cfg.ConnectionsForURN != nil {
-		entry.AvailableConnections = e.cfg.ConnectionsForURN(urn)
-	}
-	// Best-effort schema preview for available tables.
-	if availability.Available && e.cfg.SearchSchemaPreview && e.cfg.SchemaPreviewMaxColumns > 0 {
-		preview, total := fetchSchemaPreview(ctx, provider, urn, e.cfg.SchemaPreviewMaxColumns)
-		if len(preview) > 0 {
-			entry.SchemaPreview = preview
-			entry.TotalColumns = total
-		}
-	}
-	return entry
-}
-
-// fetchSchemaPreview resolves a URN to a table and returns a bounded column
-// preview. Primary key columns are listed first. Returns nil on any error.
-func fetchSchemaPreview(
-	ctx context.Context,
-	provider query.Provider,
-	urn string,
-	maxCols int,
-) (preview []schemaPreviewColumn, totalColumns int) {
-	tableID, err := provider.ResolveTable(ctx, urn)
-	if err != nil || tableID == nil {
-		return nil, 0
-	}
-	schema, err := provider.GetTableSchema(ctx, *tableID)
-	if err != nil || schema == nil || len(schema.Columns) == 0 {
-		return nil, 0
-	}
-	return buildSchemaPreview(schema, maxCols), len(schema.Columns)
-}
-
-// buildSchemaPreview selects up to maxCols columns with primary key columns first.
-func buildSchemaPreview(schema *query.TableSchema, maxCols int) []schemaPreviewColumn {
-	pkSet := make(map[string]bool, len(schema.PrimaryKey))
-	for _, pk := range schema.PrimaryKey {
-		pkSet[pk] = true
-	}
-	preview := make([]schemaPreviewColumn, 0, min(maxCols, len(schema.Columns)))
-	// Primary key columns first
-	for _, col := range schema.Columns {
-		if len(preview) >= maxCols {
-			break
-		}
-		if pkSet[col.Name] {
-			preview = append(preview, schemaPreviewColumn{Name: col.Name, Type: col.Type})
-		}
-	}
-	// Then remaining columns
-	for _, col := range schema.Columns {
-		if len(preview) >= maxCols {
-			break
-		}
-		if !pkSet[col.Name] {
-			preview = append(preview, schemaPreviewColumn{Name: col.Name, Type: col.Type})
-		}
-	}
-	return preview
-}
-
-// enrichDataHubResultWithCuratedQueries adds curated query availability
-// to DataHub tool results so agents know curated queries exist without
-// requiring the 3-call discovery chain.
-func enrichDataHubResultWithCuratedQueries(
-	ctx context.Context,
-	result *mcp.CallToolResult,
-	provider semantic.Provider,
-) (*mcp.CallToolResult, error) {
-	urns := extractURNsFromResult(result)
-	if len(urns) == 0 {
-		return result, nil
-	}
-
-	counts := make(map[string]any)
-	for _, urn := range urns {
-		count, err := provider.GetCuratedQueryCount(ctx, urn)
-		if err != nil || count == 0 {
-			continue
-		}
-		counts[urn] = map[string]any{
-			"has_curated_queries": true,
-			"curated_query_count": count,
-		}
-	}
-
-	if len(counts) == 0 {
-		return result, nil
-	}
-
-	return appendCuratedQueryContext(result, counts)
-}
-
-// appendCuratedQueryContext appends curated query context to the result.
-func appendCuratedQueryContext(result *mcp.CallToolResult, contexts map[string]any) (*mcp.CallToolResult, error) {
-	enrichment := map[string]any{
-		"curated_query_context": contexts,
-	}
-
-	enrichmentJSON, err := wirejson.Marshal(enrichment)
-	if err != nil {
-		return result, fmt.Errorf("marshal curated query context: %w", err)
-	}
-
-	result.Content = append(result.Content, &mcp.TextContent{
-		Text: string(enrichmentJSON),
-	})
-
-	return result, nil
-}
-
 // extractTableFromRequest extracts table name from request arguments.
 // Handles both combined format (table="catalog.schema.table") and
 // separate parameters (catalog="x", schema="y", table="z").
@@ -1193,21 +872,6 @@ func extractTableFromSQL(args map[string]any) string {
 	return ""
 }
 
-// extractURNFromRequest extracts URN from request arguments.
-func extractURNFromRequest(request mcp.CallToolRequest) string {
-	if request.Params == nil || len(request.Params.Arguments) == 0 {
-		return ""
-	}
-	var args map[string]any
-	if err := json.Unmarshal(request.Params.Arguments, &args); err != nil {
-		return ""
-	}
-	if urn, ok := args[keyURN].(string); ok {
-		return urn
-	}
-	return ""
-}
-
 // parseTableIdentifier parses a dot-separated table name.
 func parseTableIdentifier(name string) semantic.TableIdentifier {
 	parts := splitTableName(name)
@@ -1241,82 +905,6 @@ func splitTableName(name string) []string {
 		}
 	}
 	return result
-}
-
-// datasetURNPrefix identifies dataset URNs in DataHub's URN scheme.
-const datasetURNPrefix = "urn:li:dataset:"
-
-// isDatasetURN returns true if the URN represents a dataset entity.
-func isDatasetURN(urn string) bool {
-	return strings.HasPrefix(urn, datasetURNPrefix)
-}
-
-// filterDatasetURNs returns only dataset URNs from the input slice.
-func filterDatasetURNs(urns []string) []string {
-	filtered := make([]string, 0, len(urns))
-	for _, urn := range urns {
-		if isDatasetURN(urn) {
-			filtered = append(filtered, urn)
-		}
-	}
-	return filtered
-}
-
-// extractURNsFromResult extracts URNs from result content, deduplicated in
-// first-seen order: a rich result legitimately mentions the same URN several
-// times (the entity itself, memory-context references, related-document
-// assets), and downstream enrichment must not repeat per-URN output for each
-// occurrence.
-func extractURNsFromResult(result *mcp.CallToolResult) []string {
-	var urns []string
-	seen := make(map[string]bool)
-	for _, content := range result.Content {
-		if textContent, ok := content.(*mcp.TextContent); ok {
-			// Try to parse as JSON and extract URNs
-			var data map[string]any
-			if err := json.Unmarshal([]byte(textContent.Text), &data); err == nil {
-				for _, urn := range extractURNsFromMap(data) {
-					if !seen[urn] {
-						seen[urn] = true
-						urns = append(urns, urn)
-					}
-				}
-			}
-		}
-	}
-	return urns
-}
-
-// extractURNsFromMap extracts URNs from a map recursively.
-func extractURNsFromMap(data map[string]any) []string {
-	var urns []string
-	for k, v := range data {
-		if k == keyURN || k == fieldURN {
-			if urn, ok := v.(string); ok {
-				urns = append(urns, urn)
-			}
-		}
-		urns = append(urns, extractURNsFromValue(v)...)
-	}
-	return urns
-}
-
-// extractURNsFromValue extracts URNs from a nested value (map or slice).
-func extractURNsFromValue(v any) []string {
-	if m, ok := v.(map[string]any); ok {
-		return extractURNsFromMap(m)
-	}
-	arr, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	var urns []string
-	for _, item := range arr {
-		if m, ok := item.(map[string]any); ok {
-			urns = append(urns, extractURNsFromMap(m)...)
-		}
-	}
-	return urns
 }
 
 // buildTrinoSemanticContext creates the semantic context map from table context for Trino enrichment.
@@ -1514,350 +1102,4 @@ func appendSemanticContextWithColumns(
 	})
 
 	return result, nil
-}
-
-// appendQueryContext appends query context to the result.
-func appendQueryContext(result *mcp.CallToolResult, contexts map[string]*queryContextEntry) (*mcp.CallToolResult, error) {
-	if len(contexts) == 0 {
-		return result, nil
-	}
-
-	// Create enrichment content
-	enrichment := map[string]any{
-		"query_context": contexts,
-	}
-
-	enrichmentJSON, err := wirejson.Marshal(enrichment)
-	if err != nil {
-		return result, fmt.Errorf("marshal query context: %w", err)
-	}
-
-	// Append to result
-	result.Content = append(result.Content, &mcp.TextContent{
-		Text: string(enrichmentJSON),
-	})
-
-	return result, nil
-}
-
-// enrichS3Result adds semantic context to S3 tool results.
-// catalogMapping optionally remaps connection catalog names to DataHub catalog names.
-func enrichS3Result(
-	ctx context.Context,
-	result *mcp.CallToolResult,
-	request mcp.CallToolRequest,
-	provider semantic.Provider,
-	catalogMapping map[string]string,
-) (*mcp.CallToolResult, error) {
-	bucket, prefix := extractS3PathFromRequest(request)
-	if bucket == "" {
-		return result, nil
-	}
-
-	// Apply catalog mapping to the S3 search platform if applicable.
-	platform := toolPrefixS3
-	if mapped, ok := catalogMapping[toolPrefixS3]; ok {
-		platform = mapped
-	}
-
-	searchResults := searchS3Datasets(ctx, provider, bucket, prefix, platform)
-	if len(searchResults) == 0 {
-		return result, nil
-	}
-
-	semanticContexts := buildS3SemanticContexts(ctx, provider, bucket, searchResults)
-	if len(semanticContexts) == 0 {
-		return result, nil
-	}
-
-	return appendS3SemanticContext(result, semanticContexts)
-}
-
-// searchS3Datasets searches for datasets matching an S3 location.
-func searchS3Datasets(
-	ctx context.Context,
-	provider semantic.Provider,
-	bucket, prefix, platform string,
-) []semantic.TableSearchResult {
-	searchQuery := bucket
-	if prefix != "" {
-		searchQuery = bucket + "/" + prefix
-	}
-
-	searchResults, err := provider.SearchTables(ctx, semantic.SearchFilter{
-		Query:    searchQuery,
-		Platform: platform,
-		Limit:    5,
-	})
-	if err != nil {
-		return nil
-	}
-	return searchResults
-}
-
-// buildS3SemanticContexts builds semantic context maps for S3 search results.
-func buildS3SemanticContexts(
-	ctx context.Context,
-	provider semantic.Provider,
-	bucket string,
-	searchResults []semantic.TableSearchResult,
-) []map[string]any {
-	semanticContexts := make([]map[string]any, 0, len(searchResults))
-	for _, sr := range searchResults {
-		tableCtx, err := provider.GetTableContext(ctx, semantic.TableIdentifier{
-			Catalog: "s3",
-			Schema:  bucket,
-			Table:   sr.Name,
-		})
-		if err != nil || tableCtx == nil {
-			continue
-		}
-
-		semanticCtx := buildTableSemanticContext(sr, tableCtx)
-		semanticContexts = append(semanticContexts, semanticCtx)
-	}
-	return semanticContexts
-}
-
-// buildTableSemanticContext builds a semantic context map from search result and table context.
-func buildTableSemanticContext(sr semantic.TableSearchResult, tableCtx *semantic.TableContext) map[string]any {
-	semanticCtx := map[string]any{
-		keyURN:         sr.URN,
-		fieldName:      sr.Name,
-		keyDescription: tableCtx.Description,
-	}
-	if len(tableCtx.Owners) > 0 {
-		semanticCtx["owners"] = tableCtx.Owners
-	}
-	if len(tableCtx.Tags) > 0 {
-		semanticCtx[keyTags] = tableCtx.Tags
-	}
-	if tableCtx.Domain != nil {
-		semanticCtx[fieldDomain] = tableCtx.Domain.Name
-	}
-	if tableCtx.Deprecation != nil && tableCtx.Deprecation.Deprecated {
-		semanticCtx[keyDeprecation] = tableCtx.Deprecation
-	}
-	if tableCtx.QualityScore != nil {
-		semanticCtx["quality_score"] = *tableCtx.QualityScore
-	}
-	return semanticCtx
-}
-
-// extractS3PathFromRequest extracts bucket and prefix from S3 request arguments.
-func extractS3PathFromRequest(request mcp.CallToolRequest) (bucket, prefix string) {
-	if len(request.Params.Arguments) == 0 {
-		return "", ""
-	}
-	var args map[string]any
-	if err := json.Unmarshal(request.Params.Arguments, &args); err != nil {
-		return "", ""
-	}
-
-	if b, ok := args["bucket"].(string); ok {
-		bucket = b
-	}
-	if p, ok := args["prefix"].(string); ok {
-		prefix = p
-	}
-	if p, ok := args["key"].(string); ok && prefix == "" {
-		// For get_object, use key's directory as prefix
-		if idx := strings.LastIndex(p, "/"); idx > 0 {
-			prefix = p[:idx]
-		}
-	}
-	return bucket, prefix
-}
-
-// appendS3SemanticContext appends S3 semantic context to the result.
-func appendS3SemanticContext(result *mcp.CallToolResult, contexts []map[string]any) (*mcp.CallToolResult, error) {
-	if len(contexts) == 0 {
-		return result, nil
-	}
-
-	// Create enrichment content
-	enrichment := map[string]any{
-		keySemanticContext: map[string]any{
-			"matching_datasets": contexts,
-			fieldNote:           "Semantic metadata from DataHub for S3 location",
-		},
-	}
-
-	enrichmentJSON, err := wirejson.Marshal(enrichment)
-	if err != nil {
-		return result, fmt.Errorf("marshal S3 semantic context: %w", err)
-	}
-
-	// Append to result
-	result.Content = append(result.Content, &mcp.TextContent{
-		Text: string(enrichmentJSON),
-	})
-
-	return result, nil
-}
-
-// enrichDataHubStorageResult adds storage context to DataHub tool results.
-func enrichDataHubStorageResult(
-	ctx context.Context,
-	result *mcp.CallToolResult,
-	provider storage.Provider,
-) (*mcp.CallToolResult, error) {
-	// Extract URNs from result content and filter for S3 datasets
-	urns := extractS3URNsFromResult(result)
-	if len(urns) == 0 {
-		return result, nil
-	}
-
-	// Get storage context for each URN
-	storageContexts := make(map[string]*storage.DatasetAvailability)
-	for _, urn := range urns {
-		availability, err := provider.GetDatasetAvailability(ctx, urn)
-		if err != nil {
-			continue
-		}
-		storageContexts[urn] = availability
-	}
-
-	// Append storage context to result
-	return appendStorageContext(result, storageContexts)
-}
-
-// extractS3URNsFromResult extracts S3 dataset URNs from result content.
-func extractS3URNsFromResult(result *mcp.CallToolResult) []string {
-	var urns []string
-	for _, content := range result.Content {
-		if textContent, ok := content.(*mcp.TextContent); ok {
-			var data map[string]any
-			if err := json.Unmarshal([]byte(textContent.Text), &data); err == nil {
-				urns = append(urns, extractS3URNsFromMap(data)...)
-			}
-		}
-	}
-	return urns
-}
-
-// extractS3URNsFromMap extracts S3 URNs from a map recursively.
-func extractS3URNsFromMap(data map[string]any) []string {
-	var urns []string
-	for k, v := range data {
-		if k == keyURN || k == fieldURN {
-			urns = appendIfS3URN(urns, v)
-		}
-		switch val := v.(type) {
-		case map[string]any:
-			urns = append(urns, extractS3URNsFromMap(val)...)
-		case []any:
-			urns = extractS3URNsFromSlice(urns, val)
-		}
-	}
-	return urns
-}
-
-// appendIfS3URN appends the value to urns if it is an S3 dataset URN string.
-func appendIfS3URN(urns []string, v any) []string {
-	urn, ok := v.(string)
-	if ok && strings.Contains(urn, "dataPlatform:s3") {
-		return append(urns, urn)
-	}
-	return urns
-}
-
-// extractS3URNsFromSlice extracts S3 URNs from slice items that are maps.
-func extractS3URNsFromSlice(urns []string, items []any) []string {
-	for _, item := range items {
-		if m, ok := item.(map[string]any); ok {
-			urns = append(urns, extractS3URNsFromMap(m)...)
-		}
-	}
-	return urns
-}
-
-// appendStorageContext appends storage context to the result.
-func appendStorageContext(result *mcp.CallToolResult, contexts map[string]*storage.DatasetAvailability) (*mcp.CallToolResult, error) {
-	if len(contexts) == 0 {
-		return result, nil
-	}
-
-	// Create enrichment content
-	enrichment := map[string]any{
-		"storage_context": contexts,
-	}
-
-	enrichmentJSON, err := wirejson.Marshal(enrichment)
-	if err != nil {
-		return result, fmt.Errorf("marshal storage context: %w", err)
-	}
-
-	// Append to result
-	result.Content = append(result.Content, &mcp.TextContent{
-		Text: string(enrichmentJSON),
-	})
-
-	return result, nil
-}
-
-// appendResourceLinks adds schema:// and availability:// resource links to a
-// tool result for each DataHub URN found. This lets agents follow up with
-// resource template reads for detailed schema or availability info.
-func appendResourceLinks(result *mcp.CallToolResult, urns []string) *mcp.CallToolResult {
-	if len(urns) == 0 {
-		return result
-	}
-
-	// Distinct URNs can resolve to the same table (e.g. environment
-	// variants), so links are keyed on the derived URI, not the URN.
-	seen := make(map[string]bool)
-	for _, urn := range urns {
-		catalog, schema, table := parseDataHubURNComponents(urn)
-		if table == "" {
-			continue
-		}
-
-		schemaURI := fmt.Sprintf("schema://%s.%s/%s", catalog, schema, table)
-		if seen[schemaURI] {
-			continue
-		}
-		seen[schemaURI] = true
-		result.Content = append(result.Content, &mcp.ResourceLink{
-			URI:         schemaURI,
-			Name:        fmt.Sprintf("Schema: %s.%s.%s", catalog, schema, table),
-			Description: "Table schema with semantic context",
-			MIMEType:    mimeTypeJSON,
-		})
-
-		availURI := fmt.Sprintf("availability://%s.%s/%s", catalog, schema, table)
-		result.Content = append(result.Content, &mcp.ResourceLink{
-			URI:         availURI,
-			Name:        fmt.Sprintf("Availability: %s.%s.%s", catalog, schema, table),
-			Description: "Data availability status and row count",
-			MIMEType:    mimeTypeJSON,
-		})
-	}
-
-	return result
-}
-
-// parseDataHubURNComponents extracts catalog, schema, and table from a platform
-// catalog reference to a Trino table (#1919) or a DataHub dataset URN whose
-// name is <catalog>.<schema>.<table>.
-// Returns empty strings if the URN doesn't match the expected format.
-func parseDataHubURNComponents(urn string) (catalog, schema, table string) {
-	if ref, err := catalogref.ParseRef(urn); err == nil && ref.Kind == catalogref.KindDataset {
-		if len(ref.Path) != 3 { //nolint:mnd,revive // 3 parts: catalog.schema.table
-			return "", "", ""
-		}
-		return ref.Path[0], ref.Path[1], ref.Path[2]
-	}
-	parsed, err := urnbuild.ParseDatasetURN(urn)
-	if err != nil {
-		return "", "", ""
-	}
-
-	// Split by dots: catalog.schema.table
-	parts := strings.SplitN(parsed.Name, ".", 3) //nolint:mnd,revive // 3 parts: catalog.schema.table
-	if len(parts) != 3 {                         //nolint:mnd,revive // 3 parts: catalog.schema.table
-		return "", "", ""
-	}
-
-	return parts[0], parts[1], parts[2]
 }

@@ -12,7 +12,7 @@ const (
 	WriterRegistration WriterKind = "registration"
 	WriterWebhook      WriterKind = "webhook"
 	WriterManual       WriterKind = "manual"
-	// WriterImport is an edge the DataHub import carried over (#1923).
+	// WriterImport is an edge the one-time catalog import carried over (#1923).
 	WriterImport WriterKind = "import"
 )
 

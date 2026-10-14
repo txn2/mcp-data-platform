@@ -415,7 +415,7 @@ func createSessionExpiredError(initTool string) mcp.Result {
 // tools/list responses, except the init tool (which mints the handle and takes
 // no session_id). It mirrors the MCPAppsMetadataMiddleware / description-override
 // decorators: it touches only the list response, so upstream toolkits
-// (mcp-trino, mcp-datahub, mcp-s3, gateway-proxied tools) are never modified.
+// (mcp-trino, mcp-s3, gateway-proxied tools) are never modified.
 func MCPSessionHandleSchemaMiddleware(initTool string) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {

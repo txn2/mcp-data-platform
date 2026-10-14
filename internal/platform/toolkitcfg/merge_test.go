@@ -174,7 +174,7 @@ func TestDeclared(t *testing.T) {
 			"enabled":   true,
 			"instances": map[string]any{"warehouse": nil, "staging": nil},
 		},
-		"datahub": map[string]any{
+		"graphql": map[string]any{
 			"enabled":   false,
 			"instances": map[string]any{"catalog": nil},
 		},
@@ -191,7 +191,7 @@ func TestDeclared(t *testing.T) {
 	}{
 		{"trino", "warehouse", true},
 		{"trino", "staging", true},
-		{"datahub", "catalog", true},
+		{"graphql", "catalog", true},
 		{"trino", "catalog", false},
 		{"mcp", "anything", false},
 		{"s3", "lake", false},
@@ -336,18 +336,17 @@ func TestMergeStored_PinsWhatTheFileResolvesToFirst(t *testing.T) {
 	}
 }
 
-// TestMergeStored_SkipsAKindThatIsNotSavedThroughTheAdminAPI: datahub is
-// single-instance and declared in the file alone, so a row of that kind is not
-// folded into the configuration.
+// TestMergeStored_SkipsAKindThatIsNotSavedThroughTheAdminAPI: a row of a kind
+// no connection can be saved under is not folded into the configuration.
 func TestMergeStored_SkipsAKindThatIsNotSavedThroughTheAdminAPI(t *testing.T) {
 	toolkits := map[string]any{}
 
 	MergeStored(toolkits, []StoredInstance{
-		{Kind: "datahub", Name: "primary", Config: map[string]any{"gms_url": "https://example.test"}},
+		{Kind: "ftp", Name: "primary", Config: map[string]any{"host": "https://example.test"}},
 	}, nil)
 
-	if _, present := toolkits["datahub"]; present {
-		t.Error("a datahub row was folded into the configuration")
+	if _, present := toolkits["ftp"]; present {
+		t.Error("an ftp row was folded into the configuration")
 	}
 }
 

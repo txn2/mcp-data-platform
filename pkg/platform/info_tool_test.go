@@ -18,7 +18,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
 const (
@@ -85,11 +84,10 @@ func TestHandleInfo(t *testing.T) {
 				},
 				Toolkits: map[string]any{
 					"trino":   map[string]any{},
-					"datahub": map[string]any{},
+					"graphql": map[string]any{},
 				},
 				Enrichment: EnrichmentConfig{
 					TrinoSemanticEnrichment: new(true),
-					DataHubQueryEnrichment:  new(true),
 				},
 				Audit: AuditConfig{
 					Enabled: new(true),
@@ -264,7 +262,7 @@ func TestHandleInfo_NoBaselineWithoutBaselineTools(t *testing.T) {
 		personaRegistry: persona.NewRegistry(),
 		// A tool the baseline names nothing for. trino_query is no longer one:
 		// it carries the inline-VALUES bullet (#1326).
-		toolkitRegistry: regWithTools(t, "datahub_get_lineage"),
+		toolkitRegistry: regWithTools(t, "graphql_query"),
 	}
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 	require.NoError(t, err)
@@ -360,10 +358,7 @@ func TestInfoFeatures(t *testing.T) {
 			Version: testInfoVersion,
 		},
 		Enrichment: EnrichmentConfig{
-			TrinoSemanticEnrichment:  new(true),
-			DataHubQueryEnrichment:   new(true),
-			S3SemanticEnrichment:     new(false),
-			DataHubStorageEnrichment: new(true),
+			TrinoSemanticEnrichment: new(true),
 		},
 		Audit: AuditConfig{
 			Enabled: new(true),
@@ -376,7 +371,6 @@ func TestInfoFeatures(t *testing.T) {
 		toolkitRegistry:  registry.NewRegistry(),
 		semanticProvider: semantic.NewNoopProvider(),
 		queryProvider:    query.NewNoopProvider(),
-		storageProvider:  storage.NewNoopProvider(),
 	}
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
@@ -384,8 +378,6 @@ func TestInfoFeatures(t *testing.T) {
 	info := requireInfoFromResult(t, result)
 
 	assert.True(t, info.Features.SemanticEnrichment, "semantic enrichment should be enabled")
-	assert.True(t, info.Features.QueryEnrichment, "query enrichment should be enabled")
-	assert.True(t, info.Features.StorageEnrichment, "storage enrichment should be enabled")
 	assert.True(t, info.Features.AuditLogging, "audit logging should be enabled")
 }
 
@@ -411,8 +403,6 @@ func TestInfoFeatures_EnrichmentReportedOffWithoutProvider(t *testing.T) {
 	info := requireInfoFromResult(t, result)
 
 	assert.False(t, info.Features.SemanticEnrichment, "no semantic provider => not reported")
-	assert.False(t, info.Features.QueryEnrichment, "no query provider => not reported")
-	assert.False(t, info.Features.StorageEnrichment, "no storage provider => not reported")
 }
 
 func TestInfoConfigVersion(t *testing.T) {
@@ -444,7 +434,7 @@ func TestInfoToolkitDescriptions(t *testing.T) {
 		Server: ServerConfig{Name: "desc-test", Version: testInfoVersion},
 		Toolkits: map[string]any{
 			"trino":   map[string]any{"description": "Run SQL queries against rdbms and opensearch catalogs"},
-			"datahub": map[string]any{"description": "Browse the ACME data catalog"},
+			"graphql": map[string]any{"description": "Browse the ACME data catalog"},
 			"s3":      map[string]any{}, // no description — should be omitted
 		},
 	}
@@ -457,7 +447,7 @@ func TestInfoToolkitDescriptions(t *testing.T) {
 
 	require.NotNil(t, info.ToolkitDescriptions)
 	assert.Equal(t, "Run SQL queries against rdbms and opensearch catalogs", info.ToolkitDescriptions["trino"])
-	assert.Equal(t, "Browse the ACME data catalog", info.ToolkitDescriptions["datahub"])
+	assert.Equal(t, "Browse the ACME data catalog", info.ToolkitDescriptions["graphql"])
 	assert.NotContains(t, info.ToolkitDescriptions, "s3", "empty description should be omitted")
 }
 
@@ -489,7 +479,7 @@ func TestInfoToolkits(t *testing.T) {
 		},
 		Toolkits: map[string]any{
 			"trino":   map[string]any{"host": "localhost"},
-			"datahub": map[string]any{"url": "http://localhost"},
+			"graphql": map[string]any{"url": "http://localhost"},
 			"s3":      map[string]any{"region": "us-east-1"},
 		},
 	}
@@ -507,7 +497,7 @@ func TestInfoToolkits(t *testing.T) {
 	assert.Len(t, info.Toolkits, testInfoToolkitCount)
 	assert.Equal(t, "platform", info.Toolkits[0], "platform should be prepended first")
 	assert.Contains(t, info.Toolkits, "trino")
-	assert.Contains(t, info.Toolkits, "datahub")
+	assert.Contains(t, info.Toolkits, "graphql")
 	assert.Contains(t, info.Toolkits, "s3")
 	assert.NotEmpty(t, info.ToolkitDescriptions["platform"], "platform toolkit should have a description")
 }

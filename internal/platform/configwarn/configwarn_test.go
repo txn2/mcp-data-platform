@@ -150,9 +150,9 @@ func TestCheckAgentInstructions(t *testing.T) {
 		want         []string
 	}{
 		{"empty", "", []string{"trino_query"}, nil},
-		{"valid references", "Use trino_query for SQL and datahub_search for discovery.", []string{"trino_query", "datahub_search"}, nil},
+		{"valid references", "Use trino_query for SQL and search for discovery.", []string{"trino_query", "search"}, nil},
 		{"stale reference", "Use trino_old_tool to run queries.", []string{"trino_query"}, []string{"trino_old_tool"}},
-		{"two stale", "Use datahub_old and s3_removed.", []string{"trino_query"}, []string{"datahub_old", "s3_removed"}},
+		{"two stale", "Use trino_old and s3_removed.", []string{"trino_query"}, []string{"trino_old", "s3_removed"}},
 		{"non-tool tokens", "The table has first_name and last_name columns.", []string{"trino_query"}, nil},
 		{"platform tool registered", "Use platform_info to discover capabilities.", []string{"platform_info"}, nil},
 	}

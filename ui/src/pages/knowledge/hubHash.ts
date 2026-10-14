@@ -35,10 +35,9 @@ export function insightSubHash(sub: InsightSubTab): string {
 }
 
 // The Catalog section's inner tabs (#1194). Catalog is one route holding every
-// DataHub-backed surface, so the surface within it is carried in the hash the
-// same way the top tabs are: /knowledge/catalog#tags re-opens the tag
-// vocabulary, and /knowledge/catalog?urn=...#glossary opens that term on the
-// Glossary tab.
+// catalog surface, so the surface within it is carried in the hash the same way
+// the top tabs are: /knowledge/catalog#tags re-opens the tag list, and
+// /knowledge/catalog?ref=...#glossary opens that term on the Glossary tab.
 //
 // The tab set and its URL spellings live in lib/entityRefs with the rest of the
 // reference route table, because the builder that turns a stored catalog

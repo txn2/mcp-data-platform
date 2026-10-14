@@ -122,7 +122,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "net-revenue-definition",
     title: "Net Revenue Definition",
     summary: "net_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.",
-    body: "# Net Revenue Definition\n\nnet_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD), served from mcp:connection:(trino,acme-warehouse). The board view of this figure is [Q4 Revenue Dashboard](mcp:asset:ast-001).\n\nRelated pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2), [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5).\n" +
+    body: "# Net Revenue Definition\n\nnet_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.retail.daily_sales), served from mcp:connection:(trino,acme-warehouse). The board view of this figure is [Q4 Revenue Dashboard](mcp:asset:ast-001).\n\nRelated pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2), [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5).\n" +
       "\n[Daily Sales Report](mcp:script:script-001) refreshes the dashboard every weekday.\n",
     tags: ["finance","revenue","metrics","reporting"],
     created_by: "sarah.chen@example.com",
@@ -136,7 +136,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "inventory-snapshot-grain",
     title: "Inventory Snapshot Grain",
     summary: "inventory_snapshot is one row per SKU per store per day. The on_hand count is the end-of-day position; intraday movements are not captured here.",
-    body: "# Inventory Snapshot Grain\n\ninventory_snapshot is one row per SKU per store per day. The on_hand count is the end-of-day position; intraday movements are not captured here.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD).\n\nRelated pages: [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14), [daily_sales Table Guide](mcp:knowledge_page:kp-seed-4).\n",
+    body: "# Inventory Snapshot Grain\n\ninventory_snapshot is one row per SKU per store per day. The on_hand count is the end-of-day position; intraday movements are not captured here.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.inventory.inventory_levels).\n\nRelated pages: [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14), [daily_sales Table Guide](mcp:knowledge_page:kp-seed-4).\n",
     tags: ["inventory","schema","retail","data-quality"],
     created_by: "marcus.webb@example.com",
     updated_by: "rachel.thompson@example.com",
@@ -149,7 +149,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "price-change-history",
     title: "Price Change History",
     summary: "price_history records every list-price change with an effective timestamp. To get the price in effect on a date, take the most recent row at or before that date.",
-    body: "# Price Change History\n\nprice_history records every list-price change with an effective timestamp. To get the price in effect on a date, take the most recent row at or before that date.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.price_adjustments,PROD), served from mcp:connection:(trino,acme-warehouse).\n\nRelated pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2).\n",
+    body: "# Price Change History\n\nprice_history records every list-price change with an effective timestamp. To get the price in effect on a date, take the most recent row at or before that date.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.retail.price_adjustments), served from mcp:connection:(trino,acme-warehouse).\n\nRelated pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2).\n",
     tags: ["pricing","schema","retail"],
     created_by: "priya.nair@example.com",
     updated_by: "david.park@example.com",
@@ -175,7 +175,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "loyalty-tier-rename",
     title: "Loyalty Tier Rename",
     summary: "Loyalty tiers were renamed in Q3 FY2024: Bronze/Silver/Gold became Explorer/Enthusiast/Champion. Historical rows keep the old labels, so reporting must map both.",
-    body: "# Loyalty Tier Rename\n\nLoyalty tiers were renamed in Q3 FY2024: Bronze/Silver/Gold became Explorer/Enthusiast/Champion. Historical rows keep the old labels, so reporting must map both.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD).\n\nRelated pages: [Customer Identity Resolution](mcp:knowledge_page:kp-seed-24), [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28).\n",
+    body: "# Loyalty Tier Rename\n\nLoyalty tiers were renamed in Q3 FY2024: Bronze/Silver/Gold became Explorer/Enthusiast/Champion. Historical rows keep the old labels, so reporting must map both.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.analytics.customer_segments).\n\nRelated pages: [Customer Identity Resolution](mcp:knowledge_page:kp-seed-24), [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28).\n",
     tags: ["loyalty","marketing","customer","deprecation"],
     created_by: "rachel.thompson@example.com",
     updated_by: "admin@example.com",
@@ -188,7 +188,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "supply-chain-lead-times",
     title: "Supply Chain Lead Times",
     summary: "supplier_lead_time is measured in business days from PO submission to dock receipt. It excludes the put-away time before stock becomes sellable.",
-    body: "# Supply Chain Lead Times\n\nsupplier_lead_time is measured in business days from PO submission to dock receipt. It excludes the put-away time before stock becomes sellable.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD).\n\nRelated pages: [Inventory Snapshot Grain](mcp:knowledge_page:kp-seed-10), [Demand Forecast Model](mcp:knowledge_page:kp-seed-15).\n",
+    body: "# Supply Chain Lead Times\n\nsupplier_lead_time is measured in business days from PO submission to dock receipt. It excludes the put-away time before stock becomes sellable.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.inventory.supply_chain_orders).\n\nRelated pages: [Inventory Snapshot Grain](mcp:knowledge_page:kp-seed-10), [Demand Forecast Model](mcp:knowledge_page:kp-seed-15).\n",
     tags: ["supply-chain","inventory","forecasting"],
     created_by: "david.park@example.com",
     updated_by: "sarah.chen@example.com",
@@ -201,7 +201,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "demand-forecast-model",
     title: "Demand Forecast Model",
     summary: "The weekly demand forecast blends a 52-week seasonal baseline with a promotions uplift. Forecasts beyond 8 weeks are directional and should not drive purchase orders.",
-    body: "# Demand Forecast Model\n\nThe weekly demand forecast blends a 52-week seasonal baseline with a promotions uplift. Forecasts beyond 8 weeks are directional and should not drive purchase orders.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD).\n\nRelated pages: [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14), [Promotions Attribution](mcp:knowledge_page:kp-seed-27).\n",
+    body: "# Demand Forecast Model\n\nThe weekly demand forecast blends a 52-week seasonal baseline with a promotions uplift. Forecasts beyond 8 weeks are directional and should not drive purchase orders.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.analytics.regional_performance).\n\nRelated pages: [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14), [Promotions Attribution](mcp:knowledge_page:kp-seed-27).\n",
     tags: ["forecasting","metrics","supply-chain"],
     created_by: "amanda.lee@example.com",
     updated_by: "marcus.webb@example.com",
@@ -227,7 +227,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "sales-mart-schema",
     title: "sales_mart Schema",
     summary: "sales_mart is the curated star schema for sales reporting: one fact table (sales_fact) and four conformed dimensions (date, store, product, customer).",
-    body: "# sales_mart Schema\n\nsales_mart is the curated star schema for sales reporting: one fact table (sales_fact) and four conformed dimensions (date, store, product, customer).\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).\n\nRelated pages: [Executive Dashboard Guide](mcp:knowledge_page:kp-seed-23), [Partitioning Conventions](mcp:knowledge_page:kp-seed-21).\n",
+    body: "# sales_mart Schema\n\nsales_mart is the curated star schema for sales reporting: one fact table (sales_fact) and four conformed dimensions (date, store, product, customer).\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.retail.daily_sales).\n\nRelated pages: [Executive Dashboard Guide](mcp:knowledge_page:kp-seed-23), [Partitioning Conventions](mcp:knowledge_page:kp-seed-21).\n",
     tags: ["schema","reporting","lineage","dashboards"],
     created_by: "sarah.chen@example.com",
     updated_by: "marcus.johnson@example.com",
@@ -279,7 +279,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "partitioning-conventions",
     title: "Partitioning Conventions",
     summary: "Fact tables partition by event date in UTC. Querying without a date predicate scans every partition, so always bound large fact queries by date.",
-    body: "# Partitioning Conventions\n\nFact tables partition by event date in UTC. Querying without a date predicate scans every partition, so always bound large fact queries by date.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).\n\nRelated pages: [sales_mart Schema](mcp:knowledge_page:kp-seed-17).\n",
+    body: "# Partitioning Conventions\n\nFact tables partition by event date in UTC. Querying without a date predicate scans every partition, so always bound large fact queries by date.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.retail.daily_sales).\n\nRelated pages: [sales_mart Schema](mcp:knowledge_page:kp-seed-17).\n",
     tags: ["partitioning","schema","data-quality"],
     created_by: "rachel.thompson@example.com",
     updated_by: "admin@example.com",
@@ -292,7 +292,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "deprecated-columns",
     title: "Deprecated Columns",
     summary: "Columns scheduled for removal carry a deprecated tag and a removal date in the catalog. Migrate off them before the date; reads will start returning NULL after.",
-    body: "# Deprecated Columns\n\nColumns scheduled for removal carry a deprecated tag and a removal date in the catalog. Migrate off them before the date; reads will start returning NULL after.\n\n## Related\n\nRelated pages: [Data Ownership Model](mcp:knowledge_page:kp-seed-19), [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28).\n\nThe retired urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.legacy_orders,PROD) is kept only for the migration window.\n",
+    body: "# Deprecated Columns\n\nColumns scheduled for removal carry a deprecated tag and a removal date in the catalog. Migrate off them before the date; reads will start returning NULL after.\n\n## Related\n\nRelated pages: [Data Ownership Model](mcp:knowledge_page:kp-seed-19), [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28).\n\nThe retired mcp:dataset:(trino,acme-warehouse,iceberg.retail.legacy_orders) is kept only for the migration window.\n",
     tags: ["deprecation","schema","governance"],
     created_by: "david.park@example.com",
     updated_by: "sarah.chen@example.com",
@@ -305,7 +305,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "exec-dashboard-guide",
     title: "Executive Dashboard Guide",
     summary: "The executive dashboard reads exclusively from sales_mart and refreshes by 06:00 UTC. If a number looks wrong, check the sales_mart partition before the dashboard.",
-    body: "# Executive Dashboard Guide\n\nThe executive dashboard reads exclusively from sales_mart and refreshes by 06:00 UTC. If a number looks wrong, check the sales_mart partition before the dashboard.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD), served from mcp:connection:(trino,acme-warehouse).\n\nRelated pages: [sales_mart Schema](mcp:knowledge_page:kp-seed-17), [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).\n",
+    body: "# Executive Dashboard Guide\n\nThe executive dashboard reads exclusively from sales_mart and refreshes by 06:00 UTC. If a number looks wrong, check the sales_mart partition before the dashboard.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.retail.daily_sales), served from mcp:connection:(trino,acme-warehouse).\n\nRelated pages: [sales_mart Schema](mcp:knowledge_page:kp-seed-17), [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).\n",
     tags: ["dashboards","reporting","lineage"],
     created_by: "amanda.lee@example.com",
     updated_by: "marcus.webb@example.com",
@@ -318,7 +318,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "customer-identity-resolution",
     title: "Customer Identity Resolution",
     summary: "Customers are deduplicated into a single customer_key via email and loyalty-id matching. A raw order may reference a pre-resolution id, so always join through the identity map.",
-    body: "# Customer Identity Resolution\n\nCustomers are deduplicated into a single customer_key via email and loyalty-id matching. A raw order may reference a pre-resolution id, so always join through the identity map.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD).\n\nRelated pages: [Loyalty Tier Rename](mcp:knowledge_page:kp-seed-13), [Order Lifecycle States](mcp:knowledge_page:kp-seed-25).\n",
+    body: "# Customer Identity Resolution\n\nCustomers are deduplicated into a single customer_key via email and loyalty-id matching. A raw order may reference a pre-resolution id, so always join through the identity map.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.analytics.customer_segments).\n\nRelated pages: [Loyalty Tier Rename](mcp:knowledge_page:kp-seed-13), [Order Lifecycle States](mcp:knowledge_page:kp-seed-25).\n",
     tags: ["customer","schema","data-quality"],
     created_by: "admin@example.com",
     updated_by: "priya.nair@example.com",
@@ -331,7 +331,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "order-lifecycle-states",
     title: "Order Lifecycle States",
     summary: "An order moves placed -> picked -> shipped -> delivered, or placed -> cancelled. The orders table stores only the current state; state history lives in order_events.",
-    body: "# Order Lifecycle States\n\nAn order moves placed -> picked -> shipped -> delivered, or placed -> cancelled. The orders table stores only the current state; state history lives in order_events.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.store_transactions,PROD).\n\nRelated pages: [Shipping Zones](mcp:knowledge_page:kp-seed-26), [Customer Identity Resolution](mcp:knowledge_page:kp-seed-24).\n",
+    body: "# Order Lifecycle States\n\nAn order moves placed -> picked -> shipped -> delivered, or placed -> cancelled. The orders table stores only the current state; state history lives in order_events.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.retail.store_transactions).\n\nRelated pages: [Shipping Zones](mcp:knowledge_page:kp-seed-26), [Customer Identity Resolution](mcp:knowledge_page:kp-seed-24).\n",
     tags: ["orders","schema","taxonomy"],
     created_by: "sarah.chen@example.com",
     updated_by: "marcus.johnson@example.com",
@@ -357,7 +357,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "promotions-attribution",
     title: "Promotions Attribution",
     summary: "Promotion uplift is attributed on a last-touch basis within the campaign window. Sales outside the window are never credited to the promotion even at a discounted price.",
-    body: "# Promotions Attribution\n\nPromotion uplift is attributed on a last-touch basis within the campaign window. Sales outside the window are never credited to the promotion even at a discounted price.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).\n\nRelated pages: [Demand Forecast Model](mcp:knowledge_page:kp-seed-15), [Net Revenue Definition](mcp:knowledge_page:kp-seed-9).\n",
+    body: "# Promotions Attribution\n\nPromotion uplift is attributed on a last-touch basis within the campaign window. Sales outside the window are never credited to the promotion even at a discounted price.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.retail.daily_sales).\n\nRelated pages: [Demand Forecast Model](mcp:knowledge_page:kp-seed-15), [Net Revenue Definition](mcp:knowledge_page:kp-seed-9).\n",
     tags: ["promotions","marketing","metrics"],
     created_by: "priya.nair@example.com",
     updated_by: "david.park@example.com",
@@ -396,7 +396,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "observability-alerting",
     title: "Observability and Alerting",
     summary: "Pipeline health is tracked in the observability view; a failed run pages the dataset owner after two consecutive misses. Transient single failures auto-retry and do not alert.",
-    body: "# Observability and Alerting\n\nPipeline health is tracked in the observability view; a failed run pages the dataset owner after two consecutive misses. Transient single failures auto-retry and do not alert.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD).\n\nRelated pages: [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20), [ETL Refresh Windows](mcp:knowledge_page:kp-seed-16).\n",
+    body: "# Observability and Alerting\n\nPipeline health is tracked in the observability view; a failed run pages the dataset owner after two consecutive misses. Transient single failures auto-retry and do not alert.\n\n## Related\n\nThe authoritative data lives in mcp:dataset:(trino,acme-warehouse,iceberg.inventory.supply_chain_orders).\n\nRelated pages: [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20), [ETL Refresh Windows](mcp:knowledge_page:kp-seed-16).\n",
     tags: ["observability","etl","sla","ownership"],
     created_by: "david.park@example.com",
     updated_by: "sarah.chen@example.com",
@@ -426,29 +426,34 @@ export const mockKnowledgePages: KnowledgePage[] = [
 // mutable, so the picker's add and remove are observable on a re-read the way
 // they are against the real store.
 //
-// The seed carries the governance references #1159 made pickable, so the
-// Related panel, the reference chips, and the reverse lookup on a tag, domain,
-// or glossary-term detail all have material without an author adding it first.
+// The seed carries the catalog definition references #1159 made pickable, so
+// the Related panel, the reference chips, and the reverse lookup on a tag,
+// domain, or glossary-term detail all have material without an author adding
+// it first.
 export const mockPageRefs: Record<string, string[]> = {
-  "kp-seed-2": ["urn:li:glossaryTerm:Revenue", "urn:li:domain:finance"],
-  "kp-seed-3": ["urn:li:tag:pii"],
+  "kp-seed-2": ["mcp:glossary_term:t1", "mcp:domain:d1"],
+  "kp-seed-3": ["mcp:tag:pii"],
   // Two pages cite the regional review deck, so its viewer carries the
   // Referenced by button beside the version picker (#1792).
   "kp-seed-9": ["mcp:asset:ast-deck"],
   "kp-seed-4": ["mcp:asset:ast-deck"],
 };
 
-// GOVERNANCE_NAMES is what the catalog reports for a governance URN, which the
-// server resolves in one batch. The key inside these URNs is not always the
-// name, which is the whole reason the resolve exists.
-const GOVERNANCE_NAMES: Record<string, string> = {
-  "urn:li:glossaryTerm:Revenue": "Revenue",
-  "urn:li:glossaryTerm:NetSales": "Net Sales",
-  "urn:li:tag:pii": "pii",
-  "urn:li:tag:certified": "certified",
-  "urn:li:domain:finance": "Finance",
-  "urn:li:domain:marketing": "Marketing",
+// DEFINITION_NAMES is what the catalog reports for a definition reference,
+// which the server resolves in one batch. A glossary term or domain is keyed by
+// its id, not its name, which is the whole reason the resolve exists.
+const DEFINITION_NAMES: Record<string, string> = {
+  "mcp:glossary_term:t1": "Revenue",
+  "mcp:glossary_term:t2": "Net Sales",
+  "mcp:tag:pii": "pii",
+  "mcp:tag:certified": "certified",
+  "mcp:domain:d1": "Sales",
+  "mcp:domain:d2": "Marketing",
 };
+
+// CATALOG_REF matches the platform catalog's reference kinds.
+const CATALOG_REF =
+  /^mcp:(dataset|column|glossary_term|glossary_node|tag|domain|data_product|schema_document):(.+)$/;
 
 /** ResolvedPageRef mirrors the refs endpoints' resolved view. */
 export interface ResolvedPageRef {
@@ -460,12 +465,16 @@ export interface ResolvedPageRef {
 }
 
 // resolvePageRef labels one serialized reference the way the server does: a
-// catalog entity by the name the catalog reports, falling back to the last
-// URN segment, and a knowledge page by its title.
+// catalog entity by the name the catalog reports, falling back to the key the
+// reference carries, and a knowledge page by its title.
 export function resolvePageRef(urn: string, source: string): ResolvedPageRef {
-  if (urn.startsWith("urn:")) {
-    const label = GOVERNANCE_NAMES[urn] ?? urn.slice(urn.lastIndexOf(":") + 1);
-    return { urn, type: "datahub", label, exists: true, source };
+  const catalog = urn.match(CATALOG_REF);
+  if (catalog) {
+    const key = catalog[2]!;
+    // A dataset is labelled by its table, the last segment of its path.
+    const table = catalog[1] === "dataset" ? key.replace(/\)$/, "").split(".").pop() : undefined;
+    const label = DEFINITION_NAMES[urn] ?? table ?? key;
+    return { urn, type: "catalog", label, exists: true, source };
   }
   const pageID = urn.startsWith("mcp:knowledge_page:")
     ? urn.slice("mcp:knowledge_page:".length)

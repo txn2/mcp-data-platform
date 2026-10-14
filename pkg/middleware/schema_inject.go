@@ -11,7 +11,7 @@ import (
 // Shared mechanics for the platform-owned tool arguments the platform advertises
 // on tools/list and consumes on tools/call: the session handle (#792) and the
 // call's purpose (#1317). Both decorate the list response only, so upstream
-// toolkits (mcp-trino, mcp-datahub, mcp-s3, gateway-proxied tools) are never
+// toolkits (mcp-trino, mcp-s3, gateway-proxied tools) are never
 // modified, and both take their argument back off the request before the handler
 // or a proxied upstream server can observe it.
 

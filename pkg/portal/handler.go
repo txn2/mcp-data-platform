@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -116,29 +117,22 @@ type PersonaInfo struct {
 // PersonaResolver resolves a user's roles to their persona info.
 type PersonaResolver func(roles []string) *PersonaInfo
 
-// datahubToolPrefix prefixes every DataHub MCP tool name. Unexported:
-// its only consumer is the tool filter a few lines below, and a name
-// with no caller outside this package is surface a library consumer
-// pays for and never uses.
-const datahubToolPrefix = "datahub_"
+// catalogReadTool is the MCP tool that reads the platform catalog. Unexported:
+// its only consumer is the check a few lines below.
+const catalogReadTool = "fetch"
 
-// HasCatalogAccess reports whether a user may read the DataHub catalog: their
-// persona grants any DataHub tool (read or write), or they are an admin. It is
-// the one rule behind every catalog read the portal serves — the DataHub REST
-// surface (internal/httpserver/datahubapi) and the knowledge-page reference
-// labels (#1159) — so a persona denied the catalog is denied it on both, and
-// the portal never discloses more than the persona-filtered MCP surface would.
+// HasCatalogAccess reports whether a user may read the platform catalog: their
+// persona grants fetch, the tool that reads it over MCP, or they are an admin.
+// It is the one rule behind the catalog reads the portal serves outside the
+// catalog routes, the knowledge-page reference labels (#1159), so the portal
+// never discloses more than the persona-filtered MCP surface would.
 func HasCatalogAccess(user *User, resolver PersonaResolver, adminRoles []string) bool {
 	if user == nil {
 		return false
 	}
 	if resolver != nil {
-		if info := resolver(user.Roles); info != nil {
-			for _, t := range info.Tools {
-				if strings.HasPrefix(t, datahubToolPrefix) {
-					return true
-				}
-			}
+		if info := resolver(user.Roles); info != nil && slices.Contains(info.Tools, catalogReadTool) {
+			return true
 		}
 	}
 	return access.HasAnyRole(user.Roles, adminRoles)
@@ -226,11 +220,11 @@ type Deps struct {
 	// unified knowledge federation. nil disables the endpoint (no searchable
 	// source configured).
 	SearchRouter SearchRouter
-	// DataHubRegistrar, when set, registers the portal DataHub Catalog and Context
-	// Docs REST routes (#718) onto the portal mux. It is provided by cmd wiring
-	// (internal/httpserver/datahubapi.Handler.Register) so the DataHub feature lives in its
-	// own package; nil leaves the /api/v1/portal/datahub/* routes unregistered.
-	DataHubRegistrar func(*http.ServeMux)
+	// CatalogRegistrar, when set, registers the portal catalog routes (#1921)
+	// onto the portal mux. It is provided by the composition root
+	// (internal/httpserver/catalogapi) so the feature lives in its own package;
+	// nil leaves the /api/v1/portal/catalog/* routes unregistered.
+	CatalogRegistrar func(*http.ServeMux)
 	// OnAssetDeleted, when set, is called after an asset is deleted so the
 	// tables registered over its file are dropped (#1327). A delete is soft
 	// and leaves the object in place, so a table still pointing at it would
@@ -244,11 +238,11 @@ type Deps struct {
 	// a pinned one is behind it. The write is never failed by it. Nil on a
 	// deployment that cannot register tables.
 	OnAssetRevised func(ctx context.Context, id string, version int) []string
-	// CatalogLabeler names the DataHub governance entities a knowledge page
-	// references (#1159), so a citation to a glossary term, a tag, or a domain
-	// renders as its display name instead of the generated key inside its URN.
-	// It is provided by the same cmd wiring as DataHubRegistrar; nil (no DataHub
-	// connection) falls back to the name derivable from the URN itself.
+	// CatalogLabeler names the catalog definitions a knowledge page references
+	// (#1159), so a citation to a glossary term, a tag, or a domain renders as
+	// its display name instead of the generated key inside its reference. It is
+	// provided by the same wiring as CatalogRegistrar; nil (no database) falls
+	// back to the name derivable from the reference itself.
 	CatalogLabeler CatalogLabeler
 	// MentionResolver filters the @-mentions written in a thread comment to
 	// the people who can open the thread's target (#627). nil disables
@@ -283,7 +277,7 @@ type Deps struct {
 	ShareGuest *shareguest.Service
 	// NotificationRegistrar, when set, registers the self-scoped
 	// notification-preference REST routes onto the portal's authenticated
-	// mux (the DataHubRegistrar pattern): the feature lives with the
+	// mux (the CatalogRegistrar pattern): the feature lives with the
 	// notification substrate, not in this package. nil leaves the
 	// /api/v1/portal/notification-prefs routes unregistered.
 	NotificationRegistrar func(*http.ServeMux)
@@ -573,10 +567,11 @@ func (h *Handler) registerRoutes() {
 	// Unified knowledge search (one query across every source the caller can access)
 	h.registerSearchRoutes()
 
-	// DataHub catalog + context-doc browse/search/edit (#718). Registered by cmd
-	// wiring via internal/httpserver/datahubapi so the feature stays in its own package.
-	if h.deps.DataHubRegistrar != nil {
-		h.deps.DataHubRegistrar(h.mux)
+	// The platform catalog: browse, search, read and curate (#1921). Registered
+	// by the composition root via internal/httpserver/catalogapi so the feature
+	// stays in its own package.
+	if h.deps.CatalogRegistrar != nil {
+		h.deps.CatalogRegistrar(h.mux)
 	}
 
 	// Feedback: threads, activity, worklists, sign-off, validation, and
@@ -672,7 +667,7 @@ type meResponse struct {
 	Roles   []string `json:"roles" example:"analyst,data_engineer"`
 	IsAdmin bool     `json:"is_admin" example:"false"`
 	Persona string   `json:"persona,omitempty" example:"analyst"`
-	Tools   []string `json:"tools,omitempty" example:"trino_query,datahub_search"`
+	Tools   []string `json:"tools,omitempty" example:"trino_query,search"`
 	// CSRFToken is set only for cookie sessions; the SPA echoes it in the
 	// X-CSRF-Token header on mutations. API-key clients are exempt.
 	CSRFToken string `json:"csrf_token,omitempty"`

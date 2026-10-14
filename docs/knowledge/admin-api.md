@@ -63,7 +63,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights?status=pending&
       "insight_text": "The amount column represents gross margin before returns, not revenue.",
       "confidence": "high",
       "entity_urns": [
-        "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+        "mcp:dataset:(trino,warehouse,hive.sales.orders)"
       ],
       "related_columns": [],
       "suggested_actions": [
@@ -116,11 +116,11 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights/a1b2c3d4e5f6789
   "insight_text": "The amount column represents gross margin before returns, not revenue.",
   "confidence": "high",
   "entity_urns": [
-    "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+    "mcp:dataset:(trino,warehouse,hive.sales.orders)"
   ],
   "related_columns": [
     {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+      "urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
       "column": "amount",
       "relevance": "direct"
     }
@@ -135,7 +135,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights/a1b2c3d4e5f6789
   "status": "pending",
   "observed_entities": [
     {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+      "urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
       "query_table": "hive.sales.orders",
       "connection": "primary",
       "estimated_rows": 1200
@@ -271,7 +271,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights/stats" \
   "total_pending": 7,
   "by_entity": [
     {
-      "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+      "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
       "count": 3,
       "categories": ["correction", "business_context"],
       "latest_at": "2025-01-15T14:30:00Z"
@@ -333,7 +333,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/changesets?rolled_back=f
     {
       "id": "cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6",
       "created_at": "2025-01-15T16:00:00Z",
-      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+      "target_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
       "change_type": "update_description",
       "previous_value": {
         "description": "Order records",
@@ -380,7 +380,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z3a4b5
 {
   "id": "cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6",
   "created_at": "2026-01-15T16:00:00Z",
-  "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+  "target_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
   "change_type": "update_description",
   "previous_value": {
     "description": "Order records",
@@ -422,8 +422,8 @@ curl -X POST "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z
 ```json
 {
   "changeset_id": "cs_x1y2z3a4b5c6",
-  "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
-  "reverted_changes": ["removed glossary term urn:li:glossaryTerm:gross-margin"],
+  "target_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
+  "reverted_changes": ["restored glossary_terms of mcp:dataset:(trino,warehouse,hive.sales.orders)"],
   "skipped_changes": [],
   "insights_returned_to_review": ["a1b2c3d4e5f6"],
   "rolled_back_by": "admin@example.com"
@@ -436,7 +436,7 @@ curl -X POST "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z
 |--------|-----------|
 | `200` | Reverted and recorded. |
 | `404` | Changeset not found. |
-| `409` | Already rolled back; an aspect it wrote has been written again since; or it was applied to DataHub before the platform catalog replaced it. |
+| `409` | Already rolled back; an aspect it wrote has been written again since; or it was written before the platform catalog held its entities, so its writes are not in the catalog's history. |
 | `422` | The changeset created a prompt, which a rollback does not delete. |
 
 ## Memory Record Endpoints
@@ -536,7 +536,7 @@ Knowledge capture uses two PostgreSQL tables, created by migrations 000006, 0000
 | `category` | TEXT | Insight category |
 | `insight_text` | TEXT | The domain knowledge content |
 | `confidence` | TEXT | Confidence level (high, medium, low) |
-| `entity_urns` | JSONB | Related DataHub entity URNs |
+| `entity_urns` | JSONB | Related catalog references |
 | `related_columns` | JSONB | Related columns |
 | `suggested_actions` | JSONB | Proposed catalog changes |
 | `status` | TEXT | Current lifecycle status |
@@ -553,7 +553,7 @@ Knowledge capture uses two PostgreSQL tables, created by migrations 000006, 0000
 |--------|------|-------------|
 | `id` | TEXT | Primary key (cryptographic random hex) |
 | `created_at` | TIMESTAMPTZ | When changes were applied |
-| `target_urn` | TEXT | DataHub entity that was modified |
+| `target_urn` | TEXT | Catalog entity that was modified |
 | `change_type` | TEXT | Type of changes applied |
 | `previous_value` | JSONB | Metadata before changes (for rollback) |
 | `new_value` | JSONB | Changes applied |

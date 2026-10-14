@@ -115,14 +115,6 @@ toolkits:
         schema: default
     default: primary
 
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-    default: primary
-
   s3:
     enabled: true
     instances:
@@ -134,8 +126,6 @@ toolkits:
 
 enrichment:
   trino_semantic_enrichment: true
-  datahub_query_enrichment: true
-  s3_semantic_enrichment: true
   column_context_filtering: true     # Only include SQL-referenced columns (default: true)
 ```
 
@@ -218,7 +208,7 @@ server:
 
 The platform registers MCP prompts at three levels:
 
-1. **Auto-registered `platform-overview`** — Built dynamically from `server.description` and enabled toolkits. Lists what the platform can do based on which toolkits (DataHub, Trino, S3, Portal, Knowledge) are configured.
+1. **Auto-registered `platform-overview`** — Built dynamically from `server.description` and enabled toolkits. Lists what the platform can do based on which toolkits (Trino, S3, Search, Portal, Knowledge) are configured.
 
 2. **Operator-configured prompts** — Defined in `server.prompts`. Support typed arguments with `{placeholder}` substitution in content.
 
@@ -259,10 +249,10 @@ server:
 
 | Prompt | Required Toolkits | Description |
 |--------|-------------------|-------------|
-| `explore-available-data` | DataHub | Discover datasets about a topic |
-| `create-interactive-dashboard` | DataHub, Trino, Portal | Full workflow: discover, query, visualize, save |
-| `create-a-report` | DataHub, Trino | Discover data, query it, produce a Markdown report |
-| `trace-data-lineage` | DataHub | Trace upstream/downstream lineage for a dataset |
+| `explore-available-data` | Search | Discover datasets about a topic |
+| `create-interactive-dashboard` | Search, Trino, Portal | Full workflow: discover, query, visualize, save |
+| `create-a-report` | Search, Trino | Discover data, query it, produce a Markdown report |
+| `trace-data-lineage` | Search | Trace upstream/downstream lineage for a dataset |
 
 Each built-in workflow prompt registers automatically when its required toolkits
 are present. Turn one off by name with `server.builtin_prompts`:
@@ -508,7 +498,8 @@ The `tools` block controls which tools appear in `tools/list` responses. This is
 tools:
   allow:
     - "trino_*"
-    - "datahub_*"
+    - "search"
+    - "fetch"
   deny:
     - "*_delete_*"
 ```
@@ -541,7 +532,7 @@ It is enforced in one place, on the MCP response to a model, and only on a resul
 | `graphql_query` | Re-encoded compactly first; if that is not enough the list in `data` is cut on whole items, `data_truncated` is set, `data_items` reports how many are shown of how many, and `export_arguments` carries the `graphql_export` call. An answer with no list to cut has its `data` withheld whole (a JSON document cut in half cannot be parsed) |
 | `trino_query` | The most whole rows that fit are kept, in the format asked for; `result_truncated` and `rows_shown` say how many of `row_count`, and `export_arguments` carries the `trino_export` call |
 
-Every other result reaches the model whole, whatever its size: a knowledge page, `manage_script` help, a prompt, `platform_info`, an uploaded document read through `fetch`, an `s3_object` read, a `datahub_*` result, a proxied MCP tool's output. None of these has a way back to the rest, and a model reasoning from half a manual does worse than one whose client spills an oversized result to a file it can still read. The same holds when one of the three tools cannot cut a result recoverably (an answer whose `errors` alone are past the budget): it is returned whole.
+Every other result reaches the model whole, whatever its size: a knowledge page, `manage_script` help, a prompt, `platform_info`, an uploaded document read through `fetch`, an `s3_object` read, a proxied MCP tool's output. None of these has a way back to the rest, and a model reasoning from half a manual does worse than one whose client spills an oversized result to a file it can still read. The same holds when one of the three tools cannot cut a result recoverably (an answer whose `errors` alone are past the budget): it is returned whole.
 
 A fitted result's structured content is the fitted value too, so the message a client receives carries the cut result twice rather than the whole one.
 
@@ -942,36 +933,6 @@ defaults; what keeps a registration off the warehouse is the Trino identity the
 connection authenticates as. Every requirement a scratch connection and its
 catalog have is on [Scratch Catalog](scratch-catalog.md).
 
-### DataHub
-
-```yaml
-toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-        timeout: 30s
-        default_limit: 10
-        max_limit: 100
-        max_lineage_depth: 5
-        connection_name: primary
-        read_only: true
-    default: primary
-```
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `url` | string | **required** | DataHub GMS URL |
-| `token` | string | - | DataHub access token |
-| `timeout` | duration | `30s` | API request timeout |
-| `default_limit` | int | `10` | Default search result limit |
-| `max_limit` | int | `100` | Maximum search result limit |
-| `max_lineage_depth` | int | `5` | Maximum lineage traversal depth |
-| `connection_name` | string | instance name | The name a call binds this connection by: what an audit row records, what a persona's `connections.allow` / `connections.deny` rules match, and what the semantic layer resolves its platform and catalog mapping through. See [Connection Names](multi-provider.md#connection-names) |
-| `read_only` | bool | `false` | Restrict to read operations (disables write tools) |
-| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: `s3_list` or `s3_object`, value: description text) |
 
 ### S3
 
@@ -1062,9 +1023,9 @@ toolkits:
     enabled: true
     instances:
       metadata:
-        endpoint_url: "https://datahub.example.com/api/graphql"
+        endpoint_url: "https://metadata.example.com/api/graphql"
         auth_mode: bearer
-        credential: ${DATAHUB_TOKEN}
+        credential: ${METADATA_API_TOKEN}
         description: "The metadata service's GraphQL API."
         static_headers:
           x-tenant-id: acme
@@ -1103,10 +1064,7 @@ paging, and how a persona's `api_routes` rules govern an operation.
 
 ```yaml
 enrichment:
-  trino_semantic_enrichment: true    # Add DataHub context to Trino results
-  datahub_query_enrichment: true     # Add Trino availability to DataHub results
-  s3_semantic_enrichment: true       # Add DataHub context to S3 results
-  datahub_storage_enrichment: true   # Add S3 availability to DataHub results
+  trino_semantic_enrichment: true    # Add catalog context to Trino results
   unwrap_json: true               # Auto-unwrap single-row VARCHAR-of-JSON (default: true)
   column_context_filtering: true     # Only include SQL-referenced columns (default: true)
   estimate_row_counts: false         # Run COUNT(*) for availability enrichment (default: false)
@@ -1129,14 +1087,11 @@ enrichment:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `trino_semantic_enrichment` | bool | `true` | Enrich Trino results with DataHub metadata. Default on; read-only and no-ops without a semantic provider. Set `false` to disable. |
-| `datahub_query_enrichment` | bool | `true` | Add query availability to DataHub search results. Default on; set `false` to disable. |
-| `s3_semantic_enrichment` | bool | `true` | Enrich S3 results with DataHub metadata. Default on; set `false` to disable. |
-| `datahub_storage_enrichment` | bool | `true` | Add S3 availability to DataHub results. Default on; set `false` to disable. |
+| `trino_semantic_enrichment` | bool | `true` | Enrich Trino results with the platform catalog's curation. Default on; read-only and no-ops without a semantic provider. Set `false` to disable. |
 | `unwrap_json` | bool | `true` | Auto-unwrap single-row VARCHAR-of-JSON results |
 | `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
-| `estimate_row_counts` | bool | `false` | Run `SELECT COUNT(*)` when reporting table availability, so enriched DataHub results carry an estimated row count. Also what lets the insight review path state a row count beside a pending claim, and what the advisory claim-conflict marker compares against ([Knowledge governance](../knowledge/governance.md#observed-warehouse-state)). Off by default: `COUNT(*)` can trigger a full table scan and make search enrichment very slow |
-| `semantic_fallback` | bool | `false` | When a URN-equality lookup misses, fall back to similarity search and surface the top hit as a **suggested** match, annotated `match_kind=semantic` so the model knows it was inferred rather than resolved. Audit rows record `enrichment_match_kind` so operators can measure the false-positive rate. Requires a semantic provider supporting the `semantic` search mode (DataHub does) |
+| `estimate_row_counts` | bool | `false` | Run `SELECT COUNT(*)` when reporting table availability, so a fetched catalog dataset's `query_availability` carries an estimated row count. Also what lets the insight review path state a row count beside a pending claim, and what the advisory claim-conflict marker compares against ([Knowledge governance](../knowledge/governance.md#observed-warehouse-state)). Off by default: `COUNT(*)` can trigger a full table scan and make search enrichment very slow |
+| `semantic_fallback` | bool | `false` | When a URN-equality lookup misses, fall back to similarity search and surface the top hit as a **suggested** match, annotated `match_kind=semantic` so the model knows it was inferred rather than resolved. Audit rows record `enrichment_match_kind` so operators can measure the false-positive rate. The platform catalog's dataset search ranks the suggestions |
 | `semantic_fallback_top_k` | int | `1` | Suggestions surfaced per miss when `semantic_fallback` is on. Clamped to 1-10 to keep suggested-match output bounded |
 | `memory_limit` | int | `5` | Max memory records recalled and rendered into `memory_context` per tool call |
 | `memory_context_budget_bytes` | int | `1500` | Byte budget for the rendered memory summaries; records beyond it are listed as compact `id`+`reference` stubs in `memory_context_omitted` (still fetchable, at least one always rendered). `0` disables the budget |
@@ -1159,7 +1114,7 @@ tuning:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `rules.quality_threshold` | float | `0.7` | Minimum DataHub quality score below which a warning is surfaced |
+| `rules.quality_threshold` | float | `0.7` | Minimum quality score below which a warning is surfaced |
 | `prompts_dir` | string | - | Directory of additional prompt resource files |
 
 ## Search-First Gate Configuration
@@ -1169,18 +1124,18 @@ A hard gate that refuses query tools until the agent calls `search` in the sessi
 ```yaml
 workflow:
   require_search: false             # Default: true (gate on). false disables it entirely.
-  # discovery_tools: []             # Tools that satisfy the gate (defaults to search + the datahub_* tools)
+  # discovery_tools: []             # Tools that satisfy the gate (defaults to search and fetch)
   # query_tools: []                 # Tools that are gated (defaults to trino_query, trino_execute)
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `require_search` | bool | `true` | Enable the search-first hard gate. `false` disables gating with no block and no hint. |
-| `discovery_tools` | array | `search` + the `datahub_*` tools | Tool names that satisfy the gate. `search` is the front door agents are steered toward, and the `datahub_*` discovery tools also count so a persona granted `datahub_*` (but not `search`) is not locked out. |
+| `discovery_tools` | array | `search`, `fetch` | Tool names that satisfy the gate. `search` is the front door agents are steered toward, and `fetch` also counts: reading a dataset with its curation and lineage, or browsing a connection's catalog, discovers what a query needs. |
 | `query_tools` | array | `trino_query`, `trino_execute` | Tool names gated by discovery |
 
 !!! warning "Behavior change"
-    `require_search` replaces the former `workflow.require_discovery_before_query` and its warn-after-execution behavior. It is a breaking rename (not aliased) and a hard gate: a deployment that never touched workflow gating will begin refusing `trino_query`/`trino_execute` until `search` is called once per session. The older `tuning.rules.require_datahub_check` static hint has been removed.
+    `require_search` replaces the former `workflow.require_discovery_before_query` and its warn-after-execution behavior. It is a breaking rename (not aliased) and a hard gate: a deployment that never touched workflow gating will begin refusing `trino_query`/`trino_execute` until `search` is called once per session.
 
 ## Session Gate Configuration
 
@@ -1223,7 +1178,7 @@ purpose:
   tools:             # override the gated set; empty means the default below
     - search
     - trino_query
-    - "datahub_get_*"
+    - "s3_*"
     - "kind:mcp"
 ```
 
@@ -1231,9 +1186,9 @@ purpose:
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Advertise `purpose` on the gated tools, strip it before the handler, and record it on the audit event. Set `false` to remove the argument entirely. |
 | `require` | bool | `true` | Refuse a gated call that states no purpose with `PURPOSE_REQUIRED` (error category `purpose_required`). Set `false` to record a purpose whenever one is stated but never refuse a call for omitting it. |
-| `tools` | array | see below | The gated set: where the argument is advertised, and where a missing one is refused. Entries are tool-name globs (`filepath.Match` semantics, e.g. `datahub_get_*`) plus `kind:<toolkit-kind>` entries that gate every tool a toolkit of that kind serves. |
+| `tools` | array | see below | The gated set: where the argument is advertised, and where a missing one is refused. Entries are tool-name globs (`filepath.Match` semantics, e.g. `s3_*`) plus `kind:<toolkit-kind>` entries that gate every tool a toolkit of that kind serves. |
 
-The default set is the data-access surface plus the two tools that write an asset: `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `datahub_get_*`, `s3_object`, `s3_list`, `save_asset`, `manage_asset`, and `kind:mcp` — the last covering every tool an MCP gateway connection proxies, whose names are chosen upstream and change when the upstream does. The rest of the orientation and platform-management surface (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, the other `manage_*` tools) is deliberately outside it: their purpose is their name, and gating them would tax every call an agent makes to set itself up.
+The default set is the data-access surface plus the two tools that write an asset: `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `s3_object`, `s3_list`, `save_asset`, `manage_asset`, and `kind:mcp` — the last covering every tool an MCP gateway connection proxies, whose names are chosen upstream and change when the upstream does. The rest of the orientation and platform-management surface (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, the other `manage_*` tools) is deliberately outside it: their purpose is their name, and gating them would tax every call an agent makes to set itself up.
 
 `save_asset` and `manage_asset` are in the set because an asset is the one output a person opens weeks later, often someone who was not there when it was made, and the first question they ask is what it was for. `manage_asset` is named whole, so its reads state a purpose alongside its writes: the gate decides from a tool name, and one name covers both halves. `apply_knowledge` stays outside on its own reasoning — what an apply_knowledge call applies is itself the explanation, while an asset is the output and not the reason for it.
 
@@ -1260,7 +1215,7 @@ None of them can state a purpose, so none is refused for not stating one. A real
 
 ## Tool-Call Rate Limiting
 
-A per-identity safety net on authenticated `tools/call` requests. It bounds a runaway agent loop or a compromised account before it can saturate the audit pipeline, the shared database pool, or an upstream (Trino, DataHub, S3, a proxied MCP server). It is **not** a throughput throttle: the default limit is generous enough that ordinary interactive and agent use never touches it. When a user exceeds the limit, the offending call is short-circuited before its handler runs and a `RATE_LIMITED` error result is returned (error code and category `rate_limited`) with a retry hint, so an agent backs off and retries rather than seeing a transport failure. The structured envelope carries the interval as `retry_after_seconds` beside `code`, `category`, `message` and `hint`, so a consumer reads the wait as a number rather than out of the message. `platform_info` is always exempt so a throttled agent can re-read platform guidance.
+A per-identity safety net on authenticated `tools/call` requests. It bounds a runaway agent loop or a compromised account before it can saturate the audit pipeline, the shared database pool, or an upstream (Trino, S3, a proxied MCP server). It is **not** a throughput throttle: the default limit is generous enough that ordinary interactive and agent use never touches it. When a user exceeds the limit, the offending call is short-circuited before its handler runs and a `RATE_LIMITED` error result is returned (error code and category `rate_limited`) with a retry hint, so an agent backs off and retries rather than seeing a transport failure. The structured envelope carries the interval as `retry_after_seconds` beside `code`, `category`, `message` and `hint`, so a consumer reads the wait as a number rather than out of the message. `platform_info` is always exempt so a throttled agent can re-read platform guidance.
 
 A [platform run of a managed script](../scripts/running.md#failures) is queued, not refused. Its calls cross the limiter as the script principal (`AuthType` `script`), and when the bucket is empty the limiter holds the call until the sustained rate refills a token and then admits it. A run's calls are serial, so the wait for one call after the burst is spent is one refill interval (250 ms at the defaults), and the wait ends early with the run if the run is canceled or reaches its deadline. A queued call is not a refusal: it does not count in `mcp_rate_limited_total` and logs no warning; it counts in `mcp_rate_limit_queued_total` and logs at Info under the run's session id, so an operator can see that scripts are running against the limit. A draft run carries its author's own identity and is refused as any interactive call is; there the script host waits `retry_after_seconds`, bounded by the run's deadline, and issues the call again, so the script sees only the admitted call's result and the wait is recorded in the run's log.
 
@@ -1294,39 +1249,28 @@ Each refusal increments the `mcp_rate_limited_total` metric and logs a warning n
 
 ## Semantic and Query Provider Configuration
 
-Specify which toolkit instance provides semantic metadata and query execution:
+With a database, the [platform catalog](catalog.md) is the semantic provider;
+no `semantic:` block is needed. The query provider names the Trino connection
+that answers whether a catalog dataset is queryable:
 
 ```yaml
 semantic:
-  provider: datahub           # Provider type: datahub or noop
-  instance: primary           # Which DataHub instance to use
+  provider: noop              # Optional: turn the semantic layer off
   cache:
-    enabled: true
-    ttl: 5m
+    ttl: 5m                   # The default for enrichment.session_dedup.entry_ttl
 
 query:
   provider: trino             # Provider type: trino or noop
   instance: primary           # Which Trino instance to use
-
-storage:
-  provider: s3                # Provider type: s3 or noop
-  instance: primary           # Which S3 instance to use
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `semantic.provider` | string | - | With a database, the [platform catalog](catalog.md) is the semantic provider. `datahub` is read as the platform catalog until this setting is removed; `noop` turns the semantic layer off. Any other value is refused at startup. |
-| `semantic.instance` | string | - | No effect on the platform catalog |
-| `semantic.cache.enabled` | bool | `false` | No effect on the platform catalog, which is read from the platform's own database. Enabled semantic metadata caching for a DataHub provider. A read that reports the catalog holds no entity for a URN is cached for the same TTL as one that returns an entity, so a table absent from the catalog is looked up once per TTL rather than once per tool call. |
-| `semantic.cache.ttl` | duration | `5m` | Cache TTL |
+| `semantic.provider` | string | - | Empty (the default) makes the platform catalog the semantic provider wherever there is a database; `noop` turns the semantic layer off. Any other value is refused at startup, and `datahub` with a message naming the release that carries a DataHub catalog into the platform catalog ([Moving from DataHub](catalog.md#moving-from-datahub)). |
+| `semantic.cache.enabled` | bool | `false` | No effect: the platform catalog is read from the platform's own database on every lookup. |
+| `semantic.cache.ttl` | duration | `5m` | The default for `enrichment.session_dedup.entry_ttl` |
 | `query.provider` | string | - | Provider type: `trino` or `noop` |
 | `query.instance` | string | - | Toolkit instance name |
-| `storage.provider` | string | - | Provider type: `s3` or `noop` |
-| `storage.instance` | string | - | Toolkit instance name |
-
-**Which DataHub the `datahub` provider needs.** Whether the catalog holds an entity is the catalog's answer, read from DataHub's `exists` field on a dataset and a glossary term and from the properties aspect on a data product. A DataHub that reports `exists` is therefore what makes a stale citation resolve as not-found: on an older server the field is absent, the entity is taken to stand, and a `fetch` of a URN the catalog has never ingested answers with a record built from that URN. This platform's checks run against DataHub v1.6.0; mcp-datahub v1.15.1 states v1.3.x as its own minimum for the rest of the catalog surface.
-
-**URN mapping** (`semantic.urn_mapping`, `query.urn_mapping`) translates catalog and platform names when Trino and DataHub name the same data differently - see [Trino to DataHub](../cross-enrichment/trino-datahub.md#urn-mapping-for-mismatched-names) for the full config reference. **Lineage-aware enrichment** (`semantic.lineage`) inherits column metadata from upstream datasets when a table's own columns lack it - see [Lineage Inheritance](../cross-enrichment/lineage.md) for the full config reference and worked examples.
 
 ## Persona Configuration
 
@@ -1406,7 +1350,6 @@ knowledge:
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` (when a database is available) | Enable the knowledge review and write-back toolkit (`apply_knowledge`). Knowledge capture lives in the memory toolkit (`memory_capture`) and is enabled with the memory layer, not this flag |
 | `apply.enabled` | bool | `true` (when a database is available) | Enable the `apply_knowledge` tool for admin review and catalog write-back. Set `false` to disable. Still gated behind database availability. |
-| `apply.datahub_connection` | string | - | Has no effect: `apply_knowledge` writes to the platform catalog. Accepted so a configuration that still sets it starts |
 | `apply.require_confirmation` | bool | `false` | Require explicit `confirm: true` on apply actions |
 | `pages.dedup_threshold` | float | `0.85` | Cosine similarity, in `[0,1]`, at or above which creating a knowledge page is blocked as a near-duplicate of an existing one. The gate acts only when a real embedding provider is configured, since cosine similarity is undefined without one. A non-positive value selects the default; disable the gate with `dedup_disabled` rather than by zeroing this |
 | `pages.dedup_disabled` | bool | `false` | Turn the duplicate gate off entirely. Explicit, so "no gate" is never confused with "left at default" |
@@ -1529,7 +1472,7 @@ resources:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `true` | Serve the resource templates below and the DataHub-to-Trino resource links. Read-only, so it is on by default; set `false` to disable |
+| `enabled` | bool | `true` | Serve the resource templates below. Read-only, so it is on by default; set `false` to disable |
 
 When enabled, the platform registers these resource templates:
 
@@ -1937,7 +1880,7 @@ How a prompt reaches the client depends on the protocol revision it speaks (#205
 
 ## Icons Configuration
 
-Icons add visual metadata to tools, resources, and prompts in MCP list responses. Upstream toolkits (Trino, DataHub, S3) provide default icons; this configuration overrides or extends them. Enabled by default; set `enabled: false` to opt out.
+Icons add visual metadata to tools, resources, and prompts in MCP list responses. Upstream toolkits (Trino, S3) provide default icons; this configuration overrides or extends them. Enabled by default; set `enabled: false` to opt out.
 
 ```yaml
 icons:
@@ -1974,7 +1917,6 @@ Common environment variables:
 |----------|-------------|
 | `TRINO_USER` | Trino username |
 | `TRINO_PASSWORD` | Trino password |
-| `DATAHUB_TOKEN` | DataHub access token |
 | `AWS_ACCESS_KEY_ID` | AWS access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
 | `AWS_SESSION_TOKEN` | AWS session token |
@@ -2004,7 +1946,8 @@ admin:
 tools:
   allow:
     - "trino_*"
-    - "datahub_*"
+    - "search"
+    - "fetch"
     - "memory_capture"
   deny:
     - "*_delete_*"
@@ -2043,16 +1986,6 @@ toolkits:
         max_limit: 10000
     default: primary
 
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-        default_limit: 10
-        max_limit: 100
-    default: primary
-
   s3:
     enabled: true
     instances:
@@ -2061,25 +1994,12 @@ toolkits:
         read_only: true
     default: primary
 
-semantic:
-  provider: datahub
-  instance: primary
-  cache:
-    enabled: true
-    ttl: 5m
-
 query:
   provider: trino
   instance: primary
 
-storage:
-  provider: s3
-  instance: primary
-
 enrichment:
   trino_semantic_enrichment: true
-  datahub_query_enrichment: true
-  s3_semantic_enrichment: true
   unwrap_json: true
   column_context_filtering: true
 

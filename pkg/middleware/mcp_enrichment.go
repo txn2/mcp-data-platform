@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -15,20 +16,17 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
 // MCPSemanticEnrichmentMiddleware creates MCP protocol-level middleware that
 // enriches tool call responses with semantic context.
 //
 // This middleware intercepts tools/call responses and adds cross-service context:
-//   - Trino results get DataHub metadata (descriptions, owners, tags, etc.)
-//   - DataHub results get Trino query context (can query? sample SQL?)
+//   - Trino results get the catalog's curation (descriptions, owners, tags, etc.)
 //   - S3 results get semantic metadata for matching datasets
 func MCPSemanticEnrichmentMiddleware(
 	semanticProvider semantic.Provider,
 	queryProvider query.Provider,
-	storageProvider storage.Provider,
 	cfg EnrichmentConfig,
 	memoryProvider MemoryProvider,
 	pageProvider ...KnowledgePageProvider,
@@ -46,7 +44,6 @@ func MCPSemanticEnrichmentMiddleware(
 	enricher := &semanticEnricher{
 		semanticProvider: semanticProvider,
 		queryProvider:    queryProvider,
-		storageProvider:  storageProvider,
 		memoryProvider:   memoryProvider,
 		cfg:              cfg,
 	}
@@ -144,7 +141,7 @@ func enrichToolResult(ctx context.Context, enricher *semanticEnricher, req mcp.R
 }
 
 // discoveryNoteMessage is the soft note appended to enriched results when the
-// session has not yet performed DataHub discovery.
+// session has not yet performed discovery.
 const discoveryNoteMessage = "Note: No discovery has been performed in this session yet. " +
 	"Call search to understand the business context, ownership, and data quality " +
 	"of the tables you are querying."
@@ -159,10 +156,12 @@ func applyEnrichment(
 ) (mcp.Result, error) {
 	callReq := buildCallToolRequest(req)
 
-	// Capture the entities the tool itself returned before any enrichment appends
+	// Capture the entities the tool itself named before any enrichment appends
 	// blocks, so the knowledge-page lookup keys off the tool's own entities rather
-	// than enriched neighbors or memory free-text.
+	// than enriched neighbors or memory free-text: the catalog references in its
+	// result, and the tables its request named.
 	entityURNs := extractEntityURNsFromResult(callResult)
+	entityURNs = appendUnique(entityURNs, enricher.requestDatasetRefs(callReq, pc)...)
 
 	beforeLen := len(callResult.Content)
 	enrichedResult, _ := enricher.enrich(ctx, callResult, callReq, pc)
@@ -260,7 +259,7 @@ func mirrorEnrichmentToStructured(result *mcp.CallToolResult, fromIndex int) {
 // there is nothing to merge into and the caller must leave the result alone.
 //
 // Interaction with declared OutputSchemas (#925, #1381): the tools this
-// middleware enriches (trino_/datahub_/s3_, gated by inferToolkitKind) do
+// middleware enriches (trino_/s3_, gated by inferToolkitKind) do
 // advertise output schemas, and a typed handler registered without one (as
 // mcp-trino's were before v1.4.0) advertises the closed schema the SDK infers. Mirroring open-ended keys into structuredContent is
 // schema-valid only because MCPOutputSchemaMiddleware opens the top level of
@@ -288,7 +287,7 @@ func structuredObject(sc any) (map[string]any, bool) {
 }
 
 // appendDiscoveryNoteIfNeeded appends a soft discovery note to enriched results
-// when the session has not yet performed DataHub discovery.
+// when the session has not yet performed discovery.
 func appendDiscoveryNoteIfNeeded(ctx context.Context, result *mcp.CallToolResult, pc *PlatformContext, tracker *SessionWorkflowTracker) {
 	if tracker == nil || !pc.EnrichmentApplied {
 		return
@@ -345,8 +344,6 @@ func inferToolkitKind(toolName string) string {
 	switch {
 	case strings.HasPrefix(toolName, "trino_"):
 		return toolPrefixTrino
-	case strings.HasPrefix(toolName, "datahub_"):
-		return toolPrefixDatahub
 	case strings.HasPrefix(toolName, "s3_"):
 		return toolPrefixS3
 	default:
@@ -384,4 +381,30 @@ func extractArgumentsMap(params *mcp.CallToolParamsRaw) map[string]any {
 		return nil
 	}
 	return args
+}
+
+// requestDatasetRefs names the catalog datasets a call's request names as
+// tables, on the connection it ran against. Nil when no namer is wired.
+func (e *semanticEnricher) requestDatasetRefs(req mcp.CallToolRequest, pc *PlatformContext) []string {
+	if e.cfg.DatasetURN == nil {
+		return nil
+	}
+	var refs []string
+	for _, key := range extractTableKeysFromRequest(req) {
+		t := parseTableIdentifier(key)
+		if ref := e.cfg.DatasetURN(pc.ToolkitKind, pc.Connection, t.Catalog, t.Schema, t.Table); ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
+// appendUnique appends each value not already in list.
+func appendUnique(list []string, values ...string) []string {
+	for _, v := range values {
+		if !slices.Contains(list, v) {
+			list = append(list, v)
+		}
+	}
+	return list
 }

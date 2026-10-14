@@ -40,7 +40,7 @@ func TestStore_ListEntityRefsForPages(t *testing.T) {
 			"id", "page_id", "target_type", "asset_id", "prompt_id", "collection_id", "ref_page_id",
 			"connection_kind", "connection_name", "entity_urn", "script_id", "source", "created_by", "created_at",
 		}).
-			AddRow("kpr1", "kp1", RefTargetDataHub, nil, nil, nil, nil, nil, nil, "urn:li:dataset:x", nil, RefSourcePromoted, "a@example.com", created).
+			AddRow("kpr1", "kp1", RefTargetCatalog, nil, nil, nil, nil, nil, nil, "mcp:dataset:(trino,warehouse,c.s.x)", nil, RefSourcePromoted, "a@example.com", created).
 			AddRow("kpr2", "kp2", RefTargetKnowledgePage, nil, nil, nil, "kp1", nil, nil, nil, nil, RefSourceInline, "b@example.com", created)
 		mock.ExpectQuery("FROM knowledge_page_entity_refs r").WillReturnRows(rows)
 
@@ -48,7 +48,7 @@ func TestStore_ListEntityRefsForPages(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, refs, 2)
 		assert.Equal(t, "kp1", refs[0].PageID)
-		assert.Equal(t, "urn:li:dataset:x", refs[0].EntityURN)
+		assert.Equal(t, "mcp:dataset:(trino,warehouse,c.s.x)", refs[0].EntityURN)
 		assert.Equal(t, "kp2", refs[1].PageID)
 		assert.Equal(t, "kp1", refs[1].RefPageID)
 		assert.NoError(t, mock.ExpectationsWereMet())

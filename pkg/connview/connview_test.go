@@ -40,10 +40,6 @@ type listerTK struct {
 
 func (m *listerTK) ListConnections() []toolkit.ConnectionDetail { return m.conns }
 
-type fakeSource struct{ names map[string]string }
-
-func (f fakeSource) DataHubSourceName(kind, name string) string { return f.names[kind+"/"+name] }
-
 type fakePages struct {
 	byConn map[string][]knowledgepage.PageRef
 	err    error
@@ -75,37 +71,31 @@ func TestBuild_KnowledgeBoundedByCap(t *testing.T) {
 	pages := fakePages{byConn: map[string][]knowledgepage.PageRef{
 		"trino/acme": pageRefs(7), // more than the cap
 	}}
-	src := fakeSource{names: map[string]string{"trino/acme": "trino_src"}}
-	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{Source: src, Pages: pages})
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{Pages: pages})
 
 	require.Len(t, out.Connections, 1)
 	e := out.Connections[0]
 	assert.Equal(t, "mcp:connection:(trino,acme)", e.Reference, "lister path emits the canonical reference")
-	assert.Equal(t, "trino_src", e.DataHubSourceName, "the lister path resolves the source")
 	assert.Equal(t, 7, e.KnowledgePageCount, "the full total is reported")
 	assert.Len(t, e.KnowledgePages, maxKnowledgePages, "the listed sample is capped")
 	assert.Equal(t, "Page a", e.KnowledgePages[0].Title)
 }
 
-func TestBuild_FallbackKindFilterAndSource(t *testing.T) {
-	// s3 and datahub are the kinds that reach appendFallback: neither lists
-	// connections, and either may carry a connection_name that differs from its
-	// instance name. Trino always implements ConnectionLister.
+func TestBuild_FallbackKindFilter(t *testing.T) {
+	// s3 is the kind that reaches appendFallback: it does not list connections,
+	// and may carry a connection_name that differs from its instance name.
+	// Trino always implements ConnectionLister.
 	toolkits := []registry.Toolkit{
 		&mockTK{kind: "s3", name: "data_lake", conn: "Data Lake"}, // data kind -> entry
 		&mockTK{kind: "api", name: "gw", conn: "gw-conn"},         // not a data kind -> skipped
 	}
-	// The source map is keyed by the connection name a call binds, not by the
-	// toolkit's instance name (#1396).
-	src := fakeSource{names: map[string]string{"s3/Data Lake": "s3_src", "s3/data_lake": "wrong"}}
-	out := Build(context.Background(), toolkits, Deps{Source: src})
+	out := Build(context.Background(), toolkits, Deps{})
 
 	require.Len(t, out.Connections, 1, "non-data kinds are dropped in the fallback path")
 	assert.Equal(t, "s3", out.Connections[0].Kind)
 	assert.Equal(t, "data_lake", out.Connections[0].Name, "the entry keeps the instance identity")
 	assert.Equal(t, "Data Lake", out.Connections[0].Connection, "and reports the name a call binds")
 	assert.Equal(t, "mcp:connection:(s3,data_lake)", out.Connections[0].Reference, "fallback path emits the canonical reference")
-	assert.Equal(t, "s3_src", out.Connections[0].DataHubSourceName)
 	assert.Equal(t, 1, out.Count)
 }
 
@@ -237,7 +227,7 @@ func TestBuild_PermitUsesThePersonaFacingConnectionName(t *testing.T) {
 	granted := &mockTK{kind: "s3", name: "lake", conn: "prod-lake"}
 	denied := &mockTK{kind: "s3", name: "vault", conn: "prod-vault"}
 	// A toolkit with no connection name falls back to its instance name.
-	unnamed := &mockTK{kind: "datahub", name: "primary"}
+	unnamed := &mockTK{kind: "s3", name: "primary"}
 
 	permit := Permit(func(_, name string) bool { return name == "prod-lake" || name == "primary" })
 	out := Build(context.Background(), []registry.Toolkit{granted, denied, unnamed}, Deps{Permit: permit})
@@ -257,7 +247,7 @@ func TestBuild_PermitUsesThePersonaFacingConnectionName(t *testing.T) {
 // instance — the same instance/bound confusion connid exists to prevent.
 func TestBuild_FallbackReportsTheBoundName(t *testing.T) {
 	out := Build(context.Background(), []registry.Toolkit{
-		&mockTK{kind: "datahub", name: "primary"},
+		&mockTK{kind: "s3", name: "primary"},
 	}, Deps{})
 
 	require.Len(t, out.Connections, 1)
@@ -373,20 +363,6 @@ func TestBuild_AServedConnectionKeepsWhatItDerived(t *testing.T) {
 	assert.NotNil(t, e.Health, "health is what this replica found, and the row does not carry it")
 }
 
-// TestBuild_AStoredConnectionCarriesItsDataHubSource: the source map is a
-// per-replica mapping, so a connection only the store holds resolves through it
-// exactly as a served one does — otherwise a caller would see a connection lose
-// its DataHub source depending on which replica answered.
-func TestBuild_AStoredConnectionCarriesItsDataHubSource(t *testing.T) {
-	src := fakeSource{names: map[string]string{"trino/elsewhere": "trino_src"}}
-	store := fakeStore{rows: []Stored{{Kind: "trino", Name: "elsewhere"}}}
-
-	out := Build(context.Background(), nil, Deps{Source: src, Stored: store})
-
-	require.Len(t, out.Connections, 1)
-	assert.Equal(t, "trino_src", out.Connections[0].DataHubSourceName)
-}
-
 // TestBuild_AWithheldConnectionIsCountedOnce is what the notice depends on: a
 // connection this process serves AND the store holds — which is every
 // database-managed connection — must count as one connection hidden from this
@@ -404,7 +380,7 @@ func TestBuild_AWithheldConnectionIsCountedOnce(t *testing.T) {
 }
 
 // TestBuild_AWithheldFallbackConnectionIsCountedOnce is the same for the kinds
-// that list no connections of their own (trino, datahub, s3), whose entry is
+// that list no connections of their own (trino, s3), whose entry is
 // keyed on the instance name the backfill seeds a row under.
 func TestBuild_AWithheldFallbackConnectionIsCountedOnce(t *testing.T) {
 	tk := &mockTK{kind: "s3", name: "data_lake", conn: "Data Lake"}

@@ -3,8 +3,8 @@
 id: lc-quiet-region
 title: Quiet region by volume
 fact: The 'quiet region' is the region whose customers placed the fewest orders.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
-sink: datahub
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
+sink: catalog
 budget_tool_calls: 15
 teach:
     prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'quiet region' is the region whose customers placed the fewest orders. Please save this definition to memory now and link it to the dataset it concerns.

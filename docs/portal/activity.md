@@ -79,5 +79,5 @@ Click a row to open the record.
 
 The detail shows the statement or request line, the datasets it addressed, what was built from it (each asset opening in the viewer), the session that ran it, and the `mcp:call:<id>` reference an agent cites it by.
 
-A satisfied record can be **published**. A query becomes a Query entity in the data catalog, associated with every dataset it reads; an API call becomes a saved example on its endpoint, shown to whoever reads that endpoint's schema next. A record you decide is not worth publishing can be **declined** with a note, which stops it being offered.
+A satisfied record can be **published**. A query becomes a curated query on every catalog dataset it reads; an API call becomes a saved example on its endpoint, shown to whoever reads that endpoint's schema next. A record you decide is not worth publishing can be **declined** with a note, which stops it being offered.
 

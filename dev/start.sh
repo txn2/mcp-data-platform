@@ -111,7 +111,7 @@ ok "UI dependencies ready"
 #
 # The four infrastructure ports below are the ones that commonly collide
 # with OTHER stacks a developer runs alongside `make dev` — a leftover e2e
-# Postgres/SeaweedFS on 5432/9000, a DataHub quickstart on 8080, a native
+# Postgres/SeaweedFS on 5432/9000, another service on 8080, a native
 # Ollama on 11434. Those neighbours bind 0.0.0.0, so a specific-IP bind on
 # the same port number cannot dodge them: the only reliable fix is to move
 # to different port NUMBERS. When any of the four is busy we shift all four
@@ -281,7 +281,7 @@ REPLICA_PORTS=()
 if [ "$DEV_REPLICAS" = 2 ]; then
   REPLICA_PORTS=("$DEV_API_PORT_B" "$DEV_PROXY_PORT" 9465)
 fi
-for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9285 9464 "$DEV_OLLAMA_PORT" "${REPLICA_PORTS[@]+"${REPLICA_PORTS[@]}"}"; do
+for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9285 9286 9464 "$DEV_OLLAMA_PORT" "${REPLICA_PORTS[@]+"${REPLICA_PORTS[@]}"}"; do
   if [ "$port" = "$DEV_API_PORT" ] || [ "$port" = "$DEV_API_PORT_B" ]; then
     api_port_free "$port" && continue
   else
@@ -351,6 +351,22 @@ for db in mcp_test apitest keycloak; do
   fi
 done
 ok "Auxiliary databases present (mcp_test, apitest, keycloak)"
+
+# The GraphQL fixture's database and schema (dev/seed-graphql.sql), applied
+# before `docker compose up` starts the graphql service that publishes them.
+# The seed drops and rebuilds its schema, so the fixture is the same on every
+# run whatever an earlier run's criteria wrote to it.
+exists=$(docker exec -u postgres "$PG_CONTAINER" psql -U platform -d mcp_platform -tAc \
+  "SELECT 1 FROM pg_database WHERE datname='gql_fixture'" 2>/dev/null || true)
+if [ "$exists" != "1" ]; then
+  docker exec -u postgres "$PG_CONTAINER" psql -U platform -d mcp_platform \
+    -c "CREATE DATABASE gql_fixture" > /dev/null
+fi
+docker cp dev/seed-graphql.sql "$PG_CONTAINER":/tmp/seed-graphql.sql
+docker exec -u postgres "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -q -U platform -d gql_fixture \
+  -f /tmp/seed-graphql.sql > /dev/null 2>&1 \
+  || fail "dev/seed-graphql.sql did not apply to gql_fixture"
+ok "GraphQL fixture schema seeded (gql_fixture.gqlfixture)"
 
 # MinIO's TLS certificate. It is generated rather than committed, because a
 # private key does not belong in the repository, and it is regenerated only
@@ -509,6 +525,19 @@ for i in $(seq 1 60); do
   sleep 1
 done
 ok "api-test fixture ready on :9282"
+
+info "Waiting for the GraphQL fixture..."
+for i in $(seq 1 60); do
+  if curl -sf -H 'Content-Type: application/json' -d '{"query":"{ __typename }"}' \
+    http://localhost:9286/graphql > /dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 60 ]; then
+    fail "GraphQL fixture did not answer on :9286 within 60s (docker logs acme-dev-graphql)"
+  fi
+  sleep 1
+done
+ok "GraphQL fixture ready on :9286 (/graphql)"
 
 # Wait for Ollama (the embedding provider for semantic indexing). The platform
 # degrades to lexical-only without it, so a failure here WARNS rather than aborts
@@ -771,12 +800,16 @@ ok "Managed resources seeded"
 bash dev/seed-asset-refs.sh
 ok "Asset references declared"
 
-# The seeded knowledge pages cite catalog datasets by URN. Nothing else creates
-# them, so without this the catalog half of every page (and of the knowledge
-# graph) points at entities the catalog has never heard of. The script writes
-# only to a loopback DataHub and refuses a remote one by name, so pointing dev at
-# a shared catalog never injects fixtures into it.
-bash dev/seed-datahub.sh
+# The seeded knowledge pages cite catalog datasets by reference. Nothing else
+# creates them on a stack with no Trino holding iceberg.*, so the catalog seed
+# writes them, with their curation, into the platform catalog.
+docker cp dev/seed-catalog.sql "$PG_CONTAINER":/tmp/seed-catalog.sql
+if ! docker exec "$PG_CONTAINER" psql -U platform -d mcp_platform \
+    -v ON_ERROR_STOP=1 -f /tmp/seed-catalog.sql > /dev/null; then
+  echo "FAIL: catalog seeding failed (see error above)." >&2
+  exit 1
+fi
+ok "Catalog seeded"
 # The chat fixture a notification channel posts to (#1720). It is seeded after
 # the platform's own data because it shares nothing with it: its own server,
 # its own database, and a skip rather than a failure when it is not running.
@@ -1243,6 +1276,7 @@ echo -e "  mcp-test (MCP):   ${CYAN}http://localhost:9281/${NC}  portal: ${CYAN}
 echo -e "                    ${CYAN}API key: $MCPTEST_DEV_KEY_VAL${NC}"
 echo -e "  api-test (HTTP):  ${CYAN}http://localhost:9282/v1${NC}  portal: ${CYAN}http://localhost:9282/portal/${NC}"
 echo -e "                    ${CYAN}API key: $APITEST_DEV_KEY_VAL${NC}"
+echo -e "  graphql fixture:  ${CYAN}http://localhost:9286/graphql${NC} (PostGraphile over gql_fixture)"
 echo -e "  mailpit (SMTP):   ${CYAN}http://localhost:${DEV_MAILPIT_HTTP_PORT:-8025}${NC} — every email the platform sends lands here"
 echo -e "  mattermost:       ${CYAN}http://localhost:${DEV_MATTERMOST_PORT:-8065}${NC} — admin@example.com / Dev-Password-1"
 

@@ -15,8 +15,7 @@ import (
 //     every HTTP request the platform sends, recorded by the one transport
 //     chain every first-party client is built from (internal/outbound);
 //     kind is what the call is for (api, graphql, mcp, util, oauth, oidc,
-//     embedding, notification, spec_fetch, promql, renderer, datahub,
-//     branding), connection the operator's connection name or empty for a
+//     embedding, notification, spec_fetch, promql, renderer, branding), connection the operator's connection name or empty for a
 //     kind that has none, status_class 2xx..5xx or other for a transport
 //     failure
 //   - egress_blocked_total{reason}  a fetch the egress guard refused, by the

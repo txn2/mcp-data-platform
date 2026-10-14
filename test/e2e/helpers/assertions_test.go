@@ -44,9 +44,9 @@ func TestDiffToolNames(t *testing.T) {
 		},
 		{
 			name:           "leaks are reported sorted",
-			got:            []string{"platform_info", "s3_list", "list_connections", "platform_find_tools", "datahub_browse"},
+			got:            []string{"platform_info", "s3_list", "list_connections", "platform_find_tools", "trino_query"},
 			want:           standalone,
-			wantUnexpected: []string{"datahub_browse", "s3_list"},
+			wantUnexpected: []string{"s3_list", "trino_query"},
 		},
 		{
 			name:        "empty listing is all missing",

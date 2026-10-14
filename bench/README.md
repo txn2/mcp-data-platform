@@ -181,7 +181,8 @@ Each study has its own stack and its own protocol document; the recipes below
 are the entry points, and the full procedure for each is in its protocol.
 
 **Knowledge layer** ([protocol](docs/knowledge-layer-protocol.md)) — compose
-stack, seeded Trino warehouse, DataHub quickstart for the `a1`/`a2`/`a3` arms:
+stack, seeded Trino warehouse, and for the `a1`/`a2`/`a3` arms the seeded
+platform catalog, which `make bench-up` applies:
 
 ```bash
 make bench-up BENCH_ARM=a0        # compose stack + seeded warehouse + platform
@@ -193,11 +194,11 @@ make bench-down
 
 Its S5 lifecycle, supersede, and cold-start suites (`make bench-lifecycle`,
 `bench-supersede`, `bench-cold-start`) boot the same stack on the `a3` arm; the
-cold-start suite additionally requires a fresh DataHub quickstart and an empty
-enrichment layer. See the protocol.
+cold-start suite additionally requires an empty enrichment layer (the empty
+catalog seed and no knowledge pages). See the protocol.
 
 **Knowledge use** ([protocol](docs/knowledge-use-protocol.md)) — one arm, the
-perishable fixture surface, its own database. No DataHub or Trino, but it does
+perishable fixture surface, its own database. No Trino, but it does
 need `ollama serve` with `nomic-embed-text`:
 
 ```bash
@@ -239,7 +240,7 @@ measured run will not reuse without a reset.
 
 **Graph-completion probe** ([design](results/graph-completion-probe/graph-completion-design.md),
 [lookup-era archive](results/graph-traversal-probe/)) — a seeded page corpus
-on its own database, no Trino, DataHub, S3 or API fixture. Completion cells
+on its own database, no Trino, S3 or API fixture. Completion cells
 against a 2x2 of corpus arm (graph edges vs stripped prose mentions) and
 search condition (available vs client-disallowed). Needs `ollama serve` with
 `nomic-embed-text`, because page content is embedded in chunks and search

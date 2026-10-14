@@ -60,7 +60,7 @@ func (f *fakeStore) Reject(_ context.Context, _ string, r callrecord.Rejection) 
 	return nil
 }
 
-// queryWriter is a DataHub write path that always succeeds.
+// queryWriter is a catalog write path that always succeeds.
 type queryWriter struct{}
 
 func (queryWriter) CreateCuratedQuery(context.Context, []string, string, string, string) (string, error) {

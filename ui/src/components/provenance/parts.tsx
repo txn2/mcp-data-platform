@@ -16,7 +16,8 @@ import { Button } from "@/components/ui/button";
 /** Map tool name prefixes to icons for provenance display. */
 const TOOL_ICONS: Record<string, LucideIcon> = {
   trino_: Database,
-  datahub_: Search,
+  search: Search,
+  fetch: Search,
   s3_: FileText,
   api_: Globe,
   platform_: Info,

@@ -19,9 +19,9 @@ func TestScanBodyRefs(t *testing.T) {
 
 The [daily sales asset](mcp:asset:asset-001) is built from the
 [warehouse connection](mcp:connection:(trino,warehouse)) and the
-underlying dataset urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).
+underlying dataset mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales).
 
-See also the glossary term <urn:li:glossaryTerm:revenue> and the
+See also the glossary term <mcp:glossary_term:revenue> and the
 related page [calendar](mcp:knowledge_page:kp-2). A duplicate
 [asset link](mcp:asset:asset-001) should collapse.
 
@@ -33,8 +33,8 @@ This is just prose mentioning mcp but no real reference.`
 	assert.ElementsMatch(t, []string{
 		"mcp:asset:asset-001",
 		"mcp:connection:(trino,warehouse)",
-		"urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)",
-		"urn:li:glossaryTerm:revenue",
+		"mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)",
+		"mcp:glossary_term:revenue",
 		"mcp:knowledge_page:kp-2",
 	}, got, "should extract each distinct reference exactly once")
 
@@ -45,7 +45,7 @@ This is just prose mentioning mcp but no real reference.`
 
 func TestScanBodyRefs_IgnoresCode(t *testing.T) {
 	body := "A real ref [a](mcp:asset:real-1).\n\n" +
-		"```\nmcp:asset:in-fence\nurn:li:dataset:(urn:li:dataPlatform:trino,in.fence.t,PROD)\n```\n\n" +
+		"```\nmcp:asset:in-fence\nmcp:dataset:(trino,warehouse,in.fence.t)\n```\n\n" +
 		"Inline `mcp:asset:in-code` example."
 	got := scannedURNs(ScanBodyRefs(body))
 	assert.Equal(t, []string{"mcp:asset:real-1"}, got, "refs inside code must be ignored")
@@ -72,7 +72,7 @@ func TestScanBodyRefs_TrimsTrailingSentencePunctuation(t *testing.T) {
 		{"colon", "Source: mcp:asset:asset-001: nightly load.", []string{"mcp:asset:asset-001"}},
 		{"exclamation", "Check mcp:asset:asset-001!", []string{"mcp:asset:asset-001"}},
 		{"question", "Did you read mcp:asset:asset-001?", []string{"mcp:asset:asset-001"}},
-		{"bare urn tag", "Tagged urn:li:tag:revenue.", []string{"urn:li:tag:revenue"}},
+		{"tag", "Tagged mcp:tag:revenue.", []string{"mcp:tag:revenue"}},
 		{"run of punctuation", "Really, mcp:asset:asset-001?!", []string{"mcp:asset:asset-001"}},
 		{
 			"parenthesized connection unaffected",
@@ -105,8 +105,8 @@ func TestScanBodyRefs_PreservesInternalDot(t *testing.T) {
 	// Parenthesized dataset form: terminates at ")" in the regex, so the trailing
 	// period is never part of the token (control for the regex, not the trim).
 	assert.Equal(t,
-		[]string{"urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"},
-		scannedURNs(ScanBodyRefs("Dataset urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).")),
+		[]string{"mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)"},
+		scannedURNs(ScanBodyRefs("Dataset mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales).")),
 		"parenthesized dataset path is matched whole and unaffected by the trim",
 	)
 }

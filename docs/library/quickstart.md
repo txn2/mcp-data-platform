@@ -5,7 +5,7 @@ Build a custom MCP server using the mcp-data-platform library.
 ## Prerequisites
 
 - Go 1.26+
-- Access to Trino, DataHub, or S3 (at least one)
+- Access to Trino or S3, and a PostgreSQL database for the platform catalog
 
 ## Create a New Project
 
@@ -90,7 +90,6 @@ import (
     "os"
 
     "github.com/txn2/mcp-data-platform/pkg/platform"
-    "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
     "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
     "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -106,12 +105,6 @@ func main() {
             User:    os.Getenv("TRINO_USER"),
             SSL:     true,
             Catalog: "hive",
-        }),
-
-        // DataHub toolkit
-        platform.WithDataHubToolkit("primary", datahub.Config{
-            URL:   os.Getenv("DATAHUB_URL"),
-            Token: os.Getenv("DATAHUB_TOKEN"),
         }),
 
         // S3 toolkit
@@ -139,16 +132,14 @@ p, err := platform.New(
 
     // Toolkits
     platform.WithTrinoToolkit("primary", trinoCfg),
-    platform.WithDataHubToolkit("primary", datahubCfg),
 
-    // Set up providers for cross-enrichment
-    platform.WithSemanticProvider("datahub", "primary"),
+    // The platform catalog in the database is the semantic provider
+    platform.WithDB(db),
     platform.WithQueryProvider("trino", "primary"),
 
     // Enable enrichment
     platform.WithEnrichment(platform.EnrichmentConfig{
         TrinoSemanticEnrichment:  true,
-        DataHubQueryEnrichment:   true,
     }),
 )
 ```
@@ -261,7 +252,6 @@ import (
     "github.com/txn2/mcp-data-platform/pkg/auth"
     "github.com/txn2/mcp-data-platform/pkg/persona"
     "github.com/txn2/mcp-data-platform/pkg/platform"
-    "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
     "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
     "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -296,23 +286,16 @@ func main() {
             SSL:     true,
             Catalog: "hive",
         }),
-        platform.WithDataHubToolkit("primary", datahub.Config{
-            URL:   os.Getenv("DATAHUB_URL"),
-            Token: os.Getenv("DATAHUB_TOKEN"),
-        }),
         platform.WithS3Toolkit("primary", s3.Config{
             Region:   "us-east-1",
             ReadOnly: true,
         }),
 
         // Cross-enrichment
-        platform.WithSemanticProvider("datahub", "primary"),
+        platform.WithDB(db),
         platform.WithQueryProvider("trino", "primary"),
-        platform.WithStorageProvider("s3", "primary"),
         platform.WithEnrichment(platform.EnrichmentConfig{
             TrinoSemanticEnrichment:  true,
-            DataHubQueryEnrichment:   true,
-            S3SemanticEnrichment:     true,
         }),
     )
     if err != nil {

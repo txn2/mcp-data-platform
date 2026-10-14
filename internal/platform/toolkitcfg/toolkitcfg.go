@@ -3,8 +3,8 @@
 //
 // The platform stores toolkit config as
 // toolkits.<kind>.instances.<name>.<key>; these helpers walk that structure,
-// pick the default instance when none is named, and extract the typed DataHub /
-// Trino / S3 settings the providers need. Split out of pkg/platform to keep
+// pick the default instance when none is named, and extract the typed Trino /
+// S3 settings the providers need. Split out of pkg/platform to keep
 // that package under its size budget (#756); the primitive typed-map accessors
 // live in the sibling cfgmap package.
 package toolkitcfg
@@ -26,9 +26,8 @@ import (
 
 // Toolkit kind keys as they appear under the toolkits config map.
 const (
-	kindDataHub = "datahub"
-	kindTrino   = "trino"
-	kindS3      = "s3"
+	kindTrino = "trino"
+	kindS3    = "s3"
 )
 
 // Config schema keys within a toolkit kind's config map.
@@ -43,14 +42,6 @@ const (
 	DefaultTrinoQueryLimit = 1000
 	DefaultTrinoMaxLimit   = 10000
 )
-
-// DataHub holds extracted DataHub configuration.
-type DataHub struct {
-	URL     string
-	Token   string
-	Timeout time.Duration
-	Debug   bool
-}
 
 // Trino holds extracted Trino configuration.
 type Trino struct {
@@ -225,12 +216,12 @@ func ResolveDefaultInstance(kindCfg, instances map[string]any) string {
 }
 
 // resolvedKinds are the toolkit kinds an unqualified lookup can land on: they
-// are the kinds InstanceConfig is called with, by the semantic, query and
-// storage providers, by apply_knowledge and by managed resources. The gateway
+// are the kinds InstanceConfig is called with, by the query and storage
+// providers and by managed resources. The gateway
 // kinds are absent because nothing resolves a default for them — every proxied
 // tool is namespaced by its connection — so requiring one there would refuse a
 // config over a key that changes nothing.
-var resolvedKinds = []string{kindDataHub, kindS3, kindTrino}
+var resolvedKinds = []string{kindS3, kindTrino}
 
 // MissingDefaults returns one message per toolkit kind that configures more
 // than one instance without a "default" key naming which of them a lookup that
@@ -238,15 +229,15 @@ var resolvedKinds = []string{kindDataHub, kindS3, kindTrino}
 // sorted, so the same config produces the same messages on every run. Callers
 // treat a non-empty result as a config error; Config.Validate does.
 //
-// Two DataHub catalogs with no default is not a deployment that chose either
-// one: whichever the platform picks binds the semantic provider, the query
-// provider and the managed-resource blob store to a connection the operator
-// never named. Naming the candidates lets them make that choice.
+// Two Trino connections with no default is not a deployment that chose either
+// one: whichever the platform picks binds the query provider, and two S3
+// connections bind the managed-resource blob store, to a connection the
+// operator never named. Naming the candidates lets them make that choice.
 //
 // A kind is checked whether or not it is enabled, because the providers read
 // an instance's config through InstanceConfig without consulting the enable
-// flag: a catalog used only for enrichment registers no tools and still has to
-// say which of its instances the enrichment reads.
+// flag: a connection used only by a provider registers no tools and still has
+// to say which of its instances the provider reads.
 //
 // This covers only the instances a config declares. Connections held in the
 // database merge into the toolkits config after validation; PinDeclaredDefaults
@@ -270,29 +261,6 @@ func MissingDefaults(toolkits map[string]any) []string {
 			kind, strings.Join(slices.Sorted(maps.Keys(instances)), ", ")))
 	}
 	return msgs
-}
-
-// DataHubConfig extracts DataHub configuration for the named instance (or the
-// default instance when instance is ""). Returns nil if not configured.
-func DataHubConfig(toolkits map[string]any, instance string) *DataHub {
-	instanceCfg := InstanceConfig(toolkits, kindDataHub, instance)
-	if instanceCfg == nil {
-		return nil
-	}
-
-	cfg := &DataHub{
-		URL:     cfgmap.String(instanceCfg, "url"),
-		Token:   cfgmap.String(instanceCfg, fieldcrypt.CfgKeyToken),
-		Timeout: cfgmap.Duration(instanceCfg, "timeout", 30*time.Second),
-		Debug:   cfgmap.BoolDefault(instanceCfg, "debug", false),
-	}
-
-	// Support both "url" and "endpoint" keys
-	if cfg.URL == "" {
-		cfg.URL = cfgmap.String(instanceCfg, "endpoint")
-	}
-
-	return cfg
 }
 
 // TrinoConfig extracts Trino configuration for the named instance (or the

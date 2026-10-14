@@ -3,7 +3,7 @@
 id: lc-focus-region-net
 title: Focus region net revenue (West then East)
 fact: The 'focus region' for this study is West.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
 sink: knowledge_page
 page:
     slug: focus-region-definition

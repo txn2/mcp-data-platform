@@ -3,7 +3,7 @@
 id: lc-priority-orders
 title: Priority order count
 fact: A 'priority order' is any order whose amount is at least $1,000.00 (100000 cents).
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
 sink: knowledge_page
 page:
     slug: priority-order-definition

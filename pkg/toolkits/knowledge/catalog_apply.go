@@ -58,6 +58,9 @@ func (t *Toolkit) applyToCatalog(ctx context.Context, input applyKnowledgeInput)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
+	if !t.reaches(ctx, ref.String()) {
+		return toolkit.ErrorResult(unreachable(ref.String())), nil, nil
+	}
 	appliedBy := authorFromContext(ctx)
 	prev, err := t.curator.metadata(ctx, ref)
 	if err != nil && !tagNotDefined(ref, err) {
@@ -323,4 +326,22 @@ func reverse(s []string) []string {
 		out[len(s)-1-i] = v
 	}
 	return out
+}
+
+// unreachable is the refusal of a write to an entity on a connection the
+// caller's persona does not reach. It reads as the entity being absent, the
+// answer fetch gives the same caller.
+func unreachable(reference string) string {
+	return "no catalog entity " + reference + " on a connection your persona reaches"
+}
+
+// unreachableCount is how many of refs the caller may not curate.
+func (t *Toolkit) unreachableCount(ctx context.Context, refs []string) int {
+	n := 0
+	for _, r := range refs {
+		if !t.reaches(ctx, r) {
+			n++
+		}
+	}
+	return n
 }

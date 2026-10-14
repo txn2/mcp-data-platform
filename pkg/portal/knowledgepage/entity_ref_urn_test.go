@@ -18,7 +18,7 @@ func TestEntityRef_URNRoundTrip(t *testing.T) {
 		{"collection", EntityRef{TargetType: RefTargetCollection, CollectionID: "coll-001"}, "mcp:collection:coll-001"},
 		{"page", EntityRef{TargetType: RefTargetKnowledgePage, RefPageID: "kp-2"}, "mcp:knowledge_page:kp-2"},
 		{"connection", EntityRef{TargetType: RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse"}, "mcp:connection:(trino,warehouse)"},
-		{"datahub", EntityRef{TargetType: RefTargetDataHub, EntityURN: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"}, "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"},
+		{"catalog", EntityRef{TargetType: RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)"}, "mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)"},
 		{"insight", EntityRef{TargetType: RefTargetInsight, InsightID: "ins_01HK7"}, "mcp:insight:ins_01HK7"},
 		{"memory", EntityRef{TargetType: RefTargetMemory, MemoryID: "mem_01HK7"}, "mcp:memory:mem_01HK7"},
 		{"resource", EntityRef{TargetType: RefTargetResource, ResourceID: "res_01HK7"}, "mcp:resource:res_01HK7"},
@@ -50,31 +50,31 @@ func TestParseEntityRef_Errors(t *testing.T) {
 		"mcp:connection:trino,wh",     // missing parens
 		"mcp:connection:(trino)",      // missing name
 		"mcp:connection:(,warehouse)", // empty kind
-		// Crossed namespaces: a urn: reference embedding the internal mcp: scheme
-		// (the exact corruption an agent produced) must be rejected, not stored.
+		// A urn: reference is not read: the catalog is cited by its mcp: form.
 		"urn:li:mcp:connection:(prometheus)",
 		"urn:li:mcp:asset:a1",
+		"urn:li:glossaryTerm:revenue",
 	} {
 		_, err := ParseEntityRef(s)
 		assert.Error(t, err, "want error for %q", s)
 	}
 }
 
-// TestParseEntityRef_RejectsCrossedScheme verifies the crossed-namespace error
-// names the correct internal form so the caller can self-correct.
-func TestParseEntityRef_RejectsCrossedScheme(t *testing.T) {
-	_, err := ParseEntityRef("urn:li:mcp:connection:(prometheus)")
+// TestParseEntityRef_RefusesAURN verifies the refusal of a urn: reference
+// names the catalog's reference form so the caller can self-correct.
+func TestParseEntityRef_RefusesAURN(t *testing.T) {
+	_, err := ParseEntityRef("urn:li:glossaryTerm:revenue")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "mixes the urn: and mcp: schemes")
+	assert.Contains(t, err.Error(), "mcp:glossary_term:<id>")
 }
 
-// TestParseEntityRef_ExternalPassthrough checks any urn: prefix is treated as an
-// external (DataHub) reference and stored verbatim.
-func TestParseEntityRef_ExternalPassthrough(t *testing.T) {
-	ref, err := ParseEntityRef("  urn:li:glossaryTerm:revenue  ")
+// TestParseEntityRef_CatalogReference checks a catalog reference is stored
+// as written.
+func TestParseEntityRef_CatalogReference(t *testing.T) {
+	ref, err := ParseEntityRef("  mcp:glossary_term:revenue  ")
 	require.NoError(t, err)
-	assert.Equal(t, RefTargetDataHub, ref.TargetType)
-	assert.Equal(t, "urn:li:glossaryTerm:revenue", ref.EntityURN)
+	assert.Equal(t, RefTargetCatalog, ref.TargetType)
+	assert.Equal(t, "mcp:glossary_term:revenue", ref.EntityURN)
 }
 
 func TestParseCitableRef_RejectsPerUserForms(t *testing.T) {
@@ -111,7 +111,7 @@ func TestParseCitableRef_AllowsSharedForms(t *testing.T) {
 		"mcp:knowledge_page:kp1",
 		"mcp:connection:(trino,wh)",
 		"mcp:script:6f1c0a52-8d8e-4f7b-9a3e-2b8c1d0e4f55",
-		"urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)",
+		"mcp:dataset:(trino,warehouse,a.b.c)",
 	} {
 		got, err := ParseCitableRef(ref)
 		require.NoError(t, err, "citable ref %q", ref)

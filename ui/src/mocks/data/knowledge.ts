@@ -54,7 +54,7 @@ const trinoTables = [
 function randomUrn(): string {
   const schema = seededItem(trinoSchemas);
   const table = seededItem(trinoTables);
-  return `urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.${schema}.${table},PROD)`;
+  return `mcp:dataset:(trino,acme-warehouse,iceberg.${schema}.${table})`;
 }
 
 const categories = [
@@ -76,7 +76,7 @@ const insightTexts: Record<string, string[]> = {
     "The 'region_code' field uses legacy FIPS codes, not the ISO 3166-2 codes stated in metadata.",
     "product_catalog.category_id references a deprecated category taxonomy; the active one is in category_v2_id.",
     "store_transactions.discount_pct is stored as a decimal (0.15) not a percentage (15) despite the column name.",
-    "The 'status' column in supply_chain_orders uses integer codes (1-5), not the string enum shown in DataHub.",
+    "The 'status' column in supply_chain_orders uses integer codes (1-5), not the string enum shown in the catalog.",
     "return_rates.return_reason includes 'damaged_in_transit' which is mapped to the wrong GL code downstream.",
     "price_adjustments.effective_date uses store-local timezone, not UTC as documented.",
   ],
@@ -510,7 +510,7 @@ function applyObservedState(insights: Insight[]): void {
   fixtures.forEach((fixture, i) => {
     const insight = pending[i];
     if (!insight) return;
-    const urn = `urn:li:dataset:(urn:li:dataPlatform:trino,${fixture.table},PROD)`;
+    const urn = `mcp:dataset:(trino,acme-warehouse,${fixture.table})`;
     insight.insight_text = fixture.text;
     // The fixture URN leads, and the tail keeps only the entities it is not
     // already: the server normalizes entity URNs on write, so a mock record

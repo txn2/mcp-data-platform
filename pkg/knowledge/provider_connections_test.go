@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
@@ -120,9 +121,36 @@ func TestConnectionsProvider_Fetch(t *testing.T) {
 		if doc.Source != SourceConnections || doc.Reference != ref {
 			t.Errorf("doc = %+v", doc)
 		}
-		c, ok := doc.Content.(ConnectionInfo)
-		if !ok || c.Name != "warehouse" || c.Kind != "trino" {
-			t.Errorf("Content = %+v, want the warehouse connection", doc.Content)
+		c, ok := doc.Content.(connectionDocument)
+		if !ok || c.Name != "warehouse" || c.Kind != "trino" || c.Catalog != nil {
+			t.Errorf("Content = %+v, want the warehouse connection and no catalog", doc.Content)
+		}
+	})
+
+	t.Run("lists the top level of the connection's catalog", func(t *testing.T) {
+		l := &fakeConnLister{conns: []ConnectionInfo{{Name: "warehouse", Bound: "warehouse", Kind: "trino"}}}
+		store := &fakeCatalog{levels: map[string][]catalog.BrowseEntry{
+			// The fake keys a level by the dataset reference its prefix makes;
+			// the top level has no path.
+			catalog.DatasetRef("trino", "warehouse").String(): {{Name: "hive", Reference: "mcp:dataset:(trino,warehouse,hive)", Datasets: 3}},
+		}}
+		p := NewConnectionsProvider(l)
+		p.SetCatalogBrowser(store)
+		doc, _, err := p.Fetch(context.Background(), knowledgepage.ConnectionRef("trino", "warehouse"), Caller{})
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		c, ok := doc.Content.(connectionDocument)
+		if !ok {
+			t.Fatalf("content is %T", doc.Content)
+		}
+		if len(c.Catalog) != 1 || c.Catalog[0].Name != "hive" {
+			t.Errorf("Catalog = %+v, want the hive catalog", c.Catalog)
+		}
+
+		store.listErr = errors.New("db down")
+		if _, _, err := p.Fetch(context.Background(), knowledgepage.ConnectionRef("trino", "warehouse"), Caller{}); !errors.Is(err, store.listErr) {
+			t.Errorf("err = %v, want the browse error", err)
 		}
 	})
 

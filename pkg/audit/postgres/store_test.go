@@ -805,7 +805,7 @@ func TestQuery_MultipleRows(t *testing.T) {
 
 	event2 := newTestEvent()
 	event2.ID = "evt-2"
-	event2.ToolName = "datahub_search"
+	event2.ToolName = "search"
 
 	rows := sqlmock.NewRows(selectColumns)
 	for _, ev := range []audit.Event{event1, event2} {

@@ -13,16 +13,13 @@ import (
 
 // DefaultDiscoveryTools lists the tool names that satisfy the search-first gate.
 // search is the universal discovery front door and the tool every description
-// override and discovery note steers agents toward; the two datahub_* reads the
-// platform registers are structured catalog navigation that also genuinely
-// discovers an entity's business context, so they satisfy the gate too. Keeping
-// them in the default set is important now that the gate is a hard block: a
-// persona that grants datahub_* without search would otherwise be deadlocked
-// out of query tools. Teams can override with workflow.discovery_tools.
+// override and discovery note steers agents toward; fetch reads a dataset with
+// its curation and lineage, and browses a connection's catalog, which genuinely
+// discovers an entity's business context, so it satisfies the gate too. Teams
+// can override with workflow.discovery_tools.
 var DefaultDiscoveryTools = []string{
 	toolNameSearch,
-	"datahub_get_lineage",
-	"datahub_browse",
+	"fetch",
 }
 
 // DefaultQueryTools lists the tool names that are gated by discovery.
@@ -68,6 +65,9 @@ type SessionWorkflowTracker struct {
 
 	done     chan struct{}
 	stopOnce sync.Once
+
+	// now reads the clock the throttle is stamped with; time.Now outside tests.
+	now func() time.Time
 }
 
 // NewSessionWorkflowTracker creates a new tracker. If discoveryTools or
@@ -109,6 +109,7 @@ func NewSessionWorkflowTracker(discoveryTools, queryTools []string, store search
 		recordTTL: sessionTimeout,
 		lastSlide: make(map[string]time.Time),
 		done:      make(chan struct{}),
+		now:       time.Now,
 	}
 }
 
@@ -185,7 +186,7 @@ func (t *SessionWorkflowTracker) locallyKnownDiscovered(scopeKey string) bool {
 	t.mu.RLock()
 	last, ok := t.lastSlide[scopeKey]
 	t.mu.RUnlock()
-	return ok && time.Since(last) < t.recordTTL
+	return ok && t.now().Sub(last) < t.recordTTL
 }
 
 // mark records or extends the scope's discovery in the shared store. A
@@ -205,7 +206,7 @@ func (t *SessionWorkflowTracker) locallyKnownDiscovered(scopeKey string) bool {
 // queries; operators who need queries during a store-write outage can disable
 // the gate (workflow.require_search: false).
 func (t *SessionWorkflowTracker) mark(ctx context.Context, scopeKey string, force bool) {
-	now := time.Now()
+	now := t.now()
 
 	t.mu.Lock()
 	last, seen := t.lastSlide[scopeKey]
@@ -281,7 +282,7 @@ func (t *SessionWorkflowTracker) evictStaleThrottle() {
 	cutoff := 2 * t.slideEvery
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	now := time.Now()
+	now := t.now()
 	for id, last := range t.lastSlide {
 		if now.Sub(last) > cutoff {
 			delete(t.lastSlide, id)

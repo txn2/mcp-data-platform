@@ -285,9 +285,9 @@ func TestIssue1663_ALandedCSVIsQueryableAndTheTableFollowsIt(t *testing.T) {
 // across every export tool, so the kind that reaches a GraphQL endpoint lands a
 // file at a path on the same terms.
 //
-// It runs against the same real endpoint #1277's criteria run against, DataHub's
-// GMS, and fails rather than skips when none answers: a gate that skips is a
-// gate that was not run.
+// It runs against the same real endpoint #1277's criteria run against, the dev
+// stack's GraphQL fixture, and fails rather than skips when none answers: a
+// gate that skips is a gate that was not run.
 func TestIssue1663_GraphQLExportLandsTheSameWay(t *testing.T) {
 	requireGraphQLUpstream(t)
 	c := connect(t)

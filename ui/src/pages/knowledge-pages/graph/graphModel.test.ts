@@ -28,21 +28,21 @@ function edge(source: string, target: string, type: string): KnowledgeGraphEdge 
 
 describe("buildGraphIndex", () => {
   it("records adjacency in both directions and the degree of each node", () => {
-    const nodes = [page("a"), page("b"), entity("urn:li:dataset:x", "datahub", "x")];
+    const nodes = [page("a"), page("b"), entity("mcp:dataset:(trino,acme,x)", "catalog", "x")];
     const edges = [
-      edge("mcp:knowledge_page:a", "urn:li:dataset:x", "datahub"),
-      edge("mcp:knowledge_page:b", "urn:li:dataset:x", "datahub"),
+      edge("mcp:knowledge_page:a", "mcp:dataset:(trino,acme,x)", "catalog"),
+      edge("mcp:knowledge_page:b", "mcp:dataset:(trino,acme,x)", "catalog"),
     ];
 
     const { neighbors, degree } = buildGraphIndex(nodes, edges);
 
     // The dataset bridges the two pages: hovering it must light both.
-    expect([...(neighbors.get("urn:li:dataset:x") ?? [])].sort()).toEqual([
+    expect([...(neighbors.get("mcp:dataset:(trino,acme,x)") ?? [])].sort()).toEqual([
       "mcp:knowledge_page:a",
       "mcp:knowledge_page:b",
     ]);
-    expect([...(neighbors.get("mcp:knowledge_page:a") ?? [])]).toEqual(["urn:li:dataset:x"]);
-    expect(degree.get("urn:li:dataset:x")).toBe(2);
+    expect([...(neighbors.get("mcp:knowledge_page:a") ?? [])]).toEqual(["mcp:dataset:(trino,acme,x)"]);
+    expect(degree.get("mcp:dataset:(trino,acme,x)")).toBe(2);
     expect(degree.get("mcp:knowledge_page:a")).toBe(1);
   });
 
@@ -56,11 +56,11 @@ describe("buildGraphIndex", () => {
 describe("filterByTypes", () => {
   const nodes = [
     page("a"),
-    entity("urn:li:dataset:x", "datahub", "x"),
+    entity("mcp:dataset:(trino,acme,x)", "catalog", "x"),
     entity("mcp:asset:a1", "asset", "Revenue Dashboard"),
   ];
   const edges = [
-    edge("mcp:knowledge_page:a", "urn:li:dataset:x", "datahub"),
+    edge("mcp:knowledge_page:a", "mcp:dataset:(trino,acme,x)", "catalog"),
     edge("mcp:knowledge_page:a", "mcp:asset:a1", "asset"),
   ];
 
@@ -71,7 +71,7 @@ describe("filterByTypes", () => {
   });
 
   it("drops a hidden type together with every edge that would dangle", () => {
-    const out = filterByTypes(nodes, edges, new Set(["datahub"]));
+    const out = filterByTypes(nodes, edges, new Set(["catalog"]));
     expect(out.nodes.map((n) => n.id)).toEqual(["mcp:knowledge_page:a", "mcp:asset:a1"]);
     expect(out.edges).toHaveLength(1);
     expect(out.edges[0]?.target).toBe("mcp:asset:a1");
@@ -127,12 +127,12 @@ describe("nodeDestination", () => {
   });
 
   it("opens a catalog entity in the catalog tab", () => {
-    // A catalog node's label is derived from its URN, so the only way to reach
-    // the real entity is a deep link keyed by the whole URN.
-    const urn = "urn:li:dataset:(trino,sales.orders,PROD)";
-    expect(nodeDestination(entity(urn, "datahub", "sales.orders"))).toEqual({
+    // A catalog node's label is derived from its reference, so the only way to
+    // reach the real entity is a deep link keyed by the whole reference.
+    const urn = "mcp:dataset:(trino,acme,sales.orders)";
+    expect(nodeDestination(entity(urn, "catalog", "sales.orders"))).toEqual({
       kind: "path",
-      path: `/knowledge/catalog?urn=${encodeURIComponent(urn)}#tables`,
+      path: `/knowledge/catalog?ref=${encodeURIComponent(urn)}#tables`,
     });
   });
 
@@ -152,11 +152,11 @@ describe("typeFacet", () => {
     const nodes = [
       page("a"),
       page("b"),
-      entity("urn:li:dataset:x", "datahub", "x"),
+      entity("mcp:dataset:(trino,acme,x)", "catalog", "x"),
     ];
     expect(typeFacet(nodes)).toEqual([
       ["knowledge_page", 2],
-      ["datahub", 1],
+      ["catalog", 1],
     ]);
   });
 });
@@ -164,7 +164,7 @@ describe("typeFacet", () => {
 describe("node marks", () => {
   it("names every known type and falls back for an unknown one", () => {
     expect(typeLabel("knowledge_page")).toBe("Page");
-    expect(typeLabel("datahub")).toBe("Catalog");
+    expect(typeLabel("catalog")).toBe("Catalog");
     expect(typeLabel("something_new")).toBe("Other");
     expect(nodeStyle("something_new").fill).toBeTruthy();
   });

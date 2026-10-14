@@ -17,7 +17,7 @@ message: >-
   report under `references`.
 title: mcp-data-platform
 abstract: >-
-  A composable, semantic-first MCP server platform composing DataHub, Trino, and
+  A composable, semantic-first MCP server platform composing Trino, S3, and
   S3 with cross-enrichment, OAuth 2.1, personas, and audit logging.
 type: software
 authors:

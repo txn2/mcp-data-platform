@@ -177,7 +177,7 @@ func ClassifyError(err error) string {
 //     to StatusDeclined
 //   - isToolError without a category → StatusUpstreamErr
 //     (most tool-level errors are upstream — Trino query failures,
-//     S3 access errors, DataHub fetch errors, etc.)
+//     S3 access errors, etc.)
 func ClassifyToolCallResult(err error, isToolError bool, errCategory string) string {
 	if err != nil {
 		return ClassifyError(err)

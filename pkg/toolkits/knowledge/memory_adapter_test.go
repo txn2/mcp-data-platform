@@ -183,9 +183,9 @@ func TestMemoryInsightAdapter_Insert(t *testing.T) {
 		Category:    "business_context",
 		InsightText: "Revenue is calculated differently for Q4",
 		Confidence:  "high",
-		EntityURNs:  []string{"urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)"},
+		EntityURNs:  []string{"mcp:dataset:(trino,warehouse,catalog.schema.table)"},
 		RelatedColumns: []RelatedColumn{
-			{URN: "urn:li:dataset:abc", Column: "revenue", Relevance: "primary"},
+			{URN: "mcp:dataset:(trino,warehouse,c.s.abc)", Column: "revenue", Relevance: "primary"},
 		},
 		SuggestedActions: []SuggestedAction{
 			{ActionType: "update_description", Target: "revenue", Detail: "Add Q4 note"},
@@ -213,7 +213,7 @@ func TestMemoryInsightAdapter_Insert(t *testing.T) {
 	assert.Equal(t, "user", rec.Source)
 	assert.Equal(t, insight.EntityURNs, rec.EntityURNs)
 	assert.Len(t, rec.RelatedColumns, 1)
-	assert.Equal(t, "urn:li:dataset:abc", rec.RelatedColumns[0].URN)
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,c.s.abc)", rec.RelatedColumns[0].URN)
 	assert.Equal(t, "revenue", rec.RelatedColumns[0].Column)
 	assert.Equal(t, "primary", rec.RelatedColumns[0].Relevance)
 
@@ -251,9 +251,9 @@ func TestMemoryInsightAdapter_Get(t *testing.T) {
 			Category:   "data_quality",
 			Confidence: "medium",
 			Source:     "agent_discovery",
-			EntityURNs: []string{"urn:li:dataset:abc"},
+			EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.abc)"},
 			RelatedColumns: []memory.RelatedColumn{
-				{URN: "urn:li:dataset:abc", Column: "col1", Relevance: "secondary"},
+				{URN: "mcp:dataset:(trino,warehouse,c.s.abc)", Column: "col1", Relevance: "secondary"},
 			},
 			Status: memory.StatusActive,
 			Metadata: map[string]any{
@@ -282,7 +282,7 @@ func TestMemoryInsightAdapter_Get(t *testing.T) {
 	assert.Equal(t, "data_quality", insight.Category)
 	assert.Equal(t, "medium", insight.Confidence)
 	assert.Equal(t, "agent_discovery", insight.Source)
-	assert.Equal(t, []string{"urn:li:dataset:abc"}, insight.EntityURNs)
+	assert.Equal(t, []string{"mcp:dataset:(trino,warehouse,c.s.abc)"}, insight.EntityURNs)
 	assert.Len(t, insight.RelatedColumns, 1)
 	assert.Equal(t, "col1", insight.RelatedColumns[0].Column)
 
@@ -346,7 +346,7 @@ func TestMemoryInsightAdapter_List_FilterMapping(t *testing.T) {
 	filter := InsightFilter{
 		Status:     StatusPending,
 		Category:   "correction",
-		EntityURN:  "urn:li:dataset:abc",
+		EntityURN:  "mcp:dataset:(trino,warehouse,c.s.abc)",
 		CapturedBy: "user@example.com",
 		Source:     "user",
 		Since:      &since,
@@ -364,7 +364,7 @@ func TestMemoryInsightAdapter_List_FilterMapping(t *testing.T) {
 	mf := store.listFilter
 	assert.Equal(t, memory.DimensionKnowledge, mf.Dimension)
 	assert.Equal(t, "correction", mf.Category)
-	assert.Equal(t, "urn:li:dataset:abc", mf.EntityURN)
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,c.s.abc)", mf.EntityURN)
 	assert.Equal(t, "user@example.com", mf.CreatedBy)
 	assert.Equal(t, "user", mf.Source)
 	assert.Equal(t, &since, mf.Since)
@@ -941,13 +941,13 @@ func TestMemoryInsightAdapter_Supersede(t *testing.T) {
 	}
 	adapter := NewMemoryInsightAdapter(store)
 
-	count, err := adapter.Supersede(context.Background(), "urn:li:dataset:abc", "new-1")
+	count, err := adapter.Supersede(context.Background(), "mcp:dataset:(trino,warehouse,c.s.abc)", "new-1")
 	require.NoError(t, err)
 	assert.Equal(t, 2, count)
 	assert.True(t, store.supersedeCalled)
 
 	// Verify the filter used
-	assert.Equal(t, "urn:li:dataset:abc", store.listFilter.EntityURN)
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,c.s.abc)", store.listFilter.EntityURN)
 	assert.Equal(t, memory.StatusActive, store.listFilter.Status)
 	assert.Equal(t, memory.MaxLimit, store.listFilter.Limit)
 	// Scoped to the knowledge dimension so it cannot supersede a
@@ -967,7 +967,7 @@ func TestMemoryInsightAdapter_Supersede_ListError(t *testing.T) {
 	store := &mockMemoryStore{listErr: fmt.Errorf("list failed")}
 	adapter := NewMemoryInsightAdapter(store)
 
-	_, err := adapter.Supersede(context.Background(), "urn:li:dataset:abc", "new-1")
+	_, err := adapter.Supersede(context.Background(), "mcp:dataset:(trino,warehouse,c.s.abc)", "new-1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "listing records for supersede")
 }
@@ -980,7 +980,7 @@ func TestMemoryInsightAdapter_Supersede_SupersedeError(t *testing.T) {
 	}
 	adapter := NewMemoryInsightAdapter(store)
 
-	count, err := adapter.Supersede(context.Background(), "urn:li:dataset:abc", "new-1")
+	count, err := adapter.Supersede(context.Background(), "mcp:dataset:(trino,warehouse,c.s.abc)", "new-1")
 	require.Error(t, err)
 	assert.Equal(t, 0, count)
 	assert.Contains(t, err.Error(), "superseding old-1")
@@ -995,10 +995,10 @@ func TestInsightToRecord_FieldMapping(t *testing.T) {
 		Category:    "business_context",
 		InsightText: "Important business rule about revenue",
 		Confidence:  "high",
-		EntityURNs:  []string{"urn:li:dataset:abc", "urn:li:dataset:def"},
+		EntityURNs:  []string{"mcp:dataset:(trino,warehouse,c.s.abc)", "mcp:dataset:(trino,warehouse,c.s.def)"},
 		RelatedColumns: []RelatedColumn{
-			{URN: "urn:li:dataset:abc", Column: "revenue", Relevance: "primary"},
-			{URN: "urn:li:dataset:def", Column: "cost", Relevance: "secondary"},
+			{URN: "mcp:dataset:(trino,warehouse,c.s.abc)", Column: "revenue", Relevance: "primary"},
+			{URN: "mcp:dataset:(trino,warehouse,c.s.def)", Column: "cost", Relevance: "secondary"},
 		},
 		SuggestedActions: []SuggestedAction{
 			{ActionType: "add_tag", Target: "revenue", Detail: "Tag as KPI"},
@@ -1021,7 +1021,7 @@ func TestInsightToRecord_FieldMapping(t *testing.T) {
 	assert.Equal(t, "business_context", record.Category)
 	assert.Equal(t, "high", record.Confidence)
 	assert.Equal(t, "user", record.Source)
-	assert.Equal(t, []string{"urn:li:dataset:abc", "urn:li:dataset:def"}, record.EntityURNs)
+	assert.Equal(t, []string{"mcp:dataset:(trino,warehouse,c.s.abc)", "mcp:dataset:(trino,warehouse,c.s.def)"}, record.EntityURNs)
 	assert.Len(t, record.RelatedColumns, 2)
 	assert.Equal(t, "revenue", record.RelatedColumns[0].Column)
 	assert.Equal(t, "cost", record.RelatedColumns[1].Column)
@@ -1068,9 +1068,9 @@ func TestRecordToInsight_FieldMapping(t *testing.T) {
 		Category:   "correction",
 		Confidence: "low",
 		Source:     "enrichment_gap",
-		EntityURNs: []string{"urn:li:dataset:abc"},
+		EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.abc)"},
 		RelatedColumns: []memory.RelatedColumn{
-			{URN: "urn:li:dataset:abc", Column: "col1", Relevance: "primary"},
+			{URN: "mcp:dataset:(trino,warehouse,c.s.abc)", Column: "col1", Relevance: "primary"},
 		},
 		Status: memory.StatusActive,
 		Metadata: map[string]any{
@@ -1092,7 +1092,7 @@ func TestRecordToInsight_FieldMapping(t *testing.T) {
 	assert.Equal(t, "correction", insight.Category)
 	assert.Equal(t, "low", insight.Confidence)
 	assert.Equal(t, "enrichment_gap", insight.Source)
-	assert.Equal(t, []string{"urn:li:dataset:abc"}, insight.EntityURNs)
+	assert.Equal(t, []string{"mcp:dataset:(trino,warehouse,c.s.abc)"}, insight.EntityURNs)
 	assert.Len(t, insight.RelatedColumns, 1)
 	assert.Equal(t, "col1", insight.RelatedColumns[0].Column)
 	assert.Equal(t, "primary", insight.RelatedColumns[0].Relevance)
@@ -1462,7 +1462,7 @@ func TestAdapterListSharedArm(t *testing.T) {
 	m := &mockMemoryStore{}
 	a := NewMemoryInsightAdapter(m)
 	if _, _, err := a.List(context.Background(), InsightFilter{
-		EntityURN: "urn:li:dataset:orders", CapturedBy: "alice@example.com", Shared: true,
+		EntityURN: "mcp:dataset:(trino,warehouse,c.s.orders)", CapturedBy: "alice@example.com", Shared: true,
 	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

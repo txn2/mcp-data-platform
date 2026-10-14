@@ -74,8 +74,8 @@ const captured: Provenance = {
         {
           event_id: "evt-3",
           kind: "tool",
-          tool: "datahub_get_lineage",
-          summary: "urn:li:dataset:(sales.quarterly)",
+          tool: "fetch",
+          summary: "mcp:dataset:(trino,acme-warehouse,sales.quarterly)",
           outcome: "success",
           duration_ms: 210,
           timestamp: "2026-08-16T10:59:00Z",

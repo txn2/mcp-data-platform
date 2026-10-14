@@ -8,11 +8,11 @@ Where a deployment's downstream systems are declared, and the OpenAPI catalogs i
 
 ## Connections
 
-The Connections page manages toolkit backend instances (Trino, DataHub, S3, MCP gateway) using a split-pane layout.
+The Connections page manages toolkit backend instances (Trino, S3, MCP gateway, API gateway, GraphQL) using a split-pane layout.
 
 ![Connections](../images/screenshots/light/admin-admin-connections-light.webp#only-light)![Connections](../images/screenshots/dark/admin-admin-connections-dark.webp#only-dark)
 
-**Left pane** — Connection list grouped by kind (DataHub, S3, Trino), with source badges (**file** or **database**), descriptions, and tool counts.
+**Left pane** — Connection list grouped by kind (S3, Trino, ...), with source badges (**file** or **database**), descriptions, and tool counts.
 
 **Right pane** — Selected connection detail showing:
 
@@ -45,7 +45,7 @@ directly for the connections the file declares.
   Change the config file instead.
 - **+ Add Connection** at the bottom creates database-only connections.
 
-Creating or editing a connection opens a kind-aware editor: a markdown description plus the configuration fields for the selected kind (Trino host/port/catalog, S3 bucket/region, DataHub server, or an API-gateway base URL and catalog picker), with TLS material and auth handled inline.
+Creating or editing a connection opens a kind-aware editor: a markdown description plus the configuration fields for the selected kind (Trino host/port/catalog, S3 bucket/region, or an API-gateway base URL and catalog picker), with TLS material and auth handled inline.
 
 ![New Connection](../images/screenshots/light/admin-admin-connection-create-light.webp#only-light)![New Connection](../images/screenshots/dark/admin-admin-connection-create-dark.webp#only-dark)
 
@@ -202,7 +202,7 @@ with native warehouse / catalog context:
 - **New rule** — opens the rule editor with three structured sections:
    - **Tool name** (autocomplete from this connection's discovered tools).
    - **When predicate** — `always` or `response_contains` with JSONPath.
-   - **Enrich action** — source (`trino` or `datahub`), operation, and
+   - **Enrich action** — source (`trino` or `catalog`), operation, and
      parameters with JSONPath bindings (`$.args`, `$.response`, `$.user`).
    - **Merge strategy** — where the enrichment lands in the response
      (`enrichment` by default; configurable path).

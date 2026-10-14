@@ -1,5 +1,5 @@
 ---
-description: Complete API specification for all MCP tools. Parameters, response schemas, error codes for DataHub, Trino, and S3 operations.
+description: Complete API specification for all MCP tools. Parameters, response schemas, error codes for Trino, S3, catalog and knowledge operations.
 ---
 
 # Tools API Reference
@@ -106,7 +106,7 @@ Execute a read-only SQL query against the Trino cluster. Write operations (INSER
 ```json
 {
   "semantic_context": {
-    "description": "Table description from DataHub",
+    "description": "Table description from the platform catalog",
     "owners": [{"name": "Team Name", "type": "group"}],
     "tags": ["tag1", "tag2"],
     "domain": {"name": "Domain Name"},
@@ -275,416 +275,88 @@ List configured Trino connections.
 
 ---
 
-## DataHub Tools
+## Catalog Reads
 
-### datahub_search
+The platform's [catalog](../server/catalog.md) is read with `search` and
+`fetch`, and curated with `apply_knowledge`; no catalog toolkit is registered.
+`fetch` returns `{found, reference, document}`, and a catalog read fills the
+document's `content` with the shapes below.
 
-Search for entities in the catalog.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `query` | string | Yes | - | Search query |
-| `type` | string | No | - | Entity type: `dataset`, `dashboard`, `chart`, `dataflow` |
-| `platform` | string | No | - | Platform filter: `trino`, `snowflake`, `s3`, etc. |
-| `limit` | integer | No | 10 | Maximum results (capped by max_limit config) |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema:**
+**A fetched dataset** (`fetch mcp:dataset:(trino,warehouse,sales.orders)`):
 
 ```json
 {
-  "results": [
-    {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
-      "name": "orders",
-      "description": "Customer orders",
-      "platform": "trino",
-      "type": "dataset",
-      "owners": ["Data Team"],
-      "tags": ["pii", "financial"]
-    }
-  ],
-  "total": 150,
-  "has_more": true
-}
-```
-
-**Enrichment (when enabled):**
-
-```json
-{
-  "query_context": {
-    "urn:li:dataset:...": {
-      "queryable": true,
-      "connection": "primary",
-      "table_identifier": {
-        "catalog": "hive",
-        "schema": "sales",
-        "table": "orders"
-      },
-      "sample_query": "SELECT * FROM hive.sales.orders LIMIT 10"
-    }
-  }
-}
-```
-
----
-
-### Reading a catalog entity by URN
-
-The DataHub toolkit registers no by-URN read tool. A dataset, glossary term,
-tag, domain, or data product is read in full with [`fetch`](../server/tools.md#fetch) on its
-`urn:li:...` reference; the retired `datahub_get_entity`, `datahub_get_schema`,
-`datahub_get_queries`, `datahub_get_glossary_term`, and
-`datahub_get_data_product` tools are not registered under any name.
-
-**A fetched dataset** (`fetch urn:li:dataset:...`) returns the catalog's full
-record as the document `content`:
-
-```json
-{
-  "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.sales.orders,PROD)",
+  "id": "6c0f7a8e-0b1a-4f8e-9c51-7e2f3d4a5b6c",
+  "reference": "mcp:dataset:(trino,warehouse,sales.orders)",
   "name": "orders",
-  "type": "DATASET",
-  "platform": "trino",
-  "sub_types": ["table"],
-  "description": "Customer orders from e-commerce platform",
-  "owners": [{"urn": "urn:li:corpuser:ana", "type": "user", "name": "ana"}],
-  "tags": ["pii", "financial"],
-  "glossary_terms": [{"urn": "urn:li:glossaryTerm:Order", "name": "Order"}],
-  "domain": {"urn": "urn:li:domain:sales", "name": "Sales"},
-  "custom_properties": {"refresh_schedule": "daily"},
-  "created": "2024-01-01T00:00:00Z",
-  "schema": {
-    "version": 3,
-    "fields": [
-      {"field_path": "order_id", "type": "NUMBER", "native_type": "bigint", "nullable": false,
-       "description": "Unique order identifier", "tags": ["pii"]}
-    ],
-    "primary_keys": ["order_id"],
-    "foreign_keys": []
-  },
-  "queries": [
-    {"urn": "urn:li:query:q1", "name": "completed orders",
-     "statement": "SELECT * FROM orders WHERE status = 'completed'", "source": "MANUAL",
-     "created_by": "urn:li:corpuser:ana", "created": "2024-01-15T10:00:00Z"}
+  "type": "table",
+  "columns": [
+    {"name": "order_id", "data_type": "bigint", "ordinal": 1, "nullable": false,
+     "aspects": {"description": "Unique order identifier"}},
+    {"name": "customer_id", "data_type": "bigint", "ordinal": 2, "nullable": true,
+     "aspects": {"tags": ["pii"], "glossary_terms": ["mcp:glossary_term:3b9e"]}}
   ],
-  "total_queries": 1,
-  "related_documents": [{"urn": "urn:li:document:d1", "title": "Orders runbook"}],
-  "query_availability": {
-    "available": true,
-    "query_table": "warehouse.sales.orders",
-    "connection": "primary",
-    "estimated_rows": 1250000
-  }
+  "aspects": {
+    "description": "One row per order",
+    "tags": ["financial"],
+    "glossary_terms": ["mcp:glossary_term:7d21"],
+    "owners": [{"owner": "ana@example.com", "type": "technical_owner"}],
+    "domain": "mcp:domain:4f1c",
+    "curated_queries": [{"name": "completed orders", "sql": "SELECT * FROM sales.orders WHERE status = 'complete'"}],
+    "context_documents": [{"id": "d1", "title": "Orders runbook", "content": "...", "category": "runbook"}]
+  },
+  "created_at": "2026-10-01T09:00:00Z",
+  "updated_at": "2026-10-12T14:30:00Z",
+  "upstream": [
+    {"source": "mcp:dataset:(trino,warehouse,raw.orders)", "target": "mcp:dataset:(trino,warehouse,sales.orders)",
+     "writer_kind": "query", "written_by": "etl@example.com", "written_at": "2026-10-12T02:00:00Z", "depth": 1}
+  ],
+  "downstream": [],
+  "query_availability": {"available": true, "query_table": "sales.orders", "connection": "warehouse", "estimated_rows": 1500000}
 }
 ```
 
-`unavailable` names any part of the record (`schema`, `queries`,
-`related_documents`) the catalog could not serve on that read, so an absent
-part is distinguishable from an empty one. `query_availability` is present when
-a query provider is configured; the document's `verifiable` field names the
-same table when the dataset is queryable.
-
-**A fetched glossary term** (`fetch urn:li:glossaryTerm:...`) returns:
+A dataset reference whose path stops above a dataset lists what is under it
+(`fetch mcp:dataset:(trino,warehouse,sales)`):
 
 ```json
 {
-  "urn": "urn:li:glossaryTerm:Revenue",
+  "connection_kind": "trino",
+  "connection": "warehouse",
+  "path": ["sales"],
+  "entries": [
+    {"name": "orders", "reference": "mcp:dataset:(trino,warehouse,sales.orders)", "datasets": 0, "type": "table"}
+  ]
+}
+```
+
+`fetch mcp:connection:(trino,warehouse)` lists the top of the connection's
+catalog in the same `entries` form under `catalog`.
+
+**A fetched glossary term, node, tag, domain or data product**
+(`fetch mcp:glossary_term:7d21`):
+
+```json
+{
+  "reference": "mcp:glossary_term:7d21",
   "kind": "glossary_term",
   "name": "Revenue",
-  "description": "Total monetary value from sales transactions",
-  "parent_node": "urn:li:glossaryNode:FinancialMetrics",
-  "owners": [{"urn": "urn:li:corpuser:cfo", "type": "user", "name": "cfo"}],
-  "custom_properties": {"calculation": "SUM(line_item_amount)"},
-  "datasets": [{"urn": "urn:li:dataset:...", "name": "warehouse.sales.invoices"}],
-  "more_datasets": false
-}
-```
-
-A tag or domain returns the same shape without `parent_node`, `owners`, and
-`custom_properties`.
-
-**A fetched data product** (`fetch urn:li:dataProduct:...`) returns:
-
-```json
-{
-  "urn": "urn:li:dataProduct:customer360",
-  "kind": "data_product",
-  "name": "Customer 360",
-  "description": "Unified customer view combining all customer data sources",
-  "domain": {"urn": "urn:li:domain:marketing", "name": "Marketing"},
-  "owners": [{"urn": "urn:li:corpgroup:marketing-data", "type": "group", "name": "Marketing Data Team"}],
-  "custom_properties": {"sla": "99.9%", "refresh": "hourly"},
-  "datasets": [
-    {"urn": "urn:li:dataset:customers", "name": "customers"},
-    {"urn": "urn:li:dataset:customer_events", "name": "customer_events"}
+  "description": "Gross sales before returns and discounts",
+  "parent": "mcp:glossary_node:1a02",
+  "carriers": [
+    {"reference": "mcp:dataset:(trino,warehouse,sales.orders)", "dataset": "mcp:dataset:(trino,warehouse,sales.orders)",
+     "name": "orders", "connection": "warehouse"}
   ]
 }
 ```
 
-Member datasets outside the caller's connection boundary are withheld and
-counted in `datasets_withheld`, with `notice` explaining it.
+A glossary node carries `children` (the terms and nodes under it) instead of
+`carriers`. `more_carriers`, `carriers_withheld` and `notice` report a list cut
+at 25 and the carriers on connections the caller's persona does not reach.
 
----
-
-### datahub_get_lineage
-
-Get upstream or downstream lineage for an entity. Set `level=column` for column-level lineage showing which upstream columns feed each downstream column. Default (`dataset`) returns dataset-level relationships with direction and depth control.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `level` | string | No | `dataset` | Granularity: `dataset` or `column` |
-| `direction` | string | No | `downstream` | `upstream` or `downstream` (dataset level only) |
-| `depth` | integer | No | 3 | Maximum traversal depth, max 5 (dataset level only) |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema (dataset level):**
-
-```json
-{
-  "root": "urn:li:dataset:...",
-  "direction": "downstream",
-  "entities": [
-    {
-      "urn": "urn:li:dataset:...",
-      "name": "daily_orders_agg",
-      "type": "dataset",
-      "depth": 1
-    }
-  ],
-  "relationships": [
-    {
-      "source": "urn:li:dataset:orders",
-      "target": "urn:li:dataset:daily_orders_agg",
-      "type": "TRANSFORMED"
-    }
-  ]
-}
-```
-
-**Response Schema (column level):**
-
-```json
-{
-  "root": "urn:li:dataset:...",
-  "column_lineage": [
-    {
-      "downstream": {
-        "urn": "urn:li:dataset:daily_orders_agg",
-        "column": "total_revenue"
-      },
-      "upstreams": [
-        {
-          "urn": "urn:li:dataset:orders",
-          "column": "total_amount"
-        }
-      ]
-    }
-  ]
-}
-```
-
----
-
-### datahub_browse
-
-Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=domains` to list data domains, or `what=data_products` to list data products.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `what` | string | Yes | - | What to browse: `tags`, `domains`, or `data_products` |
-| `filter` | string | No | - | Optional filter string (tags only) |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema (tags):**
-
-```json
-{
-  "tags": [
-    {"urn": "urn:li:tag:pii", "name": "pii", "description": "Contains PII"},
-    {"urn": "urn:li:tag:financial", "name": "financial", "description": "Financial data"}
-  ]
-}
-```
-
-**Response Schema (domains):**
-
-```json
-{
-  "domains": [
-    {
-      "urn": "urn:li:domain:sales",
-      "name": "Sales",
-      "description": "Sales and revenue data",
-      "entity_count": 45
-    }
-  ]
-}
-```
-
-**Response Schema (data_products):**
-
-```json
-{
-  "data_products": [
-    {
-      "urn": "urn:li:dataProduct:customer360",
-      "name": "Customer 360",
-      "description": "Unified customer view",
-      "domain": "urn:li:domain:marketing",
-      "assets": 12
-    }
-  ]
-}
-```
-
-
----
-
-### datahub_list_connections
-
-List configured DataHub connections.
-
-**Parameters:** None
-
-**Response Schema:**
-
-```json
-{
-  "connections": [
-    {
-      "name": "primary",
-      "display_name": "Primary Catalog",
-      "url": "https://datahub.example.com"
-    }
-  ]
-}
-```
-
----
-
-### datahub_create
-
-Create a new entity or resource in DataHub. Uses the `what` discriminator to select the entity type. Only available when `read_only: false`.
-
-Annotated with `DestructiveHint: false`, `IdempotentHint: false`, `OpenWorldHint: true`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `what` | string | Yes | - | Entity type to create (see table below) |
-| `name` | string | Varies | - | Entity name (required for most types) |
-| `connection` | string | No | first configured | DataHub connection name |
-
-Additional parameters vary by `what` value — see the [mcp-datahub documentation](https://github.com/txn2/mcp-datahub) for full parameter details per entity type.
-
-| `what` | Creates | Key fields |
-|--------|---------|------------|
-| `tag` | Tag | `name` |
-| `domain` | Domain | `name` |
-| `glossary_term` | Glossary term | `name` |
-| `data_product` | Data product | `name`, `domain_urn` |
-| `document` | Context document (1.4.x+) | `name` |
-| `application` | Application | `name` |
-| `query` | Saved query | `value` (SQL) |
-| `incident` | Incident | `name`, `incident_type`, `entity_urns` |
-| `structured_property` | Structured property | `qualified_name`, `value_type`, `entity_types` |
-| `data_contract` | Data contract | `dataset_urns` |
-
-**Response Schema:**
-
-```json
-{
-  "urn": "urn:li:tag:new-tag",
-  "message": "Created tag 'new-tag'"
-}
-```
-
----
-
-### datahub_update
-
-Update metadata on an existing DataHub entity. Uses the `what` discriminator to select what to update, with an optional `action` for add/remove operations. Only available when `read_only: false`.
-
-Annotated with `DestructiveHint: false`, `IdempotentHint: true`, `OpenWorldHint: true`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `what` | string | Yes | - | What to update (see table below) |
-| `urn` | string | Varies | - | Entity URN to update |
-| `action` | string | Varies | - | `add` or `remove` (required for tags, glossary terms, links, owners) |
-| `connection` | string | No | first configured | DataHub connection name |
-
-Additional parameters vary by `what` value — see the [mcp-datahub documentation](https://github.com/txn2/mcp-datahub) for full parameter details.
-
-| `what` | `action` | Description |
-|--------|----------|-------------|
-| `description` | — | Set entity description from `value` |
-| `column_description` | — | Set schema field description from `value` |
-| `tag` | add/remove | Add or remove a tag |
-| `glossary_term` | add/remove | Add or remove a glossary term |
-| `link` | add/remove | Add or remove a link |
-| `owner` | add/remove | Add or remove an owner |
-| `domain` | set/remove | Set or remove domain assignment |
-| `structured_properties` | set/remove | Set or remove structured property values |
-| `structured_property` | — | Update a structured property definition |
-| `incident_status` | — | Update incident status |
-| `incident` | — | Update incident details |
-| `query` | — | Update query properties |
-| `document_contents` | — | Update document title/text (1.4.x+) |
-| `document_status` | — | Update document status (1.4.x+) |
-| `document_related_entities` | — | Update document related entities (1.4.x+) |
-| `document_sub_type` | — | Update document sub-type (1.4.x+) |
-| `data_contract` | — | Upsert a data contract |
-
-**Response Schema:**
-
-```json
-{
-  "urn": "urn:li:dataset:...",
-  "message": "Updated description on urn:li:dataset:..."
-}
-```
-
----
-
-### datahub_delete
-
-Delete an entity or resource from DataHub. Uses the `what` discriminator to select the entity type. Only available when `read_only: false`.
-
-Annotated with `DestructiveHint: true`, `IdempotentHint: true`, `OpenWorldHint: true`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `what` | string | Yes | - | Entity type to delete (see below) |
-| `urn` | string | Yes | - | Entity URN to delete |
-| `connection` | string | No | first configured | DataHub connection name |
-
-Supported `what` values: `query`, `tag`, `domain`, `glossary_entity`, `data_product`, `application`, `document`, `structured_property`.
-
-**Response Schema:**
-
-```json
-{
-  "urn": "urn:li:tag:old-tag",
-  "message": "Deleted tag 'old-tag'"
-}
-```
-
----
+The `datahub_*` tools are not registered under any name; see
+[Tools](../server/tools.md#catalog-reads-and-writes) for what replaces each kind
+of read and write.
 
 ## S3 Tools
 
@@ -870,7 +542,7 @@ Record domain knowledge shared during a session (memory toolkit). Available to a
 | `type` | string | Yes | - | Sink-class. Live: `personal_preference`, `episodic_event`. Reviewed (creates a pending insight): `business_knowledge`, `schema_entity`, `operational_rule` |
 | `content` | string | Yes | - | The knowledge to record (10-4000 characters) |
 | `confidence` | string | No | `medium` | Confidence level: `high`, `medium`, `low` |
-| `entity_urns` | array | No | `[]` | DataHub URNs this knowledge relates to (max 10) |
+| `entity_urns` | array | No | `[]` | Catalog references this knowledge relates to (`mcp:dataset:(kind,connection,path)`, max 10) |
 | `related_columns` | array | No | `[]` | Columns related to this knowledge (max 20) |
 | `suggested_actions` | array | No | `[]` | Proposed catalog changes (max 5) |
 
@@ -905,8 +577,8 @@ Review, synthesize, and apply captured insights to the [platform catalog](../ser
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `action` | string | Yes | One of: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`, `bulk_untag` |
-| `entity_urn` | string | Conditional | Required for `review`, `synthesize`, `apply`, `list_changesets`; optional for `rollback` (validates the changeset belongs to this entity). A catalog reference (`mcp:dataset:(kind,connection,path)`, `mcp:column:(...)`, `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>`, `mcp:tag:<name>`); a DataHub dataset URN is read as the catalog dataset with the same path |
-| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (a name, `mcp:tag:<name>` or `urn:li:tag:<name>`) to remove from every dataset and column that carries it |
+| `entity_urn` | string | Conditional | Required for `review`, `synthesize`, `apply`, `list_changesets`; optional for `rollback` (validates the changeset belongs to this entity). A catalog reference (`mcp:dataset:(kind,connection,path)`, `mcp:column:(...)`, `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>`, `mcp:tag:<name>`). Any other form is refused |
+| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (a name or `mcp:tag:<name>`) to remove from every dataset and column that carries it |
 | `insight_ids` | array | Conditional | Required for `approve`, `reject`; optional for `synthesize`, `apply` |
 | `changes` | array | Conditional | Required for `apply` with `sink: "catalog"` |
 | `sink` | string | No | Where an `apply` writes: `catalog` (default, writes `changes` to `entity_urn` in the platform catalog), `knowledge_page` (promotes to a canonical page via `page`), or `agent_instructions` (promotes an operating rule into the deployment's own instructions via `instructions`). The capture-time `sink_class` is a hint, not a binding |
@@ -950,7 +622,7 @@ A dataset and its columns carry every kind of curation; curated queries, inciden
 | Change Type | Target | Detail |
 |-------------|--------|--------|
 | `update_description` | `column:<name>` for a column, empty for the entity | Description text |
-| `add_tag` / `remove_tag` | `column:<name>` for a column, empty for the entity | Tag name (`mcp:tag:` and `urn:li:tag:` prefixes are read as the name) |
+| `add_tag` / `remove_tag` | `column:<name>` for a column, empty for the entity | Tag name (an `mcp:tag:` prefix is read as the name) |
 | `add_glossary_term` | `column:<name>` for a column, empty for the entity | Term reference or name; a name the catalog does not hold creates the term |
 | `flag_quality_issue` | Ignored | Quality issue description (sets the `QualityIssue` tag; on a dataset with a detail, also opens an incident carrying it) |
 | `add_documentation` | URL | Link description |
@@ -982,7 +654,7 @@ A dataset and its columns carry every kind of curation; curated queries, inciden
 | `rollback` | Restore every aspect a changeset wrote to the value it replaced | `changeset_id`, `confirm` |
 | `bulk_untag` | Remove a tag from every dataset and column carrying it, up to 500 per call, recording one changeset that `rollback` undoes | `tag_urn`, `confirm` |
 
-`rollback` restores, in one transaction, every aspect the changeset wrote to the value it replaced, returns the source insights to the review queue, and marks the changeset rolled back. It is refused, and reverts nothing, if the changeset is already rolled back, if an aspect it wrote has been written again since, if it created a prompt, or if it was applied to DataHub before the platform catalog replaced it.
+`rollback` restores, in one transaction, every aspect the changeset wrote to the value it replaced, returns the source insights to the review queue, and marks the changeset rolled back. It is refused, and reverts nothing, if the changeset is already rolled back, if an aspect it wrote has been written again since, if it created a prompt, or if it was written before the platform catalog held its entities (an apply from a release that wrote to DataHub).
 
 **Response Schema (apply):**
 
@@ -1004,7 +676,7 @@ A dataset and its columns carry every kind of curation; curated queries, inciden
 }
 ```
 
-`revertible` is `true` for every catalog changeset except one that created a prompt; then `unrevertible_change_types` names `add_prompt`. `created_ids` lists the ids of the incidents and context documents the apply opened and the references of the glossary terms it created. `list_changesets` entries carry the same two fields (and report `false` once a changeset has been rolled back, or for a changeset applied to DataHub before the platform catalog).
+`revertible` is `true` for every catalog changeset except one that created a prompt; then `unrevertible_change_types` names `add_prompt`. `created_ids` lists the ids of the incidents and context documents the apply opened and the references of the glossary terms it created. `list_changesets` entries carry the same two fields (and report `false` once a changeset has been rolled back, or for a changeset applied before the platform catalog held its entities).
 
 See [Governance Workflow](../knowledge/governance.md) for detailed examples of each action.
 

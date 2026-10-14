@@ -73,7 +73,7 @@ TAG_DESCRIPTIONS = {
         "and manage per-key database overrides for whitelisted settings with hot-reload."
     ),
     "Connections": (
-        "Toolkit connection management for Trino, DataHub, and S3 backends. "
+        "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. "
         "View file-configured connections, create database-managed instances, and inspect "
         "connection details."
     ),
@@ -127,10 +127,10 @@ TAG_DESCRIPTIONS = {
         "Tool schema introspection and interactive execution. Browse JSON schemas for all "
         "registered tools and execute tool calls with parameter validation."
     ),
-    "DataHub": (
-        "The DataHub catalog surface behind the portal: search and browse entities, read "
-        "and edit their descriptions, tags, owners, glossary terms and domain, and manage "
-        "the glossary hierarchy and the governance vocabularies."
+    "Data Catalog": (
+        "The platform catalog behind the portal: find and browse datasets, read a dataset "
+        "with its columns, curation, lineage and history, edit and roll back its curation, "
+        "and manage the glossary, tags, domains and data products."
     ),
     "Tables": (
         "Query-engine tables registered against a managed resource or a portal asset, so a "
@@ -185,7 +185,7 @@ TAG_GROUPS = [
             "APIs",
             "Assets",
             "Collections",
-            "DataHub",
+            "Data Catalog",
             "Feedback",
             "Gateway",
             "Knowledge",

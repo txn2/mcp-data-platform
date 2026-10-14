@@ -159,13 +159,13 @@ func TestToolDescriptionOverridesSnapshot_Resolution(t *testing.T) {
 			ConfigKeyServerDescription:     "unrelated key is ignored",
 		})
 		cfg.Tools.DescriptionOverrides = map[string]string{
-			"trino_query":    "from yaml",
-			"datahub_search": "yaml only",
+			"trino_query":      "from yaml",
+			"graphql_discover": "yaml only",
 		}
 		got := cfg.ToolDescriptionOverridesSnapshot(ctx)
 		assert.Equal(t, "from db", got["trino_query"])
 		assert.Equal(t, "also from db", got["s3_list"])
-		assert.Equal(t, "yaml only", got["datahub_search"])
+		assert.Equal(t, "yaml only", got["graphql_discover"])
 		assert.NotContains(t, got, "server")
 	})
 

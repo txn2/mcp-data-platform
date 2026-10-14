@@ -65,21 +65,18 @@ func run(seedDir, tasksDir, protocolsDir, curriculumDir string) error {
 	return nil
 }
 
-// writeSeedArtifacts emits the Trino SQL, DataHub MCEs, and knowledge-page SQL.
+// writeSeedArtifacts emits the Trino SQL, the catalog seeds, and the
+// knowledge-page SQL.
 func writeSeedArtifacts(ds *gen.Dataset, dir string) error {
-	mces, err := ds.DataHubMCEs()
+	catalogSQL, err := ds.CatalogSQL()
 	if err != nil {
-		return fmt.Errorf("render datahub mces: %w", err)
-	}
-	emptyMCEs, err := ds.DataHubMCEsEmpty()
-	if err != nil {
-		return fmt.Errorf("render empty datahub mces: %w", err)
+		return fmt.Errorf("render catalog seed: %w", err)
 	}
 	files := map[string][]byte{
-		filepath.Join(dir, "trino", "setup.sql"):               []byte(ds.TrinoSQL()),
-		filepath.Join(dir, "datahub", "bench_mces.json"):       mces,
-		filepath.Join(dir, "datahub", "bench_mces_empty.json"): emptyMCEs,
-		filepath.Join(dir, "postgres", "knowledge_pages.sql"):  []byte(ds.KnowledgePagesSQL()),
+		filepath.Join(dir, "trino", "setup.sql"):              []byte(ds.TrinoSQL()),
+		filepath.Join(dir, "postgres", "catalog.sql"):         []byte(catalogSQL),
+		filepath.Join(dir, "postgres", "catalog_empty.sql"):   []byte(ds.CatalogSQLEmpty()),
+		filepath.Join(dir, "postgres", "knowledge_pages.sql"): []byte(ds.KnowledgePagesSQL()),
 	}
 	for path, content := range files {
 		if err := writeFile(path, content); err != nil {

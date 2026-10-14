@@ -182,7 +182,7 @@ identity-key pool). The search-first workflow gate is disabled in all arms
 (`workflow.require_search: false`): `b0` has no `search` tool at all, and
 within `b1-*` the discovery step under test is `api_discover` itself,
 so the gate would either block `b0` or inject an extra required call into
-`b1-*`. Only the toolkit under test is enabled per arm; no Trino, DataHub,
+`b1-*`. Only the toolkit under test is enabled per arm; no Trino,
 S3, memory, or knowledge toolkits are present in any arm.
 
 ### 4.1 `b0`: one tool per endpoint

@@ -528,7 +528,7 @@ func TestAdminAPI_FileDB(t *testing.T) {
 	event2 := audit.Event{
 		ID:        "e2e-audit-002",
 		Timestamp: now.Add(time.Second),
-		ToolName:  "datahub_search",
+		ToolName:  "search",
 		UserID:    "e2e-user",
 		Success:   false,
 	}
@@ -819,7 +819,7 @@ func TestAdminAPI_BootstrapDB(t *testing.T) {
 	t.Run("persona_update", func(t *testing.T) {
 		detail, status, err := client.UpdatePersona("e2e-engineer", helpers.PersonaCreateRequest{
 			DisplayName: "E2E Senior Engineer",
-			AllowTools:  []string{"trino_*", "datahub_*"},
+			AllowTools:  []string{"trino_*", "search", "fetch"},
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

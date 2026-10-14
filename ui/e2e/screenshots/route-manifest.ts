@@ -5,7 +5,7 @@ import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
 import { apiBrowserAdminRoutes, apiBrowserUserRoutes } from "./route-apis";
 import { sectionIntroRoutes } from "./route-section-intros";
-import { adminCatalogRoutes } from "./route-catalog";
+import { adminCatalogRoutes, knowledgeCatalogRoutes } from "./route-catalog";
 import { adminConnectionRoutes } from "./route-connections";
 import { adminPersonaRoutes } from "./route-personas";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
@@ -166,13 +166,14 @@ export const routes: ScreenshotRoute[] = [
       }
     },
   },
-  // The Catalog section (#1194): the one route holding every DataHub-backed
-  // surface, captured for its inner tab row and section-wide connection picker.
+  // The Catalog section (#1194, #1921): the one route holding every catalog
+  // surface, captured for its inner tab row and the table list.
   {
     slug: "knowledge-catalog",
     path: "/portal/knowledge/catalog",
     category: "user",
   },
+  ...knowledgeCatalogRoutes,
   {
     // The knowledge corpus drawn as a graph (#1162): the alternate layout to the
     // card list, showing which pages cluster around an entity and which stand alone.

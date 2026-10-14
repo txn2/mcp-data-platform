@@ -37,33 +37,7 @@ import { producerHandlers } from "./handlers/producers";
 import { secretHandlers } from "./handlers/secrets";
 import { webhookHandlers } from "./handlers/webhooks";
 import { catalogScanHandlers } from "./handlers/catalogScan";
-import {
-  mockDataHubConnections,
-  catalogBrowse,
-  catalogSearch,
-  catalogEntity,
-  lookupTags,
-  createTag,
-  deleteTag,
-  lookupGlossaryTerms,
-  lookupDomains,
-  createDomain,
-  deleteDomain,
-  glossaryRoots,
-  glossaryChildren,
-  glossaryParents,
-  glossaryTerm,
-  createGlossaryEntity,
-  deleteGlossaryEntity,
-  entityDocuments,
-  applyCatalogChange,
-  docsBrowse,
-  docsSearch,
-  getDoc,
-  createDoc,
-  updateDoc,
-  deleteDoc,
-} from "./data/datahub";
+import { platformCatalogHandlers } from "./handlers/catalog";
 import {
   mockKnowledgePages,
   pageRefs,
@@ -1319,9 +1293,8 @@ export const handlers = [
         "trino_browse",
         "trino_explain",
         "trino_execute",
-        "datahub_search",
-        "datahub_get_lineage",
-        "datahub_browse",
+        "search",
+        "fetch",
         "s3_list",
         "s3_object",
         "memory_capture",
@@ -1459,185 +1432,6 @@ export const handlers = [
     if (page) page.deleted_at = new Date().toISOString();
     return new HttpResponse(null, { status: 204 });
   }),
-
-  // --- DataHub Catalog + Context Docs (#719/#720) ---
-  http.get(`${PORTAL_BASE}/datahub/connections`, () =>
-    HttpResponse.json({ connections: mockDataHubConnections }),
-  ),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/browse`, () =>
-    HttpResponse.json({ results: catalogBrowse() }),
-  ),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/search`, ({ request }) => {
-    const params = new URL(request.url).searchParams;
-    const q = params.get("q") ?? "";
-    // The backend accepts `tags` repeated or comma-separated; the Tags surface
-    // sends one tag URN to list what carries it (#1156).
-    const tags = params.getAll("tags").flatMap((v) => v.split(",")).filter(Boolean);
-    return HttpResponse.json({
-      results: catalogSearch(q, {
-        tags,
-        // The Domains surface sends one domain URN to list the tables in it
-        // (#1157); the Glossary surface sends a term URN under one of the two
-        // glossary filters to list what it is applied to (#1158).
-        domain: params.get("domain") ?? "",
-        glossaryTerm: params.get("glossary_term") ?? "",
-        columnGlossaryTerm: params.get("column_glossary_term") ?? "",
-      }),
-    });
-  }),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity`, ({ request }) => {
-    const u = new URL(request.url).searchParams.get("urn") ?? "";
-    const entity = catalogEntity(u);
-    // A URN the catalog has never ingested is a 404 (#1610): DataHub reports it
-    // through the entity's `exists` field, and the route separates that from
-    // the 503 it answers for a catalog it could not reach. Answering 200 with
-    // the URN echoed back, as this did while the platform read existence off
-    // the record's own fields, would mock a response the backend no longer
-    // produces and would hide the "cited but not in the catalog" path.
-    if (!entity) {
-      return HttpResponse.json({ detail: `datahub holds no entity for ${u}` }, { status: 404 });
-    }
-    return HttpResponse.json(entity);
-  }),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/lookup/tags`, ({ request }) => {
-    const q = new URL(request.url).searchParams.get("q") ?? "";
-    return HttpResponse.json({ results: lookupTags(q) });
-  }),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/lookup/glossary-terms`, ({ request }) => {
-    const q = new URL(request.url).searchParams.get("q") ?? "";
-    return HttpResponse.json({ results: lookupGlossaryTerms(q) });
-  }),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/lookup/domains`, () =>
-    HttpResponse.json({ results: lookupDomains() }),
-  ),
-  ...(["description", "tags", "owners", "glossary-terms", "domain"] as const).map((field) =>
-    http.put(`${PORTAL_BASE}/datahub/:conn/catalog/entity/${field}`, async ({ request }) => {
-      const body = (await request.json()) as Record<string, unknown>;
-      if (!body.urn) return HttpResponse.json({ detail: "urn is required" }, { status: 400 });
-      applyCatalogChange(field, body as never);
-      return HttpResponse.json({ status: "ok" });
-    }),
-  ),
-  // Tag governance (#1156): the list read is the picker's lookup route above.
-  http.post(`${PORTAL_BASE}/datahub/:conn/catalog/tags`, async ({ request }) => {
-    const body = (await request.json()) as { name?: string; description?: string };
-    const name = (body.name ?? "").trim();
-    if (!name) return HttpResponse.json({ detail: "name is required" }, { status: 400 });
-    return HttpResponse.json({ urn: createTag(name, body.description) }, { status: 201 });
-  }),
-  http.delete(`${PORTAL_BASE}/datahub/:conn/catalog/tags`, ({ request }) => {
-    const tagUrn = new URL(request.url).searchParams.get("urn") ?? "";
-    if (!tagUrn.startsWith("urn:li:tag:") || tagUrn === "urn:li:tag:") {
-      return HttpResponse.json({ detail: `invalid urn: ${tagUrn}` }, { status: 400 });
-    }
-    return deleteTag(tagUrn)
-      ? HttpResponse.json({ status: "deleted" })
-      : HttpResponse.json({ detail: "tag delete failed" }, { status: 503 });
-  }),
-  // Domain governance (#1157): the list read is the picker's lookup route above,
-  // and the membership read is the catalog search's domain filter.
-  http.post(`${PORTAL_BASE}/datahub/:conn/catalog/domains`, async ({ request }) => {
-    const body = (await request.json()) as { name?: string; description?: string };
-    const name = (body.name ?? "").trim();
-    if (!name) return HttpResponse.json({ detail: "name is required" }, { status: 400 });
-    return HttpResponse.json({ urn: createDomain(name, body.description) }, { status: 201 });
-  }),
-  http.delete(`${PORTAL_BASE}/datahub/:conn/catalog/domains`, ({ request }) => {
-    const domainUrn = new URL(request.url).searchParams.get("urn") ?? "";
-    if (!domainUrn.startsWith("urn:li:domain:") || domainUrn === "urn:li:domain:") {
-      return HttpResponse.json({ detail: `invalid urn: ${domainUrn}` }, { status: 400 });
-    }
-    return deleteDomain(domainUrn)
-      ? HttpResponse.json({ status: "deleted" })
-      : HttpResponse.json({ detail: "domain delete failed" }, { status: 503 });
-  }),
-  // Glossary (#1155 hierarchy, #1158 browser and editor). The definition edit is
-  // the entity-description route above, and a term's usage is the catalog
-  // search's glossary filters, so neither is a route of its own.
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/roots`, () =>
-    HttpResponse.json(glossaryRoots()),
-  ),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/children`, ({ request }) => {
-    const nodeUrn = new URL(request.url).searchParams.get("urn") ?? "";
-    if (!nodeUrn.startsWith("urn:li:glossaryNode:")) {
-      return HttpResponse.json({ detail: `invalid urn: ${nodeUrn}` }, { status: 400 });
-    }
-    const children = glossaryChildren(nodeUrn);
-    return children
-      ? HttpResponse.json(children)
-      : HttpResponse.json({ detail: "glossary node not found" }, { status: 404 });
-  }),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/term`, ({ request }) => {
-    const termUrn = new URL(request.url).searchParams.get("urn") ?? "";
-    if (!termUrn.startsWith("urn:li:glossaryTerm:")) {
-      return HttpResponse.json({ detail: `invalid urn: ${termUrn}` }, { status: 400 });
-    }
-    const term = glossaryTerm(termUrn);
-    return term
-      ? HttpResponse.json(term)
-      : HttpResponse.json({ detail: "glossary term not found" }, { status: 404 });
-  }),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/parents`, ({ request }) => {
-    const entityUrn = new URL(request.url).searchParams.get("urn") ?? "";
-    if (!entityUrn.startsWith("urn:li:glossary")) {
-      return HttpResponse.json({ detail: `invalid urn: ${entityUrn}` }, { status: 400 });
-    }
-    return HttpResponse.json({ parents: glossaryParents(entityUrn) });
-  }),
-  ...(["terms", "nodes"] as const).map((path) =>
-    http.post(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/${path}`, async ({ request }) => {
-      const body = (await request.json()) as {
-        name?: string;
-        definition?: string;
-        parent_node?: string;
-      };
-      const name = (body.name ?? "").trim();
-      if (!name) return HttpResponse.json({ detail: "name is required" }, { status: 400 });
-      const kind = path === "terms" ? "term" : "node";
-      return HttpResponse.json(
-        { urn: createGlossaryEntity(kind, name, body.definition, body.parent_node) },
-        { status: 201 },
-      );
-    }),
-  ),
-  http.delete(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/entity`, ({ request }) => {
-    const entityUrn = new URL(request.url).searchParams.get("urn") ?? "";
-    if (!entityUrn.startsWith("urn:li:glossaryTerm:") && !entityUrn.startsWith("urn:li:glossaryNode:")) {
-      return HttpResponse.json({ detail: `invalid urn: ${entityUrn}` }, { status: 400 });
-    }
-    return deleteGlossaryEntity(entityUrn)
-      ? HttpResponse.json({ status: "deleted" })
-      : HttpResponse.json({ detail: "glossary entity delete failed" }, { status: 503 });
-  }),
-  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity/documents`, ({ request }) => {
-    const entityUrn = new URL(request.url).searchParams.get("urn") ?? "";
-    if (!entityUrn) return HttpResponse.json({ detail: "urn is required" }, { status: 400 });
-    return HttpResponse.json({ documents: entityDocuments(entityUrn) });
-  }),
-  http.get(`${PORTAL_BASE}/datahub/:conn/documents/browse`, () => HttpResponse.json(docsBrowse())),
-  http.get(`${PORTAL_BASE}/datahub/:conn/documents/search`, ({ request }) => {
-    const q = new URL(request.url).searchParams.get("q") ?? "";
-    return HttpResponse.json({ documents: docsSearch(q) });
-  }),
-  http.get(`${PORTAL_BASE}/datahub/:conn/documents/:id`, ({ params }) => {
-    const doc = getDoc(String(params.id));
-    return doc ? HttpResponse.json(doc) : new HttpResponse(null, { status: 404 });
-  }),
-  http.post(`${PORTAL_BASE}/datahub/:conn/documents`, async ({ request }) => {
-    const body = (await request.json()) as { entity_urn?: string; title?: string; content?: string; category?: string };
-    if (!body.title) return HttpResponse.json({ detail: "title is required" }, { status: 400 });
-    if (!body.entity_urn) return HttpResponse.json({ detail: "entity_urn is required" }, { status: 400 });
-    return HttpResponse.json(createDoc({ ...body, title: body.title, content: body.content ?? "" }), { status: 201 });
-  }),
-  http.put(`${PORTAL_BASE}/datahub/:conn/documents/:id`, async ({ params, request }) => {
-    const body = (await request.json()) as { title?: string; content?: string; category?: string };
-    if (!body.title) return HttpResponse.json({ detail: "title is required" }, { status: 400 });
-    const doc = updateDoc(String(params.id), { title: body.title, content: body.content ?? "", category: body.category });
-    return doc ? HttpResponse.json(doc) : new HttpResponse(null, { status: 503 });
-  }),
-  http.delete(`${PORTAL_BASE}/datahub/:conn/documents/:id`, ({ params }) =>
-    deleteDoc(String(params.id)) ? HttpResponse.json({ status: "deleted" }) : new HttpResponse(null, { status: 503 }),
-  ),
 
   // =========================================================================
   // Admin API
@@ -1870,34 +1664,6 @@ export const handlers = [
         updated_at: new Date(Date.now() - 7 * 86400000).toISOString(),
       },
       {
-        kind: "datahub",
-        name: "acme-catalog",
-        connection: "acme-catalog",
-        description:
-          "Production metadata catalog with business glossary and data lineage",
-        source: "file",
-        file_declared: true,
-        tools: [
-          "datahub_search",
-          "datahub_get_lineage",
-          "datahub_browse",
-        ],
-        config: { url: "https://datahub.internal:8080" },
-        updated_at: new Date(Date.now() - 21 * 86400000).toISOString(),
-      },
-      {
-        kind: "datahub",
-        name: "acme-catalog-staging",
-        connection: "acme-catalog-staging",
-        description:
-          "Staging metadata catalog for testing ingestion recipes",
-        source: "database",
-        tools: ["datahub_search", "datahub_browse"],
-        config: { url: "https://datahub-staging.internal:8080" },
-        created_by: "marcus.johnson@example.com",
-        updated_at: new Date(Date.now() - 3 * 86400000).toISOString(),
-      },
-      {
         kind: "s3",
         name: "acme-data-lake",
         connection: "acme-data-lake",
@@ -1979,7 +1745,7 @@ export const handlers = [
         name: "acme-crm-gateway",
         connection: "acme-crm-gateway",
         description:
-          "Gateway-proxied CRM MCP server. Responses are auto-enriched with DataHub context and Trino query availability.",
+          "Gateway-proxied CRM MCP server. Responses are auto-enriched with catalog context and Trino query availability.",
         source: "database",
         tools: [
           "crm_search_accounts",
@@ -4158,7 +3924,7 @@ export const handlers = [
         "## Querying data",
         "- Use `trino_query` for the warehouse; `trino_describe_table` first to",
         "  confirm columns and semantics.",
-        "- Reach the DataHub catalog with `search`, then `fetch` a result's reference.",
+        "- Reach the catalog with `search`, then `fetch` a result's reference.",
         "- List and read S3 objects with `s3_list` / `s3_object`.",
         "",
         "## Delivering work",
@@ -4578,26 +4344,22 @@ export const handlers = [
     }
     const groups = [
       {
-        source: "datahub",
+        source: "catalog",
         hits: [
           {
             text: `daily_sales (matches "${q}")`,
-            source: "datahub",
-            ref: "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.daily_sales,PROD)",
+            source: "catalog",
+            ref: "mcp:dataset:(trino,acme-warehouse,analytics.public.daily_sales)",
             score: 0.94,
-            entity_urns: [
-              "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.daily_sales,PROD)",
-            ],
+            entity_urns: ["mcp:dataset:(trino,acme-warehouse,analytics.public.daily_sales)"],
             dimension: "dataset",
           },
           {
-            text: "retail_locations",
-            source: "datahub",
-            ref: "urn:li:dataset:(urn:li:dataPlatform:trino,hive.ref.retail_locations,PROD)",
+            text: "customers",
+            source: "catalog",
+            ref: "mcp:dataset:(trino,acme-warehouse,analytics.public.customers)",
             score: 0.71,
-            entity_urns: [
-              "urn:li:dataset:(urn:li:dataPlatform:trino,hive.ref.retail_locations,PROD)",
-            ],
+            entity_urns: ["mcp:dataset:(trino,acme-warehouse,analytics.public.customers)"],
           },
         ],
       },
@@ -4629,7 +4391,7 @@ export const handlers = [
             score: 0.78,
             status: "pending",
             entity_urns: [
-              "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.daily_sales,PROD)",
+              "mcp:dataset:(trino,acme-warehouse,analytics.public.daily_sales)",
             ],
           },
         ],
@@ -4690,14 +4452,14 @@ export const handlers = [
     const filtered = sources.length
       ? groups.filter((g) => sources.includes(g.source))
       : groups;
-    // The datahub group stands in for a source the search ranked as deep as its
+    // The catalog group stands in for a source the search ranked as deep as its
     // budget went and no further: its matched is a floor, and the coverage line
     // renders it "25+" rather than "25" (#1585).
     const coverage = filtered.map((g) => ({
       source: g.source,
-      matched: g.source === "datahub" ? 25 : g.hits.length + 4,
+      matched: g.source === "catalog" ? 25 : g.hits.length + 4,
       shown: g.hits.length,
-      ...(g.source === "datahub" ? { matched_capped: true } : {}),
+      ...(g.source === "catalog" ? { matched_capped: true } : {}),
     }));
     const count = filtered.reduce((n, g) => n + g.hits.length, 0);
     return HttpResponse.json({ groups: filtered, coverage, count, ranking: "hybrid" });
@@ -4718,4 +4480,5 @@ export const handlers = [
   ...secretHandlers,
   ...webhookHandlers,
   ...catalogScanHandlers,
+  ...platformCatalogHandlers,
 ];

@@ -10,8 +10,8 @@ package acceptance
 // (the two behind the dev stack's proxy, or MCP_BASE_URL and
 // MCP_PEER_BASE_URL; see replicas), with a connection whose endpoint
 // refuses the introspection query the way the ticket's did: HTTP 302 and no
-// GraphQL body, from the forwarder #1676's criteria put in front of DataHub's
-// GMS. The re-read is sent to one replica only, which is the path the ticket
+// GraphQL body, from the forwarder #1676's criteria put in front of the dev
+// stack's GraphQL fixture. The re-read is sent to one replica only, which is the path the ticket
 // was reported on; a configuration save re-reads on every replica and would
 // hide the defect.
 //

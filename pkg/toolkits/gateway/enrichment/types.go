@@ -1,7 +1,7 @@
 // Package enrichment implements the cross-enrichment rule engine for the
 // gateway toolkit. Rules declaratively describe how proxied upstream tool
 // responses are augmented with context pulled from other platform sources
-// (Trino, DataHub, other gateway connections).
+// (Trino, the platform catalog, other gateway connections).
 package enrichment
 
 import (
@@ -20,7 +20,7 @@ var ErrRuleNotFound = errors.New("enrichment: rule not found")
 // arbitrary kinds — only values in this list are dispatchable.
 const (
 	SourceTrino   = "trino"
-	SourceDataHub = "datahub"
+	SourceCatalog = "catalog"
 )
 
 // Predicate kinds accepted in when_predicate.kind. An empty object is
@@ -120,7 +120,7 @@ func validateRequiredFields(r Rule) error {
 
 func validateSource(a Action) error {
 	switch a.Source {
-	case SourceTrino, SourceDataHub:
+	case SourceTrino, SourceCatalog:
 		return nil
 	default:
 		return fmt.Errorf("enrichment: source %q is not in the allowlist", a.Source)

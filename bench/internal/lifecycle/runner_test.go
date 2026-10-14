@@ -22,6 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/catalogref"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/promote"
@@ -199,7 +200,7 @@ func (fp *fakePlatform) addApplyKnowledge(server *mcp.Server) {
 			fp.recordLocked(args, "apply_knowledge")
 			if fp.applyFails {
 				return &mcp.CallToolResult{IsError: true,
-					Content: []mcp.Content{&mcp.TextContent{Text: "datahub write refused"}}}, nil, nil
+					Content: []mcp.Content{&mcp.TextContent{Text: "catalog write refused"}}}, nil, nil
 			}
 			fp.seq++
 			csID := "cs-" + strconv.FormatInt(fp.seq, 10)
@@ -223,7 +224,7 @@ func (fp *fakePlatform) addApplyKnowledge(server *mcp.Server) {
 }
 
 // applySinkLocked models the platform landing an applied change in its sink,
-// which the Reviewer's post-apply sink read-back verifies: a datahub change
+// which the Reviewer's post-apply sink read-back verifies: a catalog change
 // becomes the entity's effective description, a page payload becomes a live
 // knowledge page. The caller holds fp.mu.
 func (fp *fakePlatform) applySinkLocked(urn string, args map[string]any) {
@@ -243,15 +244,14 @@ func (fp *fakePlatform) applySinkLocked(urn string, args map[string]any) {
 // addGetEntity serves the promote sink read-back: an entity's effective
 // description, set by a prior apply_knowledge.
 func (fp *fakePlatform) addGetEntity(server *mcp.Server) {
-	schema := sessionSchema(map[string]*jsonschema.Schema{"urn": {Type: "string"}})
-	mcp.AddTool(server, &mcp.Tool{Name: promote.EntityToolName, Description: "entity metadata", InputSchema: schema},
+	schema := sessionSchema(map[string]*jsonschema.Schema{"reference": {Type: "string"}})
+	mcp.AddTool(server, &mcp.Tool{Name: promote.EntityToolName, Description: "fetch a reference", InputSchema: schema},
 		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
-			urn, _ := args["urn"].(string)
+			urn, _ := args["reference"].(string)
 			fp.mu.Lock()
 			desc := fp.entityDesc[urn]
 			fp.mu.Unlock()
-			raw, _ := json.Marshal(map[string]any{"urn": urn, "type": "DATASET", "description": desc})
-			return okResult(string(raw)), nil, nil
+			return okResult(catalogref.Render(urn, catalogref.Curation{Description: desc})), nil, nil
 		})
 }
 
@@ -421,7 +421,7 @@ func stringSlice(v any) []string {
 
 // --- protocol fixtures + scripts ---
 
-const benchURN = "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+var benchURN = catalogref.Dataset("orders")
 
 func numericGrade(v, tol float64) task.Grading {
 	return task.Grading{Kind: task.GradeNumeric, Value: &v, AbsTolerance: tol}
@@ -432,7 +432,7 @@ func numericGrade(v, tol float64) task.Grading {
 func okProtocol() protocol.Protocol {
 	return protocol.Protocol{
 		ID: "lc-ok", Title: "OK lifecycle", Fact: "Net revenue is amount minus discount over completed orders.",
-		EntityURN: benchURN, Sink: protocol.SinkDataHub, BudgetToolCalls: 10,
+		EntityURN: benchURN, Sink: protocol.SinkCatalog, BudgetToolCalls: 10,
 		Teach:    protocol.TeachStage{Prompt: "Remember: revenue is net."},
 		Recall:   protocol.RecallStage{Prompt: "net revenue 2025?", Grading: numericGrade(123.45, 0.5)},
 		Transfer: &protocol.RecallStage{Prompt: "net revenue 2025?", Grading: numericGrade(123.45, 0.5)},

@@ -21,7 +21,7 @@ The explorer's third scope, **API endpoints**, lists the `api` kind connections 
 **Right pane** — Selected persona detail showing:
 
 - **Metadata** — Priority, resolved tools count, and assigned roles
-- **Tool Access Rules** — Allow patterns (green badges, e.g., `trino_*`, `datahub_*`) and deny patterns (red badges, e.g., `memory_capture`)
+- **Tool Access Rules** — Allow patterns (green badges, e.g., `trino_*`, `search`) and deny patterns (red badges, e.g., `memory_capture`)
 - **Resolved Tools** — Expandable list of the actual tools this persona can access
 - **Context Overrides** — Description prefix and agent instructions suffix that customize AI behavior for this persona
 - **API Endpoint Rules** — Per-(connection, method, path) rules for `api` kind connections, written by selecting operations or by hand

@@ -99,10 +99,6 @@ func stabilityAllowlist() map[string]stabilityExemption {
 			why:  "the reference query.Provider: the Trino adapter a consumer passes to platform.WithQueryProvider, or reads before writing their own engine adapter.",
 			exit: "retire when the provider adapters move behind a registry that constructs them by name, so a consumer never names the package.",
 		},
-		"pkg/storage/s3": {
-			why:  "the reference storage provider passed to platform.WithStorageProvider; same shape as pkg/query/trino.",
-			exit: "as for pkg/query/trino.",
-		},
 		"pkg/configstore/postgres": {
 			why:  "the reference Postgres implementation of the parent package's store contract; a consumer supplying their own backend implements the parent interface against this.",
 			exit: "retire if the platform stops accepting an injected config store.",

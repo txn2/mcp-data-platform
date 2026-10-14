@@ -14,7 +14,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
 // TestPlatform wraps a platform instance for E2E testing.
@@ -43,6 +42,13 @@ func NewTestPlatform(ctx context.Context, e2eCfg *E2EConfig) (*TestPlatform, err
 		return nil, fmt.Errorf("creating platform: %w", err)
 	}
 
+	// platform.New migrated the database, so the catalog the semantic
+	// provider reads is there to seed.
+	if err := SeedCatalog(ctx, e2eCfg.PostgresDSN); err != nil {
+		_ = p.Close()
+		return nil, fmt.Errorf("seeding the e2e catalog: %w", err)
+	}
+
 	return &TestPlatform{
 		Platform: p,
 		Config:   e2eCfg,
@@ -56,9 +62,9 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 			Name:      "e2e-test-platform",
 			Transport: "stdio",
 		},
+		// The platform catalog is the semantic provider wherever there is a
+		// database; SeedCatalog writes the fixture it is read from.
 		Semantic: platform.SemanticConfig{
-			Provider: "datahub",
-			Instance: "e2e",
 			Cache: platform.CacheConfig{
 				Enabled: false,
 			},
@@ -67,45 +73,23 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 			Provider: "trino",
 			Instance: "e2e",
 		},
-		Storage: platform.StorageConfig{
-			Provider: "s3",
-			Instance: "e2e",
-		},
 		Enrichment: platform.EnrichmentConfig{
-			TrinoSemanticEnrichment:  new(true),
-			DataHubQueryEnrichment:   new(true),
-			S3SemanticEnrichment:     new(true),
-			DataHubStorageEnrichment: new(true),
+			TrinoSemanticEnrichment: new(true),
 		},
 		Toolkits: map[string]any{
 			// enabled:true is required per kind: the registry loader skips any
 			// toolkit kind that does not set it (loader.LoadFromMap). Without
-			// this the trino/datahub/s3 toolkits load nothing and their tools
+			// this the trino and s3 toolkits load nothing and their tools
 			// never register on the assembled server.
 			"trino": map[string]any{
 				"enabled": true,
 				"instances": map[string]any{
-					"e2e": map[string]any{
+					E2ETrinoConnection: map[string]any{
 						"host":    e2eCfg.TrinoHost,
 						"port":    e2eCfg.TrinoPort,
 						"user":    "e2e-test",
 						"catalog": "memory",
 						"schema":  "e2e_test",
-					},
-				},
-			},
-			"datahub": map[string]any{
-				"enabled": true,
-				"instances": map[string]any{
-					"e2e": map[string]any{
-						"url": e2eCfg.DataHubURL,
-						// The datahub provider requires a non-empty token at
-						// construction. Default a placeholder so the assembled
-						// platform still builds when DataHub is not configured,
-						// letting Trino/S3 assertions run; enrichment assertions
-						// gate on real reachability and skip in that case. A real
-						// E2E_DATAHUB_TOKEN takes precedence for full runs.
-						"token": orDefault(e2eCfg.DataHubToken, "e2e-placeholder-token"),
 					},
 				},
 			},
@@ -151,14 +135,6 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 	}
 }
 
-// orDefault returns v when non-empty, otherwise def.
-func orDefault(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
-}
-
 // Close closes the test platform.
 func (tp *TestPlatform) Close() error {
 	if tp.Platform != nil {
@@ -177,11 +153,6 @@ func (tp *TestPlatform) QueryProvider() query.Provider {
 	return tp.Platform.QueryProvider()
 }
 
-// StorageProvider returns the storage provider for direct testing.
-func (tp *TestPlatform) StorageProvider() storage.Provider {
-	return tp.Platform.StorageProvider()
-}
-
 // MCPServer returns the MCP server for protocol-level testing.
 func (tp *TestPlatform) MCPServer() *mcp.Server {
 	if tp.Platform == nil {
@@ -193,14 +164,6 @@ func (tp *TestPlatform) MCPServer() *mcp.Server {
 // TestContext creates a test context with timeout.
 func TestContext(timeout time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), timeout)
-}
-
-// SkipIfDataHubUnavailable reports whether DataHub is not actually reachable, so
-// enrichment tests skip cleanly instead of failing when it is down. It probes
-// the real endpoint rather than only checking that a URL is configured
-// (IsDataHubAvailable is always true because the URL has a default).
-func SkipIfDataHubUnavailable(cfg *E2EConfig) bool {
-	return !DataHubReachable(cfg)
 }
 
 // MockMCPRequest implements mcp.Request for E2E testing.
@@ -230,17 +193,12 @@ func (m *MockMCPRequest) GetExtra() *mcp.RequestExtra {
 func CreateEnrichmentMiddleware(
 	semanticProvider semantic.Provider,
 	queryProvider query.Provider,
-	storageProvider storage.Provider,
 ) mcp.Middleware {
 	return middleware.MCPSemanticEnrichmentMiddleware(
 		semanticProvider,
 		queryProvider,
-		storageProvider,
 		middleware.EnrichmentConfig{
-			EnrichTrinoResults:          true,
-			EnrichDataHubResults:        true,
-			EnrichS3Results:             true,
-			EnrichDataHubStorageResults: true,
+			EnrichTrinoResults: true,
 		},
 		nil, // no memory provider in test helpers
 	)

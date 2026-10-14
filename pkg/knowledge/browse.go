@@ -115,8 +115,8 @@ func (r *Router) Browse(ctx context.Context, source string, q BrowseQuery) (Brow
 	}
 
 	if knownSourceNames[source] {
-		// Known name, but no provider for it on this deployment (e.g. a catalog source
-		// without DataHub configured): a configuration gap, not a typo.
+		// Known name, but no provider for it on this deployment (e.g. the catalog
+		// on a deployment with no database): a configuration gap, not a typo.
 		return BrowsePage{}, fmt.Errorf(sourceErrFmt, source, ErrSourceNotBrowsable)
 	}
 	return BrowsePage{}, fmt.Errorf(sourceErrFmt, source, ErrUnknownSource)

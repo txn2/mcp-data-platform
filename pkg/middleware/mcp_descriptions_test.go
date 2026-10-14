@@ -46,7 +46,7 @@ func TestMCPDescriptionOverrideMiddleware(t *testing.T) {
 			overrides: map[string]string{"trino_query": "overridden"},
 			nextResult: &mcp.ListToolsResult{
 				Tools: []*mcp.Tool{
-					{Name: "datahub_search", Description: "original"},
+					{Name: "graphql_discover", Description: "original"},
 				},
 			},
 			expectReplace: false,

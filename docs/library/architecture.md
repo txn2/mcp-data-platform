@@ -41,17 +41,16 @@ graph TB
             TR[Toolkit Registry]
             subgraph Toolkits
                 Trino[Trino Toolkit]
-                DataHub[DataHub Toolkit]
                 S3[S3 Toolkit]
+                Search[search / fetch]
             end
         end
 
         subgraph "Enhancement Layer"
             Enrichment[Enrichment Middleware]
             subgraph Providers
-                Semantic[Semantic Provider]
+                Semantic[Semantic Provider: platform catalog]
                 Query[Query Provider]
-                Storage[Storage Provider]
             end
         end
 
@@ -62,7 +61,6 @@ graph TB
 
     subgraph "External Services"
         TrinoSvc[(Trino)]
-        DataHubSvc[(DataHub)]
         S3Svc[(S3)]
         DB[(PostgreSQL)]
     end
@@ -73,23 +71,20 @@ graph TB
     Persona --> Authz
     Authz --> TR
     TR --> Trino
-    TR --> DataHub
     TR --> S3
+    TR --> Search
     Trino --> Enrichment
-    DataHub --> Enrichment
     S3 --> Enrichment
     Enrichment --> Semantic
-    Enrichment --> Query
-    Enrichment --> Storage
+    Search --> Query
     Enrichment --> Audit
     Audit --> MCP
 
     Trino -.-> TrinoSvc
-    DataHub -.-> DataHubSvc
     S3 -.-> S3Svc
-    Semantic -.-> DataHubSvc
+    Semantic -.-> DB
+    Search -.-> DB
     Query -.-> TrinoSvc
-    Storage -.-> S3Svc
     Audit -.-> DB
 ```
 
@@ -196,8 +191,7 @@ p, err := platform.New(platform.WithConfig(cfg))
 p, err := platform.New(
     platform.WithServerName("my-platform"),
     platform.WithTrinoToolkit("primary", trinoCfg),
-    platform.WithDataHubToolkit("primary", datahubCfg),
-    platform.WithSemanticProvider("datahub", "primary"),
+    platform.WithDB(db), // the platform catalog is the semantic provider
     platform.WithEnrichment(platform.EnrichmentConfig{
         TrinoSemanticEnrichment: true,
     }),
@@ -557,7 +551,7 @@ Toolkits encapsulate access to specific data services:
 ```go
 type Toolkit interface {
     // Identification
-    Kind() string    // "trino", "datahub", "s3", or custom
+    Kind() string    // "trino", "s3", "search", or custom
     Name() string    // Instance name (e.g., "primary", "analytics")
 
     // Tool registration
@@ -771,10 +765,6 @@ sequenceDiagram
             E->>C: Store in cache
         end
         E->>E: Append semantic_context to result
-    else DataHub toolkit
-        E->>Q: GetTableAvailability
-        Q-->>E: Query context
-        E->>E: Append query_context to result
     else S3 toolkit
         E->>S: GetTableContext (by path)
         S-->>E: Semantic context
@@ -792,14 +782,6 @@ func (m *EnrichmentMiddleware) enrich(ctx context.Context, pctx *PlatformContext
     case "trino":
         if m.config.TrinoSemanticEnrichment {
             return m.enrichTrinoResult(ctx, result)
-        }
-    case "datahub":
-        if m.config.DataHubQueryEnrichment {
-            return m.enrichDataHubResult(ctx, result)
-        }
-    case "s3":
-        if m.config.S3SemanticEnrichment {
-            return m.enrichS3Result(ctx, result)
         }
     }
     return result

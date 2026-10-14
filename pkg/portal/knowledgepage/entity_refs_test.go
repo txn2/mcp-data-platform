@@ -15,7 +15,7 @@ import (
 func oneRow() *sqlmock.Rows { return sqlmock.NewRows([]string{"?column?"}).AddRow(1) }
 
 // TestStore_ValidateRefTargets covers the up-front existence check (#690): each
-// FK-backed type queries its catalog table, while a DataHub URN is free text and
+// FK-backed type queries its catalog table, while a catalog reference is free text and
 // is not queried at all.
 func TestStore_ValidateRefTargets(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -28,6 +28,7 @@ func TestStore_ValidateRefTargets(t *testing.T) {
 	mock.ExpectQuery("SELECT 1 FROM portal_collections WHERE id").WithArgs("c1").WillReturnRows(oneRow())
 	mock.ExpectQuery("SELECT 1 FROM portal_knowledge_pages WHERE id").WithArgs("kp1").WillReturnRows(oneRow())
 	mock.ExpectQuery("SELECT 1 FROM connection_instances WHERE kind").WithArgs("trino", "warehouse").WillReturnRows(oneRow())
+	mock.ExpectQuery("FROM catalog_entities").WillReturnRows(oneRow())
 
 	refs := []EntityRef{
 		{TargetType: RefTargetAsset, AssetID: "a1"},
@@ -35,7 +36,7 @@ func TestStore_ValidateRefTargets(t *testing.T) {
 		{TargetType: RefTargetCollection, CollectionID: "c1"},
 		{TargetType: RefTargetKnowledgePage, RefPageID: "kp1"},
 		{TargetType: RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse"},
-		{TargetType: RefTargetDataHub, EntityURN: "urn:li:dataset:x"}, // no catalog FK, not queried
+		{TargetType: RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,c.s.x)"}, // checked against the catalog
 	}
 	require.NoError(t, store.ValidateRefTargets(context.Background(), refs))
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -57,7 +58,7 @@ func TestStore_ValidateRefTargets_Missing(t *testing.T) {
 }
 
 // TestStore_FilterExistingRefTargets keeps the existing targets and drops the
-// missing ones (#690), and always keeps a free-text DataHub URN.
+// missing ones (#690), a catalog reference among them.
 func TestStore_FilterExistingRefTargets(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -67,16 +68,17 @@ func TestStore_FilterExistingRefTargets(t *testing.T) {
 	mock.ExpectQuery("SELECT 1 FROM portal_assets WHERE id").WithArgs("a1").WillReturnRows(oneRow())
 	mock.ExpectQuery("SELECT 1 FROM portal_assets WHERE id").WithArgs("gone").
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"})) // no rows -> dropped
+	mock.ExpectQuery("FROM catalog_entities").WillReturnRows(oneRow())
 
 	kept, err := store.FilterExistingRefTargets(context.Background(), []EntityRef{
 		{TargetType: RefTargetAsset, AssetID: "a1"},
 		{TargetType: RefTargetAsset, AssetID: "gone"},
-		{TargetType: RefTargetDataHub, EntityURN: "urn:li:dataset:x"},
+		{TargetType: RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,c.s.x)"},
 	})
 	require.NoError(t, err)
 	require.Len(t, kept, 2)
 	assert.Equal(t, "a1", kept[0].AssetID)
-	assert.Equal(t, RefTargetDataHub, kept[1].TargetType)
+	assert.Equal(t, RefTargetCatalog, kept[1].TargetType)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -126,14 +128,14 @@ func TestStore_ListEntityRefs(t *testing.T) {
 	mock.ExpectQuery("FROM knowledge_page_entity_refs WHERE page_id").
 		WithArgs("kp1").
 		WillReturnRows(refRows().
-			AddRow("r1", "kp1", "datahub", nil, nil, nil, nil, nil, nil, "urn:li:dataset:x", nil, "promoted", "alice", now).
+			AddRow("r1", "kp1", "catalog", nil, nil, nil, nil, nil, nil, "mcp:dataset:(trino,warehouse,c.s.x)", nil, "promoted", "alice", now).
 			AddRow("r2", "kp1", "connection", nil, nil, nil, nil, "trino", "warehouse", nil, nil, "manual", "bob", now))
 
 	refs, err := store.ListEntityRefs(context.Background(), "kp1")
 	require.NoError(t, err)
 	require.Len(t, refs, 2)
-	assert.Equal(t, RefTargetDataHub, refs[0].TargetType)
-	assert.Equal(t, "urn:li:dataset:x", refs[0].EntityURN)
+	assert.Equal(t, RefTargetCatalog, refs[0].TargetType)
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,c.s.x)", refs[0].EntityURN)
 	assert.Equal(t, RefTargetConnection, refs[1].TargetType)
 	assert.Equal(t, "trino", refs[1].ConnectionKind)
 	assert.Equal(t, "warehouse", refs[1].ConnectionName)
@@ -149,19 +151,19 @@ func TestStore_AddEntityRefs_InsertsWithConflictTarget(t *testing.T) {
 	// Each distinct batch ref is inserted with ON CONFLICT DO NOTHING (the union
 	// is enforced at the DB by the per-type unique index, race-safe).
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs.*ON CONFLICT .page_id, entity_urn. WHERE entity_urn IS NOT NULL DO NOTHING").
-		WithArgs(sqlmock.AnyArg(), "kp1", "datahub", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+		WithArgs(sqlmock.AnyArg(), "kp1", "catalog", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "urnA", sqlmock.AnyArg(), "promoted", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs.*ON CONFLICT").
-		WithArgs(sqlmock.AnyArg(), "kp1", "datahub", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+		WithArgs(sqlmock.AnyArg(), "kp1", "catalog", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "urnB", sqlmock.AnyArg(), "promoted", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// urnA is repeated in the batch and must be collapsed to a single insert.
 	err = store.AddEntityRefs(context.Background(), "kp1", []EntityRef{
-		DataHubRef("urnA", RefSourcePromoted),
-		DataHubRef("urnB", RefSourcePromoted),
-		DataHubRef("urnA", RefSourcePromoted),
+		catalogRefFixture("urnA"),
+		catalogRefFixture("urnB"),
+		catalogRefFixture("urnA"),
 	})
 	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -203,19 +205,19 @@ func TestStore_ReplaceEntityRefs(t *testing.T) {
 		WithArgs("kp1").
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs").
-		WithArgs(sqlmock.AnyArg(), "kp1", "datahub", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+		WithArgs(sqlmock.AnyArg(), "kp1", "catalog", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "urnA", sqlmock.AnyArg(), "promoted", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	err = store.ReplaceEntityRefs(context.Background(), "kp1", []EntityRef{DataHubRef("urnA", RefSourcePromoted)})
+	err = store.ReplaceEntityRefs(context.Background(), "kp1", []EntityRef{catalogRefFixture("urnA")})
 	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
 // TestEntityRefIdentity covers the per-target de-dup key used by the union.
 func TestEntityRefIdentity(t *testing.T) {
-	assert.Equal(t, "datahub:u", EntityRef{TargetType: RefTargetDataHub, EntityURN: "u"}.identity())
+	assert.Equal(t, "catalog:u", EntityRef{TargetType: RefTargetCatalog, EntityURN: "u"}.identity())
 	assert.Equal(t, "asset:a", EntityRef{TargetType: RefTargetAsset, AssetID: "a"}.identity())
 	assert.Equal(t, "prompt:p", EntityRef{TargetType: RefTargetPrompt, PromptID: "p"}.identity())
 	assert.Equal(t, "collection:c", EntityRef{TargetType: RefTargetCollection, CollectionID: "c"}.identity())
@@ -273,7 +275,7 @@ func TestRefConflictTarget(t *testing.T) {
 		RefTargetCollection:    "(page_id, collection_id) WHERE collection_id IS NOT NULL",
 		RefTargetKnowledgePage: "(page_id, ref_page_id) WHERE ref_page_id IS NOT NULL",
 		RefTargetConnection:    "(page_id, connection_kind, connection_name) WHERE connection_kind IS NOT NULL",
-		RefTargetDataHub:       "(page_id, entity_urn) WHERE entity_urn IS NOT NULL",
+		RefTargetCatalog:       "(page_id, entity_urn) WHERE entity_urn IS NOT NULL",
 		"bogus":                "",
 	}
 	for targetType, want := range cases {
@@ -294,7 +296,7 @@ func TestStore_EntityRefs_ErrorPaths(t *testing.T) {
 		db, mock, _ := sqlmock.New()
 		defer db.Close() //nolint:errcheck // test cleanup
 		mock.ExpectExec("INSERT INTO knowledge_page_entity_refs").WillReturnError(errBoom)
-		err := NewPostgresStore(db).AddEntityRefs(context.Background(), "kp1", []EntityRef{DataHubRef("u", RefSourcePromoted)})
+		err := NewPostgresStore(db).AddEntityRefs(context.Background(), "kp1", []EntityRef{catalogRefFixture("u")})
 		require.Error(t, err)
 	})
 
@@ -304,7 +306,7 @@ func TestStore_EntityRefs_ErrorPaths(t *testing.T) {
 		mock.ExpectBegin()
 		mock.ExpectExec("DELETE FROM knowledge_page_entity_refs WHERE page_id").WithArgs("kp1").WillReturnError(errBoom)
 		mock.ExpectRollback()
-		err := NewPostgresStore(db).ReplaceEntityRefs(context.Background(), "kp1", []EntityRef{DataHubRef("u", RefSourcePromoted)})
+		err := NewPostgresStore(db).ReplaceEntityRefs(context.Background(), "kp1", []EntityRef{catalogRefFixture("u")})
 		require.Error(t, err)
 	})
 
@@ -312,7 +314,7 @@ func TestStore_EntityRefs_ErrorPaths(t *testing.T) {
 		db, mock, _ := sqlmock.New()
 		defer db.Close() //nolint:errcheck // test cleanup
 		mock.ExpectBegin().WillReturnError(errBoom)
-		err := NewPostgresStore(db).ReplaceEntityRefs(context.Background(), "kp1", []EntityRef{DataHubRef("u", RefSourcePromoted)})
+		err := NewPostgresStore(db).ReplaceEntityRefs(context.Background(), "kp1", []EntityRef{catalogRefFixture("u")})
 		require.Error(t, err)
 	})
 
@@ -321,4 +323,10 @@ func TestStore_EntityRefs_ErrorPaths(t *testing.T) {
 		defer db.Close() //nolint:errcheck // test cleanup
 		require.NoError(t, NewPostgresStore(db).AddEntityRefs(context.Background(), "kp1", nil))
 	})
+}
+
+// catalogRefFixture is a promoted citation of a catalog entity, the reference
+// the promotion tests store.
+func catalogRefFixture(reference string) EntityRef {
+	return EntityRef{TargetType: RefTargetCatalog, EntityURN: reference, Source: RefSourcePromoted}
 }

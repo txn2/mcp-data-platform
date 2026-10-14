@@ -371,7 +371,8 @@ func (s *Store) Enrichment(ctx context.Context, filter audit.MetricsFilter) (*au
 	return &stats, nil
 }
 
-// discoveryPatternQuery counts discovery-before-query session patterns.
+// discoveryPatternQuery counts discovery-before-query session patterns. A
+// discovery call is search or fetch, the tools that read the catalog.
 // The $3 event_kind predicate is a no-op when the bound value is empty
 // (caller always passes a value, "" meaning "all kinds"), which keeps
 // the SQL static — no string concatenation, no gosec G202.
@@ -387,9 +388,9 @@ WITH session_tools AS (
 ),
 session_patterns AS (
     SELECT session_id,
-           BOOL_OR(toolkit_kind = 'datahub') AS has_discovery,
+           BOOL_OR(tool_name IN ('search', 'fetch')) AS has_discovery,
            BOOL_OR(toolkit_kind = 'trino') AS has_query,
-           MIN(CASE WHEN toolkit_kind = 'datahub' THEN first_call END) AS first_discovery,
+           MIN(CASE WHEN tool_name IN ('search', 'fetch') THEN first_call END) AS first_discovery,
            MIN(CASE WHEN toolkit_kind = 'trino' THEN first_call END) AS first_query
     FROM session_tools
     GROUP BY session_id
@@ -403,7 +404,7 @@ SELECT
     COUNT(*) FILTER (WHERE has_query AND NOT has_discovery) AS query_without_discovery
 FROM session_patterns`
 
-// discoveryTopToolsQuery ranks datahub discovery tools. Same static-$3
+// discoveryTopToolsQuery ranks the discovery tools. Same static-$3
 // event_kind predicate as discoveryPatternQuery.
 const discoveryTopToolsQuery = `
 SELECT tool_name AS dimension,
@@ -412,7 +413,7 @@ SELECT tool_name AS dimension,
        COALESCE(AVG(duration_ms), 0) AS avg_duration_ms
 FROM audit_logs
 WHERE timestamp >= $1 AND timestamp <= $2
-  AND toolkit_kind = 'datahub'
+  AND tool_name IN ('search', 'fetch')
   AND ($3 = '' OR event_kind = $3)
 GROUP BY tool_name
 ORDER BY count DESC

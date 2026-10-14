@@ -45,7 +45,7 @@ func (d declares) DeclaresConnection(kind, instance string) bool { return d[kind
 func resolverFixture(declared Declarer) *Resolver {
 	return NewResolver([]registry.Toolkit{
 		&mockTK{kind: "s3", name: "data_lake", conn: "Data Lake"},
-		&mockTK{kind: "datahub", name: "primary"},
+		&mockTK{kind: "graphql", name: "primary"},
 		&listerTK{
 			mockTK: mockTK{kind: "trino", name: "warehouse", conn: "warehouse"},
 			conns:  []toolkit.ConnectionDetail{{Name: "warehouse"}, {Name: "staging"}},
@@ -61,11 +61,11 @@ func TestResolverByInstance(t *testing.T) {
 
 	assert.Equal(t, Bound("Data Lake"), r.ByInstance("s3", "data_lake").Bound,
 		"a single-connection toolkit binds by its connection name")
-	assert.Equal(t, Bound("primary"), r.ByInstance("datahub", "primary").Bound,
+	assert.Equal(t, Bound("primary"), r.ByInstance("graphql", "primary").Bound,
 		"one that carries no connection name binds by its instance")
 	assert.Equal(t, Bound("warehouse"), r.ByInstance("trino", "warehouse").Bound,
 		"a multi-connection toolkit routes on the instance key, so it is already the bound name")
-	assert.Equal(t, Bound("data_lake"), r.ByInstance("datahub", "data_lake").Bound,
+	assert.Equal(t, Bound("data_lake"), r.ByInstance("graphql", "data_lake").Bound,
 		"the match is per kind, so a name another kind carries is not borrowed")
 
 	unclaimed := r.ByInstance("s3", "unclaimed")

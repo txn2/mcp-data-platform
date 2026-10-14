@@ -1,10 +1,10 @@
 # Providers Reference
 
-Providers abstract access to external services for semantic metadata, query execution, and storage operations.
+Providers abstract access to semantic metadata and query execution.
 
 ## Semantic Provider
 
-The semantic provider interface abstracts access to metadata catalogs like DataHub.
+The semantic provider interface abstracts access to a metadata catalog. With a database, the platform's own [catalog](../server/catalog.md) implements it.
 
 ### Interface
 
@@ -109,13 +109,9 @@ type LineageInfo struct {
 
 ### Implementations
 
-**DataHub Adapter** (`pkg/semantic/datahub/adapter.go`):
-
-```go
-import "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
-
-provider, err := datahub.NewAdapter(client)
-```
+**Platform catalog** (`internal/platform/catalogsemantic`): the provider the
+platform builds from its database. It is internal: a library user gets it by
+giving the platform a database, and replaces it with `WithSemanticProvider`.
 
 **No-op Provider** (`pkg/semantic/noop.go`):
 
@@ -241,90 +237,16 @@ provider := query.NewNoopProvider()
 
 ---
 
-## Storage Provider
-
-The storage provider interface abstracts access to object storage like S3.
-
-### Interface
-
-```go
-type Provider interface {
-    Name() string
-
-    // Dataset availability
-    GetDatasetAvailability(ctx context.Context, urn string) (*DatasetAvailability, error)
-
-    // Object info
-    GetObjectInfo(ctx context.Context, bucket, key string) (*ObjectInfo, error)
-
-    Close() error
-}
-```
-
-### Types
-
-```go
-type DatasetAvailability struct {
-    Available      bool
-    Connection     string
-    Bucket         string
-    Prefix         string
-    ObjectCount    *int
-    TotalSizeBytes *int64
-    LastModified   *time.Time
-    Format         string
-    Reason         string // If not available
-}
-
-type ObjectInfo struct {
-    Bucket       string
-    Key          string
-    Size         int64
-    ContentType  string
-    LastModified time.Time
-    ETag         string
-    Metadata     map[string]string
-}
-```
-
-### Implementations
-
-**S3 Adapter** (`pkg/storage/s3/adapter.go`):
-
-```go
-import "github.com/txn2/mcp-data-platform/pkg/storage/s3"
-
-provider, err := s3.NewAdapter(client)
-```
-
-**No-op Provider** (`pkg/storage/noop.go`):
-
-```go
-import "github.com/txn2/mcp-data-platform/pkg/storage"
-
-provider := storage.NewNoopProvider()
-```
-
----
-
 ## Provider Configuration
 
 ### Via YAML
 
 ```yaml
 semantic:
-  provider: datahub      # Provider type
-  instance: primary      # Toolkit instance name
-  cache:
-    enabled: true
-    ttl: 5m
+  provider: noop         # Optional: turn the platform catalog off as the semantic layer
 
 query:
   provider: trino
-  instance: primary
-
-storage:
-  provider: s3
   instance: primary
 ```
 
@@ -333,23 +255,18 @@ storage:
 ```go
 import (
     "github.com/txn2/mcp-data-platform/pkg/platform"
-    "github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// Use built-in provider from toolkit
-p, _ := platform.New(
-    platform.WithDataHubToolkit("primary", datahubCfg),
-    platform.WithSemanticProvider("datahub", "primary"),
-)
+// The platform catalog, from the configured database
+p, _ := platform.New(platform.WithConfig(cfg))
 
-// Use custom provider
+// A custom provider
 customProvider := mypackage.NewCustomSemanticProvider(...)
 p, _ := platform.New(
-    platform.WithCustomSemanticProvider(customProvider),
+    platform.WithConfig(cfg),
+    platform.WithSemanticProvider(customProvider),
 )
 ```
-
----
 
 ## Implementing Custom Providers
 

@@ -7,11 +7,12 @@
 # that document's operational invariants, in the order it states them, and each
 # one is a gate rather than a courtesy:
 #
-#   8.5 arm isolation      fresh database per arm, seed re-applied, gate state
-#                          truncated, DataHub editable aspects cleared before
+#   8.5 arm isolation      fresh database per arm, the catalog and knowledge
+#                          page seeds re-applied, gate state truncated before
 #                          every arm (the probe found leftovers from prior
 #                          promote runs, which would have made a control arm
-#                          silently non-clean)
+#                          silently non-clean; the catalog lives in the arm's
+#                          own database, so a fresh one carries none)
 #   5.1 grader agreement   pollutionplant -mode check before any episode
 #   7.3 store constancy    a store snapshot either side of the EVAL; any drift
 #                          invalidates the arm. It brackets the eval rather
@@ -156,10 +157,10 @@ DB="mcp_bench_p_$(echo "$CELL" | tr '-' '_')"
 CONFIG="build/platform.bench.a3-${CELL}.yaml"
 BENCH_URL="http://localhost:8098"
 BENCH_KEY="${BENCH_KEY:-bench-admin-key}"
-# :9092 collides with the DataHub quickstart's Kafka broker.
+# The arm platform's metrics listener, off the default port so a dev stack's
+# platform can run beside it.
 METRICS_ADDR="${BENCH_METRICS_ADDR:-:9095}"
 PG=e2e-postgres
-GMS="${BENCH_DATAHUB_GMS:-http://localhost:8080}"
 PIDFILE="build/pollution-arm.pid"
 # A manifest that names a commit the harness did not run from is a
 # reproducibility failure the archive cannot detect later, so a dirty working
@@ -216,25 +217,6 @@ if [[ $(diff bench/config/platform.bench.a3.yaml "$CONFIG" | grep -c '^[<>]') -n
 fi
 cp "$CONFIG" "$OUT/arm-config.yaml"
 
-step "DataHub baseline (8.5: clear editable aspects left by any prior promote)"
-for t in orders customers daily_region_revenue legacy_orders; do
-	urn="urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.$t,PROD)"
-	enc=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''))" "$urn")
-	code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$GMS/openapi/v3/entity/dataset/$enc/editabledatasetproperties")
-	echo "  $t: delete editabledatasetproperties -> HTTP $code"
-	after=$(curl -s -o /dev/null -w "%{http_code}" "$GMS/openapi/v3/entity/dataset/$enc/editabledatasetproperties")
-	if [[ "$after" != "404" ]]; then
-		echo "ERROR: $t still carries an editable aspect (HTTP $after); the arm would start from a promoted state" >&2
-		exit 1
-	fi
-done
-curl -fsS "$GMS/openapi/v3/entity/dataset/$(python3 -c "import urllib.parse;print(urllib.parse.quote('urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)',safe=''))")/datasetproperties" \
-	>"$OUT/datahub-orders-baseline.json"
-grep -q "Revenue Reporting Policy" "$OUT/datahub-orders-baseline.json" || {
-	echo "ERROR: the orders base description is not the seeded text; re-run 'make bench-seed-datahub'" >&2
-	exit 1
-}
-
 step "start platform"
 API_KEY_ADMIN="$BENCH_KEY" LOG_LEVEL=info OTEL_METRICS_ADDR="$METRICS_ADDR" \
 	build/mcp-data-platform-bench --config "$CONFIG" --transport http --address :8098 \
@@ -253,6 +235,17 @@ trap 'kill "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null || true' EXIT
 
 step "seed knowledge pages (the co-present correct sources, 5.3)"
 docker exec -i "$PG" psql -q -U platform -d "$DB" -v ON_ERROR_STOP=1 <bench/seed/postgres/knowledge_pages.sql
+
+step "seed the catalog (8.5: the arm starts from the seeded curation)"
+docker exec -i "$PG" psql -q -U platform -d "$DB" -v ON_ERROR_STOP=1 <bench/seed/postgres/catalog.sql
+docker exec "$PG" psql -tA -U platform -d "$DB" -c \
+	"SELECT a.value #>> '{}' FROM catalog_aspects a JOIN catalog_entities e ON e.id = a.entity_id
+	 WHERE e.reference = 'mcp:dataset:(trino,e2e,memory.bench.orders)' AND a.aspect = 'description'" \
+	>"$OUT/catalog-orders-baseline.txt"
+grep -q "Revenue Reporting Policy" "$OUT/catalog-orders-baseline.txt" || {
+	echo "ERROR: the orders description is not the seeded text; bench/seed/postgres/catalog.sql did not apply" >&2
+	exit 1
+}
 
 step "truncate gate state (8.5)"
 docker exec "$PG" psql -q -U platform -d "$DB" -c "TRUNCATE search_gate_discovery"
@@ -324,7 +317,7 @@ fi
 # variable and aborts, which would kill the sensitivity cell — the one cell
 # that runs with no added disallow list — before it ran an episode.
 # The audit read-back window. The 15s default is tuned for the a* suites on a
-# quiet machine; here the DataHub quickstart competes for the same host and the
+# quiet machine; here the compose stack competes for the same host and the
 # faster tiers finish an episode sooner, so an asynchronous audit write can land
 # after the default gives up and a good episode fails as a harness error. The
 # invariant is unchanged -- an episode whose rows never arrive still fails, and

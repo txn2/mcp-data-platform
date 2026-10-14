@@ -77,37 +77,6 @@ func TestResolveDefaultInstance(t *testing.T) {
 	})
 }
 
-func TestDataHubConfig(t *testing.T) {
-	t.Run("not configured", func(t *testing.T) {
-		if cfg := DataHubConfig(map[string]any{}, "x"); cfg != nil {
-			t.Errorf("DataHubConfig(empty) = %v, want nil", cfg)
-		}
-	})
-	t.Run("from url", func(t *testing.T) {
-		toolkits := map[string]any{"datahub": map[string]any{
-			"instances": map[string]any{"primary": map[string]any{
-				"url": "https://datahub.example.com", "token": "tok", "timeout": "45s", "debug": true,
-			}},
-		}}
-		cfg := DataHubConfig(toolkits, "primary")
-		if cfg == nil {
-			t.Fatal("DataHubConfig returned nil")
-		}
-		if cfg.URL != "https://datahub.example.com" || cfg.Token != "tok" || cfg.Timeout != 45*time.Second || !cfg.Debug {
-			t.Errorf("DataHubConfig = %+v", cfg)
-		}
-	})
-	t.Run("url falls back to endpoint, default timeout", func(t *testing.T) {
-		toolkits := map[string]any{"datahub": map[string]any{
-			"instances": map[string]any{"primary": map[string]any{"endpoint": "https://ep.example.com"}},
-		}}
-		cfg := DataHubConfig(toolkits, "primary")
-		if cfg == nil || cfg.URL != "https://ep.example.com" || cfg.Timeout != 30*time.Second {
-			t.Errorf("DataHubConfig = %+v", cfg)
-		}
-	})
-}
-
 func TestTrinoConfig(t *testing.T) {
 	t.Run("not configured", func(t *testing.T) {
 		if cfg := TrinoConfig(map[string]any{}, "x"); cfg != nil {
@@ -263,11 +232,11 @@ func TestMissingDefaults(t *testing.T) {
 		},
 		{
 			name: "empty default does not count as named",
-			toolkits: map[string]any{"datahub": map[string]any{
+			toolkits: map[string]any{"s3": map[string]any{
 				"default":   "",
 				"instances": map[string]any{"primary": nil, "secondary": nil},
 			}},
-			want: []string{"toolkits.datahub.default is required when more than one instance is configured (instances: primary, secondary)"},
+			want: []string{"toolkits.s3.default is required when more than one instance is configured (instances: primary, secondary)"},
 		},
 		{
 			name: "every offending kind is reported, sorted",
@@ -275,16 +244,12 @@ func TestMissingDefaults(t *testing.T) {
 				"trino": map[string]any{
 					"instances": map[string]any{"staging": nil, "production": nil},
 				},
-				"datahub": map[string]any{
-					"instances": map[string]any{"b": nil, "a": nil},
-				},
 				"s3": map[string]any{
-					"default":   "lake",
-					"instances": map[string]any{"lake": nil, "archive": nil},
+					"instances": map[string]any{"b": nil, "a": nil},
 				},
 			},
 			want: []string{
-				"toolkits.datahub.default is required when more than one instance is configured (instances: a, b)",
+				"toolkits.s3.default is required when more than one instance is configured (instances: a, b)",
 				"toolkits.trino.default is required when more than one instance is configured (instances: production, staging)",
 			},
 		},
@@ -309,11 +274,11 @@ func TestMissingDefaults(t *testing.T) {
 			// consulting the enable flag, so a disabled kind is still asked
 			// which of its instances an unqualified lookup means.
 			name: "a disabled kind is still ambiguous",
-			toolkits: map[string]any{"datahub": map[string]any{
+			toolkits: map[string]any{"trino": map[string]any{
 				"enabled":   false,
 				"instances": map[string]any{"primary": nil, "legacy": nil},
 			}},
-			want: []string{"toolkits.datahub.default is required when more than one instance is configured (instances: legacy, primary)"},
+			want: []string{"toolkits.trino.default is required when more than one instance is configured (instances: legacy, primary)"},
 		},
 		{
 			name:     "malformed kind block is not a default problem",

@@ -18,7 +18,7 @@ func sampleResults() *Results {
 	return &Results{
 		Manifest: Manifest{CurriculumID: "cs-traps", Arm: "a3", EvalSuite: "s3", K: 1},
 		Lessons: []LessonRecord{
-			{LessonID: "cs-units", TrapClass: "units_cents", Sink: "datahub",
+			{LessonID: "cs-units", TrapClass: "units_cents", Sink: "catalog",
 				Captured: new(true), Promoted: new(true),
 				Episode: EpisodeRecord{InputTokens: 100, OutputTokens: 20}},
 			{LessonID: "cs-net", TrapClass: "net_revenue", Sink: "knowledge_page",

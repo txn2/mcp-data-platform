@@ -30,7 +30,7 @@ type Store interface {
 	// graceful-degradation path when no embedding provider is available.
 	LexicalSearch(ctx context.Context, query LexicalQuery) ([]ScoredRecord, error)
 
-	// EntityLookup returns active memories linked to a DataHub URN. persona
+	// EntityLookup returns active memories linked to a catalog reference. persona
 	// narrows to one persona when set; createdBy narrows to one owner (the
 	// per-user scope for search) when set. Either may be empty. When createdBy
 	// is empty (the persona-scoped enrichment push path), pending insight

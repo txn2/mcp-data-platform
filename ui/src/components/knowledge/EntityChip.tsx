@@ -10,7 +10,6 @@ const TYPE_ICONS: Record<RefType, LucideIcon> = {
   knowledge_page: BookOpen,
   connection: Plug,
   script: FileCode2,
-  datahub: Database,
   catalog: Database,
   unknown: Link2,
 };
@@ -44,18 +43,18 @@ function chipFace(urn: string, hasNavigator: boolean, resolved?: ResolvedRef) {
 }
 
 /**
- * EntityChip renders an entity reference (mcp:/urn:li:) as a typed chip: a type
+ * EntityChip renders an entity reference (mcp:) as a typed chip: a type
  * icon plus the entity's display name. When the server has resolved the reference
  * it shows the real name; before resolution (or without a resolver) it falls back
- * to the name derived from the URN.
+ * to the name derived from the reference.
  *
  * It has three visual states so a chip never lies about being clickable (#709):
  * - A reference to a deleted entity (resolved.exists === false) renders as a
  *   broken-reference chip (struck through, broken-link icon) and is never a link.
  * - A live reference with an in-app route and an onNavigate handler deep-links to
  *   the target, in link (primary) styling.
- * - A live reference with no destination (e.g. a DataHub or connection ref, which
- *   has no in-portal view) renders as a neutral, non-link chip, so it is not
+ * - A live reference with no destination (e.g. a connection ref, which has no
+ *   in-portal view) renders as a neutral, non-link chip, so it is not
  *   styled to look clickable when it is not.
  */
 export function EntityChip({
@@ -79,7 +78,7 @@ export function EntityChip({
 
   // A live (non-broken) reference deep-links when it has a route and a navigator.
   // A catalog citation is navigable too: it opens the entity in the Catalog
-  // tab, so a DataHub reference is a link everywhere a reference is rendered.
+  // section, so a catalog reference is a link everywhere a reference is rendered.
   if (href && onNavigate) {
     return (
       <Badge

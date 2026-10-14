@@ -1,22 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-vi.mock("@/api/portal/datahub", () => ({
-  useCatalogEntity: vi.fn(),
-  useDataHubConnections: vi.fn(),
+vi.mock("@/api/portal/catalog", () => ({
+  useDataset: vi.fn(),
+  useDefinition: vi.fn(),
 }));
 
 import { CatalogNodeDetail } from "./CatalogNodeDetail";
-import { useCatalogEntity, useDataHubConnections } from "@/api/portal/datahub";
+import { useDataset, useDefinition } from "@/api/portal/catalog";
 import { ApiError } from "@/api/portal/client";
 
-const urn = "urn:li:dataset:(urn:li:dataPlatform:trino,analytics.public.daily_sales,PROD)";
+const ref = "mcp:dataset:(trino,acme,analytics.public.daily_sales)";
 
 const result = (over: Record<string, unknown>) =>
   ({ data: undefined, isLoading: false, isError: false, error: null, ...over }) as never;
 
 beforeEach(() => {
-  vi.mocked(useDataHubConnections).mockReturnValue({ data: [{ name: "acme" }] } as never);
+  vi.mocked(useDataset).mockReturnValue(result({}));
+  vi.mocked(useDefinition).mockReturnValue(result({}));
 });
 
 // The catalog is what settles whether it holds an entity (#1610). This
@@ -24,44 +25,53 @@ beforeEach(() => {
 // dataset nobody had documented missing.
 describe("CatalogNodeDetail", () => {
   it("says the catalog does not have the dataset when the lookup is a 404", () => {
-    vi.mocked(useCatalogEntity).mockReturnValue(
-      result({ isError: true, error: new ApiError(404, "datahub holds no entity") }),
+    vi.mocked(useDataset).mockReturnValue(
+      result({ isError: true, error: new ApiError(404, "dataset not found") }),
     );
-    render(<CatalogNodeDetail urn={urn} />);
-    expect(screen.getByText(/Not found in/)).toBeInTheDocument();
+    render(<CatalogNodeDetail urn={ref} />);
     expect(screen.getByText(/the catalog does not have it/)).toBeInTheDocument();
   });
 
-  it("reports a catalog it could not reach as a failure rather than as an absence", () => {
-    vi.mocked(useCatalogEntity).mockReturnValue(
-      result({ isError: true, error: new ApiError(502, "entity read failed") }),
+  it("reports a catalog it could not read as a failure rather than as an absence", () => {
+    vi.mocked(useDataset).mockReturnValue(
+      result({ isError: true, error: new ApiError(500, "reading the catalog failed") }),
     );
-    render(<CatalogNodeDetail urn={urn} />);
-    expect(screen.getByText(/Could not reach the acme catalog/)).toBeInTheDocument();
-    expect(screen.queryByText(/Not found in/)).not.toBeInTheDocument();
+    render(<CatalogNodeDetail urn={ref} />);
+    expect(screen.getByText(/Could not read the catalog/)).toBeInTheDocument();
+    expect(screen.queryByText(/does not have it/)).not.toBeInTheDocument();
   });
 
   it("shows a dataset the catalog holds and nobody has documented as held, not missing", () => {
-    vi.mocked(useCatalogEntity).mockReturnValue(result({ data: { urn, context: { urn } } }));
-    render(<CatalogNodeDetail urn={urn} />);
-    expect(screen.getByText(/In acme/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/holds this dataset with no description, owners or tags recorded/),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/Not found in/)).not.toBeInTheDocument();
+    vi.mocked(useDataset).mockReturnValue(result({ data: { reference: ref, aspects: {} } }));
+    render(<CatalogNodeDetail urn={ref} />);
+    expect(screen.getByText(/In the catalog/)).toBeInTheDocument();
+    expect(screen.getByText(/with no description, owners or tags recorded/)).toBeInTheDocument();
   });
 
-  it("renders what the catalog holds for a documented dataset", () => {
-    vi.mocked(useCatalogEntity).mockReturnValue(
+  it("renders what the catalog holds for a documented dataset, its domain by name", () => {
+    vi.mocked(useDataset).mockReturnValue(
       result({
         data: {
-          urn,
-          context: { urn, description: "One row per order.", tags: ["finance"] },
+          reference: ref,
+          aspects: { description: "One row per order.", tags: ["finance"], domain: "mcp:domain:d1" },
+          names: { "mcp:domain:d1": "Sales" },
         },
       }),
     );
-    render(<CatalogNodeDetail urn={urn} />);
+    render(<CatalogNodeDetail urn={ref} />);
     expect(screen.getByText("One row per order.")).toBeInTheDocument();
     expect(screen.getByText("finance")).toBeInTheDocument();
+    expect(screen.getByText("Domain: Sales")).toBeInTheDocument();
+  });
+
+  it("reads a column on its dataset and a definition by its reference", () => {
+    render(<CatalogNodeDetail urn="mcp:column:(trino,acme,analytics.public.daily_sales,amount)" />);
+    expect(useDataset).toHaveBeenLastCalledWith(ref);
+    vi.mocked(useDefinition).mockReturnValue(
+      result({ data: { reference: "mcp:glossary_term:revenue", aspects: { description: "Money in." } } }),
+    );
+    render(<CatalogNodeDetail urn="mcp:glossary_term:revenue" />);
+    expect(useDefinition).toHaveBeenLastCalledWith("mcp:glossary_term:revenue");
+    expect(screen.getByText("Money in.")).toBeInTheDocument();
   });
 });

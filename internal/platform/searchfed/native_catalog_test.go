@@ -7,27 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/catalogfake"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
-
-// datasetCatalog holds the datasets named, each readable by anyone who asks;
-// only the connection boundary can refuse one.
-type datasetCatalog []catalog.Ref
-
-func (c datasetCatalog) GetDataset(_ context.Context, ref catalog.Ref) (*catalog.Dataset, error) {
-	for _, r := range c {
-		if r.String() == ref.String() {
-			return &catalog.Dataset{Reference: r.String(), Name: r.Path[len(r.Path)-1]}, nil
-		}
-	}
-	return nil, catalog.ErrNotFound
-}
-
-func (datasetCatalog) GetDefinition(context.Context, catalog.Ref) (*catalog.Definition, error) {
-	return nil, catalog.ErrNotFound
-}
 
 // personaScope admits the analyst persona to one bound connection name.
 type personaScope struct{ allowed string }
@@ -49,14 +33,15 @@ type namedToolkit struct {
 func (n namedToolkit) Connection() string { return n.connection }
 
 func TestNew_NativeCatalogFetchThroughTheAssembledRouter(t *testing.T) {
-	ref := catalog.DatasetRef("trino", "warehouse", "hive", "sales", "orders")
-	other := catalog.DatasetRef("trino", "payroll", "hive", "hr", "salaries")
+	store := catalogfake.New()
+	ref := store.AddDataset("warehouse", "hive.sales.orders")
+	other := store.AddDataset("payroll", "hive.hr.salaries")
 	reg := registry.NewRegistry()
 	require.NoError(t, reg.Register(namedToolkit{connToolkit{kind: "trino", name: "warehouse"}, "Warehouse"}))
 	require.NoError(t, reg.Register(namedToolkit{connToolkit{kind: "trino", name: "payroll"}, "Payroll"}))
 	h := New(Config{
 		ToolkitName:     "default",
-		Catalog:         datasetCatalog{ref, other},
+		Catalog:         store,
 		ConnectionScope: personaScope{allowed: "Warehouse"},
 		Registry:        reg,
 	})
@@ -73,6 +58,32 @@ func TestNew_NativeCatalogFetchThroughTheAssembledRouter(t *testing.T) {
 	doc, err = h.Router().Fetch(ctx, other.String(), knowledge.Caller{Email: "b@example.com", Persona: "admin"})
 	require.NoError(t, err)
 	assert.Equal(t, "salaries", doc.Title)
+}
+
+func TestNew_DefinitionsAreSearchedAndFetchedThroughTheAssembledRouter(t *testing.T) {
+	store := catalogfake.New()
+	term, err := store.PutDefinition(context.Background(), catalog.DefinitionInput{Kind: catalog.KindGlossaryTerm, Name: "Net Revenue"})
+	require.NoError(t, err)
+	store.SetDescription(term.Reference, "Revenue after refunds.")
+	h := New(Config{ToolkitName: "default", Catalog: store, Registry: registry.NewRegistry()})
+	require.NotNil(t, h)
+	ctx := context.Background()
+	caller := knowledge.Caller{Email: "a@example.com", Persona: "analyst"}
+
+	res, err := h.Router().Search(ctx, knowledge.Query{Intent: "what is net revenue", Limit: 5, Caller: caller})
+	require.NoError(t, err)
+	var found string
+	for _, g := range res.Groups {
+		if g.Source == knowledge.SourceGovernance && len(g.Hits) > 0 {
+			found = g.Hits[0].Reference
+		}
+	}
+	assert.Equal(t, term.Reference, found, "a glossary term is a search hit of its own")
+
+	doc, err := h.Router().Fetch(ctx, "mcp:glossary_term:net-revenue", caller)
+	require.NoError(t, err, "a term is fetched by its slug as well as its id")
+	assert.Equal(t, "Revenue after refunds.", doc.Body)
+	assert.Equal(t, knowledge.SourceGovernance, doc.Source)
 }
 
 func TestNew_NoCatalogLeavesTheSourceOut(t *testing.T) {

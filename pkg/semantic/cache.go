@@ -23,7 +23,6 @@ type CachedProvider struct {
 	lineageCache      map[string]*cacheEntry[*LineageInfo]
 	termCache         map[string]*cacheEntry[*GlossaryTerm]
 	curatedQueryCache map[string]*cacheEntry[int]
-	relatedDocsCache  map[string]*cacheEntry[[]DocumentResult]
 }
 
 type cacheEntry[T any] struct {
@@ -62,7 +61,6 @@ func NewCachedProvider(provider Provider, cfg CacheConfig) *CachedProvider {
 		lineageCache:      make(map[string]*cacheEntry[*LineageInfo]),
 		termCache:         make(map[string]*cacheEntry[*GlossaryTerm]),
 		curatedQueryCache: make(map[string]*cacheEntry[int]),
-		relatedDocsCache:  make(map[string]*cacheEntry[[]DocumentResult]),
 	}
 }
 
@@ -257,89 +255,6 @@ func (c *CachedProvider) SearchTables(ctx context.Context, filter SearchFilter) 
 // otherwise make an optional-capability type-assertion falsely succeed).
 func (c *CachedProvider) Unwrap() Provider { return c.provider }
 
-// SearchDocuments forwards the optional document-search capability (#692) to the
-// wrapped provider, preserving it through the cache decorator. A wrapped provider
-// that does not implement it (e.g. a noop catalog) yields no documents, so the
-// capability is absent rather than always-empty. Not cached: queries vary too much.
-func (c *CachedProvider) SearchDocuments(ctx context.Context, query string, limit int) ([]DocumentResult, error) {
-	ds, ok := c.provider.(DocumentSearcher)
-	if !ok {
-		return nil, nil
-	}
-	results, err := ds.SearchDocuments(ctx, query, limit)
-	if err != nil {
-		return nil, fmt.Errorf("searching documents from provider: %w", err)
-	}
-	return results, nil
-}
-
-// GetDocument forwards the single-document read (#694) to the wrapped provider,
-// preserving the DocumentSearcher capability through the cache decorator. It is
-// not cached: a fetch is an explicit, low-frequency dereference whose whole point
-// is the current full body, so serving a stale cached copy (e.g. just after an
-// edit) would defeat it; the hot search path is what the snippet caches serve.
-func (c *CachedProvider) GetDocument(ctx context.Context, urn string) (*DocumentResult, error) {
-	ds, ok := c.provider.(DocumentSearcher)
-	if !ok {
-		return nil, fmt.Errorf("document %s: %w", urn, ErrDocumentNotFound)
-	}
-	doc, err := ds.GetDocument(ctx, urn)
-	if err != nil {
-		return nil, fmt.Errorf("getting document from provider: %w", err)
-	}
-	return doc, nil
-}
-
-// BrowseDocuments forwards the document enumeration (#695) to the wrapped provider,
-// preserving the DocumentSearcher capability through the cache decorator. It is not
-// cached: a browse pages a mutating corpus and reports a live total, so a stale
-// cached page or count would be worse than a fresh round trip. A wrapped provider
-// without the capability yields an empty page and a zero total.
-func (c *CachedProvider) BrowseDocuments(ctx context.Context, offset, limit int) ([]DocumentResult, int, error) {
-	ds, ok := c.provider.(DocumentSearcher)
-	if !ok {
-		return nil, 0, nil
-	}
-	docs, total, err := ds.BrowseDocuments(ctx, offset, limit)
-	if err != nil {
-		return nil, 0, fmt.Errorf("browsing documents from provider: %w", err)
-	}
-	return docs, total, nil
-}
-
-// GetRelatedDocuments forwards the entity-keyed document lookup (#692) to the wrapped
-// provider, preserving the DocumentSearcher capability through the cache decorator.
-// It is keyed on a single entity URN (like GetGlossaryTerm/GetTableContext), so it is
-// cached by URN: lineage expansion produces overlapping URN sets across successive
-// searches, and serving repeats from cache spares the DataHub round trip on the hot
-// search path.
-func (c *CachedProvider) GetRelatedDocuments(ctx context.Context, urn string) ([]DocumentResult, error) {
-	c.mu.RLock()
-	if entry, ok := c.relatedDocsCache[urn]; ok && !entry.isExpired() {
-		c.mu.RUnlock()
-		return entry.value, nil
-	}
-	c.mu.RUnlock()
-
-	ds, ok := c.provider.(DocumentSearcher)
-	if !ok {
-		return nil, nil
-	}
-	results, err := ds.GetRelatedDocuments(ctx, urn)
-	if err != nil {
-		return nil, fmt.Errorf("getting related documents from provider: %w", err)
-	}
-
-	c.mu.Lock()
-	c.relatedDocsCache[urn] = &cacheEntry[[]DocumentResult]{
-		value:     results,
-		expiresAt: time.Now().Add(c.ttl),
-	}
-	c.mu.Unlock()
-
-	return results, nil
-}
-
 // Close closes the underlying provider.
 func (c *CachedProvider) Close() error {
 	if err := c.provider.Close(); err != nil {
@@ -361,7 +276,6 @@ func (c *CachedProvider) Invalidate() {
 	clear(c.lineageCache)
 	clear(c.termCache)
 	clear(c.curatedQueryCache)
-	clear(c.relatedDocsCache)
 }
 
 // Verify interface compliance.

@@ -12,17 +12,12 @@ import (
 
 // mcpScheme prefixes the serialized form of an internal-entity reference, for
 // example "mcp:asset:<id>" or "mcp:connection:(trino,warehouse)". It is the
-// platform's existing internal scheme (pkg/resource uses "mcp" as well). The
-// external DataHub case keeps its native "urn:li:" URN.
+// platform's existing internal scheme (pkg/resource uses "mcp" as well).
 const mcpScheme = "mcp:"
 
-// externalURNPrefix marks an external (DataHub or other catalog) reference. A
-// reference string with this prefix is stored verbatim in entity_urn.
-const externalURNPrefix = "urn:"
-
-// URN returns the serialized projection of a reference: the mcp: form for an
-// internal entity (resolved by id, so a rename does not change it), or the
-// external URN as-is for a DataHub reference. The empty string is returned for an
+// URN returns the serialized projection of a reference: the mcp: form, resolved
+// by id for an internal entity so a rename does not change it, and the catalog
+// reference as stored for a catalog entity. The empty string is returned for an
 // unrecognized target type.
 func (r EntityRef) URN() string {
 	switch r.TargetType {
@@ -36,7 +31,7 @@ func (r EntityRef) URN() string {
 		return mcpScheme + RefTargetKnowledgePage + refKeySep + r.RefPageID
 	case RefTargetConnection:
 		return mcpScheme + RefTargetConnection + refKeySep + "(" + r.ConnectionKind + "," + r.ConnectionName + ")"
-	case RefTargetDataHub, RefTargetCatalog:
+	case RefTargetCatalog:
 		return r.EntityURN
 	case RefTargetInsight:
 		return mcpScheme + RefTargetInsight + refKeySep + r.InsightID
@@ -56,26 +51,18 @@ func (r EntityRef) URN() string {
 }
 
 // ParseEntityRef parses a serialized reference (the inverse of URN) into a typed
-// EntityRef. A "urn:" reference is an external (DataHub) URN, stored verbatim; an
-// "mcp:" reference resolves to the matching internal target. Source and the
-// owning page id are not part of the serialized form and are left to the caller.
+// EntityRef: an "mcp:" reference resolves to the matching internal target or
+// catalog entity. Source and the owning page id are not part of the serialized
+// form and are left to the caller.
 func ParseEntityRef(s string) (EntityRef, error) {
 	s = strings.TrimSpace(s)
 	switch {
 	case s == "":
 		return EntityRef{}, errors.New("empty entity reference")
-	case strings.HasPrefix(s, externalURNPrefix):
-		// A DataHub URN never embeds the internal mcp: scheme; if it does, the
-		// caller crossed the two namespaces (e.g. urn:li:mcp:connection:(x)). Reject
-		// it rather than store a reference that resolves to nothing.
-		if strings.Contains(s, mcpScheme) {
-			return EntityRef{}, fmt.Errorf("reference %q mixes the urn: and mcp: schemes; use %s<type>:<key> for an internal entity (asset, prompt, collection, knowledge_page, connection) or a plain urn:li:... for a DataHub entity", s, mcpScheme)
-		}
-		return EntityRef{TargetType: RefTargetDataHub, EntityURN: s}, nil
 	case strings.HasPrefix(s, mcpScheme):
 		return parseMCPRef(s)
 	default:
-		return EntityRef{}, fmt.Errorf("unrecognized entity reference %q (want mcp: or urn:)", s)
+		return EntityRef{}, fmt.Errorf("unrecognized entity reference %q: a reference is %s<type>:<key>, and a catalog entity is cited by its catalog reference, such as mcp:dataset:(trino,<connection>,<catalog>.<schema>.<table>) or mcp:glossary_term:<id>", s, mcpScheme)
 	}
 }
 
@@ -89,8 +76,9 @@ func ParseEntityRef(s string) (EntityRef, error) {
 //   - the per-user sources, personal memory (mcp:memory:<id>), captured insights
 //     (mcp:insight:<id>), recorded calls (mcp:call:<id>) and sessions
 //     (mcp:session:<id>), which are ScopePerUser and resolve only for their owner
-//     (#699, #1321, #1322). An insight promoted to the catalog via apply_knowledge
-//     becomes a shared DataHub entity, which IS citable as its urn:li:... form.
+//     (#699, #1321, #1322). An insight applied to the catalog with
+//     apply_knowledge is curation on a catalog entity, which IS citable by its
+//     catalog reference.
 //   - managed resources (mcp:resource:<id>, #1012), whose global/persona/user
 //     scope reaches fewer readers than a shared page does, and which have no
 //     column on the page-reference table.
@@ -112,11 +100,11 @@ func ParseCitableRef(s string) (EntityRef, error) {
 	}
 	switch ref.TargetType {
 	case RefTargetCall:
-		return EntityRef{}, fmt.Errorf("a call reference (%q) cannot be cited on a knowledge page: a recorded call resolves only for the caller who made it, so the citation would be broken for every other reader; promote the record to a catalog query and cite the resulting urn:li:... entity instead", s)
+		return EntityRef{}, fmt.Errorf("a call reference (%q) cannot be cited on a knowledge page: a recorded call resolves only for the caller who made it, so the citation would be broken for every other reader; promote the record to a curated query on its dataset and cite the dataset instead", s)
 	case RefTargetSession:
 		return EntityRef{}, fmt.Errorf("a session reference (%q) cannot be cited on a knowledge page: a session is read back from the calls one caller made, so it resolves for that caller alone; cite what the session produced (an asset, or an insight promoted to the catalog) instead", s)
 	case RefTargetMemory, RefTargetInsight:
-		return EntityRef{}, fmt.Errorf("a personal %s reference (%q) cannot be cited on a knowledge page: it is private to its owner, so the citation would resolve for no one else; promote the insight to the catalog and cite the resulting urn:li:... entity, or cite a shared entity instead", ref.TargetType, s)
+		return EntityRef{}, fmt.Errorf("a personal %s reference (%q) cannot be cited on a knowledge page: it is private to its owner, so the citation would resolve for no one else; apply the insight to the catalog and cite the catalog entity, or cite a shared entity instead", ref.TargetType, s)
 	case RefTargetResource:
 		return EntityRef{}, fmt.Errorf("a managed resource reference (%q) cannot be cited on a knowledge page: a resource is visibility-scoped (global, persona, or user), so the citation would be broken for every reader outside that scope; link to the resource from the page body, or describe its content on the page instead", s)
 	case RefTargetScript:

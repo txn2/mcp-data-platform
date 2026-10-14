@@ -10,11 +10,11 @@ import (
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/sources"
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
-	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
@@ -174,8 +174,8 @@ func buildOAuthKindHandlers(p *platform.Platform) admin.OAuthKindHandlers {
 }
 
 // wireEnrichmentEngine builds the gateway enrichment engine when a rule
-// store is available, registers the built-in source adapters (Trino,
-// DataHub) bound to the platform's live toolkits, and attaches the
+// store is available, registers the built-in source adapters (Trino, the
+// platform catalog) bound to the platform, and attaches the
 // engine to the live gateway toolkit so forwarded calls pick it up.
 func wireEnrichmentEngine(p *platform.Platform) *enrichment.Engine {
 	store := p.EnrichmentStore()
@@ -204,10 +204,8 @@ func registerEnrichmentSources(p *platform.Platform, reg *enrichment.SourceRegis
 	if exec := buildTrinoQueryFunc(p); exec != nil {
 		reg.Register(sources.NewTrinoSource(exec))
 	}
-	if getEntity, getTerm := buildDataHubFuncs(p); getEntity != nil || getTerm != nil {
-		// DataHub source registers even when only a subset of operations
-		// is wired; missing operations report unsupported on dispatch.
-		reg.Register(sources.NewDataHubSource(getEntity, getTerm))
+	if store := catalogstore.StoreFor(p.DB()); store != nil {
+		reg.Register(sources.NewCatalogSource(store))
 	}
 }
 
@@ -228,24 +226,4 @@ func buildTrinoQueryFunc(p *platform.Platform) sources.TrinoQueryFunc {
 		}
 	}
 	return nil
-}
-
-// buildDataHubFuncs returns get-entity and get-glossary-term closures
-// bound to the live datahub toolkit's client, or nils if no datahub
-// toolkit is registered.
-func buildDataHubFuncs(p *platform.Platform) (sources.DataHubGetEntityFunc, sources.DataHubGetGlossaryTermFunc) {
-	for _, tk := range p.ToolkitRegistry().All() {
-		dhTk, ok := tk.(*datahubkit.Toolkit)
-		if !ok || dhTk.Client() == nil {
-			continue
-		}
-		getEntity := func(ctx context.Context, urn string) (any, error) {
-			return dhTk.GetEntity(ctx, urn)
-		}
-		getTerm := func(ctx context.Context, urn string) (any, error) {
-			return dhTk.GetGlossaryTerm(ctx, urn)
-		}
-		return getEntity, getTerm
-	}
-	return nil, nil
 }

@@ -3,7 +3,8 @@
 # Raw toolkit tools only: the persona exposes trino_* and s3_* (plus
 # platform_info, which the HARNESS calls to mint the session handle; the agent
 # never sees it — the harness strips it from the tool list). No semantic
-# provider, no DataHub toolkit, all cross-enrichment off, search-first gate
+# provider (provider: noop, so the platform catalog does not enrich), all
+# cross-enrichment off, search-first gate
 # off (the gate is not persona-aware, so a persona without a discovery tool
 # would deadlock on SEARCH_REQUIRED). Equivalent to wiring the standalone
 # toolkit libraries.
@@ -374,11 +375,11 @@ rate_limit:
 workflow:
   require_search: false
 
+semantic:
+  provider: noop
+
 enrichment:
   trino_semantic_enrichment: false
-  datahub_query_enrichment: false
-  s3_semantic_enrichment: false
-  datahub_storage_enrichment: false
 
 # The persona is NAMED admin because the admin REST API (the harness's audit
 # read-back path) requires the caller's resolved persona to be the deployment's

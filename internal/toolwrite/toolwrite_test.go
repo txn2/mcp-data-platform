@@ -13,7 +13,7 @@ func TestClassify_ReadOnlyTools(t *testing.T) {
 		"platform_info", "list_connections", "platform_find_tools",
 		"show_prompts", "show_scripts", "search", "fetch",
 		"trino_query", "trino_explain", "trino_browse", "trino_describe_table",
-		"s3_list", "datahub_browse", "datahub_get_lineage",
+		"s3_list",
 		"api_discover", "graphql_discover",
 	} {
 		t.Run(tool, func(t *testing.T) {
@@ -29,7 +29,6 @@ func TestClassify_WriteTools(t *testing.T) {
 	for _, tool := range []string{
 		"save_asset", "apply_knowledge", "memory_capture", "run_script",
 		"trino_execute", "trino_export", "api_export", "graphql_export",
-		"datahub_create", "datahub_update", "datahub_delete",
 	} {
 		t.Run(tool, func(t *testing.T) {
 			got := classify(tool, map[string]any{})

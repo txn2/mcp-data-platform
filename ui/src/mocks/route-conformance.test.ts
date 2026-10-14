@@ -12,8 +12,7 @@
  *
  * The swagger spec only documents the routes registered on the annotated admin
  * mux. Several real backend routes are served on separate muxes that carry no
- * swagger annotations (the portal DataHub proxy, the admin public mux, the
- * observability PromQL proxy). Those are enumerated in ALLOWLIST below with the
+ * swagger annotations (the admin public mux, the observability PromQL proxy). Those are enumerated in ALLOWLIST below with the
  * Go source that proves they exist, so this test cannot be satisfied by adding a
  * route to the allowlist without a real handler behind it.
  */
@@ -51,38 +50,6 @@ function key(method: string, normalizedPath: string): string {
 // proven by the cited Go source; the test rejects an allowlist entry that no
 // mock actually emits, so this list cannot silently rot.
 const ALLOWLIST = new Set<string>([
-  // internal/httpserver/datahubapi/handler.go Register (portal DataHub proxy mux).
-  "GET /portal/datahub/connections",
-  "GET /portal/datahub/{}/catalog/browse",
-  "GET /portal/datahub/{}/catalog/search",
-  "GET /portal/datahub/{}/catalog/entity",
-  "GET /portal/datahub/{}/catalog/lookup/tags",
-  "GET /portal/datahub/{}/catalog/lookup/glossary-terms",
-  "GET /portal/datahub/{}/catalog/lookup/domains",
-  "POST /portal/datahub/{}/catalog/tags",
-  "DELETE /portal/datahub/{}/catalog/tags",
-  "POST /portal/datahub/{}/catalog/domains",
-  "DELETE /portal/datahub/{}/catalog/domains",
-  // internal/httpserver/datahubapi/glossary.go glossaryRoutes.
-  "GET /portal/datahub/{}/catalog/glossary/roots",
-  "GET /portal/datahub/{}/catalog/glossary/children",
-  "GET /portal/datahub/{}/catalog/glossary/parents",
-  "GET /portal/datahub/{}/catalog/glossary/term",
-  "POST /portal/datahub/{}/catalog/glossary/nodes",
-  "POST /portal/datahub/{}/catalog/glossary/terms",
-  "DELETE /portal/datahub/{}/catalog/glossary/entity",
-  "GET /portal/datahub/{}/catalog/entity/documents",
-  "PUT /portal/datahub/{}/catalog/entity/description",
-  "PUT /portal/datahub/{}/catalog/entity/tags",
-  "PUT /portal/datahub/{}/catalog/entity/owners",
-  "PUT /portal/datahub/{}/catalog/entity/glossary-terms",
-  "PUT /portal/datahub/{}/catalog/entity/domain",
-  "GET /portal/datahub/{}/documents/browse",
-  "GET /portal/datahub/{}/documents/search",
-  "GET /portal/datahub/{}/documents/{}",
-  "POST /portal/datahub/{}/documents",
-  "PUT /portal/datahub/{}/documents/{}",
-  "DELETE /portal/datahub/{}/documents/{}",
   // pkg/admin/handler.go: public (unauthenticated) branding endpoint on publicMux.
   "GET /admin/public/branding",
   // pkg/admin/handler.go registerRoutes: the served OpenAPI document, mounted

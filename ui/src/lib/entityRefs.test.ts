@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   buildRefUrn,
   catalogHref,
-  catalogSubForURN,
+  catalogSubForRef,
+  columnDataset,
+  columnRef,
+  quoteRefPart,
   entityHref,
   extractRefUrns,
   isCatalogRefType,
@@ -19,7 +22,7 @@ describe("entityHref", () => {
     expect(entityHref("prompt", "p1")).toBe("/prompts/p1");
     expect(entityHref("knowledge_page", "kp1")).toBe("/knowledge/pages/kp1"); // #709
     expect(entityHref("connection", "")).toBeNull();
-    expect(entityHref("datahub", "")).toBeNull();
+    expect(entityHref("catalog", "")).toBeNull();
     expect(entityHref("asset", "")).toBeNull(); // no id
   });
 
@@ -49,9 +52,9 @@ describe("buildRefUrn", () => {
 });
 
 describe("isRefUrn", () => {
-  it("detects mcp: and urn: hrefs", () => {
+  it("detects mcp: hrefs and nothing else", () => {
     expect(isRefUrn("mcp:asset:a")).toBe(true);
-    expect(isRefUrn("urn:li:dataset:(x)")).toBe(true);
+    expect(isRefUrn("urn:li:dataset:(x)")).toBe(false);
     expect(isRefUrn("https://example.com")).toBe(false);
     expect(isRefUrn(undefined)).toBe(false);
   });
@@ -71,13 +74,9 @@ describe("parseRef", () => {
       id: "",
       fallbackLabel: "warehouse (trino)",
     });
-    expect(
-      parseRef("urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)")?.fallbackLabel,
-    ).toBe("iceberg.retail.daily_sales");
-    expect(parseRef("urn:li:glossaryTerm:revenue")?.fallbackLabel).toBe("revenue");
   });
 
-  it("parses a platform catalog reference with the table, column or key as its label (#1923)", () => {
+  it("parses a platform catalog reference with the table, column or key as its label", () => {
     expect(parseRef("mcp:dataset:(trino,acme,hive.sales.orders)")).toEqual({
       urn: "mcp:dataset:(trino,acme,hive.sales.orders)",
       type: "catalog",
@@ -88,7 +87,7 @@ describe("parseRef", () => {
     expect(parseRef("mcp:glossary_term:net-revenue")?.fallbackLabel).toBe("net-revenue");
     expect(parseRef("mcp:tag:pii")?.type).toBe("catalog");
     expect(parseRef('mcp:schema_document:(api,billing,"openapi.json")')?.fallbackLabel).toBe("billing openapi.json");
-    expect(refHref("catalog", "", "mcp:tag:pii")).toBeNull();
+    expect(refHref("catalog", "", "mcp:tag:pii")).toBe("/knowledge/catalog?ref=mcp%3Atag%3Apii#tags");
   });
 
   it("rejects malformed references", () => {
@@ -96,6 +95,7 @@ describe("parseRef", () => {
     expect(parseRef("mcp:asset:")).toBeNull();
     expect(parseRef("mcp:connection:trino,warehouse")).toBeNull();
     expect(parseRef("not-a-ref")).toBeNull();
+    expect(parseRef("urn:li:glossaryTerm:revenue")).toBeNull();
   });
 });
 
@@ -103,14 +103,14 @@ describe("extractRefUrns", () => {
   it("extracts distinct references from a markdown body", () => {
     const body = `See [a](mcp:asset:asset-001) and
 [warehouse](mcp:connection:(trino,warehouse)) plus the dataset
-urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)
-and <urn:li:glossaryTerm:revenue> and a duplicate [a2](mcp:asset:asset-001).`;
+mcp:dataset:(trino,acme,iceberg.retail.daily_sales)
+and <mcp:glossary_term:revenue> and a duplicate [a2](mcp:asset:asset-001).`;
     expect(extractRefUrns(body).sort()).toEqual(
       [
         "mcp:asset:asset-001",
         "mcp:connection:(trino,warehouse)",
-        "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)",
-        "urn:li:glossaryTerm:revenue",
+        "mcp:dataset:(trino,acme,iceberg.retail.daily_sales)",
+        "mcp:glossary_term:revenue",
       ].sort(),
     );
   });
@@ -129,9 +129,9 @@ and <urn:li:glossaryTerm:revenue> and a duplicate [a2](mcp:asset:asset-001).`;
     // Mirrors the server-side trim so the resolved-ref map keys match what the
     // chip url will be; a bare token before a period must not absorb it.
     const body =
-      "The fact is in mcp:asset:asset-001. Also tagged urn:li:tag:revenue, plus mcp:asset:a.b.c!";
+      "The fact is in mcp:asset:asset-001. Also tagged mcp:tag:revenue, plus mcp:asset:a.b.c!";
     expect(extractRefUrns(body).sort()).toEqual(
-      ["mcp:asset:a.b.c", "mcp:asset:asset-001", "urn:li:tag:revenue"].sort(),
+      ["mcp:asset:a.b.c", "mcp:asset:asset-001", "mcp:tag:revenue"].sort(),
     );
   });
 });
@@ -139,57 +139,74 @@ and <urn:li:glossaryTerm:revenue> and a duplicate [a2](mcp:asset:asset-001).`;
 describe("trimRefToken", () => {
   it("strips a trailing run of sentence punctuation only", () => {
     expect(trimRefToken("mcp:asset:asset-001.")).toBe("mcp:asset:asset-001");
-    expect(trimRefToken("urn:li:tag:revenue?!")).toBe("urn:li:tag:revenue");
+    expect(trimRefToken("mcp:tag:revenue?!")).toBe("mcp:tag:revenue");
     expect(trimRefToken("mcp:asset:a.b.c.")).toBe("mcp:asset:a.b.c"); // internal dots kept
     expect(trimRefToken("mcp:connection:(trino,acme)")).toBe("mcp:connection:(trino,acme)"); // no-op
   });
 });
 
 describe("catalogHref", () => {
-  it("deep-links a catalog entity by its whole URN", () => {
-    const urn = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)";
-    expect(catalogHref(urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}#tables`);
+  it("deep-links a dataset by its whole reference", () => {
+    const ref = "mcp:dataset:(trino,acme,iceberg.retail.daily_sales)";
+    expect(catalogHref(ref)).toBe(`/knowledge/catalog?ref=${encodeURIComponent(ref)}#tables`);
   });
 
-  it("refuses anything that is not a URN", () => {
+  it("opens a column on its dataset", () => {
+    const col = "mcp:column:(trino,acme,iceberg.retail.daily_sales,amount)";
+    const ds = "mcp:dataset:(trino,acme,iceberg.retail.daily_sales)";
+    expect(columnDataset(col)).toBe(ds);
+    expect(catalogHref(col)).toBe(`/knowledge/catalog?ref=${encodeURIComponent(ds)}#tables`);
+  });
+
+  it("opens a column whose name is quoted on its dataset", () => {
+    const ds = "mcp:dataset:(trino,acme,a.b.c)";
+    expect(columnRef(ds, "amount")).toBe("mcp:column:(trino,acme,a.b.c,amount)");
+    expect(columnRef(ds, 'odd,"name')).toBe('mcp:column:(trino,acme,a.b.c,"odd,""name")');
+    expect(columnDataset(columnRef(ds, 'odd,"name'))).toBe(ds);
+    expect(quoteRefPart(" padded")).toBe('" padded"');
+  });
+
+  it("refuses anything that is not a catalog reference", () => {
     // The value lands in a query string that drives a catalog lookup, so only a
-    // real URN may be interpolated into it.
+    // real catalog reference may be interpolated into it.
     expect(catalogHref("mcp:asset:a1")).toBeNull();
+    expect(catalogHref("urn:li:dataset:x")).toBeNull();
     expect(catalogHref("")).toBeNull();
     expect(catalogHref("../../admin")).toBeNull();
   });
 
   it("tolerates surrounding whitespace", () => {
-    expect(catalogHref("  urn:li:dataset:x  ")).toBe("/knowledge/catalog?urn=urn%3Ali%3Adataset%3Ax#tables");
+    expect(catalogHref("  mcp:tag:pii  ")).toBe("/knowledge/catalog?ref=mcp%3Atag%3Apii#tags");
   });
 
-  // A governance entity is managed on its own Catalog tab, and Tables cannot
-  // show one at all: a term link that landed on Tables would open a table read
-  // against a term URN, which can only fail.
-  it("opens each governance entity on the tab that manages it", () => {
-    const cases: [string, string][] = [
-      ["urn:li:glossaryTerm:8f3c", "glossary"],
-      ["urn:li:glossaryNode:finance", "glossary"],
-      ["urn:li:tag:pii", "tags"],
-      ["urn:li:domain:c3d4", "domains"],
+  // A definition is managed on its own Catalog tab, and Tables cannot show
+  // one: a term link that landed on Tables would read a dataset that is not
+  // there.
+  it("opens each definition on the tab that manages it", () => {
+    const cases: [string, string, string][] = [
+      ["mcp:glossary_term:revenue", "glossary", "glossary"],
+      ["mcp:glossary_node:finance", "glossary", "glossary"],
+      ["mcp:tag:pii", "tags", "tags"],
+      ["mcp:domain:sales", "domains", "domains"],
+      ["mcp:data_product:orders", "data_products", "data-products"],
     ];
-    for (const [urn, sub] of cases) {
-      expect(catalogSubForURN(urn)).toBe(sub);
-      expect(catalogHref(urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}#${sub}`);
+    for (const [ref, sub, hash] of cases) {
+      expect(catalogSubForRef(ref)).toBe(sub);
+      expect(catalogHref(ref)).toBe(`/knowledge/catalog?ref=${encodeURIComponent(ref)}#${hash}`);
     }
   });
 
   it("sends everything else to Tables", () => {
-    expect(catalogSubForURN("urn:li:dataset:(trino,sales,PROD)")).toBe("tables");
-    expect(catalogSubForURN("urn:li:container:warehouse")).toBe("tables");
-    expect(catalogSubForURN("not-a-urn")).toBe("tables");
+    expect(catalogSubForRef("mcp:dataset:(trino,acme,a.b.c)")).toBe("tables");
+    expect(catalogSubForRef('mcp:schema_document:(api,billing,"openapi.json")')).toBe("tables");
+    expect(catalogSubForRef("not-a-ref")).toBe("tables");
   });
 });
 
 describe("isCatalogRefType", () => {
   it("separates the catalog vocabularies from the portal's own entities", () => {
-    // The distinction drives the picker: a catalog type needs a connection to
-    // search and stores the catalog's own URN, never an mcp: reference.
+    // The distinction drives the picker: a catalog type is searched in the
+    // catalog, which returns its reference.
     expect(isCatalogRefType("glossary_term")).toBe(true);
     expect(isCatalogRefType("tag")).toBe(true);
     expect(isCatalogRefType("domain")).toBe(true);
@@ -200,8 +217,8 @@ describe("isCatalogRefType", () => {
 
 describe("refHref", () => {
   it("sends a catalog reference to the catalog tab", () => {
-    const urn = "urn:li:dataset:(trino,sales,PROD)";
-    expect(refHref("datahub", "", urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}#tables`);
+    const ref = "mcp:dataset:(trino,acme,sales.orders)";
+    expect(refHref("catalog", "", ref)).toBe(`/knowledge/catalog?ref=${encodeURIComponent(ref)}#tables`);
   });
 
   it("sends an internal reference to its id-based route", () => {

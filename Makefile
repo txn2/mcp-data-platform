@@ -568,8 +568,8 @@ schedule-lane-ui:
 ## DEV_REPLICAS=1, and the dev API key; #1708).
 ## ACCEPTANCE_TIMEOUT bounds the whole binary, not one test. Go's default is
 ## 10 minutes and the suite runs for most of that against a healthy stack --
-## several criteria wait past a cadence that fires every minute, and every
-## DataHub criterion waits on an upstream index -- so the default kills the run
+## several criteria wait past a cadence that fires every minute, and several
+## wait on a background index -- so the default kills the run
 ## partway through and reports the tests that were still on the clock as
 ## failures. A run that was cut short is not a suite that failed (#1632).
 ACCEPTANCE_TIMEOUT ?= 40m
@@ -1108,7 +1108,6 @@ E2E_COMPOSE := DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml
 ## e2e-up: Start E2E test environment (PostgreSQL, Trino, SeaweedFS)
 e2e-up:
 	@echo "Starting E2E test environment..."
-	@echo "NOTE: For full E2E tests, also run 'datahub docker quickstart' separately"
 	$(E2E_COMPOSE) up -d postgres trino seaweedfs
 	@echo "Waiting for services to be healthy..."
 	@./scripts/wait-for-services.sh
@@ -1122,38 +1121,18 @@ e2e-down:
 	$(E2E_COMPOSE) down -v
 	@echo "E2E environment stopped."
 
-## e2e-seed: Seed DataHub with test data (requires DataHub running)
-e2e-seed:
-	@echo "Seeding DataHub with test data..."
-	@if ! docker ps --format '{{.Names}}' | grep -q "datahub-gms"; then \
-		echo "ERROR: DataHub is not running. Start it with: datahub docker quickstart"; \
-		exit 1; \
-	fi
-	@echo "Ingesting datasets..."
-	@datahub put --file test/e2e/testdata/datahub/domains.json 2>/dev/null || \
-		echo "Note: datahub CLI not found or ingestion failed - manual seeding may be required"
-	@datahub put --file test/e2e/testdata/datahub/tags.json 2>/dev/null || true
-	@datahub put --file test/e2e/testdata/datahub/owners.json 2>/dev/null || true
-	@datahub put --file test/e2e/testdata/datahub/datasets.json 2>/dev/null || true
-	@echo "DataHub seeding complete."
-
 ## e2e-test: Run E2E tests (requires services running)
 e2e-test:
 	@echo "Running E2E tests..."
 	$(GOTEST) -v -race -tags=integration ./test/e2e/...
 	@echo "E2E tests complete."
 
-## e2e: Full E2E cycle (up, seed, test, down)
+## e2e: Start the E2E environment and print the next steps (test, down)
 e2e: e2e-up
 	@echo ""
-	@echo "To run full E2E tests with DataHub:"
-	@echo "  1. In another terminal: datahub docker quickstart"
-	@echo "  2. Run: make e2e-seed"
-	@echo "  3. Run: make e2e-test"
-	@echo "  4. Run: make e2e-down"
-	@echo ""
-	@echo "Or run partial tests without DataHub:"
+	@echo "Run the E2E tests, then stop the environment:"
 	@echo "  make e2e-test"
+	@echo "  make e2e-down"
 
 ## e2e-logs: Show E2E service logs
 e2e-logs:
@@ -1381,11 +1360,12 @@ load-test:
 #
 # Arms (config profiles selected by BENCH_ARM):
 #   a0  baseline — raw tools, no enrichment, no search
-#   a1  enrichment — a0 plus semantic cross-enrichment (needs DataHub)
-#   a2  knowledge — a1 plus search, the search-first gate, knowledge pages (needs DataHub)
-#   a3  lifecycle — a2 plus memory/insight + apply_knowledge (needs DataHub)
-# The DataHub arms (a1/a2/a3) require a DataHub quickstart seeded via
-# `make bench-seed-datahub`.
+#   a1  enrichment — a0 plus semantic cross-enrichment from the platform catalog
+#   a2  knowledge — a1 plus search, the search-first gate, knowledge pages
+#   a3  lifecycle — a2 plus memory/insight + apply_knowledge
+# bench-up seeds the platform catalog with the bench curation
+# (bench/seed/postgres/catalog.sql), or with the undocumented datasets alone
+# under BENCH_SEED_PAGES=0, the cold-start empty baseline.
 
 # BENCH_ARM selects the platform config profile; BENCH_KEY is the admin API key.
 BENCH_ARM ?= a0
@@ -1862,27 +1842,26 @@ bench-up: e2e-up
 		tail -20 $(BENCH_LOG); exit 1; fi
 	@if [ "$(BENCH_SEED_PAGES)" = "0" ]; then \
 		echo "Skipping knowledge-page seeding (BENCH_SEED_PAGES=0, cold-start empty baseline)."; \
+		$(MAKE) --no-print-directory bench-seed-catalog-empty; \
 	else \
 		echo "Seeding knowledge pages (requires platform migrations, just applied on boot)..."; \
 		$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
 			< bench/seed/postgres/knowledge_pages.sql; \
+		$(MAKE) --no-print-directory bench-seed-catalog; \
 	fi
 	@echo "Platform ready (pid $$(cat $(BENCH_PID)), arm $(BENCH_ARM))."
 
-## bench-seed-datahub: Push bench metadata into a running DataHub quickstart (a2 arm)
-BENCH_DATAHUB_GMS ?= http://localhost:8080
-bench-seed-datahub:
-	@command -v datahub >/dev/null 2>&1 || { echo "ERROR: datahub CLI not found (pip install acryl-datahub)"; exit 1; }
-	@mkdir -p $(BUILD_DIR)
-	@printf 'source:\n  type: file\n  config:\n    path: %s/bench/seed/datahub/bench_mces.json\nsink:\n  type: datahub-rest\n  config:\n    server: %s\n' "$$(pwd)" "$(BENCH_DATAHUB_GMS)" > $(BUILD_DIR)/bench-datahub-recipe.yml
-	datahub ingest -c $(BUILD_DIR)/bench-datahub-recipe.yml
+## bench-seed-catalog: Seed the platform catalog with the bench curation (descriptions, column units, tags, properties; needs a booted bench platform)
+bench-seed-catalog:
+	@echo "Seeding the platform catalog with the bench curation..."
+	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
+		< bench/seed/postgres/catalog.sql
 
-## bench-seed-datahub-empty: Push the cold-start empty baseline into DataHub (entities present, undocumented; issue #963)
-bench-seed-datahub-empty:
-	@command -v datahub >/dev/null 2>&1 || { echo "ERROR: datahub CLI not found (pip install acryl-datahub)"; exit 1; }
-	@mkdir -p $(BUILD_DIR)
-	@printf 'source:\n  type: file\n  config:\n    path: %s/bench/seed/datahub/bench_mces_empty.json\nsink:\n  type: datahub-rest\n  config:\n    server: %s\n' "$$(pwd)" "$(BENCH_DATAHUB_GMS)" > $(BUILD_DIR)/bench-datahub-empty-recipe.yml
-	datahub ingest -c $(BUILD_DIR)/bench-datahub-empty-recipe.yml
+## bench-seed-catalog-empty: Seed the cold-start empty baseline into the platform catalog (datasets present, undocumented; issue #963)
+bench-seed-catalog-empty:
+	@echo "Seeding the platform catalog with the undocumented bench datasets..."
+	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
+		< bench/seed/postgres/catalog_empty.sql
 
 ## bench-run: Run the benchmark (ARM must match bench-up; LLM=anthropic|scripted|claude-cli, SUITE=, K=, MODEL=)
 bench-run:
@@ -1983,14 +1962,14 @@ bench-supersede-report:
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
 	$(BUILD_DIR)/benchrun -supersede -summarize $(RESULTS)
 
-## bench-cold-start: Run the cold-start knowledge-growth curriculum into a fresh per-run dir under build/bench-results/ (issue #963; needs an empty-seeded a3: bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0 + bench-seed-datahub-empty on a FRESH DataHub quickstart; LLM=anthropic|scripted|claude-cli, K=, MODEL=, SETTLE=)
+## bench-cold-start: Run the cold-start knowledge-growth curriculum into a fresh per-run dir under build/bench-results/ (issue #963; needs an empty-seeded a3: bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0; LLM=anthropic|scripted|claude-cli, K=, MODEL=, SETTLE=)
 bench-cold-start:
 	@mkdir -p build/bench-results
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
-	@echo "Resetting cold-start state so the baseline is truly empty (search gate, prior insights/changesets, and any promoted knowledge pages persist in Postgres across runs)..."
+	@echo "Resetting cold-start state so the baseline is truly empty (search gate, prior insights/changesets, promoted knowledge pages and catalog curation persist in Postgres across runs)..."
 	@echo "  (CASCADE also clears portal_threads, which FK-references knowledge pages; the bench stack is disposable scratch state.)"
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
-		-c "TRUNCATE search_gate_discovery, memory_records, knowledge_changesets, portal_knowledge_pages CASCADE"
+		-c "TRUNCATE search_gate_discovery, memory_records, knowledge_changesets, portal_knowledge_pages, catalog_aspects, catalog_aspect_history CASCADE"
 	@out_dir="build/bench-results/cold-start-a3-$$(date +%Y%m%d-%H%M%S)-$$$$"; \
 	mkdir "$$out_dir"; \
 	echo "Cold-start results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \

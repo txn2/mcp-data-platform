@@ -38,8 +38,9 @@ documents the caller-facing surfaces a non-MCP client actually calls: the
 [API gateway](api-gateway.md#rest-gateway-for-non-mcp-clients) data plane under
 the `Gateway` tag (`POST /api/v1/gateway/{connection}/invoke` and
 `/invoke-raw`, with their request body, the platform-versus-upstream status
-split and the retry rules), the portal and resource routes, the DataHub catalog
-surface, and the table registrations. Operations are grouped into a **User API**
+split and the retry rules), the portal and resource routes, the portal catalog
+surface (`/api/v1/portal/catalog`, see [Platform Catalog](catalog.md#portal-catalog-api)),
+and the table registrations. Operations are grouped into a **User API**
 and an **Admin API** heading by `x-tagGroups`.
 
 Two gates hold this together, because both failure modes were silent. A route
@@ -762,7 +763,7 @@ Returns a single persona with resolved tool list.
   "priority": 0,
   "allow_tools": ["*"],
   "deny_tools": ["*_delete_*"],
-  "tools": ["datahub_browse", "fetch", "search", "trino_describe_table", "trino_query"],
+  "tools": ["fetch", "search", "trino_describe_table", "trino_query"],
   "description_prefix": "You are helping a data analyst.",
   "agent_instructions_suffix": "Prefer aggregations for large tables."
 }
@@ -782,9 +783,9 @@ Creates a new persona. Only available in `database` config mode.
 {
   "name": "viewer",
   "display_name": "Data Viewer",
-  "description": "Read-only access to DataHub",
+  "description": "Read-only access to the catalog",
   "roles": ["viewer"],
-  "allow_tools": ["platform_info", "search", "fetch", "datahub_*"],
+  "allow_tools": ["platform_info", "search", "fetch"],
   "deny_tools": []
 }
 ```
@@ -812,12 +813,12 @@ persona, the missing tool, and the fix. See
 {
   "name": "viewer",
   "display_name": "Data Viewer",
-  "description": "Read-only access to DataHub",
+  "description": "Read-only access to the catalog",
   "roles": ["viewer"],
   "priority": 0,
-  "allow_tools": ["platform_info", "search", "fetch", "datahub_*"],
+  "allow_tools": ["platform_info", "search", "fetch"],
   "deny_tools": [],
-  "tools": ["datahub_browse", "datahub_get_lineage", "fetch", "search"],
+  "tools": ["fetch", "search"],
   "source": "database",
   "service_account": false
 }
@@ -1120,12 +1121,12 @@ Returns paginated audit events with optional filtering.
       "user_id": "user-uuid-1234",
       "user_email": "marcus.johnson@example.com",
       "persona": "data-engineer",
-      "tool_name": "datahub_get_schema",
-      "toolkit_kind": "datahub",
-      "toolkit_name": "acme-catalog",
-      "connection": "acme-catalog",
+      "tool_name": "fetch",
+      "toolkit_kind": "search",
+      "toolkit_name": "search",
+      "connection": "",
       "parameters": {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+        "ref": "mcp:dataset:(trino,acme-warehouse,hive.sales.orders)"
       },
       "success": true,
       "response_chars": 2450,
@@ -1166,12 +1167,12 @@ Returns a single audit event by ID.
   "user_id": "user-uuid-1234",
   "user_email": "marcus.johnson@example.com",
   "persona": "data-engineer",
-  "tool_name": "datahub_get_schema",
-  "toolkit_kind": "datahub",
-  "toolkit_name": "acme-catalog",
-  "connection": "acme-catalog",
+  "tool_name": "fetch",
+  "toolkit_kind": "search",
+  "toolkit_name": "search",
+  "connection": "",
   "parameters": {
-    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+    "ref": "mcp:dataset:(trino,acme-warehouse,hive.sales.orders)"
   },
   "success": true,
   "response_chars": 2450,
@@ -1238,7 +1239,7 @@ Returns aggregated audit metrics including tool, user, and toolkit breakdowns, t
   "avg_response_chars": 1850,
   "by_tool": [
     {"name": "trino_query", "count": 65},
-    {"name": "datahub_search", "count": 48},
+    {"name": "search", "count": 48},
     {"name": "trino_describe_table", "count": 32}
   ],
   "by_user": [
@@ -1319,7 +1320,7 @@ Returns enrichment statistics: how often enrichment is applied, which modes are 
 GET /api/v1/admin/audit/metrics/discovery
 ```
 
-Returns session-level discovery patterns: how often users explore the catalog (DataHub) before querying (Trino), and which discovery tools are most popular.
+Returns session-level discovery patterns: how often users explore the catalog (`search`, `fetch`) before querying (Trino), and which discovery tools are most popular.
 
 **Query Parameters:**
 
@@ -1339,8 +1340,8 @@ Returns session-level discovery patterns: how often users explore the catalog (D
   "discovery_rate": 0.75,
   "query_without_discovery": 20,
   "top_discovery_tools": [
-    {"name": "datahub_search", "count": 150},
-    {"name": "datahub_get_schema", "count": 90}
+    {"name": "search", "count": 150},
+    {"name": "fetch", "count": 90}
   ]
 }
 ```
@@ -1348,11 +1349,11 @@ Returns session-level discovery patterns: how often users explore the catalog (D
 | Field | Type | Description |
 |-------|------|-------------|
 | `total_sessions` | int | Total sessions in the time range |
-| `discovery_sessions` | int | Sessions that used DataHub tools |
+| `discovery_sessions` | int | Sessions that used `search` or `fetch` |
 | `query_sessions` | int | Sessions that used Trino tools |
-| `discovery_before_query` | int | Sessions where DataHub was used before Trino |
+| `discovery_before_query` | int | Sessions where `search` or `fetch` was used before Trino |
 | `discovery_rate` | float | Fraction of sessions that used discovery (0.0–1.0) |
-| `query_without_discovery` | int | Sessions that queried Trino without using DataHub first |
+| `query_without_discovery` | int | Sessions that queried Trino without using `search` or `fetch` first |
 | `top_discovery_tools` | array | Most-used discovery tools, sorted by count |
 
 ## Session Endpoints
@@ -1612,7 +1613,7 @@ describing a state nothing was running.
 
 | Parameter | Description |
 |-----------|-------------|
-| `kind` | Toolkit kind: `trino`, `datahub`, or `s3` |
+| `kind` | Toolkit kind: `trino` or `s3` |
 | `name` | Instance name |
 
 **Request Body:**
@@ -1984,65 +1985,6 @@ GET /api/v1/admin/catalog/documents/{kind}/{connection}/{filename}
 
 Returns the document's content as an attachment in its own media type, or
 `404` when the connection keeps no document by that name.
-
-### Import from DataHub
-
-```
-POST /api/v1/admin/catalog/imports
-```
-
-Starts the one-time import of a DataHub into the platform catalog and returns
-`202` with the run before it does anything else; `GET` reports the run. See
-[Importing from DataHub](catalog.md#importing-from-datahub) for what it reads
-and what it rewrites.
-
-```json
-{"url": "https://datahub.example.com:8080", "token": "<DataHub access token>"}
-```
-
-`url` is DataHub's GMS address (http or https); `token` is a DataHub personal
-access token, used for this run and not kept. Answers `400` for a missing or
-malformed field and `409` while an import is running on any replica.
-
-### List Imports
-
-```
-GET /api/v1/admin/catalog/imports
-```
-
-Returns the latest ten runs, newest first:
-
-```json
-{
-  "imports": [
-    {
-      "id": "7b1c2f4e-5d6a-4b8c-9e0f-1a2b3c4d5e6f",
-      "source_url": "https://datahub.example.com:8080",
-      "started_by": "admin@example.com",
-      "started_at": "2026-10-13T16:02:11Z",
-      "finished_at": "2026-10-13T16:05:48Z",
-      "running": false,
-      "report": {
-        "definitions": {"glossary_node": 4, "glossary_term": 31, "tag": 18, "domain": 3, "data_product": 2},
-        "datasets": {"read": 1240, "imported": 1118, "from_removed": 47, "skipped": 122},
-        "aspects_written": 3904,
-        "aspects_unchanged": 0,
-        "aspects_kept": 12,
-        "lineage_edges": 86,
-        "skipped": [{"urn": "urn:li:dataset:(urn:li:dataPlatform:tableau,sales_workbook.revenue,PROD)", "reason": "Tableau entities are not imported"}],
-        "skipped_by_reason": {"Tableau entities are not imported": 94},
-        "rewrite": {"rewritten": {"memory_records.entity_urns": 64}, "unmapped": 5, "index_rows_dropped": 1186}
-      }
-    }
-  ]
-}
-```
-
-`running` is true while the run holds the import's lock. A run with no
-`finished_at` that is not running stopped when its replica stopped, and its
-`error` says so. `skipped` lists at most 500 entries; `skipped_by_reason`
-counts every one. `where` on a skip names the platform table and row, or the
-catalog entity and aspect, it concerns.
 
 ## Gateway Endpoints
 

@@ -5,7 +5,7 @@ dedicated HTTP listener, plus optional OpenTelemetry distributed tracing.
 Two chokepoints cover every tool call through the platform:
 
 1. **The tool-call observers** record request rate, latency, and outcome
-   for every `tools/call` the platform answers (Trino, DataHub, S3, MCP
+   for every `tools/call` the platform answers (Trino, S3, MCP
    gateway, REST shim, admin tools/call), a call it refuses included: a
    failed authentication, a persona denial, a session or search-first gate
    refusal, a missing session handle or purpose, and a rate-limit refusal
@@ -18,7 +18,7 @@ Two chokepoints cover every tool call through the platform:
    http_status_class, status_category, persona).
 
 Beyond those chokepoints, toolkit and provider call paths are also
-instrumented (Trino, DataHub, S3, OAuth token issuance/refresh, and
+instrumented (Trino, S3, OAuth token issuance/refresh, and
 `database/sql` pool saturation — see [Exposed metrics](#exposed-metrics)
 below), and each tool call can additionally be traced end-to-end — see
 [Distributed tracing](#distributed-tracing).
@@ -179,8 +179,6 @@ query them; the tab is the at-a-glance read.
 | `apigateway_inbound_duration_seconds` | histogram | `connection`, `operation_id`, `method`, `status_class` |
 | `trino_queries_total` | counter | `status`, `query_kind` |
 | `trino_query_duration_seconds` | histogram | `query_kind` |
-| `datahub_requests_total` | counter | `operation`, `status` |
-| `datahub_request_duration_seconds` | histogram | `operation` |
 | `s3_operations_total` | counter | `operation` (`s3_list.buckets`, `s3_list.objects`, `s3_object.<action>`), `status` |
 | `s3_operation_duration_seconds` | histogram | `operation` |
 | `storage_operations_total` | counter | `purpose`, `operation`, `result`, `reason` (failures only) |
@@ -322,16 +320,8 @@ Trino was asked, which is how a deployment sizes its coordinator. A
 mcp-trino client does not expose a bytes-scanned figure (nor queued and
 running time) in its query stats, so there is no honest source for it.
 
-**DataHub** rows, `datahub_requests_total{operation,status}`, are the
-semantic provider's reads, one per `datahub_*` tool call under what the tool
-does (`get_lineage`, `browse`, `create`, `update`, `delete`), the two reads
-the prompt and resource sources make (`get_entity`, `get_glossary_term`), and
-every read and write `apply_knowledge` makes through its writer
-(`get_current_metadata`, `update_description`, `apply_tag_changes`,
-`create_curated_query`, `raise_incident`, ...), and the portal catalog's
-reads and edits (`get_glossary_term`, `search_documents`,
-`update_description`, `apply_owner_changes`, `set_domain`, `create_tag`,
-`upsert_context_document`, ...), each with a `datahub.<operation>` span.
+The platform catalog's reads and writes are PostgreSQL statements, counted
+and timed with the rest under `db_client_operation_duration_seconds`.
 
 ### Object storage and PostgreSQL
 
@@ -440,11 +430,6 @@ average per-call overhead an agent's context window pays:
 `rate(mcp_enrichment_bytes_total[5m]) / rate(mcp_tool_calls_total[5m])`. Use it
 to size the memory-enrichment budget (`enrichment.memory_context_budget_bytes`).
 
-**DataHub** `operation` is one of `get_entity`, `get_schema`,
-`get_schemas`, `get_lineage`, `get_column_lineage`, `get_glossary_term`,
-`get_queries`, `search_across_entities`, `semantic_search`,
-`search_documents`, `get_related_documents`, `get_document`.
-
 **S3** `operation` is the S3 tool name (`list_buckets`, `list_objects`,
 `get_object`, `get_object_metadata`, `presign_url`, ...).
 
@@ -545,14 +530,14 @@ connection's upstream, an MCP gateway's upstream server, the util
 connection's public fetch, a token endpoint, OIDC discovery and JWKS, the
 embedding provider, a notification channel's webhook, an OpenAPI document
 fetched for a catalog, the PromQL proxy's Prometheus, the headless renderer,
-the knowledge layer's DataHub REST writes, the portal's logo fetch. The chain
+the portal's logo fetch, a basemap extract, and the object store asked which server it is. The chain
 sets the platform's User-Agent, opens a client span named `{kind} {method}`
 (`api POST`) under the span of the call that made the request, carries the
 W3C `traceparent` to the upstream, and records the request under
 `http_client_requests_total{kind, connection, status_class}` and its
 duration histogram. `kind` is the closed set above (`api`, `graphql`, `mcp`,
 `util`, `oauth`, `oidc`, `embedding`, `notification`, `spec_fetch`,
-`promql`, `renderer`, `datahub`, `branding`, `maps`); `connection` is the operator's
+`promql`, `renderer`, `branding`, `maps`, `storage`); `connection` is the operator's
 connection name, empty for a kind that has none; a transport failure (DNS,
 dial, TLS, timeout) is `status_class="other"`. A Semgrep rule
 (`.semgrep/go-outbound-client.yml`) refuses an `http.Client` built anywhere
@@ -647,7 +632,7 @@ change.
 
 **Configuration.** `mcp_platform_config_info{toolkit_kinds, auth_methods,
 tracing, metrics_exporter, sampler_ratio} 1` names what the process runs
-with; values are joined, sorted sets (`toolkit_kinds="datahub,s3,trino"`).
+with; values are joined, sorted sets (`toolkit_kinds="s3,search,trino"`).
 It never carries a hostname, an address, a DSN or a secret: a value with a
 scheme separator, an `@`, a `/`, a `:` or a space is dropped before it can
 reach a label.
@@ -683,7 +668,7 @@ sampler).
 
 **Dependencies.** `dependency_up{dependency}` is 1 when a dependency
 answered its last ping and 0 when it did not: `database` (a ping),
-`semantic` (DataHub's ping), `query` (Trino's ping), `object_storage` (a
+`query` (Trino's ping), `object_storage` (a
 listing of an empty prefix of the portal bucket), `idp` (the issuer's
 discovery document) and `renderer` (the thumbnail renderer). A dependency
 this deployment does not configure has no series. Each replica pings for
@@ -692,7 +677,7 @@ only when scraped; a scrape answers from the last result and starts the next
 ping in the background, so a dependency that hangs never holds a scrape.
 
 `/readyz` does **not** read these gauges. Readiness stays the process state
-(starting, ready, draining): gating it on DataHub or the identity provider
+(starting, ready, draining): gating it on Trino or the identity provider
 would take every replica out of the load balancer at once during an
 upstream outage, including the routes that do not need that upstream. Alert
 on `dependency_up == 0` instead.
@@ -736,7 +721,7 @@ operation's name under the calling `tools/call` span:
 | `prompt.serve` | a database prompt served through `prompts/get` or `use_prompt` |
 
 `knowledge_changes_total{sink, result}` counts what `apply_knowledge`
-changed: an apply to `datahub`, `knowledge_page` or `agent_instructions` is
+changed: an apply to `catalog`, `knowledge_page` or `agent_instructions` is
 `applied` or `failed` (a confirmation round-trip is not counted), and the
 captured insight itself (`sink="insight"`) is `created` by a reviewed
 `memory_capture`, `approved` or `rejected` by a review.
@@ -1241,11 +1226,10 @@ graph TD
     HTTP["POST / (HTTP server span)"] --> Root["tools/call {tool}"]
     Root --> Enrich["enrichment (cross-service fan-out)"]
     Root --> Trino["trino.&lt;query_kind&gt;"]
-    Root --> DataHub["datahub.&lt;operation&gt;"]
     Root --> S3["s3.&lt;operation&gt;"]
     Root --> Storage["storage.&lt;operation&gt;"]
     Root --> PG["postgres.&lt;operation&gt;"]
-    Enrich --> DataHubE["datahub.&lt;operation&gt;"]
+    Enrich --> PGE["postgres.&lt;operation&gt;"]
     Enrich --> TrinoE["trino.&lt;query_kind&gt;"]
 ```
 
@@ -1290,11 +1274,10 @@ graph TD
 - **Child spans** nest under the root via context propagation: the cross-service
   `enrichment` fan-out, and one span per upstream call to Trino
   (`trino.<query_kind>`, with `db.system.name=trino`, `db.operation.name`,
-  `db.query.summary` and `trino.connection`; never the SQL text), DataHub
-  (`datahub.<operation>`), the S3 toolkit (`s3.<operation>`), the platform's
+  `db.query.summary` and `trino.connection`; never the SQL text), the S3 toolkit (`s3.<operation>`), the platform's
   own buckets (`storage.<operation>`) and PostgreSQL
   (`postgres.<operation>`, including `postgres.vector_search` for a pgvector
-  ranking). The Trino/DataHub/S3 spans are emitted by the same code that
+  ranking). The Trino and S3 spans are emitted by the same code that
   records their metrics, installed when **either** metrics or tracing is
   enabled.
 

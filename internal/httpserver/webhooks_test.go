@@ -99,7 +99,6 @@ func TestWebhooksMountAdmin(t *testing.T) {
 		Server:   platform.ServerConfig{Name: "test", Transport: "http"},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
 		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
 		Admin:    platform.AdminConfig{Enabled: new(true), Persona: "admin"},
 		Personas: platform.PersonasConfig{Definitions: map[string]platform.PersonaDef{
 			"admin": {Roles: []string{"admin"}, Tools: platform.ToolRulesDef{Allow: []string{"*"}}},

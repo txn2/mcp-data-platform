@@ -1085,7 +1085,7 @@ longer carries a copy of the predicate in front of it (#1419). A second
 definition of what a write is, sitting in front of a tool that already has one,
 is a definition that can come to disagree.
 
-**A script writes.** A persona that may call `trino_execute`, `datahub_update`
+**A script writes.** A persona that may call `trino_execute`, `apply_knowledge`
 or `s3_object` reaches them from a script, under the roles its author held
 at the save. A deployment that does not want scheduled writes withholds those
 tools from the persona, which is where that decision already lives for

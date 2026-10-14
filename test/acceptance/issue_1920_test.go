@@ -12,7 +12,8 @@ import (
 )
 
 // Issue #1920: apply_knowledge writes catalog curation to the platform catalog
-// and rolls it back through the catalog's history, with no DataHub involved.
+// and rolls it back through the catalog's history, with no external catalog
+// involved.
 // Each criterion applies through the tool an agent calls, reads the result
 // back through fetch, and rolls the changeset back through apply_knowledge.
 //
@@ -20,8 +21,9 @@ import (
 // touches: action, entity_urn, sink, tag_urn and changeset_id are strings,
 // confirm is a boolean and changes is an array of objects whose fields are all
 // strings, so each admits one JSON form and is sent in it. entity_urn carries
-// two reference forms inside that string, an mcp:dataset: reference and a
-// DataHub dataset URN, and both are sent. set_structured_property's detail is
+// an mcp: catalog reference, and a urn:li dataset URN is sent to show it is
+// refused (#1925); a tag is sent bare and as mcp:tag:<name>, and its urn:li
+// form is sent to show it is refused too. set_structured_property's detail is
 // read as a JSON array, a bare number or plain text, and all three are sent.
 
 // issue1920Dataset declares a dataset with two columns on the dev Trino
@@ -103,7 +105,7 @@ var issue1920Cases = []issue1920Case{
 	{name: "batch of column descriptions", column: "order_id", changes: []map[string]any{
 		issue1920Change("update_description", "column:order_id", "Order key."), issue1920Change("update_description", "column:amount", "Total."),
 	}, check: func(a map[string]any) bool { return a["description"] == "Order key." }},
-	{name: "add_tag", changes: []map[string]any{issue1920Change("add_tag", "", "pii"), issue1920Change("add_tag", "", "urn:li:tag:finance")},
+	{name: "add_tag", changes: []map[string]any{issue1920Change("add_tag", "", "pii"), issue1920Change("add_tag", "", "mcp:tag:finance")},
 		check: func(a map[string]any) bool { return reflect.DeepEqual(a["tags"], []any{"pii", "finance"}) }},
 	{name: "column add_tag", column: "amount", changes: []map[string]any{issue1920Change("add_tag", "column:amount", "currency")},
 		check: func(a map[string]any) bool { return reflect.DeepEqual(a["tags"], []any{"currency"}) }},
@@ -130,7 +132,7 @@ var issue1920Cases = []issue1920Case{
 	}},
 	{name: "set_structured_property", changes: []map[string]any{
 		issue1920Change("set_structured_property", "retention_days", "[90, \"days\"]"),
-		issue1920Change("set_structured_property", "urn:li:structuredProperty:tier", "1"),
+		issue1920Change("set_structured_property", "tier", "1"),
 		issue1920Change("set_structured_property", "owner_team", "finance"),
 	}, check: func(a map[string]any) bool {
 		return reflect.DeepEqual(a["structured_properties"], map[string]any{
@@ -233,23 +235,42 @@ func TestIssue1920_ChangesOnCreatedEntries(t *testing.T) {
 	}
 }
 
-// TestIssue1920_DataHubURNAndTagForms: a DataHub dataset URN is read as the
-// catalog dataset with the same path, the changeset is recorded under the
-// catalog reference, and delete_tag and bulk_untag take a tag off every
-// entity carrying it and roll back.
-func TestIssue1920_DataHubURNAndTagForms(t *testing.T) {
+// TestIssue1920_ReferenceAndTagForms: an apply is recorded and listed under
+// the catalog reference, a urn:li dataset URN is refused naming the reference
+// forms apply_knowledge reads (#1925), and delete_tag and bulk_untag take a tag
+// off every entity carrying it and roll back.
+func TestIssue1920_ReferenceAndTagForms(t *testing.T) {
 	c := connect(t)
 	ref := issue1920Dataset(t)
-	urn := "urn:li:dataset:(urn:li:dataPlatform:trino," + ref.PathString() + ",PROD)"
 	tag := "issue1920-" + ref.Path[2]
 
-	out := issue1920Apply(t, c, urn, issue1920Change("add_tag", "", tag), issue1920Change("add_tag", "column:amount", tag))
+	out := issue1920Apply(t, c, ref.String(), issue1920Change("add_tag", "", tag), issue1920Change("add_tag", "column:amount", tag))
 	if out["entity_urn"] != ref.String() {
 		t.Fatalf("changeset not recorded under the catalog reference: %v", out)
 	}
-	listed := c.call("apply_knowledge", map[string]any{"action": "list_changesets", "entity_urn": urn})
+	listed := c.call("apply_knowledge", map[string]any{"action": "list_changesets", "entity_urn": ref.String()})
 	if n, _ := listed["total"].(float64); n < 1 {
-		t.Fatalf("list_changesets by DataHub URN: %v", listed)
+		t.Fatalf("list_changesets by catalog reference: %v", listed)
+	}
+
+	urn := "urn:li:dataset:(urn:li:dataPlatform:trino," + ref.PathString() + ",PROD)"
+	res, text, err := c.callRaw("apply_knowledge", map[string]any{
+		"action": "apply", "entity_urn": urn, "changes": []map[string]any{issue1920Change("add_tag", "", tag)}, "confirm": true,
+	})
+	if err != nil {
+		t.Fatalf("apply_knowledge: transport error: %v", err)
+	}
+	if !res.IsError || !strings.Contains(text, "mcp:dataset") {
+		t.Fatalf("a urn:li dataset URN was not refused with the reference forms: %s", text)
+	}
+	res, text, err = c.callRaw("apply_knowledge", map[string]any{
+		"action": "apply", "entity_urn": ref.String(), "changes": []map[string]any{issue1920Change("add_tag", "", "urn:li:tag:"+tag)}, "confirm": true,
+	})
+	if err != nil {
+		t.Fatalf("apply_knowledge: transport error: %v", err)
+	}
+	if !res.IsError || !strings.Contains(text, "DataHub URN") {
+		t.Fatalf("a urn:li tag was not refused: %s", text)
 	}
 
 	deleted := issue1920Apply(t, c, "mcp:tag:"+tag, issue1920Change("delete_tag", "", ""))
@@ -261,7 +282,7 @@ func TestIssue1920_DataHubURNAndTagForms(t *testing.T) {
 		t.Fatalf("rollback of delete_tag: %v", a)
 	}
 
-	untag := c.call("apply_knowledge", map[string]any{"action": "bulk_untag", "tag_urn": "urn:li:tag:" + tag, "confirm": true})
+	untag := c.call("apply_knowledge", map[string]any{"action": "bulk_untag", "tag_urn": "mcp:tag:" + tag, "confirm": true})
 	if untag["entities_untagged"] != float64(2) || untag["revertible"] != true {
 		t.Fatalf("bulk_untag: %v", untag)
 	}

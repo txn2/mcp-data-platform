@@ -17,12 +17,14 @@ import (
 // Prompt and toolkit kind constants.
 const (
 	autoPromptName = "platform-overview"
-	kindDataHub    = "datahub"
-	kindTrino      = "trino"
-	kindS3         = "s3"
-	kindPortal     = "portal"
-	kindKnowledge  = "knowledge"
-	kindMemory     = "memory"
+	// kindSearch is the search toolkit, whose search and fetch read the
+	// platform catalog: its datasets, curation, lineage and glossary.
+	kindSearch    = "search"
+	kindTrino     = "trino"
+	kindS3        = "s3"
+	kindPortal    = "portal"
+	kindKnowledge = "knowledge"
+	kindMemory    = "memory"
 	// promptArgTopic is the argument name shared across workflow prompts
 	// that take a free-form subject ("explore", "create-dashboard", etc.).
 	promptArgTopic = "topic"
@@ -141,14 +143,14 @@ type capabilityEntry struct {
 // the resulting description. Extracted to reduce cyclomatic complexity.
 func capabilityTable() []capabilityEntry {
 	return []capabilityEntry{
-		{check: func(h map[string]bool) bool { return h[kindDataHub] }, text: "Explore available data and trace lineage through the data catalog"},
+		{check: func(h map[string]bool) bool { return h[kindSearch] }, text: "Explore available data and trace lineage through the data catalog"},
 		{check: func(h map[string]bool) bool { return h[kindTrino] }, text: "Query data using SQL across connected databases"},
 		{check: func(h map[string]bool) bool { return h[kindS3] }, text: "Browse and retrieve files from object storage"},
 		{check: func(h map[string]bool) bool { return h[kindPortal] }, text: "Save generated content (dashboards, reports, charts) as viewable, shareable assets"},
 		{check: func(h map[string]bool) bool { return h[kindKnowledge] }, text: "Capture domain knowledge and insights to improve the data catalog. Knowledge is captured automatically from conversations, not just when asked"},
 		{check: func(h map[string]bool) bool { return h[kindMemory] }, text: "Remember corrections, preferences, and context across sessions. Agents store what they learn and apply it in future conversations"},
-		{check: func(h map[string]bool) bool { return h[kindDataHub] && h[kindTrino] }, text: "Generate reports by discovering data and querying it"},
-		{check: func(h map[string]bool) bool { return h[kindDataHub] && h[kindTrino] && h[kindPortal] }, text: "Create interactive dashboards and save them for later viewing"},
+		{check: func(h map[string]bool) bool { return h[kindSearch] && h[kindTrino] }, text: "Generate reports by discovering data and querying it"},
+		{check: func(h map[string]bool) bool { return h[kindSearch] && h[kindTrino] && h[kindPortal] }, text: "Create interactive dashboards and save them for later viewing"},
 	}
 }
 
@@ -156,7 +158,7 @@ func capabilityTable() []capabilityEntry {
 // based on which toolkits are enabled.
 func (h *Handle) collectCapabilityBullets() []string {
 	has := map[string]bool{
-		kindDataHub:   len(h.registry.GetByKind(kindDataHub)) > 0,
+		kindSearch:    len(h.registry.GetByKind(kindSearch)) > 0,
 		kindTrino:     len(h.registry.GetByKind(kindTrino)) > 0,
 		kindS3:        len(h.registry.GetByKind(kindS3)) > 0,
 		kindPortal:    len(h.registry.GetByKind(kindPortal)) > 0,
@@ -269,7 +271,7 @@ func workflowPrompts() []workflowPrompt {
 					{Name: promptArgTopic, Description: "What topic or subject area?", Required: true},
 				},
 			},
-			requiredKinds: []string{kindDataHub},
+			requiredKinds: []string{kindSearch},
 		},
 		{
 			spec: PromptSpec{
@@ -286,7 +288,7 @@ func workflowPrompts() []workflowPrompt {
 					{Name: promptArgTopic, Description: "What should the dashboard visualize?", Required: true},
 				},
 			},
-			requiredKinds: []string{kindDataHub, kindTrino, kindPortal},
+			requiredKinds: []string{kindSearch, kindTrino, kindPortal},
 		},
 		{
 			spec: PromptSpec{
@@ -303,7 +305,7 @@ func workflowPrompts() []workflowPrompt {
 					{Name: promptArgTopic, Description: "What should the report cover?", Required: true},
 				},
 			},
-			requiredKinds: []string{kindDataHub, kindTrino},
+			requiredKinds: []string{kindSearch, kindTrino},
 		},
 		{
 			spec: PromptSpec{
@@ -320,7 +322,7 @@ func workflowPrompts() []workflowPrompt {
 					{Name: "dataset", Description: "Which dataset or column to trace?", Required: true},
 				},
 			},
-			requiredKinds: []string{kindDataHub},
+			requiredKinds: []string{kindSearch},
 		},
 	}
 }

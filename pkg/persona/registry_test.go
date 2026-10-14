@@ -187,7 +187,7 @@ func TestRegistry_LoadFromConfig(t *testing.T) {
 			Description: "Analyst persona",
 			Roles:       []string{"analyst", "data_engineer"},
 			Tools: ToolRulesConfig{
-				Allow: []string{"trino_*", "datahub_*"},
+				Allow: []string{"trino_*", "graphql_*"},
 				Deny:  []string{"*_admin_*"},
 			},
 			Context: ContextOverridesYAML{

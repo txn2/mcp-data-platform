@@ -25,7 +25,7 @@ const QUICK_TEMPLATES: {
   {
     name: "Analyst",
     hint: "Query + catalog, no mutations",
-    allowTools: ["trino_*", "datahub_*", "s3_get_*", "s3_list_*"],
+    allowTools: ["trino_*", "search", "fetch", "s3_get_*", "s3_list_*"],
     denyTools: ["*_delete_*", "*_execute"],
   },
   {

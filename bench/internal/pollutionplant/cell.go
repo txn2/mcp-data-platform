@@ -330,7 +330,7 @@ func armTreatment(f Fixture, class Class, arm Arm) (Treatment, error) {
 	// used: the warehouse on its catalog entity, the API on a page. The
 	// follow-up levels and the page-sink warehouse variant are separate
 	// contrasts rather than extra matrix cells.
-	sink := protocol.SinkDataHub
+	sink := protocol.SinkCatalog
 	if f == FixtureAPI {
 		sink = protocol.SinkKnowledgePage
 	}

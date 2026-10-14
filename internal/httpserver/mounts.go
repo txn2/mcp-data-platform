@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/admin/resindexapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/secretapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
 
@@ -21,15 +22,15 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessgate"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/adminwire"
-	"github.com/txn2/mcp-data-platform/internal/httpserver/datahubapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
-	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
+	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
@@ -38,7 +39,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
-	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/observability/proxy"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -51,7 +51,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
-	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -388,66 +387,12 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if router := p.KnowledgeRouter(); router != nil {
 		deps.SearchRouter = portalSearchAdapter{router: router}
 	}
-	if bridge := buildDataHubBridge(p); bridge != nil {
-		deps.DataHubRegistrar = dataHubRegistrar(p, bridge, deps.PersonaResolver, deps.AdminRoles)
-		// The labeler shares the bridge with the REST surface: naming a governance
-		// entity a knowledge page cites is the same read over the same
-		// connections (#1159).
-		deps.CatalogLabeler = datahubapi.NewLabeler(bridge)
+	if store := catalogstore.StoreFor(p.DB()); store != nil {
+		deps.CatalogRegistrar = catalogwire.PortalRegistrar(p, store, deps.PersonaResolver, deps.AdminRoles)
+		// A knowledge page citing a glossary term, a tag or a domain renders
+		// its name, read from the same catalog the routes serve (#1159).
+		deps.CatalogLabeler = catalogwire.Labeler{Store: store}
 	}
-}
-
-// buildDataHubBridge assembles read/write access to the live DataHub toolkit
-// connections, or nil when none is registered. It reuses each toolkit's client
-// for both the semantic read adapter and the batched write client; a read-only
-// connection (read_only=true) exposes no writer.
-//
-// The bridge is built once and shared by everything the portal serves over
-// DataHub — the Catalog REST surface (#718) and the knowledge-page catalog
-// labeler (#1159) — so a connection is never opened twice for the same server.
-func buildDataHubBridge(p *platform.Platform) datahubapi.Bridge {
-	if p.ToolkitRegistry() == nil {
-		return nil
-	}
-	urn := p.Config().Semantic.URNMapping
-	platformName := urn.Platform
-	if platformName == "" {
-		platformName = "trino"
-	}
-
-	bridge := datahubapi.NewStaticBridge()
-	for _, tk := range p.ToolkitRegistry().All() {
-		dhTk, ok := tk.(*datahubkit.Toolkit)
-		if !ok || dhTk.Client() == nil {
-			continue
-		}
-		reader, writer, err := datahubapi.BuildConnection(dhTk.Client(), platformName, urn.CatalogMapping, dhTk.Config().ReadOnly)
-		if err != nil {
-			slog.Warn("portal datahub: skipping connection", "connection", dhTk.Name(), "error", err)
-			continue
-		}
-		bridge.Add(dhTk.Name(), reader, writer)
-	}
-	if bridge.Empty() {
-		return nil
-	}
-	return bridge
-}
-
-// dataHubRegistrar returns the route registrar for the portal DataHub REST
-// handler (#718) over an assembled bridge.
-func dataHubRegistrar(p *platform.Platform, bridge datahubapi.Bridge, resolver portal.PersonaResolver, adminRoles []string) func(*http.ServeMux) {
-	var auditLogger audit.Logger
-	if store := p.Audit().Store(); store != nil {
-		auditLogger = store
-	}
-	handler := datahubapi.NewHandler(datahubapi.Deps{
-		Bridge:          bridge,
-		PersonaResolver: resolver,
-		AdminRoles:      adminRoles,
-		Audit:           auditLogger,
-	})
-	return handler.Register
 }
 
 // portalSearchAdapter bridges the portal's GET /search endpoint to the unified
@@ -514,7 +459,7 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 			filter := persona.NewToolFilter(pr)
 			info.Tools = filter.FilterTools(per, tr.AllTools())
 			info.ReachesCatalogRef = func(reference string) bool {
-				names := connsource.ConnectionNamesForURN(nil, tr.All(), reference)
+				names := connscope.RefConnections(tr.All(), reference)
 				if len(names) == 0 {
 					return true
 				}
@@ -723,7 +668,6 @@ func AdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Hand
 		// asset, exactly as the owner's does (#1536).
 		OnAssetRevised:     tableSourceHooks(p).AssetRevised,
 		ConnectionStore:    p.ConnectionStore(),
-		ConnectionSources:  p.ConnectionSources(),
 		EnrichmentStore:    p.EnrichmentStore(),
 		ToolkitsConfig:     p.Config().Toolkits,
 		PersonaStore:       p.PersonaStore(),

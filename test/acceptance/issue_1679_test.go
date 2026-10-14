@@ -9,12 +9,12 @@ package acceptance
 //
 // The api criteria read the User-Agent where it lands: the api-test fixture
 // (dev/docker-compose.yml) echoes the request it received. The graphql
-// criteria run against DataHub's GMS at /api/graphql, the real endpoint
+// criteria run against the dev stack's GraphQL fixture, the real endpoint
 // #1277's criteria use, behind a firewall stand-in started by the test: no
 // deployment runs a firewall the suite can point at, so the stand-in is the
 // one part written here. It refuses Go's User-Agent with the 403 HTML page the
 // reported endpoint answered, records what each request carried, and forwards
-// everything else to DataHub unchanged.
+// everything else to the fixture unchanged.
 //
 // Wire forms: `static_headers` is a JSON object on the connection config and
 // admits one form. api_invoke_endpoint's `headers` is an object of strings and
@@ -56,7 +56,7 @@ func issue1679ProductUserAgent(t *testing.T, c *client) string {
 
 // issue1679Firewall is the stand-in: a firewall in front of the real GraphQL
 // endpoint. refuse decides, from the User-Agent, whether a request is blocked
-// with the 403 page; every other request is forwarded to DataHub and its
+// with the 403 page; every other request is forwarded to the fixture and its
 // answer returned as is.
 type issue1679Firewall struct {
 	server *httptest.Server

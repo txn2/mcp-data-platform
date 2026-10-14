@@ -480,11 +480,11 @@ var memoryCaptureSchema = json.RawMessage(`{
   "properties": {
     "type": {
       "type": "string",
-      "description": "Organizing axis (a hint, not a binding route): personal_preference (your working style/preference) and episodic_event (a one-off event) are live for you immediately; business_knowledge (a durable business fact), schema_entity (knowledge about a specific dataset/column, with entity_urns), and operational_rule (a how-to-operate rule) enter review for promotion to shared knowledge. The promotion destination (a DataHub catalog entity vs a knowledge page) is chosen at apply time, suggested by whether the insight carries entity_urns; it is not frozen here."
+      "description": "Organizing axis (a hint, not a binding route): personal_preference (your working style/preference) and episodic_event (a one-off event) are live for you immediately; business_knowledge (a durable business fact), schema_entity (knowledge about a specific dataset/column, with entity_urns), and operational_rule (a how-to-operate rule) enter review for promotion to shared knowledge. The promotion destination (a catalog entity vs a knowledge page) is chosen at apply time, suggested by whether the insight carries entity_urns; it is not frozen here."
     },
     "content": {"type": "string", "description": "The knowledge to record (10-4000 chars)."},
     "category": {"type": "string", "description": "Optional sub-type: correction, business_context, data_quality, usage_guidance, relationship, enhancement, general (default business_context)."},
-    "entity_urns": {"type": "array", "items": {"type": "string"}, "description": "DataHub URNs this capture is about (schema_entity); max 10."},
+    "entity_urns": {"type": "array", "items": {"type": "string"}, "description": "Catalog references this capture is about, e.g. mcp:dataset:(trino,<connection>,<catalog>.<schema>.<table>) (schema_entity); max 10."},
     "related_columns": {"type": "array", "items": {"type": "object"}, "description": "Optional columns this capture relates to; max 20."},
     "suggested_actions": {"type": "array", "description": "Optional proposed catalog changes (schema_entity, max 5), applied later via apply_knowledge.", "items": {"type": "object"}},
     "confidence": {"type": "string", "description": "high, medium, or low (default medium)."},

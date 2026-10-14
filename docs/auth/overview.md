@@ -25,11 +25,12 @@ toolkits:
         user: ${TRINO_USER}        # Your credentials
         password: ${TRINO_PASSWORD}
     default: primary
-  datahub:
+  s3:
     enabled: true
     instances:
       primary:
-        token: ${DATAHUB_TOKEN}    # Your token
+        access_key_id: ${AWS_ACCESS_KEY_ID}         # Your keys
+        secret_access_key: ${AWS_SECRET_ACCESS_KEY}
     default: primary
 ```
 

@@ -177,7 +177,7 @@ func TestRealDB_FeedbackBridge_CaptureLinksThreadAndChain(t *testing.T) {
 	// uses, closing thread -> insight -> changeset -> target_urn.
 	require.NoError(t, csStore.InsertChangeset(ctx, knowledgekit.Changeset{
 		ID:               "cs_bridge",
-		TargetURN:        "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.churn,PROD)",
+		TargetURN:        "mcp:dataset:(trino,warehouse,hive.sales.churn)",
 		ChangeType:       "update_description",
 		SourceInsightIDs: []string{out.InsightID},
 		AppliedBy:        "admin",
@@ -187,5 +187,5 @@ func TestRealDB_FeedbackBridge_CaptureLinksThreadAndChain(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, chain, 1)
 	assert.Equal(t, "cs_bridge", chain[0].ID)
-	assert.Equal(t, "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.churn,PROD)", chain[0].TargetURN)
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,hive.sales.churn)", chain[0].TargetURN)
 }

@@ -89,7 +89,7 @@ const (
 // SinkInsight is the captured insight itself: created by memory_capture,
 // approved or rejected by a review.
 const (
-	SinkDataHub           = "datahub"
+	SinkCatalog           = "catalog"
 	SinkKnowledgePage     = "knowledge_page"
 	SinkAgentInstructions = "agent_instructions"
 	SinkInsight           = "insight"

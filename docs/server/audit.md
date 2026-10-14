@@ -86,8 +86,8 @@ result: the fields the table below defines.
 | `user_id` | VARCHAR(255) | The principal that made the call, which is not always a person: an OIDC `sub` (or OAuth token subject) for someone signed in, `apikey:<name>` for an API key, and `script:<name>` for a [managed-script run](../scripts/running.md). See [Who made the call](#who-made-the-call). |
 | `user_email` | VARCHAR(255) | The address the principal acts for: the signed-in person's own, the script owner's on a run, or the address configured for an API key (a key that configured none authenticates as the synthetic `<name>@apikey.local`). It is not an identity — every one of an owner's scripts writes the same address — so `user_id` is what separates two rows. |
 | `persona` | VARCHAR(100) | Resolved persona name (e.g., `analyst`, `admin`). Set by the authorizer based on the user's roles. |
-| `tool_name` | VARCHAR(255) | MCP tool name (e.g., `trino_query`, `datahub_search`, `s3_list`). For gateway-proxied tools, `<connection>__<remote_tool>` (e.g., `vendor__list_contacts`). |
-| `toolkit_kind` | VARCHAR(100) | Toolkit type: `trino`, `datahub`, `s3`, or `mcp` (proxied through the [gateway toolkit](gateway.md)). |
+| `tool_name` | VARCHAR(255) | MCP tool name (e.g., `trino_query`, `search`, `s3_list`). For gateway-proxied tools, `<connection>__<remote_tool>` (e.g., `vendor__list_contacts`). |
+| `toolkit_kind` | VARCHAR(100) | Toolkit type: `trino`, `s3`, `search`, `knowledge`, or `mcp` (proxied through the [gateway toolkit](gateway.md)). |
 | `toolkit_name` | VARCHAR(100) | Toolkit instance name from configuration (e.g., `production`, `staging`). For gateway proxied tools, the gateway toolkit's own name (typically `primary`). |
 | `connection` | VARCHAR(100) | Connection name. For native toolkits, the connection used to route the call (e.g., `prod-trino`). For gateway proxied tools, the upstream MCP connection name (e.g., `vendor`) — populated via the registry's `ConnectionResolver` interface so per-upstream auditing is accurate without relying on caller-supplied args. |
 | `purpose` | TEXT | The one sentence the caller gave for **why** this call was made: the wider task it serves. Stated by the agent as the `purpose` argument and taken off the request before the tool saw it. `NULL` on rows written before the column existed; empty on a call that stated none, including every call by a caller that cannot thread arguments (an MCP App, a script run, the REST shim). It is not an argument value, so [Parameter Sanitization](#parameter-sanitization) does not apply to it. See [Why a call happened](#why-a-call-happened). |
@@ -186,7 +186,7 @@ Tools on this platform are reachable through several entry points, all of which 
 | `rest` | Gateway REST shim at `POST /api/v1/gateway/{connection}/invoke` | Apache NiFi, cronjobs, integrations, anything HTTP that wraps the platform |
 | `admin` | Admin REST API tool execution at `POST /api/v1/admin/tools/call` | Portal UI "test this tool" buttons, ops scripts |
 | `script` | A managed-script run's host bindings (`middleware.SourceScript`) | `run_script`, a schedule, a draft run |
-| `portal` | A portal action the platform audits directly rather than through a tool call | A script owner transfer, a DataHub write from the portal |
+| `portal` | A portal action the platform audits directly rather than through a tool call | A script owner transfer, a catalog edit from the portal |
 
 Both the gateway REST shim (`internal/httpserver/gatewayhttp/handler.go`) and the admin tool runner (`pkg/admin/tools.go`) open an in-memory MCP session against the assembled server and call the same `api_invoke_endpoint` (or other) tool that an agent would call. The handlers tag the context with `middleware.WithSource` before opening that session so the audit middleware records the originating caller class, not just "mcp".
 
@@ -208,7 +208,7 @@ The `event_kind` field separates the classes of audited activity that otherwise 
 
 | `event_kind` | What it means |
 |--------------|---------------|
-| `mcp_tool_call` | A tool routed through one of the MCP toolkits (`trino`, `datahub`, `s3`, or the MCP gateway). |
+| `mcp_tool_call` | A tool routed through one of the MCP toolkits (`trino`, `s3`, `search`, or the MCP gateway). |
 | `apigateway_invoke` | An HTTP API call proxied through the apigateway toolkit (`api_invoke_endpoint`, `api_export`, and the other `api_*` tools). |
 | `prompt_serve` | A database prompt served to an agent (`prompts/get`, or a resolved `manage_prompt use`). Carries `prompt_id`, `prompt_name`, and `version` in `parameters`, and is the source of the per-prompt run counts in the portal. |
 | `resource_read` | A managed resource's content served. Carries `resource_id`, `resource_uri`, `surface`, and (when a specific revision was named) `version` in `parameters`. |
@@ -404,9 +404,9 @@ WITH session_tools AS (
 ),
 session_patterns AS (
     SELECT session_id,
-           BOOL_OR(toolkit_kind = 'datahub') AS has_discovery,
+           BOOL_OR(toolkit_kind = 'search') AS has_discovery,
            BOOL_OR(toolkit_kind = 'trino') AS has_query,
-           MIN(CASE WHEN toolkit_kind = 'datahub' THEN first_call END) AS first_discovery,
+           MIN(CASE WHEN toolkit_kind = 'search' THEN first_call END) AS first_discovery,
            MIN(CASE WHEN toolkit_kind = 'trino' THEN first_call END) AS first_query
     FROM session_tools
     GROUP BY session_id

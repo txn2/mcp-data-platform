@@ -49,7 +49,7 @@ func TestAllowed(t *testing.T) {
 		{"s3", nil, "session_token", true},
 		{"s3", nil, "endpoint", false},
 		{"s3", nil, "access_key_id.x", false},
-		{"datahub", nil, "token", false},
+		{"ftp", nil, "token", false},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, Allowed(tc.kind, tc.cfg, tc.path), "%s %s", tc.kind, tc.path)
@@ -58,7 +58,7 @@ func TestAllowed(t *testing.T) {
 	assert.Contains(t, Fields("mcp"), "credential, and oauth_client_id")
 	assert.Equal(t, "password", Fields("trino"))
 	assert.Equal(t, "access_key_id, secret_access_key and session_token", Fields("s3"))
-	assert.Equal(t, "none of a datahub connection's fields", Fields("datahub"))
+	assert.Equal(t, "none of a ftp connection's fields", Fields("ftp"))
 }
 
 // TestKeysAreTheOnesTheKindsRead pins the spelling of every key Allowed

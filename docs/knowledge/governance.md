@@ -34,13 +34,13 @@ Response:
   "total_pending": 7,
   "by_entity": [
     {
-      "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+      "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
       "count": 3,
       "categories": ["correction", "business_context"],
       "latest_at": "2025-01-15T14:30:00Z"
     },
     {
-      "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.finance.revenue,PROD)",
+      "entity_urn": "mcp:dataset:(trino,warehouse,hive.finance.revenue)",
       "count": 4,
       "categories": ["data_quality", "usage_guidance", "enhancement"],
       "latest_at": "2025-01-15T16:45:00Z"
@@ -96,7 +96,7 @@ Drill into a specific entity to see its pending insights alongside its current c
 ```json
 {
   "action": "review",
-  "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+  "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)"
 }
 ```
 
@@ -170,7 +170,7 @@ Once insights are approved, the `synthesize` action gathers them and builds stru
 ```json
 {
   "action": "synthesize",
-  "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+  "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)"
 }
 ```
 
@@ -178,7 +178,7 @@ Response:
 
 ```json
 {
-  "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+  "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
   "current_metadata": {
     "description": "Order records",
     "tags": ["financial"],
@@ -211,7 +211,7 @@ The synthesis output shows current values alongside proposed changes, so admins 
 
 ## Applying Changes
 
-The `apply` action writes changes to the platform catalog and records a changeset. `entity_urn` is the catalog reference of the dataset, column or definition; a DataHub dataset URN is read as the catalog dataset with the same path, on the first connection that catalogs it.
+The `apply` action writes changes to the platform catalog and records a changeset. `entity_urn` is the catalog reference of the dataset, column or definition; any other form is refused with the forms it takes.
 
 ```json
 {
@@ -259,7 +259,7 @@ A dataset and its columns carry every kind of curation; curated queries, inciden
 | Change Type | Description | Target Field | Detail Field |
 |-------------|-------------|--------------|--------------|
 | `update_description` | Set the description | `column:<name>` or empty | Description text |
-| `add_tag` / `remove_tag` | Add or remove a tag | `column:<name>` or empty | Tag name (`mcp:tag:` and `urn:li:tag:` prefixes are read as the name) |
+| `add_tag` / `remove_tag` | Add or remove a tag | `column:<name>` or empty | Tag name (an `mcp:tag:` prefix is read as the name) |
 | `add_glossary_term` | Attach a glossary term; a name the catalog does not hold creates the term | `column:<name>` or empty | Term reference or name |
 | `flag_quality_issue` | Add the `QualityIssue` tag and, on a dataset with a detail, open a `Data quality issue` incident carrying it (one per open detail) | (ignored) | Issue description |
 | `add_documentation` | Add a documentation link (one per URL) | URL | Link description |
@@ -321,7 +321,7 @@ Use the `list_changesets` action to find an entity's changesets without already 
 { "action": "list_changesets", "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)" }
 ```
 
-A DataHub dataset URN finds the changesets recorded under the catalog reference it is read as. Each entry returns `changeset_id`, `created_at`, `applied_by`, `change_type`, `source_insight_ids`, the current `rolled_back` status, and the same `revertible` boolean (plus `unrevertible_change_types` when `false`) the apply response carries.
+Each entry returns `changeset_id`, `created_at`, `applied_by`, `change_type`, `source_insight_ids`, the current `rolled_back` status, and the same `revertible` boolean (plus `unrevertible_change_types` when `false`) the apply response carries.
 
 ## Rollback
 
@@ -348,7 +348,7 @@ Returning them is the point: reverting an application usually means the promotio
 - The changeset has already been rolled back.
 - An aspect it wrote has been written again since, by any writer. Reverting would discard that newer write, so the rollback names it (the aspect, the entity, who wrote it and when); roll that change back first, or restore the desired state with a fresh apply.
 - It created a prompt, which a rollback does not delete.
-- It was applied to DataHub before the platform catalog replaced it, so its writes are not in the catalog's history. Restore the desired state with a fresh apply.
+- It was written before the platform catalog held its entities, by a release that wrote to an external catalog, so its writes are not in the catalog's history. Restore the desired state with a fresh apply.
 
 ## Complete Workflow Example
 

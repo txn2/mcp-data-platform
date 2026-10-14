@@ -12,20 +12,15 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/tableavail"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 )
 
 // defaultMemoryEnrichmentLimit is the number of memories to inject per tool call.
 const defaultMemoryEnrichmentLimit = 5
 
-// minURNLength is the minimum string length to qualify as a DataHub URN candidate.
-const minURNLength = 10
-
-// urnPrefixLen is the length of the "urn:li:" prefix used for URN detection.
-const urnPrefixLen = 7
-
-// maxURNLength is the maximum reasonable length for a DataHub URN string.
-const maxURNLength = 500
+// maxRefLength is the longest string read as a catalog reference candidate.
+const maxRefLength = 500
 
 // MemoryProvider retrieves relevant memories for cross-enrichment into toolkit responses.
 type MemoryProvider interface {
@@ -303,8 +298,8 @@ func recordSizeEstimate(rec renderedMemory) int {
 }
 
 // verifiableSizeEstimate is the serialized cost of a record's verification
-// marker, zero when it carries none. A URN is long enough (a real DataHub
-// dataset URN runs past 80 bytes) that leaving the block out of the budget
+// marker, zero when it carries none. A reference is long enough (a dataset
+// reference runs past 60 bytes) that leaving the block out of the budget
 // arithmetic would let a page of marked insights overshoot the operator's cap
 // by half again as much as they asked for.
 func verifiableSizeEstimate(v *query.Verifiable) int {
@@ -316,7 +311,7 @@ func verifiableSizeEstimate(v *query.Verifiable) int {
 	return len(v.URN) + len(v.QueryTable) + len(v.Connection) + verifiableKeyOverhead
 }
 
-// extractEntityURNsFromResult scans result content for DataHub URNs.
+// extractEntityURNsFromResult scans result content for catalog references.
 func extractEntityURNsFromResult(result *mcp.CallToolResult) []string {
 	var urns []string
 	seen := make(map[string]bool)
@@ -350,7 +345,7 @@ func extractMemoryURNsFromMap(data map[string]any, seen map[string]bool, urns *[
 func collectURNsFromValue(val any, seen map[string]bool, urns *[]string) {
 	switch v := val.(type) {
 	case string:
-		if isDataHubURN(v) && !seen[v] {
+		if isCatalogRef(v) && !seen[v] {
 			seen[v] = true
 			*urns = append(*urns, v)
 		}
@@ -363,7 +358,12 @@ func collectURNsFromValue(val any, seen map[string]bool, urns *[]string) {
 	}
 }
 
-// isDataHubURN checks if a string looks like a DataHub URN.
-func isDataHubURN(s string) bool {
-	return len(s) > minURNLength && s[:urnPrefixLen] == "urn:li:" && len(s) < maxURNLength
+// isCatalogRef reports whether a string is a platform catalog reference, the
+// form memory records name the entities they are about by.
+func isCatalogRef(s string) bool {
+	if len(s) > maxRefLength {
+		return false
+	}
+	_, err := catalog.ParseRef(s)
+	return err == nil
 }

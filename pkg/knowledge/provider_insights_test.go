@@ -198,7 +198,7 @@ func TestInsightsProvider_SearchError(t *testing.T) {
 }
 
 func TestInsightsProvider_EntityLookupScopedToCaller(t *testing.T) {
-	urn := "urn:li:dataset:orders"
+	urn := "mcp:dataset:(trino,warehouse,c.s.orders)"
 	s := &fakeInsightStore{
 		byURN: map[string][]knowledgekit.Insight{
 			urn: {
@@ -231,7 +231,7 @@ func TestInsightsProvider_EntityLookupScopedToCaller(t *testing.T) {
 }
 
 func TestInsightsProvider_EntityLookupDropsRetractedWhenNoStatus(t *testing.T) {
-	urn := "urn:li:dataset:orders"
+	urn := "mcp:dataset:(trino,warehouse,c.s.orders)"
 	s := &fakeInsightStore{
 		byURN: map[string][]knowledgekit.Insight{
 			urn: {
@@ -255,7 +255,7 @@ func TestInsightsProvider_EntityLookupDropsRetractedWhenNoStatus(t *testing.T) {
 }
 
 func TestInsightsProvider_EntityLookupKeepsRetractedWhenStatusRequested(t *testing.T) {
-	urn := "urn:li:dataset:orders"
+	urn := "mcp:dataset:(trino,warehouse,c.s.orders)"
 	s := &fakeInsightStore{
 		byURN: map[string][]knowledgekit.Insight{
 			urn: {{ID: "rej", InsightText: "rejected", Status: knowledgekit.StatusRejected, EntityURNs: []string{urn}}},
@@ -280,7 +280,7 @@ func TestInsightsProvider_EntityLookupKeepsRetractedWhenStatusRequested(t *testi
 }
 
 func TestInsightsProvider_EntityAndTextDedup(t *testing.T) {
-	urn := "urn:li:dataset:orders"
+	urn := "mcp:dataset:(trino,warehouse,c.s.orders)"
 	dup := knowledgekit.Insight{ID: "dup", InsightText: "dup", Status: knowledgekit.StatusApproved, EntityURNs: []string{urn}}
 	s := &fakeInsightStore{
 		byURN:  map[string][]knowledgekit.Insight{urn: {dup}},
@@ -320,7 +320,7 @@ func TestInsightsProvider_Fetch(t *testing.T) {
 	const owner = "alice@example.com"
 	ref := knowledgepage.InsightRef("ins_1")
 	live := func() *knowledgekit.Insight {
-		return &knowledgekit.Insight{ID: "ins_1", CapturedBy: owner, Status: knowledgekit.StatusApproved, InsightText: "orders.total excludes tax", EntityURNs: []string{"urn:li:dataset:orders"}}
+		return &knowledgekit.Insight{ID: "ins_1", CapturedBy: owner, Status: knowledgekit.StatusApproved, InsightText: "orders.total excludes tax", EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.orders)"}}
 	}
 
 	t.Run("returns the owner's live insight", func(t *testing.T) {
@@ -456,7 +456,7 @@ func (s *scopingInsightStore) Get(_ context.Context, id string) (*knowledgekit.I
 
 // orgInsightsURN is the entity every fixture insight hangs off, so the entity
 // arm and the text arm run over the same corpus.
-const orgInsightsURN = "urn:li:dataset:orders"
+const orgInsightsURN = "mcp:dataset:(trino,warehouse,c.s.orders)"
 
 // orgInsights is the fixture for the cross-identity tests: one capturer (bob)
 // with an insight at every status, plus one of the caller's own.

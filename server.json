@@ -46,6 +46,6 @@
     "data-platform",
     "semantic",
     "trino",
-    "datahub"
+    "catalog"
   ]
 }

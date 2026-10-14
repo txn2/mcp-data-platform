@@ -39,7 +39,7 @@ func TestToPersona(t *testing.T) {
 		DisplayName: "Data Analyst",
 		Description: "Analyzes data",
 		Roles:       []string{"analyst", "viewer"},
-		ToolsAllow:  []string{"trino_*", "datahub_*"},
+		ToolsAllow:  []string{"trino_*", "graphql_*"},
 		ToolsDeny:   []string{"*_delete_*"},
 		ConnsAllow:  []string{"prod_*"},
 		ConnsDeny:   []string{"staging_*"},
@@ -60,7 +60,7 @@ func TestToPersona(t *testing.T) {
 	assert.Equal(t, "Data Analyst", p.DisplayName)
 	assert.Equal(t, "Analyzes data", p.Description)
 	assert.Equal(t, []string{"analyst", "viewer"}, p.Roles)
-	assert.Equal(t, []string{"trino_*", "datahub_*"}, p.Tools.Allow)
+	assert.Equal(t, []string{"trino_*", "graphql_*"}, p.Tools.Allow)
 	assert.Equal(t, []string{"*_delete_*"}, p.Tools.Deny)
 	assert.Equal(t, []string{"prod_*"}, p.Connections.Allow)
 	assert.Equal(t, []string{"staging_*"}, p.Connections.Deny)

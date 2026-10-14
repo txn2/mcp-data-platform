@@ -30,7 +30,7 @@ graph LR
 
     subgraph Serving
         TRI[Trino]
-        DH[DataHub]
+        DH[Platform catalog]
         S3[S3 Data Lake]
     end
 
@@ -66,7 +66,7 @@ graph LR
 - **POS → Iceberg**: < 15 minutes (CDC via Debezium)
 - **ERP → Iceberg**: < 1 hour (batch CDC)
 - **dbt models**: Complete by 5:00 AM ET
-- **DataHub metadata sync**: < 30 minutes after schema change
+- **Catalog scan**: < 30 minutes after schema change
 
 ## Data Quality Rules
 

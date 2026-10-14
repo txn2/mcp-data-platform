@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/catalogfake"
 	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -18,13 +19,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// The URNs the fake catalog returns. Each test connection is given its own
-// DataHub platform name so a URN maps to exactly one connection; the third
-// belongs to a platform no connection claims.
+// The references the fake catalog returns. Each names its connection; the
+// third names a connection the registry does not hold.
 const (
-	ordersURN  = "urn:li:dataset:(urn:li:dataPlatform:trino-a,db.analytics.orders,PROD)"
-	payrollURN = "urn:li:dataset:(urn:li:dataPlatform:trino-b,db.analytics.payroll,PROD)"
-	notesURN   = "urn:li:dataset:(urn:li:dataPlatform:mystery,db.analytics.notes,PROD)"
+	ordersURN  = "mcp:dataset:(trino,warehouse-a,db.analytics.orders)"
+	payrollURN = "mcp:dataset:(trino,warehouse-b,db.analytics.payroll)"
+	notesURN   = "mcp:dataset:(trino,mystery,db.analytics.notes)"
 )
 
 // connToolkit is a minimal registry.Toolkit standing for a data connection, so
@@ -42,7 +42,7 @@ func (connToolkit) Close() error                          { return nil }
 
 // fakeCatalog is a semantic.Provider whose search returns the three datasets
 // above and whose entity lookup resolves them, so the catalog provider behaves
-// as it does against DataHub without one being reachable.
+// as it does against the platform catalog.
 type fakeCatalog struct{ *semantic.NoopProvider }
 
 func (fakeCatalog) SearchTables(context.Context, semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
@@ -69,8 +69,9 @@ func (fakeCatalog) GetTableContext(_ context.Context, table semantic.TableIdenti
 
 // boundaryFederation assembles the real search federation the platform builds:
 // the live toolkit registry behind the connections source, the catalog over a
-// semantic provider, and the persona-backed connection scope over a real persona
-// registry. Nothing here is hand-fed a Caller — the router builds one per arm.
+// semantic provider and the catalog store, and the persona-backed connection
+// scope over a real persona registry. Nothing here is hand-fed a Caller: the
+// router builds one per arm.
 func boundaryFederation(t *testing.T) *Handle {
 	t.Helper()
 
@@ -86,8 +87,8 @@ func boundaryFederation(t *testing.T) *Handle {
 	}))
 	require.NoError(t, personas.Register(persona.AdminPersona()))
 
-	// The URN → connection mapping the platform derives from its connection
-	// source map: each connection owns its own DataHub platform name.
+	// The reference → connection mapping the platform derives from the
+	// connection a catalog reference names.
 	urnConns := func(urn string) []string {
 		switch urn {
 		case ordersURN:
@@ -103,6 +104,7 @@ func boundaryFederation(t *testing.T) *Handle {
 		ToolkitName:      "default",
 		CatalogEnabled:   true,
 		SemanticProvider: fakeCatalog{NoopProvider: semantic.NewNoopProvider()},
+		Catalog:          boundaryStore(),
 		Registry:         reg,
 		ConnectionScope: connscope.New(connscope.Deps{
 			Registry:       personas,
@@ -111,6 +113,16 @@ func boundaryFederation(t *testing.T) *Handle {
 	})
 	require.NotNil(t, h)
 	return h
+}
+
+// boundaryStore holds the three datasets the fake catalog returns, so fetch
+// dereferences them.
+func boundaryStore() *catalogfake.Store {
+	store := catalogfake.New()
+	store.AddDataset("warehouse-a", "db.analytics.orders")
+	store.AddDataset("warehouse-b", "db.analytics.payroll")
+	store.AddDataset("mystery", "db.analytics.notes")
+	return store
 }
 
 // coverageBySource indexes a coverage summary for assertions.
@@ -233,6 +245,7 @@ func TestSearch_NoConnectionScopeLeavesDiscoveryUnfiltered(t *testing.T) {
 		ToolkitName:      "default",
 		CatalogEnabled:   true,
 		SemanticProvider: fakeCatalog{NoopProvider: semantic.NewNoopProvider()},
+		Catalog:          boundaryStore(),
 		Registry:         reg,
 	})
 	require.NotNil(t, h)

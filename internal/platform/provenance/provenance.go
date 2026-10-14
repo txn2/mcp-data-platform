@@ -50,7 +50,6 @@ var sourceKinds = map[string]string{
 	"trino":   portal.ProvenanceKindSQL,
 	"api":     portal.ProvenanceKindAPI,
 	"graphql": portal.ProvenanceKindGraphQL,
-	"datahub": portal.ProvenanceKindTool,
 	"s3":      portal.ProvenanceKindTool,
 	// "mcp" is the MCP gateway toolkit's kind: every tool it proxies from an
 	// upstream server, whose names are chosen upstream. Keyed by kind for the

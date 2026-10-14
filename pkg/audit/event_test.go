@@ -60,7 +60,7 @@ func TestEventKindForToolkit(t *testing.T) {
 	}{
 		{"api", EventTypeAPIGatewayInvoke},
 		{"trino", EventTypeMCPToolCall},
-		{"datahub", EventTypeMCPToolCall},
+		{"graphql", EventTypeMCPToolCall},
 		{"s3", EventTypeMCPToolCall},
 		{"mcp", EventTypeMCPToolCall},
 		{"", EventTypeMCPToolCall},

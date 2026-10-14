@@ -7,7 +7,7 @@ package acceptance
 // 100,000 of them and said "Exported 100000 rows as csv."
 //
 // What this holds, against the running platform and the dev stack's Trino,
-// the api-test fixture and DataHub's GraphQL endpoint: a cut the caller did not
+// the api-test fixture and the GraphQL fixture: a cut the caller did not
 // ask for writes nothing and says why; a cut the caller asked for, or accepted
 // with on_truncation "warn", is written and flagged in the response, on the
 // asset (tag and version metadata, as the portal reads them), on a managed
@@ -317,17 +317,18 @@ func TestIssue2057_AGraphQLWalkStoppedByItsBoundIsACutFile(t *testing.T) {
 	requireGraphQLUpstream(t)
 	c := connect(t)
 	conn := issue1277Connect(t, c, "acc-2057", nil)
-	const document = `query Scroll($scrollId: String) {
-	  scrollAcrossEntities(input: {query: "*", count: 1, scrollId: $scrollId}) {
-	    nextScrollId
-	    searchResults { entity { urn } }
+	const document = `query Page($after: Cursor) {
+	  allDatasets(first: 1, after: $after) {
+	    pageInfo { endCursor hasNextPage }
+	    nodes { code }
 	  }
 	}`
 	res, text, err := c.callRaw("graphql_export", map[string]any{
 		"connection": conn, "query": document, "name": fmt.Sprintf("acc-2057-gql-%d", time.Now().UnixNano()),
 		"paginate": map[string]any{
-			"items": "scrollAcrossEntities.searchResults", "cursor_variable": "scrollId",
-			"next_cursor_path": "scrollAcrossEntities.nextScrollId", "max_pages": 2,
+			"items": "allDatasets.nodes", "cursor_variable": "after",
+			"next_cursor_path": "allDatasets.pageInfo.endCursor", "has_next_path": "allDatasets.pageInfo.hasNextPage",
+			"max_pages": 2,
 		},
 		"on_truncation": "warn", "purpose": issue2057Purpose,
 	})

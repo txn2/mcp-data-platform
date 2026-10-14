@@ -1,89 +1,84 @@
-import {
-  useCatalogEntity,
-  useDataHubConnections,
-  type TableContext,
-} from "@/api/portal/datahub";
+import { useDataset, useDefinition, type Aspects } from "@/api/portal/catalog";
 import { ApiError } from "@/api/portal/client";
 import { Badge } from "@/components/ui/badge";
+import { catalogKind, columnDataset } from "@/lib/entityRefs";
 import { cn } from "@/lib/utils";
 
 /**
- * CatalogNodeDetail resolves a catalog node against the DataHub catalog itself.
+ * CatalogNodeDetail resolves a catalog node against the platform catalog.
  *
- * A graph node's label for a catalog reference is DERIVED from its URN (the
- * dataset segment of `urn:li:dataset:(platform,name,env)`), not read from
- * DataHub — so it is not the entity's name, and searching the catalog for it
- * finds nothing. This looks the entity up and shows what the catalog actually
- * holds, or says plainly that the citation points at something the catalog does
- * not have. Resolution happens only for the node the reader has selected, so the
- * corpus-wide graph read stays one request.
+ * A graph node's label for a catalog reference is DERIVED from the reference
+ * (the table its path ends in, the key a definition carries), not read from the
+ * catalog, so it is not the entity's name. This looks the entity up and shows
+ * what the catalog actually holds, or says plainly that the citation points at
+ * something the catalog does not have. Resolution happens only for the node the
+ * reader has selected, so the corpus-wide graph read stays one request.
  */
 export function CatalogNodeDetail({ urn }: { urn: string }) {
-  const { data: connections } = useDataHubConnections();
-  // Resolve against the first configured connection. Naming it in the readout
-  // keeps the claim true on a deployment with several catalogs: "not in acme" is
-  // a fact, "not in the catalog" would be a guess about the others.
-  const conn = connections?.[0]?.name ?? "";
-  const { data, isLoading, isError, error } = useCatalogEntity(conn, urn);
+  const kind = catalogKind(urn);
+  if (!kind || kind === "schema_document") return <CatalogRow>A catalog schema document.</CatalogRow>;
+  return kind === "dataset" || kind === "column" ? (
+    <DatasetFacts reference={columnDataset(urn)} />
+  ) : (
+    <DefinitionFacts reference={urn} />
+  );
+}
 
-  if (!conn) return <CatalogRow>No DataHub connection is configured.</CatalogRow>;
-  if (isLoading) return <CatalogRow>Looking this up in {conn}...</CatalogRow>;
-  if (isError || !data?.context) return <LookupFailure conn={conn} error={error} />;
-  return <CatalogFacts conn={conn} context={data.context} />;
+function DatasetFacts({ reference }: { reference: string }) {
+  const q = useDataset(reference);
+  if (q.isLoading) return <CatalogRow>Looking this up in the catalog...</CatalogRow>;
+  if (q.isError || !q.data) return <LookupFailure error={q.error} />;
+  return <CatalogFacts aspects={q.data.aspects ?? {}} names={q.data.names} />;
+}
+
+function DefinitionFacts({ reference }: { reference: string }) {
+  const q = useDefinition(reference);
+  if (q.isLoading) return <CatalogRow>Looking this up in the catalog...</CatalogRow>;
+  if (q.isError || !q.data) return <LookupFailure error={q.error} />;
+  return <CatalogFacts aspects={q.data.aspects ?? {}} />;
 }
 
 /**
  * LookupFailure separates a catalog that does not hold the entity from one that
- * could not be reached. The catalog reports the first as a 404 (#1610); reading
- * the answer off the record's own fields, as this component did, called an
- * entity nobody had documented missing.
+ * could not be read. The catalog reports the first as a 404 (#1610).
  */
-function LookupFailure({ conn, error }: { conn: string; error: unknown }) {
+function LookupFailure({ error }: { error: unknown }) {
   if (error instanceof ApiError && error.status === 404) {
     return (
       <CatalogRow tone="warn">
-        Not found in <span className="font-medium text-foreground">{conn}</span>. A page cites this
-        dataset, but the catalog does not have it.
+        Not in the catalog. A page cites this entity, but the catalog does not have it.
       </CatalogRow>
     );
   }
-  return <CatalogRow>Could not reach the {conn} catalog.</CatalogRow>;
+  return <CatalogRow>Could not read the catalog.</CatalogRow>;
 }
 
-/** isDocumented reports whether anyone has described the entity the catalog holds. */
-function isDocumented(context: TableContext): boolean {
-  return Boolean(
-    context.description ||
-      context.owners?.length ||
-      context.tags?.length ||
-      context.glossary_terms?.length ||
-      context.domain ||
-      context.quality_score != null,
-  );
+/** isDocumented reports whether anyone has described the entity. */
+function isDocumented(a: Aspects): boolean {
+  return Boolean(a.description || a.owners?.length || a.tags?.length || a.glossary_terms?.length || a.domain);
 }
 
 /** CatalogFacts renders what the catalog holds for a resolved entity. */
-function CatalogFacts({ conn, context }: { conn: string; context: TableContext }) {
-  const owners = context.owners?.length ?? 0;
-  const documented = isDocumented(context);
+function CatalogFacts({ aspects: a, names }: { aspects: Aspects; names?: Record<string, string> }) {
+  const owners = a.owners?.length ?? 0;
   return (
     <div className="rounded-md border border-border bg-muted/40 px-2.5 py-2 text-xs">
-      <p className="mb-1 text-muted-foreground">In {conn}</p>
-      {!documented && (
+      <p className="mb-1 text-muted-foreground">In the catalog</p>
+      {!isDocumented(a) && (
         <p className="text-foreground">
-          The catalog holds this dataset with no description, owners or tags recorded.
+          The catalog holds this with no description, owners or tags recorded.
         </p>
       )}
-      {context.description && <p className="line-clamp-4 text-foreground">{context.description}</p>}
-      {context.domain?.name && (
-        <p className="mt-1 text-muted-foreground">Domain: {context.domain.name}</p>
+      {a.description && <p className="line-clamp-4 text-foreground">{a.description}</p>}
+      {a.domain && (
+        <p className="mt-1 text-muted-foreground">Domain: {names?.[a.domain] ?? a.domain}</p>
       )}
       {owners > 0 && (
         <p className="mt-1 text-muted-foreground">
           {owners} owner{owners === 1 ? "" : "s"}
         </p>
       )}
-      <CatalogTags tags={context.tags} />
+      <CatalogTags tags={a.tags} />
     </div>
   );
 }

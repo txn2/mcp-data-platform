@@ -132,6 +132,26 @@ type Toolkit struct {
 	queryProvider    query.Provider
 
 	promptCreator PromptCreator
+
+	// reach reports whether the caller's persona reaches the connection a
+	// catalog reference names. Nil reaches every reference.
+	reach CatalogReach
+}
+
+// CatalogReach reports whether the caller of ctx may curate the entity a
+// catalog reference names: a reference naming a connection when the caller's
+// persona reaches it, and one naming none always. The portal's catalog routes
+// ask the same of their caller.
+type CatalogReach func(ctx context.Context, reference string) bool
+
+// SetCatalogReach installs the connection boundary curation writes respect.
+func (t *Toolkit) SetCatalogReach(reach CatalogReach) {
+	t.reach = reach
+}
+
+// reaches reports whether the caller may curate reference.
+func (t *Toolkit) reaches(ctx context.Context, reference string) bool {
+	return t.reach == nil || t.reach(ctx, reference)
 }
 
 // SetPageGuards wires the resolved knowledge-page write-guard thresholds and the
@@ -223,7 +243,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"longer than the inline limit is written to a knowledge page and the section keeps one index entry pointing at it, and a promotion naming a tool this deployment " +
 				"does not register is refused. Route domain knowledge to sink='knowledge_page' instead; the instruction layer should carry at most a pointer to it. " +
 				"entity_urn is a catalog reference: mcp:dataset:(kind,connection,path), mcp:column:(kind,connection,path,column), mcp:glossary_term:<id>, mcp:glossary_node:<id>, " +
-				"mcp:domain:<id>, mcp:data_product:<id> or mcp:tag:<name>; a DataHub dataset URN is read as the catalog dataset with the same path. " +
+				"mcp:domain:<id>, mcp:data_product:<id> or mcp:tag:<name>. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag. " +
 				"The changes of one apply are written together or not at all. " +
 				"bulk_untag (tag_urn required, confirm required) removes a tag from every dataset and column carrying it, up to 500 per call, recording one changeset. " +
@@ -231,7 +251,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"and returns the changeset's source insights to the review queue as pending (insights_returned_to_review), keeping applied_by/applied_at/changeset_ref so the next reviewer sees what was already tried; " +
 				"use reject to discard an insight for good. " +
 				"Rollback is refused, and nothing is reverted, if the changeset is already rolled back, if an aspect it wrote has been written again since (roll that change back first), " +
-				"if it created a prompt, or if it was applied to DataHub before the platform catalog replaced it. " +
+				"if it created a prompt, or if it was written before the platform catalog existed. " +
 				"list_changesets (entity_urn required) lists an entity's changesets with their ids, timestamps, actors, and rollback status. " +
 				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, " +
 				"set_structured_property, remove_structured_property, raise_incident, resolve_incident, " +
@@ -239,7 +259,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"A dataset and its columns carry every kind of curation; curated queries, incidents and context documents are dataset-only; a glossary term, glossary node, domain, " +
 				"data product or tag carries a description, owners, custom properties and documentation links. " +
 				"update_description, add_tag, remove_tag and add_glossary_term take target 'column:<name>' to address a column of the dataset (e.g., 'column:location_type_id'); omit it for the entity itself. " +
-				"For add_tag/remove_tag, detail is the tag name (e.g., 'pii'; 'mcp:tag:pii' and 'urn:li:tag:pii' are read as 'pii'). " +
+				"For add_tag/remove_tag, detail is the tag name (e.g., 'pii'; 'mcp:tag:pii' is read as 'pii'). " +
 				"For add_glossary_term, detail is a term reference or name; a name the catalog does not hold creates the term, and the response lists it in created_ids. " +
 				"flag_quality_issue adds a fixed 'QualityIssue' tag and, on a dataset with a detail, opens a 'Data quality issue' incident whose description is the detail (re-applying the same detail while it is open adds none). " +
 				"For add_documentation, target is the URL, detail is the link description. " +
@@ -1063,7 +1083,7 @@ Always discover before you apply: search existing memory, insights, and knowledg
 4. **Route to the right home.**
    - Tied to a catalog entity (dataset, column, glossary term): apply to the catalog (the default sink, sink=catalog), using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn, its mcp:dataset:(kind,connection,path) reference.
    - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.
-5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:<id>, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).
+5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:<id>, mcp:connection:(kind,name), mcp:dataset:(kind,connection,path), and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing entity rejects the apply. References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).
 6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).
 7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.
 

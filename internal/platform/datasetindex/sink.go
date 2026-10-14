@@ -56,7 +56,7 @@ func (s *Sink) UpsertBatch(ctx context.Context, _ indexjobs.Key, rows []indexjob
 
 // StampExpected is a no-op. Gap detection here is condition-based (sweep age,
 // missing or stale-model vectors), not count-based: the expected count lives in
-// DataHub, so a stamped number could only ever restate the last sweep's own
+// the catalog, so a stamped number could only ever restate the last sweep's own
 // result. The sweep timestamp — the part that does drive scheduling — is
 // stamped by the Source when the enumeration it describes actually happened.
 func (*Sink) StampExpected(context.Context, indexjobs.Key, int) error { return nil }

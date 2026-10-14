@@ -12,8 +12,7 @@ import (
 
 // Issue #1922: lineage written by the platform as it moves data. The edges are
 // read back through fetch, whose dataset document carries the lineage within
-// three hops each way. The portal dataset page that shows them is #1921, and
-// the tool that replaces datahub_get_lineage is #1924.
+// three hops each way. The portal dataset page that shows them is #1921.
 //
 // Wire forms: trino_execute's `connection` and `sql`, run_script's `name`,
 // manage_script's `command`, `name`, `description` and `source`, and fetch's

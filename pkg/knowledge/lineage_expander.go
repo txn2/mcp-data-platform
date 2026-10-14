@@ -7,7 +7,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// lineageExpander widens a set of entity URNs along one hop of DataHub lineage
+// lineageExpander widens a set of entity URNs along one hop of catalog lineage
 // for the search entity path, mirroring the memory toolkit's lineage collection.
 // It is the seam that carries the old memory_recall "graph" strategy into the
 // unified search verb, implementing the router's LineageExpander.
@@ -15,7 +15,7 @@ type lineageExpander struct {
 	semantic semantic.Provider
 }
 
-// NewLineageExpander returns a LineageExpander backed by a DataHub semantic
+// NewLineageExpander returns a LineageExpander backed by the catalog semantic
 // provider. Pass it to NewRouter so entity-keyed searches recall knowledge about
 // upstream and downstream datasets, not just the exact URNs.
 func NewLineageExpander(sem semantic.Provider) LineageExpander {

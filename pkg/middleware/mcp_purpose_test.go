@@ -37,8 +37,7 @@ func TestPurposeResolver_Gates(t *testing.T) {
 		why  string
 	}{
 		{"trino_query", true, "named in the default set"},
-		{"datahub_get_lineage", true, "matched by the datahub_get_* glob"},
-		{"datahub_browse", false, "browse is discovery, not in the glob"},
+		{"fetch", true, "named in the default set"},
 		{"search", true, "named in the default set"},
 		{"platform_info", false, "orientation tools are deliberately excluded"},
 		{"list_connections", false, "orientation tools are deliberately excluded"},
@@ -65,7 +64,7 @@ func TestPurposeResolver_GatesByName(t *testing.T) {
 	})
 
 	assert.True(t, r.GatesByName("trino_query"), "named in the default set")
-	assert.True(t, r.GatesByName("datahub_get_lineage"), "matched by the datahub_get_* glob")
+	assert.True(t, r.GatesByName("fetch"), "named in the default set")
 	assert.False(t, r.GatesByName("vendor__list_contacts"),
 		"gated by kind:mcp, which names no tool")
 	assert.True(t, r.Gates("vendor__list_contacts"), "and is gated all the same")

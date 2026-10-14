@@ -45,9 +45,9 @@ export const mockAssets: Asset[] = [
             {
               event_id: "evt-q4-1",
               kind: "tool",
-              tool: "datahub_get_entity",
-              connection: "acme-catalog",
-              summary: "urn:li:dataset:(urn:li:dataPlatform:trino,sales.quarterly,PROD)",
+              tool: "fetch",
+              connection: "",
+              summary: "mcp:dataset:(trino,acme-warehouse,sales.quarterly)",
               purpose: "Checking the ownership and freshness of the revenue table before charting it.",
               outcome: "success",
               duration_ms: 212,
@@ -260,7 +260,7 @@ export const mockAssets: Asset[] = [
       user_id: "user-alice",
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(7), parameters: { sql: "SELECT metric, value, trend FROM analytics.kpi_scores" } },
-        { tool_name: "datahub_search", timestamp: daysAgo(7), parameters: { query: "KPI definitions" } },
+        { tool_name: "search", timestamp: daysAgo(7), parameters: { query: "KPI definitions" } },
         { tool_name: "save_asset", timestamp: daysAgo(7), parameters: { name: "KPI Scorecard Component" } },
       ],
     },
@@ -315,7 +315,7 @@ export const mockAssets: Asset[] = [
       session_id: "sess-fff",
       user_id: "user-alice",
       tool_calls: [
-        { tool_name: "datahub_search", timestamp: daysAgo(1), parameters: { query: "tables with quality issues" } },
+        { tool_name: "search", timestamp: daysAgo(1), parameters: { query: "tables with quality issues" } },
         { tool_name: "save_asset", timestamp: daysAgo(1), parameters: { name: "Data Quality Summary" } },
       ],
     },
@@ -344,7 +344,7 @@ export const mockAssets: Asset[] = [
       user_id: "user-alice",
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(1), parameters: { sql: "SELECT store, year, SUM(revenue) FROM sales.annual GROUP BY store, year" } },
-        { tool_name: "datahub_search", timestamp: daysAgo(1), parameters: { query: "store metadata" } },
+        { tool_name: "search", timestamp: daysAgo(1), parameters: { query: "store metadata" } },
         { tool_name: "save_asset", timestamp: daysAgo(1), parameters: { name: "ACME Corp Sales Dashboard" } },
       ],
     },

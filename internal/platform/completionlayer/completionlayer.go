@@ -52,15 +52,9 @@ const (
 	connectionsTool = "list_connections"
 )
 
-// dataProductEntityType is the DataHub entity type queried to enumerate data
-// products for topic completions (SearchTables has no dedicated data-product
-// list method).
-const dataProductEntityType = "DATA_PRODUCT"
-
 // listAll is the catalog's match-everything query. A completion fires before the
 // user has typed anything, and a relevance backend reads the empty string as a
-// query that matches nothing rather than everything (the DataHub adapter makes the
-// same substitution for its glossary picker), so the first keystroke-free request
+// query that matches nothing rather than everything, so the first keystroke-free request
 // would otherwise answer "no datasets" instead of listing the catalog.
 const listAll = "*"
 
@@ -78,10 +72,10 @@ const defaultTimeout = time.Second
 // row arriving beyond what a response may carry is itself proof that more matches
 // exist — evidence in hand, not an inference about a limit the backend may have
 // ignored. That evidence is the fallback, not the signal: a page-bounded backend
-// reduces the requested limit silently (the DataHub client caps every search at
-// 100), so the extra row is exactly what a clamp removes and every clamped page
-// read as a complete set (#1238). The primary signal is the backend's own match
-// count, which survives the clamp — see semantic.SearchTablesCounted.
+// can reduce the requested limit silently, so the extra row is exactly what a
+// clamp removes and every clamped page would read as a complete set (#1238). The
+// primary signal is the backend's own match count, which survives a clamp; see
+// semantic.SearchTablesCounted.
 const fetchLimit = MaxValues + 1
 
 // coverage is what a value provider proved about the matches it did not return.
@@ -349,7 +343,7 @@ func (h *Handle) datasetNames(ctx context.Context, value string) (found []string
 }
 
 // topics aggregates domains, data products, and glossary terms into a single
-// deduplicated topic candidate list. The three sources are independent DataHub
+// deduplicated topic candidate list. The three sources are independent catalog
 // lookups, so they run concurrently to fit the interactive latency budget. The
 // merged coverage is the weakest of the three: domains are enumerated whole,
 // while the other two are page-bounded searches that report their own match
@@ -383,10 +377,9 @@ func (h *Handle) topics(ctx context.Context, value string) (found []string, cov 
 // no query, so it is filtered client-side).
 //
 // It can never prove completeness. CatalogPicker.ListDomains returns rows and no
-// count, and the DataHub listing behind it is bounded upstream at its own fixed
-// page, so a short list is as consistent with a bounded page as with an exhausted
-// vocabulary — the same trap the counted searches exist to avoid, in a listing
-// with no count to escape it. Its coverage is therefore unknown whether it
+// count, and the listing behind it is bounded, so a short list is as consistent
+// with a bounded page as with an exhausted vocabulary: the same trap the counted
+// searches exist to avoid, in a listing with no count to escape it. Its coverage is therefore unknown whether it
 // succeeds or fails, which makes every topic completion unprovable; that is the
 // honest reading until the picker can report a domain total.
 func (h *Handle) domainCandidates(ctx context.Context, value string) (found []string, cov coverage) {
@@ -420,22 +413,19 @@ func (h *Handle) glossaryCandidates(ctx context.Context, value string) (found []
 	return entityRefNames(terms), coverageOf(len(terms), total)
 }
 
-// dataProductCandidates ranks data products by the partial value via the
-// entity-type-scoped search.
+// dataProductCandidates ranks data products by the partial value server-side.
+// The picker reports no total, so a full page cannot be told from an exhausted
+// one.
 func (h *Handle) dataProductCandidates(ctx context.Context, value string) (found []string, cov coverage) {
-	products, total, err := semantic.SearchTablesCounted(ctx, h.deps.Semantic, semantic.SearchFilter{
-		Query:       searchQuery(value),
-		EntityTypes: []string{dataProductEntityType},
-		Limit:       fetchLimit,
-	})
+	picker, ok := semantic.CatalogPickerFrom(h.deps.Semantic)
+	if !ok {
+		return nil, coverageComplete
+	}
+	products, err := picker.SearchDataProducts(ctx, value, fetchLimit)
 	if err != nil {
 		return nil, coverageUnknown
 	}
-	out := make([]string, 0, len(products))
-	for _, dp := range products {
-		out = append(out, dp.Name)
-	}
-	return out, coverageOf(len(products), total)
+	return entityRefNames(products), coverageOf(len(products), semantic.TotalUnknown)
 }
 
 // connectionNames returns the configured connection names the caller's persona is

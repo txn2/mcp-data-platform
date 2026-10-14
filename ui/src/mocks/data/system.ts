@@ -39,13 +39,9 @@ export const mockTools: ToolInfo[] = [
   // acme-staging (trino) — staging environment
   { name: "trino_query", toolkit: "acme-staging", kind: "trino", connection: "acme-staging", hidden: false },
   { name: "trino_describe_table", toolkit: "acme-staging", kind: "trino", connection: "acme-staging", hidden: false },
-  // acme-catalog (datahub) — production metadata catalog
-  { name: "datahub_search", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog", hidden: false },
-  { name: "datahub_get_lineage", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog", hidden: false },
-  { name: "datahub_browse", toolkit: "acme-catalog", kind: "datahub", connection: "acme-catalog", hidden: false },
-  // acme-catalog-staging (datahub) — staging catalog
-  { name: "datahub_search", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging", hidden: false },
-  { name: "datahub_browse", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging", hidden: false },
+  // search — discovery across the catalog and everything else; no connection
+  { name: "search", toolkit: "search", kind: "search", connection: "", hidden: false },
+  { name: "fetch", toolkit: "search", kind: "search", connection: "", hidden: false },
   // acme-data-lake (s3) — raw data lake
   { name: "s3_list", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
   { name: "s3_object", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
@@ -76,20 +72,6 @@ export const mockConnections: ConnectionInfo[] = [
     connection: "acme-staging",
     tools: ["trino_query", "trino_describe_table"],
     hidden_tools: [],
-  },
-  {
-    kind: "datahub",
-    name: "acme-catalog",
-    connection: "acme-catalog",
-    tools: ["datahub_search", "datahub_get_lineage", "datahub_browse"],
-    hidden_tools: [],
-  },
-  {
-    kind: "datahub",
-    name: "acme-catalog-staging",
-    connection: "acme-catalog-staging",
-    tools: ["datahub_search", "datahub_browse"],
-    hidden_tools: ["datahub_search", "datahub_browse"],
   },
   {
     kind: "s3",

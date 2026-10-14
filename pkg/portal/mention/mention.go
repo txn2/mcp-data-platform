@@ -24,7 +24,7 @@ import (
 // reference scanner carries a trailing-punctuation trim for (#704). This form
 // terminates at ")", converts losslessly to an address (local + "@" + domain),
 // and matches the parenthesized shape the platform already uses for compound
-// references (mcp:connection:(kind,name), urn:li:dataset:(...)).
+// references (mcp:connection:(kind,name), mcp:dataset:(...)).
 var tokenRe = regexp.MustCompile(
 	`@([A-Za-z0-9._%+\-]+)\(([A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,})\)`)
 

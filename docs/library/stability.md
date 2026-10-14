@@ -23,7 +23,7 @@ only in a major release.
 | `pkg/semantic` | Semantic provider interface (swap the semantic layer) |
 | `pkg/query` | Query execution provider interface (swap the query engine) |
 | `pkg/middleware` | Request/response middleware contracts |
-| `pkg/toolkits/*` | The toolkit adapters' exported config types (Trino, DataHub, S3, and the others) |
+| `pkg/toolkits/*` | The toolkit adapters' exported config types (Trino, S3, and the others) |
 
 ## Everything else under `pkg/`
 
@@ -55,7 +55,7 @@ The facade's private implementation seams (middleware assembly, field
 encryption, the IAM resolver, session synchronization, the prompt and memory
 layers, the background index consumers, MCP Apps support, and similar) live
 under `internal/platform/`. The HTTP adapters the server mounts — the gateway
-REST shim, the prompt attachment, version and mention endpoints, the DataHub
+REST shim, the prompt attachment, version and mention endpoints, the portal
 catalog API, the MCP transport auth gate, the persona access gate and the health
 handlers — live under `internal/httpserver/`, and the portal's own seams under
 `internal/portal/`: its domain types and store contracts, its PostgreSQL and

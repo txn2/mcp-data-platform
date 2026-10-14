@@ -15,9 +15,9 @@ import (
 // Issue #1678: a graphql_query whose HTTP 200 carried an errors array
 // reported upstream_error on its result and was audited and cataloged as a
 // success. The criteria run through the real MCP surface against the real
-// GraphQL server the repository's e2e environment brings up (DataHub's GMS at
-// /api/graphql), then read the audit row, the call record and the fetched
-// record the way an operator and an agent do.
+// GraphQL server the dev stack runs (the GraphQL fixture, PostGraphile at
+// http://localhost:9286/graphql), then read the audit row, the call record and
+// the fetched record the way an operator and an agent do.
 //
 // Wire forms: graphql_query's `connection`, `query` and `purpose` are strings
 // only, and `variables` is not sent. graphql_export's `name` is a string only.
@@ -25,9 +25,9 @@ import (
 
 const issue1678Purpose = "Acceptance for #1678: a GraphQL failure inside a 200 is a failed call wherever the platform records it."
 
-// issue1678BadDocument is a document DataHub's schema admits and its resolver
-// refuses: an unparseable URN. warn mode is what lets it reach the endpoint.
-const issue1678BadDocument = `query Bad { dataset(urn: "not-a-urn") { urn } }`
+// issue1678BadDocument is a document the fixture's schema admits and its
+// resolver refuses inside an HTTP 200: a malformed dataset code.
+const issue1678BadDocument = `query Bad { findDataset(code: "not-a-code") { code } }`
 
 // issue1678Call makes one graphql_query and returns the tool's result parsed,
 // with the call reference the platform stamped on it.

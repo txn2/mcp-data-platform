@@ -79,7 +79,6 @@ var defaultPurposeTools = []string{
 	"trino_describe_table",
 	"api_invoke_endpoint",
 	"api_export",
-	"datahub_get_*",
 	"s3_object",
 	"s3_list",
 	"save_asset",

@@ -186,7 +186,7 @@ func TestScriptsProvider_FetchDeclinesForeignReferences(t *testing.T) {
 	s := &fakeScriptSearcher{}
 	p := NewScriptsProvider(s)
 
-	for _, ref := range []string{"mcp:prompt:11111111-1111-1111-1111-111111111111", "urn:li:dataset:(a,b,PROD)", "nonsense", ""} {
+	for _, ref := range []string{"mcp:prompt:11111111-1111-1111-1111-111111111111", "mcp:dataset:(a,warehouse,b)", "nonsense", ""} {
 		doc, owned, err := p.Fetch(context.Background(), ref, Caller{})
 		require.NoError(t, err, ref)
 		assert.False(t, owned, ref)

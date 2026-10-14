@@ -83,7 +83,6 @@ graph TB
 
     subgraph Outbound[Outbound dependencies]
         Trino[Trino]
-        DataHub[DataHub]
         S3[S3]
         UpstreamMCP[Upstream MCP servers]
         UpstreamAPI[Upstream HTTP APIs]
@@ -114,7 +113,6 @@ graph TB
 
     GatewayHTTP --> UpstreamMCP
     Outbound --> Trino
-    Outbound --> DataHub
     Outbound --> S3
     Outbound --> UpstreamAPI
     Outbound --> Embed
@@ -220,8 +218,7 @@ calling user's identity.
 | Dependency | Package | Credential / control |
 |------------|---------|----------------------|
 | Trino | `pkg/toolkits/trino/`, `pkg/query/trino/` | Username/password from connection config. Optional read-only mode (`read_only`, default off) rejects write SQL via `ReadOnlyInterceptor` (delegates to `trinotools.IsWriteSQL`); this is a write-verb rejection, not a SELECT-only allowlist. It applies per connection: the interceptor resolves the connection the call names, or the default when it names none, and permits writes only on a connection configured write-capable — an unresolved or unconfigured connection is refused. The interceptor runs on the toolkit's SQL tools; `pkg/query/trino/` is the enrichment read path, which issues its own fixed metadata queries and does not run the interceptor. |
-| DataHub | `pkg/semantic/datahub/adapter.go` | Static bearer token from connection config. |
-| S3 | `pkg/storage/s3/adapter.go` | Static access-key/secret from connection config; the adapter carries a `ReadOnly` flag. |
+| S3 | `pkg/toolkits/s3/` | Static access-key/secret from connection config; a connection carries a `read_only` flag that refuses writes. |
 | Upstream MCP servers (gateway toolkit) | `pkg/toolkits/gateway/` | Remote tool descriptions and responses are re-exposed under a namespaced name. Descriptions and non-error response content flow through with enrichment applied only to structured content; there is no description sanitization. See the [malicious upstream](#malicious-or-compromised-upstream) analysis. |
 | Upstream HTTP APIs (apigateway toolkit) | `pkg/toolkits/apigateway/invoke.go` | Requests target the operator-authored `base_url`; method is restricted to a closed allowlist and per-call timeout is capped. This path targets operator-configured hosts and does not run the catalog SSRF dialer guard. |
 | OAuth-to-upstream | `pkg/connoauth/exchange.go` | One shared upstream identity per connection (#374). The token-exchange client refuses redirects, caps the response body, and enforces a hard timeout; tokens are attached by `authRoundTripper` in the gateway client. |
@@ -322,17 +319,21 @@ and on to the LLM client.
 
 ### Malicious data in query results
 
-Reachable surface: the content of rows returned by Trino, DataHub, or S3,
+Reachable surface: the content of rows returned by Trino or S3, and the catalog curation people and agents write,
 carried to the LLM client through cross-enrichment.
 
 - Prompt-injection content in data reaching the client (Tampering). Query
   results and their enriched context are returned to the calling LLM client.
-  DataHub semantic metadata (descriptions, tags, glossary terms, column context)
-  that flows through cross-enrichment is sanitized before exposure: control
+  Catalog curation (descriptions, tags, glossary terms, column context) that
+  flows through cross-enrichment is sanitized before exposure: control
   characters are removed, known injection patterns are stripped by default,
-  strings are length-capped, and detected attempts are logged
-  (`pkg/semantic/sanitize.go`, `pkg/semantic/injection_logger.go`). Raw query row
-  values are a different matter: the platform does not and cannot scrub
+  strings are length-capped, and detected attempts are logged with the
+  reference and field they were found in
+  (`internal/platform/catalogsemantic`, `pkg/semantic/sanitize.go`,
+  `pkg/semantic/injection_logger.go`). It is also authored only by callers
+  holding `apply_knowledge` or the portal's curation rights, and every write is
+  audited, versioned and reversible. Raw query row values are a different
+  matter: the platform does not and cannot scrub
   adversarial natural-language content out of legitimate data values, so a cell
   that contains attacker-controlled text reaches the client. What the platform
   does provide there is bounding and provenance: read-only mode can prevent the
@@ -365,7 +366,7 @@ the platform database.
 
 ### Compromised downstream credential
 
-Reachable surface: the blast radius of a leaked Trino, S3, or DataHub service
+Reachable surface: the blast radius of a leaked Trino or S3 service
 account.
 
 - Downstream account misuse (Elevation, Information disclosure). Because
@@ -376,7 +377,7 @@ account.
   (`pkg/toolkits/trino/readonly.go`), and the S3 adapter carries a read-only
   flag. The platform cannot constrain a downstream account beyond what the
   downstream system's own authorization enforces; scoping the service account to
-  least privilege in Trino/S3/DataHub is a deployment responsibility.
+  least privilege in Trino and S3 is a deployment responsibility.
 - The connection is also the unit of containment, by design. Access is scoped at
   the connection rather than the end user (see
   [Authorization model](../concepts/authorization.md)), so an operator sizes
@@ -501,7 +502,7 @@ configuration that implements it.
 | Outbound OAuth token-exchange abuse | Redirects refused, response body capped, hard timeout | `pkg/connoauth/exchange.go` |
 | Token/credential theft from the database | Tokens SHA-256-hashed, client secrets bcrypt-hashed, connection secrets AES-256-GCM encrypted | `pkg/oauth/postgres/store.go`, `pkg/oauth/dcr.go`, `pkg/platform/fieldcrypt/fieldcrypt.go` |
 | Sensitive tool arguments retained in audit | `redact_keys` masking and `log_parameters` opt-out applied in-middleware | `pkg/middleware/mcp_audit.go`, `pkg/platform/config.go` |
-| Prompt injection in DataHub metadata | Semantic metadata sanitized (control-char removal, injection-pattern stripping, length cap) with injection-attempt logging | `pkg/semantic/sanitize.go`, `pkg/semantic/injection_logger.go` |
+| Prompt injection in catalog curation | Curation sanitized on the enrichment path (control-char removal, injection-pattern stripping, length cap) with injection-attempt logging; writes take `apply_knowledge` or portal curation rights and are audited, versioned and reversible | `internal/platform/catalogsemantic/`, `pkg/semantic/sanitize.go`, `pkg/semantic/injection_logger.go`, `internal/httpserver/catalogapi/` |
 | Loss of accountability | Every tool call audited through a bounded, drained async writer | `pkg/middleware/mcp_audit.go`, `pkg/audit/asyncwriter.go` |
 | IdP key rotation breaking authentication | Self-healing JWKS cache with single-flight throttled refresh | `pkg/auth/oidc.go` |
 
@@ -532,7 +533,7 @@ These are stated plainly. Omitting them would misrepresent the security posture.
   discovery surface (`pkg/persona/filter.go`, `internal/platform/connscope`), and
   several connections may front the same system under different credentials at
   different permission levels. The platform performs no per-user token exchange,
-  no impersonation, and no session-user propagation to Trino, S3, DataHub,
+  no impersonation, and no session-user propagation to Trino, S3,
   upstream MCP servers, or HTTP APIs, because the construct every one of those
   backends shares is a credential and an endpoint, not a caller identity the
   platform could pass through. Outbound OAuth is per connection rather than per
@@ -548,8 +549,8 @@ These are stated plainly. Omitting them would misrepresent the security posture.
   connection it targeted, subject to the best-effort delivery model stated above.
   Rationale and the add-a-connection-not-a-role guidance:
   [Authorization model](../concepts/authorization.md).
-- Content sanitization is partial, not comprehensive. DataHub semantic metadata
-  is sanitized on the enrichment path (`pkg/semantic/sanitize.go`), but raw query
+- Content sanitization is partial, not comprehensive. Catalog curation is
+  sanitized on the enrichment path (`pkg/semantic/sanitize.go`), but raw query
   row values and gateway-upstream tool descriptions and responses are not
   scrubbed; adversarial natural-language content in those reaches the LLM client.
   The platform reduces blast radius (read-only mode, persona allowlists, the

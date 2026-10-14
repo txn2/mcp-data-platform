@@ -129,7 +129,7 @@ test.describe("Knowledge graph", () => {
     // Entity nodes carry a resolved display name, not a raw URN.
     await expect(node(page, "Asset: Q4 Revenue Dashboard")).toBeVisible();
     await expect(node(page, "Connection: acme-warehouse (trino)")).toBeVisible();
-    await expect(node(page, "Catalog: iceberg.retail.daily_sales")).toBeVisible();
+    await expect(node(page, "Catalog: daily_sales")).toBeVisible();
   });
 
   test("shows a page with no references as an isolated node", async ({ page }) => {
@@ -172,27 +172,27 @@ test.describe("Knowledge graph", () => {
   test("opens a catalog node in the Catalog tab", async ({ page }) => {
     await gotoCorpus(page);
 
-    await node(page, "Catalog: iceberg.retail.daily_sales").click();
-    // The URN is the identifier the label is derived from; without it on screen
-    // there is nothing the reader can search or act on.
+    await node(page, "Catalog: daily_sales").click();
+    // The reference is the identifier the label is derived from; without it on
+    // screen there is nothing the reader can search or act on.
     await expect(
-      inspector(page).getByText("urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"),
+      inspector(page).getByText("mcp:dataset:(trino,acme-warehouse,iceberg.retail.daily_sales)"),
     ).toBeVisible();
 
     await inspector(page).getByRole("button", { name: /Open/ }).click();
 
-    await expect(page).toHaveURL(/\/knowledge\/catalog\?urn=/);
+    await expect(page).toHaveURL(/\/knowledge\/catalog\?ref=/);
   });
 
   test("says when a page cites a dataset the catalog does not have", async ({ page }) => {
     await gotoCorpus(page);
 
-    await node(page, "Catalog: iceberg.retail.daily_sales").click();
+    await node(page, "Catalog: daily_sales").click();
 
     // The seeded pages cite datasets that are not in the seeded catalog, which
     // is a real data-quality finding the graph should state rather than draw as
     // an ordinary live node.
-    await expect(inspector(page).getByText(/Not found in/)).toBeVisible();
+    await expect(inspector(page).getByText(/Not in the catalog/)).toBeVisible();
   });
 
   test("offers no open action for a node with no portal home", async ({ page }) => {

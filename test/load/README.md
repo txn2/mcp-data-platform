@@ -41,8 +41,7 @@ make load-run SCENARIO=mcp-tool-call      # run one scenario
 make load-down                            # stop everything
 ```
 
-`make load-up` also expects a DataHub quickstart for the full stack (semantic
-enrichment live). It sets `LOG_LEVEL=info`, a release-style build (no race
+`make load-up` sets `LOG_LEVEL=info`, a release-style build (no race
 detector), the metrics listener, and an opt-in pprof listener
 (`PPROF_ADDR`, off in normal deployments).
 

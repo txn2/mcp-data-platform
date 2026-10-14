@@ -56,7 +56,7 @@ export function useInfiniteKnowledgePages(params?: {
 // --- Unified knowledge search (#661) ---
 
 // useSearch fans one query across every source the caller can access (internal
-// knowledge pages, the DataHub catalog, memory, insights, assets, prompts,
+// knowledge pages, the catalog, memory, insights, assets, prompts,
 // endpoints, connections), returning results grouped by source with a coverage
 // summary. It is the REST surface over the same router behind the MCP search
 // tool. Disabled (no request) until query or entityUrns is non-empty, so an

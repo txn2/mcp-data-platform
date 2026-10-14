@@ -231,7 +231,7 @@ func ValidateSuggestedActions(actions []SuggestedAction) error {
 
 // RelatedColumn represents a column related to an insight.
 type RelatedColumn struct {
-	URN       string `json:"urn" example:"urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"`
+	URN       string `json:"urn" example:"mcp:dataset:(trino,warehouse,hive.sales.orders)"`
 	Column    string `json:"column" example:"amount"`
 	Relevance string `json:"relevance" example:"direct"`
 }
@@ -468,7 +468,7 @@ type InsightUpdate struct {
 type Changeset struct {
 	ID               string         `json:"id" example:"cs_x1y2z3a4b5c6d7e8"`
 	CreatedAt        time.Time      `json:"created_at" example:"2026-01-15T16:00:00Z"`
-	TargetURN        string         `json:"target_urn" example:"urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"`
+	TargetURN        string         `json:"target_urn" example:"mcp:dataset:(trino,warehouse,hive.sales.orders)"`
 	ChangeType       string         `json:"change_type" example:"update_description"`
 	PreviousValue    map[string]any `json:"previous_value"`
 	NewValue         map[string]any `json:"new_value"`

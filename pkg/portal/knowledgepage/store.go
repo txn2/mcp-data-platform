@@ -22,7 +22,7 @@ func NewID() string { return "kp_" + uuid.New().String() }
 func NewVersionID() string { return "kpv_" + uuid.New().String() }
 
 // Page is a canonical unit of business/domain knowledge: a markdown
-// page in the platform's internal knowledge store (the sibling of DataHub). It
+// page in the platform's internal knowledge store (the sibling of the catalog). It
 // is org-shared, not owner-scoped: every caller can read it, and personas with
 // apply_knowledge access edit it. The markdown body is stored inline (not in S3)
 // so page CONTENT is directly embeddable and full-text searchable.

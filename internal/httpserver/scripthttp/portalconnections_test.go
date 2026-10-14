@@ -117,7 +117,7 @@ func TestPortalScriptConnections_IsUnmountedWithoutAnEnumerator(t *testing.T) {
 func TestPortalScriptConnections_ResolvesASharedNameToTheKindTheRunReaches(t *testing.T) {
 	shared := []connchoicehttp.Choice{
 		{Name: "warehouse", Kind: "s3", Description: "Raw object store"},
-		{Name: "warehouse", Kind: "datahub", Description: "Catalog"},
+		{Name: "warehouse", Kind: "ftp", Description: "Catalog"},
 		{Name: "warehouse", Kind: "trino", Description: "Production warehouse"},
 	}
 	deps, _ := connectionDeps(portalStore(), carol, shared)

@@ -33,7 +33,9 @@ func TestProvenQueriesAreAppendedToADescribe(t *testing.T) {
 
 	var gotURN, gotUser string
 	enricher := &semanticEnricher{cfg: EnrichmentConfig{
-		ForConnection: func(string, string) (string, map[string]string) { return "trino", nil },
+		DatasetURN: func(kind, conn, catalog, schema, table string) string {
+			return "mcp:dataset:(" + kind + "," + conn + "," + catalog + "." + schema + "." + table + ")"
+		},
 		ProvenQueries: func(_ context.Context, urn, userID string, _ int) []ProvenQuery {
 			gotURN, gotUser = urn, userID
 			return []ProvenQuery{{
@@ -45,11 +47,11 @@ func TestProvenQueriesAreAppendedToADescribe(t *testing.T) {
 	}}
 
 	result := enricher.appendProvenQueries(context.Background(), provenResult(),
-		describedTable(), &PlatformContext{UserID: "u1", Connection: "acme"})
+		describedTable(), &PlatformContext{UserID: "u1", Connection: "acme", ToolkitKind: "trino"})
 
 	// The lookup is keyed on the dataset the catalog knows the table by, which
 	// is the same key a recorded call stores its targets under.
-	if gotURN != "urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.sales.orders,PROD)" {
+	if gotURN != "mcp:dataset:(trino,acme,warehouse.sales.orders)" {
 		t.Errorf("urn = %q", gotURN)
 	}
 	if gotUser != "u1" {

@@ -259,7 +259,7 @@ func TestEnrichTrinoResult_FallbackOnURNMissSetsMatchKind(t *testing.T) {
 	}
 	pc := &PlatformContext{}
 	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "original"}}}
-	enriched, err := enricher.enrichTrinoResult(context.Background(), result, trinoDescribeRequest(t, fallbackTestSchema+"."+fallbackTestTable), nil, pc)
+	enriched, err := enricher.enrichTrinoResult(context.Background(), result, trinoDescribeRequest(t, fallbackTestSchema+"."+fallbackTestTable), pc)
 	if err != nil {
 		t.Fatalf("enrichTrinoResult: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestEnrichTrinoResult_URNHitSetsMatchKindURN(t *testing.T) {
 	}
 	pc := &PlatformContext{}
 	result := &mcp.CallToolResult{}
-	_, err := enricher.enrichTrinoResult(context.Background(), result, trinoDescribeRequest(t, fallbackTestSchema+"."+fallbackTestTable), nil, pc)
+	_, err := enricher.enrichTrinoResult(context.Background(), result, trinoDescribeRequest(t, fallbackTestSchema+"."+fallbackTestTable), pc)
 	if err != nil {
 		t.Fatalf("enrichTrinoResult: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestEnrichTrinoResult_FallbackDisabledLeavesMatchKindEmpty(t *testing.T) {
 	}
 	pc := &PlatformContext{}
 	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "original"}}}
-	enriched, err := enricher.enrichTrinoResult(context.Background(), result, trinoDescribeRequest(t, fallbackTestSchema+"."+fallbackTestTable), nil, pc)
+	enriched, err := enricher.enrichTrinoResult(context.Background(), result, trinoDescribeRequest(t, fallbackTestSchema+"."+fallbackTestTable), pc)
 	if err != nil {
 		t.Fatalf("enrichTrinoResult: %v", err)
 	}

@@ -152,7 +152,7 @@ func TestValidateRefusesUndeliverableTreatments(t *testing.T) {
 			return tr
 		},
 		"unknown sink":     func(tr Treatment) Treatment { tr.Sink = "carrier pigeon"; return tr },
-		"datahub, no urn":  func(tr Treatment) Treatment { tr.EntityURN = ""; return tr },
+		"catalog, no urn":  func(tr Treatment) Treatment { tr.EntityURN = ""; return tr },
 		"page, no payload": func(tr Treatment) Treatment { tr.Sink = protocol.SinkKnowledgePage; return tr },
 		"page summary drops the discriminant": func(tr Treatment) Treatment {
 			tr.Sink = protocol.SinkKnowledgePage

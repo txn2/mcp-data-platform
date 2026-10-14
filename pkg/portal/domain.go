@@ -196,7 +196,7 @@ func GetUser(ctx context.Context) *User { return access.GetUser(ctx) }
 
 // ContextWithUser returns a copy of ctx carrying the authenticated user, the
 // value GetUser reads. Exported so handlers split into sibling packages (e.g.
-// internal/httpserver/datahubapi) can be exercised with an authenticated principal.
+// internal/httpserver/catalogapi) can be exercised with an authenticated principal.
 func ContextWithUser(ctx context.Context, user *User) context.Context {
 	return access.ContextWithUser(ctx, user)
 }

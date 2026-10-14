@@ -13,7 +13,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 const (
@@ -31,7 +30,7 @@ type StalenessConfig struct {
 	BatchSize int
 }
 
-// StalenessWatcher periodically checks active memories against DataHub
+// StalenessWatcher periodically checks active memories against the catalog
 // entity state and flags stale records.
 type StalenessWatcher struct {
 	store            Store
@@ -169,9 +168,8 @@ func (w *StalenessWatcher) checkEntityStaleness(ctx context.Context, record Reco
 			// record went stale: most deployments catalog only some of the
 			// tables their memories cite, and a URN that was never ingested
 			// looks exactly like one that was removed. Marking on it would flag
-			// every such memory at once, so it is left verified, as it was
-			// before mcp-datahub v1.15.1 made the miss visible here at all
-			// (#1610). A read that failed for any other reason is still
+			// every such memory at once, so it is left verified (#1610). A read
+			// that failed for any other reason is still
 			// reported, which is the behavior this watcher has always had.
 			if errors.Is(err, semantic.ErrNotFound) {
 				slog.DebugContext(ctx, "staleness: catalog holds no entity for a cited urn", "urn", urn)
@@ -189,29 +187,15 @@ func (w *StalenessWatcher) checkEntityStaleness(ctx context.Context, record Reco
 	return strings.Join(reasons, "; ")
 }
 
-// ParseURNToTable attempts to extract a TableIdentifier from a platform catalog
-// reference to a Trino table (#1919), or from a DataHub dataset URN whose name
-// is <catalog>.<schema>.<table>.
+// ParseURNToTable extracts the TableIdentifier a platform catalog reference to
+// a Trino table names (#1919). Any other string names no table.
 func ParseURNToTable(urn string) (semantic.TableIdentifier, error) {
-	if ref, err := catalog.ParseRef(urn); err == nil && ref.Kind == catalog.KindDataset {
-		if len(ref.Path) != urnTablePathParts {
-			return semantic.TableIdentifier{}, fmt.Errorf("reference %s does not name a table", urn)
-		}
-		return semantic.TableIdentifier{Catalog: ref.Path[0], Schema: ref.Path[1], Table: ref.Path[2]}, nil
+	ref, err := catalog.ParseRef(urn)
+	if err != nil || ref.Kind != catalog.KindDataset {
+		return semantic.TableIdentifier{}, fmt.Errorf("not a dataset reference: %q", urn)
 	}
-	parsed, err := urnbuild.ParseDatasetURN(urn)
-	if err != nil {
-		return semantic.TableIdentifier{}, fmt.Errorf("parsing dataset URN: %w", err)
+	if len(ref.Path) != urnTablePathParts {
+		return semantic.TableIdentifier{}, fmt.Errorf("reference %s does not name a table", urn)
 	}
-
-	pathParts := strings.Split(parsed.Name, ".")
-	if len(pathParts) < urnTablePathParts {
-		return semantic.TableIdentifier{}, fmt.Errorf("incomplete table path in URN: %s", urn)
-	}
-
-	return semantic.TableIdentifier{
-		Catalog: pathParts[0],
-		Schema:  pathParts[1],
-		Table:   pathParts[2],
-	}, nil
+	return semantic.TableIdentifier{Catalog: ref.Path[0], Schema: ref.Path[1], Table: ref.Path[2]}, nil
 }

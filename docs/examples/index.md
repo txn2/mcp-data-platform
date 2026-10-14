@@ -61,14 +61,6 @@ Configure the platform to surface PII warnings prominently.
 
 ```yaml
 toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-    default: primary
-
   trino:
     enabled: true
     instances:
@@ -98,8 +90,8 @@ personas:
       allow: ["*"]
 ```
 
-PII detection itself comes from DataHub tags on the table (surfaced via
-cross-enrichment); the platform doesn't maintain its own PII tag list or a
+PII detection itself comes from the `pii` tag on the table or column in the
+[platform catalog](../server/catalog.md) (surfaced via cross-enrichment); the platform doesn't maintain its own PII tag list or a
 configurable consent message. There is also no persona-level `restrictions`
 block for row caps, schema allowlists, or tag denylists — persona access
 control is limited to `tools` (allow/deny patterns) and `connections`
@@ -128,7 +120,7 @@ personas:
     display_name: "Data Viewer"
     roles: ["dp_viewer"]
     tools:
-      allow: ["platform_info", "search", "fetch", "datahub_get_*"]
+      allow: ["platform_info", "search", "fetch"]
       deny: ["trino_*", "s3_*"]
     connections:
       allow: ["*"]
@@ -234,18 +226,6 @@ server:
   address: ":8080"
 
 toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-
-        # Higher limits for exploration
-        default_limit: 25
-        max_limit: 100
-    default: primary
-
   trino:
     enabled: true
     instances:
@@ -266,17 +246,7 @@ toolkits:
 # Enable all enrichment for maximum context
 enrichment:
   trino_semantic_enrichment: true
-  datahub_query_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
-
-semantic:
-  provider: datahub
-  instance: primary
-
-  # Aggressive caching for faster exploration
-  cache:
-    enabled: true
-    ttl: 15m
 
 personas:
   business_analyst:
@@ -307,15 +277,6 @@ Multi-Trino cluster setup for organization-wide data discovery.
 
 ```yaml
 toolkits:
-  datahub:
-    enabled: true
-    instances:
-      # Central metadata catalog
-      central:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-    default: central
-
   trino:
     enabled: true
     instances:
@@ -347,15 +308,10 @@ toolkits:
         read_only: true
     default: marketing
 
-# Cross-enrichment from central DataHub to all Trino clusters
+# Cross-enrichment from the platform catalog, which scans every Trino cluster
 enrichment:
   trino_semantic_enrichment: true
-  datahub_query_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
-
-semantic:
-  provider: datahub
-  instance: central
 
 # Query provider binds to a single Trino instance for availability checks
 query:
@@ -442,15 +398,6 @@ server:
   address: ":8080"
 
 toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-        default_limit: 50  # More results for exploration
-    default: primary
-
   trino:
     enabled: true
     instances:
@@ -466,16 +413,7 @@ toolkits:
 
 enrichment:
   trino_semantic_enrichment: true
-  datahub_query_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
-
-# Full lineage depth for understanding data provenance
-semantic:
-  provider: datahub
-  instance: primary
-  lineage:
-    max_hops: 5
-    prefer_column_lineage: true
 
 personas:
   ml_agent:
@@ -496,13 +434,13 @@ personas:
         and evaluate datasets for machine learning use cases.
       agent_instructions_suffix: |
         When exploring:
-        1. Check data quality scores (reject < 70%)
+        1. Check for open data-quality incidents
         2. Verify data freshness (check last_updated)
         3. Trace lineage to understand transformations
         4. Look for feature-ready columns (numeric, categorical)
         5. Note any PII tags that require handling
 
-        Always document your findings with URNs for reproducibility.
+        Always document your findings with catalog references for reproducibility.
 ```
 
 ### Feature Store Integration
@@ -543,7 +481,7 @@ personas:
         You are helping an ML engineer select features from the feature store.
       agent_instructions_suffix: |
         For each feature, report:
-        - Quality score and null percentage
+        - Open incidents and null percentage
         - Last update time
         - Upstream dependencies (lineage)
 
@@ -555,20 +493,11 @@ personas:
 
 Configuration for understanding data pipeline provenance.
 
+Lineage is recorded in the platform catalog as data moves: `trino_execute`
+writes, managed-script runs and table registrations. `fetch` on a dataset
+returns its lineage within three hops either way.
+
 ```yaml
-semantic:
-  provider: datahub
-  instance: primary
-
-  lineage:
-    max_hops: 5                      # Deep lineage traversal (max 5)
-    prefer_column_lineage: true      # Prefer column-level lineage
-    cache_ttl: 1m                    # Shorter TTL for lineage queries
-
-  cache:
-    enabled: true
-    ttl: 5m
-
 enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
@@ -595,7 +524,7 @@ personas:
         4. Highlight any transformation steps
         5. Note data quality changes through the pipeline
 
-        Use URNs consistently for reference.
+        Use catalog references consistently.
 ```
 
 ---
@@ -608,20 +537,6 @@ Connect multiple instances of each service type.
 
 ```yaml
 toolkits:
-  datahub:
-    enabled: true
-    instances:
-      # Production DataHub
-      production:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN_PROD}
-
-      # Development DataHub
-      development:
-        url: https://datahub-dev.example.com
-        token: ${DATAHUB_TOKEN_DEV}
-    default: production
-
   trino:
     enabled: true
     instances:
@@ -665,18 +580,10 @@ toolkits:
         secret_access_key: ${MINIO_SECRET_KEY}
     default: aws
 
-# Configure which instances to use for enrichment
-semantic:
-  provider: datahub
-  instance: production  # Use production DataHub for metadata
-
+# Configure which Trino instance answers availability on catalog reads
 query:
   provider: trino
-  instance: production  # Use production Trino for availability checks
-
-storage:
-  provider: s3
-  instance: aws  # Use AWS S3 for storage checks
+  instance: production
 ```
 
 ### Read-only warehouse beside a writable scratch schema

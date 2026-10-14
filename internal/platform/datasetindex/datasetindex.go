@@ -1,19 +1,19 @@
 // Package datasetindex is the catalog-dataset consumer of the shared indexjobs
-// framework (#1131). It gives a fact written into the DataHub catalog a
-// search-time route that does not depend on a tool result already naming the
-// entity the fact hangs off.
+// framework (#1131). It gives a fact written into the catalog a search-time
+// route that does not depend on a tool result already naming the entity the
+// fact hangs off.
 //
-// Before it, the catalog's only text route through `search` was DataHub's own
-// keyword search: a description an agent applied to a dataset was found when a
-// query happened to share its words, and only once DataHub's index caught up.
-// Knowledge pages had no such gap — they ride the platform's own embedding
-// search — so whether applied knowledge was discoverable depended on which sink
-// an operator picked. This consumer removes that asymmetry by mirroring the
-// catalog's dataset text into the platform's own index and ranking it there.
+// Without it, the catalog's only text route through `search` is the catalog's
+// word search: a description an agent applied to a dataset is found only when
+// a query happens to share its words. Knowledge pages have no such gap (they
+// ride the platform's own embedding search), so whether applied knowledge was
+// discoverable would depend on which sink an operator picked. This consumer
+// removes that asymmetry by mirroring the catalog's dataset text into the
+// platform's own index and ranking it there.
 //
 // The unit is the whole corpus (one Key: SourceKind/SourceID), not one dataset
-// per unit, because the corpus does not live in a table the reconciler can
-// diff: it lives in DataHub. So Source.LoadItems enumerates the catalog and
+// per unit, because the corpus is read through the semantic provider rather
+// than a table the reconciler can diff. So Source.LoadItems enumerates the catalog and
 // materializes catalog_datasets from the result, the framework embeds the
 // rows, and Sink.Upsert's atomic replace drops the rows for datasets the
 // catalog no longer returns. Two consequences follow from that shape:
@@ -25,10 +25,10 @@
 //   - A sweep is cheap when nothing changed: the framework's text-hash dedup
 //     re-embeds only the datasets whose text actually moved.
 //
-// The catalog stays the system of record. Nothing here writes back to DataHub,
-// every hit is dereferenced against DataHub by URN, and the tables are safe to
-// drop — the cost is only that `search` falls back to DataHub's own keyword
-// search, which is what it used before this package existed.
+// The catalog stays the system of record. Nothing here writes back to it,
+// every hit is dereferenced against it by reference, and the tables are safe to
+// drop: the cost is only that `search` falls back to the catalog's own word
+// search.
 package datasetindex
 
 import (
@@ -70,10 +70,10 @@ const (
 // the platform's knowledge config as `knowledge.catalog_index`.
 type Config struct {
 	// Enabled turns the consumer on. Nil (unset) means enabled: a deployment
-	// with a DataHub catalog, a database, and an embedding provider gets
+	// with the platform catalog, a database, and an embedding provider gets
 	// topic-level discoverability of catalog descriptions out of the box. Set
 	// false to opt out, which leaves `search` ranking catalog datasets through
-	// DataHub's own keyword search alone.
+	// the catalog's word search alone.
 	Enabled *bool `yaml:"enabled"`
 
 	// SyncInterval is how often the catalog is re-enumerated. Zero uses
@@ -109,8 +109,8 @@ func (c Config) ResolvedMaxEntries() int {
 
 // Entry is one catalog dataset as the platform mirrors it: the identity the
 // catalog and `fetch` share (URN) plus the text an agent searches by. It
-// carries no schema, lineage, or ownership — those stay in DataHub and are
-// read through the entity path when a caller drills in.
+// carries no schema, lineage, or ownership: those stay in the catalog and are
+// read through fetch when a caller drills in.
 type Entry struct {
 	URN         string
 	Name        string

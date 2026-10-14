@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
+	"time"
 	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -15,7 +20,13 @@ import (
 // catalog store (#1917).
 type CatalogReader interface {
 	GetDataset(ctx context.Context, ref catalog.Ref) (*catalog.Dataset, error)
-	GetDefinition(ctx context.Context, ref catalog.Ref) (*catalog.Definition, error)
+}
+
+// CatalogBrowser lists one level of a connection's datasets. The catalog store
+// satisfies it; a reader without it answers a reference to a path that is not
+// a dataset with not-found.
+type CatalogBrowser interface {
+	Browse(ctx context.Context, q catalog.BrowseQuery) ([]catalog.BrowseEntry, error)
 }
 
 // DocumentReader reads a connection's schema document. The catalog store
@@ -30,6 +41,22 @@ type LineageReader interface {
 	Lineage(ctx context.Context, ref string, direction catalog.Direction, maxDepth int) ([]catalog.Hop, error)
 }
 
+// AvailabilityResolver answers whether and where one catalog dataset is
+// queryable. It is the query provider's own read, declared here so the
+// provider depends on the capability alone. It is deliberately not the
+// search-time availability cache: that cache exists to mark positive answers
+// on a page of hits and drops a negative one, whereas a fetched dataset must
+// say "not queryable, and why" as plainly as "queryable, here".
+type AvailabilityResolver interface {
+	GetTableAvailability(ctx context.Context, urn string) (*query.TableAvailability, error)
+}
+
+// availabilityTimeout bounds the query-side lookup a dataset fetch makes. Row
+// estimation can run a COUNT(*) against the warehouse; the record must not
+// wait on it indefinitely, and a lookup that runs out of time leaves the
+// record without an availability rather than failing the fetch.
+const availabilityTimeout = 5 * time.Second
+
 // lineageDepth is how far a fetched dataset's lineage is walked each way.
 const lineageDepth = 3
 
@@ -39,6 +66,11 @@ type datasetDocument struct {
 	*catalog.Dataset
 	Upstream   []catalog.Hop `json:"upstream"`
 	Downstream []catalog.Hop `json:"downstream"`
+	// QueryAvailability is the query engine's answer for a table: the table to
+	// query, the connection it is reachable on, and the estimated row count.
+	// Nil for a dataset no query engine serves or when the lookup did not
+	// resolve.
+	QueryAvailability *query.TableAvailability `json:"query_availability,omitempty"`
 }
 
 // BoundName returns the name a persona's connection rules match for the
@@ -46,24 +78,33 @@ type datasetDocument struct {
 // supplies it from connid.Resolver, the one place those two names are crossed.
 type BoundName func(connectionKind, instance string) string
 
-// NativeCatalogProvider dereferences the platform catalog's own references:
-// mcp:dataset:(...), mcp:column:(...), mcp:schema_document:(...), and the
-// glossary terms, glossary nodes, tags, domains and data products curation
-// points at.
+// NativeCatalogProvider dereferences the platform catalog's references to what
+// a connection holds: mcp:dataset:(...), mcp:column:(...) and
+// mcp:schema_document:(...). A dataset reference whose path stops above a
+// dataset, a catalog or a schema, lists what is under it, which is how a
+// connection's catalog is browsed. Definitions are the governance provider's.
 //
-// A dataset, a column or a schema document belongs to its connection, so it is
-// dereferenced only for a caller whose persona may reach that connection, the
-// same boundary search and every tool call apply. A definition is
-// organization-wide and is readable by anyone who can fetch.
+// Each of these belongs to its connection, so it is dereferenced only for a
+// caller whose persona may reach that connection, the same boundary search and
+// every tool call apply.
 type NativeCatalogProvider struct {
-	store CatalogReader
-	bound BoundName
+	store        CatalogReader
+	bound        BoundName
+	availability AvailabilityResolver
 }
 
 // NewNativeCatalogProvider builds the provider over a catalog store. A nil
 // bound treats the instance name as the name persona rules match.
 func NewNativeCatalogProvider(store CatalogReader, bound BoundName) *NativeCatalogProvider {
 	return &NativeCatalogProvider{store: store, bound: bound}
+}
+
+// SetAvailabilityResolver attaches the query-side answer to "can this dataset
+// be queried, and where" (#1590), so a fetched table says so without a second
+// call. Nil (the default) leaves the record without one. Call once at wiring
+// time.
+func (p *NativeCatalogProvider) SetAvailabilityResolver(r AvailabilityResolver) {
+	p.availability = r
 }
 
 // Name returns the provenance label, the one the catalog's datasets carry.
@@ -97,7 +138,7 @@ func (p *NativeCatalogProvider) Fetch(ctx context.Context, ref string, caller Ca
 		if !caller.allowsConnection(p.boundName(parsed)) {
 			return nil, true, ErrNotFound
 		}
-		doc, err := p.fetchDataset(ctx, parsed)
+		doc, err := p.fetchDataset(ctx, parsed, caller)
 		return doc, true, err
 	case catalog.KindSchemaDocument:
 		if !caller.allowsConnection(p.boundName(parsed)) {
@@ -106,8 +147,7 @@ func (p *NativeCatalogProvider) Fetch(ctx context.Context, ref string, caller Ca
 		doc, err := p.fetchSchemaDocument(ctx, parsed)
 		return doc, true, err
 	default:
-		doc, err := p.fetchDefinition(ctx, parsed)
-		return doc, true, err
+		return nil, false, nil
 	}
 }
 
@@ -163,18 +203,24 @@ func (p *NativeCatalogProvider) fetchSchemaDocument(ctx context.Context, r catal
 	}, nil
 }
 
-// fetchDataset reads a dataset, or the one column a column reference names.
-func (p *NativeCatalogProvider) fetchDataset(ctx context.Context, r catalog.Ref) (*Document, error) {
+// fetchDataset reads a dataset, or the one column a column reference names. A
+// dataset reference the store holds no dataset for is browsed instead.
+func (p *NativeCatalogProvider) fetchDataset(ctx context.Context, r catalog.Ref, caller Caller) (*Document, error) {
 	d, err := p.store.GetDataset(ctx, r.Dataset())
+	if errors.Is(err, catalog.ErrNotFound) && r.Kind == catalog.KindDataset {
+		return p.browse(ctx, r)
+	}
 	if err != nil {
 		return nil, catalogError(err)
 	}
+	d = scrubDataset(d)
 	if r.Kind == catalog.KindDataset {
-		content, err := p.withLineage(ctx, d)
+		content, err := p.withLineage(ctx, d, caller)
 		if err != nil {
 			return nil, err
 		}
-		return &Document{
+		content.QueryAvailability = p.resolveAvailability(ctx, d)
+		doc := &Document{
 			Reference:  d.Reference,
 			Source:     SourceCatalog,
 			Title:      d.Name,
@@ -182,7 +228,11 @@ func (p *NativeCatalogProvider) fetchDataset(ctx context.Context, r catalog.Ref)
 			Content:    content,
 			EntityURNs: []string{d.Reference},
 			References: sourceRefs(d),
-		}, nil
+		}
+		if a := content.QueryAvailability; a != nil && a.Available {
+			doc.Verifiable = &query.Verifiable{URN: d.Reference, QueryTable: a.QueryTable, Connection: a.Connection}
+		}
+		return doc, nil
 	}
 	for _, c := range d.Columns {
 		if c.Name == r.Column {
@@ -199,8 +249,40 @@ func (p *NativeCatalogProvider) fetchDataset(ctx context.Context, r catalog.Ref)
 	return nil, ErrNotFound
 }
 
-// withLineage adds the dataset's lineage when the store can walk it.
-func (p *NativeCatalogProvider) withLineage(ctx context.Context, d *catalog.Dataset) (datasetDocument, error) {
+// resolveAvailability asks the query side whether and where a table is
+// queryable; nil for a dataset that is not a table or view, when no resolver
+// is wired, or when the lookup failed or ran out of time. A negative answer
+// (Available false, with the provider's reason) is kept: it is what the reader
+// needs to know before writing a query.
+func (p *NativeCatalogProvider) resolveAvailability(ctx context.Context, d *catalog.Dataset) *query.TableAvailability {
+	if p.availability == nil || !queryable(d.Type) {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, availabilityTimeout)
+	defer cancel()
+	avail, err := p.availability.GetTableAvailability(ctx, d.Reference)
+	if err != nil || ctx.Err() != nil {
+		slog.Debug("dataset availability lookup skipped", logKeyURN, logsan.SanitizeForLog(d.Reference), logKeyError, logsan.SanitizeForLog(fmt.Sprint(err)))
+		return nil
+	}
+	return avail
+}
+
+// queryable reports whether a dataset of this type is a table a query engine
+// reads, rather than an API or GraphQL operation.
+func queryable(t catalog.DatasetType) bool {
+	switch t {
+	case catalog.DatasetTable, catalog.DatasetView, catalog.DatasetRegisteredTable, catalog.DatasetWebhookTable:
+		return true
+	default:
+		return false
+	}
+}
+
+// withLineage adds the dataset's lineage when the store can walk it: the hops
+// whose two ends the caller may both see, so a fetch never names a dataset on
+// a connection the persona does not reach.
+func (p *NativeCatalogProvider) withLineage(ctx context.Context, d *catalog.Dataset, caller Caller) (datasetDocument, error) {
 	doc := datasetDocument{Dataset: d, Upstream: []catalog.Hop{}, Downstream: []catalog.Hop{}}
 	lr, ok := p.store.(LineageReader)
 	if !ok {
@@ -214,23 +296,61 @@ func (p *NativeCatalogProvider) withLineage(ctx context.Context, d *catalog.Data
 	if err != nil {
 		return doc, fmt.Errorf("reading lineage: %w", err)
 	}
-	doc.Upstream, doc.Downstream = up, down
+	doc.Upstream, doc.Downstream = p.visibleHops(up, caller), p.visibleHops(down, caller)
 	return doc, nil
 }
 
-// fetchDefinition reads a glossary term, glossary node, tag, domain or data
-// product.
-func (p *NativeCatalogProvider) fetchDefinition(ctx context.Context, r catalog.Ref) (*Document, error) {
-	d, err := p.store.GetDefinition(ctx, r)
+// visibleHops keeps the hops whose source and target the caller may both see.
+func (p *NativeCatalogProvider) visibleHops(hops []catalog.Hop, caller Caller) []catalog.Hop {
+	out := make([]catalog.Hop, 0, len(hops))
+	for _, h := range hops {
+		if p.reaches(h.Source, caller) && p.reaches(h.Target, caller) {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// reaches reports whether the caller may see a reference: a dataset, column
+// or schema document when the persona reaches its connection, and anything
+// that names no connection (a file a script wrote) always.
+func (p *NativeCatalogProvider) reaches(ref string, caller Caller) bool {
+	r, err := catalog.ParseRef(ref)
+	if err != nil || r.Connection == "" {
+		return true
+	}
+	return caller.allowsConnection(p.boundName(r))
+}
+
+// browseDocument is what fetching a path above a dataset returns: the
+// connection and path browsed, and the datasets and path groups directly under
+// it, each with the reference that fetches it.
+type browseDocument struct {
+	ConnectionKind string                `json:"connection_kind"`
+	Connection     string                `json:"connection"`
+	Path           []string              `json:"path"`
+	Entries        []catalog.BrowseEntry `json:"entries"`
+}
+
+// browse lists what is under a dataset reference's path. A path with nothing
+// under it is not-found, as the dataset it might have named is.
+func (p *NativeCatalogProvider) browse(ctx context.Context, r catalog.Ref) (*Document, error) {
+	b, ok := p.store.(CatalogBrowser)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	entries, err := b.Browse(ctx, catalog.BrowseQuery{ConnectionKind: r.ConnectionKind, Connection: r.Connection, Prefix: r.Path})
 	if err != nil {
-		return nil, catalogError(err)
+		return nil, fmt.Errorf("browsing %s: %w", r, err)
+	}
+	if len(entries) == 0 {
+		return nil, ErrNotFound
 	}
 	return &Document{
-		Reference: d.Reference,
-		Source:    SourceGovernance,
-		Title:     d.Name,
-		Body:      d.Aspects.Description,
-		Content:   d,
+		Reference: r.String(),
+		Source:    SourceCatalog,
+		Title:     r.Connection + " " + strings.Join(r.Path, "."),
+		Content:   browseDocument{ConnectionKind: r.ConnectionKind, Connection: r.Connection, Path: r.Path, Entries: entries},
 	}, nil
 }
 

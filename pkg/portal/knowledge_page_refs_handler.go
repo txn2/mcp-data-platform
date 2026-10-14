@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -67,22 +66,22 @@ func (h *Handler) resolveAndFilterRefs(r *http.Request, user *User, refs []knowl
 	return out
 }
 
-// CatalogLabeler resolves catalog (DataHub) entity URNs to display names in one
-// batch. It is satisfied by the DataHub bridge's labeler; the portal states only
-// the shape it needs so this package keeps no DataHub dependency.
+// CatalogLabeler resolves platform catalog definition references to display
+// names in one batch. The composition root satisfies it over the catalog
+// store; the portal states only the shape it needs.
 type CatalogLabeler interface {
 	Labels(ctx context.Context, urns []string) map[string]string
 }
 
-// catalogLabels resolves the catalog names for a batch of serialized references,
-// or nil when no labeler is wired. Names are looked up once per request rather
-// than per reference: a tag or a domain has no by-URN read upstream, so each one
-// costs a vocabulary listing that a batch shares.
+// catalogLabels resolves the names of the catalog definitions (glossary terms,
+// tags, domains, ...) a batch of serialized references cites, or nil when no
+// labeler is wired. A definition's reference carries its generated id, which
+// is why its name is looked up.
 //
-// It is gated on catalog access, the same rule the DataHub REST surface applies:
-// a name is catalog metadata, so a persona denied the catalog keeps the label
-// derivable from the URN rather than learning through this endpoint what the
-// Catalog tab would not tell it.
+// It is gated on catalog access, the same rule the portal catalog applies: a
+// name is catalog metadata, so a persona denied the catalog keeps the label
+// derivable from the reference rather than learning through this endpoint what
+// the Catalog tab would not tell it.
 func (h *Handler) catalogLabels(ctx context.Context, user *User, urns []string) map[string]string {
 	if h.deps.CatalogLabeler == nil || !HasCatalogAccess(user, h.deps.PersonaResolver, h.deps.AdminRoles) {
 		return nil
@@ -90,7 +89,7 @@ func (h *Handler) catalogLabels(ctx context.Context, user *User, urns []string) 
 	catalog := make([]string, 0, len(urns))
 	seen := make(map[string]bool, len(urns))
 	for _, urn := range urns {
-		if !strings.HasPrefix(urn, catalogURNPrefix) || seen[urn] {
+		if !isDefinitionRef(urn) || seen[urn] {
 			continue
 		}
 		seen[urn] = true
@@ -105,9 +104,12 @@ func (h *Handler) catalogLabels(ctx context.Context, user *User, urns []string) 
 	return h.deps.CatalogLabeler.Labels(ctx, catalog)
 }
 
-// catalogURNPrefix marks a catalog (DataHub) reference, the only kind the
-// catalog labeler can name.
-const catalogURNPrefix = "urn:"
+// isDefinitionRef reports whether a serialized reference names a catalog
+// definition, the only kind whose name is not in its reference.
+func isDefinitionRef(s string) bool {
+	ref, err := catalog.ParseRef(s)
+	return err == nil && ref.Connection == "" && ref.Kind != catalog.KindSchemaDocument
+}
 
 // maxCatalogLabelURNs bounds one batch of catalog name resolution. A glossary
 // term costs an upstream read each, so an unbounded batch would let one graph
@@ -117,7 +119,7 @@ const catalogURNPrefix = "urn:"
 const maxCatalogLabelURNs = 200
 
 // setEntityRefsRequest carries the page's manual references as serialized URN
-// strings (mcp:asset:<id>, urn:li:dataset:..., mcp:connection:(kind,name)).
+// strings (mcp:asset:<id>, mcp:dataset:(...), mcp:connection:(kind,name)).
 type setEntityRefsRequest struct {
 	Refs []string `json:"refs"`
 }
@@ -125,7 +127,7 @@ type setEntityRefsRequest struct {
 // listKnowledgePageRefs handles GET /api/v1/portal/knowledge-pages/{id}/refs.
 //
 // @Summary      List a knowledge page's entity references
-// @Description  Returns the entities the page references (assets, prompts, collections, connections, managed scripts, DataHub URNs, and other pages), each with its serialized URN. A reference the caller may not open is omitted: a managed script resolves for its owner and administrators only.
+// @Description  Returns the entities the page references (assets, prompts, collections, connections, managed scripts, catalog entities, and other pages), each with its serialized URN. A reference the caller may not open is omitted: a managed script resolves for its owner and administrators only.
 // @Tags         Knowledge
 // @Produce      json
 // @Param        id  path  string  true  "Knowledge page id"
@@ -357,7 +359,7 @@ type backlinksResponse struct {
 // @Description  Reverse lookup: returns the knowledge pages that reference the given entity (by serialized URN), so an entity view can surface "N knowledge pages reference this". Returns empty for an entity the viewer cannot access.
 // @Tags         Knowledge
 // @Produce      json
-// @Param        urn  query  string  true  "Serialized entity URN (mcp:/urn:li:)"
+// @Param        urn  query  string  true  "Serialized entity reference (mcp:)"
 // @Success      200  {object}  backlinksResponse
 // @Failure      400  {object}  problemDetail
 // @Failure      401  {object}  problemDetail
@@ -420,7 +422,7 @@ type resolveRefsResponse struct {
 // resolveKnowledgePageRefs handles POST /api/v1/portal/knowledge-pages/refs/resolve.
 //
 // @Summary      Resolve entity references to display labels
-// @Description  Resolves a batch of serialized reference URNs (mcp:/urn:li:) to a display label, type, and whether the target still exists, so the renderer can show named chips.
+// @Description  Resolves a batch of serialized references (mcp:) to a display label, type, and whether the target still exists, so the renderer can show named chips.
 // @Tags         Knowledge
 // @Accept       json
 // @Produce      json
@@ -471,7 +473,7 @@ func (h *Handler) resolveKnowledgePageRefs(w http.ResponseWriter, r *http.Reques
 //
 // labels carries the catalog names resolved for the whole batch (nil when none
 // were); a catalog reference the batch could not name falls back to the name
-// derivable from its URN.
+// derivable from the reference.
 func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowledgepage.EntityRef, labels map[string]string) resolvedRef {
 	out := resolvedRef{URN: urn, Type: ref.TargetType, Label: urn, Exists: true, Accessible: true}
 	switch ref.TargetType {
@@ -489,8 +491,6 @@ func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowle
 		h.resolvePageRef(r.Context(), ref.RefPageID, &out)
 	case knowledgepage.RefTargetConnection:
 		out.Label = ref.ConnectionName + " (" + ref.ConnectionKind + ")"
-	case knowledgepage.RefTargetDataHub:
-		out.Label = catalogLabel(ref.EntityURN, labels)
 	case knowledgepage.RefTargetCatalog:
 		if !h.reachesCatalogRef(user, ref.EntityURN) {
 			out.Accessible = false
@@ -545,18 +545,6 @@ func platformCatalogLabel(reference string, labels map[string]string) string {
 	default:
 		return ref.Key
 	}
-}
-
-// catalogLabel is the display name of a catalog reference: the name the catalog
-// itself reports when the batch resolved it, and otherwise the name derivable
-// from the URN. A glossary term, tag, or domain created through this platform
-// carries a generated key rather than its name, which is why the resolved name
-// is preferred where there is one.
-func catalogLabel(urn string, labels map[string]string) string {
-	if name, ok := labels[urn]; ok && name != "" {
-		return name
-	}
-	return datahubLabel(urn)
 }
 
 // resolveAssetRef sets the asset's name when the user may view it; a not-found or
@@ -656,22 +644,6 @@ func (h *Handler) resolvePageRef(ctx context.Context, id string, out *resolvedRe
 		return
 	}
 	out.Label, out.Exists = id, false
-}
-
-// datahubLabel extracts a readable name from a DataHub URN: the dataset name from
-// urn:li:dataset:(<platform>,<name>,<env>), or the last colon-segment otherwise.
-func datahubLabel(urn string) string {
-	if rest, ok := strings.CutPrefix(urn, "urn:li:dataset:("); ok {
-		inner := strings.TrimSuffix(rest, ")")
-		parts := strings.Split(inner, ",")
-		if len(parts) >= 2 {
-			return parts[1]
-		}
-	}
-	if i := strings.LastIndex(urn, ":"); i >= 0 && i < len(urn)-1 {
-		return urn[i+1:]
-	}
-	return urn
 }
 
 // knowledgePageExists verifies the page is live, writing a 404 (or 500) on

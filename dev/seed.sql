@@ -56,9 +56,14 @@ SELECT
         || (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog','regional_performance'])[1 + (n % 5)]
         || ' LIMIT 100'
     )
-    WHEN 'datahub' THEN jsonb_build_object(
-      'query', (ARRAY['daily_sales','inventory','customer','revenue','store performance','supply chain'])[1 + (n % 6)]
-    )
+    WHEN 'search' THEN CASE t.tool_name
+      WHEN 'fetch' THEN jsonb_build_object(
+        'reference', 'mcp:dataset:(trino,acme,iceberg.retail.' || (ARRAY['daily_sales','store_transactions','refunds','sales_mart'])[1 + (n % 4)] || ')'
+      )
+      ELSE jsonb_build_object(
+        'intent', (ARRAY['daily_sales','inventory','customer','revenue','store performance','supply chain'])[1 + (n % 6)]
+      )
+    END
     WHEN 's3' THEN jsonb_build_object(
       'bucket', (ARRAY['acme-raw-transactions','acme-analytics-output','acme-ml-features','acme-report-archive'])[1 + (n % 4)],
       'prefix', (ARRAY['raw/2024/','processed/daily/','exports/regional/','ml/features/'])[1 + (n % 4)]
@@ -73,11 +78,11 @@ SELECT
         'Insufficient permissions on schema ''finance''',
         'Memory limit exceeded: 2.1GB of 2.0GB'
       ])[1 + (n % 4)]
-      WHEN 'datahub' THEN (ARRAY[
-        'Entity not found for URN',
-        'Lineage depth exceeded maximum of 5 hops',
-        'Search index temporarily unavailable',
-        'GraphQL query timeout after 30s'
+      WHEN 'search' THEN (ARRAY[
+        'Reference not found',
+        'Search provider timed out after 5s',
+        'Embedding provider unavailable; ranked lexically',
+        'Reference is not a catalog reference'
       ])[1 + (n % 4)]
       WHEN 's3' THEN (ARRAY[
         'NoSuchKey: The specified key does not exist',
@@ -88,7 +93,7 @@ SELECT
   ELSE '' END,
   CASE t.toolkit_kind
     WHEN 'trino' THEN 45 + (n * 7 % 2755)
-    WHEN 'datahub' THEN 25 + (n * 3 % 325)
+    WHEN 'search' THEN 25 + (n * 3 % 325)
     WHEN 's3' THEN 15 + (n * 5 % 485)
   END,
   200 + (n * 13 % 11800),
@@ -142,15 +147,15 @@ FROM
       ('trino_query',              'trino',   'acme-warehouse',        'acme-warehouse',         22),
       ('trino_describe_table',     'trino',   'acme-warehouse',        'acme-warehouse',          7),
       ('trino_browse',             'trino',   'acme-warehouse',        'acme-warehouse',          3),
-      ('datahub_search',           'datahub', 'acme-catalog',          'acme-catalog',           12),
-      ('datahub_get_entity',       'datahub', 'acme-catalog',          'acme-catalog',            6),
-      ('datahub_get_schema',       'datahub', 'acme-catalog',          'acme-catalog',            3),
-      ('datahub_get_lineage',      'datahub', 'acme-catalog',          'acme-catalog',            2),
+      ('search',                   'search',  'default',               '',                       12),
+      ('fetch',                    'search',  'default',               '',                        6),
+      ('fetch',                    'search',  'default',               '',                        3),
+      ('fetch',                    'search',  'default',               '',                        2),
       ('s3_list',                  's3',      'acme-data-lake',        'acme-data-lake',          4),
       ('s3_object',                's3',      'acme-data-lake',        'acme-data-lake',          3),
       ('s3_list',                  's3',      'acme-reports',          'acme-reports',             2),
       ('trino_query',              'trino',   'acme-staging',          'acme-staging',            4),
-      ('datahub_search',           'datahub', 'acme-catalog-staging',  'acme-catalog-staging',    2)
+      ('search',                   'search',  'default',               '',                        2)
     ) AS tools(tool_name, toolkit_kind, toolkit_name, connection, weight)
     ORDER BY weight DESC
     OFFSET (n * 13 % 12)
@@ -195,9 +200,14 @@ SELECT
         || (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog'])[1 + (n % 4)]
         || ' LIMIT 100'
     )
-    WHEN 'datahub' THEN jsonb_build_object(
-      'query', (ARRAY['daily_sales','inventory','customer','revenue','store performance'])[1 + (n % 5)]
-    )
+    WHEN 'search' THEN CASE t.tool_name
+      WHEN 'fetch' THEN jsonb_build_object(
+        'reference', 'mcp:dataset:(trino,acme,iceberg.retail.' || (ARRAY['daily_sales','store_transactions','refunds','sales_mart'])[1 + (n % 4)] || ')'
+      )
+      ELSE jsonb_build_object(
+        'intent', (ARRAY['daily_sales','inventory','customer','revenue','store performance'])[1 + (n % 5)]
+      )
+    END
     WHEN 's3' THEN jsonb_build_object(
       'bucket', (ARRAY['acme-raw-transactions','acme-analytics-output','acme-ml-features'])[1 + (n % 3)],
       'prefix', (ARRAY['raw/2024/','processed/daily/','exports/regional/'])[1 + (n % 3)]
@@ -222,9 +232,9 @@ FROM
       ('trino_query',          'trino',   'acme-warehouse', 'acme-warehouse'),
       ('trino_describe_table', 'trino',   'acme-warehouse', 'acme-warehouse'),
       ('trino_browse',         'trino',   'acme-warehouse', 'acme-warehouse'),
-      ('datahub_search',       'datahub', 'acme-catalog',   'acme-catalog'),
-      ('datahub_get_entity',   'datahub', 'acme-catalog',   'acme-catalog'),
-      ('datahub_get_schema',   'datahub', 'acme-catalog',   'acme-catalog'),
+      ('search',               'search',  'default',        ''),
+      ('fetch',                'search',  'default',        ''),
+      ('fetch',                'search',  'default',        ''),
       ('s3_list',              's3',      'acme-data-lake',  'acme-data-lake'),
       ('s3_object',            's3',      'acme-data-lake',  'acme-data-lake')
     ) AS tools(tool_name, toolkit_kind, toolkit_name, connection)
@@ -268,9 +278,14 @@ SELECT
         || (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog','regional_performance'])[1 + (n % 5)]
         || ' LIMIT 100'
     )
-    WHEN 'datahub' THEN jsonb_build_object(
-      'query', (ARRAY['daily_sales','inventory','customer','revenue','store performance','supply chain'])[1 + (n % 6)]
-    )
+    WHEN 'search' THEN CASE t.tool_name
+      WHEN 'fetch' THEN jsonb_build_object(
+        'reference', 'mcp:dataset:(trino,acme,iceberg.retail.' || (ARRAY['daily_sales','store_transactions','refunds','sales_mart'])[1 + (n % 4)] || ')'
+      )
+      ELSE jsonb_build_object(
+        'intent', (ARRAY['daily_sales','inventory','customer','revenue','store performance','supply chain'])[1 + (n % 6)]
+      )
+    END
     WHEN 's3' THEN jsonb_build_object(
       'bucket', (ARRAY['acme-raw-transactions','acme-analytics-output','acme-ml-features','acme-report-archive'])[1 + (n % 4)],
       'prefix', (ARRAY['raw/2024/','processed/daily/','exports/regional/','ml/features/'])[1 + (n % 4)]
@@ -306,8 +321,8 @@ FROM
     SELECT tool_name, toolkit_kind, toolkit_name, connection FROM (VALUES
       ('trino_query',          'trino',   'acme-warehouse', 'acme-warehouse'),
       ('trino_describe_table', 'trino',   'acme-warehouse', 'acme-warehouse'),
-      ('datahub_search',       'datahub', 'acme-catalog',   'acme-catalog'),
-      ('datahub_get_entity',   'datahub', 'acme-catalog',   'acme-catalog'),
+      ('search',               'search',  'default',        ''),
+      ('fetch',                'search',  'default',        ''),
       ('s3_list',              's3',      'acme-data-lake',  'acme-data-lake'),
       ('s3_object',            's3',      'acme-data-lake',  'acme-data-lake')
     ) AS tools(tool_name, toolkit_kind, toolkit_name, connection)
@@ -356,8 +371,8 @@ FROM (VALUES
   'business_context',
   'The daily_sales table in the retail schema is the primary source of truth for all revenue reporting. The revenue column uses post-discount, pre-tax amounts in USD.',
   'high',
-  '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"]'::jsonb,
-  '[{"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)", "column": "revenue", "relevance": "primary"}]'::jsonb,
+  '["mcp:dataset:(trino,acme,iceberg.retail.daily_sales)"]'::jsonb,
+  '[{"urn": "mcp:dataset:(trino,acme,iceberg.retail.daily_sales)", "column": "revenue", "relevance": "primary"}]'::jsonb,
   '[{"action_type": "update_description", "target": "iceberg.retail.daily_sales.revenue", "detail": "Post-discount, pre-tax revenue in USD"}]'::jsonb,
   'approved', 'sarah.chen@example.com', 'Verified with finance team - this is correct.', '', '',
   NOW() - interval '5 days'
@@ -367,8 +382,8 @@ FROM (VALUES
   'data_quality',
   'The inventory_levels table has NULL values in the reorder_point column for approximately 12% of SKUs, primarily in the seasonal-goods category.',
   'high',
-  '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD)"]'::jsonb,
-  '[{"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD)", "column": "reorder_point", "relevance": "primary"}]'::jsonb,
+  '["mcp:dataset:(trino,acme,iceberg.inventory.inventory_levels)"]'::jsonb,
+  '[{"urn": "mcp:dataset:(trino,acme,iceberg.inventory.inventory_levels)", "column": "reorder_point", "relevance": "primary"}]'::jsonb,
   '[{"action_type": "add_tag", "target": "iceberg.inventory.inventory_levels.reorder_point", "detail": "has_nulls_seasonal"}]'::jsonb,
   'approved', 'sarah.chen@example.com', 'Known issue - seasonal items have dynamic reorder points calculated separately.', '', '',
   NOW() - interval '4 days'
@@ -378,10 +393,10 @@ FROM (VALUES
   'usage_guidance',
   'When querying regional_performance, always filter by fiscal_quarter rather than calendar_quarter. ACME fiscal year starts February 1.',
   'high',
-  '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD)"]'::jsonb,
+  '["mcp:dataset:(trino,acme,iceberg.analytics.regional_performance)"]'::jsonb,
   '[]'::jsonb,
   '[{"action_type": "update_description", "target": "iceberg.analytics.regional_performance", "detail": "Uses ACME fiscal calendar (FY starts Feb 1). Filter by fiscal_quarter for accurate period comparisons."}]'::jsonb,
-  'applied', 'sarah.chen@example.com', 'Applied to DataHub description.', 'sarah.chen@example.com', 'cs-001',
+  'applied', 'sarah.chen@example.com', 'Applied to the catalog description.', 'sarah.chen@example.com', 'cs-001',
   NOW() - interval '3 days'
 ),
 (
@@ -389,7 +404,7 @@ FROM (VALUES
   'relationship',
   'The customer_segments table is refreshed daily from the ML pipeline and feeds into regional_performance via a nightly ETL job. Segments are based on 90-day purchase history.',
   'medium',
-  '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)", "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD)"]'::jsonb,
+  '["mcp:dataset:(trino,acme,iceberg.analytics.customer_segments)", "mcp:dataset:(trino,acme,iceberg.analytics.regional_performance)"]'::jsonb,
   '[]'::jsonb,
   '[]'::jsonb,
   'pending', '', '', '', '',
@@ -400,8 +415,8 @@ FROM (VALUES
   'correction',
   'The store_transactions.discount_pct column is stored as a decimal (0.15 = 15%), not as a percentage integer. Several downstream reports incorrectly multiply by 100.',
   'high',
-  '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.store_transactions,PROD)"]'::jsonb,
-  '[{"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.store_transactions,PROD)", "column": "discount_pct", "relevance": "primary"}]'::jsonb,
+  '["mcp:dataset:(trino,acme,iceberg.retail.store_transactions)"]'::jsonb,
+  '[{"urn": "mcp:dataset:(trino,acme,iceberg.retail.store_transactions)", "column": "discount_pct", "relevance": "primary"}]'::jsonb,
   '[{"action_type": "update_description", "target": "iceberg.retail.store_transactions.discount_pct", "detail": "Decimal format: 0.15 means 15% discount. Do NOT multiply by 100."}]'::jsonb,
   'pending', '', '', '', '',
   NOW() - interval '1 day'
@@ -411,8 +426,8 @@ FROM (VALUES
   'business_context',
   'Supply chain orders with status BACKORDER should be excluded from current inventory calculations. They represent items ordered but not yet received from vendors.',
   'high',
-  '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)"]'::jsonb,
-  '[{"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)", "column": "status", "relevance": "primary"}]'::jsonb,
+  '["mcp:dataset:(trino,acme,iceberg.inventory.supply_chain_orders)"]'::jsonb,
+  '[{"urn": "mcp:dataset:(trino,acme,iceberg.inventory.supply_chain_orders)", "column": "status", "relevance": "primary"}]'::jsonb,
   '[]'::jsonb,
   'pending', 'sarah.chen@example.com', 'Returned to review: changeset cs-002 was rolled back.', 'sarah.chen@example.com', 'cs-002',
   NOW() - interval '6 days'
@@ -422,7 +437,7 @@ FROM (VALUES
   'data_quality',
   'The price_adjustments table contains duplicate entries for Black Friday 2024 promotions (Nov 29). Use DISTINCT on (store_id, sku, effective_date) to deduplicate.',
   'medium',
-  '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.price_adjustments,PROD)"]'::jsonb,
+  '["mcp:dataset:(trino,acme,iceberg.retail.price_adjustments)"]'::jsonb,
   '[]'::jsonb,
   '[{"action_type": "add_tag", "target": "iceberg.retail.price_adjustments", "detail": "has_duplicates_bf2024"}]'::jsonb,
   'rejected', 'sarah.chen@example.com', 'Duplicates were intentional - separate promotional line items for stackable discounts.', '', '',
@@ -433,7 +448,7 @@ FROM (VALUES
   'usage_guidance',
   'For real-time inventory queries, use the inventory.current_stock view instead of inventory_levels. The view joins with pending_receipts and in_transit tables for accurate on-hand counts.',
   'high',
-  '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD)"]'::jsonb,
+  '["mcp:dataset:(trino,acme,iceberg.inventory.inventory_levels)"]'::jsonb,
   '[]'::jsonb,
   '[]'::jsonb,
   'pending', '', '', '', '',
@@ -460,7 +475,7 @@ INSERT INTO knowledge_changesets (
 ) VALUES
 (
   'cs-001',
-  'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD)',
+  'mcp:dataset:(trino,acme,iceberg.analytics.regional_performance)',
   'update_description',
   '{"description": ""}'::jsonb,
   '{"description": "Uses ACME fiscal calendar (FY starts Feb 1). Filter by fiscal_quarter for accurate period comparisons."}'::jsonb,
@@ -471,7 +486,7 @@ INSERT INTO knowledge_changesets (
 ),
 (
   'cs-002',
-  'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)',
+  'mcp:dataset:(trino,acme,iceberg.inventory.supply_chain_orders)',
   'add_tag',
   '{}'::jsonb,
   '{"tag": "exclude_backorders_from_inventory"}'::jsonb,
@@ -853,25 +868,25 @@ ON CONFLICT (id) DO UPDATE SET
 INSERT INTO connection_instances (kind, name, config, description, created_by, updated_at) VALUES
 (
   'trino', 'acme-warehouse',
-  '{"host": "trino.acme.internal", "port": 443, "user": "platform_svc", "catalog": "iceberg", "ssl": true, "datahub_source_name": "trino"}'::jsonb,
+  '{"host": "trino.acme.internal", "port": 443, "user": "platform_svc", "catalog": "iceberg", "ssl": true}'::jsonb,
   'Production Iceberg warehouse — retail, inventory, and finance data',
   'apikey:admin', NOW() - interval '30 days'
 ),
 (
   'trino', 'acme-staging',
-  '{"host": "trino-staging.acme.internal", "port": 8080, "user": "platform_svc", "catalog": "hive", "ssl": false, "datahub_source_name": "trino", "catalog_mapping": {"hive": "warehouse"}}'::jsonb,
+  '{"host": "trino-staging.acme.internal", "port": 8080, "user": "platform_svc", "catalog": "hive", "ssl": false}'::jsonb,
   'Staging environment for testing queries before production',
   'apikey:admin', NOW() - interval '14 days'
 ),
 (
   's3', 'acme-data-lake',
-  '{"region": "us-east-1", "bucket_prefix": "acme-", "datahub_source_name": "s3"}'::jsonb,
+  '{"region": "us-east-1", "bucket_prefix": "acme-"}'::jsonb,
   'Production data lake — raw ingestion, processed datasets, and ML features',
   'apikey:admin', NOW() - interval '30 days'
 ),
 (
   's3', 'acme-reports',
-  '{"region": "us-east-1", "bucket_prefix": "acme-reports-", "datahub_source_name": "s3"}'::jsonb,
+  '{"region": "us-east-1", "bucket_prefix": "acme-reports-"}'::jsonb,
   'Report archive — generated dashboards, exports, and scheduled reports',
   'apikey:admin', NOW() - interval '7 days'
 )
@@ -958,7 +973,7 @@ VALUES
   'incident-retro',
   'Incident Retrospective',
   'Long-form retrospective template for production incidents. Pulls audit, query, and pipeline activity for the impact window and produces a blameless writeup with timeline, contributing factors, and follow-up actions.',
-  E'# Incident Retrospective — {{incident_id}}\n\nYou are writing a **blameless retrospective** for incident **{{incident_id}}**.\nImpact window: **{{start_time}} → {{end_time}}** ({{timezone}}).\n\n## 1. Summary\n\nWrite 3–5 sentences a non-technical stakeholder would understand. Cover:\n\n- What broke, from the customer''s perspective.\n- When it started, when it was detected, when it was resolved.\n- Who was paged and who actually drove the resolution.\n- Severity ({{severity}}) and customer-visible impact.\n\n## 2. Timeline\n\nBuild a strict-chronological timeline of events between **{{start_time}}** and **{{end_time}}**. For each entry, include:\n\n| Time ({{timezone}}) | Event | Source | Operator |\n| --- | --- | --- | --- |\n\nSources to pull from:\n\n1. **Audit log** — every tool call by {{primary_operator}} and any teammates joining the incident channel.\n2. **Pipeline runs** — `etl_pipelines.runs` rows whose `updated_at` falls in the window, with their status transitions.\n3. **Trino query log** — top 20 long-running queries by user during the window.\n4. **DataHub deprecation events** — anything marked deprecated/restored in the window.\n\n> Cite each entry with the underlying record (audit_event_id, query_id, run_id). No paraphrasing without a citation.\n\n## 3. Contributing factors\n\nIdentify **at most 5** contributing factors. For each:\n\n- **What** — one-sentence description.\n- **Evidence** — direct links to log lines / query IDs / dashboards.\n- **Category** — one of: configuration, capacity, deploy, data, dependency, human-process.\n- **Counterfactual** — "if X had been different, this incident would have been …".\n\nReject any factor you cannot evidence. Better to list 2 well-evidenced factors than 5 speculative ones.\n\n## 4. What went well\n\nExplicit, named callouts. Examples:\n\n- The on-call rotation paged the right person within {{page_sla}} minutes.\n- The runbook for `{{affected_pipeline}}` matched reality and was followed.\n- Customer comms went out before any external escalation.\n\n## 5. Follow-up actions\n\nProduce a table with one row per action. Every row must have an owner and a due date — no "TBD".\n\n| # | Action | Owner | Due | Category |\n| --- | --- | --- | --- | --- |\n\nCategories: **prevent** (stop recurrence), **detect** (faster signal next time), **respond** (better playbook), **recover** (faster restore), **communicate** (clearer customer messaging).\n\n## 6. Open questions\n\nAnything you couldn''t determine from the available evidence — frame as a question, not an accusation.\nThese should be resolved during the retro meeting, not left in the document.\n\n---\n\n**Constraints**\n\n- Blameless: describe systems and decisions, never individuals'' competence.\n- Every factual claim must cite a record from one of the sources above.\n- If a source has no relevant records, say so explicitly — do not infer.\n- Output the entire writeup as Markdown so it can be pasted into the incidents wiki unedited.',
+  E'# Incident Retrospective — {{incident_id}}\n\nYou are writing a **blameless retrospective** for incident **{{incident_id}}**.\nImpact window: **{{start_time}} → {{end_time}}** ({{timezone}}).\n\n## 1. Summary\n\nWrite 3–5 sentences a non-technical stakeholder would understand. Cover:\n\n- What broke, from the customer''s perspective.\n- When it started, when it was detected, when it was resolved.\n- Who was paged and who actually drove the resolution.\n- Severity ({{severity}}) and customer-visible impact.\n\n## 2. Timeline\n\nBuild a strict-chronological timeline of events between **{{start_time}}** and **{{end_time}}**. For each entry, include:\n\n| Time ({{timezone}}) | Event | Source | Operator |\n| --- | --- | --- | --- |\n\nSources to pull from:\n\n1. **Audit log** — every tool call by {{primary_operator}} and any teammates joining the incident channel.\n2. **Pipeline runs** — `etl_pipelines.runs` rows whose `updated_at` falls in the window, with their status transitions.\n3. **Trino query log** — top 20 long-running queries by user during the window.\n4. **Catalog deprecation events** — anything marked deprecated/restored in the window.\n\n> Cite each entry with the underlying record (audit_event_id, query_id, run_id). No paraphrasing without a citation.\n\n## 3. Contributing factors\n\nIdentify **at most 5** contributing factors. For each:\n\n- **What** — one-sentence description.\n- **Evidence** — direct links to log lines / query IDs / dashboards.\n- **Category** — one of: configuration, capacity, deploy, data, dependency, human-process.\n- **Counterfactual** — "if X had been different, this incident would have been …".\n\nReject any factor you cannot evidence. Better to list 2 well-evidenced factors than 5 speculative ones.\n\n## 4. What went well\n\nExplicit, named callouts. Examples:\n\n- The on-call rotation paged the right person within {{page_sla}} minutes.\n- The runbook for `{{affected_pipeline}}` matched reality and was followed.\n- Customer comms went out before any external escalation.\n\n## 5. Follow-up actions\n\nProduce a table with one row per action. Every row must have an owner and a due date — no "TBD".\n\n| # | Action | Owner | Due | Category |\n| --- | --- | --- | --- | --- |\n\nCategories: **prevent** (stop recurrence), **detect** (faster signal next time), **respond** (better playbook), **recover** (faster restore), **communicate** (clearer customer messaging).\n\n## 6. Open questions\n\nAnything you couldn''t determine from the available evidence — frame as a question, not an accusation.\nThese should be resolved during the retro meeting, not left in the document.\n\n---\n\n**Constraints**\n\n- Blameless: describe systems and decisions, never individuals'' competence.\n- Every factual claim must cite a record from one of the sources above.\n- If a source has no relevant records, say so explicitly — do not infer.\n- Output the entire writeup as Markdown so it can be pasted into the incidents wiki unedited.',
   '[
     {"name": "incident_id", "description": "Internal incident identifier (e.g. INC-2026-0418-01)", "required": true},
     {"name": "start_time", "description": "When impact began, ISO-8601 with offset", "required": true},
@@ -975,7 +990,7 @@ VALUES
   'weekly-business-review',
   'Weekly Business Review',
   'Full week-over-week business review covering revenue, operations, and data quality. Produces a publish-ready Markdown report with KPIs, anomaly callouts, and a one-paragraph executive summary at the top.',
-  E'# Weekly Business Review — Week ending {{week_ending}}\n\nAudience: **{{audience}}** (e.g. exec staff, ops leadership).\nRegion scope: **{{region}}** (use `all` to roll up everything).\nComparison: this week vs. **{{compare_to}}** (`prior_week`, `prior_year`, or `plan`).\n\n> Lead with the answer. The executive summary at the top must stand on its own — assume only ~30% of readers scroll past it.\n\n## Executive summary\n\nOne paragraph, **at most 4 sentences**:\n\n1. The single most important number this week and its direction.\n2. The biggest positive surprise (with magnitude).\n3. The biggest negative surprise (with magnitude and what is being done about it).\n4. What you need from the audience this week.\n\n## Revenue scorecard\n\nPull from `finance.revenue_daily` for the {{region}} region.\n\n| Metric | This week | {{compare_to}} | Δ | Δ % | Status |\n| --- | --- | --- | --- | --- | --- |\n| Net revenue | | | | | |\n| Gross margin % | | | | | |\n| Average order value | | | | | |\n| Customer acquisition cost | | | | | |\n| Same-store sales growth | | | | | |\n\nStatus is one of: 🟢 on/above plan, 🟡 within {{warn_threshold}}% of plan, 🔴 outside threshold.\n\nIf a metric crosses 🔴, attach a 1-sentence root cause hypothesis grounded in the data, plus the audit_event_id or query_id you used to verify.\n\n## Operations scorecard\n\nPull from `ops.warehouse_metrics` and `ops.fulfillment_runs`.\n\n- On-time fulfillment rate (target ≥ {{otf_target}}%).\n- Inventory days-on-hand by category (call out anything over {{doh_alert}}).\n- Stockouts: SKU count and revenue exposure.\n- Top 5 SKUs by lost-sale risk.\n\nFor each operations metric outside its target, propose **one** concrete next step, with the owner and a 7-day-or-less deadline. No "investigate further" placeholders.\n\n## Data platform health\n\nThis is the section the audience tends to skip — keep it short and only flag what matters.\n\n- Pipeline success rate this week vs. trailing 8 weeks.\n- Any tables flagged `deprecated` in DataHub that still received queries.\n- Top 3 longest-running recurring queries (candidates for tuning).\n- Any audit log gaps (missing days, unusual operator activity).\n\n## Anomalies\n\nFor every metric where the week-over-week delta exceeds {{anomaly_sigma}} standard deviations of its trailing 12-week distribution, produce one block:\n\n```\nmetric:      <name>\nthis week:   <value>\ntrailing μ:  <value> (σ = <value>)\ndelta:       <value> (<σ count>σ)\nhypothesis:  <1-sentence explanation, grounded in the data>\nevidence:    <query_id or audit_event_id>\naction:      <owner — what — by when>\n```\n\nReject any block where you cannot fill in **evidence**. A real anomaly with no evidence is worse than no callout.\n\n## Asks for the audience\n\nA bulleted list. Each item is one decision you need from this audience this week, phrased as a question with options. If there are none, write "No asks this week."\n\n---\n\n**Style rules**\n\n- Round numbers to the precision a human would speak (`$4.2M`, not `$4,237,891.40`).\n- Percentages to one decimal (`+12.3%`, not `+12.34567%`).\n- All directional comparisons explicit (`+`/`-` signs, ✅/⚠️ for status).\n- No buzzwords (`leverage`, `synergy`, `mission-critical`). State the thing.\n- Output the entire report as a single Markdown document, ready to paste.',
+  E'# Weekly Business Review — Week ending {{week_ending}}\n\nAudience: **{{audience}}** (e.g. exec staff, ops leadership).\nRegion scope: **{{region}}** (use `all` to roll up everything).\nComparison: this week vs. **{{compare_to}}** (`prior_week`, `prior_year`, or `plan`).\n\n> Lead with the answer. The executive summary at the top must stand on its own — assume only ~30% of readers scroll past it.\n\n## Executive summary\n\nOne paragraph, **at most 4 sentences**:\n\n1. The single most important number this week and its direction.\n2. The biggest positive surprise (with magnitude).\n3. The biggest negative surprise (with magnitude and what is being done about it).\n4. What you need from the audience this week.\n\n## Revenue scorecard\n\nPull from `finance.revenue_daily` for the {{region}} region.\n\n| Metric | This week | {{compare_to}} | Δ | Δ % | Status |\n| --- | --- | --- | --- | --- | --- |\n| Net revenue | | | | | |\n| Gross margin % | | | | | |\n| Average order value | | | | | |\n| Customer acquisition cost | | | | | |\n| Same-store sales growth | | | | | |\n\nStatus is one of: 🟢 on/above plan, 🟡 within {{warn_threshold}}% of plan, 🔴 outside threshold.\n\nIf a metric crosses 🔴, attach a 1-sentence root cause hypothesis grounded in the data, plus the audit_event_id or query_id you used to verify.\n\n## Operations scorecard\n\nPull from `ops.warehouse_metrics` and `ops.fulfillment_runs`.\n\n- On-time fulfillment rate (target ≥ {{otf_target}}%).\n- Inventory days-on-hand by category (call out anything over {{doh_alert}}).\n- Stockouts: SKU count and revenue exposure.\n- Top 5 SKUs by lost-sale risk.\n\nFor each operations metric outside its target, propose **one** concrete next step, with the owner and a 7-day-or-less deadline. No "investigate further" placeholders.\n\n## Data platform health\n\nThis is the section the audience tends to skip — keep it short and only flag what matters.\n\n- Pipeline success rate this week vs. trailing 8 weeks.\n- Any tables flagged `deprecated` in the catalog that still received queries.\n- Top 3 longest-running recurring queries (candidates for tuning).\n- Any audit log gaps (missing days, unusual operator activity).\n\n## Anomalies\n\nFor every metric where the week-over-week delta exceeds {{anomaly_sigma}} standard deviations of its trailing 12-week distribution, produce one block:\n\n```\nmetric:      <name>\nthis week:   <value>\ntrailing μ:  <value> (σ = <value>)\ndelta:       <value> (<σ count>σ)\nhypothesis:  <1-sentence explanation, grounded in the data>\nevidence:    <query_id or audit_event_id>\naction:      <owner — what — by when>\n```\n\nReject any block where you cannot fill in **evidence**. A real anomaly with no evidence is worse than no callout.\n\n## Asks for the audience\n\nA bulleted list. Each item is one decision you need from this audience this week, phrased as a question with options. If there are none, write "No asks this week."\n\n---\n\n**Style rules**\n\n- Round numbers to the precision a human would speak (`$4.2M`, not `$4,237,891.40`).\n- Percentages to one decimal (`+12.3%`, not `+12.34567%`).\n- All directional comparisons explicit (`+`/`-` signs, ✅/⚠️ for status).\n- No buzzwords (`leverage`, `synergy`, `mission-critical`). State the thing.\n- Output the entire report as a single Markdown document, ready to paste.',
   '[
     {"name": "week_ending", "description": "Sunday of the report week (YYYY-MM-DD)", "required": true},
     {"name": "region", "description": "Region code, or ''all'' for global rollup", "required": true},
@@ -1028,7 +1043,7 @@ VALUES
 
 Our fiscal year starts in **February**, not January, so every period-over-period comparison in finance reporting is offset a month from the civil calendar. The four quarters are Q1 (February-April), Q2 (May-July), Q3 (August-October), and Q4 (November-January).
 
-The fiscal quarter is the default time grain for revenue reporting. When the [Revenue Definition](mcp:knowledge_page:kp-seed-2) or [Net Revenue Definition](mcp:knowledge_page:kp-seed-9) page refers to "the current quarter", it means the fiscal quarter defined here. The same tagging is applied at load time to [daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)), so a row can be rolled up to its fiscal period without a date-math join.
+The fiscal quarter is the default time grain for revenue reporting. When the [Revenue Definition](mcp:knowledge_page:kp-seed-2) or [Net Revenue Definition](mcp:knowledge_page:kp-seed-9) page refers to "the current quarter", it means the fiscal quarter defined here. The same tagging is applied at load time to [daily_sales](mcp:dataset:(trino,acme,iceberg.retail.daily_sales)), so a row can be rolled up to its fiscal period without a date-math join.
 
 Two gotchas catch people every year. January belongs to the **previous** fiscal year's Q4, and fiscal-week numbering resets in February rather than at the civil new year. (Historically the calendar dimension was sourced from the [retired warehouse connection](mcp:connection:(trino,warehouse)); it now ships with the platform, so that link no longer resolves.)
 
@@ -1044,7 +1059,7 @@ The `amount` column on the sales fact is **gross margin before returns**, not gr
 
 For any top-line or board-level number, use net_revenue instead, defined on the [Net Revenue Definition](mcp:knowledge_page:kp-seed-9) page. The two differ by exactly the returns described in [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5), which post in a later layer rather than at ingest.
 
-The field lives on [daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)) at store-day grain. When a report and the dashboard disagree, it is almost always because one used `amount` where it meant net_revenue. The [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28) page is the tie-breaker when a metric name is ambiguous.
+The field lives on [daily_sales](mcp:dataset:(trino,acme,iceberg.retail.daily_sales)) at store-day grain. When a report and the dashboard disagree, it is almost always because one used `amount` where it meant net_revenue. The [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28) page is the tie-breaker when a metric name is ambiguous.
 $md$,
    '["finance","metrics"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'sarah.chen@example.com', 1, '2026-06-05T09:00:00Z', '2026-06-18T14:30:00Z'),
 
@@ -1056,7 +1071,7 @@ $md$,
 
 The mechanics of masking, who may read the raw values, and how access is logged are covered in the [PII Masking Policy](mcp:knowledge_page:kp-seed-18). In short: masked columns are safe to use everywhere; the raw values require the `pii_reader` role and every read is recorded for compliance review.
 
-These columns originate on [customer_segments](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)). If you need to segment or join on a customer without touching PII, use the resolved `customer_key`, never the raw email.
+These columns originate on [customer_segments](mcp:dataset:(trino,acme,iceberg.analytics.customer_segments)). If you need to segment or join on a customer without touching PII, use the resolved `customer_key`, never the raw email.
 $md$,
    '["governance","pii"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'marcus.webb@example.com', 3, '2026-05-20T08:00:00Z', '2026-06-20T16:00:00Z'),
 
@@ -1064,7 +1079,7 @@ $md$,
    'daily_sales is one row per store per day, partitioned by date. Backfills land two days late, so the last 48 hours are never final.',
    $md$# daily_sales Table Guide
 
-[daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)) is the base fact for retail reporting: **one row per store per day**, partitioned by `date`, served from the [acme-warehouse](mcp:connection:(trino,acme-warehouse)) connection.
+[daily_sales](mcp:dataset:(trino,acme,iceberg.retail.daily_sales)) is the base fact for retail reporting: **one row per store per day**, partitioned by `date`, served from the [acme-warehouse](mcp:connection:(trino,acme-warehouse)) connection.
 
 The single most important gotcha is freshness. Backfills and late-arriving corrections land up to **two days late**, so the last 48 hours are provisional. Do not publish a final number that depends on the trailing two days; the timing rules are spelled out in [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).
 
@@ -1076,7 +1091,7 @@ $md$,
    'Returns post to the refunds table with a negative amount and a reason_code. They net against revenue in the reporting layer, not at ingest.',
    $md$# Returns and Refunds Logic
 
-A return posts a row to [refunds](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.refunds,PROD)) with a **negative** `amount` and a `reason_code`. Crucially, the return is **not** applied at ingest: the original sale stays whole, and the offset is applied later in the reporting layer.
+A return posts a row to [refunds](mcp:dataset:(trino,acme,iceberg.retail.refunds)) with a **negative** `amount` and a `reason_code`. Crucially, the return is **not** applied at ingest: the original sale stays whole, and the offset is applied later in the reporting layer.
 
 This is why gross figures and net figures diverge. The gross `amount` in [Revenue Definition](mcp:knowledge_page:kp-seed-2) never sees the return, while the [Net Revenue Definition](mcp:knowledge_page:kp-seed-9) subtracts it. If you sum `amount` across sales and refunds yourself you will double-count timing, so prefer the net measure.
 
@@ -1088,7 +1103,7 @@ $md$,
    'daily_sales feeds sales_mart feeds the executive dashboard. Marts refresh by 06:00 UTC; page the on-call if the dashboard is stale past 08:00.',
    $md$# Lineage and Freshness SLAs
 
-The reporting chain is short and load-bearing: [daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)) feeds the curated [sales_mart Schema](mcp:knowledge_page:kp-seed-17), which feeds the executive dashboard. A delay anywhere upstream surfaces at the very end.
+The reporting chain is short and load-bearing: [daily_sales](mcp:dataset:(trino,acme,iceberg.retail.daily_sales)) feeds the curated [sales_mart Schema](mcp:knowledge_page:kp-seed-17), which feeds the executive dashboard. A delay anywhere upstream surfaces at the very end.
 
 Freshness is governed by two pages. [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20) sets the tier each dataset is held to, and [ETL Refresh Windows](mcp:knowledge_page:kp-seed-16) sets the clock the loads run on. The contract: marts refresh by **06:00 UTC**, and the on-call is paged if the dashboard is still stale past 08:00.
 
@@ -1104,7 +1119,7 @@ net_revenue is gross sales **minus returns, discounts, and tax**. It is the only
 
 It is built on top of two other definitions. The gross input is the `amount` field from [Revenue Definition](mcp:knowledge_page:kp-seed-2), and the returns it subtracts are exactly those described in [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5). Because returns net in the reporting layer, net_revenue for a period can move after the period closes.
 
-The measure is computed from [daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)) on the [acme-warehouse](mcp:connection:(trino,acme-warehouse)) connection. When a stakeholder simply says "revenue", they mean this; the [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28) page records that mapping so the word is unambiguous in reporting.
+The measure is computed from [daily_sales](mcp:dataset:(trino,acme,iceberg.retail.daily_sales)) on the [acme-warehouse](mcp:connection:(trino,acme-warehouse)) connection. When a stakeholder simply says "revenue", they mean this; the [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28) page records that mapping so the word is unambiguous in reporting.
 $md$,
    '["finance","revenue","metrics","reporting"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'marcus.johnson@example.com', 1, NOW() - interval '5 days', NOW() - interval '1 days'),
 
@@ -1124,7 +1139,7 @@ $md$,
    'sales_mart is the curated star schema for sales reporting: one fact table and four conformed dimensions. Dashboards should read this, never the base table.',
    $md$# sales_mart Schema
 
-[sales_mart](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.sales_mart,PROD)) is the curated star schema for sales reporting: one fact table (`sales_fact`) and four conformed dimensions (`date`, `store`, `product`, `customer`).
+[sales_mart](mcp:dataset:(trino,acme,iceberg.retail.sales_mart)) is the curated star schema for sales reporting: one fact table (`sales_fact`) and four conformed dimensions (`date`, `store`, `product`, `customer`).
 
 It is built from the base [daily_sales Table Guide](mcp:knowledge_page:kp-seed-4) table, with the cleanup and conformance applied so that reporting does not have to. Its place in the pipeline and its refresh deadline are described in [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).
 
@@ -1140,7 +1155,7 @@ Email, phone, and address must be **masked** in any shared mart. The masked form
 
 This is the enforcement side of [Customer PII Handling](mcp:knowledge_page:kp-seed-3): that page says which columns are PII, this one says what you may do with them. Reading the unmasked values requires the `pii_reader` role, and every such read is logged for compliance review.
 
-On [customer_segments](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)) the masked columns carry a `_masked` suffix. If a query needs to join customers across datasets, join on the resolved `customer_key`, which is not PII, rather than on email.
+On [customer_segments](mcp:dataset:(trino,acme,iceberg.analytics.customer_segments)) the masked columns carry a `_masked` suffix. If a query needs to join customers across datasets, join on the resolved `customer_key`, which is not PII, rather than on email.
 $md$,
    '["pii","governance","security","compliance"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'rachel.thompson@example.com', 2, NOW() - interval '14 days', NOW() - interval '5 days'),
 
@@ -1195,30 +1210,30 @@ VALUES
   ('kpref-1-1', 'kp-seed-1', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-1-2', 'kp-seed-1', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-1-3', 'kp-seed-1', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-1-4', 'kp-seed-1', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-1-4', 'kp-seed-1', 'catalog', NULL, NULL, NULL, 'mcp:dataset:(trino,acme,iceberg.retail.daily_sales)', 'inline', 'sarah.chen@example.com'),
   ('kpref-2-1', 'kp-seed-2', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-2-2', 'kp-seed-2', 'knowledge_page', 'kp-seed-5', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-2-3', 'kp-seed-2', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-2-4', 'kp-seed-2', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-2-4', 'kp-seed-2', 'catalog', NULL, NULL, NULL, 'mcp:dataset:(trino,acme,iceberg.retail.daily_sales)', 'inline', 'sarah.chen@example.com'),
   ('kpref-3-1', 'kp-seed-3', 'knowledge_page', 'kp-seed-18', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
-  ('kpref-3-2', 'kp-seed-3', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)', 'inline', 'marcus.webb@example.com'),
+  ('kpref-3-2', 'kp-seed-3', 'catalog', NULL, NULL, NULL, 'mcp:dataset:(trino,acme,iceberg.analytics.customer_segments)', 'inline', 'marcus.webb@example.com'),
   ('kpref-4-1', 'kp-seed-4', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-4-2', 'kp-seed-4', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-4-3', 'kp-seed-4', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-4-4', 'kp-seed-4', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-4-4', 'kp-seed-4', 'catalog', NULL, NULL, NULL, 'mcp:dataset:(trino,acme,iceberg.retail.daily_sales)', 'inline', 'sarah.chen@example.com'),
   ('kpref-5-1', 'kp-seed-5', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
   ('kpref-5-2', 'kp-seed-5', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
-  ('kpref-5-3', 'kp-seed-5', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.refunds,PROD)', 'inline', 'marcus.webb@example.com'),
+  ('kpref-5-3', 'kp-seed-5', 'catalog', NULL, NULL, NULL, 'mcp:dataset:(trino,acme,iceberg.retail.refunds)', 'inline', 'marcus.webb@example.com'),
   ('kpref-8-1', 'kp-seed-8', 'knowledge_page', 'kp-seed-4', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
   ('kpref-8-2', 'kp-seed-8', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
   ('kpref-8-3', 'kp-seed-8', 'knowledge_page', 'kp-seed-20', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
   ('kpref-8-4', 'kp-seed-8', 'knowledge_page', 'kp-seed-16', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
-  ('kpref-8-5', 'kp-seed-8', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'priya.nair@example.com'),
+  ('kpref-8-5', 'kp-seed-8', 'catalog', NULL, NULL, NULL, 'mcp:dataset:(trino,acme,iceberg.retail.daily_sales)', 'inline', 'priya.nair@example.com'),
   ('kpref-9-1', 'kp-seed-9', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-9-2', 'kp-seed-9', 'knowledge_page', 'kp-seed-5', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-9-3', 'kp-seed-9', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-9-4', 'kp-seed-9', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-9-5', 'kp-seed-9', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-9-5', 'kp-seed-9', 'catalog', NULL, NULL, NULL, 'mcp:dataset:(trino,acme,iceberg.retail.daily_sales)', 'inline', 'sarah.chen@example.com'),
   ('kpref-16-1', 'kp-seed-16', 'knowledge_page', 'kp-seed-20', NULL, NULL, NULL, 'inline', 'admin@example.com'),
   ('kpref-16-2', 'kp-seed-16', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'admin@example.com'),
   ('kpref-16-3', 'kp-seed-16', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'admin@example.com'),
@@ -1226,9 +1241,9 @@ VALUES
   ('kpref-17-1', 'kp-seed-17', 'knowledge_page', 'kp-seed-4', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-17-2', 'kp-seed-17', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-17-3', 'kp-seed-17', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-17-4', 'kp-seed-17', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.sales_mart,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-17-4', 'kp-seed-17', 'catalog', NULL, NULL, NULL, 'mcp:dataset:(trino,acme,iceberg.retail.sales_mart)', 'inline', 'sarah.chen@example.com'),
   ('kpref-18-1', 'kp-seed-18', 'knowledge_page', 'kp-seed-3', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
-  ('kpref-18-2', 'kp-seed-18', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)', 'inline', 'marcus.webb@example.com'),
+  ('kpref-18-2', 'kp-seed-18', 'catalog', NULL, NULL, NULL, 'mcp:dataset:(trino,acme,iceberg.analytics.customer_segments)', 'inline', 'marcus.webb@example.com'),
   ('kpref-20-1', 'kp-seed-20', 'knowledge_page', 'kp-seed-16', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
   ('kpref-20-2', 'kp-seed-20', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
   ('kpref-20-3', 'kp-seed-20', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'marcus.johnson@example.com'),
@@ -1275,7 +1290,7 @@ VALUES
    NOW() - interval '7 days', NOW() - interval '7 days', NULL),
   ('mem-live-05', 'admin@example.com', 'admin', 'event', 'episodic_event', 'business_context',
    'On 2026-06-10 finance confirmed daily_sales.amount excludes returns; flagged for a knowledge page.',
-   'high', 'agent_discovery', '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"]'::jsonb,
+   'high', 'agent_discovery', '["mcp:dataset:(trino,acme,iceberg.retail.daily_sales)"]'::jsonb,
    '[]'::jsonb, '{}'::jsonb, 'active',
    NOW() - interval '13 days', NOW() - interval '13 days', NULL),
   ('mem-live-06', 'admin@example.com', 'admin', 'event', 'episodic_event', 'data_quality',
@@ -1314,8 +1329,8 @@ VALUES
    NOW() - interval '2 days', NOW() - interval '2 days', NULL),
   ('ins-admin-03', 'admin@example.com', 'admin', 'knowledge', 'schema_entity', 'data_quality',
    'daily_sales is one row per store per day, partitioned by date; backfills land ~2 days late.',
-   'high', 'user', '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"]'::jsonb,
-   '[{"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)", "column": "date", "relevance": "partition_key"}]'::jsonb,
+   'high', 'user', '["mcp:dataset:(trino,acme,iceberg.retail.daily_sales)"]'::jsonb,
+   '[{"urn": "mcp:dataset:(trino,acme,iceberg.retail.daily_sales)", "column": "date", "relevance": "partition_key"}]'::jsonb,
    jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active',
    NOW() - interval '6 days', NOW() - interval '4 days', NULL),
   ('ins-admin-04', 'admin@example.com', 'admin', 'knowledge', 'operational_rule', 'usage_guidance',
@@ -1331,7 +1346,7 @@ VALUES
    NOW() - interval '10 days', NOW() - interval '6 days', NULL),
   ('ins-admin-06', 'admin@example.com', 'admin', 'knowledge', 'schema_entity', 'correction',
    'customer_segments is a Type-2 SCD; filter is_current = true for the latest segment assignment.',
-   'high', 'user', '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)"]'::jsonb,
+   'high', 'user', '["mcp:dataset:(trino,acme,iceberg.analytics.customer_segments)"]'::jsonb,
    '[]'::jsonb,
    jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com',
                       'applied_by', 'admin@example.com', 'changeset_ref', 'cs-seed-02'), 'active',

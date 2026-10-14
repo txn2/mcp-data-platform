@@ -10,7 +10,7 @@ import (
 
 // fakeLineageSemantic embeds the semantic noop and overrides GetLineage to
 // return a fixed upstream neighbor, so the expander's traversal is exercised
-// without a real DataHub.
+// without a real catalog.
 type fakeLineageSemantic struct {
 	*semantic.NoopProvider
 	neighbor string
@@ -24,8 +24,8 @@ func (f fakeLineageSemantic) GetLineage(_ context.Context, _ semantic.TableIdent
 }
 
 func TestLineageExpander_AddsNeighbors(t *testing.T) {
-	const urn = "urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.orders,PROD)"
-	const neighbor = "urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.upstream,PROD)"
+	const urn = "mcp:dataset:(trino,warehouse,opensearch.default.orders)"
+	const neighbor = "mcp:dataset:(trino,warehouse,opensearch.default.upstream)"
 	exp := NewLineageExpander(fakeLineageSemantic{NoopProvider: &semantic.NoopProvider{}, neighbor: neighbor})
 
 	got := exp.Expand(context.Background(), []string{urn})

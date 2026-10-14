@@ -88,7 +88,7 @@ type Purpose struct {
 	Require *bool `yaml:"require"`
 
 	// Tools overrides the gated tool set. Entries are tool-name globs
-	// (filepath.Match semantics, e.g. "datahub_get_*") plus
+	// (filepath.Match semantics, e.g. "trino_*") plus
 	// "kind:<toolkit-kind>" entries that gate every tool a toolkit of that kind
 	// serves — the default set uses "kind:mcp" to cover every tool an MCP
 	// gateway connection proxies, whose names are chosen upstream. An empty list

@@ -82,9 +82,9 @@ func TestRouter_PerUserSkippedForAnonymousCaller(t *testing.T) {
 }
 
 func TestRouter_SourcesNarrowsButNeverWidens(t *testing.T) {
-	datahub := &fakeProvider{name: "catalog", scope: ScopeShared, hits: []Hit{{Source: "catalog", Ref: "d1", Score: 1}}}
+	catalog := &fakeProvider{name: "catalog", scope: ScopeShared, hits: []Hit{{Source: "catalog", Ref: "d1", Score: 1}}}
 	memory := &fakeProvider{name: "memory", scope: ScopePerUser, hits: []Hit{{Source: "memory", Ref: "m1", Score: 1}}}
-	r := NewRouter(nil, nil, datahub, memory)
+	r := NewRouter(nil, nil, catalog, memory)
 
 	// Narrow to catalog only: memory is skipped even though the caller has identity.
 	caller := Caller{Email: "a@example.com"}
@@ -92,14 +92,14 @@ func TestRouter_SourcesNarrowsButNeverWidens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !datahub.called {
-		t.Error("datahub should be queried when named in sources")
+	if !catalog.called {
+		t.Error("catalog should be queried when named in sources")
 	}
 	if memory.called {
-		t.Error("memory must NOT be queried when sources narrows to datahub")
+		t.Error("memory must NOT be queried when sources narrows to catalog")
 	}
 	if hits := flatHits(res); len(hits) != 1 || hits[0].Source != "catalog" {
-		t.Errorf("expected only datahub, got %+v", hits)
+		t.Errorf("expected only catalog, got %+v", hits)
 	}
 }
 
@@ -408,8 +408,8 @@ func TestFanOut_RecoversProviderPanicWithoutBlankingSearch(t *testing.T) {
 }
 
 func TestRouter_UnknownSourcesReported(t *testing.T) {
-	datahub := &fakeProvider{name: SourceCatalog, scope: ScopeShared, hits: []Hit{{Source: SourceCatalog, Ref: "d1", Score: 1}}}
-	r := NewRouter(nil, nil, datahub)
+	catalog := &fakeProvider{name: SourceCatalog, scope: ScopeShared, hits: []Hit{{Source: SourceCatalog, Ref: "d1", Score: 1}}}
+	r := NewRouter(nil, nil, catalog)
 
 	// A typo'd source alongside a valid one (plus a dup and a blank): the valid
 	// source runs and only the unrecognized name is reported, case-folded and deduped.
@@ -427,7 +427,7 @@ func TestRouter_KnownButUnregisteredSourcesAreNotUnknown(t *testing.T) {
 	// documents) is not a typo: they are scope/availability-filtered, not unknown.
 	p := &fakeProvider{name: SourceMemory, scope: ScopeShared}
 	r := NewRouter(nil, nil, p)
-	res, err := r.Search(context.Background(), Query{Intent: "q", Sources: []string{"memory", "insights", "context_documents"}})
+	res, err := r.Search(context.Background(), Query{Intent: "q", Sources: []string{"memory", "insights", "governance"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

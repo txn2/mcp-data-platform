@@ -99,7 +99,7 @@ Reading memory back is served by the universal `search` tool, which federates me
 | Entity lookup | Direct URN match | Single-hop recall |
 | Semantic | Hybrid vector + lexical ranking via pgvector, with automatic lexical-only fallback when the embedder is unavailable | Open-domain recall |
 | Lexical | Postgres full-text keyword match (no embedding call) | Exact-term recall |
-| Graph | DataHub lineage traversal + entity lookup | Multi-hop reasoning |
+| Graph | Catalog lineage traversal + entity lookup | Multi-hop reasoning |
 
 #### Hybrid ranking
 
@@ -143,7 +143,7 @@ Reads from `memory_records` via an adapter. Promotes curated memories into durab
 
 ## Cross-Enrichment
 
-The existing bidirectional enrichment middleware automatically attaches relevant memories to toolkit responses. When a Trino query, DataHub lookup, or S3 operation returns results containing DataHub URNs, the middleware recalls memories linked to those entities and appends them as a `memory_context` content block.
+The existing bidirectional enrichment middleware automatically attaches relevant memories to toolkit responses. When a Trino query, a catalog read, or an S3 operation returns results naming catalog datasets, the middleware recalls memories linked to those entities and appends them as a `memory_context` content block.
 
 No explicit recall call is needed for this; it happens transparently on every enriched tool response.
 
@@ -153,7 +153,7 @@ An insight entry additionally carries a `verifiable` block naming the table and 
 
 ## Staleness Detection
 
-A background watcher periodically checks active memories against DataHub entity state. When a referenced entity is deprecated or its schema changes, the memory is flagged as `stale` with a reason. Stale memories are excluded from default recall and surfaced via `memory_manage(command='review_stale')` for admin curation.
+A background watcher periodically checks active memories against the catalog's state for the entities they name. When a referenced entity has changed underneath a memory, the memory is flagged as `stale` with a reason. Stale memories are excluded from default recall and surfaced via `memory_manage(command='review_stale')` for admin curation.
 
 ## Correction Chains
 
@@ -161,6 +161,6 @@ When a memory is updated or superseded, the correction chain is tracked in `meta
 
 ## Relationship to Knowledge Capture
 
-Memory is the universal store. An insight (captured via `memory_capture` with a reviewed sink-class) is a subtype of memory: one that may carry proposed catalog changes. But knowledge is broader than catalog mutations. Domain context like "we have two selling seasons" is institutional knowledge that does not map to a DataHub tag or description update. The `apply_knowledge` tool is where differentiation happens: it reviews memories and promotes the appropriate ones into durable DataHub entities.
+Memory is the universal store. An insight (captured via `memory_capture` with a reviewed sink-class) is a subtype of memory: one that may carry proposed catalog changes. But knowledge is broader than catalog mutations. Domain context like "we have two selling seasons" is institutional knowledge that does not map to a catalog tag or description update. The `apply_knowledge` tool is where differentiation happens: it reviews memories and promotes the appropriate ones into durable DataHub entities.
 
 Because knowledge capture now lives in the memory toolkit (`memory_capture`), it requires the memory layer to be enabled. Memory defaults on when a database is configured; setting `memory.enabled: false` disables capture entirely.

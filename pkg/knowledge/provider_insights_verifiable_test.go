@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	verifiableOrdersURN = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.orders,PROD)"
-	verifiableSalesURN  = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"
-	verifiableGoneURN   = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.gone,PROD)"
+	verifiableOrdersURN = "mcp:dataset:(trino,warehouse,iceberg.retail.orders)"
+	verifiableSalesURN  = "mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)"
+	verifiableGoneURN   = "mcp:dataset:(trino,warehouse,iceberg.retail.gone)"
 )
 
 // fakeVerifier resolves a fixed set of URNs and counts the passes it was asked
@@ -274,7 +274,7 @@ func (b boundedScope) ConnectionsForURN(urn string) []string {
 // hit must still be delivered; only its marker is withheld, and no lookup is
 // issued against the denied connection.
 func TestInsightsProvider_MarkerHonorsTheConnectionBoundary(t *testing.T) {
-	const financeURN = "urn:li:dataset:(urn:li:dataPlatform:trino,finance.gl.ledger,PROD)"
+	const financeURN = "mcp:dataset:(trino,warehouse,finance.gl.ledger)"
 
 	tests := []struct {
 		name       string
@@ -326,7 +326,7 @@ func TestInsightsProvider_MarkerHonorsTheConnectionBoundary(t *testing.T) {
 
 // Fetch must not disclose topology a search would have withheld.
 func TestInsightsProvider_FetchMarkerHonorsTheConnectionBoundary(t *testing.T) {
-	const financeURN = "urn:li:dataset:(urn:li:dataPlatform:trino,finance.gl.ledger,PROD)"
+	const financeURN = "mcp:dataset:(trino,warehouse,finance.gl.ledger)"
 
 	s := &fakeInsightStore{getInsight: &knowledgekit.Insight{
 		ID:         "i-1",

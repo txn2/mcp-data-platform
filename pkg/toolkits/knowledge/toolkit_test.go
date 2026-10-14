@@ -32,7 +32,7 @@ const (
 	testActionAddTag = "add_tag"
 	testPersona      = "analyst"
 	hexIDLen         = 32
-	testEntityURN    = "urn:li:dataset:(urn:li:dataPlatform:trino,test.table,PROD)"
+	testEntityURN    = "mcp:dataset:(trino,acme,test.table)"
 )
 
 // ---------------------------------------------------------------------------
@@ -613,7 +613,7 @@ func TestHandleBulkReview_ReturnsSummary(t *testing.T) {
 		Insights: []Insight{
 			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", Confidence: "high", CreatedAt: time.Now()},
 			{ID: "i2", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", Confidence: "medium", CreatedAt: time.Now()},
-			{ID: "i3", Status: StatusPending, EntityURNs: []string{"urn:li:dataset:other"}, Category: "business_context", Confidence: "medium", CreatedAt: time.Now()},
+			{ID: "i3", Status: StatusPending, EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.other)"}, Category: "business_context", Confidence: "medium", CreatedAt: time.Now()},
 			// An applied insight must not be counted in the pending queue.
 			{ID: "i4", Status: StatusApplied, EntityURNs: []string{testEntityURN}, Category: "correction", Confidence: "high", CreatedAt: time.Now()},
 		},
@@ -1185,7 +1185,7 @@ func TestHandleReview_NilWriter(t *testing.T) {
 	}
 	tk, err := New(testName, store)
 	require.NoError(t, err)
-	// Apply enabled but datahubWriter is nil (not set via SetApplyConfig)
+	// Apply enabled but no catalog is set (SetApplyConfig never called)
 	tk.applyEnabled = true
 
 	input := applyKnowledgeInput{Action: "review", EntityURN: testEntityURN}
@@ -1487,10 +1487,6 @@ func TestHandleSynthesize_NoNoteWhenProposalsExist(t *testing.T) {
 	m := parseJSONResult(t, result)
 	assert.Nil(t, m["note"], "note should not be present when proposed_changes is non-empty")
 }
-
-// ---------------------------------------------------------------------------
-// AC-19: apply writes to DataHub via spy writer
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // AC-20: apply records changeset
@@ -1882,7 +1878,7 @@ func TestMetadataToMap(t *testing.T) {
 		meta := &EntityMetadata{
 			Description:   "desc",
 			Tags:          []string{"tag1"},
-			GlossaryTerms: []string{"urn:li:glossaryTerm:t1"},
+			GlossaryTerms: []string{"mcp:glossary_term:t1"},
 			Owners:        []string{"user-1"},
 		}
 		m := metadataToMap(meta)
@@ -2035,7 +2031,7 @@ func TestParseColumnTarget(t *testing.T) {
 		{"no prefix", "location_type_id", "", false},
 		{"empty after prefix", "column:", "", false},
 		{"uppercase", "Column:foo", "", false},
-		{"dataset URN", "urn:li:dataset:test", "", false},
+		{"dataset URN", "mcp:dataset:(trino,warehouse,c.s.test)", "", false},
 	}
 
 	for _, tt := range tests {
@@ -2120,7 +2116,7 @@ func TestRegisterPrompts(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// DataHub 1.4.x change types
+// Structured property and incident change types
 // ---------------------------------------------------------------------------
 
 func TestParsePropertyValues(t *testing.T) {

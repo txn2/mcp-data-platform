@@ -17,7 +17,7 @@ vi.mock("@/api/portal/hooks", () => ({
   useKnowledgeGraph: () => graphResult.current,
 }));
 
-// Selecting a catalog node resolves it against DataHub. That lookup is the
+// Selecting a catalog node resolves it against the catalog. That lookup is the
 // subject of its own assertions below; everywhere else it just has to not
 // require a live QueryClient.
 const catalogResult = vi.hoisted(() => ({
@@ -30,9 +30,9 @@ const catalogResult = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/api/portal/datahub", () => ({
-  useDataHubConnections: () => ({ data: [{ name: "acme", writable: false }] }),
-  useCatalogEntity: () => catalogResult.current,
+vi.mock("@/api/portal/catalog", () => ({
+  useDataset: () => catalogResult.current,
+  useDefinition: () => ({ data: undefined, isLoading: false, isError: false }),
 }));
 
 function pageNode(id: string, label: string) {
@@ -61,8 +61,8 @@ function twoTypeGraph(): KnowledgeGraphResponse {
     nodes: [
       ...base.nodes,
       {
-        id: "urn:li:dataset:(trino,sales.orders,PROD)",
-        type: "datahub",
+        id: "mcp:dataset:(trino,acme,sales.orders)",
+        type: "catalog",
         label: "sales.orders",
         exists: true,
         page: false,
@@ -71,8 +71,8 @@ function twoTypeGraph(): KnowledgeGraphResponse {
     edges: [
       {
         source: "mcp:knowledge_page:kp1",
-        target: "urn:li:dataset:(trino,sales.orders,PROD)",
-        type: "datahub",
+        target: "mcp:dataset:(trino,acme,sales.orders)",
+        type: "catalog",
         ref_source: "inline",
       },
     ],
@@ -85,8 +85,8 @@ function twoTypeGraph(): KnowledgeGraphResponse {
  */
 function bridgeGraph(): KnowledgeGraphResponse {
   const bridge = {
-    id: "urn:li:dataset:(trino,sales.orders,PROD)",
-    type: "datahub",
+    id: "mcp:dataset:(trino,acme,sales.orders)",
+    type: "catalog",
     label: "sales.orders",
     exists: true,
     page: false,
@@ -111,8 +111,8 @@ function bridgeGraph(): KnowledgeGraphResponse {
       ref(right[0]!.id, right[1]!.id),
       ref(right[1]!.id, right[2]!.id),
       ref(right[2]!.id, right[3]!.id),
-      { ...ref(left[0]!.id, bridge.id), type: "datahub" },
-      { ...ref(right[0]!.id, bridge.id), type: "datahub" },
+      { ...ref(left[0]!.id, bridge.id), type: "catalog" },
+      { ...ref(right[0]!.id, bridge.id), type: "catalog" },
     ],
     total_pages: 8,
     truncated: false,
@@ -356,7 +356,7 @@ describe("KnowledgeGraphView", () => {
 });
 
 describe("KnowledgeGraphView catalog nodes", () => {
-  const CATALOG_URN = "urn:li:dataset:(trino,sales.orders,PROD)";
+  const CATALOG_URN = "mcp:dataset:(trino,acme,sales.orders)";
 
   beforeEach(() => {
     graphResult.current = { data: twoTypeGraph(), isLoading: false, isError: false };
@@ -369,10 +369,10 @@ describe("KnowledgeGraphView catalog nodes", () => {
     return screen.getByRole("complementary");
   }
 
-  it("shows the URN, which is the only identifier the label is derived from", () => {
-    // The label is the dataset segment of the URN, so it is neither the entity's
-    // catalog name nor a string the catalog can be searched for. Without the URN
-    // on screen there is nothing the reader can act on.
+  it("shows the reference, which is the only identifier the label is derived from", () => {
+    // The label is the last segment of the dataset's path, so it is not the
+    // entity's name. Without the reference on screen there is nothing the
+    // reader can act on.
     expect(within(selectCatalogNode()).getByText(CATALOG_URN)).toBeInTheDocument();
   });
 
@@ -385,42 +385,40 @@ describe("KnowledgeGraphView catalog nodes", () => {
     fireEvent.click(within(screen.getByRole("complementary")).getByRole("button", { name: /Open/ }));
 
     expect(onNavigate).toHaveBeenCalledWith(
-      `/knowledge/catalog?urn=${encodeURIComponent(CATALOG_URN)}#tables`,
+      `/knowledge/catalog?ref=${encodeURIComponent(CATALOG_URN)}#tables`,
     );
   });
 
   it("says so when a page cites a dataset the catalog does not have", () => {
-    // The catalog reports a URN it has never ingested, and the read answers 404
-    // (#1610); a record carrying only its own URN is a dataset the catalog
-    // holds and nobody has documented, not a missing one.
+    // The catalog answers 404 for a dataset it does not hold (#1610); a
+    // dataset with no curation is one nobody has documented, not a missing one.
     catalogResult.current = {
       data: undefined,
       isLoading: false,
       isError: true,
-      error: new ApiError(404, "datahub holds no entity"),
+      error: new ApiError(404, "dataset not found"),
     };
     const pane = selectCatalogNode();
-    expect(within(pane).getByText(/Not found in/)).toBeInTheDocument();
     expect(within(pane).getByText(/the catalog does not have it/)).toBeInTheDocument();
   });
 
-  it("reports a catalog it could not reach as a failure rather than an absence", () => {
+  it("reports a catalog it could not read as a failure rather than an absence", () => {
     catalogResult.current = {
       data: undefined,
       isLoading: false,
       isError: true,
-      error: new ApiError(502, "entity read failed"),
+      error: new ApiError(500, "reading the catalog failed"),
     };
     const pane = selectCatalogNode();
-    expect(within(pane).getByText(/Could not reach the acme catalog/)).toBeInTheDocument();
-    expect(within(pane).queryByText(/Not found in/)).not.toBeInTheDocument();
+    expect(within(pane).getByText(/Could not read the catalog/)).toBeInTheDocument();
+    expect(within(pane).queryByText(/does not have it/)).not.toBeInTheDocument();
   });
 
   it("shows what the catalog holds when the entity resolves", () => {
     catalogResult.current = {
       data: {
-        urn: CATALOG_URN,
-        context: { urn: CATALOG_URN, description: "One row per store per day.", tags: ["PII"] },
+        reference: CATALOG_URN,
+        aspects: { description: "One row per store per day.", tags: ["PII"] },
       },
       isLoading: false,
       isError: false,
@@ -428,32 +426,20 @@ describe("KnowledgeGraphView catalog nodes", () => {
     const pane = selectCatalogNode();
     expect(within(pane).getByText("One row per store per day.")).toBeInTheDocument();
     expect(within(pane).getByText("PII")).toBeInTheDocument();
-    expect(within(pane).queryByText(/Not found in/)).not.toBeInTheDocument();
-  });
-
-  it("names the connection it looked in rather than claiming the whole platform", () => {
-    // On a deployment with several catalogs, "not in the catalog" would be a
-    // guess about the ones it did not query.
-    catalogResult.current = {
-      data: undefined,
-      isLoading: false,
-      isError: true,
-      error: new ApiError(404, "datahub holds no entity"),
-    };
-    expect(within(selectCatalogNode()).getByText("acme")).toBeInTheDocument();
+    expect(within(pane).queryByText(/does not have it/)).not.toBeInTheDocument();
   });
 
   it("shows a dataset the catalog holds and nobody has documented as held", () => {
     catalogResult.current = {
-      data: { urn: CATALOG_URN, context: { urn: CATALOG_URN } },
+      data: { reference: CATALOG_URN, aspects: {} },
       isLoading: false,
       isError: false,
     };
     const pane = selectCatalogNode();
     expect(
-      within(pane).getByText(/holds this dataset with no description, owners or tags recorded/),
+      within(pane).getByText(/holds this with no description, owners or tags recorded/),
     ).toBeInTheDocument();
-    expect(within(pane).queryByText(/Not found in/)).not.toBeInTheDocument();
+    expect(within(pane).queryByText(/does not have it/)).not.toBeInTheDocument();
   });
 });
 

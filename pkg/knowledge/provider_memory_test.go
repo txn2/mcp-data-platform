@@ -138,15 +138,15 @@ func TestMemoryProvider_LexicalWhenNoEmbedding(t *testing.T) {
 func TestMemoryProvider_EntityLookupScopedToCaller(t *testing.T) {
 	store := &fakeMemoryStore{
 		entity: map[string][]memory.Record{
-			"urn:li:dataset:orders": {
-				{ID: "e1", Content: "orders note", Dimension: memory.DimensionEntity, EntityURNs: []string{"urn:li:dataset:orders"}},
+			"mcp:dataset:(trino,warehouse,c.s.orders)": {
+				{ID: "e1", Content: "orders note", Dimension: memory.DimensionEntity, EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.orders)"}},
 				{ID: "k1", Content: "insight row", Dimension: memory.DimensionKnowledge},
 			},
 		},
 	}
 	p := NewMemoryProvider(store)
 	hits, err := p.Search(context.Background(), Query{
-		EntityURNs: []string{"urn:li:dataset:orders"},
+		EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.orders)"},
 		Caller:     Caller{Email: "a@example.com", Persona: "analyst"},
 	})
 	if err != nil {

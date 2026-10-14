@@ -83,7 +83,7 @@ func TestVerifiablesFor_ResolvesDistinctEntitiesOnce(t *testing.T) {
 }
 
 // The byte budget bounds what the enrichment appends, so it has to count the
-// verification marker too: a real DataHub URN is long enough that leaving the
+// verification marker too: a real catalog reference is long enough that leaving the
 // block out of the arithmetic lets a page of marked insights overshoot the
 // operator's cap by half again as much as they asked for (#761's bound, #1220's
 // field).

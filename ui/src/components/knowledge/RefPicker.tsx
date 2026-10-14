@@ -9,13 +9,7 @@ import {
   useSearchMyPrompts,
   type PageEntityRef,
 } from "@/api/portal/hooks";
-import {
-  useDataHubConnections,
-  useDomainLookup,
-  useGlossaryLookup,
-  useTagLookup,
-} from "@/api/portal/datahub";
-import { filterDomains } from "@/pages/knowledge/catalog/utils";
+import { useCatalogConnections, useDefinitions, type DefinitionKind } from "@/api/portal/catalog";
 import { buildRefUrn, isCatalogRefType, type PickableRefType } from "@/lib/entityRefs";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,7 +21,6 @@ import {
 } from "@/components/ui/select";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { SectionCard } from "@/components/patterns/SectionCard";
-import { DataHubConnectionSelect } from "./DataHubConnectionSelect";
 import { EntityChip } from "./EntityChip";
 
 // PORTAL_TYPES are the entities the portal's own database holds. They are always
@@ -39,20 +32,19 @@ const PORTAL_TYPES: { value: PickableRefType; label: string }[] = [
   { value: "prompt", label: "Prompt" },
 ];
 
-// CATALOG_TYPES are the governance entities the DataHub catalog holds (#1159).
-// They are offered only when a DataHub connection exists, because searching them
-// is a read against one: a deployment with no catalog would otherwise show three
-// types that can never return a candidate.
+// CATALOG_TYPES are the definitions the platform catalog holds (#1159). They are
+// offered only to a reader who may read the catalog, since searching them is a
+// catalog read: anyone else would see three types that can never return a
+// candidate.
 const CATALOG_TYPES: { value: PickableRefType; label: string }[] = [
   { value: "glossary_term", label: "Glossary term" },
   { value: "tag", label: "Tag" },
   { value: "domain", label: "Domain" },
 ];
 
-// Candidate is one searchable target: what to show, and the reference URN
-// picking it stores. The URN is carried rather than rebuilt from an id because
-// a catalog entity's URN is its identity, not a key an id-based builder could
-// reassemble.
+// Candidate is one searchable target: what to show, and the reference picking
+// it stores. The reference is carried rather than rebuilt from an id because a
+// catalog definition's reference is the catalog's to give.
 interface Candidate {
   urn: string;
   label: string;
@@ -69,13 +61,6 @@ function portalCandidates<T>(
     const [id, label] = pick(row);
     return { urn: buildRefUrn(type, id), label };
   });
-}
-
-// catalogCandidates maps catalog entity refs to candidates. A catalog entity is
-// stored by its own URN, and an entry the catalog did not name falls back to
-// that URN rather than rendering as a blank row.
-function catalogCandidates(refs: { urn: string; name: string }[] | undefined): Candidate[] {
-  return (refs ?? []).map((r) => ({ urn: r.urn, label: r.name || r.urn }));
 }
 
 /**
@@ -106,53 +91,42 @@ function usePortalSearch(type: PickableRefType, query: string): Candidate[] {
 }
 
 /**
- * useCatalogSearch runs the selected governance type's lookup against a DataHub
- * connection. Terms and tags are name-searched upstream; domains have no
- * name-scoped search, so the whole (capped) list is read and filtered here —
- * the same asymmetry the Catalog tab's own pickers live with.
+ * useCatalogSearch searches the selected definition kind in the platform
+ * catalog by name.
  */
-function useCatalogSearch(type: PickableRefType, query: string, conn: string): Candidate[] {
-  const terms = useGlossaryLookup(type === "glossary_term" ? conn : "", query);
-  const tags = useTagLookup(type === "tag" ? conn : "", query);
-  const domains = useDomainLookup(conn, type === "domain");
-
-  return useMemo(() => {
-    const byType: Partial<Record<PickableRefType, Candidate[]>> = {
-      glossary_term: catalogCandidates(terms.data),
-      tag: catalogCandidates(tags.data),
-      domain: catalogCandidates(filterDomains(domains.data ?? [], query)).slice(0, CATALOG_MAX),
-    };
-    return byType[type] ?? [];
-  }, [type, query, terms.data, tags.data, domains.data]);
+function useCatalogSearch(type: PickableRefType, query: string): Candidate[] {
+  const enabled = isCatalogRefType(type) && query !== "";
+  const defs = useDefinitions(
+    { kind: [type as DefinitionKind], q: query, limit: CATALOG_MAX },
+    enabled,
+  );
+  return useMemo(
+    () => (enabled ? (defs.data ?? []).map((d) => ({ urn: d.reference, label: d.name })) : []),
+    [enabled, defs.data],
+  );
 }
 
 // useRefCandidates runs whichever of the two searches the selected type belongs
 // to, holding the other at an empty query so only one read is in flight.
-function useRefCandidates(
-  type: PickableRefType,
-  query: string,
-  conn: string,
-): Candidate[] {
+function useRefCandidates(type: PickableRefType, query: string): Candidate[] {
   const isCatalog = isCatalogRefType(type);
   const portal = usePortalSearch(type, isCatalog ? "" : query);
-  const catalog = useCatalogSearch(type, isCatalog ? query : "", isCatalog ? conn : "");
+  const catalog = useCatalogSearch(type, isCatalog ? query : "");
   return isCatalog ? catalog : portal;
 }
 
-// CATALOG_MAX bounds the client-filtered domain list to the same page the
-// name-searched lookups return, so one type does not drop a hundred rows into
-// the dropdown while the others show eight.
+// CATALOG_MAX bounds a catalog search to the page the portal searches return.
 const CATALOG_MAX = 8;
 
 /**
  * RefPicker manages a knowledge page's manually-authored references: it lists the
  * current manual refs (removable) and lets an editor search the portal's own
- * entity types and the DataHub governance vocabularies, and add one. Promoted and
+ * entity types and the catalog's definitions, and add one. Promoted and
  * inline references are preserved by the server-side source-scoped replace.
  *
- * A governance pick stores the entity's URN, which is why the search is by name:
- * an author attaches "Net Revenue" without ever seeing the generated key
- * DataHub gave that term.
+ * A definition pick stores its catalog reference, which is why the search is by
+ * name: an author attaches "Net Revenue" without ever seeing the id the catalog
+ * gave that term.
  */
 export function RefPicker({ pageId, onNavigate }: { pageId: string; onNavigate?: (path: string) => void }) {
   const { data } = useKnowledgePageRefs(pageId);
@@ -163,18 +137,16 @@ export function RefPicker({ pageId, onNavigate }: { pageId: string; onNavigate?:
   );
   const manualUrns = useMemo(() => manual.map((r) => r.urn), [manual]);
 
-  const { data: connections } = useDataHubConnections();
-  const hasCatalog = (connections?.length ?? 0) > 0;
+  const hasCatalog = useCatalogConnections().isSuccess;
   const types = useMemo(
     () => (hasCatalog ? [...PORTAL_TYPES, ...CATALOG_TYPES] : PORTAL_TYPES),
     [hasCatalog],
   );
 
   const [type, setType] = useState<PickableRefType>("asset");
-  const [conn, setConn] = useState("");
   const [query, setQuery] = useState("");
   const trimmed = query.trim();
-  const candidates = useRefCandidates(type, trimmed, conn);
+  const candidates = useRefCandidates(type, trimmed);
 
   const addRef = (urn: string) => {
     if (manualUrns.includes(urn)) return;
@@ -198,8 +170,6 @@ export function RefPicker({ pageId, onNavigate }: { pageId: string; onNavigate?:
         onType={setType}
         query={query}
         onQuery={setQuery}
-        conn={conn}
-        onConn={setConn}
       />
 
       {trimmed.length > 0 && (
@@ -214,25 +184,20 @@ export function RefPicker({ pageId, onNavigate }: { pageId: string; onNavigate?:
   );
 }
 
-// SearchBar is what an author searches with: the kind of thing being attached,
-// the name they are looking for, and — for a governance type only — which
-// catalog to look in.
+// SearchBar is what an author searches with: the kind of thing being attached
+// and the name they are looking for.
 function SearchBar({
   types,
   type,
   onType,
   query,
   onQuery,
-  conn,
-  onConn,
 }: {
   types: { value: PickableRefType; label: string }[];
   type: PickableRefType;
   onType: (t: PickableRefType) => void;
   query: string;
   onQuery: (q: string) => void;
-  conn: string;
-  onConn: (c: string) => void;
 }) {
   const label = types.find((t) => t.value === type)?.label ?? type;
   return (
@@ -256,10 +221,6 @@ function SearchBar({
         onChange={(e) => onQuery(e.target.value)}
         placeholder={`Search ${label.toLowerCase()}s to reference...`}
       />
-      {/* The connection picker appears only for a catalog type: a governance
-          entity belongs to one catalog, and the portal's own entities belong
-          to none. */}
-      {isCatalogRefType(type) && <DataHubConnectionSelect value={conn} onChange={onConn} />}
     </div>
   );
 }

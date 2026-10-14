@@ -162,7 +162,7 @@ goroutine count plateaus. The scenario asserts these bounds and passes.
   `audit.delivery: sync` and budget for the per-call write latency; otherwise the
   drop counter is the signal to watch.
 - **CPU saturates on bcrypt, not on the data path.** The tool-call path is
-  I/O-bound (Trino, DataHub GraphQL, Postgres) and cheap on CPU. The OAuth
+  I/O-bound (Trino, Postgres) and cheap on CPU. The OAuth
   registration/token path is bcrypt-bound and will pin every available core
   first. A deployment that issues or refreshes many tokens needs CPU headroom
   the analytics path does not.
@@ -175,7 +175,7 @@ goroutine count plateaus. The scenario asserts these bounds and passes.
 
 The headline for sizing: for tool-call traffic the platform is **I/O-bound, not
 CPU-bound**. A tool call costs only a couple of milliseconds of platform CPU;
-its latency is mostly waiting on Trino, DataHub, and Postgres. Dividing each
+its latency is mostly waiting on Trino and Postgres. Dividing each
 run's `process_cpu_seconds_total` delta by the calls it served gives a stable
 unit cost:
 
@@ -236,13 +236,13 @@ For this platform's typical I/O-bound, audited workload, **three 4-core replicas
 are usually the better default** for resilience and audit headroom, despite less
 total CPU. Choose **two 8-core** when a CPU-bound path (OAuth at scale, very
 heavy enrichment) needs the extra ~33% of cores. Either way, size Trino and
-DataHub first: that is the real ceiling.
+Postgres first: that is the real ceiling.
 
 ### Reproducing
 
 ```bash
 # 1. Stand up the compose stack + a release-built platform binary (LOG_LEVEL=info,
-#    no race detector). Add a DataHub quickstart separately for the full stack.
+#    no race detector).
 make load-up
 
 # 2. Run a scenario (see build/loadgen -list for names). Reports and pprof
@@ -490,7 +490,7 @@ spec:
 ```
 
 In-flight tool calls that exceed the grace period are abandoned, not
-rolled back. If a tool has a side effect (write to DataHub, S3 PUT,
+rolled back. If a tool has a side effect (a catalog write, S3 PUT,
 external API mutation), the side effect may or may not have completed
 when the handler is canceled. For idempotent operations this is fine;
 for non-idempotent ones, design the upstream caller to retry safely.

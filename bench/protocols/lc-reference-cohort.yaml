@@ -3,8 +3,8 @@
 id: lc-reference-cohort
 title: Reference cohort customer count (2023 then 2024)
 fact: The 'reference cohort' is the set of customers whose account was created during calendar year 2023.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)
-sink: datahub
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.customers)
+sink: catalog
 budget_tool_calls: 15
 teach:
     prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'reference cohort' is the set of customers whose account was created during calendar year 2023. Please save this definition to memory now and link it to the dataset it concerns.

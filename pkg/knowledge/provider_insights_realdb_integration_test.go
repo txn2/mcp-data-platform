@@ -32,7 +32,7 @@ func TestInsightsProvider_RealDB_RetractsSupersededAcrossBothPaths(t *testing.T)
 
 	const (
 		alice = "alice@example.com"
-		urn   = "urn:li:dataset:(urn:li:dataPlatform:trino,retail.public.returns,PROD)"
+		urn   = "mcp:dataset:(trino,warehouse,retail.public.returns)"
 		token = "zqreturnpolicy" // distinctive lexical token shared by both records
 	)
 	mk := func(id string) memory.Record {
@@ -106,7 +106,7 @@ func TestInsightsProvider_RealDB_AppliedInsightsCrossIdentity(t *testing.T) {
 	const (
 		alice = "alice@example.com"
 		bob   = "bob@example.com"
-		urn   = "urn:li:dataset:(urn:li:dataPlatform:trino,retail.public.refunds,PROD)"
+		urn   = "mcp:dataset:(trino,warehouse,retail.public.refunds)"
 		token = "zqrefundwindow" // distinctive lexical token shared by every record
 	)
 	mk := func(id, capturedBy, insightStatus string) memory.Record {

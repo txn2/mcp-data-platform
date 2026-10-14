@@ -31,6 +31,7 @@ This starts:
 | Vite UI | `http://localhost:5173/portal/` | Hot module replacement |
 | dev-mcp-mock | `:9180` (OAuth) / `:9181` (MCP) | In-process mock — exercises the MCP gateway + OAuth grants |
 | mcp-test fixture | `http://localhost:9281/` | `ghcr.io/plexara/mcp-test` — 12-tool deterministic MCP upstream + portal at `/portal/` |
+| GraphQL fixture | `http://localhost:9286/graphql` | `graphile/postgraphile` over the `gql_fixture` database (`dev/seed-graphql.sql`) — introspection, Relay connections, mutations |
 | api-test fixture | `http://localhost:9282` | `ghcr.io/plexara/api-test` — 12 deterministic `/v1/*` paths (17 operations — `/echo` accepts all 6 HTTP methods) + OpenAPI at `/openapi.yaml` + portal at `/portal/` |
 | OpenTelemetry Collector | `:4317` (OTLP/gRPC) | Receives every trace both replicas export (tracing on at sampler 1.0), their metrics (`OTEL_METRICS_EXPORTER=both`, every two seconds) and their log records (`OTEL_LOGS_EXPORTER=otlp`), and writes each to `dev/.otel/{traces,metrics,logs}.jsonl` (`dev/otel-collector.yml`); the acceptance suite reads them back from there (#1892, #1893, #1894). The stack names its deployment `acme-dev` in environment `dev`, and records each replica's stderr path (`DEV_AIR_LOG`, `DEV_AIR_B_LOG`) in `dev/.dev-ports.env` |
 
@@ -137,6 +138,20 @@ fixture at `https://localhost:9284` and trusts that certificate through
 deployment behind a TLS-terminating proxy has, and the acceptance suite walks
 it (#1543); nothing else in the stack uses this connection.
 
+### The GraphQL fixture
+
+`acme-dev-graphql` (PostGraphile, host port 9286) publishes the `gqlfixture`
+schema of the `gql_fixture` database as GraphQL at
+`http://localhost:9286/graphql`. `dev/start.sh` creates the database and
+applies `dev/seed-graphql.sql` before the service starts, and the seed drops
+and rebuilds the schema, so the fixture is the same on every `make dev`. It
+holds what the graphql connection kind's acceptance criteria need from a real
+server: a namespace (`appConfig`, three levels deep), a lookup whose resolver
+refuses a malformed code inside an HTTP 200 (`findDataset`), a Relay
+connection over 250 rows (`allDatasets`) and the default mutations. The
+criteria register their own connections against it; set
+`GRAPHQL_FIXTURE_URL` to point them elsewhere.
+
 ### Two replicas behind a proxy
 
 `make dev` runs two platform processes over one database, and
@@ -215,7 +230,7 @@ make frontend-mock
 Open <http://localhost:5173/portal/> — you'll see the portal with:
 
 - 12 ACME users across 6 personas
-- 20 tools across 6 connections (2 Trino, 2 DataHub, 2 S3)
+- tools across 4 connections (2 Trino, 2 S3)
 - 200 audit events with business-hours weighting and realistic parameters
 - Deterministic data (seeded PRNG) — same screenshots every time
 
@@ -236,52 +251,33 @@ make frontend-dev
 # Seed data manually
 psql -h localhost -U platform -d mcp_platform -f dev/seed.sql
 
-# Seed the catalog manually (loopback DataHub only; see below)
-DATAHUB_ENDPOINT=http://localhost:8080 bash dev/seed-datahub.sh
+# Seed the catalog manually
+psql -h localhost -U platform -d mcp_platform -f dev/seed-catalog.sql
 ```
 
-## DataHub and the Catalog Seed
+## The Catalog Seed
 
-`make dev` provisions no DataHub of its own. Set `DATAHUB_ENABLED=true` and
-`DATAHUB_ENDPOINT` to attach one.
+The platform's own catalog is the semantic layer, in the same PostgreSQL as
+everything else, so `make dev` needs nothing beyond its Docker services to
+curate, search and enrich against it.
 
-An attached connection is **writable**. A read-only DataHub connection exposes no
-writer, so the portal reports `writable: false` and hides every Catalog edit
-control — which leaves the whole write half of Tables, Context Docs, Tags,
-Domains, and Glossary untestable. Set `DATAHUB_READ_ONLY=true` when the endpoint
-is a catalog you share with anyone else.
-
-Trino is the other way round: `TRINO_READ_ONLY` defaults to `true`, since a
-write there is a change to warehouse data rather than to metadata. Set it to
-`false` to exercise the write paths.
-
-```bash
-DATAHUB_ENABLED=true DATAHUB_ENDPOINT=http://localhost:8080 make dev
-```
-
-The seeded knowledge pages cite catalog datasets by URN
-(`iceberg.retail.daily_sales` and eight others). Nothing else in the dev stack
-creates those datasets, so `dev/seed-datahub.sh` ingests them from
-`dev/datahub-datasets.json` during `make dev`. Without it the catalog half of
-every page — and every catalog node in the knowledge graph — points at an entity
-the catalog has never heard of.
+The seeded knowledge pages cite catalog datasets by reference
+(`mcp:dataset:(trino,acme,iceberg.retail.daily_sales)` and eight others). The
+dev Trino does not hold those tables, so a catalog scan would never find them;
+`dev/seed-catalog.sql` writes them into the catalog, with their columns,
+descriptions, tags, owners and properties, during `make dev`. Without it the
+catalog half of every page, and every catalog node in the knowledge graph,
+points at an entity the catalog does not have. A scan of `acme` marks the
+seeded datasets removed, since the connection does not see them; their
+curation stays readable.
 
 The two files are kept in step by `TestDevSeedCatalogCitationsAreSeeded`: adding
-a dataset citation to `dev/seed.sql` without a matching fixture fails the build.
+a dataset citation to `dev/seed.sql` without a matching row in
+`dev/seed-catalog.sql` fails the build.
 
-**The seed writes only to a loopback DataHub.** `DATAHUB_ENDPOINT` is a personal
-setting and may well point at a shared or production catalog; injecting fixture
-datasets into one of those on a `make dev` would be an incident, not an
-inconvenience. A non-local endpoint is refused by name and the run continues.
-Override deliberately, never by default:
-
-```bash
-DEV_DATAHUB_SEED_FORCE=1 bash dev/seed-datahub.sh
-```
-
-Pointed at a remote catalog without that flag, the dev stack still works — the
-catalog citations simply will not resolve, and the knowledge graph reports each
-one as a dataset the catalog does not have.
+Trino's `TRINO_READ_ONLY` defaults to `true`, since a write there is a change to
+warehouse data rather than to metadata. Set it to `false` to exercise the write
+paths.
 
 ## Mock Conformance
 
@@ -318,8 +314,6 @@ This generates TypeScript types from the Swagger spec and runs conformance tests
 |-----------|------|-------------|
 | acme-warehouse | Trino | Production data warehouse |
 | acme-staging | Trino | Staging environment |
-| acme-catalog | DataHub | Production metadata catalog |
-| acme-catalog-staging | DataHub | Staging catalog |
 | acme-data-lake | S3 | Raw data lake |
 | acme-reports | S3 | Generated reports |
 
@@ -328,7 +322,7 @@ This generates TypeScript types from the Swagger spec and runs conformance tests
 | Persona | Access Level |
 |---------|-------------|
 | admin | Full access to all tools |
-| data-engineer | All Trino, DataHub, S3 (no deletes) |
+| data-engineer | All Trino, catalog and S3 tools (no deletes) |
 | inventory-analyst | Query + describe + search + list |
 | regional-director | Query + describe + search + reports |
 | finance-executive | Catalog search + reports only |

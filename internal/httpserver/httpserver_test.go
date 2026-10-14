@@ -801,7 +801,6 @@ func TestMountAdminAPI(t *testing.T) {
 			Server:   platform.ServerConfig{Name: "test", Transport: "http"},
 			Semantic: platform.SemanticConfig{Provider: "noop"},
 			Query:    platform.QueryConfig{Provider: "noop"},
-			Storage:  platform.StorageConfig{Provider: "noop"},
 			Admin:    platform.AdminConfig{Enabled: new(true), Persona: "admin"},
 			Personas: platform.PersonasConfig{
 				Definitions: map[string]platform.PersonaDef{
@@ -850,7 +849,6 @@ func TestMountObservabilityProxy(t *testing.T) {
 			Server:   platform.ServerConfig{Name: "test", Transport: "http"},
 			Semantic: platform.SemanticConfig{Provider: "noop"},
 			Query:    platform.QueryConfig{Provider: "noop"},
-			Storage:  platform.StorageConfig{Provider: "noop"},
 		}
 		p, err := platform.New(platform.WithConfig(cfg))
 		if err != nil {
@@ -898,7 +896,6 @@ func TestMountGatewayAPI(t *testing.T) {
 			Server:   platform.ServerConfig{Name: "test"},
 			Semantic: platform.SemanticConfig{Provider: "noop"},
 			Query:    platform.QueryConfig{Provider: "noop"},
-			Storage:  platform.StorageConfig{Provider: "noop"},
 		})
 		defer func() { _ = p.Close() }()
 
@@ -968,7 +965,6 @@ func newGatewayTestPlatform(t *testing.T) *platform.Platform {
 		Server:   platform.ServerConfig{Name: "test"},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
 		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
 		Toolkits: map[string]any{
 			"api": map[string]any{
 				"enabled": true,
@@ -991,7 +987,6 @@ func TestBuildAdminHandler(t *testing.T) {
 		},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
 		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
 		Admin: platform.AdminConfig{
 			Enabled: new(true),
 			Persona: "admin",

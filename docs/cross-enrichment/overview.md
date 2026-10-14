@@ -1,10 +1,10 @@
 ---
-description: Automatic context enrichment between DataHub, Trino, and S3. Query a table, get business metadata. Search DataHub, see which datasets are queryable.
+description: Automatic context enrichment between the platform catalog, Trino, and S3. Query a table, get its business curation. Read a catalog dataset, see whether and where it is queryable.
 ---
 
 # Cross-Enrichment
 
-Cross-enrichment is the key differentiator of mcp-data-platform. It automatically attaches context from other services to tool responses, without additional calls from the AI assistant.
+Cross-enrichment is the key differentiator of mcp-data-platform. It automatically attaches context from other services to tool responses, without additional calls from the AI assistant. The context comes from the platform's own [catalog](../server/catalog.md), which every connection is scanned into and which people and agents curate.
 
 ---
 
@@ -16,27 +16,21 @@ Without cross-enrichment, understanding a single table requires multiple round-t
 sequenceDiagram
     participant AI as AI Assistant
     participant T as Trino
-    participant D as DataHub
+    participant C as Catalog
 
     AI->>T: DESCRIBE orders
     T-->>AI: columns, types
 
     Note over AI: Need more context...
 
-    AI->>D: Search for "orders"
-    D-->>AI: URN, basic info
+    AI->>C: Search for "orders"
+    C-->>AI: reference, basic info
 
-    AI->>D: Get entity details
-    D-->>AI: owners, tags
-
-    AI->>D: Check deprecation
-    D-->>AI: deprecated: true
-
-    AI->>D: Get quality score
-    D-->>AI: 87%
+    AI->>C: Read the dataset
+    C-->>AI: owners, tags, incidents
 ```
 
-**Five API calls** to understand one table. Each call adds latency and requires the AI to remember to ask.
+Several calls to understand one table. Each call adds latency and requires the AI to remember to ask.
 
 ---
 
@@ -49,20 +43,20 @@ sequenceDiagram
     participant AI as AI Assistant
     participant P as Platform
     participant T as Trino
-    participant D as DataHub
+    participant C as Platform catalog
 
     AI->>P: trino_describe_table "orders"
     P->>T: DESCRIBE orders
     T-->>P: columns, types
-    P->>D: GetTableContext
-    D-->>P: owners, tags, quality, deprecation
+    P->>C: GetTableContext
+    C-->>P: description, owners, tags, terms, incidents
 
     Note over P: Combine into single response
 
-    P-->>AI: Schema + Complete Business Context
+    P-->>AI: Schema + Business Context
 ```
 
-**One call.** Complete context. Warnings front and center.
+**One call.** Complete context.
 
 ---
 
@@ -81,14 +75,10 @@ flowchart TB
     subgraph "Enrichment Layer"
         Check{Check toolkit kind}
         TrinoEnrich[Trino Enrichment]
-        DataHubEnrich[DataHub Enrichment]
-        S3Enrich[S3 Enrichment]
     end
 
     subgraph "Providers"
-        Semantic[Semantic Provider]
-        Query[Query Provider]
-        Storage[Storage Provider]
+        Semantic[Semantic Provider: the platform catalog]
     end
 
     subgraph "Response"
@@ -100,215 +90,75 @@ flowchart TB
     Result --> Check
 
     Check -->|trino| TrinoEnrich
-    Check -->|datahub| DataHubEnrich
-    Check -->|s3| S3Enrich
 
     TrinoEnrich --> Semantic
-    DataHubEnrich --> Query
-    DataHubEnrich --> Storage
-    S3Enrich --> Semantic
 
     Semantic --> Enriched
-    Query --> Enriched
-    Storage --> Enriched
 ```
+
+The reverse direction needs no middleware: `fetch` on a catalog dataset asks the
+query provider whether the table is queryable and carries the answer on the
+record. See [Catalog to Trino](catalog-trino.md).
 
 ### Enrichment Flow by Toolkit
 
 | Toolkit | Provider Used | Context Added |
 |---------|---------------|---------------|
-| **Trino** | Semantic (DataHub) | Owners, tags, quality, deprecation, glossary terms |
-| **DataHub** | Query (Trino) + Storage (S3) | Query availability, sample SQL, storage availability |
-| **S3** | Semantic (DataHub) | Matching dataset metadata from DataHub |
+| **Trino** | Semantic (the platform catalog) | Description, owners, tags, domain, glossary terms, properties, incidents, column curation |
+| **S3** | Semantic (the platform catalog) | Matching catalog datasets for the bucket and prefix |
+| **Catalog reads** (`fetch`) | Query (Trino) | Query availability: the table to query, its connection, estimated rows |
 
 ---
 
 ## What Gets Injected
 
-### Semantic Context (Trino → DataHub)
+### Semantic Context (Trino to Catalog)
 
 When you query or describe a Trino table, the response includes:
 
 ```json
 {
-  "columns": [
-    {"name": "order_id", "type": "BIGINT"},
-    {"name": "customer_id", "type": "BIGINT"},
-    {"name": "total_amount", "type": "DECIMAL(10,2)"},
-    {"name": "created_at", "type": "TIMESTAMP"}
-  ],
   "semantic_context": {
-    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+    "urn": "mcp:dataset:(trino,production,hive.sales.orders)",
     "description": "Customer orders with line items and payment information",
     "owners": [
-      {
-        "name": "Data Platform Team",
-        "type": "group",
-        "email": "data-platform@example.com"
-      },
-      {
-        "name": "Jane Smith",
-        "type": "user",
-        "email": "jane.smith@example.com"
-      }
+      {"urn": "data-platform@example.com", "type": "user", "name": "data-platform@example.com", "email": "data-platform@example.com"}
     ],
     "tags": ["pii", "financial", "tier-1"],
-    "domain": {
-      "name": "Sales",
-      "urn": "urn:li:domain:sales"
-    },
-    "glossary_terms": [
-      {
-        "name": "Order",
-        "urn": "urn:li:glossaryTerm:order"
-      }
-    ],
-    "quality_score": 0.92,
-    "deprecation": null,
-    "columns": {
-      "order_id": {
-        "description": "Unique order identifier",
-        "tags": [],
-        "glossary_term": null
-      },
-      "customer_id": {
-        "description": "Reference to customer record",
-        "tags": ["pii"],
-        "glossary_term": "customer-id"
-      },
-      "total_amount": {
-        "description": "Order total including tax",
-        "tags": ["financial"],
-        "glossary_term": "order-total"
-      }
-    },
+    "domain": {"urn": "mcp:domain:4f1c", "name": "Sales"},
+    "glossary_terms": [{"urn": "mcp:glossary_term:9a2e", "name": "Order"}],
     "custom_properties": {
-      "data_retention_days": "365",
-      "pii_classification": "internal"
-    }
-  }
-}
-```
-
-### Deprecation Warning
-
-If a table is deprecated, it appears prominently:
-
-```json
-{
-  "semantic_context": {
-    "description": "Legacy customer orders - DO NOT USE",
-    "deprecation": {
-      "deprecated": true,
-      "decommission_time": "2024-06-01T00:00:00Z",
-      "note": "Migrated to orders_v2 with improved schema",
-      "replacement": {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders_v2,PROD)",
-        "name": "orders_v2"
-      }
+      "data_retention_days": "365"
     },
-    "quality_score": 0.45
-  }
-}
-```
-
-### Query Context (DataHub → Trino)
-
-When you search DataHub, the response shows which datasets can be queried:
-
-```json
-{
-  "results": [
-    {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
-      "name": "orders",
-      "platform": "trino",
-      "description": "Customer orders"
-    }
-  ],
-  "query_context": {
-    "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)": {
-      "queryable": true,
-      "connection": "production",
-      "table_identifier": {
-        "catalog": "hive",
-        "schema": "sales",
-        "table": "orders"
-      },
-      "sample_query": "SELECT * FROM hive.sales.orders LIMIT 10",
-      "row_count": 1500000,
-      "last_modified": "2024-01-15T10:30:00Z"
+    "active_incidents": 1,
+    "incidents": [{"id": "inc-7", "title": "Late partition for 2024-06-02", "state": "active"}]
+  },
+  "column_context": {
+    "customer_id": {
+      "description": "Reference to customer record",
+      "tags": ["pii"],
+      "is_pii": true,
+      "is_sensitive": true
+    },
+    "total_amount": {
+      "description": "Order total including tax",
+      "tags": ["financial"]
     }
   }
 }
 ```
 
-### Non-Queryable Datasets
+### Query Availability (Catalog to Trino)
 
-Not all DataHub datasets have query capability:
-
-```json
-{
-  "query_context": {
-    "urn:li:dataset:(urn:li:dataPlatform:snowflake,prod.analytics.customers,PROD)": {
-      "queryable": false,
-      "reason": "No Trino connection configured for Snowflake"
-    }
-  }
-}
-```
-
-### Storage Context (DataHub → S3)
-
-When searching for S3 datasets, show storage availability:
+`fetch` on a table's catalog reference carries whether it can be queried:
 
 ```json
 {
-  "results": [
-    {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:s3,data-lake-prod/sales/orders/,PROD)",
-      "name": "orders",
-      "platform": "s3"
-    }
-  ],
-  "storage_context": {
-    "urn:li:dataset:(urn:li:dataPlatform:s3,data-lake-prod/sales/orders/,PROD)": {
-      "available": true,
-      "connection": "data_lake",
-      "bucket": "data-lake-prod",
-      "prefix": "sales/orders/",
-      "format": "parquet",
-      "size_bytes": 1073741824,
-      "last_modified": "2024-01-15T06:00:00Z",
-      "partition_keys": ["year", "month"]
-    }
-  }
-}
-```
-
-### S3 → DataHub Context
-
-When listing S3 objects, show matching DataHub metadata:
-
-```json
-{
-  "objects": [
-    {
-      "key": "sales/orders/year=2024/month=01/data.parquet",
-      "size": 1048576,
-      "last_modified": "2024-01-15T06:00:00Z"
-    }
-  ],
-  "semantic_context": {
-    "s3://data-lake-prod/sales/orders/": {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:s3,data-lake-prod/sales/orders/,PROD)",
-      "description": "Customer orders in Parquet format",
-      "owners": [
-        {"name": "Data Engineering", "type": "group"}
-      ],
-      "tags": ["pii", "partitioned"],
-      "quality_score": 0.95
-    }
+  "query_availability": {
+    "available": true,
+    "query_table": "hive.sales.orders",
+    "connection": "production",
+    "estimated_rows": 1500000
   }
 }
 ```
@@ -317,14 +167,14 @@ When listing S3 objects, show matching DataHub metadata:
 
 When a tool result names entities, the response also carries the canonical
 knowledge pages that document those entities, so an agent sees the business and
-domain knowledge about what it just fetched. The entity URNs are read from the
+domain knowledge about what it just fetched. The entity references are read from the
 result, the reverse lookup finds the pages that reference them, and a bounded
 `knowledge_pages` block is appended (capped so a widely documented entity does not
 balloon the response):
 
 ```json
 {
-  "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)",
+  "urn": "mcp:dataset:(trino,production,iceberg.retail.daily_sales)",
   "knowledge_pages": [
     {"id": "kp_5cdde7bb", "slug": "retail-sales-vocabulary", "title": "Retail Sales Vocabulary"}
   ]
@@ -347,172 +197,34 @@ The same reverse lookup surfaces in two more agent-facing places:
 
 ## Configuration
 
-Enable cross-enrichment in your configuration:
+Cross-enrichment is on by default wherever the platform has a database: the
+platform catalog is the semantic provider, and Trino enrichment defaults to
+on.
 
 ```yaml
-# Enable/disable specific enrichment paths
 enrichment:
-  trino_semantic_enrichment: true   # Trino results get DataHub context
-  datahub_query_enrichment: true    # DataHub results show Trino availability
-  datahub_storage_enrichment: true  # DataHub results show S3 availability
-  s3_semantic_enrichment: true      # S3 results get DataHub context
-  unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON (default)
+  trino_semantic_enrichment: true   # Trino results get catalog context (default)
+  unwrap_json: true                 # Auto-unwrap single-row VARCHAR-of-JSON (default)
   column_context_filtering: true    # Only include SQL-referenced columns (default)
 
-# Configure the semantic provider (for Trino/S3 enrichment)
-semantic:
-  provider: datahub
-  instance: primary  # Must match a configured DataHub toolkit
-
-  # Caching improves enrichment performance
-  cache:
-    enabled: true
-    ttl: 5m
-
-# Configure the query provider (for DataHub enrichment)
+# The query provider answers "is this dataset queryable, and where" on a fetched dataset
 query:
   provider: trino
-  instance: primary  # Must match a configured Trino toolkit
-
-# Configure the storage provider (for DataHub enrichment)
-storage:
-  provider: s3
-  instance: data_lake  # Must match a configured S3 toolkit
+  instance: production  # Must match a configured Trino connection
 ```
 
-### Minimal Configuration
-
-If you only have DataHub:
-
-```yaml
-enrichment:
-  trino_semantic_enrichment: false
-  datahub_query_enrichment: false
-  s3_semantic_enrichment: false
-
-# Only DataHub toolkit, no cross-enrichment
-toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-    default: primary
-```
-
-### Full Cross-Enrichment
-
-Complete configuration with all services:
-
-```yaml
-enrichment:
-  trino_semantic_enrichment: true
-  datahub_query_enrichment: true
-  datahub_storage_enrichment: true
-  s3_semantic_enrichment: true
-  unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON (default)
-  column_context_filtering: true    # Only include SQL-referenced columns (default)
-
-semantic:
-  provider: datahub
-  instance: primary
-  cache:
-    enabled: true
-    ttl: 5m
-
-query:
-  provider: trino
-  instance: production
-
-storage:
-  provider: s3
-  instance: data_lake
-
-toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-    default: primary
-
-  trino:
-    enabled: true
-    instances:
-      production:
-        host: trino.example.com
-        port: 443
-        ssl: true
-        catalog: hive
-    default: production
-
-  s3:
-    enabled: true
-    instances:
-      data_lake:
-        region: us-east-1
-        access_key_id: ${AWS_ACCESS_KEY_ID}
-        secret_access_key: ${AWS_SECRET_ACCESS_KEY}
-    default: data_lake
-```
+`semantic.provider: noop` turns the semantic layer off. Setting either
+enrichment flag to `false` turns that path off.
 
 ---
 
 ## Failure Handling
 
-Enrichment is designed to fail gracefully:
-
-### DataHub Unavailable
-
-```mermaid
-sequenceDiagram
-    participant AI as AI Assistant
-    participant P as Platform
-    participant T as Trino
-    participant D as DataHub
-
-    AI->>P: trino_query
-    P->>T: Execute query
-    T-->>P: Query results
-    P->>D: GetTableContext
-    D-->>P: Connection refused
-
-    Note over P: Log warning, continue without enrichment
-
-    P-->>AI: Query results (no semantic_context)
-```
-
-The query succeeds, you just don't get the enrichment.
-
-### Entity Not Found
-
-If a table exists in Trino but not in DataHub:
-
-```json
-{
-  "columns": [...],
-  "semantic_context": null,
-  "_enrichment_note": "Entity not found in DataHub"
-}
-```
-
-### Partial Enrichment
-
-Some fields may be missing if not configured in DataHub:
-
-```json
-{
-  "semantic_context": {
-    "description": "Orders table",
-    "owners": [],
-    "tags": [],
-    "quality_score": null,
-    "deprecation": null
-  }
-}
-```
+Enrichment is designed to fail gracefully. A catalog lookup that fails is
+logged and the tool result is returned without `semantic_context`; the query
+itself succeeds. A table the catalog holds no dataset for adds nothing, and a
+dataset with little curation adds little. With `semantic_fallback: true`, a
+missed lookup offers the closest catalog datasets as suggested matches.
 
 ---
 
@@ -520,40 +232,8 @@ Some fields may be missing if not configured in DataHub:
 
 ### Latency Impact
 
-Enrichment adds 50-200ms per request depending on:
-
-- DataHub API response time
-- Network latency
-- Cache hit rate
-
-### Caching Strategy
-
-```yaml
-semantic:
-  cache:
-    enabled: true
-    ttl: 5m           # How long to cache entries
-```
-
-The cache is time-based only; entries expire after `ttl` and there is no
-per-count size cap.
-
-**Recommended TTL by use case:**
-
-| Use Case | TTL |
-|----------|-----|
-| Development | 1m |
-| Production | 5m |
-| High-traffic | 15m |
-| Real-time requirements | 30s |
-
-### Cache Invalidation
-
-The cache is time-based. For immediate updates:
-
-1. Reduce TTL
-2. Restart the server (clears cache)
-3. Use the API to clear specific entries (if implemented)
+Enrichment adds a catalog read per enriched table, read from the platform's own
+PostgreSQL.
 
 ---
 
@@ -572,17 +252,17 @@ sequenceDiagram
     participant Client
     participant Platform
     participant Trino
-    participant DataHub
+    participant Catalog
 
-    Note over Client,DataHub: First call - full enrichment
+    Note over Client,Catalog: First call - full enrichment
     Client->>Platform: trino_describe_table(orders)
     Platform->>Trino: Describe table
     Trino-->>Platform: Columns, types
-    Platform->>DataHub: Get semantic context
-    DataHub-->>Platform: Owners, tags, glossary terms
+    Platform->>Catalog: Get semantic context
+    Catalog-->>Platform: Owners, tags, glossary terms
     Platform-->>Client: Result + semantic_context + column_context
 
-    Note over Client,DataHub: Repeat call - dedup active
+    Note over Client,Catalog: Repeat call - dedup active
     Client->>Platform: trino_query(SELECT * FROM orders)
     Platform->>Trino: Execute query
     Trino-->>Platform: Query results
@@ -621,8 +301,7 @@ Repeat calls return table-level context without column details:
     "description": "Customer orders with line items",
     "owners": [{"name": "Data Team", "type": "group"}],
     "tags": ["pii", "financial"],
-    "domain": {"name": "Sales"},
-    "quality_score": 0.92
+    "domain": {"name": "Sales"}
   },
   "note": "Summary only. Full column metadata was provided earlier in this session."
 }
@@ -655,32 +334,11 @@ enrichment:
 ### Behavior Notes
 
 - **Enabled by default**: Session dedup activates automatically when `trino_semantic_enrichment: true`. Set `session_dedup.enabled: false` to disable.
-- **Trino-only**: Dedup applies only to Trino tool calls. DataHub and S3 enrichment is not deduplicated.
+- **Trino-only**: Dedup applies to Trino tool calls, the ones enrichment adds context to.
 - **In-memory state**: Session state is stored in memory and lost on restart. This is by design - after restart, the LLM gets fresh metadata.
 - **Session isolation**: Each client session has independent dedup state. Two sessions querying the same table both get full metadata on their first call.
 - **TTL defaults**: `entry_ttl` defaults to the semantic cache TTL (typically 5m). `session_timeout` defaults to the streamable HTTP session timeout (typically 30m).
 - **SQL parsing**: The dedup logic extracts table names from SQL queries, so `SELECT * FROM orders JOIN products` correctly tracks both tables independently.
-
----
-
-## Advanced Patterns
-
-### URN Mapping
-
-When Trino catalog names differ from the platform or catalog identifiers
-DataHub uses, the query provider can translate them so URN lookups resolve.
-`platform` overrides the DataHub platform name and `catalog_mapping` maps
-catalog names between the two systems:
-
-```yaml
-query:
-  provider: trino
-  instance: production
-  urn_mapping:
-    platform: trino
-    catalog_mapping:
-      hive: warehouse
-```
 
 ---
 
@@ -693,40 +351,18 @@ export LOG_LEVEL=debug
 mcp-data-platform --config platform.yaml
 ```
 
-Look for:
+### Check the Catalog Holds the Table
+
+A table is enriched from the catalog dataset on its connection. Check that the
+connection has been scanned (**Admin > Catalog > Scans**), and read the dataset
+directly:
 
 ```
-DEBUG enrichment: fetching semantic context table=orders
-DEBUG enrichment: cache miss key=trino:hive.sales.orders
-DEBUG enrichment: DataHub response status=200 duration=145ms
-DEBUG enrichment: added semantic_context to result
+fetch mcp:dataset:(trino,<connection>,<catalog>.<schema>.<table>)
 ```
 
-### Check Provider Connectivity
-
-```bash
-# Test DataHub
-curl -H "Authorization: Bearer $DATAHUB_TOKEN" \
-  "https://datahub.example.com/openapi/v2/entity/dataset"
-
-# Test Trino
-curl "https://trino.example.com:443/v1/info"
-```
-
-### Verify URN Matching
-
-DataHub URNs must be constructed correctly:
-
-```
-urn:li:dataset:(urn:li:dataPlatform:trino,<catalog>.<schema>.<table>,PROD)
-```
-
-Verify your table exists in DataHub:
-
-```bash
-curl -H "Authorization: Bearer $DATAHUB_TOKEN" \
-  "https://datahub.example.com/openapi/v2/search?query=your_table&entity=dataset"
-```
+A not-found means the scan has not seen the table, or the catalog settings
+exclude it.
 
 ---
 
@@ -735,7 +371,7 @@ curl -H "Authorization: Bearer $DATAHUB_TOKEN" \
 The [MCP gateway toolkit](../server/gateway.md) extends the
 cross-enrichment pattern to **third-party MCP responses**. Where the
 in-process enrichment above is hard-coded for native toolkits
-(Trino ↔ DataHub ↔ S3), the gateway exposes a **declarative rule
+(Trino and S3 against the catalog), the gateway exposes a **declarative rule
 engine** that lets operators configure, per proxied tool, how the
 response is augmented with warehouse / catalog context — without
 writing Go.
@@ -747,7 +383,7 @@ another's) but with three differences:
 |---|---|---|
 | Configured by | Platform code | Operator, in the admin portal |
 | Trigger | Hard-coded per toolkit | JSONB predicate (`always`, `response_contains`) |
-| Source | DataHub or Trino client | DataHub `get_entity` / `get_glossary_term`, Trino `query` |
+| Source | The platform catalog | Catalog `get_dataset` / `get_definition`, Trino `query` |
 | Bindings | Compile-time | JSONPath against `$.args`, `$.response`, `$.user` |
 | Scope | All native tool calls | Per-rule, attached to a proxied tool name |
 
@@ -756,7 +392,6 @@ for the rule schema, dry-run preview, and failure semantics.
 
 ## Next Steps
 
-- [Trino → DataHub Enrichment](trino-datahub.md) - Deep dive into Trino enrichment
-- [DataHub → Trino Enrichment](datahub-trino.md) - Deep dive into DataHub enrichment
-- [S3 Enrichment](s3.md) - S3-specific patterns
+- [Trino to Catalog Enrichment](trino-catalog.md) - Deep dive into Trino enrichment
+- [Catalog to Trino Enrichment](catalog-trino.md) - Query availability on catalog reads
 - [Examples Gallery](../examples/index.md) - Real-world configurations

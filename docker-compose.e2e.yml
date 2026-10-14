@@ -1,14 +1,9 @@
 # E2E Test Environment for MCP Data Platform
 #
 # This compose file provides platform services (Trino, SeaweedFS, PostgreSQL).
-# DataHub should be started separately via: datahub docker quickstart
 #
 # Usage:
 #   docker compose -f docker-compose.e2e.yml up -d
-#
-# Prerequisites:
-#   - DataHub CLI: pip install acryl-datahub
-#   - DataHub running: datahub docker quickstart
 
 services:
   # PostgreSQL for OAuth/Audit storage

@@ -3,7 +3,7 @@
 id: lc-holiday-total
 title: Holiday total
 fact: The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
 sink: knowledge_page
 page:
     slug: holiday-total-definition

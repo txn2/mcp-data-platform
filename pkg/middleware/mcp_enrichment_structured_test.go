@@ -23,7 +23,7 @@ func TestEnrichment_MergesSemanticContextIntoStructured(t *testing.T) {
 			return &semantic.TableContext{Description: "User accounts table", Tags: []string{"pii"}}, nil
 		},
 	}
-	mw := MCPSemanticEnrichmentMiddleware(mockProvider, nil, nil,
+	mw := MCPSemanticEnrichmentMiddleware(mockProvider, nil,
 		EnrichmentConfig{EnrichTrinoResults: true}, nil)
 
 	handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -164,7 +164,7 @@ func TestEnrichment_StructuredViaAssembledServer(t *testing.T) {
 		}, nil
 	})
 	server.AddReceivingMiddleware(MCPSemanticEnrichmentMiddleware(
-		mockProvider, nil, nil, EnrichmentConfig{EnrichTrinoResults: true}, nil))
+		mockProvider, nil, EnrichmentConfig{EnrichTrinoResults: true}, nil))
 
 	ctx := context.Background()
 	t1, t2 := mcp.NewInMemoryTransports()

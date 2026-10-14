@@ -37,7 +37,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/script"
-	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )
 
 // defaultServerName is the default server name used when none is configured.
@@ -58,7 +57,6 @@ const (
 	// Toolkit kind identifiers used across the platform for connection-source
 	// mapping, semantic-provider selection, and auto-enable defaulting. The
 	// prompt layer keeps its own copy for capability bullets and workflow gating.
-	kindDataHub = "datahub"
 	kindTrino   = "trino"
 	kindS3      = "s3"
 	kindMCP     = "mcp"
@@ -123,7 +121,6 @@ type Config struct {
 	Tools      ToolsConfig      `yaml:"tools"`
 	Semantic   SemanticConfig   `yaml:"semantic"`
 	Query      QueryConfig      `yaml:"query"`
-	Storage    StorageConfig    `yaml:"storage"`
 	Enrichment EnrichmentConfig `yaml:"enrichment"`
 	Tuning     TuningConfig     `yaml:"tuning"`
 
@@ -254,6 +251,9 @@ func detectUnknownFields(expanded []byte) []string {
 // enforcing the config.strict unknown-key policy: unrecognized keys are a hard
 // error when config.strict is true, otherwise a logged warning.
 func decodeConfigStrict(expanded []byte) (*Config, error) {
+	if err := refuseRemovedCatalog(expanded); err != nil {
+		return nil, err
+	}
 	cfg := &Config{}
 	unknown, err := strictDecode(expanded, cfg)
 	if err != nil {
@@ -308,9 +308,9 @@ type KnowledgeConfig struct {
 
 	// CatalogIndex configures the platform's own semantic index over catalog
 	// dataset descriptions (#1131), which is what makes a fact applied to a
-	// DataHub description reachable from a topical query that names no entity.
-	// Enabled by default wherever a DataHub catalog and a database are present;
-	// see internal/platform/datasetindex.
+	// dataset's description reachable from a topical query that names no
+	// entity. Enabled by default wherever the platform catalog and a database
+	// are present; see internal/platform/datasetindex.
 	CatalogIndex datasetindex.Config `yaml:"catalog_index"`
 
 	// VerifiableInsights marks a delivered insight as checkable (#1220): when the
@@ -344,13 +344,8 @@ func (c *KnowledgeConfig) IsVerifiableInsightsEnabled() bool {
 // Enabled by default when a database is available (nil = enabled); set
 // enabled: false to disable. Still gated behind database availability.
 type KnowledgeApplyConfig struct {
-	Enabled *bool `yaml:"enabled"`
-	// DataHubConnection is read and has no effect: apply writes catalog
-	// curation to the platform catalog (#1920). It is accepted so a
-	// configuration that still sets it starts, and goes with the rest of the
-	// DataHub configuration (#1925).
-	DataHubConnection   string `yaml:"datahub_connection"`
-	RequireConfirmation bool   `yaml:"require_confirmation"`
+	Enabled             *bool `yaml:"enabled"`
+	RequireConfirmation bool  `yaml:"require_confirmation"`
 }
 
 // IsEnabled reports whether apply_knowledge is enabled, defaulting to true when
@@ -733,27 +728,11 @@ type ToolsConfig struct {
 	ResultBudget         resultbudget.Config `yaml:"result_budget"`
 }
 
-// SemanticConfig configures the semantic layer.
+// SemanticConfig configures the semantic layer. With a database the platform
+// catalog is the semantic layer; Provider "noop" turns it off.
 type SemanticConfig struct {
-	Provider   string                        `yaml:"provider"` // "datahub", "noop"
-	Instance   string                        `yaml:"instance"`
-	Cache      CacheConfig                   `yaml:"cache"`
-	URNMapping URNMappingConfig              `yaml:"urn_mapping"`
-	Lineage    datahubsemantic.LineageConfig `yaml:"lineage"`
-}
-
-// URNMappingConfig configures URN translation between query engines and metadata catalogs.
-// This is necessary when Trino catalog/platform names differ from DataHub's metadata catalog names.
-type URNMappingConfig struct {
-	// Platform overrides the platform name used in DataHub URN building.
-	// For example, if Trino queries a PostgreSQL database, set this to "postgres"
-	// so URNs match DataHub's platform identifier.
-	Platform string `yaml:"platform"`
-
-	// CatalogMapping maps catalog names between systems.
-	// For semantic provider: maps Trino catalogs to DataHub catalogs (rdbms → warehouse)
-	// For query provider: maps DataHub catalogs to Trino catalogs (warehouse → rdbms)
-	CatalogMapping map[string]string `yaml:"catalog_mapping"`
+	Provider string      `yaml:"provider"` // "" (the platform catalog), "noop"
+	Cache    CacheConfig `yaml:"cache"`
 }
 
 // CacheConfig configures caching.
@@ -764,30 +743,20 @@ type CacheConfig struct {
 
 // QueryConfig configures the query provider.
 type QueryConfig struct {
-	Provider   string           `yaml:"provider"` // "trino", "noop"
-	Instance   string           `yaml:"instance"`
-	URNMapping URNMappingConfig `yaml:"urn_mapping"`
-}
-
-// StorageConfig configures the storage provider.
-type StorageConfig struct {
-	Provider string `yaml:"provider"` // "s3", "noop"
+	Provider string `yaml:"provider"` // "trino", "noop"
 	Instance string `yaml:"instance"`
 }
 
 // EnrichmentConfig configures cross-enrichment.
 type EnrichmentConfig struct {
-	// The four cross-enrichment flags default to true (nil = enabled). They are
+	// The two cross-enrichment flags default to true (nil = enabled). They are
 	// the platform's core differentiator and are read-only: each no-ops safely
-	// when its provider (semantic / query / storage) is absent, so defaulting on
-	// is safe and removes the need to opt every deployment into enrichment. Set
-	// the flag to false explicitly to disable. Read via the Is*Enabled helpers.
-	TrinoSemanticEnrichment  *bool              `yaml:"trino_semantic_enrichment"`
-	DataHubQueryEnrichment   *bool              `yaml:"datahub_query_enrichment"`
-	S3SemanticEnrichment     *bool              `yaml:"s3_semantic_enrichment"`
-	DataHubStorageEnrichment *bool              `yaml:"datahub_storage_enrichment"`
-	EstimateRowCounts        bool               `yaml:"estimate_row_counts"`
-	SessionDedup             SessionDedupConfig `yaml:"session_dedup"`
+	// when the semantic provider is absent, so defaulting on is safe and removes
+	// the need to opt every deployment into enrichment. Set the flag to false
+	// explicitly to disable. Read via the Is*Enabled helpers.
+	TrinoSemanticEnrichment *bool              `yaml:"trino_semantic_enrichment"`
+	EstimateRowCounts       bool               `yaml:"estimate_row_counts"`
+	SessionDedup            SessionDedupConfig `yaml:"session_dedup"`
 
 	// UnwrapJSON defaults the unwrap_json parameter to true on trino_query
 	// and trino_execute, so single-row VARCHAR-of-JSON responses (e.g. from
@@ -800,16 +769,6 @@ type EnrichmentConfig struct {
 	// touch a subset of a wide table. Defaults to true (nil = enabled).
 	ColumnContextFiltering *bool `yaml:"column_context_filtering"`
 
-	// SearchSchemaPreview adds a bounded column-name+type preview to
-	// a DataHub result's query_context, eliminating the intermediate
-	// fetch or trino_describe_table call before writing SQL.
-	// Defaults to true (nil = enabled).
-	SearchSchemaPreview *bool `yaml:"search_schema_preview"`
-
-	// SchemaPreviewMaxColumns caps how many columns appear in each
-	// schema preview. Defaults to 15 (nil = 15).
-	SchemaPreviewMaxColumns *int `yaml:"schema_preview_max_columns"`
-
 	// SemanticFallback enables the issue #444 fallback path: when a
 	// URN-equality lookup for a Trino table misses on the semantic
 	// provider, the platform calls SearchTables with Mode=semantic
@@ -817,8 +776,7 @@ type EnrichmentConfig struct {
 	// match_kind=semantic so the model knows it is similarity-
 	// inferred, not URN-resolved). Audit rows record
 	// enrichment_match_kind so operators can measure false-positive
-	// rate. Default off. Requires the semantic provider to support
-	// the "semantic" search mode (DataHub does as of v1.8.1).
+	// rate. Default off.
 	SemanticFallback *bool `yaml:"semantic_fallback"`
 
 	// SemanticFallbackTopK is how many similarity-search hits the
@@ -870,45 +828,6 @@ func (c *EnrichmentConfig) IsColumnContextFilteringEnabled() bool {
 // enrichment no-ops when no semantic provider is configured.
 func (c *EnrichmentConfig) IsTrinoSemanticEnrichmentEnabled() bool {
 	return c.TrinoSemanticEnrichment == nil || *c.TrinoSemanticEnrichment
-}
-
-// IsDataHubQueryEnrichmentEnabled reports whether DataHub results are enriched
-// with query/availability context, defaulting to true when not explicitly set.
-func (c *EnrichmentConfig) IsDataHubQueryEnrichmentEnabled() bool {
-	return c.DataHubQueryEnrichment == nil || *c.DataHubQueryEnrichment
-}
-
-// IsS3SemanticEnrichmentEnabled reports whether S3 results are enriched with
-// semantic context, defaulting to true when not explicitly set.
-func (c *EnrichmentConfig) IsS3SemanticEnrichmentEnabled() bool {
-	return c.S3SemanticEnrichment == nil || *c.S3SemanticEnrichment
-}
-
-// IsDataHubStorageEnrichmentEnabled reports whether DataHub results are enriched
-// with storage context, defaulting to true when not explicitly set.
-func (c *EnrichmentConfig) IsDataHubStorageEnrichmentEnabled() bool {
-	return c.DataHubStorageEnrichment == nil || *c.DataHubStorageEnrichment
-}
-
-// defaultSchemaPreviewMaxColumns is the default cap for schema preview columns.
-const defaultSchemaPreviewMaxColumns = 15
-
-// IsSearchSchemaPreviewEnabled returns whether search schema preview
-// is enabled, defaulting to true when not explicitly set.
-func (c *EnrichmentConfig) IsSearchSchemaPreviewEnabled() bool {
-	if c.SearchSchemaPreview == nil {
-		return true
-	}
-	return *c.SearchSchemaPreview
-}
-
-// EffectiveSchemaPreviewMaxColumns returns the configured max columns
-// for schema preview, defaulting to 15 when not explicitly set.
-func (c *EnrichmentConfig) EffectiveSchemaPreviewMaxColumns() int {
-	if c.SchemaPreviewMaxColumns == nil {
-		return defaultSchemaPreviewMaxColumns
-	}
-	return *c.SchemaPreviewMaxColumns
 }
 
 // defaultSemanticFallbackTopK is the default number of similarity-
@@ -1181,9 +1100,9 @@ type CSPAppConfig struct {
 
 // ResourcesConfig configures MCP resource templates and managed resources.
 type ResourcesConfig struct {
-	// Enabled gates the schema/glossary/availability resource templates and the
-	// DataHub->Trino resource links (ResourceLinksEnabled). Read-only serving, so
-	// it defaults to true (nil = enabled); set false to disable. Read via IsEnabled.
+	// Enabled gates the schema/glossary/availability resource templates.
+	// Read-only serving, so it defaults to true (nil = enabled); set false to
+	// disable. Read via IsEnabled.
 	Enabled *bool               `yaml:"enabled"`
 	Custom  []CustomResourceDef `yaml:"custom"`  // always registered when non-empty
 	Managed ManagedResourcesCfg `yaml:"managed"` // human-uploaded resources via portal
@@ -1192,8 +1111,8 @@ type ResourcesConfig struct {
 	Index indexpolicy.Config `yaml:"index"`
 }
 
-// IsEnabled reports whether the resource templates and DataHub->Trino resource
-// links are served, defaulting to true when not explicitly set.
+// IsEnabled reports whether the resource templates are served, defaulting to
+// true when not explicitly set.
 func (c *ResourcesConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
@@ -1521,7 +1440,7 @@ type SessionGateConfig struct {
 // interactive and agent use never touches it, but a runaway agent loop or a
 // compromised account hammering an expensive tool is bounded before it can
 // saturate the audit pipeline, the shared database pool, or an upstream
-// (Trino, DataHub, S3, a proxied MCP server).
+// (Trino, S3, a proxied MCP server).
 //
 // The limit is per authenticated user (see PlatformContext.RateLimitKey), not
 // per IP: a multi-user connector delivers every user's traffic from one egress
@@ -2083,9 +2002,8 @@ func (c *Config) Validate() error {
 	}
 
 	// A kind with several instances and no "default" leaves the platform to
-	// pick which connection an unqualified lookup (semantic.instance,
-	// query.instance, storage.instance, knowledge.apply.datahub_connection)
-	// means. Refuse here and name the candidates rather than resolve to one
+	// pick which connection an unqualified lookup (query.instance,
+	// storage.instance) means. Refuse here and name the candidates rather than resolve to one
 	// the operator did not choose.
 	errs = append(errs, toolkitcfg.MissingDefaults(c.Toolkits)...)
 

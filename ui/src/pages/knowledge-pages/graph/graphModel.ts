@@ -25,7 +25,7 @@ export const NODE_STYLE: Record<string, { fill: string; shape: "circle" | "squar
   collection: { fill: "hsl(262, 60%, 62%)", shape: "square", label: "Collection" },
   prompt: { fill: "hsl(291, 55%, 58%)", shape: "diamond", label: "Prompt" },
   script: { fill: "hsl(340, 65%, 58%)", shape: "diamond", label: "Script" },
-  datahub: { fill: "hsl(35, 85%, 52%)", shape: "diamond", label: "Catalog" },
+  catalog: { fill: "hsl(35, 85%, 52%)", shape: "diamond", label: "Catalog" },
   connection: { fill: "hsl(199, 75%, 48%)", shape: "square", label: "Connection" },
   resource: { fill: "hsl(95, 45%, 46%)", shape: "square", label: "Resource" },
 };
@@ -200,7 +200,7 @@ export function matchingNodeIds(nodes: KnowledgeGraphNode[], query: string): Set
 /**
  * nodeDestination returns what clicking a node should do: open a knowledge page
  * by id, navigate to an entity's portal home, or nothing for a type with no
- * in-app destination (a connection or a catalog URN). A broken reference has no
+ * in-app destination (a connection). A broken reference has no
  * destination either — there is nothing left to open.
  */
 export function nodeDestination(node: KnowledgeGraphNode):

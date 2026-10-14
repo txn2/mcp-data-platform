@@ -36,14 +36,15 @@
       "y": 0
     },
     {
-      "name": "DataHub requests by status",
+      "name": "Postgres p95 by operation",
       "display": "line",
       "query": {
-        "kind": "rate",
-        "metric": "datahub_requests",
-        "label": "per_second",
-        "by": "Attributes['status']",
-        "by_name": "status"
+        "kind": "quantile",
+        "metric": "db_client_operation_duration",
+        "q": 0.95,
+        "label": "seconds",
+        "by": "Attributes['operation']",
+        "by_name": "operation"
       },
       "w": 8,
       "h": 4,
@@ -51,15 +52,15 @@
       "y": 0
     },
     {
-      "name": "DataHub p95 by operation",
+      "name": "Outbound HTTP p95 by kind",
       "display": "line",
       "query": {
         "kind": "quantile",
-        "metric": "datahub_request_duration",
+        "metric": "http_client_request_duration",
         "q": 0.95,
         "label": "seconds",
-        "by": "Attributes['operation']",
-        "by_name": "operation"
+        "by": "Attributes['kind']",
+        "by_name": "kind"
       },
       "w": 8,
       "h": 4,

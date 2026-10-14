@@ -1,7 +1,7 @@
 # Registered MCP tool names — the allowlist for doc-check's benchmark-reference
 # audit (scripts/doc-check.sh).
 #
-# doc-check flags any tool-family-prefixed token (trino_/datahub_/s3_/api_/memory_)
+# doc-check flags any tool-family-prefixed token (trino_/s3_/api_/memory_)
 # in the two benchmark reference pages (docs/reference/benchmarks.md and
 # benchmark-report.md) that is neither listed here nor in
 # scripts/doc-check-nontools.txt. Non-prefixed tool names below (search, fetch,
@@ -16,11 +16,6 @@ api_discover
 api_export
 api_invoke_endpoint
 apply_knowledge
-datahub_browse
-datahub_create
-datahub_delete
-datahub_get_lineage
-datahub_update
 fetch
 graphql_discover
 graphql_export

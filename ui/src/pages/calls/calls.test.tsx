@@ -18,7 +18,7 @@ function record(overrides: Partial<CallRecord> = {}): CallRecord {
     tool_name: "trino_query",
     connection: "acme-warehouse",
     statement: "SELECT region, SUM(amount) FROM sales.orders GROUP BY region",
-    targets: ["urn:li:dataset:(urn:li:dataPlatform:trino,sales.orders,PROD)"],
+    targets: ["mcp:dataset:(trino,acme-warehouse,sales.orders)"],
     purpose: "Sizing Q3 revenue by region for the board deck.",
     user_id: "analyst@example.com",
     user_email: "analyst@example.com",
@@ -173,12 +173,12 @@ describe("one call opened", () => {
   it("publishes on request, and reports a refusal rather than swallowing it", () => {
     const onPromote = vi.fn();
     render(
-      <CallDetailView record={record()} onPromote={onPromote} actionError="no DataHub connection is configured" />,
+      <CallDetailView record={record()} onPromote={onPromote} actionError="the call addressed no catalog dataset" />,
     );
 
     fireEvent.click(screen.getByText("Publish"));
     expect(onPromote).toHaveBeenCalled();
-    expect(screen.getByText("no DataHub connection is configured")).toBeTruthy();
+    expect(screen.getByText("the call addressed no catalog dataset")).toBeTruthy();
   });
 
   it("shows what a promoted record became instead of offering to promote it again", () => {

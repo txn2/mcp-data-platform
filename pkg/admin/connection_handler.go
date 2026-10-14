@@ -13,7 +13,6 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/connsecretref"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
-	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
@@ -94,8 +93,7 @@ func (h *Handler) validateConnectionCatalog(ctx context.Context, kind string, co
 }
 
 // knownConnectionKinds lists the toolkit kinds that support multiple configurable
-// connection instances. DataHub is excluded because the platform connects to a
-// single catalog instance configured in the YAML file.
+// connection instances.
 var knownConnectionKinds = map[string]bool{
 	connectionKindTrino: true,
 	connectionKindS3:    true,
@@ -155,7 +153,7 @@ func (h *Handler) listConnectionInstances(w http.ResponseWriter, r *http.Request
 // @Description  Returns a single database-managed connection instance by kind and name.
 // @Tags         Connections
 // @Produce      json
-// @Param        kind  path  string  true  "Toolkit kind (trino, datahub, s3)"
+// @Param        kind  path  string  true  "Toolkit kind (trino, s3, mcp, api, graphql)"
 // @Param        name  path  string  true  "Instance name"
 // @Success      200   {object}  platform.ConnectionInstance
 // @Failure      404   {object}  problemDetail
@@ -193,7 +191,7 @@ type setConnectionInstanceRequest struct {
 // @Tags         Connections
 // @Accept       json
 // @Produce      json
-// @Param        kind  path  string                        true  "Toolkit kind (trino, datahub, s3)"
+// @Param        kind  path  string                        true  "Toolkit kind (trino, s3, mcp, api, graphql)"
 // @Param        name  path  string                        true  "Instance name"
 // @Param        body  body  setConnectionInstanceRequest  true  "Connection instance data"
 // @Success      200   {object}  platform.ConnectionInstance
@@ -342,7 +340,7 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 // @Summary      Delete connection instance
 // @Description  Deletes a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it.
 // @Tags         Connections
-// @Param        kind  path  string  true  "Toolkit kind (trino, datahub, s3)"
+// @Param        kind  path  string  true  "Toolkit kind (trino, s3, mcp, api, graphql)"
 // @Param        name  path  string  true  "Instance name"
 // @Success      204
 // @Failure      404  {object}  problemDetail
@@ -391,16 +389,6 @@ func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Reques
 
 	// Hot-remove: if the toolkit supports dynamic connections, remove it live.
 	h.hotRemoveConnection(kind, name)
-
-	// Update the connection source map, under the name it was filed by, and
-	// put back whatever the running configuration still says about the
-	// connection: deleting a stored override must not leave a connection its
-	// toolkit still serves with no mapping at all until the next restart.
-	if h.deps.ConnectionSources != nil {
-		conn := h.connections().ByInstance(kind, connid.Instance(name))
-		h.deps.ConnectionSources.Remove(kind, string(conn.Bound))
-		h.seedConfiguredSource(conn)
-	}
 
 	if hadToken {
 		// Best-effort: also wipe the token row so a re-created connection
@@ -812,50 +800,10 @@ func nestedMapHasRedacted(raw any) bool {
 	return false
 }
 
-// activateConnection hot-adds the connection to its toolkit and updates the
-// connection source map. Extracted to reduce setConnectionInstance complexity.
-//
-// The entry is filed under the name a call binds, which is the stored instance
-// name unless a live single-connection toolkit renames it with a
-// connection_name; filing it under the instance would leave the operator's
-// mapping unreachable by every lookup. The configured entry is seeded first so
-// the overlay lands on what the running configuration states rather than on the
-// previous save: without that a new connection would carry a kind default
-// instead of the deployment's urn_mapping, and a field the operator cleared
-// would keep answering with the value they deleted (#1396).
+// activateConnection hot-adds the connection to its toolkit. Extracted to
+// reduce setConnectionInstance complexity.
 func (h *Handler) activateConnection(inst platform.ConnectionInstance) {
 	h.hotAddConnection(inst.Kind, inst.Name, inst.Config)
-	if h.deps.ConnectionSources == nil {
-		return
-	}
-	// Resolve after the hot-add: a connection that did not exist a moment ago
-	// is only claimable by a toolkit once it has been added to one.
-	conn := h.connections().ByInstance(inst.Kind, connid.Instance(inst.Name))
-	h.seedConfiguredSource(conn)
-	src := platform.ConnectionSourceFromInstance(inst)
-	src.Name = string(conn.Bound)
-	h.deps.ConnectionSources.Overlay(src)
-}
-
-// seedConfiguredSource files the entry the running configuration derives for a
-// connection: the base an overlay lands on, and what a deleted stored override
-// falls back to. A connection no live toolkit serves contributes nothing, which
-// is what leaving it unmapped means — for a kind that supports hot-remove, a
-// deleted connection is already gone from its toolkit by the time this runs,
-// which is exactly what Live reports.
-func (h *Handler) seedConfiguredSource(conn connid.Connection) {
-	if !conn.Live {
-		return
-	}
-	// A deployment with no config block maps nothing, which is the zero value.
-	// Bailing out instead would skip the seed entirely and leave an overlay
-	// landing on the previous save, so a cleared field could never clear.
-	var mapping platform.URNMappingConfig
-	if h.deps.Config != nil {
-		mapping = h.deps.Config.Semantic.URNMapping
-	}
-	h.deps.ConnectionSources.Seed(connsource.RegistryEntries(
-		conn.Kind, []string{string(conn.Bound)}, mapping.Platform, mapping.CatalogMapping))
 }
 
 // connections builds a resolver over the live toolkits and the file's

@@ -80,15 +80,14 @@ describe("ConnectionTestButton", () => {
     expect(screen.queryByText(/the connection did not answer/i)).not.toBeInTheDocument();
   });
 
-  // The action is offered only for the kinds the endpoint serves. A datahub
-  // connection is configured in the platform's YAML rather than managed as an
-  // instance, so the endpoint answers "unknown connection kind" and a button
-  // offering it would be a refusal with no path in.
+  // The action is offered only for the kinds the endpoint serves. An mcp
+  // connection keeps the gateway's own richer test, so a button offering this
+  // one there would be a second, poorer path to the same answer.
   it("is offered only for the kinds that can be tested", () => {
     for (const kind of ["trino", "s3", "api", "graphql"]) {
       expect(canTestConnection(kind)).toBe(true);
     }
-    for (const kind of ["datahub", "mcp"]) {
+    for (const kind of ["mcp"]) {
       expect(canTestConnection(kind)).toBe(false);
     }
   });

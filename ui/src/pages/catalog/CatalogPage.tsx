@@ -16,21 +16,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigField, ConfigGroup, ConfigSelect } from "@/pages/settings/connections/fields";
 import { type CatalogForm, connectionOptions, formFromSettings, settingsFromForm } from "./catalogForm";
 import { DocumentsTab } from "./DocumentsTab";
-import { ImportTab } from "./ImportTab";
 
 // CatalogPage is where an administrator sees each connection's last scan into
 // the platform catalog and sets what the scan does (#1918): how often it runs,
 // and the catalogs, schemas or operations each connection leaves out. The
-// Documents tab lists the schema documents the scan keeps, and the Import tab
-// carries a DataHub into the catalog once (#1923).
+// Documents tab lists the schema documents the scan keeps.
 
-type Tab = "scans" | "settings" | "documents" | "import";
+type Tab = "scans" | "settings" | "documents";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "scans", label: "Scans" },
   { key: "settings", label: "Settings" },
   { key: "documents", label: "Documents" },
-  { key: "import", label: "Import" },
 ];
 
 export function CatalogPage({ initialTab }: { initialTab?: string }) {
@@ -59,9 +56,6 @@ export function CatalogPage({ initialTab }: { initialTab?: string }) {
       </TabsContent>
       <TabsContent value="documents">
         <DocumentsTab />
-      </TabsContent>
-      <TabsContent value="import">
-        <ImportTab />
       </TabsContent>
     </Tabs>
   );

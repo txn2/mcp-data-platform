@@ -15,7 +15,7 @@ Each persona has `allow` and `deny` lists:
 tools:
   allow:
     - "trino_*"           # Allow all trino tools
-    - "datahub_search"    # Allow specific tool
+    - "search"            # Allow specific tool
   deny:
     - "*_delete_*"        # Deny any tool with delete in name
 ```
@@ -41,8 +41,7 @@ graph TD
 |---------|---------|
 | `*` | Everything |
 | `trino_*` | trino_query, trino_execute, trino_explain, trino_browse, trino_export, etc. |
-| `*_list_*` | trino_list_connections, datahub_list_connections (does **not** match `s3_list`, which has nothing after `list`, nor `trino_browse` or `datahub_browse`) |
-| `datahub_get_*` | datahub_get_lineage (the one remaining `datahub_get_` tool) |
+| `*_list_*` | trino_list_connections (does **not** match `s3_list`, which has nothing after `list`, nor `trino_browse`) |
 | `s3_*` | Both S3 tools, `s3_list` and `s3_object` |
 | `trino_query` | Exact match only |
 
@@ -68,7 +67,8 @@ tools:
     - "trino_browse"
     - "trino_describe_*"
     - "trino_list_connections"
-    - "datahub_*"
+    - "search"
+    - "fetch"
     - "s3_list"
     - "s3_object"
   deny:
@@ -85,7 +85,8 @@ reads too. Point the persona at connections configured `read_only: true`
 ```yaml
 tools:
   allow:
-    - "datahub_*"
+    - "search"
+    - "fetch"
     - "trino_browse"
     - "trino_describe_*"
     - "trino_list_connections"
@@ -101,8 +102,8 @@ tools:
 tools:
   allow:
     - "trino_*"
-    - "datahub_search"
-    - "datahub_get_*"
+    - "search"
+    - "fetch"
   deny:
     - "*_delete_*"
 ```
@@ -136,13 +137,13 @@ Use these exact names in your patterns:
 - `trino_export` (requires portal; exports query results to asset)
 - `trino_list_connections`
 
-**DataHub Tools:**
-- `datahub_get_lineage`
-- `datahub_browse`
-- `datahub_create` (if not read-only)
-- `datahub_update` (if not read-only)
-- `datahub_delete` (if not read-only)
-- `datahub_list_connections`
+**Catalog and knowledge tools:**
+- `search` and `fetch` (find and read the catalog, and everything else the platform knows)
+- `apply_knowledge` (curate the catalog)
+
+The `datahub_*` tools are no longer registered, so a pattern naming them grants
+or denies nothing; a persona that relied on one for catalog access needs
+`search` and `fetch`.
 
 **S3 Tools:**
 - `s3_list` (buckets, or one bucket's objects)
@@ -185,8 +186,7 @@ analyst:
     allow: ["*"]
     deny:
       - "trino_execute"
-      - "datahub_update"
-      - "datahub_delete"
+      - "apply_knowledge"
 ```
 
 Prefer `allow: ["*"]` with a targeted `deny` over an enumerated allow-list: an
@@ -208,7 +208,6 @@ data_steward:
       - "search"
       - "fetch"
       - "list_connections"
-      - "datahub_*"
       - "trino_browse"
       - "trino_describe_*"
     deny:
@@ -239,7 +238,6 @@ viewer:
       - "platform_info"
       - "search"
       - "fetch"
-      - "datahub_browse"
       - "trino_browse"
     deny:
       - "trino_query"
@@ -263,7 +261,6 @@ personas:
         - "search"                # Required: the search-first gate refuses
         - "fetch"                 #   trino_query until search has been called
         - "trino_query"           # Native: read warehouse data
-        - "datahub_get_*"         # Native: look up metadata
         - "vendor__list_*"        # Gateway: read vendor objects
         - "vendor__send_*"        # Gateway: trigger vendor sends
       deny:
@@ -272,11 +269,11 @@ personas:
       allow: ["*"]
 ```
 
-The double-underscore separator (`__`) is a deliberate marker — it makes "gateway tool" visually obvious in audit logs, persona configs, and tool-list responses, and it never collides with the single-underscore separators used by native toolkits (`trino_query`, `datahub_search`, `s3_object`).
+The double-underscore separator (`__`) is a deliberate marker — it makes "gateway tool" visually obvious in audit logs, persona configs, and tool-list responses, and it never collides with the single-underscore separators used by native toolkits (`trino_query`, `list_connections`, `s3_object`).
 
 ### Composite personas
 
-A composite persona combines native and gateway access for a single role. The example above gives the `marketer` role read access to the warehouse plus action access to a third-party MCP wired through the gateway. The same audit log captures every tool call, regardless of whether it landed on Trino, DataHub, S3, or a proxied vendor.
+A composite persona combines native and gateway access for a single role. The example above gives the `marketer` role read access to the warehouse plus action access to a third-party MCP wired through the gateway. The same audit log captures every tool call, regardless of whether it landed on Trino, S3, the catalog, or a proxied vendor.
 
 ## Deny Takes Precedence
 
@@ -285,12 +282,12 @@ Deny rules always win over allow rules:
 ```yaml
 tools:
   allow:
-    - "datahub_*"        # Allow all DataHub tools
+    - "trino_*"          # Allow all Trino tools
   deny:
-    - "datahub_delete"   # But deny deletion
+    - "trino_execute"    # But deny writes
 ```
 
-Result: `datahub_browse` ✓, `datahub_delete` ✗
+Result: `trino_query` ✓, `trino_execute` ✗
 
 ## Testing Rules
 

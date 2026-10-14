@@ -20,7 +20,8 @@ The YAML-configured server works for standard setups. Use the library when you n
 | Package | What it does |
 |---------|--------------|
 | `pkg/platform` | Main entry point, orchestration |
-| `pkg/toolkits/*` | Trino, DataHub, S3 adapters |
+| `pkg/toolkits/*` | Trino, S3, gateway, search and knowledge toolkits |
+| `pkg/catalog` | The platform catalog's model and reference form |
 | `pkg/semantic` | Semantic provider interface |
 | `pkg/query` | Query provider interface |
 | `pkg/middleware` | Request/response processing |
@@ -32,10 +33,11 @@ The YAML-configured server works for standard setups. Use the library when you n
 **Platform** - wire everything together:
 
 ```go
-p, err := platform.New(
-    platform.WithDataHubToolkit("primary", datahubCfg),
-    platform.WithTrinoToolkit("primary", trinoCfg),
-)
+cfg, err := platform.LoadConfig("platform.yaml")
+if err != nil {
+    log.Fatal(err)
+}
+p, err := platform.New(platform.WithConfig(cfg))
 ```
 
 **Providers** - swap implementations:
@@ -55,33 +57,35 @@ type Middleware func(next Handler) Handler
 
 ## Minimal Example
 
-DataHub only:
-
 ```go
 package main
 
 import (
+    "context"
     "log"
-    "os"
+
     "github.com/txn2/mcp-data-platform/pkg/platform"
-    "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 )
 
 func main() {
-    p, err := platform.New(
-        platform.WithServerName("my-data-platform"),
-        platform.WithDataHubToolkit("primary", datahub.Config{
-            URL:   os.Getenv("DATAHUB_URL"),
-            Token: os.Getenv("DATAHUB_TOKEN"),
-        }),
-    )
+    cfg, err := platform.LoadConfig("platform.yaml")
+    if err != nil {
+        log.Fatal(err)
+    }
+    p, err := platform.New(platform.WithConfig(cfg))
     if err != nil {
         log.Fatal(err)
     }
     defer p.Close()
-    p.Run()
+    if err := p.Start(context.Background()); err != nil {
+        log.Fatal(err)
+    }
+    // p.MCPServer() is the *mcp.Server to serve over the transport you choose.
 }
 ```
+
+With `database.dsn` set, the platform catalog is the semantic provider;
+`platform.WithSemanticProvider` replaces it with your own implementation.
 
 ## Next Steps
 

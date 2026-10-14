@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
-import { useEffect } from "react";
 
-// The picker's own reads: the portal searches and the DataHub governance
-// lookups. Each is stubbed so a test drives what a type's search returns.
+// The picker's own reads: the portal searches and the catalog's definitions.
+// Each is stubbed so a test drives what a type's search returns.
 let mockRefs: { urn: string; type: string; label: string; exists: boolean; source: string }[] = [];
 const setRefs = vi.fn();
 vi.mock("@/api/portal/hooks", () => ({
@@ -17,29 +16,22 @@ vi.mock("@/api/portal/hooks", () => ({
   useSearchMyPrompts: () => ({ data: undefined }),
 }));
 
-let mockConnections: { name: string; writable: boolean }[] = [];
-let mockTerms: { urn: string; name: string }[] = [];
-let mockTags: { urn: string; name: string }[] = [];
-let mockDomains: { urn: string; name: string }[] = [];
-vi.mock("@/api/portal/datahub", () => ({
-  useDataHubConnections: () => ({ data: mockConnections }),
-  useGlossaryLookup: (conn: string, q: string) => ({ data: conn && q ? mockTerms : undefined }),
-  useTagLookup: (conn: string, q: string) => ({ data: conn && q ? mockTags : undefined }),
-  useDomainLookup: (conn: string, enabled: boolean) => ({
-    data: conn && enabled ? mockDomains : undefined,
-  }),
-  MIN_SEARCH_LEN: 2,
-}));
-
-// The connection select is exercised in its own test. The stub keeps the one
-// behavior the picker depends on: it selects a connection as soon as it renders,
-// which is what the real control does when the current value names none.
-vi.mock("./DataHubConnectionSelect", () => ({
-  DataHubConnectionSelect: ({ value, onChange }: { value: string; onChange: (n: string) => void }) => {
-    useEffect(() => {
-      if (!value && mockConnections.length > 0) onChange(mockConnections[0]!.name);
-    }, [value, onChange]);
-    return <span>connection: {value || "none"}</span>;
+// The catalog's definitions, by kind. The stub filters the way the route
+// does: the kinds asked for, whose name holds the text.
+let catalogReadable = true;
+let mockDefinitions: { reference: string; kind: string; name: string }[] = [];
+const definitionCalls: { p: { kind?: string[]; q?: string; limit?: number }; enabled: boolean }[] = [];
+vi.mock("@/api/portal/catalog", () => ({
+  useCatalogConnections: () => ({ isSuccess: catalogReadable }),
+  useDefinitions: (p: { kind?: string[]; q?: string; limit?: number }, enabled: boolean) => {
+    definitionCalls.push({ p, enabled });
+    if (!enabled) return { data: undefined };
+    const q = (p.q ?? "").toLowerCase();
+    return {
+      data: mockDefinitions.filter(
+        (d) => (p.kind ?? []).includes(d.kind) && d.name.toLowerCase().includes(q),
+      ),
+    };
   },
 }));
 
@@ -63,24 +55,25 @@ function pick(type: string, query: string) {
 beforeEach(() => {
   setRefs.mockClear();
   mockRefs = [];
-  mockConnections = [{ name: "primary", writable: true }];
-  mockTerms = [{ urn: "urn:li:glossaryTerm:8f3c1a94", name: "Net Revenue" }];
-  mockTags = [{ urn: "urn:li:tag:pii", name: "PII" }];
-  mockDomains = [
-    { urn: "urn:li:domain:c3d4e5f6", name: "Finance" },
-    { urn: "urn:li:domain:a1b2c3d4", name: "Marketing" },
+  catalogReadable = true;
+  definitionCalls.length = 0;
+  mockDefinitions = [
+    { reference: "mcp:glossary_term:8f3c1a94", kind: "glossary_term", name: "Net Revenue" },
+    { reference: "mcp:tag:pii", kind: "tag", name: "PII" },
+    { reference: "mcp:domain:c3d4e5f6", kind: "domain", name: "Finance" },
+    { reference: "mcp:domain:a1b2c3d4", kind: "domain", name: "Marketing" },
   ];
 });
 
 describe("RefPicker", () => {
-  it("attaches a glossary term by name, storing its URN", () => {
+  it("attaches a glossary term by name, storing its reference", () => {
     // The whole point of #1159: an author selects "Net Revenue" and never sees
-    // the generated key DataHub gave the term.
+    // the id the catalog gave the term.
     render(<RefPicker pageId="kp1" />);
     pick("Glossary term", "net");
 
     fireEvent.click(screen.getByText("Net Revenue"));
-    expect(setRefs).toHaveBeenCalledWith(["urn:li:glossaryTerm:8f3c1a94"]);
+    expect(setRefs).toHaveBeenCalledWith(["mcp:glossary_term:8f3c1a94"]);
   });
 
   it("attaches a tag and a domain by name too", () => {
@@ -88,18 +81,30 @@ describe("RefPicker", () => {
 
     pick("Tag", "pii");
     fireEvent.click(screen.getByText("PII"));
-    expect(setRefs).toHaveBeenLastCalledWith(["urn:li:tag:pii"]);
+    expect(setRefs).toHaveBeenLastCalledWith(["mcp:tag:pii"]);
 
     pick("Domain", "finance");
     fireEvent.click(screen.getByText("Finance"));
-    expect(setRefs).toHaveBeenLastCalledWith(["urn:li:domain:c3d4e5f6"]);
+    expect(setRefs).toHaveBeenLastCalledWith(["mcp:domain:c3d4e5f6"]);
   });
 
-  it("filters domains client-side, since DataHub has no name-scoped domain search", () => {
+  it("searches only the selected kind, by the text typed, a page at a time", () => {
     render(<RefPicker pageId="kp1" />);
     pick("Domain", "market");
     expect(screen.getByText("Marketing")).toBeInTheDocument();
     expect(screen.queryByText("Finance")).not.toBeInTheDocument();
+    const enabled = definitionCalls.filter((c) => c.enabled);
+    expect(enabled[enabled.length - 1]?.p).toEqual({
+      kind: ["domain"],
+      q: "market",
+      limit: 8,
+    });
+  });
+
+  it("reads no definitions while a portal type is selected", () => {
+    render(<RefPicker pageId="kp1" />);
+    pick("Asset", "sales");
+    expect(definitionCalls.every((c) => !c.enabled)).toBe(true);
   });
 
   it("keeps the portal types storing mcp: references", () => {
@@ -111,19 +116,19 @@ describe("RefPicker", () => {
 
   it("preserves the references already attached when adding one", () => {
     mockRefs = [
-      { urn: "urn:li:tag:pii", type: "datahub", label: "PII", exists: true, source: "manual" },
+      { urn: "mcp:tag:pii", type: "catalog", label: "PII", exists: true, source: "manual" },
     ];
     render(<RefPicker pageId="kp1" />);
     pick("Glossary term", "net");
     fireEvent.click(screen.getByText("Net Revenue"));
-    expect(setRefs).toHaveBeenCalledWith(["urn:li:tag:pii", "urn:li:glossaryTerm:8f3c1a94"]);
+    expect(setRefs).toHaveBeenCalledWith(["mcp:tag:pii", "mcp:glossary_term:8f3c1a94"]);
   });
 
   it("refuses to attach the same entity twice", () => {
     mockRefs = [
       {
-        urn: "urn:li:glossaryTerm:8f3c1a94",
-        type: "datahub",
+        urn: "mcp:glossary_term:8f3c1a94",
+        type: "catalog",
         label: "Net Revenue",
         exists: true,
         source: "manual",
@@ -140,19 +145,10 @@ describe("RefPicker", () => {
     expect(setRefs).not.toHaveBeenCalled();
   });
 
-  it("asks for a connection only when a catalog type is selected", () => {
-    // A governance entity belongs to one catalog; the portal's own entities
-    // belong to none, so the connection control has nothing to say for them.
-    render(<RefPicker pageId="kp1" />);
-    expect(screen.queryByText(/^connection:/)).not.toBeInTheDocument();
-    pick("Tag", "pii");
-    expect(screen.getByText(/^connection:/)).toBeInTheDocument();
-  });
-
-  it("offers no catalog types when no DataHub connection exists", () => {
+  it("offers no catalog types to a reader who cannot read the catalog", () => {
     // Otherwise the picker would show three types whose search can never return
-    // a candidate on a database-only deployment.
-    mockConnections = [];
+    // a candidate.
+    catalogReadable = false;
     render(<RefPicker pageId="kp1" />);
     openTypes();
     const options = screen.getAllByRole("option").map((o) => o.textContent);
@@ -161,10 +157,10 @@ describe("RefPicker", () => {
 
   it("removes an attached reference", () => {
     mockRefs = [
-      { urn: "urn:li:tag:pii", type: "datahub", label: "PII", exists: true, source: "manual" },
+      { urn: "mcp:tag:pii", type: "catalog", label: "PII", exists: true, source: "manual" },
       {
-        urn: "urn:li:domain:c3d4e5f6",
-        type: "datahub",
+        urn: "mcp:domain:c3d4e5f6",
+        type: "catalog",
         label: "Finance",
         exists: true,
         source: "manual",
@@ -172,17 +168,17 @@ describe("RefPicker", () => {
     ];
     render(<RefPicker pageId="kp1" />);
     fireEvent.click(screen.getByLabelText("Remove PII"));
-    expect(setRefs).toHaveBeenCalledWith(["urn:li:domain:c3d4e5f6"]);
+    expect(setRefs).toHaveBeenCalledWith(["mcp:domain:c3d4e5f6"]);
   });
 
   it("leaves promoted and inline references alone", () => {
     // The server replaces only source=manual, and the picker must send only
     // those: sending a promoted reference back as manual would relabel it.
     mockRefs = [
-      { urn: "urn:li:tag:pii", type: "datahub", label: "PII", exists: true, source: "manual" },
+      { urn: "mcp:tag:pii", type: "catalog", label: "PII", exists: true, source: "manual" },
       {
-        urn: "urn:li:tag:certified",
-        type: "datahub",
+        urn: "mcp:tag:certified",
+        type: "catalog",
         label: "certified",
         exists: true,
         source: "promoted",
@@ -191,6 +187,6 @@ describe("RefPicker", () => {
     render(<RefPicker pageId="kp1" />);
     pick("Glossary term", "net");
     fireEvent.click(screen.getByText("Net Revenue"));
-    expect(setRefs).toHaveBeenCalledWith(["urn:li:tag:pii", "urn:li:glossaryTerm:8f3c1a94"]);
+    expect(setRefs).toHaveBeenCalledWith(["mcp:tag:pii", "mcp:glossary_term:8f3c1a94"]);
   });
 });

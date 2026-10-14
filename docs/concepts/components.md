@@ -1,8 +1,8 @@
 ---
-description: Why DataHub, Trino, and S3 are the stack cross-enrichment composes. What each component does, why it was chosen, and how cross-enrichment wires them together.
+description: The stack cross-enrichment composes. The platform's own catalog for meaning, Trino for access, S3 for storage. What each does, why it was chosen, and how cross-enrichment wires them together.
 ---
 
-# The Data Stack: DataHub + Trino + S3
+# The Data Stack: Catalog + Trino + S3
 
 Modern data platforms need three things:
 
@@ -10,42 +10,40 @@ Modern data platforms need three things:
 2. **Access** - How do I query it?
 3. **Storage** - Where does it live?
 
-mcp-data-platform uses DataHub for meaning, Trino for access, and S3 for storage. Cross-enrichment wires them together so responses from one include context from the others.
+mcp-data-platform keeps its own catalog for meaning, uses Trino for access, and S3 for storage. Cross-enrichment wires them together so responses from one include context from the others.
 
-This page explains the stack cross-enrichment composes, and why each piece was chosen. It is not a list of prerequisites: a deployment can attach any subset, including none of the three. [Deployment Shapes](../server/deployment-shapes.md) covers what you get in each case.
+This page explains the stack cross-enrichment composes, and why each piece was chosen. It is not a list of prerequisites: a deployment can attach Trino and S3 or neither. [Deployment Shapes](../server/deployment-shapes.md) covers what you get in each case.
 
 ---
 
-## DataHub: The Semantic Layer
+## The Platform Catalog: The Semantic Layer
 
-### What is DataHub?
+### What is it?
 
-[DataHub](https://datahubproject.io/) is an open source data catalog and metadata platform from LinkedIn. It stores business context: descriptions, owners, tags, glossary terms, lineage, and quality scores.
+The [platform catalog](../server/catalog.md) is a data catalog the platform keeps in its own PostgreSQL. It records the datasets every connection can see, their columns, the glossary, tags, domains and data products, and the curation written on each: descriptions, owners, tags, glossary terms, properties, curated queries, incidents and context documents, with lineage recorded as data moves.
 
-DataHub stores the business context that turns raw schemas into something people can understand.
+It stores the business context that turns raw schemas into something people can understand.
 
-### Why DataHub for Semantic Context?
+### Why a built-in catalog?
 
 **Problem it solves**: Data exists everywhere, but understanding what it means requires tribal knowledge.
 
 - Column `cid` in one system is `customer_id` in another
-- That deprecated table still gets queried because nobody knows it's deprecated
 - PII columns aren't labeled, so compliance is a nightmare
 - New team members spend weeks learning what data exists and what it means
 
-**Why DataHub specifically**:
+**Why built in**:
 
 | Capability | Benefit |
 |------------|---------|
-| Active open source community | 10k+ GitHub stars, regular releases |
-| Rich GraphQL and REST APIs | Programmatic access for automation |
-| 50+ integrations | Trino, Snowflake, dbt, Airflow, Spark, and more |
-| Real-time metadata ingestion | Changes propagate immediately |
-| Full-text search | Find datasets by any metadata |
-| Lineage tracking | Table and column level provenance |
-| Data quality integration | Scores and assertions from external tools |
+| Scanned from the connections | Every Trino, API and GraphQL connection is cataloged without an ingestion job |
+| Curated where the work happens | People edit it in the portal; agents write approved knowledge to it with `apply_knowledge` |
+| Versioned curation | Every change records who made it and what it replaced, and rolls back |
+| Connection-scoped | A dataset belongs to the connection that sees it, so persona connection rules govern who reads it |
+| Lineage from the platform's own work | SQL writes, managed-script runs and table registrations record edges |
+| No extra service | It lives in the database the platform already needs |
 
-**For AI assistants**: Without DataHub, an AI sees columns and types. With DataHub, it sees what the data means, who owns it, and whether it's reliable.
+**For AI assistants**: Without a catalog, an AI sees columns and types. With it, it sees what the data means, who owns it, and whether it has an open incident.
 
 ---
 
@@ -99,7 +97,7 @@ JOIN hive.datalake.purchases s ON p.id = s.customer_id
 
 ### What is S3?
 
-Amazon S3 (or any S3-compatible service like MinIO) is object storage. It stores files, images, JSON, Parquet, CSV, logs, and ML models. Most data lakes are built on S3 or something compatible with its API.
+Amazon S3 (or any S3-compatible service like SeaweedFS) is object storage. It stores files, images, JSON, Parquet, CSV, logs, and ML models. Most data lakes are built on S3 or something compatible with its API.
 
 ### Why S3 for Data Platform Access?
 
@@ -117,9 +115,9 @@ Amazon S3 (or any S3-compatible service like MinIO) is object storage. It stores
 | Any file format | Parquet, ORC, JSON, CSV, images |
 | Direct querying | Trino reads S3 via Hive, Iceberg, Delta |
 | Object versioning | Track changes over time |
-| S3-compatible | AWS, MinIO, Ceph, DigitalOcean Spaces |
+| S3-compatible | AWS, SeaweedFS, Ceph, DigitalOcean Spaces |
 
-**For AI assistants**: S3 tools let AI find files, confirm they exist, read contents, and understand what's in the data lake. Combined with DataHub, the AI knows the business context of those files.
+**For AI assistants**: S3 tools let AI find files, confirm they exist, read contents, and understand what's in the data lake.
 
 ---
 
@@ -140,7 +138,7 @@ Composing third-party MCPs directly with the customer's data has three
 distinct values:
 
 1. **Proximity** — tools from external systems land next to warehouse
-   data and DataHub metadata, so an AI working in one session can
+   data and the catalog, so an AI working in one session can
    reason across vendor APIs and the customer's own data without
    switching contexts or credentials.
 2. **Central control** — one auth flow, one persona model, one audit
@@ -178,27 +176,20 @@ See [Gateway Toolkit](../server/gateway.md) for the full reference.
 
 | Component | Answers | Limitation Alone |
 |-----------|---------|------------------|
-| **DataHub** | "What does this mean?" | Can't query the data |
+| **Catalog** | "What does this mean?" | Can't query the data |
 | **Trino** | "What's in this table?" | Doesn't know business context |
 | **S3** | "What files exist?" | Just storage, no meaning |
 
 ### Cross-enrichment fills the gaps
 
-**Trino + DataHub Cross-Enrichment**:
+**Trino to catalog**:
 
-- Query a table → Get schema + owners + tags + deprecation + quality
+- Query a table → Get schema + description + owners + tags + glossary terms + open incidents
 - No extra calls. One request. Complete context.
 
-**DataHub + Trino Cross-Enrichment**:
+**Catalog to Trino**:
 
-- Search DataHub → See which datasets are queryable
-- Get sample SQL for any discovered dataset
-- Know the row count and freshness
-
-**S3 + DataHub Cross-Enrichment**:
-
-- List objects → Get matching DataHub metadata
-- Know who owns those files and what they represent
+- Read a dataset from the catalog → See whether it is queryable, on which connection, and roughly how many rows it holds
 
 ### Use Case: Complete Data Discovery
 
@@ -206,20 +197,16 @@ See [Gateway Toolkit](../server/gateway.md) for the full reference.
 User: "Find customer data I can analyze"
 
 Without mcp-data-platform:
-1. Search DataHub → find datasets
+1. Search a catalog → find datasets
 2. For each dataset, check if it's queryable
 3. For each queryable one, find the Trino connection
-4. Check S3 for raw data files
-5. Cross-reference ownership and quality
+4. Cross-reference ownership
 → Multiple tools, multiple calls, context assembly required
 
 With mcp-data-platform:
-1. Search DataHub → get everything in one response:
-   - Matching datasets
-   - Which are queryable (with sample SQL)
-   - Quality scores and ownership
-   - S3 locations for raw data
-→ One call. Complete picture.
+1. search → matching datasets
+2. fetch the one that fits → its curation, lineage, and where to query it
+→ Two calls. Complete picture.
 ```
 
 ### Built for analytics
@@ -228,7 +215,7 @@ This stack is designed for **OLAP** (Online Analytical Processing):
 
 - **S3**: Stores petabytes of historical data at low cost
 - **Trino**: Runs analytical queries across that data
-- **DataHub**: Adds business context to query results
+- **Catalog**: Adds business context to query results
 
 Common use cases:
 
@@ -244,12 +231,12 @@ Common use cases:
 
 | Scenario | Primary Component | Supporting Context |
 |----------|-------------------|-------------------|
-| "What customer tables exist?" | DataHub search | Trino availability |
-| "Query last month's orders" | Trino query | DataHub enrichment |
-| "Find raw clickstream files" | S3 list | DataHub metadata |
-| "Who owns this dataset?" | DataHub | - |
-| "Is this data reliable?" | DataHub quality | Trino row count |
-| "Join data across systems" | Trino federation | DataHub context |
+| "What customer tables exist?" | `search` over the catalog | Trino availability on `fetch` |
+| "Query last month's orders" | Trino query | Catalog enrichment |
+| "Find raw clickstream files" | S3 list | - |
+| "Who owns this dataset?" | Catalog | - |
+| "Where does this table come from?" | Catalog lineage | - |
+| "Join data across systems" | Trino federation | Catalog context |
 
 ---
 
@@ -263,6 +250,7 @@ graph TB
 
     subgraph "mcp-data-platform"
         Platform[Platform Bridge]
+        Catalog[(Platform catalog<br/>Semantic Layer)]
 
         subgraph "Cross-Enrichment"
             Enrich[Enrichment Middleware]
@@ -270,16 +258,15 @@ graph TB
     end
 
     subgraph "Data Stack"
-        DataHub[DataHub<br/>Semantic Layer]
         Trino[Trino<br/>Query Engine]
         S3[S3<br/>Object Storage]
     end
 
     Client --> Platform
     Platform --> Enrich
-    Enrich <-->|semantic context| DataHub
+    Enrich <-->|semantic context| Catalog
     Enrich <-->|query availability| Trino
-    Enrich <-->|object metadata| S3
+    Trino -->|scanned into| Catalog
     Enrich --> Client
 ```
 
@@ -289,9 +276,9 @@ The platform acts as a bridge, intercepting requests and responses to add contex
 
 ## Without This Stack
 
-Every component above is optional. With no DataHub, Trino, or S3 configured, the semantic, query, and storage providers resolve to noops and the platform starts normally. What remains is the database-backed half: the API and MCP gateways, the knowledge layer, the memory layer, the portal, and `search`/`fetch` over all of them. That deployment needs PostgreSQL and nothing else.
+Trino and S3 are optional. With neither configured, the platform starts normally on PostgreSQL alone: the API and MCP gateways, the knowledge layer, the memory layer, the portal, the catalog of the API and GraphQL connections, and `search`/`fetch` over all of them.
 
-What it gives up is this page's subject matter. There is no catalog to draw meaning from, so responses carry only what the called service returned.
+What it gives up is the warehouse: there is no table to query and so no query to enrich.
 
 See [Deployment Shapes](../server/deployment-shapes.md) for the configuration and the full list of what each shape includes.
 
@@ -305,7 +292,7 @@ See [Deployment Shapes](../server/deployment-shapes.md) for the configuration an
 
     ---
 
-    Detailed examples of how Trino and DataHub enrich each other's responses.
+    Detailed examples of how Trino and the catalog enrich each other's responses.
 
     [:octicons-arrow-right-24: Cross-enrichment overview](../cross-enrichment/overview.md)
 
@@ -313,7 +300,7 @@ See [Deployment Shapes](../server/deployment-shapes.md) for the configuration an
 
     ---
 
-    Configure the platform with your DataHub, Trino, and S3 instances.
+    Configure the platform with your Trino and S3 instances.
 
     [:octicons-arrow-right-24: Server guide](../server/overview.md)
 

@@ -32,12 +32,6 @@ func WaitForTrino(ctx context.Context, address string, cfg WaitConfig) error {
 	return waitForHTTP(ctx, url, cfg)
 }
 
-// WaitForDataHub waits for DataHub GMS to be ready.
-func WaitForDataHub(ctx context.Context, baseURL string, cfg WaitConfig) error {
-	url := fmt.Sprintf("%s/health", baseURL)
-	return waitForHTTP(ctx, url, cfg)
-}
-
 // WaitForS3 waits for S3-compatible storage (SeaweedFS) to be ready.
 func WaitForS3(ctx context.Context, endpoint string, cfg WaitConfig) error {
 	// SeaweedFS S3 API responds to root path
@@ -89,14 +83,6 @@ func WaitForAllServices(ctx context.Context, cfg *E2EConfig, waitCfg WaitConfig)
 	// Wait for PostgreSQL
 	if err := WaitForPostgres(ctx, cfg.PostgresDSN, waitCfg); err != nil {
 		return fmt.Errorf("postgres: %w", err)
-	}
-
-	// Wait for DataHub (optional)
-	if cfg.IsDataHubAvailable() {
-		if err := WaitForDataHub(ctx, cfg.DataHubURL, waitCfg); err != nil {
-			// DataHub is optional - log but don't fail
-			fmt.Printf("Warning: DataHub not available: %v\n", err)
-		}
 	}
 
 	return nil

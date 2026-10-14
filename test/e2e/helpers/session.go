@@ -5,9 +5,6 @@ package helpers
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/url"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -33,33 +30,4 @@ func ConnectInMemory(ctx context.Context, srv *mcp.Server) (*mcp.ClientSession, 
 		return nil, fmt.Errorf("client connect: %w", err)
 	}
 	return cs, nil
-}
-
-// DataHubReachable reports whether the configured DataHub endpoint accepts a TCP
-// connection within a short timeout. IsDataHubAvailable only checks that a URL
-// is configured (it has a default, so it is always true); this probes the real
-// service, so an enrichment assertion can skip cleanly when DataHub is not up
-// rather than fail. The Trino-only assertions need no DataHub and do not gate on
-// this.
-func DataHubReachable(cfg *E2EConfig) bool {
-	if cfg == nil || cfg.DataHubURL == "" {
-		return false
-	}
-	u, err := url.Parse(cfg.DataHubURL)
-	if err != nil {
-		return false
-	}
-	host := u.Host
-	if host == "" {
-		host = cfg.DataHubURL
-	}
-	if u.Port() == "" {
-		host = net.JoinHostPort(u.Hostname(), "8080")
-	}
-	conn, err := net.DialTimeout("tcp", host, 2*time.Second)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
 }

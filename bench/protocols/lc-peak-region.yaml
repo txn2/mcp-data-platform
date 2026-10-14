@@ -3,7 +3,7 @@
 id: lc-peak-region
 title: Peak region by customers
 fact: The 'peak region' is the region with the most customers.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.customers)
 sink: knowledge_page
 page:
     slug: peak-region-definition

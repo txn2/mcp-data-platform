@@ -14,7 +14,6 @@ func TestNew_RefusesATrinoConfigBeforeTheDatabase(t *testing.T) {
 		Server:   ServerConfig{Name: "test-platform"},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Database: DatabaseConfig{DSN: "postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1"},
 		Toolkits: map[string]any{
 			"trino": map[string]any{

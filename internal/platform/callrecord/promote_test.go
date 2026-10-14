@@ -42,7 +42,7 @@ func (p *promoteStore) Reject(_ context.Context, _ string, r Rejection) error {
 	return nil
 }
 
-// queryWriter stands in for the DataHub curated-query write path.
+// queryWriter stands in for the catalog curated-query write path.
 type queryWriter struct {
 	datasetURNs []string
 	name        string
@@ -97,7 +97,7 @@ func TestPromoteQueryCarriesEveryDatasetItReads(t *testing.T) {
 		t.Fatalf("Promote: %v", err)
 	}
 
-	// A query that joins two tables belongs to both, and DataHub's own write
+	// A query that joins two tables belongs to both, and the catalog write
 	// accepts the set.
 	if len(writer.datasetURNs) != 2 {
 		t.Errorf("dataset URNs = %v, want both targets", writer.datasetURNs)
@@ -153,7 +153,7 @@ func TestPromoteRefusesARecordThatAnsweredNothing(t *testing.T) {
 func TestPromoteRefusesWithNowhereToPromoteTo(t *testing.T) {
 	t.Parallel()
 
-	// A deployment with no DataHub must refuse rather than report a promotion
+	// A deployment with no catalog must refuse rather than report a promotion
 	// that persisted nothing.
 	store := &promoteStore{rec: satisfiedSQL()}
 	promoter := NewPromoter(store, nil, nil)
@@ -171,7 +171,7 @@ func TestPromoteLeavesTheRecordAloneWhenTheWriteFails(t *testing.T) {
 	t.Parallel()
 
 	store := &promoteStore{rec: satisfiedSQL()}
-	promoter := NewPromoter(store, &queryWriter{err: errors.New("datahub down")}, nil)
+	promoter := NewPromoter(store, &queryWriter{err: errors.New("catalog down")}, nil)
 
 	if _, err := promoter.Promote(context.Background(), Scope{ID: "call-1"}, "reviewer@example.com"); err == nil {
 		t.Fatal("expected the write failure to surface")

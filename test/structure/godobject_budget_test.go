@@ -56,7 +56,7 @@ const (
 	// Platform because it backs many other subsystems — ratcheting 59 → 56; the
 	// knowledge-capture-layer extraction (#847) folded four fields
 	// (knowledgeInsightStore, knowledgeChangesetStore, knowledgeToolkit,
-	// knowledgeDataHubWriter) into one knowledgelayer.Handle — knowledgeRouter
+	// the catalog writer) into one knowledgelayer.Handle — knowledgeRouter
 	// (search federation) stays on Platform as a separate later seam — ratcheting
 	// 56 → 53. The search-federation extraction (#849) is a method-surface seam,
 	// not a field-cluster seam: it replaces the single knowledgeRouter field with

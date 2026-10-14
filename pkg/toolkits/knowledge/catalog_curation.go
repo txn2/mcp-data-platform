@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
-	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // fieldCatalogChanges is the changeset new_value key holding the ids of the
@@ -21,25 +20,6 @@ const fieldCatalogChanges = "catalog_changes"
 // qualityIssueTag is the tag flag_quality_issue sets; the detail, when given,
 // is raised as an incident titled qualityIssueIncidentTitle (#722).
 const qualityIssueTag = "QualityIssue"
-
-// The prefixes a value may carry from the DataHub vocabulary agents and stored
-// insights still use. They are read as the platform catalog's names.
-const (
-	dhTagPrefix                = "urn:li:tag:"
-	dhGlossaryTermPrefix       = "urn:li:glossaryTerm:"
-	dhStructuredPropertyPrefix = "urn:li:structuredProperty:"
-	dhDatasetPrefix            = "urn:li:dataset:"
-)
-
-// dhDefinitionKinds maps the DataHub URN prefix of a definition to the catalog
-// kind it is stored as, so a stored urn:li: target still names its definition.
-var dhDefinitionKinds = map[string]catalog.Kind{
-	"urn:li:glossaryTerm:": catalog.KindGlossaryTerm,
-	"urn:li:glossaryNode:": catalog.KindGlossaryNode,
-	"urn:li:domain:":       catalog.KindDomain,
-	"urn:li:dataProduct:":  catalog.KindDataProduct,
-	"urn:li:tag:":          catalog.KindTag,
-}
 
 // ErrTargetNotCataloged is returned for an apply target the platform catalog
 // does not hold.
@@ -52,55 +32,15 @@ type curator struct {
 	store catalog.Store
 }
 
-// resolveTarget reads an apply target as a catalog reference. An mcp:
-// reference is taken as written; a DataHub dataset URN resolves by its path to
-// the first connection that catalogs it, as the semantic provider resolves one;
-// a DataHub definition URN resolves by its key as a slug.
-func (c curator) resolveTarget(ctx context.Context, target string) (catalog.Ref, error) {
-	target = strings.TrimSpace(target)
-	if strings.HasPrefix(target, "mcp:") {
-		ref, err := catalog.ParseRef(target)
-		if err != nil {
-			return catalog.Ref{}, fmt.Errorf("entity_urn: %w", err)
-		}
-		return ref, nil
-	}
-	if strings.HasPrefix(target, dhDatasetPrefix) {
-		return c.datasetByURN(ctx, target)
-	}
-	for prefix, kind := range dhDefinitionKinds {
-		if key, ok := strings.CutPrefix(target, prefix); ok && key != "" {
-			return catalog.KeyRef(kind, definitionKey(kind, key)), nil
-		}
-	}
-	return catalog.Ref{}, fmt.Errorf("entity_urn %q is not a catalog reference "+
-		"(mcp:dataset:(kind,connection,path), mcp:column:..., mcp:glossary_term:<id>, mcp:tag:<name>, ...)", target)
-}
-
-// definitionKey is the slug a DataHub definition key is stored under. A tag is
-// keyed by its name as written.
-func definitionKey(kind catalog.Kind, key string) string {
-	if kind == catalog.KindTag {
-		return key
-	}
-	return catalog.Slug(key)
-}
-
-// datasetByURN finds the catalog dataset a DataHub dataset URN names.
-func (c curator) datasetByURN(ctx context.Context, urn string) (catalog.Ref, error) {
-	parsed, err := urnbuild.ParseDatasetURN(urn)
+// resolveTarget reads an apply target as a catalog reference, refusing any
+// other form with the forms it reads.
+func (curator) resolveTarget(_ context.Context, target string) (catalog.Ref, error) {
+	ref, err := catalog.ParseRef(strings.TrimSpace(target))
 	if err != nil {
-		return catalog.Ref{}, fmt.Errorf("entity_urn: %w", err)
+		return catalog.Ref{}, fmt.Errorf("entity_urn %q is not a catalog reference "+
+			"(mcp:dataset:(kind,connection,path), mcp:column:..., mcp:glossary_term:<id>, mcp:tag:<name>, ...): %w", target, err)
 	}
-	kind := strings.TrimPrefix(parsed.Platform, "urn:li:dataPlatform:")
-	refs, err := c.store.DatasetsByPath(ctx, kind, parsed.Name)
-	if err != nil {
-		return catalog.Ref{}, fmt.Errorf("resolving %s: %w", urn, err)
-	}
-	if len(refs) == 0 {
-		return catalog.Ref{}, fmt.Errorf("looking up %s: %w", urn, ErrTargetNotCataloged)
-	}
-	return catalog.ParseRef(refs[0]) //nolint:wrapcheck // the store wrote the reference
+	return ref, nil
 }
 
 // entityState is the working copy of one entity's curation while an apply is
@@ -303,21 +243,35 @@ func setDescription(_ *plan, e *entityState, ch ApplyChange) error {
 	return nil
 }
 
-// tagName reads a tag value in any of the forms an agent sends: a bare name,
-// mcp:tag:<name> or urn:li:tag:<name>.
-func tagName(v string) string {
+// tagName reads a tag value in either form an agent sends: a bare name or
+// mcp:tag:<name>. A urn: value is a DataHub URN, which names no tag of the
+// platform catalog; it is refused rather than stored as a tag called that.
+func tagName(v string) (string, error) {
 	v = strings.TrimSpace(v)
-	if name, ok := strings.CutPrefix(v, dhTagPrefix); ok {
-		return name
+	if err := refuseURN(v, "a tag", "mcp:tag:<name> or the bare name"); err != nil {
+		return "", err
 	}
 	if name, ok := strings.CutPrefix(v, "mcp:tag:"); ok {
-		return name
+		return name, nil
 	}
-	return v
+	return v, nil
+}
+
+// refuseURN refuses a DataHub-style urn: value where the catalog reads a name
+// or one of its own references, naming the form it does read.
+func refuseURN(v, what, want string) error {
+	if strings.HasPrefix(v, "urn:") {
+		return fmt.Errorf("a DataHub URN (%q) does not name %s in the platform catalog; use %s", v, what, want)
+	}
+	return nil
 }
 
 func addTag(_ *plan, e *entityState, ch ApplyChange) error {
-	return addTagName(e, tagName(ch.Detail))
+	name, err := tagName(ch.Detail)
+	if err != nil {
+		return err
+	}
+	return addTagName(e, name)
 }
 
 // addTagName adds a tag to an entity unless it already carries it.
@@ -333,7 +287,11 @@ func addTagName(e *entityState, name string) error {
 }
 
 func removeTag(_ *plan, e *entityState, ch ApplyChange) error {
-	removeTagName(e, tagName(ch.Detail))
+	name, err := tagName(ch.Detail)
+	if err != nil {
+		return err
+	}
+	removeTagName(e, name)
 	return nil
 }
 
@@ -344,8 +302,8 @@ func removeTagName(e *entityState, name string) {
 }
 
 // addGlossaryTerm attaches a glossary term, creating the term when the catalog
-// does not hold one by that name. Detail is an mcp:glossary_term: reference, a
-// DataHub glossary term URN, or the term's name.
+// does not hold one by that name. Detail is an mcp:glossary_term: reference or
+// the term's name.
 func addGlossaryTerm(p *plan, e *entityState, ch ApplyChange) error {
 	ref, err := p.glossaryTerm(ch.Detail)
 	if err != nil {
@@ -376,7 +334,7 @@ func (p *plan) glossaryTerm(v string) (string, error) {
 		}
 		return d.Reference, nil
 	}
-	name := strings.TrimPrefix(v, dhGlossaryTermPrefix)
+	name := v
 	d, err := p.c.store.GetDefinition(p.ctx, catalog.KeyRef(catalog.KindGlossaryTerm, catalog.Slug(name)))
 	if err == nil {
 		return d.Reference, nil
@@ -470,14 +428,21 @@ func appendCuratedQuery(a *catalog.Aspects, q catalog.CuratedQuery) {
 	a.CuratedQueries = append(a.CuratedQueries, q)
 }
 
-// propertyKey reads a structured property name, which an agent may send as a
-// DataHub structured property URN.
-func propertyKey(target string) string {
-	return strings.TrimPrefix(strings.TrimSpace(target), dhStructuredPropertyPrefix)
+// propertyKey reads a structured property name, refusing a DataHub
+// structured-property URN in its place.
+func propertyKey(target string) (string, error) {
+	key := strings.TrimSpace(target)
+	if err := refuseURN(key, "a structured property", "the property name"); err != nil {
+		return "", err
+	}
+	return key, nil
 }
 
 func setStructuredProperty(_ *plan, e *entityState, ch ApplyChange) error {
-	key := propertyKey(ch.Target)
+	key, err := propertyKey(ch.Target)
+	if err != nil {
+		return err
+	}
 	if key == "" {
 		return errors.New("target (the property name) is required")
 	}
@@ -494,7 +459,11 @@ func setStructuredProperty(_ *plan, e *entityState, ch ApplyChange) error {
 }
 
 func removeStructuredProperty(_ *plan, e *entityState, ch ApplyChange) error {
-	delete(e.aspects.StructuredProperties, propertyKey(ch.Target))
+	key, err := propertyKey(ch.Target)
+	if err != nil {
+		return err
+	}
+	delete(e.aspects.StructuredProperties, key)
 	e.touch(catalog.AspectStructuredProperties)
 	return nil
 }

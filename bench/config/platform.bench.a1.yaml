@@ -1,15 +1,13 @@
 # Benchmark arm A1 — enrichment-only (issue #930 / #943).
 #
-# A0 plus semantic cross-enrichment: the DataHub semantic provider is
-# configured so trino_describe_table and trino_query results carry semantic
+# A0 plus semantic cross-enrichment: the platform catalog is the semantic
+# provider, so trino_describe_table and trino_query results carry semantic
 # context (descriptions, column units, deprecation) automatically, but the
-# agent still sees ONLY the raw toolkit tools (trino_*, s3_*) — no search tool,
-# no datahub_* tools, and the search-first gate is off. This isolates the
-# effect of enrichment from the effect of the discovery/knowledge layer (A2).
-# The datahub toolkit is configured so the semantic provider has a connection
-# (semantic.instance references it); the persona allowlist withholds the
-# datahub_* tools from the agent, so enrichment runs while discovery does not.
-# Requires the same DataHub quickstart as A2 (bench/seed/datahub/bench_mces.json).
+# agent still sees ONLY the raw toolkit tools (trino_*, s3_*): no search or
+# fetch tool, and the search-first gate is off. This isolates the effect of
+# enrichment from the effect of the discovery/knowledge layer (A2). Requires
+# the same catalog seed as A2 (bench/seed/postgres/catalog.sql, applied by
+# `make bench-up`).
 #
 # Audit runs with delivery: sync so the harness's audit read-back is
 # deterministic: when a tool call returns, its audit row is committed.
@@ -375,7 +373,7 @@ rate_limit:
   enabled: false
 
 # The search-first gate must be OFF: the A1 persona has no discovery tool
-# (no search, no datahub_*), so a gated query would deadlock on SEARCH_REQUIRED.
+# (no search, no fetch), so a gated query would deadlock on SEARCH_REQUIRED.
 # Enrichment.* stay at their defaults (on) — enrichment is exactly what A1 adds
 # over A0.
 workflow:
@@ -395,8 +393,6 @@ personas:
       allow: ["*"]
 
 semantic:
-  provider: datahub
-  instance: primary
   cache:
     enabled: true
     ttl: 5m
@@ -420,17 +416,6 @@ toolkits:
       default_limit: 1000
       max_limit: 10000
       read_only: true
-
-  datahub:
-    enabled: true
-    default: primary
-    instances:
-      primary:
-        url: "http://localhost:8080/api/graphql"
-        # DataHub quickstart ships with metadata-service auth disabled; the
-        # provider requires a non-empty token, so a placeholder is supplied.
-        token: "bench-placeholder-token"
-        read_only: true
 
   s3:
     enabled: true

@@ -20,7 +20,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
@@ -39,10 +41,17 @@ func TestPageSink_RealDB_PromoteAndRollback(t *testing.T) {
 	ctx := ctxWithUser("admin@example.com", "sess", "admin")
 
 	// Capture two business_knowledge insights (the provisional inbox drafts). The
-	// first carries a DataHub reference that must survive promotion onto the page
+	// first carries a catalog reference that must survive promotion onto the page
 	// (#664); both are promoted together so the rollback has to return every source
 	// insight, not just the first (#1257).
-	const refURN = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"
+	const refURN = "mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)"
+	// A promoted catalog reference is kept only when the catalog holds what it
+	// names, so the dataset is cataloged first.
+	if _, err := catalogstore.New(db).PutDataset(ctx, catalog.DatasetInput{
+		Ref: catalog.DatasetRef("trino", "warehouse", "iceberg", "retail", "daily_sales"), Type: catalog.DatasetTable,
+	}); err != nil {
+		t.Fatalf("cataloging the cited dataset: %v", err)
+	}
 	require.NoError(t, insightStore.Insert(ctx, Insight{
 		ID:          "ins-bk-1",
 		CapturedBy:  "alice@example.com",
@@ -85,12 +94,12 @@ func TestPageSink_RealDB_PromoteAndRollback(t *testing.T) {
 	assert.Equal(t, "admin@example.com", page.CreatedEmail)
 	assert.Equal(t, "admin@example.com", page.CreatedBy)
 
-	// The insight's DataHub reference was carried onto the page (#664), against
+	// The insight's catalog reference was carried onto the page (#664), against
 	// the real table with its CHECK, FK, and unique-index constraints.
 	refs, err := pageStore.ListEntityRefs(ctx, page.ID)
 	require.NoError(t, err)
 	require.Len(t, refs, 1)
-	assert.Equal(t, knowledgepage.RefTargetDataHub, refs[0].TargetType)
+	assert.Equal(t, knowledgepage.RefTargetCatalog, refs[0].TargetType)
 	assert.Equal(t, refURN, refs[0].EntityURN)
 	assert.Equal(t, knowledgepage.RefSourcePromoted, refs[0].Source)
 

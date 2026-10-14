@@ -36,3 +36,20 @@ s3_delete_object
 api_list_specs
 api_list_endpoints
 api_get_endpoint_schema
+
+# The DataHub toolkit was removed when the platform's own catalog replaced
+# DataHub (#1924, #1925): search finds a dataset or a definition, and fetch reads
+# one (its schema, lineage, the entries under a glossary node, a level of a
+# connection's datasets). The old names are not aliases.
+datahub_browse
+datahub_create
+datahub_delete
+datahub_get_data_product
+datahub_get_entity
+datahub_get_glossary_term
+datahub_get_lineage
+datahub_get_queries
+datahub_get_schema
+datahub_list_connections
+datahub_search
+datahub_update

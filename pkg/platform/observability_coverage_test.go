@@ -100,7 +100,6 @@ func newObservedPlatform(t *testing.T, rpm int) *observedPlatform {
 		Server:   ServerConfig{Name: "observed"},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Auth: AuthConfig{APIKeys: APIKeyAuthConfig{Enabled: true, Keys: []APIKeyDef{
 			{Key: coverageAdminKey, Name: "admin", Roles: []string{testRoleAdmin}},
 			{Key: coverageNobodyKey, Name: "nobody", Roles: []string{"nobody"}},

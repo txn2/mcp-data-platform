@@ -26,8 +26,8 @@ import (
 // Every criterion runs against the running platform and the upstreams the dev
 // stack runs: the api-test fixture's three paginated list endpoints (cursor,
 // Link header with page/per_page, OData $top/$skip), the platform's own admin
-// memory list through the built-in platform-admin connection, and DataHub's
-// GMS at /api/graphql for the GraphQL kind.
+// memory list through the built-in platform-admin connection, and the GraphQL
+// fixture (PostGraphile at http://localhost:9286/graphql) for the GraphQL kind.
 //
 // Wire forms: api_invoke_endpoint's query_params values are untyped, so every
 // paging value is sent as a number and as a string. graphql_query's variables
@@ -333,21 +333,21 @@ func TestIssue1915_TheAdminMemoryListReadsOnInline(t *testing.T) {
 	}
 }
 
-// issue1915SearchDocument is one catalog search whose answer is one list,
-// searchAcrossEntities.searchResults. Each result repeats its urn under
-// issue1915URNAliases aliases, which puts the answer past the budget on the
-// few entities a local DataHub holds without adding a second list.
+// issue1915SearchDocument reads one page of the fixture's datasets, an answer
+// that is one list, allDatasets.nodes. Each dataset repeats its code under
+// issue1915CodeAliases aliases, which puts the page past the budget without
+// adding a second list.
 func issue1915SearchDocument() string {
 	var b strings.Builder
-	b.WriteString(`query Acc1915Search { searchAcrossEntities(input: {query: "*", start: 0, count: 100}) { searchResults { entity { type`)
-	for i := range issue1915URNAliases {
-		fmt.Fprintf(&b, " u%02d: urn", i)
+	b.WriteString(`query Acc1915Search { allDatasets(first: 100) { nodes { platform`)
+	for i := range issue1915CodeAliases {
+		fmt.Fprintf(&b, " u%02d: code", i)
 	}
-	b.WriteString(" } } } }")
+	b.WriteString(" } } }")
 	return b.String()
 }
 
-const issue1915URNAliases = 20
+const issue1915CodeAliases = 20
 
 // TestIssue1915_GraphQLQueryReturnsWhatFits: graphql_query past the budget
 // returns the list's leading items that fit, as valid JSON, instead of
@@ -369,9 +369,9 @@ func TestIssue1915_GraphQLQueryReturnsWhatFits(t *testing.T) {
 			}
 			var out struct {
 				Data struct {
-					Search struct {
-						Results []map[string]any `json:"searchResults"`
-					} `json:"searchAcrossEntities"`
+					Page struct {
+						Nodes []map[string]any `json:"nodes"`
+					} `json:"allDatasets"`
 				} `json:"data"`
 				DataTruncated bool `json:"data_truncated"`
 				DataItems     *struct {
@@ -388,14 +388,13 @@ func TestIssue1915_GraphQLQueryReturnsWhatFits(t *testing.T) {
 			if !out.DataTruncated || out.DataItems == nil {
 				t.Fatalf("data_truncated=%v data_items=%v; want the list cut", out.DataTruncated, out.DataItems)
 			}
-			results := out.Data.Search.Results
-			if len(results) == 0 || len(results) != out.DataItems.Shown || out.DataItems.Total <= len(results) || out.DataItems.Path != "searchAcrossEntities.searchResults" {
-				t.Errorf("data_items = %+v with %d results shown; want the leading results of more, at searchAcrossEntities.searchResults", *out.DataItems, len(results))
+			nodes := out.Data.Page.Nodes
+			if len(nodes) == 0 || len(nodes) != out.DataItems.Shown || out.DataItems.Total <= len(nodes) || out.DataItems.Path != "allDatasets.nodes" {
+				t.Errorf("data_items = %+v with %d datasets shown; want the leading datasets of more, at allDatasets.nodes", *out.DataItems, len(nodes))
 			}
-			for i, r := range results {
-				entity, _ := r["entity"].(map[string]any)
-				if entity["type"] == nil || entity[fmt.Sprintf("u%02d", issue1915URNAliases-1)] == nil {
-					t.Fatalf("result %d = %v; want whole items", i, r)
+			for i, n := range nodes {
+				if n["platform"] == nil || n[fmt.Sprintf("u%02d", issue1915CodeAliases-1)] == nil {
+					t.Fatalf("dataset %d = %v; want whole items", i, n)
 				}
 			}
 			if out.ExportArguments["connection"] != name || !strings.Contains(out.Note, "graphql_export") {

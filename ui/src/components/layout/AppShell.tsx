@@ -414,9 +414,9 @@ export function AppShell() {
   const knowledgePageMatch = route.match(/^\/knowledge\/pages\/(.+)$/);
   const knowledgePagesList = route === "/knowledge/pages";
   // The Catalog route (#719), first-class like /knowledge/pages so it deep-links
-  // and survives refresh. It is the one route for every DataHub-backed surface:
-  // Tables, Context Docs, and Tags are inner tabs addressed in its hash (#1194),
-  // so there is no /knowledge/tags or /knowledge/context-docs.
+  // and survives refresh. It is the one route for every catalog surface: Tables,
+  // Glossary, Tags, Domains and Data products are inner tabs addressed in its
+  // hash (#1194), so there is no /knowledge/tags.
   const catalogRoute = route === "/knowledge/catalog";
   const knowledgeRouteSub = knowledgePagesList || knowledgePageMatch
     ? "pages"

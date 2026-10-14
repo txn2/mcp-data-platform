@@ -3,8 +3,8 @@
 id: lc-benchmark-month
 title: Benchmark month order count (March then September)
 fact: The 'benchmark month' for this study is March 2025.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
-sink: datahub
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
+sink: catalog
 budget_tool_calls: 15
 teach:
     prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'benchmark month' for this study is March 2025. Please save this definition to memory now and link it to the dataset it concerns.

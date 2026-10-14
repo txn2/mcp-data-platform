@@ -93,28 +93,9 @@ export function ConnectionViewer({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
 
-  const datahubSourceName =
-    typeof connection.config?.datahub_source_name === "string"
-      ? connection.config.datahub_source_name
-      : undefined;
-  const rawMapping = connection.config?.catalog_mapping;
-  const catalogMapping =
-    rawMapping != null &&
-    typeof rawMapping === "object" &&
-    !Array.isArray(rawMapping)
-      ? (rawMapping as Record<string, string>)
-      : undefined;
-  const hasDataHub =
-    Boolean(datahubSourceName) ||
-    (catalogMapping != null && Object.keys(catalogMapping).length > 0);
-  // datahub_source_name/catalog_mapping render in their own DataHub section;
-  // description renders as the markdown subtitle above. Filter them out of the
-  // raw Configuration rows so they are not shown twice.
-  const hiddenConfigKeys = new Set([
-    "datahub_source_name",
-    "catalog_mapping",
-    "description",
-  ]);
+  // description renders as the markdown subtitle above. Filter it out of the
+  // raw Configuration rows so it is not shown twice.
+  const hiddenConfigKeys = new Set(["description"]);
   const configEntries = Object.entries(connection.config ?? {}).filter(
     ([key]) => !hiddenConfigKeys.has(key),
   );
@@ -287,48 +268,6 @@ export function ConnectionViewer({
             entries={configEntries}
             shadowed={shadowedKeys}
           />
-        </SectionCard>
-      )}
-
-      {/* DataHub Integration */}
-      {hasDataHub && (
-        <SectionCard
-          title={
-            <span className="flex items-center gap-2">
-              <Database className="size-4 text-muted-foreground" />
-              DataHub Integration
-            </span>
-          }
-        >
-          <div className="divide-y rounded-md border">
-            {datahubSourceName && (
-              <div className="flex items-center gap-4 px-4 py-2">
-                <span className="w-48 shrink-0 font-mono text-xs text-muted-foreground">
-                  DataHub Source Name
-                </span>
-                <span className="flex-1 font-mono text-xs">{datahubSourceName}</span>
-              </div>
-            )}
-            {catalogMapping && Object.keys(catalogMapping).length > 0 && (
-              <div className="px-4 py-2">
-                <span className="mb-1 block font-mono text-xs text-muted-foreground">
-                  Catalog Mapping
-                </span>
-                <div className="ml-4 space-y-0.5">
-                  {Object.entries(catalogMapping).map(([local, datahub]) => (
-                    <div
-                      key={local}
-                      className="flex items-center gap-2 font-mono text-xs"
-                    >
-                      <span>{local}</span>
-                      <span className="text-muted-foreground">&rarr;</span>
-                      <span>{datahub}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
         </SectionCard>
       )}
 

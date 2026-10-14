@@ -37,8 +37,10 @@ if ! MERGE_BASE="$(resolve_base)"; then
 fi
 
 # Everything that differs from the base: committed, staged, unstaged and
-# untracked, so the check reads the same tree `make verify` reads.
-changed="$( { git diff --name-only "$MERGE_BASE"; git ls-files --others --exclude-standard; } | sort -u )"
+# untracked, so the check reads the same tree `make verify` reads. A deleted
+# file is left out: a removed acceptance file has no criteria left to run, and
+# the evidence reader opens every file it is handed.
+changed="$( { git diff --name-only --diff-filter=d "$MERGE_BASE"; git ls-files --others --exclude-standard; } | sort -u )"
 
 production_go="$(printf '%s\n' "$changed" | grep -E '^(pkg|internal|cmd)/.*\.go$' | grep -vE '_test\.go$' || true)"
 acceptance="$(printf '%s\n' "$changed" | grep -E '^test/acceptance/.*_test\.go$' || true)"

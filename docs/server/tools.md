@@ -1,5 +1,5 @@
 ---
-description: MCP tools from DataHub, Trino, S3, and Knowledge toolkits. Search metadata, run SQL queries, access S3 objects with automatic semantic enrichment, and capture domain knowledge.
+description: MCP tools from the Trino, S3, and Knowledge toolkits. Search the catalog, run SQL queries, access S3 objects with automatic semantic enrichment, and capture domain knowledge.
 ---
 
 # Available Tools
@@ -20,16 +20,10 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Trino | `trino_describe_table` | Get table schema and metadata |
 | Trino | `trino_export` | Export query results directly to a portal asset (CSV, JSON, JSON lines, Parquet, Markdown, text) |
 | Trino | `trino_list_connections` | List configured Trino connections |
-| DataHub | `datahub_get_lineage` | Get dataset or column-level lineage |
-| DataHub | `datahub_browse` | Browse tags, domains, or data products |
-| DataHub | `datahub_create` | Create entities — tags, domains, glossary terms, etc. (if not read-only) |
-| DataHub | `datahub_update` | Update metadata — descriptions, tags, owners, domains, etc. (if not read-only) |
-| DataHub | `datahub_delete` | Delete entities — tags, domains, queries, etc. (if not read-only) |
-| DataHub | `datahub_list_connections` | List configured DataHub connections |
 | S3 | `s3_list` | List buckets, or the objects in one bucket |
 | S3 | `s3_object` | Get, describe, upload, copy, delete, or presign one object |
-| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, context documents, knowledge pages, memory, insights, feedback, assets, prompts, managed scripts, API endpoints, and connections |
-| Knowledge | `fetch` | Read a search result in full: dereferences any reference search emits (knowledge page, context document, dataset, asset, prompt, managed script, connection) to its complete content, under the same per-user scope |
+| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, the glossary, tags, domains and data products, knowledge pages, memory, insights, feedback, assets, prompts, managed scripts, API endpoints, and connections |
+| Knowledge | `fetch` | Read a search result in full: dereferences any reference search emits (knowledge page, dataset, definition, asset, prompt, managed script, connection) to its complete content, under the same per-user scope |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
@@ -59,7 +53,7 @@ Data-access tools carry one argument the platform adds rather than the toolkit: 
 
 Write the question behind the call, not a restatement of the arguments: "Running a SQL query" is worthless to the person who later reads the row. Do not repeat argument values in it, and never put personal data, credentials, or secrets in it.
 
-By default the argument appears on `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, the `datahub_get_*` tools, `s3_object`, `s3_list`, and every tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md). Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) do not carry it.
+By default the argument appears on `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `s3_object`, `s3_list`, and every tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md). Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) do not carry it.
 
 A call on one of these tools that states no purpose is refused with `PURPOSE_REQUIRED` (error category `purpose_required`); retry the same call with a purpose rather than looking for another tool. The refusal reaches only callers that thread a `session_id` handle, so an MCP App, a managed script, and the gateway REST shim are never refused for it. Both the gated set and the refusal are configurable — see [Purpose Configuration](configuration.md#purpose-configuration).
 
@@ -81,9 +75,9 @@ Clients are told by the specification to assume a tool is **not** read-only when
 
 The hint describes the tool, not the call. `manage_asset`, `manage_table`, `manage_resource`, `manage_prompt`, `manage_script`, `memory_manage` and `s3_object` all expose reads alongside writes, and each advertises the most it can do, so a list action on one of them is still a tool a client may confirm.
 
-These tools advertise `readOnlyHint: true`: `platform_info`, `search`, `fetch`, `list_connections`, `platform_find_tools`, `show_prompts`, `show_scripts`, `api_discover`, `graphql_discover`, `s3_list`, `trino_query`, `trino_explain`, `trino_browse`, `trino_describe_table`, `datahub_browse` and the `datahub_get_*` reads. Everything else advertises `readOnlyHint: false`.
+These tools advertise `readOnlyHint: true`: `platform_info`, `search`, `fetch`, `list_connections`, `platform_find_tools`, `show_prompts`, `show_scripts`, `api_discover`, `graphql_discover`, `s3_list`, `trino_query`, `trino_explain`, `trino_browse`, `trino_describe_table`. Everything else advertises `readOnlyHint: false`.
 
-A tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md) carries the upstream's own annotations unchanged, including none at all where the upstream publishes none. The three toolkits built on the `mcp-trino`, `mcp-datahub` and `mcp-s3` libraries take their annotations from those libraries, and an operator can override them per deployment under a toolkit's `annotations:` key.
+A tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md) carries the upstream's own annotations unchanged, including none at all where the upstream publishes none. The two toolkits built on the `mcp-trino` and `mcp-s3` libraries take their annotations from those libraries, and an operator can override them per deployment under a toolkit's `annotations:` key.
 
 The admin API returns the same object. `GET /api/v1/admin/tools/schemas` carries `annotations` on each tool and `GET /api/v1/admin/tools/{name}` carries it on the detail, both read from the server's own `tools/list` after any override, with the MCP keys unchanged and the key absent for a tool that states none. The portal's Tools page shows them as badges on the tool's header: `read-only`, `additive` for a write that states `destructiveHint: false`, `destructive` for any other write (an unstated `destructiveHint` is `true` by the specification's default), `idempotent`, and `no hints` for a tool that advertises none. That is where an operator checks that an `annotations:` override took effect without opening an MCP client.
 
@@ -117,7 +111,7 @@ Tool call: `trino_query` with query `SELECT customer_id, SUM(amount) as revenue 
 
 - Query results as formatted table or JSON
 - Row count and execution time
-- **Semantic context** (if enabled): table description, owners, tags, quality score, deprecation warnings
+- **Semantic context** (if enabled): the catalog's description, owners, tags, glossary terms and open incidents for the table
 
 **A failed query** says whose problem it is (#2032). The text is Trino's own, and `structuredContent.error` classifies it, so a client can tell "fix the SQL" from "the source is down, try again later" without reading prose:
 
@@ -194,7 +188,7 @@ Get detailed information about a table including columns, types, and statistics.
 - Column names and data types
 - Nullable constraints
 - Partition information
-- **Semantic context** (if enabled): description, owners, tags, quality score
+- **Semantic context** (if enabled): the catalog's description, owners and tags
 
 ---
 
@@ -251,168 +245,22 @@ List all configured Trino connections.
 
 ---
 
-## DataHub Tools
+## Catalog Reads and Writes
 
-!!! note "Catalog search and catalog reads live in `search` and `fetch`"
-    Relevance search over the catalog is part of the universal
-    [`search`](#search) tool, and reading one catalog entity by URN is
-    [`fetch`](#fetch). The DataHub toolkit registers the two reads a reference
-    read cannot do, `datahub_browse` (a hierarchy walk) and `datahub_get_lineage`
-    (a graph query with direction and depth), plus the write tools.
+The platform's own [catalog](catalog.md) is read through [`search`](#search)
+and [`fetch`](#fetch), and curated through [`apply_knowledge`](#apply_knowledge).
+There is no separate catalog toolkit; the `datahub_*` tools are gone, not
+aliased. What each kind of read and write is now:
 
-    The five by-URN reads the toolkit used to register are gone, not aliased.
-    Each is one `fetch` call on the same URN:
-
-    | Retired tool | Replacement |
-    |--------------|-------------|
-    | `datahub_get_entity` | `fetch urn:li:dataset:<id>` |
-    | `datahub_get_schema` | `fetch urn:li:dataset:<id>` (the record's `schema`) |
-    | `datahub_get_queries` | `fetch urn:li:dataset:<id>` (the record's `queries`) |
-    | `datahub_get_glossary_term` | `fetch urn:li:glossaryTerm:<id>` |
-    | `datahub_get_data_product` | `fetch urn:li:dataProduct:<id>` |
-
-    A fetched dataset carries at least what the three dataset reads returned
-    together: business context (owners, tags, glossary terms, domain,
-    deprecation, custom and structured properties, incidents, data contract),
-    identity (name, type, platform, sub-types, created), the declared `schema`
-    (fields with types, nullability, field-level tags and terms, primary and
-    foreign keys), the catalog's saved `queries`, `related_documents`, and
-    `query_availability` (whether it is queryable, the table to query, the
-    connection, the estimated row count) when a query provider is configured.
-    A part the catalog could not serve is named in `unavailable` rather than
-    dropped. A fetched glossary term carries its definition, `parent_node`,
-    `owners`, `custom_properties`, and the datasets that carry it; a fetched
-    data product carries its domain, owners, properties, and member datasets.
-
-### datahub_get_lineage
-
-Get upstream or downstream lineage for an entity. Set `level=column` for column-level lineage showing which upstream columns feed each downstream column. Default (`dataset`) returns dataset-level relationships with direction and depth control.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `level` | string | No | `dataset` | Granularity: `dataset` or `column` |
-| `direction` | string | No | `DOWNSTREAM` | `UPSTREAM` or `DOWNSTREAM` (dataset level only) |
-| `depth` | integer | No | 1 | Maximum traversal depth, max 5 (dataset level only) |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### datahub_browse
-
-Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=domains` to list data domains, or `what=data_products` to list data products.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `what` | string | Yes | - | What to browse: `tags`, `domains`, or `data_products` |
-| `filter` | string | No | - | Optional filter string (tags only) |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### datahub_create
-
-Create a new entity or resource in DataHub. Uses the `what` discriminator to select the entity type.
-
-Only available when `read_only: false` in the DataHub toolkit configuration.
-
-Annotated with `DestructiveHint: false`, `IdempotentHint: false`, `OpenWorldHint: true`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `what` | string | Yes | - | Entity type to create (see table below) |
-| `name` | string | Varies | - | Entity name (required for most types) |
-| `connection` | string | No | default | Connection name to use |
-
-Additional parameters vary by `what` value — see the [mcp-datahub documentation](https://github.com/txn2/mcp-datahub) for full parameter details per entity type.
-
-| `what` | Creates | Key fields |
-|--------|---------|------------|
-| `tag` | Tag | `name` |
-| `domain` | Domain | `name` |
-| `glossary_term` | Glossary term | `name` |
-| `data_product` | Data product | `name`, `domain_urn` |
-| `document` | Context document (1.4.x+) | `name` |
-| `application` | Application | `name` |
-| `query` | Saved query | `value` (SQL) |
-| `incident` | Incident | `name`, `incident_type`, `entity_urns` |
-| `structured_property` | Structured property | `qualified_name`, `value_type`, `entity_types` |
-| `data_contract` | Data contract | `dataset_urns` |
-
----
-
-### datahub_update
-
-Update metadata on an existing DataHub entity. Uses the `what` discriminator to select what to update, with an optional `action` for add/remove operations.
-
-Only available when `read_only: false` in the DataHub toolkit configuration.
-
-Annotated with `DestructiveHint: false`, `IdempotentHint: true`, `OpenWorldHint: true`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `what` | string | Yes | - | What to update (see table below) |
-| `urn` | string | Varies | - | Entity URN to update |
-| `action` | string | Varies | - | `add` or `remove` (required for tags, glossary terms, links, owners) |
-| `connection` | string | No | default | Connection name to use |
-
-Additional parameters vary by `what` value — see the [mcp-datahub documentation](https://github.com/txn2/mcp-datahub) for full parameter details.
-
-| `what` | `action` | Description |
-|--------|----------|-------------|
-| `description` | — | Set entity description from `value` |
-| `column_description` | — | Set schema field description from `value` |
-| `tag` | add/remove | Add or remove a tag |
-| `glossary_term` | add/remove | Add or remove a glossary term |
-| `link` | add/remove | Add or remove a link |
-| `owner` | add/remove | Add or remove an owner |
-| `domain` | set/remove | Set or remove domain assignment |
-| `structured_properties` | set/remove | Set or remove structured property values |
-| `structured_property` | — | Update a structured property definition |
-| `incident_status` | — | Update incident status |
-| `incident` | — | Update incident details |
-| `query` | — | Update query properties |
-| `document_contents` | — | Update document title/text (1.4.x+) |
-| `document_status` | — | Update document status (1.4.x+) |
-| `document_related_entities` | — | Update document related entities (1.4.x+) |
-| `document_sub_type` | — | Update document sub-type (1.4.x+) |
-| `data_contract` | — | Upsert a data contract |
-
----
-
-### datahub_delete
-
-Delete an entity or resource from DataHub. Uses the `what` discriminator to select the entity type.
-
-Only available when `read_only: false` in the DataHub toolkit configuration.
-
-Annotated with `DestructiveHint: true`, `IdempotentHint: true`, `OpenWorldHint: true`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `what` | string | Yes | - | Entity type to delete (see below) |
-| `urn` | string | Yes | - | Entity URN to delete |
-| `connection` | string | No | default | Connection name to use |
-
-Supported `what` values: `query`, `tag`, `domain`, `glossary_entity`, `data_product`, `application`, `document`, `structured_property`.
-
----
-
-### datahub_list_connections
-
-List all configured DataHub connections.
-
-**Parameters:** None
+| To | Use |
+|----|-----|
+| Find datasets and definitions | `search` (sources `catalog` and `governance`) |
+| Read a dataset: columns and their curation, curated queries, context documents, lineage | `fetch mcp:dataset:(kind,connection,path)` |
+| Read lineage | `fetch` on the dataset: its lineage within three hops `upstream` and `downstream` |
+| Read a glossary term, node, tag, domain or data product | `fetch mcp:glossary_term:<id>` and the like |
+| Browse | `fetch mcp:glossary_node:<id>` lists the terms and nodes under a node; `fetch mcp:connection:(kind,name)` lists the top of a connection's catalog, and a dataset reference whose path stops above a dataset (`mcp:dataset:(trino,<connection>,<catalog>)`) lists what is under it |
+| Create, update or delete curation and definitions | `apply_knowledge` with `sink=catalog`, and the portal's [Catalog section](catalog.md#the-portal-catalog) |
+| List connections | `list_connections` |
 
 ---
 
@@ -439,7 +287,7 @@ List the buckets of a connection, or the objects in one bucket.
 
 - Without a bucket: `buckets` (name, creation date) and `count`
 - With a bucket: `objects` (key, size, last modified, ETag, storage class), `common_prefixes`, `count`, `is_truncated`, `next_continuation_token`
-- **Semantic context** (if enabled): matching DataHub datasets for the bucket and prefix
+- **Semantic context** (if enabled): matching catalog datasets for the bucket and prefix
 
 ---
 
@@ -494,7 +342,7 @@ Capture is **recall-first** and returns without waiting on the embedder (#1987).
 |-----------|------|----------|---------|-------------|
 | `type` | string | Yes | - | Sink-class: personal_preference, episodic_event (both live), business_knowledge, schema_entity, operational_rule (reviewed) |
 | `content` | string | Yes | - | Knowledge to record (10-4000 chars) |
-| `entity_urns` | array | No | [] | Related DataHub entity URNs (schema_entity); max 10 |
+| `entity_urns` | array | No | [] | Related catalog references (`mcp:dataset:(kind,connection,path)`, schema_entity); max 10 |
 | `suggested_actions` | array | No | [] | Proposed catalog changes for apply_knowledge (schema_entity) |
 | `confidence` | string | No | medium | high, medium, low |
 | `source` | string | No | user | user, agent_discovery, enrichment_gap |
@@ -518,16 +366,16 @@ The universal, topology-free discovery entry point. Call it FIRST: one query
 fans across every searchable source the caller can access and returns results
 **grouped by source** with a **coverage summary**, so the agent sees the shape of
 the answer space instead of tunneling into the first tool that comes to mind.
-Structured catalog navigation (platform/domain/tag/entity-type filters) stays in
-`datahub_browse`; the scoped API drill-down stays in `api_discover`.
+Walking the catalog's structure is `fetch` on a connection, a partial dataset
+path or a glossary node; the scoped API drill-down stays in `api_discover`.
 
 !!! note "`knowledge_search` was renamed to `search`"
     The `#632` read-path tool `knowledge_search` was renamed to `search` in
     `#645` and its corpus widened to include API endpoints and connections.
 
-**Corpus (everything the persona can access):** the technical catalog (DataHub,
-when configured), the governance vocabulary (DataHub glossary terms, tags, and
-domains), context documents, canonical knowledge pages (the internal-knowledge home for
+**Corpus (everything the persona can access):** the platform catalog's datasets,
+its governance vocabulary (glossary terms and nodes, tags, domains and data
+products), canonical knowledge pages (the internal-knowledge home for
 business/domain ontology, searched over their full markdown content), the caller's
 personal memory, captured insights, the caller's feedback threads, saved assets,
 the caller's own recorded calls (the queries and API invocations they have already
@@ -558,9 +406,8 @@ endpoints and connections are in the default corpus, not behind an opt-in.
 endpoints) are additionally narrowed to the connections the caller's persona is
 granted by its `connections.allow` rules — the same predicate that authorizes a
 tool call, so what a caller can find and what a caller can call never disagree.
-A catalog dataset is attributed to a connection through its DataHub platform
-name; a dataset that maps to no configured connection stays visible, and one
-reachable through any granted connection stays visible. Removals are reported,
+A catalog dataset belongs to the connection its reference names, and is visible
+only when the persona reaches that connection. Removals are reported,
 never silent: each `coverage` entry carries a `withheld` count and the response
 carries a `withheld_notice` naming the persona and the remedy, so a shortened
 result set reads as "present, but not yours to see" rather than "does not
@@ -568,52 +415,35 @@ exist". See [Persona Connection Access](../personas/overview.md#connection-acces
 
 **Catalog descriptions are semantically searchable.** The catalog source ranks
 two ways. The platform keeps its own index of every catalog dataset's text (name,
-description, tags, domain) and ranks the query against it first; DataHub's own
-keyword search follows as the recall tail, covering the fields the index does not
-carry (column names, glossary terms, ownership). This is what makes a fact written
-into a dataset's description — by `apply_knowledge`, or by a steward in DataHub —
-reachable from a topical query that shares none of its words and names none of its
-entities. A dataset both find is shown once. The index is refreshed on a schedule
-(`knowledge.catalog_index.sync_interval`, default 30m) by a background index job
-and appears on the admin Indexing dashboard as the `catalog-datasets` kind; it
-holds a discardable copy of catalog text, so every hit is still dereferenced
-against DataHub itself. It needs a DataHub semantic provider, a database, and an
-embedding provider; without them the catalog is ranked by DataHub's keyword search
-alone, exactly as before.
+description, tags, domain) and ranks the query against it first; the catalog's
+word search over names, paths and descriptions follows as the recall tail. This
+is what makes a fact written into a dataset's description, by `apply_knowledge`
+or in the portal's Catalog section, reachable from a topical query that shares
+none of its words and names none of its entities. A dataset both find is shown
+once. The index is refreshed by a background index job (a dataset declared or
+curated since the index last read it is re-read on the index queue's next
+check, and the whole catalog at least every
+`knowledge.catalog_index.sync_interval`) and appears on the admin Indexing
+dashboard as the `catalog-datasets` kind; it holds a discardable copy of catalog
+text, so every hit is still dereferenced against the catalog itself. Without an
+embedding provider the index ranks lexically.
 
 **The governance vocabulary is a source, not a dataset attribute.** A glossary
-term, a tag, and a domain are searchable and fetchable entities in their own
-right (`#1160`). Before this, they existed only as attributes of a dataset:
-asking what a business term meant returned the datasets tagged with it, never the
-term and its definition, and a `urn:li:glossaryTerm:` reference a knowledge page
-legitimately carries had no `fetch` owner. The `governance` source answers "what
-does X mean here" and the `catalog` source answers "which datasets are about X";
-they are siblings so a definition is never crowded out of the display budget by a
-broad dataset match. A hit carries the definition in its text, so a term match is
-useful without a follow-up `fetch`.
+term, a glossary node, a tag, a domain and a data product are searchable and
+fetchable entities in their own right (`#1160`). The `governance` source answers
+"what does X mean here" and the `catalog` source answers "which datasets are
+about X"; they are siblings so a definition is never crowded out of the display
+budget by a broad dataset match. A hit carries the definition in its text, so a
+term match is useful without a follow-up `fetch`. Definitions are ranked by the
+words the question shares with each one's name, slug and description, the same
+token-overlap rule the `connections` source uses, so a natural-language question
+reaches a term whose name it does not repeat exactly.
 
-Each vocabulary is ranked by the best read DataHub offers for it, which is not
-the same read for all three. Glossary terms and tags have an upstream name
-search, which receives the intent and leads because it ranks against DataHub's
-own index and is not bounded by an enumeration page. When it returns nothing the
-vocabulary is enumerated and ranked locally instead, because `search` receives a
-natural-language intent while those upstream searches match a *name*: "what does
-net revenue mean here" is a question, not a label, and a source that answered it
-only when the caller typed the term exactly would not be answering it. Domains
-have no upstream search at all, so the whole set is enumerated (DataHub returns
-at most 100) and ranked the same way — by the lexical token-overlap rule the
-`connections` source uses for the same reason. The three reads run concurrently,
-so the source costs one round trip rather than three, and a vocabulary that fails
-costs its own recall rather than the whole source. Results are interleaved across
-the three so one vocabulary cannot crowd out the others.
-
-**Connection boundary for governance entities.** A governance URN carries no
-DataHub platform segment, so no connection can be attributed to it. The documented
-rule for an unattributable URN applies: it stays visible, because the mapping
-failed rather than the permission check, and hiding on a guess would drop entities
-no connection claims. The datasets listed under a tag, domain, or term by `fetch`
-are ordinary catalog entities and *are* filtered by the caller's boundary, with
-the removed count and the reason carried on the fetched entity.
+**Connection boundary for governance entities.** A definition belongs to no
+connection, so it is visible to every caller who may search. The datasets and
+columns listed under a tag, domain or term by `fetch` belong to connections and
+*are* filtered by the caller's boundary, with the removed count and the reason
+carried on the fetched entity.
 
 **Resource links.** A hit backed by an uploaded file additionally carries an MCP
 `resource_link` content block with the resource's canonical `mcp://` URI, name,
@@ -661,9 +491,9 @@ rest -- so a withheld-shortened source is not flagged.
 |-----------|------|----------|---------|-------------|
 | `intent` | string | Conditional | - | Natural-language description of what you are looking for. Provide `intent`, `entity_urns`, or both |
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
-| `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
+| `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these catalog references (`mcp:dataset:(kind,connection,path)`: the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded) |
-| `sources` | array | No | - | Narrow the search to named sources (`catalog`, `governance`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `resources`, `prompts`, `scripts`, `calls`, `sessions`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
+| `sources` | array | No | - | Narrow the search to named sources (`catalog`, `governance`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `resources`, `prompts`, `scripts`, `calls`, `sessions`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50). Also the per-source ranking depth when it exceeds 25, so a search narrowed to one source returns up to `limit` from it |
 
 ---
@@ -677,14 +507,14 @@ agent can audit, dedup, govern, or migrate a corpus it must first obtain in full
 It is the same `search` tool, not a new one.
 
 A call enters browse mode when it carries **exactly one `sources` entry, no
-`intent`, and no `entity_urns`**; pass `offset` to page. Browsable sources:
-`knowledge_pages` and `context_documents` (the two tiers that had no enumeration on
-the MCP surface). Browsing more than one source at once, a non-browsable source, or
+`intent`, and no `entity_urns`**; pass `offset` to page. The browsable source is
+`knowledge_pages`. The catalog is walked with `fetch` instead: a connection lists
+the top of its catalog and a glossary node lists what is under it. Browsing more than one source at once, a non-browsable source, or
 an unknown source is a tool error that names what can be browsed.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `sources` | array | Yes | - | Exactly one source to enumerate (`knowledge_pages` or `context_documents`) |
+| `sources` | array | Yes | - | Exactly one source to enumerate (`knowledge_pages`) |
 | `offset` | integer | No | 0 | 0-based start of the page |
 | `limit` | integer | No | 50 | Page size (max 100) |
 
@@ -692,10 +522,8 @@ The response is a flat, unranked page: `{source, total, offset, limit, count,
 items[]}`, where `total` is the source's full member count -- exact, never capped,
 which is why browse is the way to enumerate a source (so the agent knows how
 many pages remain) and each item carries the same `reference` that `fetch` reads in
-full. Context-document enumeration includes every document (drafts and hidden ones),
-so the page and `total` describe the same complete set. Scope mirrors `search`: the
-two browsable sources are org-global, so any caller may enumerate them; a per-user
-source is never browsable for an anonymous caller.
+full. Scope mirrors `search`: knowledge pages are org-global, so any caller may
+enumerate them; a per-user source is never browsable for an anonymous caller.
 
 ---
 
@@ -705,32 +533,26 @@ The companion read verb to [`search`](#search). `search` returns navigational
 pointers with truncated snippets; `fetch` dereferences one pointer's `reference`
 back to its **complete content**, so the agent reads in full what it found. It is
 the single consumer of the `reference` every search hit already carries, and it
-collapses the previously fragmented scoped readers (the five `datahub_get_*`
-by-URN reads, `manage_asset` get, `manage_prompt` get) into one verb.
+collapses the previously fragmented scoped readers (the catalog's by-reference
+reads, `manage_asset` get, `manage_prompt` get) into one verb.
 Registered alongside `search`.
 
-A reference comes in one of two namespaces: `urn:li:...` is the external DataHub
-catalog scheme, `mcp:...` is the internal-platform scheme. `fetch` accepts both,
-routing each well-formed reference by its form to the owning source:
+Every reference is in the `mcp:` scheme. `fetch` routes each well-formed
+reference by its form to the owning source:
 
 | Reference form | Source | Returns |
 |----------------|--------|---------|
 | `mcp:knowledge_page:<id>` | knowledge pages | the full markdown body, and the page's declared references as `references` to follow. A cited asset, collection, prompt or managed resource the caller cannot open is left out and counted in `references_withheld` without naming it, by the rule the portal's page references apply (#2028). The page's slug works in place of its id, which is what makes a page referenceable from text the platform ships: a built-in page's id is generated on each deployment at reconcile time, so only the slug is the same everywhere. An id is resolved first, so a slug can never shadow a page asked for by id |
-| `urn:li:document:<id>` | context documents | the full document body (the only MCP path to it) |
-| `urn:li:dataset:<id>` | catalog | the dataset's catalog context |
-| `urn:li:glossaryTerm:<id>` | governance | the term's name and definition, plus the datasets that carry it |
-| `urn:li:tag:<id>` | governance | the tag's name and description, plus the datasets that carry it |
-| `urn:li:domain:<id>` | governance | the domain's name and description, plus the datasets in it |
 | `mcp:asset:<id>` | assets | the asset's metadata record (blob bytes stay in S3, reached with `s3_object` `get` or `presign`), for the caller who owns it, a person it is shared with directly or through a collection, and an administrator, as the portal opens it (#2027); a script run reaches its author's own assets and its script's outputs |
 | `mcp:resource:<id>` | resources | the resource's metadata record, plus its contents in whichever form the file admits (see below). Only a file over 1 MB returns metadata alone, with its canonical `mcp://` URI, MIME type, and size |
 | `mcp:prompt:<id>` | prompts | the full prompt |
 | `mcp:script:<id>` | scripts | the managed script's contract (name, description, owner, typed parameters, whether a run would be admitted, schedule), the files it produced that the caller can open with a count of the rest, and its current source, for every signed-in caller. The last successful run and the saved state are included for the script's owner and administrators. Citable on a knowledge page, where it resolves for every reader |
-| `mcp:connection:(kind,name)` | connections | the connection descriptor |
-| `mcp:dataset:(kind,connection,path)` | catalog | a dataset in the platform's own catalog: its type, the schema document it was read from, its columns in order with each column's curation, and its description, tags, glossary terms, owners, domain, custom and structured properties, documentation links, curated queries, incidents and context documents. The connection is named by its instance; the path is the dotted name the connection uses (`catalog.schema.table` for Trino), with a segment holding `.`, `,`, `(`, `)` or `"` double-quoted as SQL quotes an identifier. Readable only by a caller whose persona may reach the connection |
+| `mcp:connection:(kind,name)` | connections | the connection descriptor, with the top level of its catalog: the Trino catalogs (or the operations) it holds, each with the reference that fetches further down |
+| `mcp:dataset:(kind,connection,path)` | catalog | a dataset in the platform's own catalog: its type, the schema document it was read from, its columns in order with each column's curation, and its description, tags, glossary terms, owners, domain, custom and structured properties, documentation links, curated queries, incidents and context documents; its lineage within three hops `upstream` and `downstream`; and, for a table or view, `query_availability` (whether it is queryable, the table to query, the connection, the estimated row count). A dataset reference whose path stops above a dataset (`mcp:dataset:(trino,<connection>,<catalog>)` or `(...,<catalog>.<schema>)`) lists the path groups and datasets under it instead. The connection is named by its instance; the path is the dotted name the connection uses (`catalog.schema.table` for Trino), with a segment holding `.`, `,`, `(`, `)` or `"` double-quoted as SQL quotes an identifier. Readable only by a caller whose persona may reach the connection |
 | `mcp:column:(kind,connection,path,column)` | catalog | one column of a catalog dataset, with its curation and its dataset's reference, under the same connection rule |
 | `mcp:schema_document:(kind,connection,filename)` | catalog | an API connection's OpenAPI spec or a GraphQL connection's SDL as the catalog scan last read it, as text up to 1 MiB, under the same connection rule |
-| `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>` | governance | the definition's name, parent node, description, owners, custom properties and documentation links. The slug works in place of the id; the id is what is stored, so renaming one changes no reference to it |
-| `mcp:tag:<name>` | governance | the tag and its description |
+| `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>` | governance | the definition's name, parent node, description, owners, custom properties and documentation links; a node with the terms and nodes under it, and a term or domain with the datasets and columns that carry it. The slug works in place of the id; the id is what is stored, so renaming one changes no reference to it |
+| `mcp:tag:<name>` | governance | the tag, its description, and the datasets and columns that carry it |
 | `mcp:insight:<id>` | insights | the full captured insight (scoped to the caller; fetch-only, not citable on a page) |
 | `mcp:memory:<id>` | memory | the full personal memory record (scoped to the caller; fetch-only, not citable on a page) |
 | `mcp:call:<id>` | calls | the recorded call: the statement or request that ran, the purpose stated for it, what came of it, and how many later sessions re-ran it. Reading one is also what makes your own re-run of it count as reuse (scoped to the caller; fetch-only, not citable on a page) |
@@ -738,8 +560,8 @@ routing each well-formed reference by its form to the owning source:
 
 The usual source of a reference is a `search` result's `reference` field, but
 `fetch` is not limited to references `search` produced: a well-formed reference
-held from another tool works too (for example a `urn:li:dataset:...` from
-`datahub_get_lineage` or an `entity_urns` lookup). Feedback threads and API
+held from another tool works too (for example a lineage edge's `source` or
+`target` from a fetched dataset). Feedback threads and API
 endpoints emit no reference and are not fetch targets.
 
 A fetched asset or resource that has been registered as a query-engine table
@@ -755,17 +577,14 @@ of them -- and it is the newest registration whose `follow_error` is empty, so
 a hit points at a table a follow has not disowned; when every registration
 carries one, the hit has no `table` and the document is where the reasons are.
 
-A fetched governance entity fills `content` with `{urn, kind, name, description,
-datasets[], more_datasets?, datasets_withheld?, notice?}`. The carrier list is
-bounded (25); `more_datasets` reports that the list is not known to hold every
-carrier -- the catalog counted more, or it could not count at all -- so a bounded
-list never reads as the whole membership — page the full set with `datahub_browse` or a
-tag/domain-filtered catalog search. `datasets_withheld` and `notice` report what
-the caller's connection boundary removed from the list, so a short list is never
-mistaken for an unused term. A tag or a domain has no by-URN read upstream, so it
-is resolved by listing its vocabulary and matching; an entry past the page DataHub
-returns is reported as a clean not-found, the same bound the portal's reference
-labels carry.
+A fetched governance entity fills `content` with `{reference, kind, name,
+description, parent?, owners?, custom_properties?, documentation_links?,
+children?, carriers?, more_carriers?, carriers_withheld?, notice?}`. A node's
+`children` lists up to 200 entries under it. The carrier list is bounded (25);
+`more_carriers` reports that more carry it than are listed, so a bounded list
+never reads as the whole membership. `carriers_withheld` and `notice` report
+what the caller's connection boundary removed from the list, so a short list is
+never mistaken for an unused term.
 
 **Scope mirrors `search` exactly:** the per-user sources (assets, your memory, your
 insights, your recorded calls, your sessions) are read only for the identity that
@@ -774,7 +593,7 @@ persona/personal-scoped prompt only for the matching caller, a managed resource
 only for a caller whose visible scopes include it, and a managed script only for
 its owner, so `fetch` never
 returns content the same caller could not have
-found with `search`. The connection boundary applies here too: a dataset URN or
+found with `search`. The connection boundary applies here too: a dataset reference or
 connection reference belonging to a connection the caller's persona is not granted
 is reported as not-found, so a citation cannot read around what `search` omitted.
 A reference outside the caller's scope is reported as
@@ -795,17 +614,12 @@ out-of-scope reference returns `found: false` with an explanatory `message`, a
 answer. A malformed call (empty `reference`) and a real backend failure are tool
 errors.
 
-A catalog or governance reference the catalog has never ingested is one of
-those not-founds. The catalog reports it: a dataset and a glossary term by
-DataHub's `exists` field, a data product by the absence of the properties aspect
-a product cannot be created without. Whether the record is documented has no
-bearing on it, so a dataset with no description, owner or schema, and a glossary
-term at the root with no definition, resolve like any other. The same read backs
-`search` by `entity_urns`, so a URN that names nothing reports no match rather
-than a hit whose reference then fails to fetch. This needs mcp-datahub v1.15.1
-or later against a DataHub that reports `exists`; on a DataHub that omits the
-field, a URN with no entity resolves to a stub built from that URN and is
-reported as found (#1605, #1610).
+A catalog or governance reference the catalog does not hold is one of those
+not-founds. Whether the record is documented has no bearing on it, so a dataset
+with no description and a glossary term at the root with no definition resolve
+like any other. The same read backs `search` by `entity_urns`, so a reference
+that names nothing reports no match rather than a hit whose reference then fails
+to fetch (#1605, #1610).
 
 #### What a fetched file comes back as
 
@@ -838,7 +652,7 @@ for it.
 ### Knowledge pages (canonical business/domain knowledge)
 
 Knowledge pages are the platform's **canonical** store for business and domain
-knowledge (the internal-knowledge sibling of DataHub), authored as markdown in the
+knowledge (the sibling of the catalog's curation), authored as markdown in the
 portal. The provisional "draft" of knowledge is the memory/insight inbox; a page,
 once it exists, is canonical. They are a distinct, **org-shared** entity (not
 owner-scoped portal assets): the markdown body is stored inline in Postgres so
@@ -898,13 +712,13 @@ Review, synthesize, and apply captured insights to their canonical home. Admin-o
 
 Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"`) listed by `list_changesets` and reversible by `rollback`. Rolling back a page promotion soft-deletes a newly created page or restores a prior version, and is refused if the page was edited after the promotion.
 
-**`entity_urn`** is a catalog reference: `mcp:dataset:(kind,connection,path)`, `mcp:column:(kind,connection,path,column)`, `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>` or `mcp:tag:<name>`. A DataHub dataset URN (`urn:li:dataset:...`) is read as the catalog dataset with the same path, on the first connection that catalogs it, and a changeset is recorded under the catalog reference.
+**`entity_urn`** is a catalog reference: `mcp:dataset:(kind,connection,path)`, `mcp:column:(kind,connection,path,column)`, `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>` or `mcp:tag:<name>`. Any other form, a `urn:li:` URN included, is refused with the forms it takes.
 
-The changes of one apply are written in **one transaction**: a change that cannot be applied writes nothing, including the changes before it. Every change type is undone by `rollback`, which restores each aspect the apply wrote to the value it replaced, through the catalog's own history. A rollback is refused, and reverts nothing, when an aspect the changeset wrote has been written again since (roll that change back first), when the changeset created a prompt, and when the changeset was applied to DataHub before the platform catalog replaced it.
+The changes of one apply are written in **one transaction**: a change that cannot be applied writes nothing, including the changes before it. Every change type is undone by `rollback`, which restores each aspect the apply wrote to the value it replaced, through the catalog's own history. A rollback is refused, and reverts nothing, when an aspect the changeset wrote has been written again since (roll that change back first), when the changeset created a prompt, and when the changeset was written before the platform catalog held its entities (an apply from a release that wrote to DataHub), whose writes are not in the catalog's history.
 
 **Without a platform catalog** (no database, or `semantic.provider: noop`), catalog changes are refused with an error naming `sink: knowledge_page` as the destination that needs none. The `add_prompt` change type creates a platform prompt rather than writing to the catalog and therefore still applies.
 
-**Citing entities on a page.** To attach an entity reference (a catalog entity's `mcp:dataset:`/`mcp:column:`/`mcp:glossary_term:` reference and the like, a DataHub `urn:li:...`, or an `mcp:asset`/`mcp:prompt`/`mcp:collection`/`mcp:connection`/`mcp:knowledge_page`/`mcp:script`) to a page, pass it in `page.references` or write it in the body as plain text or a markdown link. A reference wrapped in backticks or a fenced code block is treated as a documentation example and intentionally ignored, so a backticked URN produces no reference and no link. Each entry in `page.references` is existence-checked **before** the page is written: a missing **internal** (`mcp:`) entity rejects the apply (a DataHub `urn:li:` reference is free text and is stored as given). References in `page.references` and those carried from the source insights attach with the promotion (so a `rollback` undoes them); a stale insight-carried reference is skipped rather than blocking. A target cited both in `page.references` and inline in the body is stored once. Inline body references are also filtered to those that exist, so a stale `mcp:` token in prose is skipped rather than blocking the page or leaving it partially written. A dropped insight-carried or inline-body reference is not silent: the apply response reports the dropped targets in `references_dropped` (a reference whose target was deleted, or an insight-carried reference that is not citable on a shared page such as `mcp:memory:`/`mcp:insight:`) and always reports the count of references that landed in `references_attached`, so an agent can reconcile what it cited against what was attached and fix the payload or the prose. A managed script (`mcp:script:<id>`, #1855) is citable too, so a page that says which script maintains a dataset can cite the script itself: the citation is existence-checked like any other internal reference (a script that does not exist, or an id that is not a UUID, rejects the apply). A script's definition is readable by everyone signed in (#2027), so the citation resolves for every reader, and `fetch` on the reference returns the script's contract and source to every reader. Deleting the script removes the citation.
+**Citing entities on a page.** To attach an entity reference (a catalog entity's `mcp:dataset:`/`mcp:column:`/`mcp:glossary_term:` reference and the like, or an `mcp:asset`/`mcp:prompt`/`mcp:collection`/`mcp:connection`/`mcp:knowledge_page`/`mcp:script`) to a page, pass it in `page.references` or write it in the body as plain text or a markdown link. A reference wrapped in backticks or a fenced code block is treated as a documentation example and intentionally ignored, so a backticked URN produces no reference and no link. Each entry in `page.references` is existence-checked **before** the page is written: a missing **internal** (`mcp:`) entity rejects the apply, and a reference in any other form is refused. References in `page.references` and those carried from the source insights attach with the promotion (so a `rollback` undoes them); a stale insight-carried reference is skipped rather than blocking. A target cited both in `page.references` and inline in the body is stored once. Inline body references are also filtered to those that exist, so a stale `mcp:` token in prose is skipped rather than blocking the page or leaving it partially written. A dropped insight-carried or inline-body reference is not silent: the apply response reports the dropped targets in `references_dropped` (a reference whose target was deleted, or an insight-carried reference that is not citable on a shared page such as `mcp:memory:`/`mcp:insight:`) and always reports the count of references that landed in `references_attached`, so an agent can reconcile what it cited against what was attached and fix the payload or the prose. A managed script (`mcp:script:<id>`, #1855) is citable too, so a page that says which script maintains a dataset can cite the script itself: the citation is existence-checked like any other internal reference (a script that does not exist, or an id that is not a UUID, rejects the apply). A script's definition is readable by everyone signed in (#2027), so the citation resolves for every reader, and `fetch` on the reference returns the script's contract and source to every reader. Deleting the script removes the citation.
 
 `operational_rule` is stored as a knowledge page like `business_knowledge` (it is canonical knowledge tied to no catalog entity); active enforcement of operational rules via the rules engine is tracked separately.
 
@@ -914,9 +728,9 @@ The changes of one apply are written in **one transaction**: a change that canno
 |-----------|------|----------|-------------|
 | `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag |
 | `sink` | string | No | apply target: `catalog` (default), `knowledge_page` or `agent_instructions` |
-| `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with `sink=catalog`: a catalog reference, or a DataHub dataset URN read by its path |
-| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (a name, `mcp:tag:<name>` or `urn:li:tag:<name>`) to remove from every dataset and column that carries it |
-| `page` | object | Conditional | `{slug, title, body, summary?, tags?, references?}` for apply with `sink=knowledge_page`. `references` is a list of serialized reference strings (`mcp:<type>:<id>` / `urn:li:...`) attached to the page independent of the body |
+| `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with `sink=catalog`: a catalog reference |
+| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (a name or `mcp:tag:<name>`) to remove from every dataset and column that carries it |
+| `page` | object | Conditional | `{slug, title, body, summary?, tags?, references?}` for apply with `sink=knowledge_page`. `references` is a list of serialized reference strings (`mcp:<type>:<id>`) attached to the page independent of the body |
 | `insight_ids` | array | Conditional | Source insights; required for approve, reject. On apply, pass the promoted insights so they are marked applied and the changeset is linked to them (closes the review loop; the queue then reflects what is live). Sink-class is a non-binding hint; any insight can be applied to either sink (destination chosen at apply) |
 | `changes` | array | Conditional | Required for apply with `sink=catalog` |
 | `changeset_id` | string | Conditional | Required for rollback |
@@ -944,7 +758,7 @@ A dataset and its columns carry every kind of curation; curated queries, inciden
 | Change Type | Target | Detail | Writes |
 |-------------|--------|--------|--------|
 | `update_description` | `column:<name>` for a column, empty for the entity | Description text | `description` |
-| `add_tag` / `remove_tag` | `column:<name>` for a column, empty for the entity | Tag name (`pii`; `mcp:tag:pii` and `urn:li:tag:pii` are read as `pii`) | `tags` |
+| `add_tag` / `remove_tag` | `column:<name>` for a column, empty for the entity | Tag name (`pii`; `mcp:tag:pii` is read as `pii`) | `tags` |
 | `add_glossary_term` | `column:<name>` for a column, empty for the entity | A term reference or name; a name the catalog does not hold creates the term, listed in `created_ids` | `glossary_terms` |
 | `flag_quality_issue` | Ignored | Quality issue description | the `QualityIssue` tag, and on a dataset with a detail an active `Data quality issue` incident (one per open detail) |
 | `add_documentation` | URL | Link description | `documentation_links` |
@@ -981,7 +795,7 @@ Manages the lifecycle of existing persistent memory. Create new memory with `mem
 | `category` | string | No | Category: `correction`, `business_context`, `data_quality`, `usage_guidance`, `relationship`, `enhancement`, `general` |
 | `confidence` | string | No | `high`, `medium`, `low` (default: `medium`) |
 | `source` | string | No | `user`, `agent_discovery`, `enrichment_gap`, `automation`, `lineage_event` |
-| `entity_urns` | string[] | No | DataHub entity URNs this memory relates to (max 10) |
+| `entity_urns` | string[] | No | Catalog references this memory relates to, e.g. `mcp:dataset:(trino,<connection>,<catalog>.<schema>.<table>)` (max 10) |
 | `metadata` | object | No | Arbitrary metadata (e.g., `suggested_actions`, `superseded_by`) |
 | `filter_*` | string | No | Filters for `list`: `filter_dimension`, `filter_category`, `filter_status`, `filter_entity_urn` |
 | `limit` | int | No | Page size for `list` (default 20, max 100); also caps `review_duplicates` pairs (may hold fewer when the byte budget hits, `more_pairs=true`) |
@@ -1398,11 +1212,11 @@ attached to it:
 
 ### Description overrides
 
-A tool's description is what an LLM agent sees in `tools/list`. Overriding it is the most reliable way to steer agent behavior — for example, to insist that `trino_query` calls `datahub_search` first to discover the table.
+A tool's description is what an LLM agent sees in `tools/list`. Overriding it is the most reliable way to steer agent behavior — for example, to insist that `trino_query` calls `search` first to discover the table.
 
 Overrides are persisted as config entries with the key `tool.<name>.description`. Resolution order, last wins:
 
-1. **Built-in defaults** in `pkg/middleware/mcp_descriptions.go` — currently `trino_query` and `trino_execute` redirect agents through DataHub discovery.
+1. **Built-in defaults** in `pkg/middleware/mcp_descriptions.go` — currently `trino_query` and `trino_execute` redirect agents through `search` first.
 2. **File-config overrides** in `tools.description_overrides` of `platform.yaml`.
 3. **Database overrides** authored from the portal Tools page, stored in the `config_entries` table.
 

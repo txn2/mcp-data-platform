@@ -32,18 +32,6 @@ func TestValidateConnectionConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "datahub missing url",
-			kind:    "datahub",
-			cfg:     map[string]any{},
-			wantErr: true,
-		},
-		{
-			name:    "datahub valid",
-			kind:    "datahub",
-			cfg:     map[string]any{"url": "http://datahub.example.com"},
-			wantErr: false,
-		},
-		{
 			name:    "mcp gateway missing endpoint",
 			kind:    "mcp",
 			cfg:     map[string]any{},

@@ -343,8 +343,6 @@ github.com/trinodb/trino-go-client v0.337.0 h1:OvVnAcQZmsUTIyslZ9YnhT0iS5KCIr7om
 github.com/trinodb/trino-go-client v0.337.0/go.mod h1:P2ifOGs+M0b5QyVmTdA4TMWvF73FZqAfg49YqyEQZ2k=
 github.com/twpayne/go-geom v1.6.1 h1:iLE+Opv0Ihm/ABIcvQFGIiFBXd76oBIar9drAwHFhR4=
 github.com/twpayne/go-geom v1.6.1/go.mod h1:Kr+Nly6BswFsKM5sd31YaoWS5PeDDH2NftJTK7Gd028=
-github.com/txn2/mcp-datahub v1.15.1 h1:VJkRH30stwqPqeRTHnznDxAaB+A50mRfwrkKgnUcn54=
-github.com/txn2/mcp-datahub v1.15.1/go.mod h1:nwnlwyYQ8Cjef76/iYA3+arSSK4dkRp8vKl7zBZQMBs=
 github.com/txn2/mcp-s3 v1.5.1 h1:Kix4axZvt8p1WsvMBD8AU0CxHF6mbxLzjrrb4MTgW3o=
 github.com/txn2/mcp-s3 v1.5.1/go.mod h1:x2iu4CDs1S7H2hyvUydMAJY5X0dnYF03XWURSyc3nUk=
 github.com/txn2/mcp-trino v1.7.1 h1:kDlrQQ7KJRoLstj3bH2XAJs/o8gvlm2NRb3hH9JHTmo=

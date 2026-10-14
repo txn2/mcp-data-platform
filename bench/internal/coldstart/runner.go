@@ -61,7 +61,7 @@ type Options struct {
 	// checkpoint. The a3 arm caches table context with a 5m TTL, so a cache entry
 	// populated by the PREVIOUS checkpoint's evaluators can serve the stale
 	// pre-promotion description to the next checkpoint's evaluators,
-	// nondeterministically attenuating the datahub-sink lift; waiting out the TTL
+	// nondeterministically attenuating the catalog-sink lift; waiting out the TTL
 	// removes that pacing dependence. The scripted smoke sets it to zero.
 	Settle time.Duration
 	// SettleSleep overrides the settle pause's sleeper. Tests inject a recorder
@@ -246,8 +246,8 @@ func (e *runEnv) run(ctx context.Context, cur curriculum.Curriculum, evalTasks [
 // settleAfterPromote waits out the semantic-cache TTL between a successful
 // promote and the following eval checkpoint, so a table-context entry cached by
 // the previous checkpoint's evaluators can never serve the stale pre-promotion
-// description to the next ones. Only a datahub-sink promote needs it: the cache
-// holds DataHub table context, while knowledge-page hits are served live from
+// description to the next ones. Only a catalog-sink promote needs it: the cache
+// holds catalog table context, while knowledge-page hits are served live from
 // the portal store with no TTL. A lesson that did not promote changed nothing.
 // Every skip is logged so a paced run's timeline stays auditable.
 func (e *runEnv) settleAfterPromote(ctx context.Context, lr LessonRecord) {
@@ -259,7 +259,7 @@ func (e *runEnv) settleAfterPromote(ctx context.Context, lr LessonRecord) {
 			"lesson", lr.LessonID, "settle", e.opts.Settle)
 		return
 	}
-	if lr.Sink != protocol.SinkDataHub {
+	if lr.Sink != protocol.SinkCatalog {
 		e.log.Info("cold-start settle skipped: page-sink promotes are served live from the portal store, nothing is cached",
 			"lesson", lr.LessonID, "settle", e.opts.Settle)
 		return

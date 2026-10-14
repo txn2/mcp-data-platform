@@ -8,7 +8,7 @@ import (
 
 // countingProvider is a catalog backend that clamps every page to clampAt rows —
 // whatever was asked for — and reports the true match count separately, which is
-// the shape of the real DataHub client (#1238).
+// the shape of a paged catalog backend (#1238).
 type countingProvider struct {
 	Provider
 	clampAt      int
@@ -43,6 +43,10 @@ func (c *countingProvider) SearchGlossaryTerms(ctx context.Context, query string
 	return refs, err
 }
 
+func (*countingProvider) SearchDataProducts(context.Context, string, int) ([]EntityRef, error) {
+	return nil, nil
+}
+
 func (*countingProvider) ListDomains(context.Context) ([]EntityRef, error) { return nil, nil }
 
 // uncountedProvider has the picker capability but cannot count, standing in for a
@@ -59,6 +63,10 @@ func (u *uncountedProvider) SearchTables(context.Context, SearchFilter) ([]Table
 
 func (u *uncountedProvider) SearchGlossaryTerms(context.Context, string, int) ([]EntityRef, error) {
 	return u.terms, nil
+}
+
+func (*uncountedProvider) SearchDataProducts(context.Context, string, int) ([]EntityRef, error) {
+	return nil, nil
 }
 
 func (*uncountedProvider) ListDomains(context.Context) ([]EntityRef, error) { return nil, nil }

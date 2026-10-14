@@ -19,7 +19,7 @@ func TestListAuditEvents(t *testing.T) {
 	now := time.Now()
 	events := []audit.Event{
 		{ID: "ev-1", Timestamp: now, ToolName: "trino_query", UserID: "user-1", Success: true},
-		{ID: "ev-2", Timestamp: now, ToolName: "datahub_search", UserID: "user-2", Success: false},
+		{ID: "ev-2", Timestamp: now, ToolName: "search", UserID: "user-2", Success: false},
 	}
 
 	t.Run("returns paginated events", func(t *testing.T) {

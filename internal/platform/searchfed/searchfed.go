@@ -12,7 +12,7 @@
 // the resolved search-timeout values, the persona connection boundary discovery
 // enforces, and the toolkit instance name — performs
 // the per-source provider selection (each source gated on existing and
-// implementing the relevant searcher interface), builds the DataHub
+// implementing the relevant searcher interface), builds the catalog
 // LineageExpander and the knowledge.Router, and constructs the search toolkit.
 // It imports pkg/knowledge, pkg/knowledge/federation, pkg/toolkits/search,
 // pkg/toolkits/knowledge, pkg/semantic, pkg/memory, pkg/portal,
@@ -39,6 +39,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/docread"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/tableavail"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
@@ -69,21 +70,20 @@ type Config struct {
 	ProviderTimeout time.Duration
 	EmbedTimeout    time.Duration
 
-	// CatalogEnabled gates the DataHub-backed catalog, context-documents, and
-	// lineage-expander sources: they are added only when the configured semantic
-	// provider is DataHub (a noop fallback would add an always-empty provider).
-	// Combined with a non-nil SemanticProvider.
+	// CatalogEnabled gates the catalog dataset search and the lineage
+	// expander: they are added only when the platform catalog is the semantic
+	// layer (a noop fallback would add an always-empty provider). Combined with
+	// a non-nil SemanticProvider.
 	CatalogEnabled bool
-	// SemanticProvider backs the catalog / context-documents providers and the
-	// lineage expander; nil when no real catalog is configured, leaving a plain
-	// entity lookup.
+	// SemanticProvider backs the catalog dataset search and the lineage
+	// expander; nil when no catalog is configured, leaving a plain entity
+	// lookup.
 	SemanticProvider semantic.Provider
 
 	// CatalogIndex ranks the platform's own index of catalog dataset text on the
 	// catalog provider's text path (#1131), so a fact applied to a description is
 	// reachable from a topical query naming no entity. Nil (no database, or the
-	// index disabled) leaves the catalog ranked by DataHub's keyword search
-	// alone.
+	// index disabled) leaves the catalog ranked by its own word search alone.
 	CatalogIndex knowledge.CatalogIndexSearcher
 
 	// Source stores federated into the corpus. Each is gated on being non-nil and
@@ -125,10 +125,10 @@ type Config struct {
 
 	// Catalog dereferences the platform catalog's own references
 	// (mcp:dataset:, mcp:column:, and the glossary, tag, domain and data
-	// product forms, #1917). A dataset names its connection by instance; the
+	// product forms, #1917), and searches its definitions. A dataset names its connection by instance; the
 	// name a persona's connection rules match is resolved through Registry.
 	// Nil (no database) leaves the source out.
-	Catalog knowledge.CatalogReader
+	Catalog catalog.Store
 
 	// ResourceBlobs and ResourceBucket let the resources provider return a
 	// resource's contents from `fetch`. Nil leaves fetch returning metadata
@@ -203,7 +203,7 @@ func New(cfg Config) *Handle {
 		return nil
 	}
 
-	// The lineage expander widens the entity path along DataHub lineage (the old
+	// The lineage expander widens the entity path along catalog lineage (the old
 	// memory_recall graph strategy) once per search, shared across every
 	// entity-keyed provider; nil when no real catalog is configured, leaving a
 	// plain entity lookup.
@@ -254,45 +254,14 @@ func storeProviders(cfg Config) []knowledge.Provider {
 		}
 		providers = append(providers, insights)
 	}
-	// The technical catalog is a knowledge sink only when a real DataHub semantic
-	// provider is configured (the noop fallback would add an always-empty
-	// provider).
+	// The catalog's datasets are searched only when the platform catalog is the
+	// semantic layer (the noop fallback would add an always-empty provider).
 	if cfg.CatalogEnabled && cfg.SemanticProvider != nil {
-		catalog := knowledge.NewCatalogProvider(cfg.SemanticProvider)
+		datasets := knowledge.NewCatalogProvider(cfg.SemanticProvider)
 		// The platform's own index of dataset text, when one is wired, leads the
-		// catalog text path; DataHub's keyword search stays behind it.
-		catalog.SetIndexSearcher(cfg.CatalogIndex)
-		// A fetched dataset is the catalog's full record of it, and a data
-		// product is fetchable by reference (#1590); both reads are the real
-		// catalog's, so a noop or decorated provider that lacks them leaves the
-		// arm on the enrichment-shaped read or closed.
-		if dr, ok := semantic.DatasetReaderFrom(cfg.SemanticProvider); ok {
-			catalog.SetDatasetReader(dr)
-		}
-		if pr, ok := semantic.DataProductReaderFrom(cfg.SemanticProvider); ok {
-			catalog.SetDataProductReader(pr)
-		}
-		// A fetched dataset also says whether and where it is queryable, through
-		// the query provider's own read rather than the insight marker's cache
-		// above: the record keeps the row estimate a query is sized by, and it
-		// keeps a negative answer with its reason, which the cache drops.
-		if cfg.QueryProvider != nil {
-			catalog.SetAvailabilityResolver(cfg.QueryProvider)
-		}
-		providers = append(providers, catalog)
-		// Context documents: a distinct search source (#692), present only when the
-		// real catalog exposes document search.
-		if ds, ok := semantic.DocumentSearcherFrom(cfg.SemanticProvider); ok {
-			providers = append(providers, knowledge.NewContextDocumentsProvider(ds))
-		}
-		// Governance vocabulary: glossary terms, tags, and domains as entities in
-		// their own right (#1160), present only when the real catalog exposes the
-		// vocabulary reads. It is a sibling of the catalog rather than an arm of it,
-		// so a definition is never crowded out of the display budget by a broad
-		// dataset match.
-		if gr, ok := semantic.GovernanceReaderFrom(cfg.SemanticProvider); ok {
-			providers = append(providers, knowledge.NewGovernanceProvider(gr))
-		}
+		// catalog text path; the catalog's word search stays behind it.
+		datasets.SetIndexSearcher(cfg.CatalogIndex)
+		providers = append(providers, datasets)
 	}
 	return appendPortalStoreProviders(cfg, providers)
 }
@@ -360,7 +329,20 @@ func appendScriptProvider(cfg Config, providers []knowledge.Provider) []knowledg
 		providers = append(providers, knowledge.NewCallsProvider(cfg.CallCatalog))
 	}
 	if cfg.Catalog != nil {
-		providers = append(providers, knowledge.NewNativeCatalogProvider(cfg.Catalog, catalogBound(cfg.Registry)))
+		native := knowledge.NewNativeCatalogProvider(cfg.Catalog, catalogBound(cfg.Registry))
+		// A fetched table says whether and where it can be queried, through the
+		// query provider's own read: the record keeps the row estimate a query is
+		// sized by, and it keeps a negative answer with its reason.
+		if cfg.QueryProvider != nil {
+			native.SetAvailabilityResolver(cfg.QueryProvider)
+		}
+		// Glossary terms, glossary nodes, tags, domains and data products are
+		// searched and fetched as entities in their own right (#1160). The
+		// governance source is a sibling of the catalog rather than an arm of it,
+		// so a definition is never crowded out of the display budget by a broad
+		// dataset match.
+		providers = append(providers, native,
+			knowledge.NewGovernanceProvider(cfg.Catalog, catalogBound(cfg.Registry)))
 	}
 	return appendSessionProvider(cfg, providers)
 }
@@ -400,7 +382,11 @@ func appendFederationProviders(cfg Config, providers []knowledge.Provider) []kno
 	// registered, connections added later through the admin API are searchable.
 	connLister := federation.NewConnectionLister(cfg.Registry)
 	if len(providers) > 0 || len(connLister.Connections()) > 0 {
-		providers = append(providers, knowledge.NewConnectionsProvider(connLister))
+		conns := knowledge.NewConnectionsProvider(connLister)
+		if cfg.Catalog != nil {
+			conns.SetCatalogBrowser(cfg.Catalog)
+		}
+		providers = append(providers, conns)
 	}
 	return providers
 }
