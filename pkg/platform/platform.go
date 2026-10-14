@@ -1578,8 +1578,7 @@ func (p *Platform) initSessionGate() {
 // the memory store is present, else the legacy Postgres store), the changeset
 // store + DataHub writer for apply_knowledge, and the capture_insight /
 // apply_knowledge toolkit behind one Handle. It translates platform config into
-// the owner's Config (resolving the DataHub connection through toolkitcfg so the
-// owner stays free of that coupling), delegates assembly, then keeps the
+// the owner's Config, delegates assembly, then keeps the
 // prompt-creator wiring and toolkit registration here (both reach back into
 // Platform / the shared registry). Knowledge tools require database persistence —
 // without a database the toolkit is not registered and its tools won't appear in
@@ -1595,11 +1594,10 @@ func (p *Platform) initKnowledge() error {
 	handle, err := knowledgelayer.New(p.db, p.memory.MemoryStore(), p.embeddingProv, knowledgelayer.Config{
 		ToolkitName:              instanceDefault,
 		ApplyEnabled:             applyEnabled,
-		ApplyDataHubConnection:   apply.DataHubConnection,
 		ApplyRequireConfirmation: apply.RequireConfirmation,
 		PageGuards:               p.config.Knowledge.Pages.Resolve(),
 		PortalBaseURL:            p.config.Portal.PublicBaseURL,
-		DataHub:                  p.resolveKnowledgeDataHubConfig(apply.DataHubConnection, applyEnabled),
+		Catalog:                  p.catalogForApply(),
 	})
 	if err != nil {
 		return fmt.Errorf("creating knowledge layer: %w", err)
@@ -1631,25 +1629,14 @@ func (p *Platform) initKnowledge() error {
 	return nil
 }
 
-// resolveKnowledgeDataHubConfig resolves the apply_knowledge DataHub connection
-// into the owner's config shape, keeping Platform's toolkitcfg coupling out of
-// the knowledgelayer package. It returns nil when apply is disabled or the
-// connection is not configured (the owner then selects the noop writer with a
-// WARN).
-func (p *Platform) resolveKnowledgeDataHubConfig(connName string, applyEnabled bool) *knowledgelayer.DataHubConfig {
-	if !applyEnabled {
+// catalogForApply is the catalog apply_knowledge writes curation to: the
+// platform catalog wherever it is the semantic layer, and none where the layer
+// is turned off, so apply cannot write curation nothing reads.
+func (p *Platform) catalogForApply() catalog.Store {
+	if !nativeCatalog(p.semanticProvider) {
 		return nil
 	}
-	dhCfg := toolkitcfg.DataHubConfig(p.config.Toolkits, connName)
-	if dhCfg == nil {
-		return nil
-	}
-	return &knowledgelayer.DataHubConfig{
-		URL:     dhCfg.URL,
-		Token:   dhCfg.Token,
-		Timeout: dhCfg.Timeout,
-		Debug:   dhCfg.Debug,
-	}
+	return catalogstore.StoreFor(p.db)
 }
 
 // initSearch wires the universal, topology-free discovery entry point (#645):
@@ -3141,9 +3128,10 @@ func (p *Platform) KnowledgeChangesetStore() knowledgekit.ChangesetStore {
 	return p.knowledge.ChangesetStore()
 }
 
-// KnowledgeDataHubWriter returns the DataHub writer, or nil if knowledge apply is disabled.
-func (p *Platform) KnowledgeDataHubWriter() knowledgekit.DataHubWriter {
-	return p.knowledge.DataHubWriter()
+// KnowledgeCatalog returns the catalog apply_knowledge writes to, or nil when
+// knowledge apply is disabled or there is no catalog.
+func (p *Platform) KnowledgeCatalog() catalog.Store {
+	return p.knowledge.Catalog()
 }
 
 // PortalAssetStore returns the portal asset store, or nil if portal is disabled.

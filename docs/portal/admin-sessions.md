@@ -44,10 +44,10 @@ The detail opens on the outcome, the reuse count, the duration and the response 
 
 A satisfied record can be **published**:
 
-- A **SQL** record becomes a Query entity in the data catalog, associated with every dataset the statement reads rather than one of them, through the same DataHub write path `apply_knowledge` uses. The name comes from the stated purpose; the description carries the purpose, the session it came from, and how many later sessions re-ran it.
+- A **SQL** record becomes a curated query on every dataset the statement reads in the [platform catalog](../server/catalog.md), rather than on one of them, through the same catalog write `apply_knowledge` uses. The name comes from the stated purpose; the description carries the purpose, the session it came from, and how many later sessions re-ran it.
 - An **API** record becomes a saved example on its endpoint, keyed by connection, which the next agent sees when it reads that endpoint's schema.
 
-A record that is not worth publishing is **declined** with a note, and stops being offered. A deployment with no DataHub connection refuses a SQL promotion rather than reporting one that persisted nothing.
+A record that is not worth publishing is **declined** with a note, and stops being offered. A deployment with no platform catalog refuses a SQL promotion rather than reporting one that persisted nothing, and so does a statement none of whose datasets the catalog holds.
 
 The catalog is written from the audit pipeline, so it exists exactly where audit does: a deployment with no database, or with `audit.enabled: false`, records no calls and serves no call pages.
 

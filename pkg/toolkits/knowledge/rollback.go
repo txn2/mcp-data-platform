@@ -6,19 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
 // ErrChangesetAlreadyRolledBack is returned when a rollback targets a changeset
 // that has already been rolled back.
 var ErrChangesetAlreadyRolledBack = errors.New("changeset already rolled back")
-
-// ErrDataHubUnavailable is returned when a DataHub write is requested on a
-// deployment whose DataHub connection does not resolve. It names the way forward
-// so the caller can act rather than only learn that it failed.
-var ErrDataHubUnavailable = errors.New(noDataHubConfigured +
-	", so this changeset's DataHub writes cannot be undone; set knowledge.apply.datahub_connection" +
-	" to the DataHub toolkit instance the changeset was applied against and retry")
 
 // UnrevertibleError is returned when a changeset contains change types whose
 // pre-change state is not captured in the changeset's before-image, so they
@@ -35,20 +29,21 @@ func (e *UnrevertibleError) Error() string {
 		strings.Join(e.ChangeTypes, ", "))
 }
 
-// RollbackConflictError is returned when a newer, not-yet-rolled-back changeset
-// has since mutated the same metadata aspect. Reverting would silently clobber
-// that newer change, so the rollback is refused.
+// RollbackConflictError is returned when an aspect the changeset wrote has been
+// written again since. Reverting would silently discard that newer write, so
+// the rollback is refused and nothing is reverted.
 type RollbackConflictError struct {
-	ConflictingIDs []string
-	Aspects        []string
+	Conflict *catalog.ConflictError
 }
 
 // Error implements the error interface.
 func (e *RollbackConflictError) Error() string {
-	return fmt.Sprintf("rollback blocked: newer changeset(s) %s modified the same aspect(s) %s; "+
-		"roll those back first or restore the desired state with a new apply",
-		strings.Join(e.ConflictingIDs, ", "), strings.Join(e.Aspects, ", "))
+	return "rollback blocked: " + e.Conflict.Error() +
+		"; roll that change back first or restore the desired state with a new apply"
 }
+
+// Unwrap exposes the catalog's conflict.
+func (e *RollbackConflictError) Unwrap() error { return e.Conflict }
 
 // RollbackResult summarizes the outcome of a successful changeset rollback.
 type RollbackResult struct {
@@ -71,51 +66,46 @@ type recordedChange struct {
 	Detail     string
 }
 
-// priorState holds the subset of an entity's before-image that rollback can use.
-type priorState struct {
-	Description   string
-	Tags          map[string]bool
-	GlossaryTerms map[string]bool
-}
-
-// RollbackDeps bundles the stores and writer a rollback operates on. It is the
-// shared dependency set for both the apply_knowledge MCP tool and the admin REST
+// RollbackDeps bundles the stores a rollback operates on. It is the shared
+// dependency set for both the apply_knowledge MCP tool and the admin REST
 // endpoint.
 type RollbackDeps struct {
-	Writer     DataHubWriter
+	// Catalog is the platform catalog a catalog changeset is rolled back in.
+	Catalog    catalog.Store
 	Changesets ChangesetStore
 	Insights   InsightStore
 	// Pages reverts knowledge-page promotions (target "kp:<slug>"). Optional; a
 	// nil Pages makes a page-changeset rollback return a clear "not configured"
-	// error rather than mis-routing through the DataHub inverse-op path.
+	// error rather than mis-routing through the catalog path.
 	// PageReverter and PageEditedError live in page_sink.go with the rest of the
 	// page-sink machinery.
 	Pages PageReverter
 	// Instructions reverts promotions into the deployment's customized agent
 	// instructions (target "ai:<section>"). Optional; a nil Instructions makes an
 	// instructions-changeset rollback return a clear "not configured" error rather
-	// than mis-routing through the DataHub inverse-op path. InstructionsStore and
+	// than mis-routing through the catalog path. InstructionsStore and
 	// InstructionsEditedError live in instructions_sink.go with the rest of that
 	// sink's machinery.
 	Instructions InstructionsStore
 }
 
-// RevertChangeset reverts the DataHub aspects mutated by a changeset back to
-// their pre-change state, returns the source insights to the review queue, and
-// marks the changeset as rolled back. It is the single rollback implementation
-// shared by the apply_knowledge MCP tool and the admin REST endpoint.
+// RevertChangeset rolls back a changeset, returns its source insights to the
+// review queue, and marks it rolled back. It is the single rollback
+// implementation shared by the apply_knowledge MCP tool and the admin REST
+// endpoint.
 //
-// It refuses (rather than silently no-ops) when the changeset is already rolled
-// back, when it contains change types whose prior state was not captured, or
-// when a newer changeset has since touched the same aspect.
+// A catalog changeset is undone through the catalog's own history, every
+// aspect it wrote restored in one transaction. It refuses (rather than
+// silently no-ops) when the changeset is already rolled back, when it created
+// a prompt, or when an aspect it wrote has been written again since.
 func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, rolledBackBy string) (*RollbackResult, error) {
 	if cs.RolledBack {
 		return nil, ErrChangesetAlreadyRolledBack
 	}
 
-	// Knowledge-page promotions (target "kp:<slug>") revert via the page sink,
-	// not the DataHub inverse-op path. Shared here so both the apply_knowledge
-	// tool and the admin REST endpoint route page changesets correctly.
+	// Knowledge-page promotions (target "kp:<slug>") revert via the page sink.
+	// Shared here so both the apply_knowledge tool and the admin REST endpoint
+	// route page changesets correctly.
 	if strings.HasPrefix(cs.TargetURN, pageTargetPrefix) {
 		return revertPageChangeset(ctx, deps, cs, rolledBackBy)
 	}
@@ -126,41 +116,16 @@ func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, roll
 		return revertInstructionsChangeset(ctx, deps, cs, rolledBackBy)
 	}
 
-	changes := parseRecordedChanges(cs.NewValue)
-	// entityTypeFromURN failure leaves entityType "", which the readability
-	// predicates treat as unreadable, so a change whose before-image could not be
-	// captured is refused rather than reverted destructively.
-	entityType, _ := entityTypeFromURN(cs.TargetURN)
-	if unsupported := unrevertibleChangeTypes(changes, entityType); len(unsupported) > 0 {
-		return nil, &UnrevertibleError{ChangeTypes: unsupported}
-	}
-	// Every revertible change type is a DataHub write, so a writer that reaches no
-	// DataHub would mark the changeset rolled back without undoing anything.
-	if !datahubWritable(deps.Writer) {
-		return nil, ErrDataHubUnavailable
-	}
-	if err := checkRollbackConflicts(ctx, deps.Changesets, cs, changes); err != nil {
+	reverted, err := catalogRollback(ctx, deps.Catalog, cs, rolledBackBy)
+	if err != nil {
 		return nil, err
 	}
-
-	prior := parsePriorState(cs.PreviousValue)
-	reverted, skipped, err := applyInverseChanges(ctx, deps.Writer, cs.TargetURN, changes, prior)
-	if err != nil {
-		return nil, fmt.Errorf("rollback aborted after reverting %d change(s): %w", len(reverted), err)
-	}
-
-	// Resolve any DataHub incident this changeset created (e.g. the incident raised
-	// by flag_quality_issue to carry its detail), recorded in created_urns (#722).
-	incidentReverted, err := resolveCreatedIncidents(ctx, deps.Writer, cs.NewValue, rolledBackBy)
-	if err != nil {
-		return nil, fmt.Errorf("rollback reverted %d change(s) but resolving the incident failed: %w", len(reverted), err)
-	}
-	reverted = append(reverted, incidentReverted...)
+	var skipped []string
 
 	returnedInsights := returnInsightsToReview(ctx, deps.Insights, cs.SourceInsightIDs, rolledBackBy, cs.ID)
 
 	if err := deps.Changesets.RollbackChangeset(ctx, cs.ID, rolledBackBy); err != nil {
-		return nil, fmt.Errorf("reverted DataHub but recording the rollback failed: %w", err)
+		return nil, fmt.Errorf("reverted the catalog changes but recording the rollback failed: %w", err)
 	}
 
 	return &RollbackResult{
@@ -171,287 +136,6 @@ func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, roll
 		InsightsReturnedToReview: returnedInsights,
 		RolledBackBy:             rolledBackBy,
 	}, nil
-}
-
-// incidentURNPrefix identifies DataHub incident URNs among a changeset's created URNs.
-const incidentURNPrefix = "urn:li:incident:"
-
-// resolveCreatedIncidents resolves the DataHub incidents a changeset created
-// (recorded in created_urns), e.g. the incident raised by flag_quality_issue to make
-// its detail verifiable. Only incident URNs are resolved; other created URNs (queries,
-// documents) are left untouched. It returns a description per resolved incident.
-func resolveCreatedIncidents(ctx context.Context, writer DataHubWriter, newValue map[string]any, rolledBackBy string) ([]string, error) {
-	var reverted []string
-	for _, urn := range strsFromMap(newValue, fieldCreatedURNs) {
-		if !strings.HasPrefix(urn, incidentURNPrefix) {
-			continue
-		}
-		msg := fmt.Sprintf("Resolved by knowledge changeset rollback (%s)", rolledBackBy)
-		if err := writer.ResolveIncident(ctx, urn, msg); err != nil {
-			return reverted, fmt.Errorf("resolving incident %s: %w", urn, err)
-		}
-		reverted = append(reverted, fmt.Sprintf("resolved incident %s", urn))
-	}
-	return reverted, nil
-}
-
-// revertibleChangeTypes is the set of change types whose inverse operation can be
-// derived from the changeset's recorded before-image. Change types absent here
-// (column descriptions, structured properties, incidents, curated queries,
-// context documents, prompts) do not capture enough prior state to revert.
-var revertibleChangeTypes = map[string]bool{
-	string(actionUpdateDescription): true,
-	string(actionAddTag):            true,
-	string(actionRemoveTag):         true,
-	string(actionFlagQualityIssue):  true,
-	string(actionAddGlossaryTerm):   true,
-	string(actionAddDocumentation):  true,
-}
-
-// unrevertibleChangeTypes returns the distinct change types in the changeset that
-// cannot be reverted from the recorded before-image. Column-level description
-// changes are unrevertible even though update_description itself is revertible,
-// because the before-image only captures the entity-level description. Changes are
-// also unrevertible when the target entity type's before-image field could not be
-// read (description for getter-less types, tags/terms for documents), since
-// reverting would write an empty value over a real one.
-func unrevertibleChangeTypes(changes []recordedChange, entityType string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, c := range changes {
-		if !isRevertible(c, entityType) && !seen[c.ChangeType] {
-			seen[c.ChangeType] = true
-			out = append(out, c.ChangeType)
-		}
-	}
-	return out
-}
-
-// isRevertible reports whether a single recorded change has a derivable inverse for
-// the given target entity type.
-func isRevertible(c recordedChange, entityType string) bool {
-	switch c.ChangeType {
-	case string(actionUpdateDescription):
-		if _, isColumn := parseColumnTarget(c.Target); isColumn {
-			return false
-		}
-		return descriptionReadable(entityType)
-	case string(actionAddTag), string(actionRemoveTag),
-		string(actionFlagQualityIssue), string(actionAddGlossaryTerm):
-		return revertibleChangeTypes[c.ChangeType] && associationsReadable(entityType)
-	default:
-		return revertibleChangeTypes[c.ChangeType]
-	}
-}
-
-// changesetRevertibility reports whether a changeset can be rolled back
-// automatically and, when it cannot, the distinct change types that block it. It
-// mirrors RevertChangeset's gate exactly (rollback.go: refuse the whole changeset when
-// unrevertibleChangeTypes is non-empty). Rollback is all-or-nothing — it reverts
-// nothing if any single change lacks a recoverable before-image — so revertibility is
-// binary: there is no partial rollback to advertise, and a "mixed" changeset is not
-// revertible at all.
-//
-// This is STRUCTURAL revertibility (does the recorded before-image support an
-// inverse), not runtime availability: a structurally revertible changeset can still
-// be refused at rollback time because it was already rolled back or a newer changeset
-// has since mutated the same aspect. Those dynamic conditions are surfaced elsewhere
-// (the rolled_back field; the conflict error at rollback time) and are deliberately
-// not modeled here.
-func changesetRevertibility(targetURN string, changes []recordedChange) (revertible bool, blockingTypes []string) {
-	// Knowledge-page promotions (target "kp:<slug>") revert through the page sink, not
-	// the DataHub inverse path. A page changeset only exists on a deployment whose page
-	// reverter is configured (promotion fails closed otherwise, page_sink.go), so it is
-	// structurally revertible here.
-	if strings.HasPrefix(targetURN, pageTargetPrefix) {
-		return true, nil
-	}
-	// An agent-instruction promotion (target "ai:<section>") records the layer's
-	// whole prior text, so restoring it needs nothing the changeset does not hold.
-	if strings.HasPrefix(targetURN, instructionsTargetPrefix) {
-		return true, nil
-	}
-	// entityTypeFromURN failure leaves entityType "", which the readability predicates
-	// treat as unreadable, matching RevertChangeset's own handling.
-	entityType, _ := entityTypeFromURN(targetURN)
-	blockingTypes = unrevertibleChangeTypes(changes, entityType)
-	return len(blockingTypes) == 0, blockingTypes
-}
-
-// applyInverseChanges performs the inverse of each recorded change against
-// DataHub. It returns human-readable descriptions of the reverted and skipped
-// (pre-existing, so left untouched) changes. On the first write error it stops
-// and returns what was reverted so far alongside the error.
-func applyInverseChanges(
-	ctx context.Context,
-	writer DataHubWriter,
-	urn string,
-	changes []recordedChange,
-	prior priorState,
-) (reverted, skipped []string, err error) {
-	// Tag and glossary-term inverses are each reverted in a single read-modify-write.
-	// Reverting each one with its own write reads DataHub's eventually consistent
-	// state back-to-back, so the last write clobbers the rest and a multi-item
-	// rollback could leave the entity with zero tags/terms instead of its prior set
-	// (#721, #729). The remaining inverses (description, documentation) are reverted
-	// individually.
-	// On a write error, return what was reverted so far (honoring the documented
-	// contract) rather than discarding it: an earlier batch may have already
-	// persisted its revert to DataHub.
-	tagReverted, tagSkipped, err := revertTagChanges(ctx, writer, urn, changes, prior)
-	reverted = append(reverted, tagReverted...)
-	skipped = append(skipped, tagSkipped...)
-	if err != nil {
-		return reverted, skipped, err
-	}
-
-	termReverted, termSkipped, err := revertGlossaryTermChanges(ctx, writer, urn, changes, prior)
-	reverted = append(reverted, termReverted...)
-	skipped = append(skipped, termSkipped...)
-	if err != nil {
-		return reverted, skipped, err
-	}
-
-	for _, c := range changes {
-		if isBatchedInverse(c.ChangeType) {
-			continue
-		}
-		desc, didRevert, applyErr := applyInverse(ctx, writer, urn, c, prior)
-		if applyErr != nil {
-			return reverted, skipped, applyErr
-		}
-		if didRevert {
-			reverted = append(reverted, desc)
-		} else {
-			skipped = append(skipped, desc)
-		}
-	}
-	return reverted, skipped, nil
-}
-
-// isBatchedInverse reports whether a change type is reverted by a batched
-// read-modify-write path (tags or glossary terms) rather than individually.
-func isBatchedInverse(changeType string) bool {
-	switch changeType {
-	case string(actionAddTag), string(actionRemoveTag), string(actionFlagQualityIssue),
-		string(actionAddGlossaryTerm):
-		return true
-	default:
-		return false
-	}
-}
-
-// revertTagChanges computes the tag adds and removes that invert the changeset's
-// tag changes and applies them in a single read-modify-write. A tag whose value
-// already existed before the changeset (per the before-image) is left untouched.
-// The returned descriptions are only committed after the single write succeeds, so
-// a failed write reports nothing as reverted (the write is all-or-nothing).
-func revertTagChanges(
-	ctx context.Context,
-	writer DataHubWriter,
-	urn string,
-	changes []recordedChange,
-	prior priorState,
-) (reverted, skipped []string, err error) {
-	var add, remove []string
-	for _, c := range changes {
-		switch c.ChangeType {
-		case string(actionAddTag):
-			tagURN := normalizeTagURN(c.Detail)
-			reverted, skipped, remove = classifyAddedTagRevert(tagURN, prior, reverted, skipped, remove)
-		case string(actionFlagQualityIssue):
-			reverted, skipped, remove = classifyAddedTagRevert(qualityIssueTagURN, prior, reverted, skipped, remove)
-		case string(actionRemoveTag):
-			tagURN := normalizeTagURN(c.Detail)
-			if !prior.Tags[tagURN] {
-				skipped = append(skipped, fmt.Sprintf("tag %s was not present before; nothing to restore", tagURN))
-				continue
-			}
-			add = append(add, tagURN)
-			reverted = append(reverted, fmt.Sprintf("restored tag %s", tagURN))
-		}
-	}
-	if len(add) == 0 && len(remove) == 0 {
-		return reverted, skipped, nil
-	}
-	if err := writer.ApplyTagChanges(ctx, urn, add, remove); err != nil {
-		return nil, nil, fmt.Errorf("reverting tags: %w", err)
-	}
-	return reverted, skipped, nil
-}
-
-// classifyAddedTagRevert decides how to revert an added tag: a tag that existed
-// before the changeset is kept (skipped); otherwise it is queued for removal.
-func classifyAddedTagRevert(tagURN string, prior priorState, reverted, skipped, remove []string) (rev, skip, rem []string) {
-	if prior.Tags[tagURN] {
-		return reverted, append(skipped, fmt.Sprintf("kept pre-existing tag %s", tagURN)), remove
-	}
-	return append(reverted, fmt.Sprintf("removed tag %s", tagURN)), skipped, append(remove, tagURN)
-}
-
-// revertGlossaryTermChanges computes the glossary-term removals that invert the
-// changeset's add_glossary_term changes and applies them in a single
-// read-modify-write. A term that already existed before the changeset (per the
-// before-image) is left untouched. Descriptions are only committed after the single
-// write succeeds, so a failed write reports nothing as reverted. There is no
-// remove_glossary_term apply action, so reverts are always removals.
-func revertGlossaryTermChanges(
-	ctx context.Context,
-	writer DataHubWriter,
-	urn string,
-	changes []recordedChange,
-	prior priorState,
-) (reverted, skipped []string, err error) {
-	var remove []string
-	for _, c := range changes {
-		if c.ChangeType != string(actionAddGlossaryTerm) {
-			continue
-		}
-		termURN := normalizeGlossaryTermURN(c.Detail)
-		if prior.GlossaryTerms[termURN] {
-			skipped = append(skipped, fmt.Sprintf("kept pre-existing glossary term %s", termURN))
-			continue
-		}
-		remove = append(remove, termURN)
-		reverted = append(reverted, fmt.Sprintf("removed glossary term %s", termURN))
-	}
-	if len(remove) == 0 {
-		return reverted, skipped, nil
-	}
-	if err := writer.ApplyGlossaryTermChanges(ctx, urn, nil, remove); err != nil {
-		return nil, nil, fmt.Errorf("reverting glossary terms: %w", err)
-	}
-	return reverted, skipped, nil
-}
-
-// applyInverse reverts a single change. didRevert is false when the change was a
-// no-op at apply time (the value already existed in the before-image), so the
-// rollback intentionally leaves the pre-existing value in place.
-func applyInverse(ctx context.Context, writer DataHubWriter, urn string, c recordedChange, prior priorState) (desc string, didRevert bool, err error) {
-	// Tag and glossary-term inverses are not handled here: applyInverseChanges reverts
-	// them in batched read-modify-writes (#721, #729).
-	switch c.ChangeType {
-	case string(actionUpdateDescription):
-		return revertDescription(ctx, writer, urn, prior)
-	case string(actionAddDocumentation):
-		return revertAddedDocumentation(ctx, writer, urn, c.Target)
-	default:
-		return "", false, fmt.Errorf("no inverse defined for change type %q", c.ChangeType)
-	}
-}
-
-func revertDescription(ctx context.Context, writer DataHubWriter, urn string, prior priorState) (desc string, reverted bool, err error) {
-	if err := writer.UpdateDescription(ctx, urn, prior.Description); err != nil {
-		return "", false, fmt.Errorf("restoring description: %w", err)
-	}
-	return "restored description", true, nil
-}
-
-func revertAddedDocumentation(ctx context.Context, writer DataHubWriter, urn, linkURL string) (desc string, reverted bool, err error) {
-	if err := writer.RemoveDocumentationLink(ctx, urn, linkURL); err != nil {
-		return "", false, fmt.Errorf("removing documentation link %s: %w", linkURL, err)
-	}
-	return fmt.Sprintf("removed documentation link %s", linkURL), true, nil
 }
 
 // RollbackReviewNote is the review note left on an insight a rollback returned to
@@ -500,41 +184,12 @@ func parseRecordedChanges(newValue map[string]any) []recordedChange {
 	return changes
 }
 
-// parsePriorState extracts the revert-relevant subset of a changeset's
-// previous_value before-image (see metadataToMap).
-func parsePriorState(prev map[string]any) priorState {
-	return priorState{
-		Description:   stringField(prev, fieldDescription),
-		Tags:          stringSetField(prev, "tags"),
-		GlossaryTerms: stringSetField(prev, "glossary_terms"),
-	}
-}
-
 // stringField reads a string value from a decoded JSON map, tolerating absence.
 func stringField(m map[string]any, key string) string {
 	if v, ok := m[key].(string); ok {
 		return v
 	}
 	return ""
-}
-
-// stringSetField reads a JSON array of strings into a set, tolerating absence
-// and the []any shape produced by encoding/json.
-func stringSetField(m map[string]any, key string) map[string]bool {
-	out := map[string]bool{}
-	switch v := m[key].(type) {
-	case []any:
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				out[s] = true
-			}
-		}
-	case []string:
-		for _, s := range v {
-			out[s] = true
-		}
-	}
-	return out
 }
 
 // revertPageChangeset reverts a knowledge-page promotion: a create_page is

@@ -28,7 +28,7 @@ func InstructionsTargetURN(section string) string {
 // Agent-instructions changeset markers. The changeset target_urn is free-form
 // text (migration 000008), so a promotion into the customized instruction layer
 // records "ai:<section>" and shares the same changeset store / list / rollback
-// surface the DataHub and knowledge-page sinks use.
+// surface the catalog and knowledge-page sinks use.
 const (
 	instructionsTargetPrefix = "ai:"
 	// changeUpdateInstructions records a rule written inline as its own section.
@@ -103,7 +103,7 @@ func (e *InstructionsEditedError) Error() string {
 }
 
 // instructionsPromotionInput is the caller-curated payload on apply
-// (sink=agent_instructions), the instruction-layer counterpart of the DataHub
+// (sink=agent_instructions), the instruction-layer counterpart of the catalog
 // `changes` list and the page sink's `page` object.
 type instructionsPromotionInput struct {
 	// Section is the heading the rule lives under, and the find-or-create key: a

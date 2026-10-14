@@ -50,12 +50,12 @@ func (t *Toolkit) handleRollback(ctx context.Context, input applyKnowledgeInput)
 	if err != nil {
 		return toolkit.ErrorResult("changeset not found: " + input.ChangesetID), nil, nil
 	}
-	if input.EntityURN != "" && cs.TargetURN != input.EntityURN {
+	if input.EntityURN != "" && cs.TargetURN != input.EntityURN && cs.TargetURN != t.changesetTarget(ctx, input.EntityURN) {
 		return toolkit.ErrorResult("changeset " + input.ChangesetID + " does not belong to entity " + input.EntityURN), nil, nil
 	}
 
 	deps := RollbackDeps{
-		Writer: t.datahubWriter, Changesets: t.changesetStore, Insights: t.store,
+		Catalog: t.curator.store, Changesets: t.changesetStore, Insights: t.store,
 		Pages: t.pageWriter, Instructions: t.instructions,
 	}
 	result, err := RevertChangeset(ctx, deps, cs, authorFromContext(ctx))
@@ -96,7 +96,7 @@ func (t *Toolkit) handleListChangesets(ctx context.Context, input applyKnowledge
 	}
 
 	changesets, total, err := t.changesetStore.ListChangesets(ctx, ChangesetFilter{
-		EntityURN: input.EntityURN,
+		EntityURN: t.changesetTarget(ctx, input.EntityURN),
 		Limit:     MaxLimit,
 	})
 	if err != nil {
@@ -117,7 +117,7 @@ func (t *Toolkit) handleListChangesets(ctx context.Context, input applyKnowledge
 
 // toChangesetSummary projects a changeset onto the discovery view.
 func toChangesetSummary(cs *Changeset) changesetSummary {
-	revertible, blockingTypes := changesetRevertibility(cs.TargetURN, parseRecordedChanges(cs.NewValue))
+	revertible, blockingTypes := changesetRevertibility(cs)
 	// An already-rolled-back changeset cannot be rolled back again, so report it as not
 	// revertible regardless of its structural revertibility (#922 review).
 	if cs.RolledBack {
@@ -136,4 +136,18 @@ func toChangesetSummary(cs *Changeset) changesetSummary {
 		Revertible:              revertible,
 		UnrevertibleChangeTypes: blockingTypes,
 	}
+}
+
+// changesetTarget is the target a changeset about entity is recorded under:
+// its catalog reference when the catalog resolves it, else entity as given (a
+// page, an instruction section, or a changeset written before the catalog).
+func (t *Toolkit) changesetTarget(ctx context.Context, entity string) string {
+	if t.curator.store == nil {
+		return entity
+	}
+	ref, err := t.curator.resolveTarget(ctx, entity)
+	if err != nil {
+		return entity
+	}
+	return ref.String()
 }

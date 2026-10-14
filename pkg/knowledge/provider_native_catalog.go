@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
 // CatalogReader is what the native catalog provider reads from the platform's
@@ -13,6 +16,12 @@ import (
 type CatalogReader interface {
 	GetDataset(ctx context.Context, ref catalog.Ref) (*catalog.Dataset, error)
 	GetDefinition(ctx context.Context, ref catalog.Ref) (*catalog.Definition, error)
+}
+
+// DocumentReader reads a connection's schema document. The catalog store
+// satisfies it; a reader without it declines schema document references.
+type DocumentReader interface {
+	GetDocument(ctx context.Context, ref catalog.Ref) (*catalog.SchemaDocument, error)
 }
 
 // LineageReader walks the platform catalog's lineage edges. The catalog store
@@ -38,10 +47,11 @@ type datasetDocument struct {
 type BoundName func(connectionKind, instance string) string
 
 // NativeCatalogProvider dereferences the platform catalog's own references:
-// mcp:dataset:(...), mcp:column:(...), and the glossary terms, glossary nodes,
-// tags, domains and data products curation points at.
+// mcp:dataset:(...), mcp:column:(...), mcp:schema_document:(...), and the
+// glossary terms, glossary nodes, tags, domains and data products curation
+// points at.
 //
-// A dataset or column belongs to the connection that sees it, so it is
+// A dataset, a column or a schema document belongs to its connection, so it is
 // dereferenced only for a caller whose persona may reach that connection, the
 // same boundary search and every tool call apply. A definition is
 // organization-wide and is readable by anyone who can fetch.
@@ -89,6 +99,12 @@ func (p *NativeCatalogProvider) Fetch(ctx context.Context, ref string, caller Ca
 		}
 		doc, err := p.fetchDataset(ctx, parsed)
 		return doc, true, err
+	case catalog.KindSchemaDocument:
+		if !caller.allowsConnection(p.boundName(parsed)) {
+			return nil, true, ErrNotFound
+		}
+		doc, err := p.fetchSchemaDocument(ctx, parsed)
+		return doc, true, err
 	default:
 		doc, err := p.fetchDefinition(ctx, parsed)
 		return doc, true, err
@@ -101,6 +117,50 @@ func (p *NativeCatalogProvider) boundName(r catalog.Ref) string {
 		return r.Connection
 	}
 	return p.bound(r.ConnectionKind, r.Connection)
+}
+
+// sourceRefs are the documents a dataset was read from, as references the
+// caller can fetch in turn: the connection's schema document a scan read it
+// from (#1918), and the managed resource a registered table was created from.
+func sourceRefs(d *catalog.Dataset) []DocumentRef {
+	out := make([]DocumentRef, 0, 2)
+	if d.SchemaDocument != "" {
+		out = append(out, DocumentRef{Reference: d.SchemaDocument, Type: knowledgepage.RefTargetCatalog})
+	}
+	if d.SchemaResourceID != "" {
+		out = append(out, DocumentRef{Reference: "mcp:resource:" + d.SchemaResourceID, Type: knowledgepage.RefTargetResource})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// fetchSchemaDocument reads a connection's schema document. Its text is the
+// body, up to the inline limit every fetched file is held to; a longer one is
+// cut at a character boundary and says so.
+func (p *NativeCatalogProvider) fetchSchemaDocument(ctx context.Context, r catalog.Ref) (*Document, error) {
+	dr, ok := p.store.(DocumentReader)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	d, err := dr.GetDocument(ctx, r)
+	if err != nil {
+		return nil, catalogError(err)
+	}
+	body, note := d.Content, ""
+	if len(body) > resource.MaxInlineContentBytes {
+		body = body[:runeCut(body, resource.MaxInlineContentBytes)]
+		note = fmt.Sprintf("Only the first %d of this document's %d bytes are shown here.", len(body), d.SizeBytes)
+	}
+	return &Document{
+		Reference: d.Reference,
+		Source:    SourceCatalog,
+		Title:     d.Connection + " " + d.Filename,
+		Body:      string(body),
+		Content:   d,
+		Note:      note,
+	}, nil
 }
 
 // fetchDataset reads a dataset, or the one column a column reference names.
@@ -121,6 +181,7 @@ func (p *NativeCatalogProvider) fetchDataset(ctx context.Context, r catalog.Ref)
 			Body:       d.Aspects.Description,
 			Content:    content,
 			EntityURNs: []string{d.Reference},
+			References: sourceRefs(d),
 		}, nil
 	}
 	for _, c := range d.Columns {
@@ -171,6 +232,18 @@ func (p *NativeCatalogProvider) fetchDefinition(ctx context.Context, r catalog.R
 		Body:      d.Aspects.Description,
 		Content:   d,
 	}, nil
+}
+
+// runeCut is the largest cut at or below limit that does not split a UTF-8
+// character, looking back no further than one character's length. limit must
+// be below len(b).
+func runeCut(b []byte, limit int) int {
+	for cut := limit; cut > limit-utf8.UTFMax && cut > 0; cut-- {
+		if utf8.RuneStart(b[cut]) {
+			return cut
+		}
+	}
+	return limit
 }
 
 // catalogError maps the store's not-found onto the router's, which fetch

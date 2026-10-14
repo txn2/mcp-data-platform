@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 )
 
@@ -145,6 +147,9 @@ type Operation struct {
 	// an API, the kind and dotted field path for GraphQL (query.repository).
 	Path    []string
 	Columns []catalog.ColumnInput
+	// Document is the Key of the schema document the operation was read from,
+	// or empty.
+	Document string
 }
 
 // OperationSource catalogs the operations of API or GraphQL connections.
@@ -152,6 +157,15 @@ type OperationSource struct {
 	kind   string
 	typ    catalog.DatasetType
 	reader OperationReader
+	docs   catalog.DocumentStore
+}
+
+// KeepDocuments has the source keep each connection's schema documents in the
+// catalog, linked from the datasets read from them (#1918). A nil store keeps
+// none.
+func (s *OperationSource) KeepDocuments(store catalog.DocumentStore) *OperationSource {
+	s.docs = store
+	return s
 }
 
 // NewAPISource catalogs every stored OpenAPI operation of each API connection.
@@ -180,17 +194,49 @@ func (s *OperationSource) Datasets(ctx context.Context, c Connection, skip Exclu
 	if err != nil {
 		return fmt.Errorf("listing operations: %w", err)
 	}
+	kept := s.keptDocuments(ctx, c)
 	for _, op := range ops {
 		if len(op.Path) == 0 || skip.Excludes(op.Path...) {
 			continue
 		}
 		if err := yield(catalog.DatasetInput{
-			Ref:     catalog.DatasetRef(s.kind, c.Instance, op.Path...),
-			Type:    s.typ,
-			Columns: op.Columns,
+			Ref:            catalog.DatasetRef(s.kind, c.Instance, op.Path...),
+			Type:           s.typ,
+			Columns:        op.Columns,
+			SchemaDocument: kept[op.Document],
 		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// keptDocuments keeps the connection's schema documents and returns their
+// filenames by key. A document that cannot be kept leaves its datasets
+// without one: the operations are still cataloged, and the next scan tries
+// again.
+func (s *OperationSource) keptDocuments(ctx context.Context, c Connection) map[string]string {
+	kept := map[string]string{}
+	if s.docs == nil {
+		return kept
+	}
+	docs, err := s.reader.Documents(ctx, c.Bound)
+	if err != nil {
+		slog.WarnContext(ctx, "catalog scan: reading schema documents failed",
+			"kind", s.kind, "connection", c.Instance, "error", logsan.SanitizeForLog(err.Error()))
+		return kept
+	}
+	for _, d := range docs {
+		_, _, err := s.docs.PutDocument(ctx, catalog.DocumentInput{
+			ConnectionKind: s.kind, Connection: c.Instance, Filename: d.Filename, MIMEType: d.MIMEType, Content: d.Content,
+		})
+		if err != nil {
+			slog.WarnContext(ctx, "catalog scan: keeping a schema document failed",
+				"kind", s.kind, "connection", c.Instance, "document", logsan.SanitizeForLog(d.Key),
+				"error", logsan.SanitizeForLog(err.Error()))
+			continue
+		}
+		kept[d.Key] = d.Filename
+	}
+	return kept
 }

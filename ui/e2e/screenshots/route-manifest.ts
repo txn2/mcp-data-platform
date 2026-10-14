@@ -5,6 +5,7 @@ import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
 import { apiBrowserAdminRoutes, apiBrowserUserRoutes } from "./route-apis";
 import { sectionIntroRoutes } from "./route-section-intros";
+import { adminCatalogRoutes } from "./route-catalog";
 import { adminConnectionRoutes } from "./route-connections";
 import { adminPersonaRoutes } from "./route-personas";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
@@ -484,22 +485,7 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/webhooks/new",
     category: "admin",
   },
-  {
-    // The platform catalog's scan (#1918): each connection's last scan, and
-    // the Settings tab with the interval and the per-connection exclusions.
-    slug: "admin-catalog",
-    path: "/portal/admin/catalog",
-    category: "admin",
-  },
-  {
-    slug: "admin-catalog-settings",
-    path: "/portal/admin/catalog",
-    category: "admin",
-    beforeCapture: async (page) => {
-      await page.getByRole("tab", { name: "Settings" }).click();
-      await page.waitForTimeout(300);
-    },
-  },
+  ...adminCatalogRoutes,
   {
     slug: "admin-changelog",
     path: "/portal/admin/changelog",

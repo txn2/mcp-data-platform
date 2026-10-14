@@ -24,6 +24,9 @@ const (
 	KindTag          Kind = "tag"
 	KindDomain       Kind = "domain"
 	KindDataProduct  Kind = "data_product"
+	// KindSchemaDocument is a connection's schema document (an OpenAPI spec, a
+	// GraphQL SDL) the catalog scan read its datasets from (#1918).
+	KindSchemaDocument Kind = "schema_document"
 )
 
 // scheme prefixes every catalog reference, as it does every other internal
@@ -44,6 +47,9 @@ var ErrInvalidRef = errors.New("invalid catalog reference")
 // name: mcp:column:(trino,warehouse,hive.sales.orders,amount). The same table
 // seen through two connections is two datasets.
 //
+// A schema document belongs to its connection and is named by its filename:
+// mcp:schema_document:(api,billing,"openapi.json").
+//
 // A glossary term, glossary node, domain or data product is referenced by its
 // stored id (mcp:glossary_term:<uuid>), so renaming one changes no reference to
 // it; its slug is accepted in place of the id when reading. A tag is its name
@@ -61,7 +67,7 @@ type Ref struct {
 	// Column is the column name, set only on a KindColumn reference.
 	Column string
 	// Key is the id or slug of a glossary term, glossary node, domain or data
-	// product, or the name of a tag.
+	// product, the name of a tag, or a schema document's filename.
 	Key string
 }
 
@@ -76,6 +82,12 @@ func ColumnRef(dataset Ref, column string) Ref {
 		Kind: KindColumn, ConnectionKind: dataset.ConnectionKind, Connection: dataset.Connection,
 		Path: dataset.Path, Column: column,
 	}
+}
+
+// SchemaDocumentRef returns the reference of the schema document a connection
+// keeps under filename.
+func SchemaDocumentRef(connectionKind, connection, filename string) Ref {
+	return Ref{Kind: KindSchemaDocument, ConnectionKind: connectionKind, Connection: connection, Key: filename}
 }
 
 // KeyRef returns the reference of a glossary term, glossary node, domain, data
@@ -110,6 +122,9 @@ func (r Ref) String() string {
 	case KindColumn:
 		return scheme + string(r.Kind) + ":(" + quotePart(r.ConnectionKind) + string(fieldSep) +
 			quotePart(r.Connection) + string(fieldSep) + r.PathString() + string(fieldSep) + quotePart(r.Column) + ")"
+	case KindSchemaDocument:
+		return scheme + string(r.Kind) + ":(" + quotePart(r.ConnectionKind) + string(fieldSep) +
+			quotePart(r.Connection) + string(fieldSep) + quotePart(r.Key) + ")"
 	default:
 		return scheme + string(r.Kind) + ":" + r.Key
 	}
@@ -121,6 +136,11 @@ func (r Ref) Validate() error {
 	switch r.Kind {
 	case KindDataset, KindColumn:
 		return r.validateTuple()
+	case KindSchemaDocument:
+		if r.ConnectionKind == "" || r.Connection == "" || r.Key == "" {
+			return fmt.Errorf("a schema document reference needs a connection kind, a connection and a filename: %w", ErrInvalidRef)
+		}
+		return nil
 	case KindGlossaryTerm, KindGlossaryNode, KindTag, KindDomain, KindDataProduct:
 		if strings.TrimSpace(r.Key) == "" {
 			return fmt.Errorf("a %s reference needs a key: %w", r.Kind, ErrInvalidRef)
@@ -164,6 +184,8 @@ func ParseRef(s string) (Ref, error) {
 	switch kind {
 	case KindDataset, KindColumn:
 		r, err = parseTuple(kind, body)
+	case KindSchemaDocument:
+		r, err = parseDocument(body)
 	default:
 		r = Ref{Kind: kind, Key: body}
 	}
@@ -235,6 +257,22 @@ func parseTuple(kind Kind, body string) (Ref, error) {
 		r.Column = parts[2]
 	}
 	return r, nil
+}
+
+// parseDocument reads the parenthesized body of a schema document reference:
+// three single parts, the last the filename.
+func parseDocument(body string) (Ref, error) {
+	fields, err := tupleFields(body, datasetFields)
+	if err != nil {
+		return Ref{}, err
+	}
+	parts := make([]string, len(fields))
+	for i, f := range fields {
+		if parts[i], err = unquotePart(f); err != nil {
+			return Ref{}, err
+		}
+	}
+	return SchemaDocumentRef(parts[0], parts[1], parts[2]), nil
 }
 
 // parsePath splits a dotted path into its segments, honoring quoted segments.

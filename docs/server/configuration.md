@@ -1377,14 +1377,13 @@ personas:
 
 ## Knowledge Capture Configuration
 
-Knowledge capture records domain knowledge shared during AI sessions and provides a workflow for applying approved insights to the DataHub catalog. See [Knowledge Capture](../knowledge/overview.md) for the full feature documentation.
+Knowledge capture records domain knowledge shared during AI sessions and provides a workflow for applying approved insights to the [platform catalog](catalog.md). See [Knowledge Capture](../knowledge/overview.md) for the full feature documentation.
 
 ```yaml
 knowledge:
   enabled: true
   apply:
     enabled: true
-    datahub_connection: primary
     require_confirmation: true
   reflexive_capture:
     enabled: true
@@ -1407,7 +1406,7 @@ knowledge:
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` (when a database is available) | Enable the knowledge review and write-back toolkit (`apply_knowledge`). Knowledge capture lives in the memory toolkit (`memory_capture`) and is enabled with the memory layer, not this flag |
 | `apply.enabled` | bool | `true` (when a database is available) | Enable the `apply_knowledge` tool for admin review and catalog write-back. Set `false` to disable. Still gated behind database availability. |
-| `apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
+| `apply.datahub_connection` | string | - | Has no effect: `apply_knowledge` writes to the platform catalog. Accepted so a configuration that still sets it starts |
 | `apply.require_confirmation` | bool | `false` | Require explicit `confirm: true` on apply actions |
 | `pages.dedup_threshold` | float | `0.85` | Cosine similarity, in `[0,1]`, at or above which creating a knowledge page is blocked as a near-duplicate of an existing one. The gate acts only when a real embedding provider is configured, since cosine similarity is undefined without one. A non-positive value selects the default; disable the gate with `dedup_disabled` rather than by zeroing this |
 | `pages.dedup_disabled` | bool | `false` | Turn the duplicate gate off entirely. Explicit, so "no gate" is never confused with "left at default" |

@@ -24,6 +24,15 @@ import (
 // `table_name` are typed string, and each is sent in that one form. The
 // catalog settings body is JSON with `scan_interval` a string and
 // `exclusions` an array of objects, its one form.
+//
+// The schema-document criterion reads the stored API operation's dataset
+// through fetch and follows the mcp:schema_document: reference it lists, the
+// same string parameter, as an administrator and as two personas created for
+// it: one allowed the API connection, one allowed only another connection. It
+// writes a page citing the document with apply_knowledge, whose `page` is a
+// JSON object with `references` an array of strings (its one form), and
+// resolves the citation with POST /api/v1/portal/knowledge-pages/refs/resolve,
+// whose `urns` is an array of strings (its one form).
 
 // conn1918 is the writable dev Trino connection the criteria create tables on.
 const conn1918 = scratchConnection
@@ -71,6 +80,13 @@ func ref1918(schema, table string) string {
 // started after the request to finish.
 func scan1918(t *testing.T, c *client) map[string]any {
 	t.Helper()
+	return scanOf1918(t, c, "trino", conn1918)
+}
+
+// scanOf1918 asks for a scan and waits for one of the given connection that
+// started after the request to finish.
+func scanOf1918(t *testing.T, c *client, kind, conn string) map[string]any {
+	t.Helper()
 	// Only a scan of the connection that starts after the request is taken:
 	// one already under way may have read it before the caller's change.
 	requested := time.Now()
@@ -83,20 +99,20 @@ func scan1918(t *testing.T, c *client) map[string]any {
 		scans, _ := body["scans"].([]any)
 		for _, s := range scans {
 			scan, _ := s.(map[string]any)
-			if scan["connection_kind"] != "trino" || scan["connection"] != conn1918 {
+			if scan["connection_kind"] != kind || scan["connection"] != conn {
 				continue
 			}
 			started, err := time.Parse(time.RFC3339Nano, fmt.Sprint(scan["started_at"]))
 			if err == nil && started.After(requested) {
 				if msg, _ := scan["error"].(string); msg != "" {
-					t.Fatalf("the scan of %s failed: %s", conn1918, msg)
+					t.Fatalf("the scan of %s failed: %s", conn, msg)
 				}
 				return scan
 			}
 		}
 		time.Sleep(2 * time.Second)
 	}
-	t.Fatalf("no scan of %s finished within %s of the request", conn1918, scanTimeout)
+	t.Fatalf("no scan of %s finished within %s of the request", conn, scanTimeout)
 	return nil
 }
 
@@ -289,4 +305,167 @@ func TestIssue1918_AnExcludedSchemaIsNotCataloged(t *testing.T) {
 	if found1918(c, ref1918(schema, "hidden")) {
 		t.Error("a table in an excluded schema is cataloged")
 	}
+}
+
+// TestIssue1918_ASchemaDocumentIsKeptAndLinked: a scan keeps an API
+// connection's OpenAPI spec in the catalog and links it from each operation's
+// dataset. fetch on the dataset lists the document; fetch on the document
+// returns the spec to a persona that may use the connection and nothing to one
+// that may not, and a knowledge page citing it lists the citation only to the
+// first. The admin route downloads it, a second scan of the unchanged spec
+// records no version, and no file is written to the resource library.
+func TestIssue1918_ASchemaDocumentIsKeptAndLinked(t *testing.T) {
+	const apiConn = "api-test-fixture"
+	c := connectFor(t, 2*scanTimeout+time.Minute)
+	scanOf1918(t, c, "api", apiConn)
+
+	_, db := issue1917Store(t)
+	var ref string
+	err := db.QueryRow(`SELECT reference FROM catalog_entities
+		WHERE kind = 'dataset' AND connection_kind = 'api' AND connection_name = $1 AND removed_at IS NULL
+		ORDER BY reference LIMIT 1`, apiConn).Scan(&ref)
+	if err != nil {
+		t.Fatalf("no cataloged operation of %s: %v", apiConn, err)
+	}
+
+	doc := issue1917Document(t, c, ref)
+	refs, _ := doc["references"].([]any)
+	if len(refs) != 1 {
+		t.Fatalf("the operation %s lists no schema document: %v", ref, doc)
+	}
+	first, _ := refs[0].(map[string]any)
+	docRef, _ := first["reference"].(string)
+	parsed, err := catalog.ParseRef(docRef)
+	if err != nil || parsed.Kind != catalog.KindSchemaDocument || parsed.Connection != apiConn || first["type"] != "catalog" {
+		t.Fatalf("schema document reference: %v (%v)", first, err)
+	}
+
+	readsSpec := func(reader *client) bool {
+		out := reader.call("fetch", map[string]any{"reference": docRef, "purpose": "Acceptance: reading a kept schema document."})
+		body, _ := out["document"].(map[string]any)
+		return out["found"] == true && strings.Contains(fmt.Sprint(body["body"]), "openapi")
+	}
+	allowed := connectAs(t, member1918(t, c, apiConn))
+	denied := connectAs(t, member1918(t, c, scratchConnection))
+	if !readsSpec(c) {
+		t.Fatalf("fetch %s did not return the spec to an administrator", docRef)
+	}
+	if !readsSpec(allowed) {
+		t.Fatalf("fetch %s did not return the spec to a persona allowed %s", docRef, apiConn)
+	}
+	if readsSpec(denied) {
+		t.Fatalf("fetch %s returned the spec to a persona not allowed %s", docRef, apiConn)
+	}
+	citedOnAPage1918(t, c, allowed, denied, docRef)
+
+	path := "/api/v1/admin/catalog/documents/api/" + apiConn + "/" + parsed.Key
+	status, body := c.restText(path)
+	if status != http.StatusOK || !strings.Contains(body, "openapi") {
+		t.Fatalf("GET %s answered %d: %.200s", path, status, body)
+	}
+
+	version := func() int {
+		var v int
+		if err := db.QueryRow(`SELECT version FROM catalog_documents
+			WHERE connection_kind = 'api' AND connection_name = $1 AND filename = $2`, apiConn, parsed.Key).Scan(&v); err != nil {
+			t.Fatalf("reading the document's version: %v", err)
+		}
+		return v
+	}
+	before := version()
+	scanOf1918(t, c, "api", apiConn)
+	if after := version(); after != before {
+		t.Fatalf("a scan of an unchanged spec recorded a version: %d before, %d after", before, after)
+	}
+
+	var files int
+	if err := db.QueryRow(`SELECT count(*) FROM resources WHERE path LIKE 'catalog/%'`).Scan(&files); err != nil {
+		t.Fatalf("counting resource library files: %v", err)
+	}
+	if files != 0 {
+		t.Fatalf("the scan wrote %d schema documents to the resource library", files)
+	}
+}
+
+// citedOnAPage1918 writes a knowledge page citing docRef and checks that the
+// citation is listed, by fetch and by the portal, for the persona allowed its
+// connection and withheld from the one that is not.
+func citedOnAPage1918(t *testing.T, admin, allowed, denied *client, docRef string) {
+	t.Helper()
+	page := admin.call("apply_knowledge", map[string]any{
+		"action": "apply", "sink": "knowledge_page", "confirm": true,
+		"page": map[string]any{
+			"slug": fmt.Sprintf("acceptance-1918-%d", time.Now().UnixNano()), "title": "Acceptance 1918 spec",
+			"summary": "Written by the #1918 acceptance run.", "force_new": true,
+			"body":       "The fixture's operations are described by " + docRef + ".",
+			"references": []any{docRef},
+		},
+	})
+	pageID, _ := page["page_id"].(string)
+	if pageID == "" {
+		t.Fatalf("apply_knowledge wrote no page: %v", page)
+	}
+	if cs, _ := page["changeset_id"].(string); cs != "" {
+		rollback1696(t, admin, cs)
+	}
+	cites := func(reader *client) (bool, float64) {
+		out := reader.call("fetch", map[string]any{"reference": "mcp:knowledge_page:" + pageID, "purpose": "Acceptance: reading a page that cites a schema document."})
+		doc, _ := out["document"].(map[string]any)
+		refs, _ := doc["references"].([]any)
+		for _, r := range refs {
+			if m, _ := r.(map[string]any); m["reference"] == docRef {
+				return true, 0
+			}
+		}
+		withheld, _ := doc["references_withheld"].(float64)
+		return false, withheld
+	}
+	if listed, _ := cites(allowed); !listed {
+		t.Errorf("the page's citation of %s is not listed for a persona allowed its connection", docRef)
+	}
+	if listed, withheld := cites(denied); listed || withheld < 1 {
+		t.Errorf("the page's citation of %s for a persona not allowed its connection: listed %v, withheld %v", docRef, listed, withheld)
+	}
+	resolve := func(reader *client) bool {
+		status, out := reader.rest(http.MethodPost, "/api/v1/portal/knowledge-pages/refs/resolve",
+			jsonBody(t, map[string]any{"urns": []any{docRef}}))
+		refs, _ := out["refs"].([]any)
+		if status != http.StatusOK || len(refs) != 1 {
+			t.Fatalf("resolving %s answered %d %v", docRef, status, out)
+		}
+		m, _ := refs[0].(map[string]any)
+		return m["accessible"] == true
+	}
+	if !resolve(allowed) || resolve(denied) {
+		t.Errorf("the portal resolves %s for the allowed persona %v and the denied one %v", docRef, resolve(allowed), resolve(denied))
+	}
+}
+
+// member1918 creates a database persona allowed only the named connection, and
+// an API key reaching it, both removed at cleanup.
+func member1918(t *testing.T, admin *client, connection string) string {
+	t.Helper()
+	suffix := time.Now().UnixNano()
+	name := fmt.Sprintf("acc-1918-%d", suffix)
+	role := fmt.Sprintf("acc_1918_%d", suffix)
+	status, out := admin.rest(http.MethodPost, "/api/v1/admin/personas", jsonBody(t, map[string]any{
+		"name": name, "display_name": "Acceptance 1918 member", "roles": []any{role},
+		"allow_tools": []any{"*"}, "allow_connections": []any{connection},
+	}))
+	if status != http.StatusCreated {
+		t.Fatalf("creating persona %s answered %d %v", name, status, out)
+	}
+	t.Cleanup(func() { admin.rest(http.MethodDelete, "/api/v1/admin/personas/"+name, http.NoBody) })
+	status, out = admin.rest(http.MethodPost, "/api/v1/admin/auth/keys", jsonBody(t, map[string]any{
+		"name": name, "roles": []any{role}, "description": "Acceptance #1918 member",
+	}))
+	if status != http.StatusCreated && status != http.StatusOK {
+		t.Fatalf("creating key %s answered %d %v", name, status, out)
+	}
+	t.Cleanup(func() { admin.rest(http.MethodDelete, "/api/v1/admin/auth/keys/"+name, http.NoBody) })
+	key, _ := out["key"].(string)
+	if key == "" {
+		t.Fatalf("key %s was created without a secret: %v", name, out)
+	}
+	return key
 }

@@ -9,7 +9,7 @@ The separate admin Knowledge & Memory page was merged into the unified **Knowled
 Inside the Knowledge page, `apply_knowledge` holders get:
 
 - **Review queue** (Insights tab) - All captured insights across users, with status/category/confidence filters and an insight detail drawer (full metadata, entity URNs, suggested actions, related columns, review notes, approve/reject actions). A pending-review count is badged on the sidebar Knowledge item and the Insights tab.
-- **Changesets** (Knowledge tab) - The record of insights promoted into knowledge: the target DataHub URN or knowledge page, change type, who applied it, and status, with rollback to revert applied changes. They sit with the promoted knowledge rather than with the unpromoted insights in the review pipeline.
+- **Changesets** (Knowledge tab) - The record of insights promoted into knowledge: the target catalog reference or knowledge page, change type, who applied it, and status, with rollback to revert applied changes. They sit with the promoted knowledge rather than with the unpromoted insights in the review pipeline.
 
 Opening an insight from the review queue shows the full review drawer: the captured statement, entity URNs, suggested catalog actions, related columns, the capture/review/apply audit trail, and approve/reject controls.
 

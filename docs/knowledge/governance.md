@@ -1,12 +1,12 @@
 ---
-description: Active metadata management through human-in-the-loop curation. Review, approve, synthesize, and apply captured insights to DataHub with changeset tracking and rollback.
+description: Active metadata management through human-in-the-loop curation. Review, approve, synthesize, and apply captured insights to the platform catalog with changeset tracking and rollback.
 ---
 
 # Governance Workflow
 
 Knowledge capture turns catalog metadata into something that evolves with use. Instead of metadata being a static artifact maintained by a central team, it improves continuously as domain experts share what they know during their normal work. This is active metadata management: the catalog gets better every time someone uses it.
 
-This page covers the admin-side workflow for reviewing captured insights and writing approved changes back to DataHub.
+This page covers the admin-side workflow for reviewing captured insights and writing approved changes to the [platform catalog](../server/catalog.md).
 
 ## The Review Process
 
@@ -91,7 +91,7 @@ Each part of the response is bounded so it stays under the tool output limit eve
 
 ### Review by Entity
 
-Drill into a specific entity to see its pending insights alongside current DataHub metadata:
+Drill into a specific entity to see its pending insights alongside its current catalog curation:
 
 ```json
 {
@@ -102,7 +102,7 @@ Drill into a specific entity to see its pending insights alongside current DataH
 
 Response includes:
 
-- Current DataHub metadata (description, tags, glossary terms, owners)
+- Current catalog curation (description, tags, glossary terms, owners)
 - All insights for this entity with their categories, text, confidence, and suggested actions
 
 This side-by-side view helps admins assess whether an insight adds value compared to what's already in the catalog.
@@ -211,22 +211,27 @@ The synthesis output shows current values alongside proposed changes, so admins 
 
 ## Applying Changes
 
-The `apply` action writes changes to DataHub and records a changeset. This is the data catalog write-back step.
+The `apply` action writes changes to the platform catalog and records a changeset. `entity_urn` is the catalog reference of the dataset, column or definition; a DataHub dataset URN is read as the catalog dataset with the same path, on the first connection that catalogs it.
 
 ```json
 {
   "action": "apply",
-  "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+  "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
   "changes": [
     {
       "change_type": "update_description",
-      "target": "entity",
+      "target": "",
       "detail": "Order records with gross margin amounts (before returns)"
     },
     {
       "change_type": "add_tag",
-      "target": "entity",
+      "target": "",
       "detail": "gross-margin"
+    },
+    {
+      "change_type": "update_description",
+      "target": "column:amount",
+      "detail": "Gross margin before returns, not revenue."
     }
   ],
   "insight_ids": ["a1b2c3d4e5f6"],
@@ -239,61 +244,55 @@ When `require_confirmation` is enabled in configuration and `confirm` is not `tr
 ```json
 {
   "confirmation_required": true,
-  "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
-  "changes_count": 2,
+  "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
+  "changes_count": 3,
   "message": "Set confirm: true to apply these changes."
 }
 ```
 
+The changes of one apply are written in one transaction, checked against what the apply read: when another writer changed one of those aspects in between, the apply reads and plans again (up to three times), so two applies to one entity at once both land. A change that cannot be applied (an incident id the dataset does not have, a column it does not have, a link with no URL) writes nothing, including the changes listed before it, and the error names the change.
+
 ### Supported Change Types
 
-| Change Type | Description | Target Field | Detail Field |
-|-------------|-------------|-------------|--------------|
-| `update_description` | Update entity or column description | `column:<fieldPath>` for columns, empty for dataset-level | New description text |
-| `add_tag` | Add a tag to the entity | (ignored) | Tag name or URN (e.g., `pii` or `urn:li:tag:pii`) |
-| `remove_tag` | Remove a tag from the entity | (ignored) | Tag name or URN to remove |
-| `add_glossary_term` | Associate a glossary term | (ignored) | Glossary term name or URN |
-| `flag_quality_issue` | Add fixed `QualityIssue` tag and, on incident-supporting entity types with a detail, raise a deduped DataHub incident ("Data quality issue") carrying the detail | (ignored) | Issue description (raised as the incident description; empty, or an unsupported entity type, means tag only) |
-| `add_documentation` | Add a documentation link | URL of the documentation | Link description |
-| `add_curated_query` | Create a reusable Query entity linked to the dataset | (ignored) | Query name. Also requires `query_sql` (SQL statement) and optionally `query_description` |
+A dataset and its columns carry every kind of curation; curated queries, incidents and context documents are dataset-only; a glossary term, glossary node, domain, data product or tag carries a description, owners, custom properties and documentation links. `update_description`, `add_tag`, `remove_tag` and `add_glossary_term` take `target: "column:<name>"` to address a column of the dataset.
 
-Tag names and glossary term names are automatically normalized to full DataHub URNs (e.g., `pii` becomes `urn:li:tag:pii`).
+| Change Type | Description | Target Field | Detail Field |
+|-------------|-------------|--------------|--------------|
+| `update_description` | Set the description | `column:<name>` or empty | Description text |
+| `add_tag` / `remove_tag` | Add or remove a tag | `column:<name>` or empty | Tag name (`mcp:tag:` and `urn:li:tag:` prefixes are read as the name) |
+| `add_glossary_term` | Attach a glossary term; a name the catalog does not hold creates the term | `column:<name>` or empty | Term reference or name |
+| `flag_quality_issue` | Add the `QualityIssue` tag and, on a dataset with a detail, open a `Data quality issue` incident carrying it (one per open detail) | (ignored) | Issue description |
+| `add_documentation` | Add a documentation link (one per URL) | URL | Link description |
+| `add_curated_query` | Keep a statement as a curated query on the dataset (one per name) | (ignored) | Query name. Also requires `query_sql`, and optionally `query_description` |
+| `set_structured_property` / `remove_structured_property` | Set or remove a structured property | Property name | Value or JSON array |
+| `raise_incident` / `resolve_incident` | Open an incident, or resolve one by id | Title / incident id | Description / resolution message |
+| `add_context_document` / `update_context_document` / `remove_context_document` | Keep a document about the dataset | Title / document id | Content (`query_sql` a new title, `query_description` the category) |
+| `set_custom_property` / `remove_custom_property` | Set or remove a custom property | Key | Value |
+| `delete_tag` | Take the tag `entity_urn` names (`mcp:tag:<name>`) off every dataset and column carrying it | (ignored) | (ignored) |
 
 ### Apply Response
 
 ```json
 {
   "changeset_id": "cs_x1y2z3a4b5c6",
-  "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
-  "changes_applied": 2,
+  "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
+  "changes_applied": 3,
+  "catalog_changes": 3,
   "insights_marked_applied": 1,
   "revertible": true,
   "resulting_state": {
     "description": "Order records with gross margin amounts (before returns)",
-    "tags": ["urn:li:tag:gross-margin"],
+    "tags": ["gross-margin"],
     "glossary_terms": [],
     "owners": []
   },
-  "message": "Changes applied to DataHub. Roll back with action=rollback changeset_id=cs_x1y2z3a4b5c6. changes_applied counts requested changes; verify against resulting_state below."
+  "message": "Changes written to the platform catalog. Roll back with action=rollback changeset_id=cs_x1y2z3a4b5c6."
 }
 ```
 
-Source insights move to `applied` status with a reference to the changeset.
+Source insights move to `applied` status with a reference to the changeset. `catalog_changes` counts the aspects written; several changes to one aspect of one entity (two tags) are one write. `resulting_state` is a fresh read of the entity's description, tags, glossary terms and owners. `created_ids` lists what the apply created: the id of each incident and context document, which a later `resolve_incident` or `update_context_document` names, and the reference of each glossary term it created.
 
-The `revertible` boolean states whether the changeset can be rolled back automatically before you try. Rollback is all-or-nothing (it reverts nothing if any single change lacks a recoverable before-image), so revertibility is binary: `true` only when every change is revertible, `false` when any change is not (there is no partial rollback). It is computed with the same gate rollback enforces, so the response never advertises a rollback the changeset cannot perform. When `revertible` is `false`, an `unrevertible_change_types` array names the blocking change types and the `message` states why (no before-image) instead of instructing a rollback. The common case is a column-level `update_description`: the before-image captures only the entity-level description, so a column description change is recorded for audit but cannot be auto-reverted; restore prior state with a new apply.
-
-`revertible` reports *structural* revertibility (whether the recorded before-image supports an inverse), not runtime availability. A structurally revertible changeset can still be refused at rollback time because it was already rolled back or a newer changeset has since modified the same aspect. The `list_changesets` view folds the already-rolled-back state into its `revertible` flag; the newer-changeset conflict is surfaced only when the rollback is attempted.
-
-`changes_applied` counts the changes that were dispatched without error; a duplicate add (for example a tag that was already present) is a no-op upstream and still counts. The `resulting_state` field is a fresh read-back of the entity's description, tags, glossary terms, and owners after the apply, so callers can confirm what actually persisted without a follow-up call. Writes are not transactional: if a change in the middle of the list fails, earlier changes have already persisted and are reported in the error message rather than silently rolled back.
-
-`resulting_state` reads `tags` and `glossary_terms` from the authoritative DataHub aspects. REST-exposed types (datasets, dashboards, charts, data flows, data jobs, containers, data products) are read from the REST aspects, and three GraphQL-only types (`domain`, `glossaryTerm`, `glossaryNode`) are read through the entity query (which surfaces those aspects as of `mcp-datahub` v1.10.2). `description` and `owners` come from the entity query for datasets and dashboards and from dedicated getters for data products and glossary terms.
-
-Some fields cannot be read for some entity types and come back empty even when set, so for those types treat an empty value as "not read" rather than "not set":
-
-- `tags` and `glossary_terms` are empty for `document` entities (no read path exists for their associations).
-- `description` and `owners` are empty for entity types with no dedicated read and no dataset/dashboard entity-query fragment (`domain`, `glossaryNode`, `container`, `chart`, `dataFlow`, `dataJob`).
-
-These same gaps apply to the changeset before-image, so a rollback cannot restore a field it could not read: do not rely on rollback to restore `tags`/`glossary_terms` on a `document`, or `description`/`owners` on those getter-less types.
+`revertible` is `true` for every catalog changeset except one that created a prompt, which a rollback does not delete.
 
 ## Changeset Tracking
 
@@ -302,27 +301,27 @@ Every `apply` action creates a changeset record in the `knowledge_changesets` ta
 | Field | Description |
 |-------|-------------|
 | `id` | Unique changeset identifier |
-| `target_urn` | The DataHub entity that was modified |
+| `target_urn` | The catalog reference of the entity the apply named |
 | `change_type` | Summary of change types applied (or `multiple`) |
-| `previous_value` | Entity metadata before changes (description, tags, glossary terms, owners) |
-| `new_value` | Changes that were applied |
+| `previous_value` | The entity's description, tags, glossary terms and owners before the apply |
+| `new_value` | The changes that were applied, and `catalog_changes`: the ids of the catalog changes the apply wrote |
 | `source_insight_ids` | Insights that produced this changeset |
 | `applied_by` | User who applied the changes |
 | `rolled_back` | Whether this changeset has been reverted |
 | `rolled_back_by` | Who reverted the changes |
 | `rolled_back_at` | When the changes were reverted |
 
-The `previous_value` field captures the entity's metadata (description, tags, glossary terms, owners) at the time of application. This before-image is what bounds rollback: a change can be reverted only when its prior state is recoverable from this snapshot.
+The catalog keeps every write of every aspect with the value it replaced (see [Curation](../server/catalog.md#curation)), so a rollback restores exactly what each recorded change replaced, whatever its type.
 
 ## Discovering Changesets
 
 Use the `list_changesets` action to find an entity's changesets without already holding their ids (for example, before a rollback):
 
 ```json
-{ "action": "list_changesets", "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)" }
+{ "action": "list_changesets", "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)" }
 ```
 
-Each entry returns `changeset_id`, `created_at`, `applied_by`, `change_type`, `source_insight_ids`, the current `rolled_back` status, and the same `revertible` boolean (plus `unrevertible_change_types` when `false`) the apply response carries, so a caller can filter out structurally unrevertible or already-rolled-back changesets before issuing a rollback.
+A DataHub dataset URN finds the changesets recorded under the catalog reference it is read as. Each entry returns `changeset_id`, `created_at`, `applied_by`, `change_type`, `source_insight_ids`, the current `rolled_back` status, and the same `revertible` boolean (plus `unrevertible_change_types` when `false`) the apply response carries.
 
 ## Rollback
 
@@ -338,25 +337,18 @@ curl -X POST \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-Rollback reverts each change the apply made, back to its before-image:
-
-- A tag, glossary term, or documentation link the apply **added** is removed, **unless** it was already present in the before-image (in which case the add was a no-op and the pre-existing value is kept). This is what preserves an entity's canonical glossary term when an apply added another term alongside it.
-- A tag the apply **removed** is restored.
-- A description the apply changed is reset to the prior description.
-- An incident the apply **created** (the `flag_quality_issue` detail incident) is resolved. Its URN is recorded in the changeset's `new_value` (`created_urns`) so the rollback can find it.
+Rollback restores every aspect the changeset wrote to the value it replaced, in one transaction, and records each restore as a change of its own. It undoes every change type: descriptions, tags, glossary terms, documentation links, curated queries, properties, incidents, context documents, a `delete_tag` across every entity it touched, and a `bulk_untag`.
 
 The rollback also returns the changeset's source insights to the review queue as `pending` (listed in the response's `insights_returned_to_review`) and records the rollback as its own auditable tool call referencing the original `changeset_id`.
 
 Returning them is the point: reverting an application usually means the promotion went to the wrong destination, cited the wrong entity, or was worded badly, not that the underlying fact is worthless. A returned insight keeps its `applied_by`, `applied_at` and `changeset_ref` and carries a `review_notes` line naming the rolled-back changeset, so the reviewer who sees it next knows what was already tried. It is counted and itemized by `bulk_review` like any other pending insight, and it can be edited, approved and applied again, or rejected. `reject` remains the way to discard an insight permanently. An insight that is not in the `applied` state is left untouched, so rolling a changeset back twice never resurrects an insight that has since been decided.
 
-**When rollback is refused (rather than silently applied):**
+**When rollback is refused, and nothing is reverted:**
 
 - The changeset has already been rolled back.
-- A newer, not-yet-rolled-back changeset has since modified the same aspect on the same entity. Reverting would clobber that newer change, so the rollback is blocked and names the conflicting changeset; roll the newer one back first, or restore the desired state with a fresh apply.
-- The changeset contains change types whose prior state was not captured in the before-image and therefore cannot be reverted automatically: column-level descriptions, structured properties, incidents, curated queries, context documents, and prompts. For these, restore the desired state with a new apply.
-- The changeset targets an entity type whose affected field could not be read into the before-image, so reverting would write an empty value over a real one. This covers `update_description` on entity types with no readable description (`domain`, `glossaryNode`, `container`, `chart`, `dataFlow`, `dataJob`) and tag or glossary-term changes on `document` entities. The rollback is refused rather than risking the overwrite; restore the desired state with a new apply.
-
-When the changeset contains a mix of revertible and unrevertible change types, the rollback is refused as a whole so it never leaves the entity in a partially reverted state.
+- An aspect it wrote has been written again since, by any writer. Reverting would discard that newer write, so the rollback names it (the aspect, the entity, who wrote it and when); roll that change back first, or restore the desired state with a fresh apply.
+- It created a prompt, which a rollback does not delete.
+- It was applied to DataHub before the platform catalog replaced it, so its writes are not in the catalog's history. Restore the desired state with a fresh apply.
 
 ## Complete Workflow Example
 
@@ -369,7 +361,6 @@ sequenceDiagram
     participant Platform as mcp-data-platform
     participant DB as PostgreSQL
     participant Admin
-    participant DH as DataHub
 
     Note over Analyst,AI: Discovery phase
     Analyst->>AI: What does the amount column mean?
@@ -378,28 +369,25 @@ sequenceDiagram
     Analyst->>AI: That's gross margin before returns,<br/>not revenue like the name suggests
 
     Note over AI,Platform: Capture
-    AI->>Platform: memory_capture(<br/>type: schema_entity,<br/>source: user,<br/>entity_urns: [urn:li:dataset:...orders...],<br/>content: "amount column is gross margin<br/>before returns, not revenue",<br/>confidence: high,<br/>suggested_actions: [{<br/>  action_type: update_description,<br/>  target: amount,<br/>  detail: "Gross margin before returns"<br/>}])
+    AI->>Platform: memory_capture(<br/>type: schema_entity,<br/>source: user,<br/>entity_urns: [mcp:dataset:(trino,warehouse,hive.sales.orders)],<br/>content: "amount column is gross margin<br/>before returns, not revenue",<br/>confidence: high)
     Platform->>DB: INSERT (status: pending)
     Platform-->>AI: Insight captured: a1b2c3
 
-    Note over Admin,DH: Review phase (later)
+    Note over Admin,DB: Review phase (later)
     Admin->>Platform: apply_knowledge(action: bulk_review)
     Platform-->>Admin: 1 pending insight for orders
 
     Admin->>Platform: apply_knowledge(action: review,<br/>entity_urn: ...orders...)
-    Platform->>DH: Get current metadata
+    Platform->>DB: Read the catalog curation
     Platform-->>Admin: Current: no description<br/>Insight: "amount is gross margin"
 
     Admin->>Platform: apply_knowledge(action: approve,<br/>insight_ids: [a1b2c3])
     Platform->>DB: UPDATE status = approved
 
-    Note over Admin,DH: Apply phase
-    Admin->>Platform: apply_knowledge(action: synthesize,<br/>entity_urn: ...orders...)
-    Platform-->>Admin: Proposed: update amount description
-
-    Admin->>Platform: apply_knowledge(action: apply,<br/>changes: [{update_description,<br/>amount, "Gross margin before returns"}],<br/>insight_ids: [a1b2c3],<br/>confirm: true)
-    Platform->>DH: Update column description
-    Platform->>DB: INSERT changeset (previous_value saved)
+    Note over Admin,DB: Apply phase
+    Admin->>Platform: apply_knowledge(action: apply,<br/>changes: [{update_description,<br/>column:amount, "Gross margin before returns"}],<br/>insight_ids: [a1b2c3],<br/>confirm: true)
+    Platform->>DB: Write the column description and record the change
+    Platform->>DB: INSERT changeset (the catalog change ids)
     Platform->>DB: UPDATE insight status = applied
     Platform-->>Admin: Changeset cs_x1y2 recorded
 ```

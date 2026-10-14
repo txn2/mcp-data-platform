@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogscan"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 )
 
 var errBoom = errors.New("boom")
@@ -121,4 +123,63 @@ func TestScanRoutes(t *testing.T) {
 
 	rec = serve(t, Config{}, http.MethodGet, scansPath, "")
 	assert.Equal(t, http.StatusNotFound, rec.Code, "no store mounts nothing")
+}
+
+type fakeDocuments struct {
+	docs    []catalog.SchemaDocument
+	listErr error
+	getErr  error
+	asked   catalog.Ref
+}
+
+func (f *fakeDocuments) ListDocuments(context.Context) ([]catalog.SchemaDocument, error) {
+	return f.docs, f.listErr
+}
+
+func (f *fakeDocuments) GetDocument(_ context.Context, ref catalog.Ref) (*catalog.SchemaDocument, error) {
+	f.asked = ref
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return &catalog.SchemaDocument{
+		Filename: ref.Key, MIMEType: "application/json", Content: []byte(`{"openapi":"3.0.0"}`),
+		UpdatedAt: time.Date(2026, 10, 13, 9, 0, 0, 0, time.UTC),
+	}, nil
+}
+
+func TestDocumentRoutes(t *testing.T) {
+	docs := &fakeDocuments{docs: []catalog.SchemaDocument{{
+		Reference: `mcp:schema_document:(api,billing,"openapi.json")`, ConnectionKind: "api", Connection: "billing",
+		Filename: "openapi.json", MIMEType: "application/json", SizeBytes: 19, Version: 2,
+	}}}
+	cfg := Config{Store: &fakeStore{}, Documents: docs}
+
+	rec := serve(t, cfg, http.MethodGet, documentsPath, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var list DocumentList
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	require.Len(t, list.Documents, 1)
+	assert.Equal(t, 2, list.Documents[0].Version)
+	assert.NotContains(t, rec.Body.String(), `"content"`, "a listing carries no content")
+
+	rec = serve(t, cfg, http.MethodGet, documentsPath+"/api/billing/openapi.json", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, `{"openapi":"3.0.0"}`, rec.Body.String())
+	assert.Equal(t, catalog.SchemaDocumentRef("api", "billing", "openapi.json"), docs.asked)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.Contains(t, rec.Header().Get("Content-Disposition"), "attachment")
+	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+
+	docs.getErr = catalog.ErrNotFound
+	rec = serve(t, cfg, http.MethodGet, documentsPath+"/api/billing/missing.json", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	docs.getErr = errBoom
+	rec = serve(t, cfg, http.MethodGet, documentsPath+"/api/billing/openapi.json", "")
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	docs.listErr = errBoom
+	rec = serve(t, cfg, http.MethodGet, documentsPath, "")
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+
+	rec = serve(t, Config{Store: &fakeStore{}}, http.MethodGet, documentsPath, "")
+	assert.Equal(t, http.StatusNotFound, rec.Code, "no document reader mounts no document routes")
 }

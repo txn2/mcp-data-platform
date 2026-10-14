@@ -77,6 +77,20 @@ describe("parseRef", () => {
     expect(parseRef("urn:li:glossaryTerm:revenue")?.fallbackLabel).toBe("revenue");
   });
 
+  it("parses a platform catalog reference with the table, column or key as its label (#1923)", () => {
+    expect(parseRef("mcp:dataset:(trino,acme,hive.sales.orders)")).toEqual({
+      urn: "mcp:dataset:(trino,acme,hive.sales.orders)",
+      type: "catalog",
+      id: "",
+      fallbackLabel: "orders",
+    });
+    expect(parseRef("mcp:column:(trino,acme,hive.sales.orders,amount)")?.fallbackLabel).toBe("orders.amount");
+    expect(parseRef("mcp:glossary_term:net-revenue")?.fallbackLabel).toBe("net-revenue");
+    expect(parseRef("mcp:tag:pii")?.type).toBe("catalog");
+    expect(parseRef('mcp:schema_document:(api,billing,"openapi.json")')?.fallbackLabel).toBe("billing openapi.json");
+    expect(refHref("catalog", "", "mcp:tag:pii")).toBeNull();
+  });
+
   it("rejects malformed references", () => {
     expect(parseRef("mcp:")).toBeNull();
     expect(parseRef("mcp:asset:")).toBeNull();

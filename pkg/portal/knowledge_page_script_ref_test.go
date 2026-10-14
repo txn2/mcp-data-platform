@@ -37,7 +37,9 @@ func scriptRefHandler(user *User, lookup func(context.Context, string) (string, 
 
 func resolveOne(t *testing.T, h *Handler, urn string) resolvedRef {
 	t.Helper()
-	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve", `{"urns":["`+urn+`"]}`)
+	body, err := json.Marshal(map[string][]string{"urns": {urn}})
+	require.NoError(t, err)
+	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve", string(body))
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp resolveResp
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))

@@ -9,6 +9,7 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
@@ -37,7 +38,7 @@ func TestNew_NilDBIsNoop(t *testing.T) {
 	assert.Nil(t, h.InsightStore())
 	assert.Nil(t, h.ChangesetStore())
 	assert.Nil(t, h.Toolkit())
-	assert.Nil(t, h.DataHubWriter())
+	assert.Nil(t, h.Catalog())
 }
 
 func TestNew_InsightStoreSelection(t *testing.T) {
@@ -65,72 +66,29 @@ func TestNew_InsightStoreSelection(t *testing.T) {
 }
 
 func TestNew_ApplyGating(t *testing.T) {
-	t.Run("apply disabled leaves changeset store and writer nil", func(t *testing.T) {
-		h, err := New(dummyDB(t), nil, nil, Config{ToolkitName: "default", ApplyEnabled: false})
+	t.Run("apply disabled leaves changeset store and catalog nil", func(t *testing.T) {
+		h, err := New(dummyDB(t), nil, nil, Config{ToolkitName: "default", ApplyEnabled: false, Catalog: catalogstore.New(dummyDB(t))})
 		require.NoError(t, err)
 		require.NotNil(t, h)
 		assert.NotNil(t, h.Toolkit(), "toolkit is always built")
 		assert.Nil(t, h.ChangesetStore(), "no changeset store when apply is disabled")
-		assert.Nil(t, h.DataHubWriter(), "no writer when apply is disabled")
+		assert.Nil(t, h.Catalog(), "no catalog when apply is disabled")
 	})
 
-	t.Run("apply enabled builds changeset store and noop writer without a connection", func(t *testing.T) {
+	t.Run("apply enabled without a catalog builds the changeset store", func(t *testing.T) {
 		h, err := New(dummyDB(t), nil, nil, Config{ToolkitName: "default", ApplyEnabled: true})
 		require.NoError(t, err)
 		require.NotNil(t, h)
 		assert.NotNil(t, h.ChangesetStore(), "changeset store built when apply is enabled")
-		require.NotNil(t, h.DataHubWriter())
-		_, ok := h.DataHubWriter().(*knowledgekit.NoopDataHubWriter)
-		assert.True(t, ok, "nil DataHub config selects the noop writer")
+		assert.Nil(t, h.Catalog())
 	})
 
-	t.Run("apply enabled with an invalid connection fails construction", func(t *testing.T) {
-		_, err := New(dummyDB(t), nil, nil, Config{
-			ToolkitName:            "default",
-			ApplyEnabled:           true,
-			ApplyDataHubConnection: "primary",
-			DataHub:                &DataHubConfig{URL: "", Token: ""},
-		})
-		require.Error(t, err, "an unbuildable DataHub client propagates as an error")
-	})
-
-	t.Run("apply enabled with a connection builds the real writer", func(t *testing.T) {
-		h, err := New(dummyDB(t), nil, nil, Config{
-			ToolkitName:            "default",
-			ApplyEnabled:           true,
-			ApplyDataHubConnection: "primary",
-			DataHub:                &DataHubConfig{URL: "http://datahub:8080", Token: "test-token"},
-		})
+	t.Run("apply enabled with a catalog hands it to the toolkit", func(t *testing.T) {
+		store := catalogstore.New(dummyDB(t))
+		h, err := New(dummyDB(t), nil, nil, Config{ToolkitName: "default", ApplyEnabled: true, Catalog: store})
 		require.NoError(t, err)
 		require.NotNil(t, h)
-		require.NotNil(t, h.DataHubWriter())
-		observed, ok := h.DataHubWriter().(observedWriter)
-		require.True(t, ok, "the writer is observed")
-		_, ok = observed.w.(*knowledgekit.DataHubClientWriter)
-		assert.True(t, ok, "a resolved DataHub config selects the real client writer")
-	})
-}
-
-func TestBuildDataHubWriter(t *testing.T) {
-	t.Run("nil config yields the noop writer", func(t *testing.T) {
-		w, err := buildDataHubWriter("nonexistent", nil)
-		require.NoError(t, err)
-		_, ok := w.(*knowledgekit.NoopDataHubWriter)
-		assert.True(t, ok, "expected NoopDataHubWriter when connection not found")
-	})
-
-	t.Run("valid config yields the client writer", func(t *testing.T) {
-		w, err := buildDataHubWriter("primary", &DataHubConfig{URL: "http://datahub:8080", Token: "test-token"})
-		require.NoError(t, err)
-		observed, ok := w.(observedWriter)
-		require.True(t, ok, "expected the client writer behind the observing decorator")
-		_, ok = observed.w.(*knowledgekit.DataHubClientWriter)
-		assert.True(t, ok, "expected DataHubClientWriter for a valid connection")
-	})
-
-	t.Run("empty url yields an error", func(t *testing.T) {
-		_, err := buildDataHubWriter("primary", &DataHubConfig{URL: "", Token: ""})
-		require.Error(t, err, "expected error for invalid datahub config")
+		assert.Same(t, store, h.Catalog())
 	})
 }
 

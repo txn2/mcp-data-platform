@@ -94,8 +94,7 @@ An instance has two names, and which one a caller uses depends on the kind.
 
 The `instances:` key (`primary`, `data_lake`) is the configuration identity. It
 is the name `default:`, `semantic.instance`, `query.instance`,
-`storage.instance`, `knowledge.apply.datahub_connection` and
-`resources.managed.s3_connection` resolve, and the name a knowledge page cites a
+`storage.instance` and `resources.managed.s3_connection` resolve, and the name a knowledge page cites a
 connection by (`mcp:connection:(datahub,primary)`).
 
 `connection_name` renames the connection for callers of the DataHub and S3
@@ -178,7 +177,7 @@ Which catalog or warehouse a request means when it names none is a deployment de
 
 A kind that is configured but not enabled is still asked for a default. The semantic, query and storage providers read an instance's settings through the same lookup whether or not the kind registers tools, so a catalog used only for enrichment still has to say which of its instances the enrichment reads.
 
-The `default:` answers the lookups that name no instance: the provider blocks below when their `instance` is left unset, `knowledge.apply.datahub_connection`, `resources.managed.s3_connection`, and the connection a Trino or S3 tool call uses when it passes no `connection` parameter. Trino and S3 are each one toolkit over all of their instances, routed by that parameter; DataHub is one toolkit per instance.
+The `default:` answers the lookups that name no instance: the provider blocks below when their `instance` is left unset, `resources.managed.s3_connection`, and the connection a Trino or S3 tool call uses when it passes no `connection` parameter. Trino and S3 are each one toolkit over all of their instances, routed by that parameter; DataHub is one toolkit per instance.
 
 ```yaml
 semantic:

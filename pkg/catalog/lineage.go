@@ -12,6 +12,8 @@ const (
 	WriterRegistration WriterKind = "registration"
 	WriterWebhook      WriterKind = "webhook"
 	WriterManual       WriterKind = "manual"
+	// WriterImport is an edge the DataHub import carried over (#1923).
+	WriterImport WriterKind = "import"
 )
 
 // Edge is one lineage edge: data moved from Source to Target. Both are

@@ -264,7 +264,8 @@ function callDecision(record: CallRecord) {
     return (
       <SectionCard title="Published">
         <p className="text-sm">
-          Promoted by {record.promoted_by || "an operator"} as{" "}
+          Promoted by {record.promoted_by || "an operator"}{" "}
+          {record.kind === "sql" ? "as a curated query on" : "as"}{" "}
           <span className="font-mono text-xs break-all">{record.promoted_urn}</span>
         </p>
       </SectionCard>

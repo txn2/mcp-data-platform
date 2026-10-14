@@ -398,3 +398,144 @@ func TestStore_MarkDatasetRemoved_RealDB(t *testing.T) {
 	require.NoError(t, s.MarkDatasetRemoved(ctx, catalog.DatasetRef("trino", "w", "a", "b", "absent")),
 		"a dataset the store does not hold is not an error")
 }
+
+// WriteAspects is all-or-nothing: an edit the store refuses leaves every
+// earlier edit in the call unwritten.
+func TestStore_WriteAspectsIsAtomic_RealDB(t *testing.T) {
+	ctx := context.Background()
+	s := New(testdb.New(t))
+	putOrders(t, s, "id", "amount")
+	amount := catalog.ColumnRef(ordersRef, "amount")
+
+	changes, err := s.WriteAspects(ctx, []catalog.AspectEdit{
+		{Ref: ordersRef, Aspect: catalog.AspectDescription, Value: json.RawMessage(`"Orders"`)},
+		{Ref: amount, Aspect: catalog.AspectTags, Value: json.RawMessage(`["money"]`)},
+	}, "ana@example.com")
+	require.NoError(t, err)
+	require.Len(t, changes, 2)
+	assert.Equal(t, amount.String(), changes[1].Reference)
+
+	_, err = s.WriteAspects(ctx, []catalog.AspectEdit{
+		{Ref: ordersRef, Aspect: catalog.AspectDescription, Value: json.RawMessage(`"Changed"`)},
+		{Ref: amount, Aspect: catalog.AspectIncidents, Value: json.RawMessage(`[]`)},
+	}, "ana@example.com")
+	require.ErrorIs(t, err, catalog.ErrAspectNotAllowed)
+	_, err = s.WriteAspects(ctx, []catalog.AspectEdit{
+		{Ref: ordersRef, Aspect: catalog.AspectDescription, Value: json.RawMessage(`"Changed"`)},
+		{Ref: catalog.DatasetRef("trino", "warehouse", "hive", "sales", "missing"), Aspect: catalog.AspectTags, Value: json.RawMessage(`["x"]`)},
+	}, "ana@example.com")
+	require.ErrorIs(t, err, catalog.ErrNotFound)
+
+	got, err := s.GetDataset(ctx, ordersRef)
+	require.NoError(t, err)
+	assert.Equal(t, "Orders", got.Aspects.Description)
+}
+
+// RevertChanges undoes a set of changes in one transaction, and refuses all
+// of them, naming the newer write, when one's aspect was written since.
+func TestStore_RevertChanges_RealDB(t *testing.T) {
+	ctx := context.Background()
+	s := New(testdb.New(t))
+	putOrders(t, s, "id")
+
+	_, err := s.WriteAspect(ctx, ordersRef, catalog.AspectDescription, json.RawMessage(`"v1"`), "ana")
+	require.NoError(t, err)
+	applied, err := s.WriteAspects(ctx, []catalog.AspectEdit{
+		{Ref: ordersRef, Aspect: catalog.AspectDescription, Value: json.RawMessage(`"v2"`)},
+		{Ref: ordersRef, Aspect: catalog.AspectTags, Value: json.RawMessage(`["pii"]`)},
+	}, "agent")
+	require.NoError(t, err)
+	ids := []string{applied[1].ID, applied[0].ID}
+
+	newer, err := s.WriteAspect(ctx, ordersRef, catalog.AspectTags, json.RawMessage(`["pii","finance"]`), "bo")
+	require.NoError(t, err)
+	_, err = s.RevertChanges(ctx, ids, "admin")
+	var conflict *catalog.ConflictError
+	require.ErrorAs(t, err, &conflict)
+	assert.Equal(t, newer.ID, conflict.Newer.ID)
+	assert.Equal(t, "bo", conflict.Newer.WrittenBy)
+	assert.Equal(t, catalog.AspectTags, conflict.Aspect)
+	got, err := s.GetDataset(ctx, ordersRef)
+	require.NoError(t, err)
+	assert.Equal(t, "v2", got.Aspects.Description, "nothing reverted")
+
+	_, err = s.Rollback(ctx, newer.ID, "bo")
+	require.NoError(t, err)
+	_, err = s.RevertChanges(ctx, ids, "admin")
+	require.ErrorAs(t, err, &conflict, "the rollback of the newer write is itself newer")
+
+	fresh, err := s.WriteAspects(ctx, []catalog.AspectEdit{
+		{Ref: ordersRef, Aspect: catalog.AspectDescription, Value: json.RawMessage(`"v3"`)},
+		{Ref: ordersRef, Aspect: catalog.AspectTags, Value: json.RawMessage(`["x"]`)},
+	}, "agent")
+	require.NoError(t, err)
+	reverted, err := s.RevertChanges(ctx, []string{fresh[1].ID, fresh[0].ID}, "admin")
+	require.NoError(t, err)
+	require.Len(t, reverted, 2)
+	assert.Equal(t, fresh[1].ID, reverted[0].Reverts)
+	got, err = s.GetDataset(ctx, ordersRef)
+	require.NoError(t, err)
+	assert.Equal(t, "v2", got.Aspects.Description)
+	assert.Equal(t, []string{"pii"}, got.Aspects.Tags)
+
+	_, err = s.RevertChanges(ctx, []string{"not-a-uuid"}, "admin")
+	assert.ErrorIs(t, err, catalog.ErrNotFound)
+	_, err = s.RevertChanges(ctx, []string{"00000000-0000-0000-0000-000000000000"}, "admin")
+	assert.ErrorIs(t, err, catalog.ErrNotFound)
+}
+
+func TestStore_TaggedEntities_RealDB(t *testing.T) {
+	ctx := context.Background()
+	s := New(testdb.New(t))
+	putOrders(t, s, "id", "amount")
+	amount := catalog.ColumnRef(ordersRef, "amount")
+	_, err := s.WriteAspects(ctx, []catalog.AspectEdit{
+		{Ref: ordersRef, Aspect: catalog.AspectTags, Value: json.RawMessage(`["pii","finance"]`)},
+		{Ref: amount, Aspect: catalog.AspectTags, Value: json.RawMessage(`["pii"]`)},
+	}, "ana")
+	require.NoError(t, err)
+	term, err := s.PutDefinition(ctx, catalog.DefinitionInput{Kind: catalog.KindGlossaryTerm, Name: "pii"})
+	require.NoError(t, err)
+	require.NotNil(t, term)
+
+	refs, err := s.TaggedEntities(ctx, "pii", 10)
+	require.NoError(t, err)
+	assert.Equal(t, []string{amount.String(), ordersRef.String()}, refs)
+	refs, err = s.TaggedEntities(ctx, "pii", 1)
+	require.NoError(t, err)
+	assert.Len(t, refs, 1)
+	refs, err = s.TaggedEntities(ctx, "nobody", 10)
+	require.NoError(t, err)
+	assert.Equal(t, []string{}, refs)
+}
+
+// A checked write lands when the aspect still holds what the writer read,
+// however PostgreSQL re-spelled it, and is refused with ErrStale, writing
+// nothing, when it was written since.
+func TestStore_CheckedWrite_RealDB(t *testing.T) {
+	ctx := context.Background()
+	s := New(testdb.New(t))
+	putOrders(t, s, "id")
+	_, err := s.WriteAspect(ctx, ordersRef, catalog.AspectCustomProperties, json.RawMessage(`{"b":"2","a":"1"}`), "ana")
+	require.NoError(t, err)
+
+	_, err = s.WriteAspects(ctx, []catalog.AspectEdit{{
+		Ref: ordersRef, Aspect: catalog.AspectCustomProperties, Value: json.RawMessage(`{"a":"1","b":"2","c":"3"}`),
+		Expect: json.RawMessage(`{"a": "1", "b": "2"}`), Checked: true,
+	}, {
+		Ref: ordersRef, Aspect: catalog.AspectTags, Value: json.RawMessage(`["pii"]`), Checked: true,
+	}}, "agent")
+	require.NoError(t, err, "the same JSON spelled differently, and an absent aspect expected absent")
+
+	_, err = s.WriteAspects(ctx, []catalog.AspectEdit{{
+		Ref: ordersRef, Aspect: catalog.AspectDescription, Value: json.RawMessage(`"x"`), Checked: true,
+	}, {
+		Ref: ordersRef, Aspect: catalog.AspectTags, Value: json.RawMessage(`["pii","finance"]`),
+		Expect: json.RawMessage(`["other"]`), Checked: true,
+	}}, "agent")
+	require.ErrorIs(t, err, catalog.ErrStale)
+	got, err := s.GetDataset(ctx, ordersRef)
+	require.NoError(t, err)
+	assert.Empty(t, got.Aspects.Description, "nothing in a refused write lands")
+	assert.Equal(t, []string{"pii"}, got.Aspects.Tags)
+}

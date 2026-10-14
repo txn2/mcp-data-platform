@@ -408,7 +408,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z3a4b5
 POST /api/v1/admin/knowledge/changesets/{id}/rollback
 ```
 
-Reverts the DataHub aspects the changeset mutated back to their before-image, returns the changeset's source insights to the review queue as `pending`, and marks the changeset rolled back. Uses the same revert engine as the `apply_knowledge` MCP `rollback` action; see [Governance: Rollback](governance.md#rollback) for the full semantics.
+Restores every catalog aspect the changeset wrote to the value it replaced, in one transaction, returns the changeset's source insights to the review queue as `pending`, and marks the changeset rolled back. Uses the same revert engine as the `apply_knowledge` MCP `rollback` action; see [Governance: Rollback](governance.md#rollback) for the full semantics.
 
 **Example:**
 
@@ -436,8 +436,8 @@ curl -X POST "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z
 |--------|-----------|
 | `200` | Reverted and recorded. |
 | `404` | Changeset not found. |
-| `409` | Already rolled back, or a newer changeset has since modified the same aspect. |
-| `422` | Changeset contains change types whose prior state was not captured (column descriptions, structured properties, incidents, curated queries, context documents, prompts). |
+| `409` | Already rolled back; an aspect it wrote has been written again since; or it was applied to DataHub before the platform catalog replaced it. |
+| `422` | The changeset created a prompt, which a rollback does not delete. |
 
 ## Memory Record Endpoints
 

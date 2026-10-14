@@ -287,7 +287,7 @@ What this shape does not have:
 - Cross-enrichment. With no semantic provider there is no business context to add.
 - Trino, S3, and DataHub tools. No trino_*, s3_*, or datahub_* tools are registered.
 - Catalog search results. The technical catalog provider registers only when the semantic provider is DataHub.
-- Writing knowledge back to the catalog. apply_knowledge with the default sink: datahub refuses on a deployment with no DataHub connection rather than reporting a write it cannot perform; use sink: knowledge_page, the catalog-free destination.
+- Writing knowledge back to the catalog. apply_knowledge writes the platform catalog, which a database-backed deployment has whether or not it sets a semantic: block; with semantic.provider: noop catalog changes are refused rather than reported as written; use sink: knowledge_page instead.
 
 Object storage is optional here too: without an s3_connection, portal assets are stored in the database and managed-resource blob storage is disabled; the platform logs the fallback and starts normally.
 
@@ -1580,6 +1580,7 @@ A catalog entity is cited and fetched with an `mcp:` reference:
 |-----------|-------|
 | `mcp:dataset:(kind,connection,path)` | a dataset. The connection is its instance name; the path is the dotted name the connection uses: `catalog.schema.table` for Trino, the operation id for an API, `query.<field path>` or `mutation.<field path>` for GraphQL. |
 | `mcp:column:(kind,connection,path,column)` | one column of a dataset |
+| `mcp:schema_document:(kind,connection,filename)` | an API or GraphQL connection's schema document |
 | `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>` | a definition, by the id it is stored under. The slug works in place of the id when reading, and renaming a definition changes no reference to it. |
 | `mcp:tag:<name>` | a tag |
 
@@ -1588,8 +1589,8 @@ is double-quoted the way SQL quotes an identifier, with an inner `"` doubled:
 `mcp:dataset:(trino,warehouse,hive.sales."orders.v2")`.
 
 `fetch` dereferences every form. A dataset comes back with its type, the
-managed resource holding its schema document when it has one, its columns in
-order with each column's curation, every aspect written on it, and the lineage
+schema document it was read from when it has one, its columns in order with
+each column's curation, every aspect written on it, and the lineage
 edges within three hops `upstream` and `downstream` of it.
 
 ## Curation
@@ -1607,6 +1608,38 @@ Every write records who made it, when, and the value it replaced. Rolling back
 a change restores that value and is recorded as a change of its own. A scan
 never touches curation: redeclaring a dataset keeps the curation of every
 column that is still declared.
+
+Curation is written with `apply_knowledge` (its default sink, `catalog`): the
+changes of one apply are written in one transaction, recorded as a changeset,
+and a rollback restores every aspect the apply wrote, refused when one of them
+has been written again since. An apply that finds an aspect it read written by
+someone else before its own write lands reads and plans again, so two applies
+to one entity at once both land. See [Governance](../knowledge/governance.md).
+A promoted call record becomes a curated query on every dataset its statement
+read.
+
+A knowledge page cites a catalog entity by its `mcp:` reference, in its
+references or its body, and the citation is checked against the catalog when
+it is written.
+
+## Schema documents
+
+An API connection's OpenAPI spec and a GraphQL connection's schema (as SDL) are
+kept in the catalog, one per connection, addressed as
+`mcp:schema_document:(kind,connection,filename)`, for example
+`mcp:schema_document:(api,billing,"openapi.json")`. Each operation's dataset
+names the document it was read from: `fetch` on the dataset lists it as a
+reference, and its `schema_document` field holds it. A scan records a new
+version only when the document's content or media type changed, so an
+unchanged spec stays at its version.
+
+A document belongs to its connection. `fetch` returns it only to a caller whose
+persona may reach that connection, the rule its datasets are read under, and
+answers not found to anyone else. Its text is the body, up to the 1 MiB every
+fetched file is held to; a longer one is cut at a character boundary with a
+note saying how much was shown. An administrator lists every document on
+**Admin > Catalog > Documents**, or with `GET /api/v1/admin/catalog/documents`,
+and downloads one from there. A knowledge page may cite one. A page's citation of a schema document, a dataset or a column is listed, by `fetch` and on the portal, only to a reader whose persona may reach its connection; another reader's `fetch` counts it in `references_withheld`.
 
 ## Scans
 
@@ -1650,7 +1683,8 @@ The **Settings** tab holds the two settings, stored in the database:
   any it cataloged before as removed.
 
 The same settings and scans are served at `/api/v1/admin/catalog/settings` and
-`/api/v1/admin/catalog/scans`; see the [Admin API](admin-api.md).
+`/api/v1/admin/catalog/scans`, and the schema documents at
+`/api/v1/admin/catalog/documents`; see the [Admin API](admin-api.md).
 
 ## Search
 
@@ -1680,6 +1714,58 @@ Lineage edges are recorded when the platform moves data:
 
 Each edge records what wrote it: the audited call, the script, or the
 registration. The semantic layer's lineage walk reads them.
+
+## Importing from DataHub
+
+A deployment that kept its catalog in DataHub carries it into the platform
+catalog once, from **Admin > Catalog > Import** or `POST
+/api/v1/admin/catalog/imports` with DataHub's address and an access token (the
+token is used for that run and not kept). Scan the connections first: a
+dataset's curation lands on the catalog dataset with the same connection,
+catalog, schema and table.
+
+![Catalog import](../images/screenshots/light/admin-admin-catalog-import-light.webp#only-light)![Catalog import](../images/screenshots/dark/admin-admin-catalog-import-dark.webp#only-dark)
+
+The import reads:
+
+- every dataset DataHub holds, including the records it has marked removed. A
+  live record's curation is taken; an aspect it lacks is taken from a removed
+  record of the same path, so curation that exists only on a removed record is
+  kept.
+- the description (DataHub's edited one over its ingested one), tags, glossary
+  terms, owners, domain, documentation links, custom and structured
+  properties, curated queries, incidents and context documents of each
+  dataset, and the description, tags and glossary terms of each top-level
+  column.
+- every glossary node, glossary term, tag, domain and data product, with its
+  description, owners and documentation links. A term keeps the node it sits
+  under.
+- lineage between the datasets the catalog holds, recorded as the import's.
+
+A dataset on a Trino platform is matched by its name, with a leading platform
+instance dropped and `semantic.urn_mapping.catalog_mapping` read backwards;
+`semantic.urn_mapping.platform` names the platform the deployment's datasets
+were recorded under when it is not `trino`. Tableau entities, and datasets on
+any other platform, are not imported.
+
+An aspect something other than the import has written in the platform catalog
+is kept, and the report says so. Importing again writes only what changed in
+DataHub since, and keeps each definition under the key it was first stored
+under.
+
+Then the import rewrites the DataHub URNs platform tables hold into catalog
+references: memories and insights (their entity references, column
+references and text), changesets, call records, knowledge pages (their body,
+summary and citations, which become catalog citations) and the rows of the
+dataset search index keyed by a DataHub URN, which the index reads again from
+the catalog. A URN the import has no catalog entity for (a user, a query
+entity, a dataset no connection catalogs) is left as it was and listed in the
+report with the table and row it was found in.
+
+The report counts the definitions and datasets imported, the datasets that took
+curation from a removed record, the aspects written, left unchanged and kept,
+the lineage edges, and the references rewritten, and lists what was not
+carried over and why. One import runs at a time across replicas.
 
 ## The semantic provider
 
@@ -2163,7 +2249,7 @@ Browse mode (#695) is `search`'s exhaustive counterpart: relevance ranking with 
 
 The companion read verb to `search` (#694). `search` returns navigational pointers with truncated snippets; `fetch` dereferences one pointer's `reference` back to its complete content, so an agent can read in full what it found. It is the single consumer of the `reference` every search hit already carries, and it collapses the previously fragmented scoped readers (the five `datahub_get_*` by-URN reads, `manage_asset` get, `manage_prompt` get) into one verb. Registered alongside `search` (same toolkit) whenever search exists.
 
-A reference comes in one of two namespaces: `urn:li:...` is the external DataHub catalog scheme, `mcp:...` is the internal-platform scheme. `fetch` accepts both, routing each well-formed reference by its form to the owning source: knowledge pages (`mcp:knowledge_page:<id>` -> the full markdown body and its declared references, a cited asset, collection, prompt or managed resource the caller cannot open left out and counted in `references_withheld`, #2028; the page's slug is accepted in place of the id, with the id resolved first so a slug can never shadow a page asked for by id), context documents (`urn:li:document:<id>` -> the full document body, the only MCP path to it), catalog datasets (`urn:li:dataset:<id>` -> the dataset's catalog context), governance entities (`urn:li:glossaryTerm:<id>`, `urn:li:tag:<id>`, `urn:li:domain:<id>` -> the entry's name and definition plus the datasets that carry it, #1160), saved assets (`mcp:asset:<id>` -> the asset's metadata record; the blob bytes stay in S3, reached with `s3_object` `get` or `presign`; readable by its owner, a person it is shared with directly or through a collection, and an administrator, as the portal opens it, while a script run reaches its author's own assets and its script's outputs, #2027), prompts (`mcp:prompt:<id>` -> the full prompt), connections (`mcp:connection:(kind,name)` -> the connection descriptor), the platform's own catalog (#1917: `mcp:dataset:(kind,connection,path)` -> the dataset with its type, schema-document resource, ordered columns and every aspect of curation, readable only by a caller whose persona may reach the connection; `mcp:column:(kind,connection,path,column)` -> one column with its curation; `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>` -> the definition, the slug accepted in place of the id; `mcp:tag:<name>` -> the tag), the caller's captured insights (`mcp:insight:<id>` -> the full insight, scoped to the caller), the caller's personal memory (`mcp:memory:<id>` -> the full memory record, scoped to the caller; fetch-only, not citable on a page) (#699), and managed resources (`mcp:resource:<id>` -> the metadata record plus the file itself, in whichever form the file admits: a text file's contents inline, a PDF's extracted text, the XML parts of an Office document (`.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`, and any zip) each under a banner naming the part and its size followed by an inventory of what was not rendered, an image as an MCP `image` content block a model looks at directly, and any other family as an MCP `resource` content block carrying the bytes for the client's own tools to open. Only a file above the 1 MB inline threshold the MCP read path uses returns metadata alone, with the canonical `mcp://` URI, MIME type, and size, which `resources/read` reads the whole file by with no limit. Until #1657 every non-textual family returned that metadata row, and an agent handed a PDF's size and media type reported that the platform was refusing it the file. PDF text is read by PDFium compiled to WebAssembly and run under wazero, cgo-free, with its module compiled on the first PDF a deployment reads rather than at startup; the same reader feeds the content index, so a PDF and a presentation are found by words that appear only inside them. Fetch-only, not citable on a page since a scoped resource would be a broken citation outside its scope) (#1012, #1657), and managed scripts (`mcp:script:<id>` -> the script's CONTRACT: name, description, owner, typed parameter contract, whether a run requested now would be admitted (and the run gate's own refusal when it would not), schedule cadence, and the last successful run with what it produced, each output naming its shape — a portal asset the platform still serves, or an object delivered to a configured bucket destination that it wrote and does not hold — for the owner and administrators only, then the files it produced that the caller can open, with a count of the rest over its 50 most recent outputs, and its current source, all for every signed-in caller (#2027); citable on a knowledge page, where it resolves for every reader (#1855), and resolved by ID so renaming a script never breaks a stored reference) (#1302), recorded calls (`mcp:call:<id>` -> the cataloged call: the statement or request that ran, the purpose stated for it, what came of it, and how many later sessions re-ran it; reading one is what makes the caller's own re-run of it creditable as reuse) (#1321), and sessions (`mcp:session:<id>` -> the caller's own session: its summary, the assets and insights it produced as references to follow, and its call timeline in order, each call carrying the purpose stated for it and, where the catalog recorded one, its kind, its outcome, and the `mcp:call:` reference that reads the record in full; a call with no record stays on the timeline and simply carries nothing to fetch) (#1322). The usual source of a reference is a `search` result's `reference` field, but `fetch` is not limited to references `search` produced: a well-formed reference held from another tool works too (for example a `urn:li:dataset:...` from `datahub_get_lineage` or an `entity_urns` lookup). Feedback threads and API endpoints emit no reference and are not fetch targets. The per-user sources (assets, memory, insights, recorded calls, sessions) are read only for the identity that owns the record, so a non-owner gets a structured not-found, exactly as search would never have surfaced the record. A session id is guessable, being the handle the agent threads, so the scoping is a predicate on the audit rows themselves: another caller's session groups to no rows and is indistinguishable from one that never ran.
+A reference comes in one of two namespaces: `urn:li:...` is the external DataHub catalog scheme, `mcp:...` is the internal-platform scheme. `fetch` accepts both, routing each well-formed reference by its form to the owning source: knowledge pages (`mcp:knowledge_page:<id>` -> the full markdown body and its declared references, a cited asset, collection, prompt or managed resource the caller cannot open left out and counted in `references_withheld`, #2028; the page's slug is accepted in place of the id, with the id resolved first so a slug can never shadow a page asked for by id), context documents (`urn:li:document:<id>` -> the full document body, the only MCP path to it), catalog datasets (`urn:li:dataset:<id>` -> the dataset's catalog context), governance entities (`urn:li:glossaryTerm:<id>`, `urn:li:tag:<id>`, `urn:li:domain:<id>` -> the entry's name and definition plus the datasets that carry it, #1160), saved assets (`mcp:asset:<id>` -> the asset's metadata record; the blob bytes stay in S3, reached with `s3_object` `get` or `presign`; readable by its owner, a person it is shared with directly or through a collection, and an administrator, as the portal opens it, while a script run reaches its author's own assets and its script's outputs, #2027), prompts (`mcp:prompt:<id>` -> the full prompt), connections (`mcp:connection:(kind,name)` -> the connection descriptor), the platform's own catalog (#1917: `mcp:dataset:(kind,connection,path)` -> the dataset with its type, the schema document it was read from, ordered columns and every aspect of curation, readable only by a caller whose persona may reach the connection; `mcp:column:(kind,connection,path,column)` -> one column with its curation; `mcp:schema_document:(kind,connection,filename)` -> an API connection's OpenAPI spec or a GraphQL connection's SDL as text up to 1 MiB, under the same connection rule (#1918); `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>` -> the definition, the slug accepted in place of the id; `mcp:tag:<name>` -> the tag), the caller's captured insights (`mcp:insight:<id>` -> the full insight, scoped to the caller), the caller's personal memory (`mcp:memory:<id>` -> the full memory record, scoped to the caller; fetch-only, not citable on a page) (#699), and managed resources (`mcp:resource:<id>` -> the metadata record plus the file itself, in whichever form the file admits: a text file's contents inline, a PDF's extracted text, the XML parts of an Office document (`.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`, and any zip) each under a banner naming the part and its size followed by an inventory of what was not rendered, an image as an MCP `image` content block a model looks at directly, and any other family as an MCP `resource` content block carrying the bytes for the client's own tools to open. Only a file above the 1 MB inline threshold the MCP read path uses returns metadata alone, with the canonical `mcp://` URI, MIME type, and size, which `resources/read` reads the whole file by with no limit. Until #1657 every non-textual family returned that metadata row, and an agent handed a PDF's size and media type reported that the platform was refusing it the file. PDF text is read by PDFium compiled to WebAssembly and run under wazero, cgo-free, with its module compiled on the first PDF a deployment reads rather than at startup; the same reader feeds the content index, so a PDF and a presentation are found by words that appear only inside them. Fetch-only, not citable on a page since a scoped resource would be a broken citation outside its scope) (#1012, #1657), and managed scripts (`mcp:script:<id>` -> the script's CONTRACT: name, description, owner, typed parameter contract, whether a run requested now would be admitted (and the run gate's own refusal when it would not), schedule cadence, and the last successful run with what it produced, each output naming its shape — a portal asset the platform still serves, or an object delivered to a configured bucket destination that it wrote and does not hold — for the owner and administrators only, then the files it produced that the caller can open, with a count of the rest over its 50 most recent outputs, and its current source, all for every signed-in caller (#2027); citable on a knowledge page, where it resolves for every reader (#1855), and resolved by ID so renaming a script never breaks a stored reference) (#1302), recorded calls (`mcp:call:<id>` -> the cataloged call: the statement or request that ran, the purpose stated for it, what came of it, and how many later sessions re-ran it; reading one is what makes the caller's own re-run of it creditable as reuse) (#1321), and sessions (`mcp:session:<id>` -> the caller's own session: its summary, the assets and insights it produced as references to follow, and its call timeline in order, each call carrying the purpose stated for it and, where the catalog recorded one, its kind, its outcome, and the `mcp:call:` reference that reads the record in full; a call with no record stays on the timeline and simply carries nothing to fetch) (#1322). The usual source of a reference is a `search` result's `reference` field, but `fetch` is not limited to references `search` produced: a well-formed reference held from another tool works too (for example a `urn:li:dataset:...` from `datahub_get_lineage` or an `entity_urns` lookup). Feedback threads and API endpoints emit no reference and are not fetch targets. The per-user sources (assets, memory, insights, recorded calls, sessions) are read only for the identity that owns the record, so a non-owner gets a structured not-found, exactly as search would never have surfaced the record. A session id is guessable, being the handle the agent threads, so the scoping is a predicate on the audit rows themselves: another caller's session groups to no rows and is indistinguishable from one that never ran.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -2173,18 +2259,18 @@ Scope mirrors `search` exactly: a per-user source (assets, recorded calls, sessi
 
 ### apply_knowledge
 
-The sink router (#633, #1607). Review, synthesize, and promote captured insights to their canonical home. Admin-only. Requires `knowledge.apply.enabled: true`. The `apply` action's `sink` selects the target: `datahub` (default) applies `changes` to a catalog entity; `knowledge_page` promotes the insight(s) to a canonical portal knowledge page, found-or-created by `page.slug`; `agent_instructions` promotes an operating rule into the deployment's own customized agent instructions, found-or-created by `instructions.section`. The destination is chosen at apply, suggested by whether the insight is entity-anchored (carries entity_urns) rather than frozen at capture: the capture-time sink-class is a non-binding hint, and any insight can be applied to either sink. Both record a changeset (page promotions target `kp:<slug>`) reversible via rollback (a page rollback soft-deletes a new page or restores a prior version, refused if the page was edited since). A promotion that wrote a page reports `portal_url`, the address that page is read at, in the payload and in the message (#1696): the response carried the page's id and slug and no address at all, so an agent handing someone a link composed one, and the one it composed opened nothing. The address is `<portal.public_base_url>/portal/knowledge/pages/<page_id>`, composed in one place for both sinks that write a page, and omitted on a deployment that declared no public address. `GET /api/v1/portal/knowledge-pages/{id}` resolves an id then a slug, the order `pkg/knowledge` resolves an `mcp:knowledge_page:` reference in, so a slug-shaped address opens too; the portal's page view keys the panels beside the body on the id the read returned rather than on the key the address carried, since their own routes take an id. operational_rule is stored as a page like business_knowledge; active rules-engine enforcement is a separate follow-up. To cite an entity on a page, pass it in `page.references` or write it in the body as plain text or a markdown link (not in backticks or a code block, which are treated as examples and ignored). Each entry in `page.references` is existence-checked before the page is written: a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in `page.references` and those carried from source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking. Inline body references are also filtered to those that exist, so a stale mcp: token in prose is skipped rather than blocking the page. A dropped insight-carried or inline-body reference is reported on the apply response: references_dropped lists the references that did not land (a deleted target, or an insight-carried reference not citable on a shared page such as mcp:memory:/mcp:insight:) and references_attached always carries the count of references that landed, so an agent can reconcile what it cited against what was attached (#696). Page creation is dedup-gated (#705): on a slug miss, the backend ranks existing pages by pure embedding cosine similarity against the candidate's content (embedded over the same title+body+tags composition the stored page vectors use), and a near-duplicate (cosine at or above a configurable threshold, default 0.85, active only when a real embedding provider is configured) is rejected with the candidate pages returned (id, slug, title, score) rather than created; the agent then re-applies against a candidate's slug to update it, or sets page.force_new to create a distinct page (a deliberate, auditable act separate from confirm). The identical gate runs on the portal REST create path (POST returns 409 with the candidates), so the two write surfaces cannot drift. A slug hit is always an update and is never gated. An oversized page (body bytes or markdown-heading count past a configurable threshold) returns a non-blocking split_suggestion on the apply response, nudging the agent to split it into focused, cross-linked sub-pages linked from a thin index page; the write still succeeds. The guidance steers toward many focused, cross-linked pages (progressive revelation) over one sprawling page. On a deployment with no DataHub connection the datahub sink is refused rather than silently accepted: the apply returns an error naming the blocked change types, knowledge.apply.datahub_connection, and sink: knowledge_page as the catalog-free destination, and records no changeset; rollback of a DataHub changeset is refused the same way. The add_prompt change type creates a platform prompt rather than a catalog write and still applies. The knowledge-page sink is unaffected.
+The sink router (#633, #1607). Review, synthesize, and promote captured insights to their canonical home. Admin-only. Requires `knowledge.apply.enabled: true`. The `apply` action's `sink` selects the target: `catalog` (default, #1920) writes `changes` to a platform catalog entity (`entity_urn` an mcp: catalog reference; a DataHub dataset URN is read as the catalog dataset with the same path), all changes of one apply in one transaction, every change type undone by rollback through the catalog's history (refused when an aspect was written again since, when the changeset created a prompt, or when it was applied to DataHub before the catalog replaced it); `knowledge_page` promotes the insight(s) to a canonical portal knowledge page, found-or-created by `page.slug`; `agent_instructions` promotes an operating rule into the deployment's own customized agent instructions, found-or-created by `instructions.section`. The destination is chosen at apply, suggested by whether the insight is entity-anchored (carries entity_urns) rather than frozen at capture: the capture-time sink-class is a non-binding hint, and any insight can be applied to either sink. Both record a changeset (page promotions target `kp:<slug>`) reversible via rollback (a page rollback soft-deletes a new page or restores a prior version, refused if the page was edited since). A promotion that wrote a page reports `portal_url`, the address that page is read at, in the payload and in the message (#1696): the response carried the page's id and slug and no address at all, so an agent handing someone a link composed one, and the one it composed opened nothing. The address is `<portal.public_base_url>/portal/knowledge/pages/<page_id>`, composed in one place for both sinks that write a page, and omitted on a deployment that declared no public address. `GET /api/v1/portal/knowledge-pages/{id}` resolves an id then a slug, the order `pkg/knowledge` resolves an `mcp:knowledge_page:` reference in, so a slug-shaped address opens too; the portal's page view keys the panels beside the body on the id the read returned rather than on the key the address carried, since their own routes take an id. operational_rule is stored as a page like business_knowledge; active rules-engine enforcement is a separate follow-up. To cite an entity on a page, pass it in `page.references` or write it in the body as plain text or a markdown link (not in backticks or a code block, which are treated as examples and ignored). Each entry in `page.references` is existence-checked before the page is written: a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in `page.references` and those carried from source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking. Inline body references are also filtered to those that exist, so a stale mcp: token in prose is skipped rather than blocking the page. A dropped insight-carried or inline-body reference is reported on the apply response: references_dropped lists the references that did not land (a deleted target, or an insight-carried reference not citable on a shared page such as mcp:memory:/mcp:insight:) and references_attached always carries the count of references that landed, so an agent can reconcile what it cited against what was attached (#696). Page creation is dedup-gated (#705): on a slug miss, the backend ranks existing pages by pure embedding cosine similarity against the candidate's content (embedded over the same title+body+tags composition the stored page vectors use), and a near-duplicate (cosine at or above a configurable threshold, default 0.85, active only when a real embedding provider is configured) is rejected with the candidate pages returned (id, slug, title, score) rather than created; the agent then re-applies against a candidate's slug to update it, or sets page.force_new to create a distinct page (a deliberate, auditable act separate from confirm). The identical gate runs on the portal REST create path (POST returns 409 with the candidates), so the two write surfaces cannot drift. A slug hit is always an update and is never gated. An oversized page (body bytes or markdown-heading count past a configurable threshold) returns a non-blocking split_suggestion on the apply response, nudging the agent to split it into focused, cross-linked sub-pages linked from a thin index page; the write still succeeds. The guidance steers toward many focused, cross-linked pages (progressive revelation) over one sprawling page. On a deployment with no platform catalog (no database, or semantic.provider: noop) catalog changes are refused with an error naming sink: knowledge_page. The add_prompt change type creates a platform prompt rather than a catalog write and still applies. bulk_untag removes a tag from every dataset and column carrying it, up to 500 per call, in one changeset rollback undoes; delete_tag does the same for the tag entity_urn names.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag |
 | `sink` | string | No | apply target: datahub (default), knowledge_page, or agent_instructions |
-| `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with sink=datahub |
+| `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with sink=catalog |
 | `tag_urn` | string | Conditional | Required for bulk_untag; the tag (name or urn:li:tag:...) to remove from every entity that carries it |
 | `page` | object | Conditional | {slug, title, body, summary?, tags?, references?} for apply with sink=knowledge_page. references is a list of serialized reference strings (mcp:<type>:<id> / urn:li:...) attached to the page independent of body text. The per-user forms, personal memory (mcp:memory:<id>) and captured insight (mcp:insight:<id>), are fetchable but NOT citable on a shared page (they are private to their owner, so a citation would resolve for no one else) and are rejected; promote an insight to the catalog and cite the resulting urn:li:... entity instead (#699). A managed script (mcp:script:<uuid>, #1855) IS citable: existence-checked like every internal reference, stored with a foreign key that removes the citation when the script is deleted, and resolved per reader, so the script's owner and administrators see the reference and any other reader reads the page without it (fetch answers them found=false) |
 | `insight_ids` | array | Conditional | Source insights; required for approve, reject. On apply, pass the promoted insights so they are marked applied and the changeset is linked to them (closes the review loop; the queue then reflects what is live). Sink-class is a non-binding hint; any insight can be applied to either sink |
 | `instructions` | object | Conditional | {section, body, slug?, title?, summary?, tags?, references?} for apply with sink=agent_instructions (#1607). section is the find-or-create key: a second promotion of the same section rewrites that section and leaves every other section byte-identical (the edit runs through pkg/textpatch, the same anchored-edit engine behind manage_asset patch). Recorded as a changeset with target ai:<section>, listed by list_changesets and reverted by rollback, which restores the previous text byte for byte and is refused when the layer was written again after the promotion. Refused when the rule names a tool this deployment does not register, naming the tool: the recognized prefixes are derived from the deployment's own registered inventory plus a floor list, so a retired api_/manage_/memory_/save_ name is caught as readily as a trino_ one. A body over 1,500 bytes is written to a knowledge page instead (slug and title defaulted from the section) and the section keeps one mcp:knowledge_page:<slug> index entry pointing at it, in the same form the platform baseline's page index uses; both halves are one changeset, so one rollback undoes both. Refused before any write when the layer would pass its 32,768-byte limit, and carries a size_notice past the 12,288-byte advisory. Needs a database-backed config store; without one the promotion is refused with sink=knowledge_page named as the alternative. Route domain knowledge to knowledge_page: this layer should carry at most a pointer to it |
-| `changes` | array | Conditional | Required for apply with sink=datahub |
+| `changes` | array | Conditional | Required for apply with sink=catalog |
 | `changeset_id` | string | Conditional | Required for rollback |
 | `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |
 | `review_notes` | string | No | Notes for approve/reject actions |
@@ -2192,7 +2278,7 @@ The sink router (#633, #1607). Review, synthesize, and promote captured insights
 | `limit` | int | No | Page size for itemized bulk_review (default 20, max 100) |
 | `offset` | int | No | Page start for itemized bulk_review; pass the previous next_offset to continue |
 
-The `rollback` action reverts a changeset's changes to their before-image (removing added tags/glossary terms/documentation links, restoring a changed description), returns the source insights to the review queue as `pending` (`insights_returned_to_review`), and marks the changeset rolled back. It is refused if the changeset is already rolled back, if a newer changeset has since modified the same aspect, or if the changeset touched change types whose prior state was not captured or is irreversible (column descriptions, structured properties, custom properties, incidents, curated queries, context documents, prompts, delete_tag, bulk_untag). The `list_changesets` action lists an entity's changesets for discovering rollback targets. The apply response and each `list_changesets` entry carry a `revertible` boolean (computed with the same all-or-nothing gate rollback enforces, so any single unrevertible change makes the whole changeset false; there is no partial rollback) plus `unrevertible_change_types` when false, and the apply message instructs a rollback only when the changeset can actually be reverted, so a caller never plans on reversibility a changeset lacks (a column-level `update_description`, whose before-image is only the entity-level description, is the common false case). The field is structural revertibility; a structurally revertible changeset can still be refused at rollback time if already rolled back (list_changesets folds this in) or a newer changeset touched the same aspect. The `bulk_untag` action removes a tag (tag_urn) from every entity a catalog search finds carrying it, recording one changeset for audit; it requires confirm and is not auto-revertible (re-apply add_tag to restore).
+The `rollback` action restores, in one transaction, every catalog aspect a changeset wrote to the value it replaced (#1920), returns the source insights to the review queue as `pending` (`insights_returned_to_review`), and marks the changeset rolled back. It undoes every change type. It is refused, and reverts nothing, if the changeset is already rolled back, if an aspect it wrote has been written again since (the refusal names the aspect, the entity, who wrote it and when), if it created a prompt, or if it was applied to DataHub before the platform catalog replaced it. The `list_changesets` action lists an entity's changesets for discovering rollback targets; a DataHub dataset URN finds those recorded under the catalog reference it is read as. The apply response and each `list_changesets` entry carry a `revertible` boolean plus `unrevertible_change_types` when false. The `bulk_untag` action removes a tag (tag_urn) from every dataset and column carrying it, up to 500 per call in one transaction, recording one changeset that rollback undoes; it requires confirm.
 
 ## Memory Tools
 
@@ -2540,7 +2626,7 @@ Configuration-file compatibility is handled more conservatively: additive keys s
 
 # Knowledge Capture
 
-Domain knowledge shared during AI sessions -- column meanings, data quality issues, business rules -- is captured, reviewed through a governance workflow, and written back to DataHub with changeset tracking and rollback.
+Domain knowledge shared during AI sessions -- column meanings, data quality issues, business rules -- is captured, reviewed through a governance workflow, and written to the platform catalog with changeset tracking and rollback.
 
 ## The Problem
 
@@ -2577,7 +2663,7 @@ knowledge:
 |-------|------|---------|-------------|
 | `knowledge.enabled` | bool | `true` (when a database is available) | Enable the knowledge review and write-back toolkit (`apply_knowledge`). Knowledge capture lives in the memory toolkit (`memory_capture`) and is enabled with the memory layer, not this flag |
 | `knowledge.apply.enabled` | bool | `true` (when a database is available) | Enable the `apply_knowledge` tool for admin review and catalog write-back. Set `false` to disable. |
-| `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
+| `knowledge.apply.datahub_connection` | string | - | Has no effect: apply_knowledge writes to the platform catalog. Accepted so a configuration that still sets it starts |
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
 | `knowledge.pages.dedup_threshold` | float | `0.85` | Cosine similarity in `[0,1]` at or above which creating a knowledge page is blocked as a near-duplicate. Acts only when a real embedding provider is configured. A non-positive value selects the default |
 | `knowledge.pages.dedup_disabled` | bool | `false` | Turn the duplicate gate off entirely, so "no gate" is never confused with "left at default" |
@@ -2674,7 +2760,7 @@ Admin-only tool for reviewing and applying captured insights. Requires the `admi
 {"action": "bulk_review"}
 ```
 
-**review**: Insights for a specific entity with current DataHub metadata.
+**review**: Insights for a specific entity with its current catalog curation.
 
 ```json
 {"action": "review", "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"}
@@ -2696,7 +2782,7 @@ Admin-only tool for reviewing and applying captured insights. Requires the `admi
 {"action": "synthesize", "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"}
 ```
 
-**apply**: Write changes to DataHub with changeset tracking.
+**apply**: Write changes to the platform catalog in one transaction, recorded as a changeset.
 
 ```json
 {
@@ -2726,7 +2812,7 @@ applied -> pending (changeset rolled back)
 | `pending` | Newly captured, awaiting review |
 | `approved` | Reviewed and approved for application |
 | `rejected` | Reviewed and rejected |
-| `applied` | Changes written to the canonical sink (DataHub catalog or a knowledge page); also the point the insight becomes organization-wide |
+| `applied` | Changes written to the canonical sink (the platform catalog, a knowledge page, or the agent instructions); also the point the insight becomes organization-wide |
 | `superseded` | Replaced by newer insights for the same entity |
 
 A changeset rollback returns its source insights to `pending` rather than to a terminal state, so the review queue surfaces them again; they keep `applied_by`, `applied_at` and `changeset_ref`, and their `review_notes` names the rolled-back changeset. `reject` remains the way to discard an insight.
@@ -2764,7 +2850,7 @@ The `memory_context` block's insight entries carry `mcp:insight:<id>` as their r
 3. Admin uses `bulk_review` to see pending insights
 4. Admin reviews and approves/rejects via `approve`/`reject`
 5. Admin calls `synthesize` to generate change proposals from approved insights
-6. Admin calls `apply` to write changes to DataHub with changeset tracking
+6. Admin calls `apply` to write changes to the platform catalog with changeset tracking
 7. Source insights are marked as applied with a changeset reference
 8. Changeset stores previous values for rollback if needed
 
@@ -2777,7 +2863,7 @@ Every `apply` action creates a changeset record:
 | Field | Description |
 |-------|-------------|
 | `id` | Unique changeset identifier |
-| `target_urn` | The DataHub entity that was modified |
+| `target_urn` | The catalog reference of the entity the apply named |
 | `change_type` | Summary of change types applied |
 | `previous_value` | Entity metadata before changes (for rollback) |
 | `new_value` | Changes that were applied |
@@ -2785,7 +2871,7 @@ Every `apply` action creates a changeset record:
 | `applied_by` | User who applied the changes |
 | `rolled_back` | Whether this changeset has been reverted |
 
-The `apply` response also returns `resulting_state`, a fresh read-back of the entity's `description`, `tags`, `glossary_terms`, and `owners` (the same shape stored as the changeset's `previous_value` before-image). Tags and glossary terms are read from the authoritative aspects: REST-exposed types (datasets, dashboards, charts, data flows, data jobs, containers, data products) from the REST aspects, and three GraphQL-only types (`domain`, `glossaryTerm`, `glossaryNode`) through the entity query (mcp-datahub v1.10.2+). Some fields cannot be read for some types and come back empty even when set: `tags`/`glossary_terms` are empty for `document` entities, and `description`/`owners` are empty for types with no dedicated read and no dataset/dashboard entity-query fragment (`domain`, `glossaryNode`, `container`, `chart`, `dataFlow`, `dataJob`). For those types treat an empty value as "not read" rather than "not set"; because the before-image shares these gaps, rollback cannot restore a field it could not read.
+The `apply` response also returns `resulting_state`, a fresh read of the entity's `description`, `tags`, `glossary_terms`, and `owners` (the same shape stored as the changeset's `previous_value`), `catalog_changes` (the aspects written), and `created_ids` (the incidents and context documents it opened and the glossary terms it created).
 
 ## Persona Integration
 

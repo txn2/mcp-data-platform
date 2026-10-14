@@ -201,7 +201,7 @@ func TestPromoteToPage_CarriesAndUnionsInsightRefs(t *testing.T) {
 	}}
 	cs := &spyChangesetStore{}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, cs, &spyWriter{})
+	tk := newApplyToolkit(t, store, cs, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	// First promotion creates the page carrying urnA.
@@ -241,7 +241,7 @@ func TestPromoteToPage_CarriesMixedInsightRefTypes(t *testing.T) {
 		EntityURNs:  []string{dataset},
 	}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -269,7 +269,7 @@ func TestPromoteToPage_ReconcilesInlineBodyRefs(t *testing.T) {
 	// The source insight carries no references of its own.
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -302,7 +302,7 @@ func TestPromoteToPage_ExplicitReferences(t *testing.T) {
 	dataset := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -334,7 +334,7 @@ func TestPromoteToPage_ExplicitReferences(t *testing.T) {
 func TestPromoteToPage_InvalidExplicitReference(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -360,7 +360,7 @@ func TestPromoteToPage_RejectsPerUserCitation(t *testing.T) {
 		t.Run(ref, func(t *testing.T) {
 			store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 			pw := newFakePageWriter()
-			tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+			tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 			tk.SetPageWriter(pw)
 
 			input := applyKnowledgeInput{
@@ -385,7 +385,7 @@ func TestPromoteToPage_RefTargetValidationRejectsBeforeWrite(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
 	pw.validateErr = knowledgepage.ErrRefTargetNotFound
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -408,7 +408,7 @@ func TestPromoteToPage_RefTargetValidationRejectsBeforeWrite(t *testing.T) {
 func TestPromoteToPage_ExplicitRefWinsOverInline(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -441,7 +441,7 @@ func TestPromoteToPage_RePromoteIsIdempotent(t *testing.T) {
 	pw.refs["kp1"] = []knowledgepage.EntityRef{
 		{TargetType: knowledgepage.RefTargetAsset, AssetID: "asset-1", Source: knowledgepage.RefSourcePromoted},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -472,7 +472,7 @@ func TestPromoteToPage_SkipsStaleInsightRefs(t *testing.T) {
 	}}}
 	pw := newFakePageWriter()
 	pw.missingTargets = map[string]bool{gone: true}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -493,7 +493,7 @@ func TestPromoteToPage_SkipsStaleInlineRef(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
 	pw.missingTargets = map[string]bool{"mcp:asset:gone": true}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -522,7 +522,7 @@ func TestPromoteToPage_SkipsStaleInlineRef(t *testing.T) {
 func TestPromoteToPage_TooManyReferences(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	refs := make([]string, maxPageReferences+1)
@@ -545,7 +545,7 @@ func TestPromoteToPage_InlineReconcileError(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
 	pw.replaceBySrcErr = errors.New("inline reconcile boom")
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -564,7 +564,7 @@ func TestPromoteToPage_InlineReconcileError_Update(t *testing.T) {
 	pw := newFakePageWriter()
 	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 1}
 	pw.replaceBySrcErr = errKP
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -584,7 +584,7 @@ func TestRevertPageChangeset_InlineReconcileError(t *testing.T) {
 	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 4}
 	pw.replaceInlineErr = errKP // promoted restore succeeds, inline restore fails
 	csStore := &spyChangesetStore{Changesets: []Changeset{cs}}
-	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
@@ -626,7 +626,7 @@ func TestPromoteToPage_AttachesGovernanceReferences(t *testing.T) {
 	}
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyPageInput([]string{"i1"})
@@ -665,7 +665,7 @@ func TestPromoteToPage_ReportsDroppedInsightRefs(t *testing.T) {
 	}}}
 	pw := newFakePageWriter()
 	pw.missingTargets = map[string]bool{gone: true}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -690,7 +690,7 @@ func TestPromoteToPage_ReportsNonCitableInsightRef(t *testing.T) {
 		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{memRef, live},
 	}}}
 	pw := newFakePageWriter() // nothing missing: the loss is the non-citable ref, not a deleted target
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -710,7 +710,7 @@ func TestPromoteToPage_ReportsDroppedInlineRefs(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
 	pw.missingTargets = map[string]bool{"mcp:asset:gone": true}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -739,7 +739,7 @@ func TestPromoteToPage_DedupesDroppedAcrossSources(t *testing.T) {
 	}}}
 	pw := newFakePageWriter()
 	pw.missingTargets = map[string]bool{gone: true}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -766,7 +766,7 @@ func TestPromoteToPage_NoDroppedWhenAllResolve(t *testing.T) {
 		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{live},
 	}}}
 	pw := newFakePageWriter() // no missingTargets: everything resolves
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -794,7 +794,7 @@ func TestPromoteToPage_CreatesNewPage(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	cs := &spyChangesetStore{}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, cs, &spyWriter{})
+	tk := newApplyToolkit(t, store, cs, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -827,7 +827,7 @@ func TestPromoteToPage_UpdatesExistingBySlug(t *testing.T) {
 	cs := &spyChangesetStore{}
 	pw := newFakePageWriter()
 	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp-existing", Slug: "seasons", Title: "Old", Body: "old body", CurrentVersion: 3}
-	tk := newApplyToolkit(t, store, cs, &spyWriter{})
+	tk := newApplyToolkit(t, store, cs, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -850,7 +850,7 @@ func TestPromoteToPage_AcceptsAnySinkClass(t *testing.T) {
 	// successfully and carries its origin class as a non-binding tag.
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkSchemaEntity}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -862,7 +862,7 @@ func TestPromoteToPage_AcceptsAnySinkClass(t *testing.T) {
 }
 
 func TestPromoteToPage_NotConfigured(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 	// no SetPageWriter
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput(nil))
 	require.NoError(t, err)
@@ -870,7 +870,7 @@ func TestPromoteToPage_NotConfigured(t *testing.T) {
 }
 
 func TestPromoteToPage_Validation(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(newFakePageWriter())
 	cases := []applyKnowledgeInput{
 		{Action: actionApply, Sink: sinkKnowledgePage},                                                                                                                 // nil page
@@ -891,8 +891,8 @@ func TestPromoteToPage_Validation(t *testing.T) {
 
 func TestPromoteToPage_ConfirmationRequired(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
-	tk.SetApplyConfig(ApplyConfig{Enabled: true, RequireConfirmation: true}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
+	tk.SetApplyConfig(ApplyConfig{Enabled: true, RequireConfirmation: true}, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(newFakePageWriter())
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
 	require.NoError(t, err)
@@ -901,7 +901,7 @@ func TestPromoteToPage_ConfirmationRequired(t *testing.T) {
 }
 
 func TestHandleApply_UnknownSink(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyKnowledgeInput{Action: actionApply, Sink: "bogus"})
 	require.NoError(t, err)
 	assert.True(t, res.IsError)
@@ -926,7 +926,7 @@ func TestRevertPageChangeset_CreateDeletes(t *testing.T) {
 	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 1}
 	store := &fullSpyStore{}
 	csStore := &spyChangesetStore{Changesets: []Changeset{cs}}
-	tk := newApplyToolkit(t, store, csStore, &spyWriter{})
+	tk := newApplyToolkit(t, store, csStore, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
@@ -944,7 +944,7 @@ func TestRevertPageChangeset_UpdateRestores(t *testing.T) {
 	pw := newFakePageWriter()
 	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", Title: "New", Body: "new body", CurrentVersion: 4}
 	csStore := &spyChangesetStore{Changesets: []Changeset{cs}}
-	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
@@ -976,7 +976,7 @@ func TestRevertPageChangeset_RestoresRefs(t *testing.T) {
 		{TargetType: knowledgepage.RefTargetAsset, AssetID: "kept-asset", Source: knowledgepage.RefSourceManual},
 	}
 	csStore := &spyChangesetStore{Changesets: []Changeset{cs}}
-	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
@@ -997,7 +997,7 @@ func TestRevertPageChangeset_ConflictRefused(t *testing.T) {
 	pw := newFakePageWriter()
 	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 7} // edited since
 	csStore := &spyChangesetStore{Changesets: []Changeset{cs}}
-	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
@@ -1013,7 +1013,7 @@ func TestRevertPageChangeset_AlreadyRolledBack(t *testing.T) {
 	cs.RolledBack = true
 	pw := newFakePageWriter()
 	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 1}
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{Changesets: []Changeset{cs}}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{Changesets: []Changeset{cs}}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
@@ -1028,7 +1028,7 @@ func TestPromoteToPage_StoreErrors(t *testing.T) {
 	t.Run("insert error", func(t *testing.T) {
 		pw := newFakePageWriter()
 		pw.insertErr = errKP
-		tk := newApplyToolkit(t, &fullSpyStore{Insights: bk}, &spyChangesetStore{}, &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{Insights: bk}, &spyChangesetStore{}, newFakeCatalog())
 		tk.SetPageWriter(pw)
 		res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
 		require.NoError(t, err)
@@ -1038,7 +1038,7 @@ func TestPromoteToPage_StoreErrors(t *testing.T) {
 		pw := newFakePageWriter()
 		pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 1}
 		pw.updateErr = errKP
-		tk := newApplyToolkit(t, &fullSpyStore{Insights: bk}, &spyChangesetStore{}, &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{Insights: bk}, &spyChangesetStore{}, newFakeCatalog())
 		tk.SetPageWriter(pw)
 		res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
 		require.NoError(t, err)
@@ -1047,21 +1047,21 @@ func TestPromoteToPage_StoreErrors(t *testing.T) {
 	t.Run("get error", func(t *testing.T) {
 		pw := newFakePageWriter()
 		pw.getErr = errKP
-		tk := newApplyToolkit(t, &fullSpyStore{Insights: bk}, &spyChangesetStore{}, &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{Insights: bk}, &spyChangesetStore{}, newFakeCatalog())
 		tk.SetPageWriter(pw)
 		res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
 		require.NoError(t, err)
 		assert.True(t, res.IsError)
 	})
 	t.Run("changeset insert error", func(t *testing.T) {
-		tk := newApplyToolkit(t, &fullSpyStore{Insights: bk}, &spyChangesetStore{InsertErr: errKP}, &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{Insights: bk}, &spyChangesetStore{InsertErr: errKP}, newFakeCatalog())
 		tk.SetPageWriter(newFakePageWriter())
 		res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
 		require.NoError(t, err)
 		assert.True(t, res.IsError)
 	})
 	t.Run("missing insight", func(t *testing.T) {
-		tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 		tk.SetPageWriter(newFakePageWriter())
 		res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"nope"}))
 		require.NoError(t, err)
@@ -1072,7 +1072,7 @@ func TestPromoteToPage_StoreErrors(t *testing.T) {
 func TestRevertPageChangeset_ErrorBranches(t *testing.T) {
 	t.Run("page gone", func(t *testing.T) {
 		cs := pageChangeset("gone", changeUpdatePage, 1, map[string]any{})
-		tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{Changesets: []Changeset{cs}}, &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{Changesets: []Changeset{cs}}, newFakeCatalog())
 		tk.SetPageWriter(newFakePageWriter())
 		res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
 			applyKnowledgeInput{Action: actionRollback, ChangesetID: "cs1", Confirm: true})
@@ -1081,7 +1081,7 @@ func TestRevertPageChangeset_ErrorBranches(t *testing.T) {
 	})
 	t.Run("not configured", func(t *testing.T) {
 		cs := pageChangeset("seasons", changeCreatePage, 1, map[string]any{})
-		tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{Changesets: []Changeset{cs}}, &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{Changesets: []Changeset{cs}}, newFakeCatalog())
 		// no SetPageWriter
 		res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
 			applyKnowledgeInput{Action: actionRollback, ChangesetID: "cs1", Confirm: true})
@@ -1092,7 +1092,7 @@ func TestRevertPageChangeset_ErrorBranches(t *testing.T) {
 		cs := pageChangeset("seasons", changeCreatePage, 1, map[string]any{})
 		pw := newFakePageWriter()
 		pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 1}
-		tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{Changesets: []Changeset{cs}, RollbackErr: errKP}, &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{Changesets: []Changeset{cs}, RollbackErr: errKP}, newFakeCatalog())
 		tk.SetPageWriter(pw)
 		res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
 			applyKnowledgeInput{Action: actionRollback, ChangesetID: "cs1", Confirm: true})
@@ -1123,7 +1123,7 @@ func TestPromoteToPage_RefusesABuiltinSlug(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
 	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp_builtin", Slug: "seasons", Title: "Seasons", Builtin: true}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
@@ -1143,7 +1143,7 @@ func TestPromoteToPage_RefusesABuiltinSlug(t *testing.T) {
 func TestPromoteToPage_ReportsWhereThePageIsRead(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 	tk.SetPortalBaseURL("https://portal.example.com/")
 
@@ -1165,7 +1165,7 @@ func TestPromoteToPage_ReportsWhereThePageIsRead(t *testing.T) {
 // response carries no address rather than a relative path nobody can open.
 func TestPromoteToPage_NoAddressWithoutAPublicPortal(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(newFakePageWriter())
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))

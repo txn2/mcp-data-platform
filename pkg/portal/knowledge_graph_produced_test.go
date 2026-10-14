@@ -219,3 +219,40 @@ func TestResolveRef_AResourceResolvesByItsScope(t *testing.T) {
 	}, testAuthMiddleware(kpViewer))
 	assert.False(t, resolveOne(t, unwired, "mcp:resource:res-global").Accessible)
 }
+
+// TestResolveRef_ACatalogCitationFollowsTheConnection proves a platform
+// catalog citation that names a connection resolves only for a reader whose
+// persona may reach it, a definition resolves for everyone, and an
+// administrator sees every one (#1918).
+func TestResolveRef_ACatalogCitationFollowsTheConnection(t *testing.T) {
+	spec := `mcp:schema_document:(api,billing,"openapi.json")`
+	orders := "mcp:dataset:(trino,warehouse,hive.sales.orders)"
+	withPersona := func(user *User, resolver PersonaResolver) *Handler {
+		return NewHandler(Deps{
+			KnowledgePageStore: &mockKnowledgePageStore{page: livePage()},
+			AdminRoles:         []string{"admin"},
+			PersonaResolver:    resolver,
+			RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+		}, testAuthMiddleware(user))
+	}
+	warehouseOnly := func([]string) *PersonaInfo {
+		return &PersonaInfo{Name: "analyst", ReachesCatalogRef: func(ref string) bool { return ref != spec }}
+	}
+
+	h := withPersona(kpViewer, warehouseOnly)
+	assert.False(t, resolveOne(t, h, spec).Accessible, "a document outside the persona's connections")
+	got := resolveOne(t, h, orders)
+	assert.True(t, got.Accessible)
+	assert.Equal(t, "orders", got.Label)
+	assert.True(t, resolveOne(t, h, "mcp:glossary_term:revenue").Accessible)
+
+	assert.True(t, resolveOne(t, withPersona(kpAdmin, warehouseOnly), spec).Accessible, "an administrator sees every citation")
+
+	noPersona := withPersona(kpViewer, func([]string) *PersonaInfo { return nil })
+	assert.False(t, resolveOne(t, noPersona, orders).Accessible, "a reader with no persona reaches no connection")
+	assert.True(t, resolveOne(t, noPersona, "mcp:glossary_term:revenue").Accessible)
+
+	unchecked := withPersona(kpViewer, func([]string) *PersonaInfo { return &PersonaInfo{Name: "analyst"} })
+	assert.True(t, resolveOne(t, unchecked, spec).Accessible, "a persona with no check reaches every citation")
+	assert.True(t, resolveOne(t, withPersona(kpViewer, nil), spec).Accessible, "a deployment with no personas checks nothing")
+}

@@ -95,7 +95,7 @@ manage_table
 - **Cross-enrichment.** With no semantic provider there is no business context to add, so responses carry only what the called service returned.
 - **Trino and S3 tools.** No `trino_*` or `s3_*` tools are registered, and no `datahub_*` tools.
 - **Catalog search results.** `search` federates the database-backed sources; the technical catalog provider registers only when the semantic provider is DataHub.
-- **Writing knowledge back to the catalog.** `apply_knowledge` with the default `sink: datahub` refuses on a deployment with no DataHub connection rather than reporting a write it cannot perform. Use `sink: knowledge_page` to promote captured knowledge to a canonical knowledge page, which is the catalog-free destination.
+- **Writing knowledge back to the catalog.** `apply_knowledge` writes to the [platform catalog](catalog.md), which a database-backed deployment has whether or not it sets a `semantic:` block. With `semantic.provider: noop` the catalog is off and catalog changes are refused rather than reported as written; use `sink: knowledge_page` to promote captured knowledge to a canonical knowledge page instead.
 
 ### Object storage is optional here too
 

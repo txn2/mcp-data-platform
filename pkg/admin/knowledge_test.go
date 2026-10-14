@@ -11,9 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/catalogfake"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -189,109 +191,17 @@ func (m *mockChangesetStore) RollbackChangeset(_ context.Context, _, _ string) e
 // Verify interface compliance.
 var _ knowledge.ChangesetStore = (*mockChangesetStore)(nil)
 
-// --- Mock DataHubWriter ---
-
-type mockDataHubWriter struct {
-	updateDescErr    error
-	updateDescCalled int
-	lastDescURN      string
-	lastDescValue    string
-
-	removeTagCalls  []string
-	removeTermCalls []string
-	removeLinkCalls []string
-}
-
-func (*mockDataHubWriter) GetCurrentMetadata(_ context.Context, _ string) (*knowledge.EntityMetadata, error) {
-	return &knowledge.EntityMetadata{}, nil
-}
-
-func (m *mockDataHubWriter) UpdateDescription(_ context.Context, urn, desc string) error {
-	m.updateDescCalled++
-	m.lastDescURN = urn
-	m.lastDescValue = desc
-	return m.updateDescErr
-}
-
-func (m *mockDataHubWriter) ApplyTagChanges(_ context.Context, _ string, _, remove []string) error {
-	m.removeTagCalls = append(m.removeTagCalls, remove...)
-	return nil
-}
-
-func (m *mockDataHubWriter) ApplyGlossaryTermChanges(_ context.Context, _ string, _, remove []string) error {
-	m.removeTermCalls = append(m.removeTermCalls, remove...)
-	return nil
-}
-
-func (*mockDataHubWriter) AddDocumentationLink(_ context.Context, _, _, _ string) error {
-	return nil
-}
-
-func (m *mockDataHubWriter) RemoveDocumentationLink(_ context.Context, _, url string) error {
-	m.removeLinkCalls = append(m.removeLinkCalls, url)
-	return nil
-}
-
-func (*mockDataHubWriter) UpdateColumnDescription(_ context.Context, _, _, _ string) error {
-	return nil
-}
-
-func (*mockDataHubWriter) UpdateColumnDescriptionBatch(_ context.Context, _ string, _ map[string]string) error {
-	return nil
-}
-
-func (*mockDataHubWriter) CreateCuratedQuery(_ context.Context, _ []string, _, _, _ string) (string, error) {
-	return "", nil
-}
-
-func (*mockDataHubWriter) UpsertStructuredProperties(_ context.Context, _, _ string, _ []any) error {
-	return nil
-}
-
-func (*mockDataHubWriter) DeleteTag(_ context.Context, _ string) error { return nil }
-
-func (*mockDataHubWriter) SetCustomProperties(_ context.Context, _ string, _ map[string]string) error {
-	return nil
-}
-
-func (*mockDataHubWriter) RemoveCustomProperties(_ context.Context, _ string, _ []string) error {
-	return nil
-}
-
-func (*mockDataHubWriter) RemoveStructuredProperty(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (*mockDataHubWriter) RaiseIncident(_ context.Context, _, _, _ string) (string, error) {
-	return "", nil
-}
-
-func (*mockDataHubWriter) ResolveIncident(_ context.Context, _, _ string) error { return nil }
-
-func (*mockDataHubWriter) GetIncidents(_ context.Context, _ string) ([]types.Incident, error) {
-	return nil, nil
-}
-
-func (*mockDataHubWriter) UpsertContextDocument(_ context.Context, _ string, _ types.ContextDocumentInput) (*types.ContextDocument, error) {
-	return &types.ContextDocument{}, nil
-}
-
-func (*mockDataHubWriter) DeleteContextDocument(_ context.Context, _ string) error { return nil }
-
-// Verify interface compliance.
-var _ knowledge.DataHubWriter = (*mockDataHubWriter)(nil)
-
 // --- Test NewKnowledgeHandler ---
 
 func TestNewKnowledgeHandler(t *testing.T) {
 	store := &mockInsightStore{}
 	csStore := &mockChangesetStore{}
-	writer := &mockDataHubWriter{}
-	kh := NewKnowledgeHandler(store, csStore, writer, nil, nil, nil)
+	cat := catalogfake.New()
+	kh := NewKnowledgeHandler(store, csStore, cat, nil, nil, nil)
 	require.NotNil(t, kh)
 	assert.Equal(t, store, kh.insightStore)
 	assert.Equal(t, csStore, kh.changesetStore)
-	assert.Equal(t, writer, kh.datahubWriter)
+	assert.Equal(t, cat, kh.catalog)
 }
 
 // --- ListInsights tests ---
@@ -793,7 +703,7 @@ func TestGetChangeset(t *testing.T) {
 	})
 
 	t.Run("returns 404 when not found", func(t *testing.T) {
-		csStore := &mockChangesetStore{getErr: fmt.Errorf("not found")}
+		csStore := &mockChangesetStore{getErr: errors.New("not found")}
 		kh := NewKnowledgeHandler(nil, csStore, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets/nonexistent", http.NoBody)
@@ -809,200 +719,137 @@ func TestGetChangeset(t *testing.T) {
 
 // --- RollbackChangeset tests ---
 
-// addTermChangeset builds a changeset whose recorded change added a glossary term
-// that was not present in the before-image, so rollback should remove it.
-func addTermChangeset(id, termURN string) *knowledge.Changeset {
+// tagChangeset writes a tag onto a dataset in cat and returns the changeset an
+// apply would have recorded for it.
+func tagChangeset(t *testing.T, cat *catalogfake.Store, id, tag string) *knowledge.Changeset {
+	t.Helper()
+	ref := catalog.DatasetRef("trino", "acme", "test", "table")
+	c, err := cat.WriteAspect(context.Background(), ref, catalog.AspectTags, []byte(`["`+tag+`"]`), "agent")
+	require.NoError(t, err)
 	return &knowledge.Changeset{
-		ID:            id,
-		TargetURN:     "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
-		ChangeType:    "add_glossary_term",
-		CreatedAt:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
-		PreviousValue: map[string]any{"glossary_terms": []any{"urn:li:glossaryTerm:canonical"}},
+		ID:        id,
+		TargetURN: ref.String(),
+		CreatedAt: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 		NewValue: map[string]any{
-			"change_0": map[string]any{"change_type": "add_glossary_term", "target": "", "detail": termURN},
+			"change_0":        map[string]any{"change_type": "add_tag", "target": "", "detail": tag},
+			"catalog_changes": []any{c.ID},
 		},
 	}
 }
 
+// rollbackRequest posts the admin rollback of a changeset.
+func rollbackRequest(ctx context.Context, kh *KnowledgeHandler, id string) *httptest.ResponseRecorder {
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/changesets/"+id+"/rollback", http.NoBody)
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	kh.RollbackChangeset(w, req)
+	return w
+}
+
 func TestRollbackChangeset(t *testing.T) {
-	t.Run("successful rollback removes the added term and records the rollback", func(t *testing.T) {
-		cs := addTermChangeset("cs-roll", "urn:li:glossaryTerm:added")
+	dataset := catalog.DatasetRef("trino", "acme", "test", "table")
+
+	t.Run("reverts the catalog change and records the admin", func(t *testing.T) {
+		cat := catalogfake.New()
+		cat.AddDataset("acme", "test.table")
+		cs := tagChangeset(t, cat, "cs-roll", "pii")
 		cs.SourceInsightIDs = []string{"ins-1"}
-		writer := &mockDataHubWriter{}
 		csStore := &mockChangesetStore{getResult: cs}
 		insightStore := &mockInsightStore{}
-		kh := NewKnowledgeHandler(insightStore, csStore, writer, nil, nil, nil)
+		kh := NewKnowledgeHandler(insightStore, csStore, cat, nil, nil, nil)
 
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-roll/rollback", http.NoBody)
-		req.SetPathValue("id", "cs-roll")
-		w := httptest.NewRecorder()
-		kh.RollbackChangeset(w, req)
+		ctx := context.WithValue(context.Background(), adminUserKey, &User{UserID: "admin-1", Roles: []string{"admin"}})
+		w := rollbackRequest(ctx, kh, "cs-roll")
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		var resp knowledge.RollbackResult
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		assert.Equal(t, "cs-roll", resp.ChangesetID)
-		assert.Equal(t, []string{"urn:li:glossaryTerm:added"}, writer.removeTermCalls)
+		assert.Equal(t, "admin-1", resp.RolledBackBy)
+		assert.Empty(t, cat.Aspects(dataset).Tags)
 		assert.Equal(t, 1, csStore.rollbackCalled)
-		assert.Equal(t, []string{"ins-1"}, insightStore.returnedIDs)
 		assert.Equal(t, []string{"ins-1"}, resp.InsightsReturnedToReview,
 			"the reverted changeset's source insight goes back to the review queue (#1257)")
 	})
 
-	t.Run("keeps a pre-existing term rather than removing it", func(t *testing.T) {
-		// The before-image already contained the term, so the add was a no-op and
-		// rollback must not remove the canonical term.
-		cs := addTermChangeset("cs-keep", "urn:li:glossaryTerm:canonical")
-		writer := &mockDataHubWriter{}
-		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, writer, nil, nil, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-keep/rollback", http.NoBody)
-		req.SetPathValue("id", "cs-keep")
-		w := httptest.NewRecorder()
-		kh.RollbackChangeset(w, req)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Empty(t, writer.removeTermCalls, "must not remove a pre-existing term")
-		assert.Equal(t, 1, csStore.rollbackCalled)
-	})
-
 	t.Run("already rolled back returns 409", func(t *testing.T) {
 		cs := &knowledge.Changeset{ID: "cs-already", RolledBack: true}
-		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-already/rollback", http.NoBody)
-		req.SetPathValue("id", "cs-already")
-		w := httptest.NewRecorder()
-		kh.RollbackChangeset(w, req)
-
+		kh := NewKnowledgeHandler(&mockInsightStore{}, &mockChangesetStore{getResult: cs}, catalogfake.New(), nil, nil, nil)
+		w := rollbackRequest(context.Background(), kh, "cs-already")
 		assert.Equal(t, http.StatusConflict, w.Code)
 		assert.Equal(t, "changeset already rolled back", decodeProblem(w.Body.Bytes()).Detail)
 	})
 
 	t.Run("changeset not found returns 404", func(t *testing.T) {
-		csStore := &mockChangesetStore{getErr: fmt.Errorf("not found")}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/missing/rollback", http.NoBody)
-		req.SetPathValue("id", "missing")
-		w := httptest.NewRecorder()
-		kh.RollbackChangeset(w, req)
-
-		assert.Equal(t, http.StatusNotFound, w.Code)
+		csStore := &mockChangesetStore{getErr: errors.New("not found")}
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, catalogfake.New(), nil, nil, nil)
+		assert.Equal(t, http.StatusNotFound, rollbackRequest(context.Background(), kh, "missing").Code)
 	})
 
-	t.Run("unrevertible change type returns 422", func(t *testing.T) {
+	t.Run("a changeset applied to DataHub returns 409", func(t *testing.T) {
 		cs := &knowledge.Changeset{
-			ID:        "cs-unrev",
+			ID:        "cs-dh",
 			TargetURN: "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
-			NewValue: map[string]any{
-				"change_0": map[string]any{"change_type": "set_structured_property", "target": "urn:li:structuredProperty:x", "detail": "v"},
-			},
+			NewValue:  map[string]any{"change_0": map[string]any{"change_type": "add_tag", "detail": "pii"}},
 		}
 		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-unrev/rollback", http.NoBody)
-		req.SetPathValue("id", "cs-unrev")
-		w := httptest.NewRecorder()
-		kh.RollbackChangeset(w, req)
-
-		assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
-		assert.Contains(t, decodeProblem(w.Body.Bytes()).Detail, "set_structured_property")
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, catalogfake.New(), nil, nil, nil)
+		w := rollbackRequest(context.Background(), kh, "cs-dh")
+		assert.Equal(t, http.StatusConflict, w.Code)
+		assert.Contains(t, decodeProblem(w.Body.Bytes()).Detail, "applied to DataHub")
 		assert.Equal(t, 0, csStore.rollbackCalled, "must not record a rollback it did not perform")
 	})
 
-	t.Run("conflict with a newer changeset returns 409", func(t *testing.T) {
-		cs := addTermChangeset("cs-old", "urn:li:glossaryTerm:added")
-		newer := &knowledge.Changeset{
-			ID:        "cs-newer",
-			TargetURN: "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
-			CreatedAt: time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+	t.Run("a prompt change returns 422", func(t *testing.T) {
+		cs := &knowledge.Changeset{
+			ID: "cs-prompt",
 			NewValue: map[string]any{
-				"change_0": map[string]any{"change_type": "add_glossary_term", "target": "", "detail": "urn:li:glossaryTerm:other"},
+				"change_0":        map[string]any{"change_type": "add_prompt", "target": "p", "detail": "b"},
+				"catalog_changes": []any{},
 			},
 		}
-		csStore := &mockChangesetStore{
-			getResult:  cs,
-			listResult: []mockChangesetListResult{{changesets: []knowledge.Changeset{*newer}, total: 1}},
-		}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil, nil)
+		csStore := &mockChangesetStore{getResult: cs}
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, catalogfake.New(), nil, nil, nil)
+		w := rollbackRequest(context.Background(), kh, "cs-prompt")
+		assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+		assert.Contains(t, decodeProblem(w.Body.Bytes()).Detail, "add_prompt")
+	})
 
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-old/rollback", http.NoBody)
-		req.SetPathValue("id", "cs-old")
-		w := httptest.NewRecorder()
-		kh.RollbackChangeset(w, req)
-
+	t.Run("an aspect written since returns 409 and reverts nothing", func(t *testing.T) {
+		cat := catalogfake.New()
+		cat.AddDataset("acme", "test.table")
+		cs := tagChangeset(t, cat, "cs-old", "a")
+		_, err := cat.WriteAspect(context.Background(), dataset, catalog.AspectTags, []byte(`["a","b"]`), "someone")
+		require.NoError(t, err)
+		csStore := &mockChangesetStore{getResult: cs}
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, cat, nil, nil, nil)
+		w := rollbackRequest(context.Background(), kh, "cs-old")
 		assert.Equal(t, http.StatusConflict, w.Code)
-		assert.Contains(t, decodeProblem(w.Body.Bytes()).Detail, "cs-newer")
+		assert.Contains(t, decodeProblem(w.Body.Bytes()).Detail, "written again by someone")
+		assert.Equal(t, []string{"a", "b"}, cat.Aspects(dataset).Tags)
 		assert.Equal(t, 0, csStore.rollbackCalled)
 	})
 
-	t.Run("datahub writer error returns 500", func(t *testing.T) {
-		cs := &knowledge.Changeset{
-			ID:            "cs-fail",
-			TargetURN:     "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
-			CreatedAt:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
-			PreviousValue: map[string]any{"description": "old desc"},
-			NewValue: map[string]any{
-				"change_0": map[string]any{"change_type": "update_description", "target": "", "detail": "new desc"},
-			},
-		}
-		writer := &mockDataHubWriter{updateDescErr: fmt.Errorf("datahub down")}
+	t.Run("a catalog failure returns 500", func(t *testing.T) {
+		cat := catalogfake.New()
+		cat.AddDataset("acme", "test.table")
+		cs := tagChangeset(t, cat, "cs-fail", "a")
+		cat.FailWrite = errors.New("catalog down")
 		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, writer, nil, nil, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-fail/rollback", http.NoBody)
-		req.SetPathValue("id", "cs-fail")
-		w := httptest.NewRecorder()
-		kh.RollbackChangeset(w, req)
-
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, cat, nil, nil, nil)
+		w := rollbackRequest(context.Background(), kh, "cs-fail")
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 		assert.Contains(t, decodeProblem(w.Body.Bytes()).Detail, "rollback failed")
-		assert.Equal(t, 0, csStore.rollbackCalled, "must not record a rollback when the DataHub write failed")
-	})
-
-	t.Run("restores prior description and records admin as rolled_back_by", func(t *testing.T) {
-		cs := &knowledge.Changeset{
-			ID:            "cs-desc",
-			TargetURN:     "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
-			CreatedAt:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
-			PreviousValue: map[string]any{"description": "original desc"},
-			NewValue: map[string]any{
-				"change_0": map[string]any{"change_type": "update_description", "target": "", "detail": "new desc"},
-			},
-		}
-		writer := &mockDataHubWriter{}
-		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, writer, nil, nil, nil)
-
-		ctx := context.WithValue(context.Background(), adminUserKey, &User{UserID: "admin-1", Roles: []string{"admin"}})
-		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/changesets/cs-desc/rollback", http.NoBody)
-		req.SetPathValue("id", "cs-desc")
-		w := httptest.NewRecorder()
-		kh.RollbackChangeset(w, req)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Equal(t, 1, writer.updateDescCalled)
-		assert.Equal(t, "original desc", writer.lastDescValue)
-		var resp knowledge.RollbackResult
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		assert.Equal(t, "admin-1", resp.RolledBackBy)
+		assert.Equal(t, 0, csStore.rollbackCalled)
 	})
 
 	t.Run("store rollback error returns 500", func(t *testing.T) {
-		cs := addTermChangeset("cs-storeerr", "urn:li:glossaryTerm:added")
+		cat := catalogfake.New()
+		cat.AddDataset("acme", "test.table")
+		cs := tagChangeset(t, cat, "cs-storeerr", "a")
 		csStore := &mockChangesetStore{getResult: cs, rollbackErr: fmt.Errorf("rollback db error")}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil, nil)
-
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-storeerr/rollback", http.NoBody)
-		req.SetPathValue("id", "cs-storeerr")
-		w := httptest.NewRecorder()
-		kh.RollbackChangeset(w, req)
-
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, cat, nil, nil, nil)
+		assert.Equal(t, http.StatusInternalServerError, rollbackRequest(context.Background(), kh, "cs-storeerr").Code)
 	})
 }
 
@@ -1141,15 +988,14 @@ func TestParseChangesetFilter(t *testing.T) {
 	})
 }
 
-// A rollback that cannot reach DataHub is a deployment precondition, not a server
-// fault, so it must answer 409 like the other backend-dependent endpoints rather
-// than the default 500.
-func TestWriteRollbackError_DataHubUnavailable(t *testing.T) {
+// A changeset written to DataHub before the catalog has no catalog history: that
+// is the changeset's state, answered 409, not a server fault.
+func TestWriteRollbackError_DataHubChangeset(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writeRollbackError(rec, knowledge.ErrDataHubUnavailable)
+	writeRollbackError(rec, knowledge.ErrDataHubChangeset)
 
 	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "knowledge.apply.datahub_connection")
+	assert.Contains(t, rec.Body.String(), "applied to DataHub")
 }
 
 func TestWriteRollbackError_UnmappedIsServerError(t *testing.T) {

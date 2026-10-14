@@ -14,12 +14,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
-// Sink discriminators for the apply action. The default (empty / sinkDataHub)
-// keeps the historical DataHub behavior; sinkKnowledgePage promotes a capture to
-// a canonical portal knowledge page (the internal-knowledge home for
+// Sink discriminators for the apply action. The default (empty / sinkCatalog)
+// writes curation to the platform catalog (#1920); sinkKnowledgePage promotes a
+// capture to a canonical portal knowledge page (the internal-knowledge home for
 // business_knowledge and operational_rule, #633 Goal 3).
 const (
-	sinkDataHub       = "datahub"
+	sinkCatalog       = "catalog"
 	sinkKnowledgePage = "knowledge_page"
 	// sinkAgentInstructions promotes an operating rule into the deployment's
 	// customized agent instructions, the third knowledge home (#1607). Its
@@ -29,7 +29,7 @@ const (
 
 // Page changeset markers. The changeset target_urn is free-form text (migration
 // 000008), so a page promotion records "kp:<slug>" and shares the same changeset
-// store / list / rollback surface as DataHub changesets.
+// store / list / rollback surface as catalog changesets.
 // PageTargetURN is the changeset target_urn for a knowledge page, keyed by slug.
 // Exported so other packages (the portal lineage endpoint) reference the same
 // format instead of duplicating the "kp:" prefix.
@@ -120,7 +120,7 @@ func (e *PageEditedError) Error() string {
 }
 
 // pagePromotionInput is the caller-curated page payload on apply (sink=knowledge_page),
-// the page-sink counterpart of the DataHub `changes` list. The caller (which has read
+// the page-sink counterpart of the catalog `changes` list. The caller (which has read
 // the source insight) supplies the markdown body and a slug for find-or-create
 // consolidation.
 type pagePromotionInput struct {
@@ -184,7 +184,7 @@ func (t *Toolkit) pagePortalURL(pageID string) string {
 
 // promoteToPage promotes a business_knowledge / operational_rule capture into a
 // canonical knowledge page (find-or-create by slug), recording a changeset for
-// audit + rollback parity with the DataHub path and marking the source insights
+// audit + rollback parity with the catalog path and marking the source insights
 // applied.
 func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	if t.pageWriter == nil {
@@ -614,7 +614,7 @@ func promotedRefsFromURNs(urns []string) []knowledgepage.EntityRef {
 
 // recordPageChangesetAndMarkApplied records the promotion changeset (target
 // "kp:<slug>") and marks the source insights applied, mirroring
-// recordChangesetAndMarkApplied for the DataHub path.
+// recordCatalogChangeset for the catalog path.
 func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input applyKnowledgeInput, prom *pagePromotion, appliedBy string) (*mcp.CallToolResult, any, error) {
 	csID, err := generateID()
 	if err != nil {
@@ -664,7 +664,7 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 		"action":                  action,
 		"insights_marked_applied": len(insightIDs),
 		// A page promotion reverts through the page sink, so it is always structurally
-		// revertible; carry the same `revertible` field the DataHub apply path and
+		// revertible; carry the same `revertible` field the catalog apply path and
 		// list_changesets expose so the contract is uniform across apply responses (#922).
 		"revertible": true,
 		// references_attached is always present (a count, 0 when this apply attached

@@ -14,10 +14,10 @@ import (
 // that stopped to ask for confirmation changed nothing and is not counted.
 func recordApplyOutcome(ctx context.Context, sink string, res *mcp.CallToolResult, err error) {
 	if sink == "" {
-		sink = sinkDataHub
+		sink = sinkCatalog
 	}
 	switch sink {
-	case sinkDataHub, sinkKnowledgePage, sinkAgentInstructions:
+	case sinkCatalog, sinkKnowledgePage, sinkAgentInstructions:
 	default:
 		// An unknown sink is refused before anything is written; it is not a
 		// sink, and the caller's word is not a label value.

@@ -116,8 +116,8 @@ type Record struct {
 	Path        string `json:"path,omitempty" example:"/v1/orders"`
 	OperationID string `json:"operation_id,omitempty" example:"listOrders"`
 
-	// Targets are what the call addressed: DataHub dataset URNs parsed from
-	// the SQL, or the endpoint identity for an API call. Sorted and
+	// Targets are what the call addressed: the catalog references of the
+	// datasets parsed from the SQL, or the endpoint identity for an API call. Sorted and
 	// deduplicated, so two records over the same tables compare equal.
 	Targets []string `json:"targets"`
 
@@ -146,7 +146,9 @@ type Record struct {
 	// not its author, found it worth running.
 	ReuseCount int `json:"reuse_count" example:"2"`
 
-	PromotedURN   string     `json:"promoted_urn,omitempty" example:"urn:li:query:abc123"`
+	// PromotedURN is where the promotion put the record: the first dataset a
+	// promoted query is kept on, or the API example's reference.
+	PromotedURN   string     `json:"promoted_urn,omitempty" example:"mcp:dataset:(trino,warehouse,hive.sales.orders)"`
 	PromotedAt    *time.Time `json:"promoted_at,omitempty"`
 	PromotedBy    string     `json:"promoted_by,omitempty" example:"marcus.johnson@example.com"`
 	RejectedAt    *time.Time `json:"rejected_at,omitempty"`

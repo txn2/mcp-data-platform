@@ -93,7 +93,7 @@ function promote(id: string, actor: string, callerID?: string) {
   }
   record.promoted_urn =
     record.kind === "sql"
-      ? `urn:li:query:${record.event_id}`
+      ? (record.targets[0] ?? `mcp:dataset:(trino,${record.connection},unknown)`)
       : `example:${record.connection}:${record.operation_id}`;
   record.promoted_at = new Date().toISOString();
   record.promoted_by = actor;

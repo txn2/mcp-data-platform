@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/google/uuid"
@@ -53,8 +54,8 @@ type entity struct {
 }
 
 const upsertDataset = `
-INSERT INTO catalog_entities (kind, reference, connection_kind, connection_name, path, name, dataset_type, schema_resource_id)
-VALUES ('dataset', $1, $2, $3, $4, $5, $6, $7)
+INSERT INTO catalog_entities (kind, reference, connection_kind, connection_name, path, name, dataset_type, schema_resource_id, schema_document)
+VALUES ('dataset', $1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (reference) DO UPDATE SET
     name = EXCLUDED.name,
     -- A table the platform registered stays one when a scan of the engine
@@ -66,6 +67,8 @@ ON CONFLICT (reference) DO UPDATE SET
         ELSE EXCLUDED.dataset_type END,
     schema_resource_id = CASE WHEN EXCLUDED.schema_resource_id = ''
         THEN catalog_entities.schema_resource_id ELSE EXCLUDED.schema_resource_id END,
+    schema_document = CASE WHEN EXCLUDED.schema_document = ''
+        THEN catalog_entities.schema_document ELSE EXCLUDED.schema_document END,
     removed_at = NULL,
     updated_at = NOW()
 RETURNING id`
@@ -96,7 +99,7 @@ func (s *Store) PutDataset(ctx context.Context, in catalog.DatasetInput) (*catal
 		var id string
 		if err := tx.QueryRowContext(ctx, upsertDataset,
 			in.Ref.String(), in.Ref.ConnectionKind, in.Ref.Connection, in.Ref.PathString(),
-			name, string(in.Type), in.SchemaResourceID,
+			name, string(in.Type), in.SchemaResourceID, in.SchemaDocument,
 		).Scan(&id); err != nil {
 			return fmt.Errorf("upserting dataset: %w", err)
 		}
@@ -147,7 +150,7 @@ func checkDatasetInput(in catalog.DatasetInput) error {
 }
 
 const selectDataset = `
-SELECT id, name, dataset_type, schema_resource_id, removed_at, created_at, updated_at
+SELECT id, name, dataset_type, schema_resource_id, schema_document, removed_at, created_at, updated_at
 FROM catalog_entities WHERE kind = 'dataset' AND reference = $1`
 
 const selectColumns = `
@@ -168,10 +171,10 @@ func (s *Store) GetDataset(ctx context.Context, ref catalog.Ref) (*catalog.Datas
 		return nil, fmt.Errorf("want a dataset reference, got %s: %w", ref.Kind, catalog.ErrInvalidRef)
 	}
 	d := &catalog.Dataset{Reference: ref.String(), Ref: ref}
-	var typ string
+	var typ, document string
 	var removed sql.NullTime
 	err := s.db.QueryRowContext(ctx, selectDataset, d.Reference).Scan(
-		&d.ID, &d.Name, &typ, &d.SchemaResourceID, &removed, &d.CreatedAt, &d.UpdatedAt)
+		&d.ID, &d.Name, &typ, &d.SchemaResourceID, &document, &removed, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, catalog.ErrNotFound
 	}
@@ -179,6 +182,9 @@ func (s *Store) GetDataset(ctx context.Context, ref catalog.Ref) (*catalog.Datas
 		return nil, fmt.Errorf("reading dataset: %w", err)
 	}
 	d.Type = catalog.DatasetType(typ)
+	if document != "" {
+		d.SchemaDocument = catalog.SchemaDocumentRef(ref.ConnectionKind, ref.Connection, document).String()
+	}
 	if removed.Valid {
 		d.RemovedAt = &removed.Time
 	}
@@ -448,6 +454,10 @@ type aspectWrite struct {
 	value   json.RawMessage
 	by      string
 	reverts string
+	// expect, when checked, is the value the writer read; a stored value that
+	// differs refuses the write with catalog.ErrStale.
+	expect  json.RawMessage
+	checked bool
 }
 
 // writeAspect replaces one aspect's value inside tx and records the change.
@@ -462,6 +472,9 @@ func writeAspect(ctx context.Context, tx *sql.Tx, w aspectWrite) (*catalog.Chang
 	err := tx.QueryRowContext(ctx, selectCurrentAspect, e.id, string(name)).Scan(&previous)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("reading current %s: %w", name, err)
+	}
+	if w.checked && !sameJSON(previous, w.expect) {
+		return nil, fmt.Errorf("writing %s of %s: %w", name, e.reference, catalog.ErrStale)
 	}
 	var last int
 	if err := tx.QueryRowContext(ctx, selectLastVersion, e.id, string(name)).Scan(&last); err != nil {
@@ -555,6 +568,133 @@ func (s *Store) Rollback(ctx context.Context, changeID, by string) (*catalog.Cha
 	return out, nil
 }
 
+// WriteAspects writes several aspects in one transaction.
+func (s *Store) WriteAspects(ctx context.Context, edits []catalog.AspectEdit, by string) ([]catalog.Change, error) {
+	out := make([]catalog.Change, 0, len(edits))
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		for _, ed := range edits {
+			e, err := resolve(ctx, tx, ed.Ref)
+			if err != nil {
+				return fmt.Errorf("writing %s: %w", ed.Ref, err)
+			}
+			normalized, err := catalog.NormalizeAspect(e.kind, ed.Aspect, ed.Value)
+			if err != nil {
+				return fmt.Errorf("writing %s: %w", ed.Ref, err)
+			}
+			w := aspectWrite{entity: e, name: ed.Aspect, value: normalized, by: by}
+			if ed.Checked {
+				w.expect, w.checked = ed.Expect, true
+			}
+			c, err := writeAspect(ctx, tx, w)
+			if err != nil {
+				return err
+			}
+			out = append(out, *c)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+const selectLatestChange = `
+SELECT id, version, written_by, written_at FROM catalog_aspect_history
+WHERE entity_id = $1 AND aspect = $2
+ORDER BY version DESC LIMIT 1`
+
+// RevertChanges rolls back several changes in one transaction, refusing them
+// all when any one's aspect has been written since.
+func (s *Store) RevertChanges(ctx context.Context, changeIDs []string, by string) ([]catalog.Change, error) {
+	for _, id := range changeIDs {
+		if _, err := uuid.Parse(id); err != nil {
+			return nil, catalog.ErrNotFound
+		}
+	}
+	out := make([]catalog.Change, 0, len(changeIDs))
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		for _, id := range changeIDs {
+			c, err := revertOne(ctx, tx, id, by)
+			if err != nil {
+				return err
+			}
+			out = append(out, *c)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+const selectChangeForRevert = `
+SELECT h.aspect, h.version, h.previous, e.id, e.kind, e.reference
+FROM catalog_aspect_history h JOIN catalog_entities e ON e.id = h.entity_id
+WHERE h.id = $1`
+
+// revertOne restores what one change replaced, after checking under the
+// entity's lock that the change is still the latest write of its aspect.
+func revertOne(ctx context.Context, tx *sql.Tx, id, by string) (*catalog.Change, error) {
+	var aspect, kind string
+	var version int
+	var previous []byte
+	var e entity
+	err := tx.QueryRowContext(ctx, selectChangeForRevert, id).Scan(&aspect, &version, &previous, &e.id, &kind, &e.reference)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, catalog.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading change: %w", err)
+	}
+	e.kind = catalog.Kind(kind)
+	if _, err := tx.ExecContext(ctx, lockEntity, e.id); err != nil {
+		return nil, fmt.Errorf("locking entity: %w", err)
+	}
+	var latest catalog.Change
+	if err := tx.QueryRowContext(ctx, selectLatestChange, e.id, aspect).Scan(
+		&latest.ID, &latest.Version, &latest.WrittenBy, &latest.WrittenAt); err != nil {
+		return nil, fmt.Errorf("reading latest %s: %w", aspect, err)
+	}
+	if latest.Version != version {
+		latest.Reference, latest.Aspect = e.reference, catalog.AspectName(aspect)
+		return nil, &catalog.ConflictError{
+			Change: id, Reference: e.reference, Aspect: catalog.AspectName(aspect), Newer: latest,
+		}
+	}
+	return writeAspect(ctx, tx, aspectWrite{
+		entity: e, name: catalog.AspectName(aspect), value: previous, by: by, reverts: id,
+	})
+}
+
+const selectTagged = `
+SELECT e.reference FROM catalog_aspects a JOIN catalog_entities e ON e.id = a.entity_id
+WHERE a.aspect = 'tags' AND e.kind IN ('dataset', 'column') AND a.value @> jsonb_build_array($1::text)
+ORDER BY e.reference
+LIMIT $2`
+
+// TaggedEntities returns the datasets and columns carrying a tag.
+func (s *Store) TaggedEntities(ctx context.Context, tag string, limit int) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, selectTagged, tag, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing tagged entities: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]string, 0)
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			return nil, fmt.Errorf("scanning tagged entity: %w", err)
+		}
+		out = append(out, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing tagged entities: %w", err)
+	}
+	return out, nil
+}
+
 // inTx runs fn in a transaction, committing when it returns nil.
 func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -569,6 +709,20 @@ func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
 		return fmt.Errorf("committing: %w", err)
 	}
 	return nil
+}
+
+// sameJSON reports whether two stored values are the same JSON, either absent
+// or decoding to equal values; PostgreSQL's jsonb does not keep the text it
+// was given.
+func sameJSON(a, b []byte) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return len(a) == len(b)
+	}
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }
 
 // nullJSON stores an absent value as SQL NULL rather than JSON null.

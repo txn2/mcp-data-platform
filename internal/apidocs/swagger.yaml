@@ -2756,7 +2756,10 @@ definitions:
         example: marcus.johnson@example.com
         type: string
       promoted_urn:
-        example: urn:li:query:abc123
+        description: |-
+          PromotedURN is where the promotion put the record: the first dataset a
+          promoted query is kept on, or the API example's reference.
+        example: mcp:dataset:(trino,warehouse,hive.sales.orders)
         type: string
       purpose:
         description: Purpose is the reason the caller stated for making the call (#1317).
@@ -2802,8 +2805,8 @@ definitions:
         type: boolean
       targets:
         description: |-
-          Targets are what the call addressed: DataHub dataset URNs parsed from
-          the SQL, or the endpoint identity for an API call. Sorted and
+          Targets are what the call addressed: the catalog references of the
+          datasets parsed from the SQL, or the endpoint identity for an API call. Sorted and
           deduplicated, so two records over the same tables compare equal.
         items:
           type: string
@@ -2866,6 +2869,30 @@ definitions:
         type: string
       path:
         type: string
+    type: object
+  catalog.SchemaDocument:
+    properties:
+      connection:
+        type: string
+      connection_kind:
+        type: string
+      filename:
+        type: string
+      id:
+        type: string
+      mime_type:
+        type: string
+      reference:
+        type: string
+      size_bytes:
+        type: integer
+      updated_at:
+        type: string
+      version:
+        description: |-
+          Version counts the times the document's content changed; a scan that
+          reads the same content again does not move it.
+        type: integer
     type: object
   catalogapi.catalogResponse:
     properties:
@@ -3080,6 +3107,132 @@ definitions:
       title:
         type: string
     type: object
+  catalogimport.DatasetCounts:
+    properties:
+      from_removed:
+        description: |-
+          FromRemoved is the catalog datasets that took curation from a record
+          DataHub has marked removed.
+        type: integer
+      imported:
+        description: Imported is the catalog datasets the import wrote curation onto.
+        type: integer
+      read:
+        description: Read is every dataset record DataHub listed, removed ones included.
+        type: integer
+      skipped:
+        type: integer
+    type: object
+  catalogimport.Report:
+    properties:
+      aspects_kept:
+        type: integer
+      aspects_unchanged:
+        type: integer
+      aspects_written:
+        description: |-
+          AspectsWritten counts the aspects the import wrote; AspectsUnchanged
+          those that already held DataHub's value; AspectsKept those it left
+          alone because something other than the import wrote them in the
+          platform catalog.
+        type: integer
+      datasets:
+        $ref: '#/definitions/catalogimport.DatasetCounts'
+      definitions:
+        additionalProperties:
+          type: integer
+        description: Definitions counts the definitions imported, by kind.
+        type: object
+      lineage_edges:
+        type: integer
+      rewrite:
+        allOf:
+        - $ref: '#/definitions/catalogimport.RewriteReport'
+        description: Rewrite is what the rewrite of stored references did.
+      skipped:
+        description: |-
+          Skipped lists what was not imported and why, at most maxListed of
+          them; SkippedByReason counts every one.
+        items:
+          $ref: '#/definitions/catalogimport.Skip'
+        type: array
+      skipped_by_reason:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
+  catalogimport.RewriteReport:
+    properties:
+      index_rows_dropped:
+        description: |-
+          IndexRowsDropped counts the rows of the dataset search index keyed by a
+          DataHub URN. The index reads the platform catalog; it re-reads the
+          datasets those rows named under their catalog references.
+        type: integer
+      rewritten:
+        additionalProperties:
+          type: integer
+        description: Rewritten counts the rows changed, by table and column.
+        type: object
+      unmapped:
+        description: |-
+          Unmapped counts the references left as they were, because the import
+          has no catalog entity for them; each is listed in the report's skips
+          with where it was found.
+        type: integer
+    type: object
+  catalogimport.Run:
+    properties:
+      error:
+        type: string
+      finished_at:
+        type: string
+      id:
+        type: string
+      report:
+        $ref: '#/definitions/catalogimport.Report'
+      running:
+        description: |-
+          Running is true while the run holds the import's lock; a run with no
+          finished_at that does not was cut off when its replica stopped.
+        type: boolean
+      source_url:
+        type: string
+      started_at:
+        type: string
+      started_by:
+        type: string
+    type: object
+  catalogimport.Skip:
+    properties:
+      reason:
+        type: string
+      urn:
+        type: string
+      where:
+        description: Where names the platform table and column a rewrite skip was
+          found in.
+        type: string
+    type: object
+  catalogimportapi.RunList:
+    properties:
+      imports:
+        items:
+          $ref: '#/definitions/catalogimport.Run'
+        type: array
+    type: object
+  catalogimportapi.StartRequest:
+    properties:
+      token:
+        description: |-
+          Token is a DataHub personal access token. It is used for this run and
+          not kept.
+        type: string
+      url:
+        description: URL is DataHub's GMS address, such as https://datahub.example.com:8080.
+        example: https://datahub.example.com:8080
+        type: string
+    type: object
   catalogscan.Exclusion:
     properties:
       connection:
@@ -3141,6 +3294,13 @@ definitions:
         type: string
       path:
         type: string
+    type: object
+  catalogscanapi.DocumentList:
+    properties:
+      documents:
+        items:
+          $ref: '#/definitions/catalog.SchemaDocument'
+        type: array
     type: object
   catalogscanapi.ScanList:
     properties:
@@ -14263,6 +14423,142 @@ paths:
       summary: Who wrote the call catalog
       tags:
       - Calls
+  /admin/catalog/documents:
+    get:
+      description: 'Returns every schema document the catalog scan keeps, one per
+        API connection''s OpenAPI spec and GraphQL connection''s SDL, without its
+        content: the connection, the filename, the media type, the size, and the version,
+        which moves only when a scan reads different content. A document is read through
+        fetch by its mcp:schema_document reference under the same connection boundary
+        as the connection''s datasets.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalogscanapi.DocumentList'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List schema documents
+      tags:
+      - Catalog
+  /admin/catalog/documents/{kind}/{connection}/{filename}:
+    get:
+      description: Returns one schema document's content as the scan last read it,
+        as a download in its own media type.
+      parameters:
+      - description: 'Connection kind: api or graphql'
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Connection name
+        in: path
+        name: connection
+        required: true
+        type: string
+      - description: Document filename
+        in: path
+        name: filename
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Download a schema document
+      tags:
+      - Catalog
+  /admin/catalog/imports:
+    get:
+      description: 'Returns the latest imports from DataHub into the platform catalog,
+        newest first: who started each, against which DataHub, whether it is running,
+        and its report when it finished. The report counts the definitions and datasets
+        imported, the aspects written, left unchanged, and kept because something
+        other than the import wrote them in the catalog, the lineage edges recorded,
+        the stored references rewritten, and lists what was skipped and why.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalogimportapi.RunList'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List DataHub imports
+      tags:
+      - Catalog
+    post:
+      consumes:
+      - application/json
+      description: Starts an import of a DataHub into the platform catalog and answers
+        202 at once; GET reports the run. It reads every dataset, the ones DataHub
+        marked removed included, and every glossary node, glossary term, tag, domain
+        and data product. A dataset's curation lands on the catalog dataset with the
+        same path, so scan the connections first; a removed record fills what the
+        live record of the same path lacks. An aspect something other than the import
+        wrote in the catalog is kept. It then rewrites the DataHub URNs stored in
+        memories, insights, changesets, knowledge pages and call records into catalog
+        references. Running it again writes only what changed. Answers 409 while an
+        import is running.
+      parameters:
+      - description: The DataHub to import
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/catalogimportapi.StartRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/catalogimport.Run'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Import from DataHub
+      tags:
+      - Catalog
   /admin/catalog/scans:
     get:
       description: 'Returns the last scan of every connection: when it ran, how many

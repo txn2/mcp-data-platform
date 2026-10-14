@@ -44,14 +44,14 @@ func TestRecordApplyOutcome(t *testing.T) {
 	recordApplyOutcome(ctx, "", ok, nil)
 	recordApplyOutcome(ctx, sinkKnowledgePage, toolkit.ErrorResult("refused"), nil)
 	recordApplyOutcome(ctx, sinkAgentInstructions, nil, errors.New("boom"))
-	recordApplyOutcome(ctx, sinkDataHub, confirm, nil)
+	recordApplyOutcome(ctx, sinkCatalog, confirm, nil)
 	recordApplyOutcome(ctx, "made_up_sink", ok, nil)
 	recordReviews(ctx, StatusApproved, 2)
 	recordReviews(ctx, StatusRejected, 1)
 
 	body := scrape()
 	for _, want := range []string{
-		`knowledge_changes_total{result="applied",sink="datahub"} 1`,
+		`knowledge_changes_total{result="applied",sink="catalog"} 1`,
 		`knowledge_changes_total{result="failed",sink="knowledge_page"} 1`,
 		`knowledge_changes_total{result="failed",sink="agent_instructions"} 1`,
 		`knowledge_changes_total{result="approved",sink="insight"} 2`,

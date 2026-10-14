@@ -41,8 +41,23 @@ type TrinoReader interface {
 	Columns(ctx context.Context, bound, catalogName string, fn func(ColumnRow) error) error
 }
 
-// OperationReader lists the operations of one kind of connection.
+// OperationReader lists the operations of one kind of connection and the
+// schema documents they were read from.
 type OperationReader interface {
 	Connections() []Connection
 	Operations(ctx context.Context, bound string) ([]Operation, error)
+	// Documents are the connection's schema documents, keyed as each
+	// Operation's Document names them. A connection with none returns none.
+	Documents(ctx context.Context, bound string) ([]Document, error)
+}
+
+// Document is a source's schema document as the platform holds it: an
+// OpenAPI spec, a GraphQL SDL.
+type Document struct {
+	// Key is what an Operation's Document names it by.
+	Key string
+	// Filename is the name the document is kept under, extension included.
+	Filename string
+	MIMEType string
+	Content  []byte
 }

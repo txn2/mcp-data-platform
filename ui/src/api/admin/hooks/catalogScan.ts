@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { CatalogScan, CatalogSettings } from "../types";
+import type { CatalogDocument, CatalogImport, CatalogScan, CatalogSettings } from "../types";
 import { REFETCH_INTERVAL } from "./shared";
 
 // The platform catalog's scan settings and each connection's last scan (#1918).
@@ -44,4 +44,41 @@ export function useRequestCatalogScan() {
       void qc.invalidateQueries({ queryKey: SCANS_KEY });
     },
   });
+}
+
+const IMPORTS_KEY = ["catalog", "imports"] as const;
+
+/** useCatalogImports reads the latest imports from DataHub (#1923),
+ * refreshed so a running one shows its report when it finishes. */
+export function useCatalogImports() {
+  return useQuery({
+    queryKey: IMPORTS_KEY,
+    queryFn: () => apiFetch<{ imports: CatalogImport[] }>("/catalog/imports"),
+    refetchInterval: REFETCH_INTERVAL,
+  });
+}
+
+/** useStartCatalogImport starts an import from the DataHub at url. */
+export function useStartCatalogImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { url: string; token: string }) =>
+      apiFetch<CatalogImport>("/catalog/imports", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: IMPORTS_KEY });
+    },
+  });
+}
+
+/** useCatalogDocuments lists the schema documents the scan keeps (#1918). */
+export function useCatalogDocuments() {
+  return useQuery({
+    queryKey: ["catalog", "documents"] as const,
+    queryFn: () => apiFetch<{ documents: CatalogDocument[] }>("/catalog/documents"),
+  });
+}
+
+/** catalogDocumentHref is where a schema document downloads from. */
+export function catalogDocumentHref(d: Pick<CatalogDocument, "connection_kind" | "connection" | "filename">): string {
+  return `/api/v1/admin/catalog/documents/${[d.connection_kind, d.connection, d.filename].map(encodeURIComponent).join("/")}`;
 }

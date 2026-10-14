@@ -11,6 +11,7 @@ const TYPE_ICONS: Record<RefType, LucideIcon> = {
   connection: Plug,
   script: FileCode2,
   datahub: Database,
+  catalog: Database,
   unknown: Link2,
 };
 

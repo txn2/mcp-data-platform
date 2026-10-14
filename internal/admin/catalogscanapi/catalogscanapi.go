@@ -1,23 +1,27 @@
 // Package catalogscanapi is the admin REST surface for the platform catalog's
 // scan (#1918): its settings (how often every connection is scanned, and what
-// each connection keeps out of the catalog), each connection's last scan, and
-// a request to scan now.
+// each connection keeps out of the catalog), each connection's last scan, a
+// request to scan now, and the schema documents the scan keeps.
 package catalogscanapi
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogscan"
+	"github.com/txn2/mcp-data-platform/pkg/blobserve"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 )
 
 // The routes.
 const (
-	settingsPath = "/api/v1/admin/catalog/settings"
-	scansPath    = "/api/v1/admin/catalog/scans"
+	settingsPath  = "/api/v1/admin/catalog/settings"
+	scansPath     = "/api/v1/admin/catalog/scans"
+	documentsPath = "/api/v1/admin/catalog/documents"
 )
 
 // maxBodyBytes bounds a settings body.
@@ -37,12 +41,22 @@ type Scanner interface {
 	ScanNow(ctx context.Context, by string) error
 }
 
+// Documents reads the schema documents the scan keeps.
+// catalogstore.Store satisfies it.
+type Documents interface {
+	ListDocuments(ctx context.Context) ([]catalog.SchemaDocument, error)
+	GetDocument(ctx context.Context, ref catalog.Ref) (*catalog.SchemaDocument, error)
+}
+
 // Config carries the store, the scanner and the parent-owned helpers.
 type Config struct {
 	// Store holds the settings. nil mounts nothing.
 	Store Store
 	// Scanner runs a requested scan. nil leaves the request route unmounted.
 	Scanner Scanner
+	// Documents reads the kept schema documents. nil leaves their routes
+	// unmounted.
+	Documents Documents
 	// Author resolves the acting admin.
 	Author func(*http.Request) string
 }
@@ -50,6 +64,11 @@ type Config struct {
 // ScanList is the last scan of every connection.
 type ScanList struct {
 	Scans []catalogscan.Outcome `json:"scans"`
+}
+
+// DocumentList is every schema document the scan keeps, without content.
+type DocumentList struct {
+	Documents []catalog.SchemaDocument `json:"documents"`
 }
 
 // ScanRequested acknowledges a scan request.
@@ -71,6 +90,10 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 	mux.Handle("GET "+scansPath, wrap(http.HandlerFunc(h.listScans)))
 	if cfg.Scanner != nil {
 		mux.Handle("POST "+scansPath, wrap(http.HandlerFunc(h.requestScan)))
+	}
+	if cfg.Documents != nil {
+		mux.Handle("GET "+documentsPath, wrap(http.HandlerFunc(h.listDocuments)))
+		mux.Handle("GET "+documentsPath+"/{kind}/{connection}/{filename}", wrap(http.HandlerFunc(h.getDocument)))
 	}
 }
 
@@ -173,6 +196,57 @@ func (h *handler) requestScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusAccepted, ScanRequested{Status: "requested"})
+}
+
+// listDocuments handles GET /api/v1/admin/catalog/documents.
+//
+// @Summary      List schema documents
+// @Description  Returns every schema document the catalog scan keeps, one per API connection's OpenAPI spec and GraphQL connection's SDL, without its content: the connection, the filename, the media type, the size, and the version, which moves only when a scan reads different content. A document is read through fetch by its mcp:schema_document reference under the same connection boundary as the connection's datasets.
+// @Tags         Catalog
+// @Produce      json
+// @Success      200  {object}  DocumentList
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/catalog/documents [get]
+func (h *handler) listDocuments(w http.ResponseWriter, r *http.Request) {
+	docs, err := h.cfg.Documents.ListDocuments(r.Context())
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "reading schema documents failed")
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, DocumentList{Documents: docs})
+}
+
+// getDocument handles GET /api/v1/admin/catalog/documents/{kind}/{connection}/{filename}.
+//
+// @Summary      Download a schema document
+// @Description  Returns one schema document's content as the scan last read it, as a download in its own media type.
+// @Tags         Catalog
+// @Produce      octet-stream
+// @Param        kind        path      string  true  "Connection kind: api or graphql"
+// @Param        connection  path      string  true  "Connection name"
+// @Param        filename    path      string  true  "Document filename"
+// @Success      200  {file}    file
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/catalog/documents/{kind}/{connection}/{filename} [get]
+func (h *handler) getDocument(w http.ResponseWriter, r *http.Request) {
+	ref := catalog.SchemaDocumentRef(r.PathValue("kind"), r.PathValue("connection"), r.PathValue("filename"))
+	doc, err := h.cfg.Documents.GetDocument(r.Context(), ref)
+	if errors.Is(err, catalog.ErrNotFound) {
+		httpjson.WriteError(w, http.StatusNotFound, "no such schema document")
+		return
+	}
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "reading the schema document failed")
+		return
+	}
+	blobserve.Serve(w, r, blobserve.Options{
+		Name: doc.Filename, ContentType: doc.MIMEType, ModTime: doc.UpdatedAt, Data: doc.Content, ForceAttachment: true,
+	})
 }
 
 // author names the acting admin, or nothing when no resolver is wired.

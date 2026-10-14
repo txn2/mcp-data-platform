@@ -43,12 +43,14 @@ type Dataset struct {
 	Ref       Ref         `json:"-"`
 	Name      string      `json:"name"`
 	Type      DatasetType `json:"type"`
-	// SchemaResourceID is the managed resource holding the dataset's source
-	// schema document (an index template, a JSON Schema, an OpenAPI spec, DDL),
-	// when it has one. Columns are derived from it and stored as rows.
-	SchemaResourceID string   `json:"schema_resource_id,omitempty"`
-	Columns          []Column `json:"columns"`
-	Aspects          Aspects  `json:"aspects"`
+	// SchemaResourceID is the managed resource a registered table was created
+	// from, when it was created from one.
+	SchemaResourceID string `json:"schema_resource_id,omitempty"`
+	// SchemaDocument is the reference of the connection's schema document the
+	// scan read the dataset from, when it was read from one (#1918).
+	SchemaDocument string   `json:"schema_document,omitempty"`
+	Columns        []Column `json:"columns"`
+	Aspects        Aspects  `json:"aspects"`
 	// RemovedAt is when a scan stopped seeing the dataset. Its curation stays
 	// readable, and a scan that sees it again clears this.
 	RemovedAt *time.Time `json:"removed_at,omitempty"`
@@ -71,5 +73,8 @@ type DatasetInput struct {
 	Name             string
 	Type             DatasetType
 	SchemaResourceID string
-	Columns          []ColumnInput
+	// SchemaDocument is the filename of the connection's schema document the
+	// dataset was read from. Empty keeps the one already recorded.
+	SchemaDocument string
+	Columns        []ColumnInput
 }
