@@ -155,6 +155,38 @@ services:
     depends_on:
       - api-test
 
+  # graphql: the GraphQL endpoint the graphql connection kind's acceptance
+  # criteria run against. PostGraphile publishes the gqlfixture schema of the
+  # gql_fixture database as GraphQL at http://localhost:9286/graphql, with
+  # introspection, Relay connections and the default mutations. dev/start.sh
+  # creates the database and applies dev/seed-graphql.sql before this service
+  # starts, so the schema it reads is rebuilt on every `make dev`.
+  graphql:
+    image: graphile/postgraphile:4.14.0@sha256:ab8f433f0c42292845205f52c99f20804f25ec64edcc78553ddc76e25380230e
+    container_name: acme-dev-graphql
+    command:
+      - --connection
+      - postgres://platform:platform_secret@postgres:5432/gql_fixture
+      - --schema
+      - gqlfixture
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --disable-graphiql
+      - --disable-query-log
+      - --retry-on-init-fail
+    ports:
+      - "127.0.0.1:9286:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - --header 'Content-Type: application/json' --post-data '{\"query\":\"{ __typename }\"}' http://127.0.0.1:5000/graphql | grep -q Query"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   # platform-lb: the two platform processes dev/start.sh runs, round-robined
   # behind one address with no session affinity, the way two pods behind a
   # service are (#1708). It also replaces origin 502 and 504 bodies the way the

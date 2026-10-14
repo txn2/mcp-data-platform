@@ -1,6 +1,6 @@
 // Package gen is the benchmark's deterministic dataset generator (issue #930
 // principle 3: seeded ground truth). One fixed-seed dataset model emits every
-// seed artifact — Trino DDL/DML, DataHub metadata proposals, knowledge-page
+// seed artifact — Trino DDL/DML, platform catalog curation, knowledge-page
 // SQL — plus the task set whose ground truths are computed directly from the
 // generated rows, so truth is derived, never hand-typed. Regeneration is
 // byte-identical; a test diffs the committed artifacts against a fresh run.

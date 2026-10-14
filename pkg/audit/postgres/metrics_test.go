@@ -184,7 +184,7 @@ func TestBreakdown_Success(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
 		AddRow("trino_query", 50, 0.96, 45.2).
-		AddRow("datahub_search", 30, 1.0, 20.1)
+		AddRow("search", 30, 1.0, 20.1)
 
 	mock.ExpectQuery("SELECT").
 		WithArgs(start, now).
@@ -925,8 +925,8 @@ func TestDiscovery_Success(t *testing.T) {
 
 	// Top tools query result
 	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("datahub_search", 120, 0.98, 15.5).
-		AddRow("datahub_get_lineage", 80, 1.0, 25.0)
+		AddRow("search", 120, 0.98, 15.5).
+		AddRow("fetch", 80, 1.0, 25.0)
 
 	mock.ExpectQuery("SELECT tool_name").
 		WithArgs(start, now, "").
@@ -943,7 +943,7 @@ func TestDiscovery_Success(t *testing.T) {
 	assert.InDelta(t, 0.60, result.DiscoveryRate, 0.01)
 	assert.Equal(t, 20, result.QueryWithoutDiscovery)
 	require.Len(t, result.TopDiscoveryTools, 2)
-	assert.Equal(t, "datahub_search", result.TopDiscoveryTools[0].Dimension)
+	assert.Equal(t, "search", result.TopDiscoveryTools[0].Dimension)
 	assert.Equal(t, 120, result.TopDiscoveryTools[0].Count)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -1068,7 +1068,7 @@ func TestDiscovery_TopToolsRowsErr(t *testing.T) {
 	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
 
 	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("datahub_search", 10, 1.0, 15.0).
+		AddRow("search", 10, 1.0, 15.0).
 		RowError(0, fmt.Errorf("row iteration error"))
 	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
 

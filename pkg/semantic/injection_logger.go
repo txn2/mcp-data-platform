@@ -1,6 +1,10 @@
 package semantic
 
-import "log/slog"
+import (
+	"log/slog"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+)
 
 // DetectAndLogInjection checks input for prompt-injection patterns and emits
 // a structured slog warning for each detection, so operators can search the
@@ -16,9 +20,11 @@ func DetectAndLogInjection(sanitizer *Sanitizer, source, field, input string) bo
 		return false
 	}
 
+	// source and field name what was written (a reference, a property key the
+	// writer chose), so they are sanitized like any other caller-supplied value.
 	slog.Warn("prompt injection patterns detected",
-		"source", source,
-		"field", field,
+		"source", logsan.SanitizeForLog(source),
+		"field", logsan.SanitizeForLog(field),
 		"patterns", patterns)
 	return true
 }

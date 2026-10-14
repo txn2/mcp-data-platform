@@ -63,14 +63,14 @@ type TableContext struct {
 	CustomProperties map[string]string `json:"custom_properties,omitempty"`
 	LastModified     *time.Time        `json:"last_modified,omitempty"`
 
-	// Structured properties (DataHub 1.4.x)
+	// Structured properties
 	StructuredProperties []StructuredProperty `json:"structured_properties,omitempty"`
 
-	// Incidents (DataHub 1.4.x)
+	// Incidents
 	ActiveIncidents int        `json:"active_incidents,omitempty"`
 	Incidents       []Incident `json:"incidents,omitempty"`
 
-	// Data contracts (DataHub 1.4.x)
+	// Data contracts
 	DataContract *DataContractStatus `json:"data_contract,omitempty"`
 }
 
@@ -111,7 +111,7 @@ func (c *ColumnContext) HasContent() bool {
 
 // InheritedMetadata tracks the provenance of inherited column metadata.
 type InheritedMetadata struct {
-	// SourceURN is the DataHub URN of the upstream dataset.
+	// SourceURN is the catalog reference of the upstream dataset.
 	SourceURN string `json:"source_urn"`
 
 	// SourceColumn is the column name in the upstream dataset.
@@ -159,33 +159,6 @@ type GlossaryTerm struct {
 	CustomProperties map[string]string `json:"custom_properties,omitempty"`
 }
 
-// GlossaryNode is a directory in the business glossary: it holds glossary terms
-// and other glossary nodes. TermsCount and NodesCount are the backend's own
-// tally of the direct children, so a browser can render an expandable branch
-// without first fetching it (#1155).
-type GlossaryNode struct {
-	URN         string `json:"urn"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	// ParentNode is the URN of the containing node, empty at the root.
-	ParentNode string `json:"parent_node,omitempty"`
-	TermsCount int    `json:"terms_count"`
-	NodesCount int    `json:"nodes_count"`
-}
-
-// GlossaryChildren is a page of what sits directly under a glossary node. The
-// backend pages nodes and terms as one mixed collection, so Start, Count, and
-// Total describe the combined page rather than either slice on its own: a
-// caller pages by Start/Count against Total and reads whichever slices the page
-// happened to contain.
-type GlossaryChildren struct {
-	Nodes []GlossaryNode `json:"nodes"`
-	Terms []GlossaryTerm `json:"terms"`
-	Start int            `json:"start"`
-	Count int            `json:"count"`
-	Total int            `json:"total"`
-}
-
 // Domain represents a data domain.
 type Domain struct {
 	URN         string `json:"urn"`
@@ -193,10 +166,10 @@ type Domain struct {
 	Description string `json:"description,omitempty"`
 }
 
-// EntityRef is a lightweight URN + display name reference. The catalog metadata
-// pickers use it to resolve a human-readable name (e.g. "Revenue") to the DataHub
-// URN (e.g. "urn:li:glossaryTerm:Revenue") the write endpoints require, so a user
-// never types a raw URN.
+// EntityRef is a lightweight reference + display name. The catalog metadata
+// pickers use it to resolve a human-readable name (e.g. "Revenue") to the
+// catalog reference (e.g. "mcp:glossary_term:<id>") a write takes, so a user
+// never types a raw reference.
 type EntityRef struct {
 	URN         string `json:"urn"`
 	Name        string `json:"name"`
@@ -256,32 +229,8 @@ type SearchFilter struct {
 	Limit    int      `json:"limit,omitempty"`
 	Offset   int      `json:"offset,omitempty"`
 
-	// EntityTypes restricts search to specific entity types (e.g., "DATASET", "DASHBOARD").
-	// If empty, defaults to the DataHub client's DefaultEntityType.
-	EntityTypes []string `json:"entity_types,omitempty"`
-
 	// Mode selects the search strategy: "keyword" (default) or "semantic".
 	Mode string `json:"mode,omitempty"`
-
-	// Filters provides advanced field-level filtering (e.g., by column name, column tag).
-	// All filters are AND'd together. These map directly to DataHub's searchAcrossEntities
-	// orFilters and support fields like fieldPaths, fieldTags, fieldGlossaryTerms, etc.
-	Filters []FieldFilter `json:"filters,omitempty"`
-}
-
-// FieldFilter is a single search filter criterion.
-type FieldFilter struct {
-	// Field is the filter field (e.g., "fieldPaths", "fieldTags", "platform", "owners").
-	Field string `json:"field"`
-
-	// Values to match against.
-	Values []string `json:"values"`
-
-	// Condition is the match operator: CONTAIN, EQUAL (default), IN, EXISTS.
-	Condition string `json:"condition,omitempty"`
-
-	// Negated inverts the filter (exclude matching entities).
-	Negated bool `json:"negated,omitempty"`
 }
 
 // TableSearchResult represents a search result.
@@ -295,41 +244,14 @@ type TableSearchResult struct {
 	MatchedField string   `json:"matched_field,omitempty"`
 }
 
-// DocumentResult is one DataHub context document returned by a relevance search
-// (#692). Context documents are the non-dataset knowledge home that predates
-// knowledge pages; surfacing them in search makes them discoverable (and
-// migratable). The URN (urn:li:document:<id>) drills in, Snippet shows relevance,
-// and ShowInGlobalContext distinguishes globally-visible documents from hidden ones.
-type DocumentResult struct {
-	URN     string `json:"urn"`
-	Title   string `json:"title"`
-	SubType string `json:"sub_type,omitempty"`
-	Snippet string `json:"snippet,omitempty"`
-	// Body is the full, untruncated document content. It is populated only by a
-	// single-document read (GetDocument), where the whole point is to return the
-	// complete content a search snippet elides; the relevance-search paths
-	// (SearchDocuments, GetRelatedDocuments) leave it empty and populate the
-	// bounded Snippet instead, so a multi-result search does not carry N full
-	// bodies.
-	Body string `json:"body,omitempty"`
-	// Status is the publication state (PUBLISHED/UNPUBLISHED). The upstream search
-	// applies no status filter, so a consumer carries this to exclude drafts.
-	Status string `json:"status,omitempty"`
-	// ShowInGlobalContext reports whether the document is meant to appear in global
-	// search. The upstream search returns documents regardless of this flag, so a
-	// search consumer must filter on it to honor a steward's choice to hide a document.
-	ShowInGlobalContext bool     `json:"show_in_global_context"`
-	RelatedAssetURNs    []string `json:"related_asset_urns,omitempty"`
-}
-
-// StructuredProperty represents a typed custom property from DataHub 1.4.x.
+// StructuredProperty represents a typed custom property.
 type StructuredProperty struct {
 	QualifiedName string `json:"qualified_name"`
 	DisplayName   string `json:"display_name,omitempty"`
 	Values        []any  `json:"values"`
 }
 
-// Incident represents an active data incident from DataHub 1.4.x.
+// Incident represents an active data incident.
 type Incident struct {
 	URN         string `json:"urn"`
 	Type        string `json:"type"`
@@ -339,7 +261,7 @@ type Incident struct {
 	Created     int64  `json:"created,omitempty"`
 }
 
-// DataContractStatus represents the pass/fail status of a data contract from DataHub 1.4.x.
+// DataContractStatus represents the pass/fail status of a data contract.
 type DataContractStatus struct {
 	Status           string            `json:"status"` // PASSING or FAILING
 	AssertionResults []AssertionResult `json:"assertion_results,omitempty"`
@@ -349,112 +271,4 @@ type DataContractStatus struct {
 type AssertionResult struct {
 	AssertionURN string `json:"assertion_urn,omitempty"` // URN identifying the assertion
 	Type         string `json:"type"`                    // FRESHNESS, SCHEMA, DATA_QUALITY
-}
-
-// Dataset is the full record of one catalog dataset: the business context a
-// TableContext carries, the identity fields the catalog holds beside it, the
-// declared schema, and the saved queries and context documents attached to it
-// (#1590). It is what a fetch of a urn:li:dataset: reference returns, folding
-// the former datahub_get_entity, datahub_get_schema, and datahub_get_queries
-// reads into one answer to "tell me about this dataset". TableContext is
-// embedded so its fields serialize at the top level, where enrichment readers
-// already look for them.
-type Dataset struct {
-	TableContext
-
-	// Name is the catalog's display name for the dataset.
-	Name string `json:"name,omitempty"`
-	// Type is the catalog entity type ("DATASET").
-	Type string `json:"type,omitempty"`
-	// Platform is the data platform the dataset belongs to (the URN's
-	// dataPlatform segment, e.g. "trino").
-	Platform string `json:"platform,omitempty"`
-	// SubTypes are the catalog's sub-type classifications ("table", "view").
-	SubTypes []string `json:"sub_types,omitempty"`
-	// Created is when the catalog first recorded the dataset.
-	Created *time.Time `json:"created,omitempty"`
-	// Schema is the declared schema, nil when the catalog holds none.
-	Schema *DatasetSchema `json:"schema,omitempty"`
-	// Queries are the saved queries the catalog holds against the dataset, and
-	// TotalQueries is the catalog's own count of them (the list may be a page).
-	Queries      []SavedQuery `json:"queries,omitempty"`
-	TotalQueries int          `json:"total_queries,omitempty"`
-	// RelatedDocuments are the context documents linked to the dataset.
-	RelatedDocuments []DocumentResult `json:"related_documents,omitempty"`
-	// Unavailable names the parts of the record the catalog could not serve on
-	// this read ("schema", "queries", "related_documents"), so an absent part is
-	// distinguishable from an empty one. The entity itself always resolved.
-	Unavailable []string `json:"unavailable,omitempty"`
-}
-
-// DatasetSchema is a dataset's declared schema as the catalog holds it.
-type DatasetSchema struct {
-	// Version is the catalog's schema version.
-	Version int64 `json:"version,omitempty"`
-	// Fields are the declared fields in declaration order.
-	Fields []SchemaField `json:"fields"`
-	// PrimaryKeys lists the primary key field paths.
-	PrimaryKeys []string `json:"primary_keys,omitempty"`
-	// ForeignKeys lists the declared foreign key relationships.
-	ForeignKeys []ForeignKey `json:"foreign_keys,omitempty"`
-}
-
-// SchemaField is one declared field of a dataset schema.
-type SchemaField struct {
-	// FieldPath is the full path of the field ("user.address.city" for a nested one).
-	FieldPath string `json:"field_path"`
-	// Type is the catalog's normalized type; NativeType is the platform's own.
-	Type       string `json:"type"`
-	NativeType string `json:"native_type,omitempty"`
-	// Description is the field's documented meaning.
-	Description string `json:"description,omitempty"`
-	// Nullable reports whether the field admits NULL.
-	Nullable bool `json:"nullable"`
-	// IsPartitionKey marks a partition column.
-	IsPartitionKey bool `json:"is_partition_key,omitempty"`
-	// Tags and GlossaryTerms are the field-level classifications.
-	Tags          []string       `json:"tags,omitempty"`
-	GlossaryTerms []GlossaryTerm `json:"glossary_terms,omitempty"`
-}
-
-// ForeignKey is a declared foreign key relationship between two datasets.
-type ForeignKey struct {
-	// Name is the constraint name, when the catalog holds one.
-	Name string `json:"name,omitempty"`
-	// SourceFields are the field paths on this dataset.
-	SourceFields []string `json:"source_fields"`
-	// ForeignDataset is the URN of the referenced dataset, and ForeignFields the
-	// field paths on it.
-	ForeignDataset string   `json:"foreign_dataset"`
-	ForeignFields  []string `json:"foreign_fields"`
-}
-
-// SavedQuery is one query the catalog holds against a dataset.
-type SavedQuery struct {
-	URN         string `json:"urn,omitempty"`
-	Name        string `json:"name,omitempty"`
-	Statement   string `json:"statement"`
-	Description string `json:"description,omitempty"`
-	// Source says how the query was recorded ("MANUAL", "SYSTEM").
-	Source string `json:"source,omitempty"`
-	// CreatedBy is the actor that recorded it; Created is when.
-	CreatedBy string     `json:"created_by,omitempty"`
-	Created   *time.Time `json:"created,omitempty"`
-}
-
-// DataProduct is a catalog data product: a named, owned grouping of datasets
-// under a domain (#1590). It is what a fetch of a urn:li:dataProduct: reference
-// returns.
-type DataProduct struct {
-	URN         string `json:"urn"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	// Domain is the domain the product is filed under, nil when it has none.
-	Domain *Domain `json:"domain,omitempty"`
-	// Owners are the product's owners.
-	Owners []Owner `json:"owners,omitempty"`
-	// Assets are the datasets that make up the product.
-	Assets []EntityRef `json:"assets,omitempty"`
-	// CustomProperties are the product's free-form key/value properties.
-	CustomProperties map[string]string `json:"custom_properties,omitempty"`
 }

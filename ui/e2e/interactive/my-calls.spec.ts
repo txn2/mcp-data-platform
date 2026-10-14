@@ -97,7 +97,13 @@ test.describe("My Calls", () => {
     page,
   }) => {
     await gotoMyCalls(page);
-    await page.getByRole("row").filter({ hasText: "ran" }).first().click();
+    // The outcome is its own cell; matching "ran" anywhere in the row would
+    // also match a target such as store_transactions.
+    await page
+      .getByRole("row")
+      .filter({ has: page.getByRole("cell", { name: "ran", exact: true }) })
+      .first()
+      .click();
 
     await expect(page.getByText("Not yet publishable")).toBeVisible();
     await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
@@ -121,7 +127,9 @@ test.describe("The operator's call catalog", () => {
     await page.getByRole("option", { name: "Awaiting review" }).click();
 
     // The queue is the satisfied records with no decision on them yet.
-    const outcomes = page.getByRole("row").filter({ hasText: "ran" });
+    const outcomes = page
+      .getByRole("row")
+      .filter({ has: page.getByRole("cell", { name: "ran", exact: true }) });
     await expect(outcomes).toHaveCount(0);
     await expect(page.getByRole("row").filter({ hasText: "satisfied" }).first()).toBeVisible();
   });

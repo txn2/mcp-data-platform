@@ -201,7 +201,7 @@ func TestMemoryStore_EntityLookup_RealDB_PushPathGatesPending(t *testing.T) {
 	ctx := context.Background()
 
 	const (
-		urn   = "urn:li:dataset:(urn:li:dataPlatform:trino,cat.sch.tbl,PROD)"
+		urn   = "mcp:dataset:(trino,warehouse,cat.sch.tbl)"
 		owner = "owner@example.com"
 		other = "analyst"
 	)
@@ -360,7 +360,7 @@ func TestStalenessWatcher_RealDB_VerifiesOnlyEntityLinkedRecords(t *testing.T) {
 		Source:    SourceUser,
 		Status:    StatusActive,
 		EntityURNs: []string{
-			"urn:li:dataset:(urn:li:dataPlatform:trino,hive.retail.daily_sales,PROD)",
+			"mcp:dataset:(trino,warehouse,hive.retail.daily_sales)",
 		},
 	}
 	unlinked := Record{
@@ -432,7 +432,7 @@ func TestStalenessWatcher_RealDB_BatchIsCheckableRecords(t *testing.T) {
 			Source:    SourceUser,
 			Status:    StatusActive,
 			EntityURNs: []string{
-				fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,hive.retail.t%d,PROD)", i),
+				fmt.Sprintf("mcp:dataset:(trino,acme,hive.retail.t%d)", i),
 			},
 		}))
 	}

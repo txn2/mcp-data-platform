@@ -134,7 +134,7 @@ func operations(ctx context.Context, catalogs apicatalog.Store, catalogID string
 // A kind outside this set has no such notion and reports nothing rather than
 // reporting false, which would read as "this connection accepts writes".
 var readOnlyKinds = map[string]bool{
-	"trino": true, "s3": true, "datahub": true, "graphql": true,
+	"trino": true, "s3": true, "graphql": true,
 }
 
 // ReadOnly reads a stored connection's writability out of its config, for the

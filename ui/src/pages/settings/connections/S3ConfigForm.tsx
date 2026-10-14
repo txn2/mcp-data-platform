@@ -1,4 +1,3 @@
-import { Separator } from "@/components/ui/separator";
 import {
   ConfigField,
   ConfigToggle,
@@ -7,7 +6,7 @@ import {
 } from "./fields";
 
 // Editor form for kind=s3 connections. Field shape matches the mcp-s3 toolkit
-// config plus the platform's datahub_source_name integration key.
+// config.
 export function S3ConfigForm({ config, onChange }: ConfigFormProps) {
   return (
     <>
@@ -61,18 +60,6 @@ export function S3ConfigForm({ config, onChange }: ConfigFormProps) {
         onChange={(v) => onChange(update(config, "use_path_style", v))}
         help="Use path-style URLs (bucket in path, not subdomain). Required for MinIO and most S3-compatible stores."
       />
-      <Separator className="mt-2" />
-      <div className="space-y-4">
-        <p className="text-xs font-medium">DataHub Integration</p>
-        <ConfigField
-          label="DataHub Source Name"
-          value={String(config.datahub_source_name ?? "")}
-          onChange={(v) => onChange(update(config, "datahub_source_name", v))}
-          placeholder="s3"
-          mono
-          help="The platform identifier in DataHub URNs for datasets accessible through this connection. Defaults to s3 if not set."
-        />
-      </div>
     </>
   );
 }

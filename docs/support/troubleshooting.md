@@ -51,25 +51,26 @@ incorrectly):
 
 ```yaml
 toolkits:
-  datahub:
+  graphql:
     enabled: true
     instances:
-      primary:
-        url: https://datahub.example.com:8080
-    default: primary
+      metadata:
+        endpoint_url: https://metadata.example.com:8080/graphql?tenant=a&env=b
 ```
 
 CORRECT: quote URLs:
 
 ```yaml
 toolkits:
-  datahub:
+  graphql:
     enabled: true
     instances:
-      primary:
-        url: "https://datahub.example.com:8080"
-    default: primary
+      metadata:
+        endpoint_url: "https://metadata.example.com:8080/graphql?tenant=a&env=b"
 ```
+
+A configuration that still names DataHub is refused at startup with a message
+listing each setting; see [Moving from DataHub](../server/catalog.md#moving-from-datahub).
 
 WRONG: environment variable without braces (won't expand):
 
@@ -91,15 +92,11 @@ auth:
 
 ### Symptom: Server hangs on startup
 
-**Likely cause:** Cannot connect to a required service (DataHub, Trino, PostgreSQL).
+**Likely cause:** Cannot connect to a required service (Trino, PostgreSQL).
 
 **Debug steps:**
 
 ```bash
-# Check DataHub connectivity
-curl -v -H "Authorization: Bearer $DATAHUB_TOKEN" \
-  https://datahub.example.com/openapi/v2/entity/dataset
-
 # Check Trino connectivity
 curl -v https://trino.example.com:443/v1/info
 
@@ -174,50 +171,6 @@ trino --server https://trino.example.com:443 \
   --password \
   --execute "SELECT 1"
 ```
-
-### Cannot connect to DataHub
-
-**Symptom:** `datahub_search` returns connection errors.
-
-**Debug output example:**
-
-```
-Error: DataHub API error: 401 Unauthorized
-```
-
-**Step 1: Verify URL format**
-
-```yaml
-toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        # CORRECT: GMS URL (metadata service)
-        url: "https://datahub-gms.example.com"
-
-        # WRONG: Frontend URL
-        # url: "https://datahub.example.com"  # This is the UI
-    default: primary
-```
-
-**Step 2: Test token validity**
-
-```bash
-# Test the token
-curl -H "Authorization: Bearer $DATAHUB_TOKEN" \
-  "https://datahub-gms.example.com/openapi/v2/entity/dataset?count=1"
-
-# Check token expiration (if JWT)
-echo $DATAHUB_TOKEN | cut -d. -f2 | base64 -d | jq '.exp | todate'
-```
-
-**Step 3: Verify token permissions**
-
-DataHub tokens need these permissions:
-
-- `Read Metadata` - Required for all operations
-- `Manage Metadata` - Required for write operations (if enabled)
 
 ### Cannot connect to S3
 
@@ -468,8 +421,8 @@ personas:
 
 | Pattern | Matches | Doesn't Match |
 |---------|---------|---------------|
-| `trino_*` | `trino_query`, `trino_execute`, `trino_browse` | `datahub_search` |
-| `datahub_*` | `datahub_browse`, `datahub_delete` | `s3_list` |
+| `trino_*` | `trino_query`, `trino_execute`, `trino_browse` | `search` |
+| `s3_*` | `s3_list`, `s3_object` | `fetch` |
 | `*` | Everything | Nothing |
 
 **Step 3: List available tools**
@@ -493,48 +446,32 @@ enrichment:
   trino_semantic_enrichment: true  # Must be true
 ```
 
-**Step 2: Check semantic provider is configured**
+**Step 2: Check the semantic layer is on**
 
-```yaml
-semantic:
-  provider: datahub
-  instance: primary  # Must match a configured datahub toolkit
-```
+With a database, the platform catalog is the semantic provider. A
+`semantic.provider: noop` turns it off.
 
-**Step 3: Verify table exists in DataHub**
+**Step 3: Check the catalog holds the table**
 
-```bash
-# Search for the table in DataHub
-curl -H "Authorization: Bearer $DATAHUB_TOKEN" \
-  "https://datahub-gms.example.com/openapi/v2/search?query=your_table&entity=dataset"
-```
-
-**Step 4: Check URN format**
-
-DataHub uses URNs to identify entities. The platform must construct the correct URN:
+Check that the connection has been scanned (**Admin > Catalog > Scans**) and
+that the catalog settings do not exclude the table, then read the dataset:
 
 ```
-urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)
+fetch mcp:dataset:(trino,<connection>,<catalog>.<schema>.<table>)
 ```
 
-**Step 5: Check cache status**
-
-```yaml
-semantic:
-  cache:
-    enabled: true
-    ttl: 5m  # Try 0 or disable to test without cache
-```
+A not-found means the catalog has no dataset for the table. A dataset with no
+curation enriches with little.
 
 ### Enrichment errors in logs
 
 **Debug output example:**
 
 ```
-WARN  enrichment failed for table orders: DataHub entity not found
+WARN  enrichment failed for table orders: dataset not found
 ```
 
-This is expected for tables that exist in Trino but aren't cataloged in DataHub. The platform returns the original result without enrichment, so these warnings are harmless. They are emitted at WARN level; raise the process log level (`LOG_LEVEL`) if they are noisy in your environment.
+This is expected for tables the catalog does not hold, such as one created since the last scan or one the catalog settings exclude. The platform returns the original result without enrichment, so these warnings are harmless. They are emitted at WARN level; raise the process log level (`LOG_LEVEL`) if they are noisy in your environment.
 
 ### Column enrichment shows all columns instead of referenced ones
 
@@ -595,24 +532,13 @@ time curl -H "Authorization: Bearer $TOKEN" \
 
 ### Slow enrichment
 
-**Step 1: Enable and tune caching**
+**Step 1: Check the database**
 
-```yaml
-semantic:
-  cache:
-    enabled: true
-    ttl: 5m
-```
+Enrichment reads the catalog from the platform's PostgreSQL. Slow enrichment is
+usually a slow database; check `db_client_operation_duration_seconds` and the
+slow-statement warnings.
 
-**Step 2: Check DataHub response time**
-
-```bash
-# Time a DataHub API call
-time curl -H "Authorization: Bearer $DATAHUB_TOKEN" \
-  "https://datahub-gms.example.com/openapi/v2/entity/dataset/urn:li:dataset:..."
-```
-
-**Step 3: Temporarily disable enrichment to isolate**
+**Step 2: Temporarily disable enrichment to isolate**
 
 ```yaml
 enrichment:
@@ -716,7 +642,7 @@ GROUP BY tool_name;
 | `AUTH_ERROR` | Authentication failed | Check credentials, token expiration |
 | `AUTHZ_ERROR` | Authorization failed | Check persona tool rules |
 | `TOOLKIT_ERROR` | Toolkit operation failed | Check service connectivity |
-| `PROVIDER_ERROR` | Provider operation failed | Check DataHub/Trino config |
+| `PROVIDER_ERROR` | Provider operation failed | Check the Trino and database configuration |
 | `CONFIG_ERROR` | Configuration invalid | Validate YAML, check env vars |
 | `TIMEOUT_ERROR` | Operation timed out | Increase timeout, check service |
 | `RATE_LIMIT_ERROR` | Too many requests | Wait and retry, increase limits |

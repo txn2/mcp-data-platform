@@ -184,7 +184,7 @@ are archived beside the originals in the same family directories.
 ## Running
 
 The perishable stack is independent of the knowledge-layer stack: one arm, the
-perishable fixture surface, its own database. It needs no DataHub and no Trino,
+perishable fixture surface, its own database. It needs no Trino,
 but it does need `ollama serve` with `nomic-embed-text` for the supersede
 mechanic. From the repository root:
 

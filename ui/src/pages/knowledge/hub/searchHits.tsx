@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 // Human labels for the federated sources the unified search returns, so the
 // grouped result set reads in product language rather than provider keys.
 const SOURCE_LABELS: Record<string, string> = {
-  datahub: "Catalog (DataHub)",
+  catalog: "Catalog",
+  governance: "Glossary, tags and domains",
   knowledge_pages: "Knowledge pages",
   memory: "Memory",
   insights: "Insights",
@@ -27,8 +28,8 @@ export function sourceLabel(source: string): string {
 }
 
 // Sources the hub can open to a detail surface, and the action label. Sources
-// absent here (datahub, endpoints, connections) have no portal viewer, so their
-// drawer shows metadata only.
+// absent here (endpoints, connections) have no portal viewer, so their drawer
+// shows metadata only.
 const OPEN_ACTIONS: Record<string, string> = {
   assets: "Open asset",
   prompts: "Open prompt",
@@ -37,6 +38,8 @@ const OPEN_ACTIONS: Record<string, string> = {
   insights: "View in Insights",
   calls: "Open call",
   sessions: "Open session",
+  catalog: "Open in catalog",
+  governance: "Open in catalog",
 };
 
 export function HitRow({ hit, onClick }: { hit: SearchHit; onClick: () => void }) {
@@ -127,9 +130,7 @@ export function HitDetailDrawer({
       </dl>
       {!openLabel && (
         <p className="text-xs text-muted-foreground">
-          {hit.source === "datahub"
-            ? "This knowledge lives on the entity in the DataHub catalog."
-            : "This result does not have a detail page in the portal."}
+          This result does not have a detail page in the portal.
         </p>
       )}
     </DrawerShell>

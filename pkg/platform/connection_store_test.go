@@ -36,11 +36,11 @@ func TestPostgresConnectionStore_List(t *testing.T) {
 
 		config1, err := json.Marshal(map[string]any{"host": "trino.local", "port": float64(8080)})
 		require.NoError(t, err)
-		config2, err := json.Marshal(map[string]any{"url": "https://datahub.local"})
+		config2, err := json.Marshal(map[string]any{"url": "https://graphql.local"})
 		require.NoError(t, err)
 
 		rows := sqlmock.NewRows([]string{"kind", "name", "config", "description", "created_by", "updated_at"}).
-			AddRow("datahub", "primary", config2, "Primary DataHub", "admin@test.com", now).
+			AddRow("graphql", "primary", config2, "Primary GraphQL", "admin@test.com", now).
 			AddRow("trino", "prod", config1, "Production Trino", "admin@test.com", now)
 
 		mock.ExpectQuery("SELECT kind, name, config, description, created_by, updated_at FROM connection_instances ORDER BY kind, name").
@@ -50,11 +50,11 @@ func TestPostgresConnectionStore_List(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, instances, 2)
 
-		assert.Equal(t, "datahub", instances[0].Kind)
+		assert.Equal(t, "graphql", instances[0].Kind)
 		assert.Equal(t, "primary", instances[0].Name)
-		assert.Equal(t, "Primary DataHub", instances[0].Description)
+		assert.Equal(t, "Primary GraphQL", instances[0].Description)
 		assert.Equal(t, "admin@test.com", instances[0].CreatedBy)
-		assert.Equal(t, "https://datahub.local", instances[0].Config["url"])
+		assert.Equal(t, "https://graphql.local", instances[0].Config["url"])
 
 		assert.Equal(t, "trino", instances[1].Kind)
 		assert.Equal(t, "prod", instances[1].Name)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -35,7 +36,10 @@ func (t *Toolkit) handleBulkUntag(ctx context.Context, input applyKnowledgeInput
 	if t.curator.store == nil {
 		return toolkit.ErrorResult(errNoCatalog), nil, nil
 	}
-	tag := tagName(input.TagURN)
+	tag, err := tagName(input.TagURN)
+	if err != nil {
+		return toolkit.ErrorResult("bulk_untag: " + err.Error()), nil, nil
+	}
 	tagRef := catalog.KeyRef(catalog.KindTag, tag).String()
 	refs, err := t.curator.store.TaggedEntities(ctx, tag, bulkUntagMaxEntities+1)
 	if err != nil {
@@ -47,6 +51,12 @@ func (t *Toolkit) handleBulkUntag(ctx context.Context, input applyKnowledgeInput
 			"entities_untagged": 0,
 			fieldMessage:        "No dataset or column in the catalog carries this tag.",
 		})
+	}
+	if withheld := t.unreachableCount(ctx, refs); withheld > 0 {
+		return toolkit.ErrorResult(fmt.Sprintf(
+			"bulk_untag: %s is also on %d datasets or columns on connections your persona does not reach, "+
+				"and bulk_untag removes it everywhere; remove it from the ones you reach with remove_tag",
+			tagRef, withheld)), nil, nil
 	}
 	unfinished := len(refs) > bulkUntagMaxEntities
 	if unfinished {
@@ -62,7 +72,8 @@ func (t *Toolkit) handleBulkUntag(ctx context.Context, input applyKnowledgeInput
 	}
 	csID, err := t.recordBulkUntagChangeset(ctx, tagRef, authorFromContext(ctx), affected, written)
 	if err != nil {
-		slog.ErrorContext(ctx, "knowledge: bulk_untag failed to record changeset", "tag", tagRef, "error", err)
+		slog.ErrorContext(ctx, "knowledge: bulk_untag failed to record changeset",
+			"tag", logsan.SanitizeForLog(tagRef), "error", logsan.SanitizeForLog(err.Error()))
 		return toolkit.ErrorResult(fmt.Sprintf(
 			"bulk_untag removed %s from %d entities but FAILED to record the changeset: %v; "+
 				"the removal has no rollback handle. Restore the tag with add_tag where needed.",

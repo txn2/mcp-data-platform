@@ -195,7 +195,7 @@ func TestValidateEntityURNs(t *testing.T) {
 	}{
 		{name: "nil slice", input: nil, wantErr: false},
 		{name: "empty slice", input: []string{}, wantErr: false},
-		{name: "valid single", input: []string{"urn:li:dataset:foo"}, wantErr: false},
+		{name: "valid single", input: []string{"mcp:dataset:(trino,warehouse,c.s.foo)"}, wantErr: false},
 		{name: "max 10", input: make([]string, 10), wantErr: false},
 		{name: "exceeds 10", input: make([]string, 11), wantErr: true},
 	}
@@ -453,7 +453,7 @@ func TestLimitConstants(t *testing.T) {
 
 func TestEntityInsightSummaryJSONTags(t *testing.T) {
 	s := EntityInsightSummary{
-		EntityURN:  "urn:li:dataset:test",
+		EntityURN:  "mcp:dataset:(trino,warehouse,c.s.test)",
 		Count:      3, //nolint:revive // test value
 		Categories: []string{"correction", "enhancement"},
 		LatestAt:   "2025-01-01T00:00:00Z",
@@ -466,7 +466,7 @@ func TestEntityInsightSummaryJSONTags(t *testing.T) {
 	err = json.Unmarshal(data, &m)
 	require.NoError(t, err)
 
-	assert.Equal(t, "urn:li:dataset:test", m["entity_urn"])
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,c.s.test)", m["entity_urn"])
 	assert.InDelta(t, 3, m["count"], 0.01) //nolint:revive // test value
 	assert.Equal(t, "2025-01-01T00:00:00Z", m["latest_at"])
 	cats, ok := m["categories"].([]any)
@@ -502,7 +502,7 @@ func TestProposedChangeJSONTags(t *testing.T) {
 func TestChangesetJSONTags(t *testing.T) {
 	cs := Changeset{
 		ID:               "cs-1",
-		TargetURN:        "urn:li:dataset:foo",
+		TargetURN:        "mcp:dataset:(trino,warehouse,c.s.foo)",
 		ChangeType:       "update_description",
 		PreviousValue:    map[string]any{"desc": "old"},
 		NewValue:         map[string]any{"desc": "new"},
@@ -520,7 +520,7 @@ func TestChangesetJSONTags(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "cs-1", m["id"])
-	assert.Equal(t, "urn:li:dataset:foo", m["target_urn"])
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,c.s.foo)", m["target_urn"])
 	assert.Equal(t, "update_description", m["change_type"])
 	assert.NotNil(t, m["previous_value"])
 	assert.NotNil(t, m["new_value"])
@@ -545,7 +545,7 @@ func TestInsightJSONTags(t *testing.T) {
 		Category:    "correction",
 		InsightText: "test insight text that is long enough",
 		Confidence:  testMedium,
-		EntityURNs:  []string{"urn:li:dataset:foo"}, //nolint:revive // test value
+		EntityURNs:  []string{"mcp:dataset:(trino,warehouse,c.s.foo)"}, //nolint:revive // test value
 		Status:      StatusPending,
 	}
 
@@ -661,7 +661,7 @@ func TestInsightStatsJSONTags(t *testing.T) {
 	s := InsightStats{
 		TotalPending: 5, //nolint:revive // test value
 		ByEntity: []EntityInsightSummary{
-			{EntityURN: "urn:li:dataset:foo", Count: 2, Categories: []string{"correction"}, LatestAt: "2025-01-01"},
+			{EntityURN: "mcp:dataset:(trino,warehouse,c.s.foo)", Count: 2, Categories: []string{"correction"}, LatestAt: "2025-01-01"},
 		},
 		ByCategory:   map[string]int{"correction": 2, "enhancement": 3}, //nolint:revive // test values
 		ByConfidence: map[string]int{"high": 1, "medium": 4},            //nolint:revive // test values

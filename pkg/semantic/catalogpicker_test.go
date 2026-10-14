@@ -6,7 +6,7 @@ import (
 )
 
 // pickerProvider embeds the noop provider and adds the CatalogPicker capability,
-// standing in for the real DataHub adapter.
+// standing in for the platform catalog provider.
 type pickerProvider struct {
 	Provider
 	domains []EntityRef
@@ -19,6 +19,10 @@ func (p *pickerProvider) ListDomains(context.Context) ([]EntityRef, error) {
 
 func (p *pickerProvider) SearchGlossaryTerms(context.Context, string, int) ([]EntityRef, error) {
 	return p.terms, nil
+}
+
+func (*pickerProvider) SearchDataProducts(context.Context, string, int) ([]EntityRef, error) {
+	return nil, nil
 }
 
 func TestCatalogPickerFrom(t *testing.T) {

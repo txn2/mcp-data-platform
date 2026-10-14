@@ -4,10 +4,8 @@
 
 - Go 1.26+ (for building from source)
 - An MCP-compatible client (Claude Desktop, Claude Code, or custom)
-- Access to Trino, DataHub, and/or S3 services you want to connect
-
-Optional:
-- PostgreSQL (for audit logging and OAuth state)
+- Access to the Trino and/or S3 services you want to connect
+- PostgreSQL for the platform catalog, audit, knowledge, memory and the portal (optional for a standalone stdio deployment, which then has no catalog)
 
 ## Installation Methods
 
@@ -68,7 +66,7 @@ Run with a configuration file:
 ```bash
 docker run \
   -v /path/to/platform.yaml:/etc/mcp/platform.yaml \
-  -e DATAHUB_TOKEN=your-token \
+  -e DATABASE_URL=postgres://platform:secret@db:5432/platform \
   ghcr.io/txn2/mcp-data-platform:latest \
   --config /etc/mcp/platform.yaml
 ```
@@ -125,7 +123,7 @@ Add the server configuration:
       "command": "mcp-data-platform",
       "args": ["--config", "/path/to/platform.yaml"],
       "env": {
-        "DATAHUB_TOKEN": "your-token",
+        "DATABASE_URL": "postgres://platform:secret@localhost:5432/platform",
         "TRINO_PASSWORD": "your-password"
       }
     }

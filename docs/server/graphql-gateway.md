@@ -16,9 +16,9 @@ toolkits:
     enabled: true
     instances:
       metadata:
-        endpoint_url: "https://datahub.example.com/api/graphql"
+        endpoint_url: "https://metadata.example.com/api/graphql"
         auth_mode: bearer
-        credential: "${DATAHUB_TOKEN}"
+        credential: "${METADATA_API_TOKEN}"
         description: "The metadata service's GraphQL API."
         schema_validation: strict
         max_query_depth: 15

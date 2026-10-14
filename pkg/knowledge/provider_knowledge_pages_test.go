@@ -180,7 +180,7 @@ func TestKnowledgePagesProvider_EntityAndTextMergeDedup(t *testing.T) {
 	p := NewKnowledgePagesProvider(s)
 	hits, err := p.Search(context.Background(), Query{
 		Intent:     "seasons",
-		EntityURNs: []string{"urn:li:dataset:(urn:li:dataPlatform:trino,x.y.z,PROD)"},
+		EntityURNs: []string{"mcp:dataset:(trino,warehouse,x.y.z)"},
 		Limit:      5,
 	})
 	if err != nil {
@@ -205,7 +205,7 @@ func TestKnowledgePagesProvider_ReverseLookupError(t *testing.T) {
 	p := NewKnowledgePagesProvider(s)
 	hits, err := p.Search(context.Background(), Query{
 		Intent:     "q",
-		EntityURNs: []string{"urn:li:dataset:(urn:li:dataPlatform:trino,x.y.z,PROD)"},
+		EntityURNs: []string{"mcp:dataset:(trino,warehouse,x.y.z)"},
 	})
 	if err != nil {
 		t.Fatalf("a reverse-lookup error must not fail the search: %v", err)
@@ -258,7 +258,7 @@ func TestPagesProvider_Fetch(t *testing.T) {
 			page: &knowledgepage.Page{ID: "kp_1", Title: "Index", Body: "see the sub-pages"},
 			entityRefs: []knowledgepage.EntityRef{
 				{TargetType: knowledgepage.RefTargetKnowledgePage, RefPageID: "kp_2"},
-				{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:(x,y,PROD)"},
+				{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(x,warehouse,y)"},
 				{TargetType: "bogus"}, // unrecognized target -> empty URN -> skipped
 			},
 		}
@@ -271,7 +271,7 @@ func TestPagesProvider_Fetch(t *testing.T) {
 		}
 		want := []DocumentRef{
 			{Reference: "mcp:knowledge_page:kp_2", Type: knowledgepage.RefTargetKnowledgePage},
-			{Reference: "urn:li:dataset:(x,y,PROD)", Type: knowledgepage.RefTargetDataHub},
+			{Reference: "mcp:dataset:(x,warehouse,y)", Type: knowledgepage.RefTargetCatalog},
 		}
 		if len(doc.References) != len(want) {
 			t.Fatalf("References = %+v, want %+v", doc.References, want)

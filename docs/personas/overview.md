@@ -84,7 +84,6 @@ personas:
         - "platform_info"
         - "search"
         - "fetch"
-        - "datahub_get_*"
         - "s3_list"
       deny:
         - "trino_query"
@@ -366,13 +365,13 @@ Discovery evaluates the same rules against the same persona, so what a caller ca
 
 Connections are **deny-by-default**, mirroring the tool axis: a persona reaches a connection only when a `connections.allow` pattern matches its name. If the `connections` block is omitted or `allow` is empty, the persona is granted **no** connections, so every tool call that targets a connection is denied. Grant each persona exactly the connections it needs (the admin persona typically uses `allow: ["*"]`).
 
-The name a pattern matches is the name a call binds the connection by, which `list_connections` reports as `connection`: the `instances:` key, or the `connection_name` a DataHub or S3 instance sets in its place. See [Connection Names](../server/multi-provider.md#connection-names).
+The name a pattern matches is the name a call binds the connection by, which `list_connections` reports as `connection`: the `instances:` key, or the `connection_name` an S3 instance sets in its place. See [Connection Names](../server/multi-provider.md#connection-names).
 
 ### What Discovery Shows
 
 The same rules narrow what a persona can see, not only what it can call:
 
-- **`search`** omits catalog datasets, connections, and API endpoints that belong to a connection the persona is not granted. A dataset is attributed to a connection through its DataHub platform name; a dataset whose URN maps to no configured connection stays visible, and one reachable through any granted connection stays visible.
+- **`search`** omits catalog datasets, connections, and API endpoints that belong to a connection the persona is not granted. A catalog dataset belongs to the connection its reference names, and is shown only when the persona reaches that connection.
 - **`fetch`** returns `found: false` for a reference behind a connection the persona is not granted, so a citation cannot read around what search omitted.
 - **`list_connections`** enumerates only the granted connections.
 - The **portal search** applies the same boundary; it shares one router with the `search` tool.
@@ -386,8 +385,8 @@ This is a metadata boundary. It hides names, descriptions, and inventory across 
 Connection patterns use the same wildcard syntax as tool patterns:
 
 - `*` matches any sequence of characters
-- `prod-*` matches `prod-trino`, `prod-datahub`, etc.
-- `*-readonly` matches `trino-readonly`, `datahub-readonly`, etc.
+- `prod-*` matches `prod-trino`, `prod-s3`, etc.
+- `*-readonly` matches `trino-readonly`, `s3-readonly`, etc.
 
 ## API Endpoint Rules
 

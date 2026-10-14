@@ -3,7 +3,7 @@
 id: lc-value-tier
 title: Value tier
 fact: The 'value tier' is the customer tier that placed the fewest orders.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.customers)
 sink: knowledge_page
 page:
     slug: value-tier-definition

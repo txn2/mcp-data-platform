@@ -1,7 +1,7 @@
 // Package curriculum defines the cold-start knowledge-growth schema (issue
 // #963): an ordered sequence of teaching lessons that, run against an empty
 // enrichment layer, progressively promote knowledge into the platform's sinks
-// (DataHub entity descriptions and portal knowledge pages). A fixed evaluation
+// (catalog dataset descriptions and portal knowledge pages). A fixed evaluation
 // suite is re-run after each lesson so the harness can plot a learning curve —
 // answer accuracy and enrichment coverage as a function of accumulated,
 // promoted knowledge.
@@ -64,11 +64,11 @@ type Lesson struct {
 	// (e.g. "units_cents"), so the report can attribute a curve step to a class.
 	TrapClass string `yaml:"trap_class" json:"trap_class"`
 	// Fact is the domain fact taught, verified as a captured insight, and — for
-	// the datahub sink — promoted as the entity description detail.
+	// the catalog sink — promoted as the entity description detail.
 	Fact string `yaml:"fact" json:"fact"`
-	// EntityURN anchors the captured insight and is the datahub-sink apply target.
+	// EntityURN anchors the captured insight and is the catalog-sink apply target.
 	EntityURN string `yaml:"entity_urn" json:"entity_urn"`
-	// Sink selects the promotion destination: protocol.SinkDataHub or
+	// Sink selects the promotion destination: protocol.SinkCatalog or
 	// protocol.SinkKnowledgePage, the two knowledge-delivery channels.
 	Sink string `yaml:"sink" json:"sink"`
 	// Page is the knowledge_page payload, required when Sink is a page sink.
@@ -130,7 +130,7 @@ func (l Lesson) validate(curriculumID string) error {
 // the protocol sink contract so a lesson promotes exactly as a protocol does.
 func (l Lesson) validateSink(curriculumID string) error {
 	switch l.Sink {
-	case protocol.SinkDataHub:
+	case protocol.SinkCatalog:
 		return nil
 	case protocol.SinkKnowledgePage:
 		if l.Page == nil || l.Page.Slug == "" || l.Page.Title == "" || l.Page.Body == "" {

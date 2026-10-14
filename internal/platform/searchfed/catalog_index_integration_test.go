@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/catalogfake"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -17,14 +18,14 @@ import (
 // description. The query in the test below shares no word with the dataset's
 // name or its table identifier, which is the condition #1131 is about.
 const (
-	refundURN = "urn:li:dataset:(urn:li:dataPlatform:trino,finance.ledger.gl_entries,PROD)"
+	refundURN = "mcp:dataset:(trino,warehouse,finance.ledger.gl_entries)"
 	refundDoc = "Refunds are subtracted before revenue is recognized."
 )
 
 // keywordBlindCatalog is a semantic.Provider whose keyword search finds nothing
-// (the condition this feature exists for: DataHub matches words, so a topical
-// query misses a description phrased differently) but which still resolves the
-// dataset by identity, which is what fetch dereferences against.
+// (the condition this feature exists for: the word search matches words, so a
+// topical query misses a description phrased differently) but which still
+// resolves the dataset by identity.
 type keywordBlindCatalog struct {
 	semantic.Provider
 	searched bool
@@ -35,8 +36,8 @@ func (c *keywordBlindCatalog) SearchTables(context.Context, semantic.SearchFilte
 	return nil, nil
 }
 
-// errNoSuchTable is how DataHub reports an entity it does not hold: an error,
-// not an empty result (see CatalogProvider.Fetch).
+// errNoSuchTable is how the catalog reports a table it does not hold: an
+// error, not an empty result.
 var errNoSuchTable = errors.New("no such dataset")
 
 func (*keywordBlindCatalog) GetTableContext(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
@@ -60,12 +61,15 @@ func (f *fixedCatalogIndex) SearchCatalogIndex(_ context.Context, q knowledge.Ca
 
 // TestCatalogIndexReachableThroughAssembledSearch is the acceptance criterion
 // for #1131, asserted through the read path the platform actually assembles
-// rather than against the provider in isolation: a DataHub-resident dataset
+// rather than against the provider in isolation: a cataloged dataset's
 // description is returned by `search` for a topical query that names none of
 // its entities, and the hit carries the catalog reference that `fetch`
 // dereferences.
 func TestCatalogIndexReachableThroughAssembledSearch(t *testing.T) {
 	catalog := &keywordBlindCatalog{}
+	store := catalogfake.New()
+	store.AddDataset("warehouse", "finance.ledger.gl_entries")
+	store.SetDescription(refundURN, refundDoc)
 	index := &fixedCatalogIndex{hits: []knowledge.CatalogIndexHit{{
 		URN:         refundURN,
 		Name:        "finance.ledger.gl_entries",
@@ -78,6 +82,7 @@ func TestCatalogIndexReachableThroughAssembledSearch(t *testing.T) {
 		CatalogEnabled:   true,
 		SemanticProvider: catalog,
 		CatalogIndex:     index,
+		Catalog:          store,
 		Registry:         registry.NewRegistry(),
 	})
 	require.NotNil(t, h)
@@ -102,7 +107,7 @@ func TestCatalogIndexReachableThroughAssembledSearch(t *testing.T) {
 	require.NotNil(t, hit, "the catalog description must be reachable from a query naming no entity")
 	assert.Contains(t, hit.Text, refundDoc, "the hit carries the applied fact, not just the dataset name")
 	assert.Equal(t, refundURN, hit.Reference, "the hit carries its catalog reference")
-	assert.True(t, catalog.searched, "DataHub's own search still runs as the recall tail")
+	assert.True(t, catalog.searched, "the catalog's word search still runs as the recall tail")
 	assert.Equal(t, "how do we treat customer refunds", index.got.QueryText)
 
 	// The other half of the criterion: that reference dereferences through the
@@ -112,14 +117,12 @@ func TestCatalogIndexReachableThroughAssembledSearch(t *testing.T) {
 	require.NotNil(t, doc)
 	assert.Equal(t, knowledge.SourceCatalog, doc.Source)
 	assert.Equal(t, refundURN, doc.Reference)
-	ds, ok := doc.Content.(knowledge.CatalogDataset)
-	require.True(t, ok, "a catalog fetch returns the dataset's record")
-	assert.Equal(t, refundDoc, ds.Description)
+	assert.Equal(t, refundDoc, doc.Body, "a catalog fetch returns the dataset's record")
 }
 
 // TestCatalogIndexAbsentLeavesCatalogUnchanged proves the index is additive: a
 // deployment without one (no database, or the operator opted out) still gets
-// the DataHub-ranked catalog source it had before.
+// the word-ranked catalog source it had before.
 func TestCatalogIndexAbsentLeavesCatalogUnchanged(t *testing.T) {
 	catalog := &keywordBlindCatalog{}
 	h := New(Config{

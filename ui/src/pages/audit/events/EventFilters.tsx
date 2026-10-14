@@ -66,7 +66,7 @@ export function EventFilters({
       />
       <FilterSelect
         label="Filter by toolkit"
-        title="Filter by toolkit kind (api, trino, datahub, s3, memory)"
+        title="Filter by toolkit kind (api, trino, s3, search, knowledge, memory)"
         value={value.toolkitKind}
         onChange={(toolkitKind) => onChange({ toolkitKind })}
         options={[

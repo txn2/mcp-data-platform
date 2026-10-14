@@ -31,7 +31,6 @@ func TestPlatformToolsAdvertiseAndHonorOutputSchemas(t *testing.T) {
 		Server:   ServerConfig{Name: "test-platform"},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		// A caller matching no persona reaches the deny-all default, which hides
 		// the tools from tools/list and refuses tools/call. Grant a persona whose
 		// role the anonymous test identity carries so the client exercises the
@@ -256,7 +255,6 @@ func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T
 		Server:   ServerConfig{Name: "test-platform"},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Personas: PersonasConfig{Definitions: map[string]PersonaDef{"default": {
 			DisplayName: "Default",
 			Roles:       []string{auth.RoleAnonymous},

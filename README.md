@@ -18,27 +18,25 @@
 
 **[Documentation](https://mcp-data-platform.txn2.com/)** | **[Installation](https://mcp-data-platform.txn2.com/server/installation/)** | **[Quick Start](#quick-start)** | **[Go Library](https://mcp-data-platform.txn2.com/library/overview/)**
 
-**Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table was deprecated last month, or who to ask when something breaks.**
+**Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table has an open data-quality incident, or who to ask when something breaks.**
 
-mcp-data-platform fixes that. It is a single MCP server that connects AI assistants to your data infrastructure and enriches every response with business context from your semantic layer: query a table and get its meaning, owners, quality scores, and deprecation warnings in the same call.
+mcp-data-platform fixes that. It is a single MCP server that connects AI assistants to your data infrastructure and enriches every response with business context from its own catalog: query a table and get its meaning, owners, tags, glossary terms, and open incidents in the same call.
 
 It is a platform, not just a bridge. The same endpoint gives agents persistent memory and a governed path to write knowledge back to the catalog, proxies third-party MCP servers and REST APIs through one authentication, persona, and audit pipeline, and ships a web portal where AI-generated assets are saved, organized into collections, and shared with teammates.
 
 ---
 
-## Do you need DataHub? Only for cross-enrichment
+## The catalog is built in
 
-[DataHub](https://datahubproject.io/), [Trino](https://trino.io/), and [S3](https://aws.amazon.com/s3/) are components this platform composes, not infrastructure it expects you to already run. The platform needed a metadata layer and a federating query engine; reimplementing either mature open-source system would have been the wrong call, so it adapts them behind provider interfaces instead. DataHub can run as a silent backend the operator never surfaces, which is the usual shape for the many organizations that have no metadata layer today.
+The platform keeps its own data catalog in PostgreSQL. Every Trino, API and GraphQL connection is scanned into it; people curate it in the portal's Catalog section and agents curate it through `apply_knowledge`, with every change versioned and reversible. It is the semantic layer cross-enrichment reads, so there is no separate metadata service to run. [Trino](https://trino.io/) and [S3](https://aws.amazon.com/s3/) are components the platform composes behind provider interfaces; add them when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
 
-Cross-enrichment is what DataHub is for: point the platform at it as the semantic layer, then add Trino for SQL and S3 for object storage when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
-
-**Everything else runs without it.** DataHub is an adapter behind a provider interface, not a substrate the platform is built on. Omit the `semantic:` block and the semantic provider resolves to a noop, the server starts normally, and the gateways, knowledge layer, memory, portal, and `search`/`fetch` run on PostgreSQL alone. What you give up is cross-enrichment and the `datahub_*` tools, not the platform: `semantic:`, `query:`, `storage:`, and `toolkits:` are independent config blocks, so Trino and S3 stay available on their own terms and simply stop being enriched. See [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) for exactly what each shape includes and leaves out.
+**Everything runs on PostgreSQL.** The gateways, knowledge layer, memory, portal, catalog, and `search`/`fetch` need only the database. Without Trino there is nothing to query or enrich, not a smaller platform: `query:` and `toolkits:` are independent config blocks. See [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) for exactly what each shape includes and leaves out.
 
 ---
 
 ## Why
 
-AI assistants are powerful at querying data, but they work blind. When an agent asks "What's in the orders table?", it gets column names and types. It doesn't know that `customer_id` is PII, that the table is deprecated in favor of `orders_v2`, that the quality score dropped last week, or who to contact when something looks wrong.
+AI assistants are powerful at querying data, but they work blind. When an agent asks "What's in the orders table?", it gets column names and types. It doesn't know that `customer_id` is PII, that the table has an open data-quality incident, or who to contact when something looks wrong.
 
 ```
 # Without mcp-data-platform
@@ -46,11 +44,11 @@ AI assistants are powerful at querying data, but they work blind. When an agent 
 User:      "Describe the orders table"
 AI:        Queries Trino → gets columns and types
 User:      "Who owns this data?"
-AI:        Queries DataHub → finds owners
-User:      "Is this table still active?"
-AI:        Queries DataHub again → finds deprecation status
+AI:        Searches the catalog → finds owners
+User:      "Can I trust this table right now?"
+AI:        Reads the catalog again → finds an open incident
 User:      "What does customer_id actually mean?"
-AI:        Queries DataHub again → finds column descriptions
+AI:        Reads the catalog again → finds column descriptions
 ─────────────────────────────────────────────────────────────────────
 4 round trips. Context scattered across conversations. Easy to miss warnings.
 ```
@@ -61,10 +59,9 @@ AI:        Queries DataHub again → finds column descriptions
 User:      "Describe the orders table"
 AI:        Gets everything in one response:
            → Schema: columns and types
-           → ⚠️ DEPRECATED: Use orders_v2 instead
+           → Open incident: late partition for yesterday
            → Owners: Data Platform Team
            → Tags: pii, financial
-           → Quality Score: 87%
            → Column meanings and business definitions
 ─────────────────────────────────────────────────────────────────────
 1 call. Complete context. Warnings front and center.
@@ -77,21 +74,20 @@ sequenceDiagram
     participant AI as AI Assistant
     participant P as mcp-data-platform
     participant T as Trino
-    participant D as DataHub
+    participant C as Platform catalog
 
     AI->>P: trino_describe_table "orders"
     P->>T: DESCRIBE orders
     T-->>P: columns, types
-    P->>D: Get semantic context
-    D-->>P: description, owners, tags, quality, deprecation
+    P->>C: Get semantic context
+    C-->>P: description, owners, tags, terms, incidents
     P-->>AI: Schema + Full Business Context
 ```
 
 The platform intercepts tool responses at the protocol level and enriches them with context from the other services. This **cross-enrichment** is bidirectional:
 
-- **Trino → DataHub**: query results include owners, tags, glossary terms, deprecation warnings, quality scores
-- **DataHub → Trino**: search results include query availability and sample SQL
-- **S3 ↔ DataHub**: object listings include matching dataset metadata, and dataset searches show storage availability
+- **Trino to catalog**: query results include descriptions, owners, tags, glossary terms, and open incidents
+- **Catalog to Trino**: a dataset read from the catalog says whether it is queryable, on which connection, and roughly how many rows it holds
 
 ## Does it work? Measured effectiveness
 
@@ -108,17 +104,17 @@ Each feature links to its full documentation.
 | Feature | Description |
 |---------|-------------|
 | [Cross-enrichment](https://mcp-data-platform.txn2.com/cross-enrichment/overview/) | Business context added to every tool response automatically, with session dedup to save tokens |
-| [Lineage inheritance](https://mcp-data-platform.txn2.com/cross-enrichment/lineage/) | Column descriptions inherited from upstream datasets via DataHub lineage |
+| [Platform catalog](https://mcp-data-platform.txn2.com/server/catalog/) | Every connection scanned into a catalog the portal and agents curate, with lineage recorded as data moves and every change versioned |
 | [Universal search](https://mcp-data-platform.txn2.com/knowledge/overview/) | One `search` tool fans a query across the catalog, knowledge pages, memory, insights, assets, prompts, and APIs; `fetch` dereferences any result |
 | [Workflow gating](https://mcp-data-platform.txn2.com/reference/middleware/) | Session-aware guidance that steers agents to discovery before SQL, with escalating warnings |
-| [Tools](https://mcp-data-platform.txn2.com/server/tools/) | Full tool reference for Trino, DataHub, S3, knowledge, memory, portal, and gateway toolkits |
+| [Tools](https://mcp-data-platform.txn2.com/server/tools/) | Full tool reference for Trino, S3, knowledge, memory, portal, and gateway toolkits |
 
 ### Knowledge and memory
 
 | Feature | Description |
 |---------|-------------|
 | [Memory layer](https://mcp-data-platform.txn2.com/memory/overview/) | Persistent agent memory across sessions, PostgreSQL + pgvector, hybrid semantic/lexical recall |
-| [Knowledge capture](https://mcp-data-platform.txn2.com/knowledge/overview/) | Agents record domain insights during sessions; approved knowledge is written back to DataHub or canonical knowledge pages |
+| [Knowledge capture](https://mcp-data-platform.txn2.com/knowledge/overview/) | Agents record domain insights during sessions; approved knowledge is written to the catalog or canonical knowledge pages |
 | [Governance workflow](https://mcp-data-platform.txn2.com/knowledge/governance/) | Human-in-the-loop review, approve/reject, changeset tracking, and rollback for every applied change |
 | [Managed resources](https://mcp-data-platform.txn2.com/portal/resources/) | Human-uploaded reference files (data, visual, playbooks, samples, templates, references) served to agents as MCP resources |
 
@@ -173,7 +169,7 @@ Install (see [all methods](https://mcp-data-platform.txn2.com/server/installatio
 go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
 ```
 
-Create a minimal configuration. This one wires the semantic layer, which is what cross-enrichment needs; `${VAR}` references are expanded from the environment:
+Create a minimal configuration. The database holds the catalog cross-enrichment reads, and the Trino connection is scanned into it; `${VAR}` references are expanded from the environment:
 
 ```yaml
 # platform.yaml
@@ -181,17 +177,18 @@ server:
   name: mcp-data-platform
   transport: stdio
 
-semantic:
-  provider: datahub
-  instance: primary
+database:
+  dsn: "${DATABASE_URL}"
 
 toolkits:
-  datahub:
+  trino:
     enabled: true
     instances:
       primary:
-        url: "${DATAHUB_URL}"
-        token: "${DATAHUB_TOKEN}"
+        host: "${TRINO_HOST}"
+        port: 443
+        user: "${TRINO_USER}"
+        ssl: true
     default: primary
 ```
 
@@ -199,12 +196,12 @@ Wire it to Claude Code:
 
 ```bash
 claude mcp add data-platform \
-  -e DATAHUB_URL=https://datahub.example.com/api/graphql \
-  -e DATAHUB_TOKEN=$TOKEN \
+  -e DATABASE_URL=postgres://platform:secret@localhost:5432/platform \
+  -e TRINO_HOST=trino.example.com -e TRINO_USER=analyst \
   -- mcp-data-platform --config platform.yaml
 ```
 
-Starting without a warehouse or catalog? Swap the `semantic:` and `toolkits:` blocks above for a database and the API toolkit, and the gateways, knowledge layer, memory, portal, and `search`/`fetch` come up on PostgreSQL alone:
+Starting without a warehouse? Swap the `toolkits:` block above for the API toolkit, and the gateways, knowledge layer, memory, portal, and `search`/`fetch` come up on PostgreSQL alone:
 
 ```yaml
 # platform.yaml
@@ -228,7 +225,7 @@ For a hosted deployment, run `--transport http` and enable the built-in OAuth 2.
 
 ## Security
 
-The platform implements a **fail-closed** security model: missing or invalid credentials deny access, never bypass. Personas are default-deny, Trino and S3 support enforced read-only mode, and metadata is sanitized against prompt injection. See the [Auth Overview](https://mcp-data-platform.txn2.com/auth/overview/) and [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the architecture rationale.
+The platform implements a **fail-closed** security model: missing or invalid credentials deny access, never bypass. Personas are default-deny, Trino and S3 support enforced read-only mode. See the [Auth Overview](https://mcp-data-platform.txn2.com/auth/overview/) and [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the architecture rationale.
 
 | Transport | Authentication | TLS |
 |-----------|----------------|-----|
@@ -257,7 +254,7 @@ The parts an auditor reaches for first:
 | DCR abuse | Plain HTTP to non-loopback hosts refused regardless of configuration; private-use schemes excluded from `AllowAllRedirectURIs`, so the unauthenticated registration endpoint never hands out scheme hijacking by default (`pkg/oauth/dcr.go`) |
 | Brute force and registration flood | Per-IP token-bucket limits on `/token` and `/register`, applied before the bcrypt work they would otherwise burn (`pkg/oauth/ratelimit.go`) |
 | Authorization | Deny-before-allow, default deny, fail-closed on unresolved persona (`pkg/persona/filter.go`) |
-| Prompt injection carried in catalog metadata | Untrusted descriptions, tags, and owner notes are sanitized before they reach the model, and detected attempts are logged (`pkg/semantic/sanitize.go`, `pkg/semantic/injection_logger.go`) |
+| Prompt injection carried in catalog curation | Descriptions, tags, owners and glossary text sanitized before reaching the model and detected attempts logged (`pkg/semantic/sanitize.go`, `pkg/semantic/injection_logger.go`); curation is written only by callers holding `apply_knowledge` or the portal's curation rights, and every write is audited, versioned and reversible |
 
 ### Engineering posture
 
@@ -269,7 +266,6 @@ Those ratios are claims a reader can check, so they are kept true mechanically r
 
 mcp-data-platform is the orchestration layer for a suite of open-source MCP servers that also run standalone:
 
-- [txn2/mcp-datahub](https://github.com/txn2/mcp-datahub/): DataHub metadata: search, lineage, glossary, domains, tags, ownership
 - [txn2/mcp-trino](https://github.com/txn2/mcp-trino/): Trino distributed SQL with configurable timeouts and row limits
 - [txn2/mcp-s3](https://github.com/txn2/mcp-s3/): S3 object storage: buckets, prefixes, objects, presigned URLs
 

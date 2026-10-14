@@ -137,11 +137,14 @@ audit:
 rate_limit:
   enabled: false
 
+# No semantic provider: this arm measured discovery without one, which is what
+# an absent block meant before the platform catalog became the default
+# provider on a deployment with a database.
+semantic:
+  provider: noop
+
 enrichment:
   trino_semantic_enrichment: false
-  datahub_query_enrichment: false
-  s3_semantic_enrichment: false
-  datahub_storage_enrichment: false
 
 apigateway:
   # No API surface at all: the corpus is the only thing to discover.

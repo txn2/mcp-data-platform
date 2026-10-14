@@ -26,6 +26,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/capture"
+	"github.com/txn2/mcp-data-platform/bench/internal/catalogref"
 	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/curriculum"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
@@ -219,7 +220,7 @@ func (fp *fakePlatform) addApplyKnowledge(server *mcp.Server) {
 }
 
 // applySinkLocked models the platform landing an applied change in its sink,
-// which the Reviewer's post-apply sink read-back verifies: a datahub change
+// which the Reviewer's post-apply sink read-back verifies: a catalog change
 // becomes the entity's effective description, a page payload becomes a live
 // knowledge page. The caller holds fp.mu.
 func (fp *fakePlatform) applySinkLocked(urn string, args map[string]any) {
@@ -240,15 +241,14 @@ func (fp *fakePlatform) applySinkLocked(urn string, args map[string]any) {
 // read-back: an entity's effective description (the entityDesc knob models a
 // prior run's promotion or an a2 seed; empty is the clean baseline).
 func (fp *fakePlatform) addGetEntity(server *mcp.Server) {
-	schema := sessionSchema(map[string]*jsonschema.Schema{"urn": {Type: "string"}})
-	mcp.AddTool(server, &mcp.Tool{Name: "datahub_get_entity", Description: "entity metadata", InputSchema: schema},
+	schema := sessionSchema(map[string]*jsonschema.Schema{"reference": {Type: "string"}})
+	mcp.AddTool(server, &mcp.Tool{Name: catalogref.FetchTool, Description: "fetch a reference", InputSchema: schema},
 		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
-			urn, _ := args["urn"].(string)
+			urn, _ := args["reference"].(string)
 			fp.mu.Lock()
 			desc := fp.entityDesc[urn]
 			fp.mu.Unlock()
-			raw, _ := json.Marshal(map[string]any{"urn": urn, "type": "DATASET", "description": desc})
-			return okResult(string(raw)), nil, nil
+			return okResult(catalogref.Render(urn, catalogref.Curation{Description: desc})), nil, nil
 		})
 }
 
@@ -436,7 +436,7 @@ func (a *knowledgeAdapter) Complete(_ context.Context, _ string, msgs []llm.Mess
 	return llm.Message{Role: "assistant", Text: "FINAL ANSWER: " + ans}, usage, nil
 }
 
-const ordersURN = "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+var ordersURN = catalogref.Dataset("orders")
 
 // testCurriculum is two lessons unlocking two eval tasks, one per class.
 func testCurriculum() curriculum.Curriculum {
@@ -444,7 +444,7 @@ func testCurriculum() curriculum.Curriculum {
 		ID: "cs-test", Title: "test", EvalSuite: "s3",
 		Lessons: []curriculum.Lesson{
 			{ID: "cs-units", Title: "units", TrapClass: "units_cents", Fact: "cents", EntityURN: ordersURN,
-				Sink: protocol.SinkDataHub, BudgetToolCalls: 5, Teach: protocol.TeachStage{Prompt: "remember cents"}},
+				Sink: protocol.SinkCatalog, BudgetToolCalls: 5, Teach: protocol.TeachStage{Prompt: "remember cents"}},
 			{ID: "cs-net", Title: "net", TrapClass: "net_revenue", Fact: "net", EntityURN: ordersURN,
 				Sink: protocol.SinkKnowledgePage, BudgetToolCalls: 5,
 				Page:  &protocol.PagePayload{Slug: "net", Title: "Net", Summary: "net = amount - discount", Body: "net policy"},
@@ -656,7 +656,7 @@ func TestPreflightRefusesContaminatedBaseline(t *testing.T) {
 			// run's teacher) on a non-curriculum anchor.
 			fp.insights = append(fp.insights, lifecycleapi.Insight{
 				ID: "in-old", CreatedAt: time.Unix(1, 0), CapturedBy: "bench-agent-042@apikey.local",
-				InsightText: "old", Status: "applied", EntityURNs: []string{"urn:li:dataset:other"},
+				InsightText: "old", Status: "applied", EntityURNs: []string{catalogref.Dataset("other")},
 			})
 		},
 		"leftover knowledge page": func(fp *fakePlatform) {
@@ -689,52 +689,34 @@ func TestPreflightRefusesContaminatedBaseline(t *testing.T) {
 }
 
 // TestEntityContamination covers the aspect checks the integration variants do
-// not exercise: tags and deprecation left by an a2 seed, and a clean entity.
+// not exercise: tags and properties left by an a2 seed, and a clean entity.
 func TestEntityContamination(t *testing.T) {
-	if got := entityContamination(preflightEntity{}); got != "" {
-		t.Errorf("clean entity flagged: %s", got)
+	cases := []struct {
+		name  string
+		in    catalogref.Curation
+		dirty bool
+	}{
+		{"clean", catalogref.Curation{}, false},
+		{"whitespace description", catalogref.Curation{Description: "  "}, false},
+		{"description", catalogref.Curation{Description: "docs"}, true},
+		{"tags", catalogref.Curation{Tags: []string{"pii"}}, true},
+		{"properties", catalogref.Curation{CustomProperties: map[string]string{"deprecated": "true"}}, true},
 	}
-	if got := entityContamination(preflightEntity{Description: "  "}); got != "" {
-		t.Errorf("whitespace-only description flagged: %s", got)
-	}
-	if got := entityContamination(preflightEntity{Description: "docs"}); got == "" {
-		t.Error("description contamination not flagged")
-	}
-	if got := entityContamination(preflightEntity{Tags: []json.RawMessage{[]byte(`{"name":"pii"}`)}}); got == "" {
-		t.Error("tag contamination not flagged")
-	}
-	deprecated := preflightEntity{}
-	deprecated.Deprecation = &struct {
-		Deprecated bool `json:"deprecated"`
-	}{Deprecated: true}
-	if got := entityContamination(deprecated); got == "" {
-		t.Error("deprecation contamination not flagged")
-	}
-}
-
-// TestParsePreflightEntityIgnoresTrailingText proves the entity JSON is parsed
-// even when enrichment middleware appends context after it.
-func TestParsePreflightEntityIgnoresTrailingText(t *testing.T) {
-	got, err := parsePreflightEntity(`{"description":"d"}` + "\n--- Semantic Context ---\nmore text")
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if got.Description != "d" {
-		t.Errorf("description = %q, want d", got.Description)
-	}
-	if _, err := parsePreflightEntity("not json"); err == nil {
-		t.Error("non-JSON result must error")
+	for _, c := range cases {
+		if got := entityContamination(c.in); (got != "") != c.dirty {
+			t.Errorf("%s: contamination = %q, want dirty=%v", c.name, got, c.dirty)
+		}
 	}
 }
 
 // TestSettleRunsBetweenPromoteAndEval proves the settle pause runs after a
-// successful DATAHUB-sink promote and before the following eval checkpoint,
+// successful CATALOG-sink promote and before the following eval checkpoint,
 // with the configured duration — and is skipped for a page-sink promote (page
-// hits are served live from the portal store; only DataHub table context is
+// hits are served live from the portal store; only catalog table context is
 // cached). The injected sleeper records instead of sleeping, so no test
 // real-sleeps.
 func TestSettleRunsBetweenPromoteAndEval(t *testing.T) {
-	cur := testCurriculum() // lesson 1 datahub sink, lesson 2 page sink
+	cur := testCurriculum() // lesson 1 catalog sink, lesson 2 page sink
 	tasks := []task.Task{
 		numericTask("s3-units-a", "units_cents", 100),
 		numericTask("s3-net-a", "net_revenue", 50),
@@ -766,9 +748,9 @@ func TestSettleRunsBetweenPromoteAndEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	// Both lessons promote, but only the datahub-sink lesson settles.
+	// Both lessons promote, but only the catalog-sink lesson settles.
 	if len(slept) != 1 || slept[0] != 5*time.Minute {
-		t.Fatalf("settle sleeps = %v, want one of 5m (datahub-sink lesson only)", slept)
+		t.Fatalf("settle sleeps = %v, want one of 5m (catalog-sink lesson only)", slept)
 	}
 	if res.Manifest.Settle != "5m0s" {
 		t.Errorf("manifest settle = %q, want 5m0s (pacing must be recorded on kept results)", res.Manifest.Settle)
@@ -987,7 +969,7 @@ func TestCaptureMissAttributionWiring(t *testing.T) {
 			name: "capture executed against the wrong entity", lesson: lesson,
 			factory: func(string, string) (llm.Adapter, error) {
 				return &knowledgeAdapter{mode: StageTeach, class: lesson.TrapClass,
-					urn: "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.other,PROD)"}, nil
+					urn: catalogref.Dataset("other")}, nil
 			},
 			wantCause: capture.CauseAttemptedFailed,
 		},

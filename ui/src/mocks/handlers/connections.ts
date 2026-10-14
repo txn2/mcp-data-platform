@@ -329,7 +329,7 @@ export const connectionInstanceHandlers = [
             ? (body.response as Record<string, unknown>)
             : { input: body.response }),
           semantic: {
-            source: "acme-catalog",
+            source: "catalog",
             owners: ["data-platform@acme.example.com"],
             glossary_terms: ["CustomerAccount"],
           },
@@ -338,8 +338,8 @@ export const connectionInstanceHandlers = [
         fired: [
           {
             rule_id: id,
-            source: "acme-catalog",
-            op: "datahub_get_entity",
+            source: "catalog",
+            op: "get_dataset",
             duration_ms: 34,
           },
         ],

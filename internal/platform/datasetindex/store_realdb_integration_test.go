@@ -147,7 +147,7 @@ func TestCatalogIndexRealDB(t *testing.T) {
 
 // TestCatalogIndexSyncUpdatesRealDB proves a re-sync updates a dataset's text
 // in place (keyed on the URN) rather than duplicating it, which is what lets a
-// description edited in DataHub become searchable on the next sweep.
+// description edited in the catalog become searchable on the next sweep.
 func TestCatalogIndexSyncUpdatesRealDB(t *testing.T) {
 	db := testdb.New(t)
 	store := NewStore(db)

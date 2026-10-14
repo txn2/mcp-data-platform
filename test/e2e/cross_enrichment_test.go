@@ -13,23 +13,11 @@ import (
 	"github.com/txn2/mcp-data-platform/test/e2e/helpers"
 )
 
-// Test URNs used across tests
-const (
-	testOrdersURN       = "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)"
-	legacyUsersURN      = "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.legacy_users,PROD)"
-	customerMetricsURN  = "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.customer_metrics,PROD)"
-	s3RawDataURN        = "urn:li:dataset:(urn:li:dataPlatform:s3,test-data-lake/raw,PROD)"
-	productsTableNoMeta = "memory.e2e_test.products" // Table without DataHub metadata
-)
-
-// TestTrinoToDataHubEnrichment tests that Trino describe_table results
-// include semantic context from DataHub.
-func TestTrinoToDataHubEnrichment(t *testing.T) {
+// TestTrinoToCatalogEnrichment tests that trino_describe_table results carry
+// the semantic context the platform catalog holds for the table: its owners
+// and tags as helpers.SeedCatalog wrote them.
+func TestTrinoToCatalogEnrichment(t *testing.T) {
 	cfg := helpers.DefaultE2EConfig()
-
-	if helpers.SkipIfDataHubUnavailable(cfg) {
-		t.Skip("DataHub not available, skipping test")
-	}
 
 	ctx, cancel := helpers.TestContext(cfg.Timeout)
 	defer cancel()
@@ -44,230 +32,12 @@ func TestTrinoToDataHubEnrichment(t *testing.T) {
 		}
 	}()
 
-	tests := []struct {
-		name           string
-		tableName      string
-		expectedOwners []string
-		expectedTags   []string
-		isDeprecated   bool
-		hasEnrichment  bool
-	}{
-		{
-			name:      "table_with_full_metadata",
-			tableName: "memory.e2e_test.test_orders",
-			// Owners are stored as URNs in DataHub
-			expectedOwners: []string{"urn:li:corpuser:alice", "urn:li:corpuser:bob"},
-			// Tags are returned as names by the adapter, not URNs
-			expectedTags:  []string{"e2e-test", "ecommerce"},
-			isDeprecated:  false,
-			hasEnrichment: true,
-		},
-		{
-			name:          "deprecated_table",
-			tableName:     "memory.e2e_test.legacy_users",
-			isDeprecated:  true,
-			hasEnrichment: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := callTrinoDescribeTable(t, ctx, platform, tc.tableName)
-
-			if !tc.hasEnrichment {
-				helpers.AssertNoEnrichment(t, result)
-				return
-			}
-
-			sc := helpers.AssertHasSemanticContext(t, result)
-
-			if tc.isDeprecated {
-				helpers.AssertIsDeprecated(t, sc)
-			}
-
-			for _, owner := range tc.expectedOwners {
-				helpers.AssertOwnerPresent(t, sc, owner)
-			}
-
-			for _, tag := range tc.expectedTags {
-				helpers.AssertTagPresent(t, sc, tag)
-			}
-		})
-	}
-}
-
-// TestDataHubToTrinoEnrichment tests that DataHub search results
-// include query availability from Trino.
-func TestDataHubToTrinoEnrichment(t *testing.T) {
-	cfg := helpers.DefaultE2EConfig()
-
-	if helpers.SkipIfDataHubUnavailable(cfg) {
-		t.Skip("DataHub not available, skipping test")
-	}
-
-	ctx, cancel := helpers.TestContext(cfg.Timeout)
-	defer cancel()
-
-	platform, err := helpers.NewTestPlatform(ctx, cfg)
-	if err != nil {
-		t.Fatalf("failed to create test platform: %v", err)
-	}
-	defer func() {
-		if cerr := platform.Close(); cerr != nil {
-			t.Errorf("failed to close platform: %v", cerr)
-		}
-	}()
-
-	tests := []struct {
-		name          string
-		searchQuery   string
-		expectedURN   string
-		queryable     bool
-		hasEnrichment bool
-	}{
-		{
-			name:          "search_finds_queryable_table",
-			searchQuery:   "test_orders",
-			expectedURN:   testOrdersURN,
-			queryable:     true,
-			hasEnrichment: true,
-		},
-		{
-			name:          "search_finds_another_queryable_table",
-			searchQuery:   "customer_metrics",
-			expectedURN:   customerMetricsURN,
-			queryable:     true,
-			hasEnrichment: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := callDataHubSearch(t, ctx, platform, tc.searchQuery, "trino")
-
-			if !tc.hasEnrichment {
-				helpers.AssertNoEnrichment(t, result)
-				return
-			}
-
-			qc := helpers.AssertHasQueryContext(t, result)
-
-			if tc.queryable {
-				helpers.AssertQueryAvailable(t, qc, tc.expectedURN)
-			}
-		})
-	}
-}
-
-// TestS3ToDataHubEnrichment tests that S3 list_objects results
-// include semantic context from DataHub.
-// Note: This test requires DataHub search to be available (OpenSearch must be running).
-func TestS3ToDataHubEnrichment(t *testing.T) {
-	cfg := helpers.DefaultE2EConfig()
-
-	if helpers.SkipIfDataHubUnavailable(cfg) {
-		t.Skip("DataHub not available, skipping test")
-	}
-
-	if helpers.SkipIfDataHubSearchUnavailable(cfg) {
-		t.Skip("DataHub search not available (OpenSearch may not be running), skipping test")
-	}
-
-	ctx, cancel := helpers.TestContext(cfg.Timeout)
-	defer cancel()
-
-	platform, err := helpers.NewTestPlatform(ctx, cfg)
-	if err != nil {
-		t.Fatalf("failed to create test platform: %v", err)
-	}
-	defer func() {
-		if cerr := platform.Close(); cerr != nil {
-			t.Errorf("failed to close platform: %v", cerr)
-		}
-	}()
-
-	tests := []struct {
-		name                  string
-		bucket                string
-		prefix                string
-		expectedMatchingCount int
-		hasEnrichment         bool
-	}{
-		{
-			name:                  "bucket_with_registered_dataset",
-			bucket:                "test-data-lake",
-			prefix:                "raw",
-			expectedMatchingCount: 1,
-			hasEnrichment:         true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := callS3ListObjects(t, ctx, platform, tc.bucket, tc.prefix)
-
-			if !tc.hasEnrichment {
-				helpers.AssertNoEnrichment(t, result)
-				return
-			}
-
-			sc := helpers.AssertHasSemanticContext(t, result)
-			helpers.AssertMatchingDatasetCount(t, sc, tc.expectedMatchingCount)
-		})
-	}
-}
-
-// TestDataHubToS3Enrichment tests that DataHub search for S3 datasets
-// includes storage availability.
-func TestDataHubToS3Enrichment(t *testing.T) {
-	cfg := helpers.DefaultE2EConfig()
-
-	if helpers.SkipIfDataHubUnavailable(cfg) {
-		t.Skip("DataHub not available, skipping test")
-	}
-
-	ctx, cancel := helpers.TestContext(cfg.Timeout)
-	defer cancel()
-
-	platform, err := helpers.NewTestPlatform(ctx, cfg)
-	if err != nil {
-		t.Fatalf("failed to create test platform: %v", err)
-	}
-	defer func() {
-		if cerr := platform.Close(); cerr != nil {
-			t.Errorf("failed to close platform: %v", cerr)
-		}
-	}()
-
-	tests := []struct {
-		name          string
-		searchQuery   string
-		expectedURN   string
-		hasEnrichment bool
-	}{
-		{
-			name:          "search_finds_S3_dataset",
-			searchQuery:   "raw-data-lake",
-			expectedURN:   s3RawDataURN,
-			hasEnrichment: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := callDataHubSearch(t, ctx, platform, tc.searchQuery, "s3")
-
-			if !tc.hasEnrichment {
-				helpers.AssertNoEnrichment(t, result)
-				return
-			}
-
-			// Verify storage context is present (availability depends on SeaweedFS connectivity)
-			sc := helpers.AssertHasStorageContext(t, result)
-			if sc == nil {
-				t.Error("expected storage_context to be present")
-			}
-		})
+	result := callTrinoDescribeTable(t, ctx, platform, helpers.TestOrdersPath)
+	sc := helpers.AssertHasSemanticContext(t, result)
+	helpers.AssertOwnerPresent(t, sc, helpers.TestOrdersOwnerA)
+	helpers.AssertOwnerPresent(t, sc, helpers.TestOrdersOwnerB)
+	for _, tag := range helpers.TestOrdersTags {
+		helpers.AssertTagPresent(t, sc, tag)
 	}
 }
 
@@ -290,153 +60,44 @@ func callTrinoDescribeTable(t *testing.T, ctx context.Context, tp *helpers.TestP
 		},
 	}
 
-	return executeWithMiddleware(t, ctx, tp, request, "trino")
+	return executeWithMiddleware(t, ctx, tp, request)
 }
 
-// callDataHubSearch simulates a datahub_search tool call.
-func callDataHubSearch(t *testing.T, ctx context.Context, tp *helpers.TestPlatform, query string, datahubPlatform string) *mcp.CallToolResult {
+// executeWithMiddleware executes a tool request through the semantic
+// enrichment middleware. This tests the enrichment logic directly rather than
+// through the full MCP protocol stack.
+func executeWithMiddleware(t *testing.T, ctx context.Context, tp *helpers.TestPlatform, request mcp.CallToolRequest) *mcp.CallToolResult {
 	t.Helper()
 
-	args, _ := json.Marshal(map[string]string{
-		"query":    query,
-		"platform": datahubPlatform,
-	})
-
-	request := mcp.CallToolRequest{
-		Params: &mcp.CallToolParamsRaw{
-			Name:      "datahub_search",
-			Arguments: args,
-		},
-	}
-
-	return executeWithMiddleware(t, ctx, tp, request, "datahub")
-}
-
-// callS3ListObjects simulates an s3_list tool call naming a bucket.
-func callS3ListObjects(t *testing.T, ctx context.Context, tp *helpers.TestPlatform, bucket, prefix string) *mcp.CallToolResult {
-	t.Helper()
-
-	args, _ := json.Marshal(map[string]string{
-		"bucket": bucket,
-		"prefix": prefix,
-	})
-
-	request := mcp.CallToolRequest{
-		Params: &mcp.CallToolParamsRaw{
-			Name:      "s3_list",
-			Arguments: args,
-		},
-	}
-
-	return executeWithMiddleware(t, ctx, tp, request, "s3")
-}
-
-// executeWithEnrichment executes a tool request through the semantic enrichment middleware.
-// This tests the enrichment logic directly rather than through the full MCP protocol stack.
-func executeWithMiddleware(t *testing.T, ctx context.Context, tp *helpers.TestPlatform, request mcp.CallToolRequest, toolkitKind string) *mcp.CallToolResult {
-	t.Helper()
-
-	// Create a mock MCP handler that returns a basic result
-	mockMCPHandler := func(_ context.Context, method string, req mcp.Request) (mcp.Result, error) {
-		// Create a mock result with URN for enrichment tests
-		resultData := createMockResult(toolkitKind, request)
-		resultJSON, _ := json.Marshal(resultData)
-
+	// A stand-in handler answering what trino_describe_table answers.
+	mockMCPHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		var args map[string]string
+		_ = json.Unmarshal(request.Params.Arguments, &args)
+		resultJSON, _ := json.Marshal(map[string]any{
+			"table":   args["table"],
+			"columns": []map[string]string{{"name": "order_id", "type": "bigint"}},
+		})
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: string(resultJSON)},
-			},
+			Content: []mcp.Content{&mcp.TextContent{Text: string(resultJSON)}},
 		}, nil
 	}
 
-	// Get providers from the platform
-	semanticProvider := tp.SemanticProvider()
-	queryProvider := tp.QueryProvider()
-	storageProvider := tp.StorageProvider()
-
-	// Create the enrichment middleware with full config
-	enrichmentMW := helpers.CreateEnrichmentMiddleware(
-		semanticProvider,
-		queryProvider,
-		storageProvider,
-	)
-
-	// Wrap the mock handler with enrichment middleware
+	enrichmentMW := helpers.CreateEnrichmentMiddleware(tp.SemanticProvider(), tp.QueryProvider())
 	wrappedHandler := enrichmentMW(mockMCPHandler)
 
-	// Create a ServerRequest with the call tool params
 	serverReq := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
 		Params: request.Params,
 	}
 
-	// Execute through the middleware
 	result, err := wrappedHandler(ctx, "tools/call", serverReq)
 	if err != nil {
 		t.Fatalf("middleware execution failed: %v", err)
 	}
 
-	// Type assert to CallToolResult
 	callResult, ok := result.(*mcp.CallToolResult)
 	if !ok {
 		t.Fatalf("expected *mcp.CallToolResult, got %T", result)
 	}
 
 	return callResult
-}
-
-// createMockResult creates appropriate mock result data for each toolkit.
-func createMockResult(toolkitKind string, request mcp.CallToolRequest) map[string]any {
-	var args map[string]string
-	_ = json.Unmarshal(request.Params.Arguments, &args)
-
-	switch toolkitKind {
-	case "trino":
-		return map[string]any{
-			"table":   args["table"],
-			"columns": []map[string]string{{"name": "id", "type": "bigint"}},
-		}
-	case "datahub":
-		platform := args["platform"]
-		urn := buildDataHubURN(args["query"], platform)
-		return map[string]any{
-			"results": []map[string]any{
-				{
-					"urn":      urn,
-					"name":     args["query"],
-					"platform": platform,
-				},
-			},
-		}
-	case "s3":
-		return map[string]any{
-			"bucket": args["bucket"],
-			"prefix": args["prefix"],
-			"objects": []map[string]any{
-				{"key": args["prefix"] + "/sample.parquet", "size": 1024},
-			},
-		}
-	default:
-		return map[string]any{}
-	}
-}
-
-// buildDataHubURN constructs a URN based on the search query and platform.
-func buildDataHubURN(query string, platform string) string {
-	switch platform {
-	case "trino":
-		switch query {
-		case "test_orders":
-			return testOrdersURN
-		case "customer_metrics":
-			return customerMetricsURN
-		case "legacy_users":
-			return legacyUsersURN
-		default:
-			return "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test." + query + ",PROD)"
-		}
-	case "s3":
-		return s3RawDataURN
-	default:
-		return "urn:li:dataset:(urn:li:dataPlatform:" + platform + "," + query + ",PROD)"
-	}
 }

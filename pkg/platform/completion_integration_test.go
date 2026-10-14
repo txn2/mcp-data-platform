@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -39,11 +38,16 @@ type completionFakeSemantic struct {
 	terms    []semantic.EntityRef
 }
 
-func (f *completionFakeSemantic) SearchTables(_ context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
-	if slices.Contains(filter.EntityTypes, "DATA_PRODUCT") {
-		return f.products, nil
-	}
+func (f *completionFakeSemantic) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	return f.tables, nil
+}
+
+func (f *completionFakeSemantic) SearchDataProducts(context.Context, string, int) ([]semantic.EntityRef, error) {
+	out := make([]semantic.EntityRef, 0, len(f.products))
+	for _, p := range f.products {
+		out = append(out, semantic.EntityRef{Name: p.Name})
+	}
+	return out, nil
 }
 
 func (f *completionFakeSemantic) ListDomains(context.Context) ([]semantic.EntityRef, error) {

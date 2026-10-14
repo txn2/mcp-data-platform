@@ -21,9 +21,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yosida95/uritemplate/v3"
 
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // The URI patterns the three templates are addressed by. Exported because the
@@ -46,10 +46,10 @@ const mimeApplicationJSON = "application/json"
 type Deps struct {
 	Semantic semantic.Provider
 	Query    query.Provider
-	// URNPlatform and URNCatalogMapping build the catalog URN an availability
-	// lookup is keyed by, from semantic.urn_mapping.
-	URNPlatform       string
-	URNCatalogMapping map[string]string
+	// DatasetRef names the catalog dataset a table is on the default Trino
+	// connection, the reference an availability lookup is keyed by; empty when
+	// it cannot be named.
+	DatasetRef func(catalog, schema, table string) string
 }
 
 // Handler serves the three templates.
@@ -224,7 +224,9 @@ func (h *Handler) Glossary(ctx context.Context, req *mcp.ReadResourceRequest) (*
 		return nil, mcp.ResourceNotFoundError(uri) //nolint:wrapcheck // MCP protocol error
 	}
 
-	glossary, err := h.deps.Semantic.GetGlossaryTerm(ctx, "urn:li:glossaryTerm:"+term)
+	// The term is named by its id, its slug or its name; a name is read as the
+	// slug it derives, and an id or a slug is its own.
+	glossary, err := h.deps.Semantic.GetGlossaryTerm(ctx, catalog.KeyRef(catalog.KindGlossaryTerm, catalog.Slug(term)).String())
 	if err != nil {
 		return nil, mcp.ResourceNotFoundError(uri) //nolint:wrapcheck // MCP protocol error
 	}
@@ -253,12 +255,15 @@ func (h *Handler) Availability(ctx context.Context, req *mcp.ReadResourceRequest
 	}
 
 	catalog, schemaName, table := vars["catalog"], vars["schema_name"], vars["table"]
-	if catalog == "" || schemaName == "" || table == "" || h.deps.Query == nil {
+	if catalog == "" || schemaName == "" || table == "" || h.deps.Query == nil || h.deps.DatasetRef == nil {
 		return nil, mcp.ResourceNotFoundError(uri) //nolint:wrapcheck // MCP protocol error
 	}
 
-	urn := urnbuild.DatasetURN(h.deps.URNPlatform, h.deps.URNCatalogMapping, catalog, schemaName, table)
-	avail, err := h.deps.Query.GetTableAvailability(ctx, urn)
+	ref := h.deps.DatasetRef(catalog, schemaName, table)
+	if ref == "" {
+		return nil, mcp.ResourceNotFoundError(uri) //nolint:wrapcheck // MCP protocol error
+	}
+	avail, err := h.deps.Query.GetTableAvailability(ctx, ref)
 	if err != nil {
 		return nil, mcp.ResourceNotFoundError(uri) //nolint:wrapcheck // MCP protocol error
 	}

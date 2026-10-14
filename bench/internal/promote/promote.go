@@ -1,7 +1,7 @@
 // Package promote is the shared reviewer-promotion path for the benchmark's
 // knowledge-lifecycle orchestrators (the S5 lifecycle suite and the cold-start
 // knowledge-growth suite). Both drive the same transition — a captured, pending
-// insight is approved and applied to a sink (a DataHub entity description or a
+// insight is approved and applied to a sink (a catalog dataset description or a
 // portal knowledge page) via the apply_knowledge tool, and the result is
 // verified through the platform's own insights and changesets APIs, never
 // inferred from a transcript. Keeping this one implementation avoids two
@@ -11,7 +11,7 @@ package promote
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -19,6 +19,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/catalogref"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/mcpc"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
@@ -28,8 +29,9 @@ import (
 const ApplyToolName = "apply_knowledge"
 
 // EntityToolName is the platform tool the sink read-back reads a promoted
-// entity description through — the same effective-metadata path evaluators see.
-const EntityToolName = "datahub_get_entity"
+// dataset description through: fetch on the dataset's catalog reference, the
+// same read path evaluators have.
+const EntityToolName = catalogref.FetchTool
 
 // Sink read-back pacing defaults (see Reviewer.SinkTimeout/SinkPoll).
 const (
@@ -62,11 +64,11 @@ const (
 type Target struct {
 	// Label identifies the source (protocol or lesson id) for log lines.
 	Label string
-	// EntityURN anchors the insight and is the datahub-sink apply target.
+	// EntityURN anchors the insight and is the catalog-sink apply target.
 	EntityURN string
-	// Sink is protocol.SinkDataHub or protocol.SinkKnowledgePage.
+	// Sink is protocol.SinkCatalog or protocol.SinkKnowledgePage.
 	Sink string
-	// Fact is the datahub-sink description detail (unused for the page sink).
+	// Fact is the catalog-sink description detail (unused for the page sink).
 	Fact string
 	// Page is the knowledge_page payload (required for the page sink).
 	Page *protocol.PagePayload
@@ -201,7 +203,7 @@ func (r Reviewer) verify(ctx context.Context, t Target, insightID string) (bool,
 		}
 		return !cs.RolledBack && cs.Sourced(insightID), nil
 	}
-	// Fallback: the datahub sink targets the entity URN, so its changeset is
+	// Fallback: the catalog sink targets the entity URN, so its changeset is
 	// listable by entity. (The changeset_ref path above covers both sinks; this
 	// only guards a ref the adapter left unset.)
 	changesets, err := r.Life.ListChangesets(ctx, lifecycleapi.ChangesetFilter{EntityURN: t.EntityURN})
@@ -259,27 +261,22 @@ func (r Reviewer) sinkHolds(ctx context.Context, session *mcp.ClientSession, han
 	return entityHolds(ctx, session, handle, t)
 }
 
-// sinkEntity is the subset of the datahub_get_entity result the sink read-back
-// inspects.
-type sinkEntity struct {
-	Description string `json:"description"`
-}
-
 // entityHolds reads the promoted entity through the platform and reports
 // whether its effective description carries the applied fact.
 func entityHolds(ctx context.Context, session *mcp.ClientSession, handle string, t Target) (bool, string, error) {
-	res := mcpc.Call(ctx, session, EntityToolName, map[string]any{"urn": t.EntityURN}, handle)
+	res := mcpc.Call(ctx, session, EntityToolName, catalogref.FetchArgs(t.EntityURN), handle)
 	if res.TransportErr != nil {
 		return false, "", fmt.Errorf("%s(%s): %w", EntityToolName, t.EntityURN, res.TransportErr)
 	}
 	if res.ToolErr {
 		return false, "", fmt.Errorf("%s(%s) failed: %.300s", EntityToolName, t.EntityURN, res.Text)
 	}
-	var entity sinkEntity
-	// Enrichment middleware may append context after the entity JSON, so the
-	// decoder reads one value and ignores the rest.
-	if err := json.NewDecoder(strings.NewReader(res.Text)).Decode(&entity); err != nil {
-		return false, "", fmt.Errorf("parse %s result: %w (text: %.200s)", EntityToolName, err, res.Text)
+	entity, err := catalogref.Parse(res.Text)
+	if errors.Is(err, catalogref.ErrNotFound) {
+		return false, fmt.Sprintf("catalog does not hold %s yet", t.EntityURN), nil
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("%s(%s): %w", EntityToolName, t.EntityURN, err)
 	}
 	if !strings.Contains(entity.Description, t.Fact) {
 		return false, fmt.Sprintf("entity %s description does not carry the applied fact (description: %.200q)", t.EntityURN, entity.Description), nil
@@ -332,7 +329,7 @@ func BuildApplyArgs(t Target, insightID string) map[string]any {
 		args["page"] = page
 		return args
 	}
-	args["sink"] = "datahub"
+	args["sink"] = "catalog"
 	args["changes"] = []map[string]any{{
 		"change_type": "update_description",
 		"target":      "",

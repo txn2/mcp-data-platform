@@ -298,6 +298,12 @@ def failing_vitest_files(output: str) -> list[str]:
     return found
 
 
+def vitest_workers(cpus: int, processes: int) -> int:
+    """The workers each of the lane's vitest processes runs: its share of the
+    cores, and at least one."""
+    return max(1, cpus // max(1, processes))
+
+
 def lane_ui(base_branch: str) -> int:
     base = merge_base(base_branch)
     files = [f[len("ui/"):] for f in changed_files(base) if VITEST_FILE.match(f)]
@@ -306,7 +312,15 @@ def lane_ui(base_branch: str) -> int:
     # The repeats start together with the suite so that every one of them
     # overlaps its load. Queued one after another they outlast a suite that
     # takes about 24 seconds here, and the last runs see an idle machine.
-    suite = subprocess.Popen(["npm", "run", "test"], cwd=ui, env=env)
+    # Every process gets its share of the cores rather than a worker per core
+    # each. The lane wants the machine loaded the way a CI runner is, not
+    # oversubscribed: six vitest processes sized to every core ran about a
+    # hundred jsdom workers on 18 cores beside verify's Go lanes, and a test
+    # that takes 90ms alone took 6s, past vitest's 5s timeout, in files no
+    # change touched. A loaded machine still reorders what an ordering-
+    # dependent test races on; thrashing only adds timeouts.
+    workers = f"--maxWorkers={vitest_workers(os.cpu_count() or 1, RUNS + 1 if files else 1)}"
+    suite = subprocess.Popen(["npx", "vitest", "run", workers], cwd=ui, env=env)
     repeats = []
     if files:
         print(f"schedule-lane-ui: {len(files)} changed test file(s), {RUNS} runs beside the full suite", flush=True)
@@ -317,7 +331,7 @@ def lane_ui(base_branch: str) -> int:
         for _ in range(RUNS):
             log = tempfile.TemporaryFile(mode="w+", encoding="utf-8")  # noqa: SIM115 -- closed below
             repeats.append((subprocess.Popen(
-                ["npx", "vitest", "run", *files], cwd=ui, env=env,
+                ["npx", "vitest", "run", workers, *files], cwd=ui, env=env,
                 stdout=log, stderr=subprocess.STDOUT, text=True,
             ), log))
     failures = []

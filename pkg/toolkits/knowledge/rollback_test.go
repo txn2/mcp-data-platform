@@ -64,7 +64,7 @@ func TestRollbackReviewNote(t *testing.T) {
 // catalog changes: it is refused, and nothing is marked rolled back.
 func TestRevertChangeset_DataHubChangesetRefused(t *testing.T) {
 	cs := baseChangeset("cs-old", map[string]any{"change_0": changeEntry("add_tag", "", "pii")}, nil)
-	cs.TargetURN = "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+	cs.TargetURN = "mcp:dataset:(trino,warehouse,hive.sales.orders)"
 	store := seededStore(cs)
 	_, err := RevertChangeset(context.Background(), RollbackDeps{Catalog: newFakeCatalog(), Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
 	require.ErrorIs(t, err, ErrDataHubChangeset)

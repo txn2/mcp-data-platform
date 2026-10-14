@@ -113,7 +113,7 @@ func TestCallsFetchDeclinesAnotherScheme(t *testing.T) {
 	t.Parallel()
 
 	p := NewCallsProvider(&fakeCalls{record: satisfiedRecord()})
-	for _, ref := range []string{"mcp:asset:ast-1", "urn:li:dataset:(x,y,PROD)", "nonsense"} {
+	for _, ref := range []string{"mcp:asset:ast-1", "mcp:dataset:(x,warehouse,y)", "nonsense"} {
 		doc, owned, err := p.Fetch(context.Background(), ref, Caller{UserID: "u1"})
 		if owned || doc != nil || err != nil {
 			t.Errorf("%q must be declined so the router tries the next provider", ref)

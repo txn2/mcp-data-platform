@@ -4,12 +4,8 @@
 # it only against mocks and in-memory middleware tests. This workflow stands up
 # the real dependency stack (PostgreSQL, Trino, SeaweedFS) from
 # docker-compose.e2e.yml and runs the integration-tagged suites in test/e2e.
-#
-# DataHub is intentionally NOT in the compose stack (it needs `datahub docker
-# quickstart`), so the DataHub-dependent suites skip cleanly via their
-# reachability guards (helpers.SkipIfDataHubUnavailable probes the real endpoint;
-# knowledge_datahub_writer_test skips when E2E_DATAHUB_URL is unset). The
-# Trino/S3/Postgres suites still run against real services.
+# The semantic layer is the platform's own catalog in PostgreSQL, so every
+# suite runs against real services.
 name: E2E Nightly
 
 on:

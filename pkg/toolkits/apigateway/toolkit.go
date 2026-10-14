@@ -700,7 +700,7 @@ func filterByRoutePolicy(ctx context.Context, policy RoutePolicy, connection str
 }
 
 // SetSemanticProvider stores the semantic provider. Reserved for
-// future enrichment (e.g. response shaping driven by DataHub PII
+// future enrichment (e.g. response shaping driven by catalog PII
 // tags, see issue #373); not consumed in v1.
 func (t *Toolkit) SetSemanticProvider(provider semantic.Provider) {
 	t.mu.Lock()

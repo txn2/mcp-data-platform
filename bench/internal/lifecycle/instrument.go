@@ -35,7 +35,7 @@ func (rec *EpisodeRecord) recordInstrumentation(spec episodeSpec, transcript []l
 // a promoted fact that never surfaces is a delivery failure (enrichment/search
 // did not carry it to the second identity), while one that surfaces but is not
 // used is a reasoning failure (the agent had it and ignored it). Matching is on
-// the normalized fact text; the datahub sink applies the fact verbatim as the
+// the normalized fact text; the catalog sink applies the fact verbatim as the
 // entity description, so cross-enrichment returns it verbatim.
 func factSurfaced(fact string, msgs []llm.Message) bool {
 	needle := normalizeText(fact)
@@ -85,7 +85,7 @@ func isAlphaNum(r rune) bool {
 }
 
 // surfacedTarget returns the promoted content whose presence in a tool result
-// marks the transfer fact as surfaced: the datahub sink applies the fact as the
+// marks the transfer fact as surfaced: the catalog sink applies the fact as the
 // entity description (returned verbatim by cross-enrichment), and the
 // knowledge-page sink is matched on the page SUMMARY — search renders a page
 // hit as title plus summary, and the a3 tool surface has no page-body fetch

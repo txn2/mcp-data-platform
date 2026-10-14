@@ -23,8 +23,8 @@ import (
 // leaves the block exactly as it was.
 
 const (
-	pushURN     = "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.orders,PROD)"
-	pushGoneURN = "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.gone,PROD)"
+	pushURN     = "mcp:dataset:(trino,warehouse,catalog.schema.orders)"
+	pushGoneURN = "mcp:dataset:(trino,warehouse,catalog.schema.gone)"
 	pushTable   = "catalog.schema.orders"
 	pushConn    = "prod-trino"
 )
@@ -109,7 +109,7 @@ func pushedRecords(t *testing.T, queryProvider query.Provider, enabled bool) map
 	// Middleware order (innermost first): enrichment, then auth (outermost), so
 	// the enrichment reads the PlatformContext the tool-call middleware wrote.
 	server.AddReceivingMiddleware(middleware.MCPSemanticEnrichmentMiddleware(
-		nil, queryProvider, nil,
+		nil, queryProvider,
 		middleware.EnrichmentConfig{VerifiableInsights: enabled},
 		&pushMemoryProvider{snippets: pushRecords()},
 	))

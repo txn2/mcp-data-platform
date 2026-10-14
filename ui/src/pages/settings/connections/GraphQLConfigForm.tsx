@@ -47,7 +47,7 @@ export function GraphQLConfigForm({
         help="Full URL documents are POSTed to. Unlike an HTTP API's base URL this is the whole address: a GraphQL endpoint has exactly one."
         value={String(config.endpoint_url ?? "")}
         onChange={(v) => onChange(update(config, "endpoint_url", v))}
-        placeholder="https://datahub.example.com/api/graphql"
+        placeholder="https://api.example.com/graphql"
         mono
         required
       />

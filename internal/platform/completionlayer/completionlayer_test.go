@@ -3,7 +3,6 @@ package completionlayer
 import (
 	"context"
 	"errors"
-	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -37,14 +36,22 @@ type fakeSemantic struct {
 	searchErr error
 }
 
-func (f *fakeSemantic) SearchTables(_ context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+func (f *fakeSemantic) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}
-	if slices.Contains(filter.EntityTypes, dataProductEntityType) {
-		return f.products, nil
-	}
 	return f.tables, nil
+}
+
+func (f *fakeSemantic) SearchDataProducts(context.Context, string, int) ([]semantic.EntityRef, error) {
+	if f.searchErr != nil {
+		return nil, f.searchErr
+	}
+	out := make([]semantic.EntityRef, 0, len(f.products))
+	for _, p := range f.products {
+		out = append(out, semantic.EntityRef{Name: p.Name})
+	}
+	return out, nil
 }
 
 func (f *fakeSemantic) ListDomains(context.Context) ([]semantic.EntityRef, error) {
@@ -55,7 +62,7 @@ func (f *fakeSemantic) SearchGlossaryTerms(context.Context, string, int) ([]sema
 	return f.terms, f.searchErr
 }
 
-// clampedSemantic mirrors the real DataHub client: it never returns more than
+// clampedSemantic is a page-bounded backend: it never returns more than
 // clampAt rows however many were requested, and it reports the true match count
 // separately. It is the shape that makes a "fetch one extra row" probe useless —
 // the extra row is exactly what the clamp removes.
@@ -109,6 +116,10 @@ func (c *clampedSemantic) SearchGlossaryTermsCounted(
 func (c *clampedSemantic) SearchGlossaryTerms(ctx context.Context, term string, limit int) ([]semantic.EntityRef, error) {
 	refs, _, err := c.SearchGlossaryTermsCounted(ctx, term, limit)
 	return refs, err
+}
+
+func (*clampedSemantic) SearchDataProducts(context.Context, string, int) ([]semantic.EntityRef, error) {
+	return nil, nil
 }
 
 func (c *clampedSemantic) ListDomains(context.Context) ([]semantic.EntityRef, error) {
@@ -556,16 +567,16 @@ func TestHandlerSearchFailureIsNotACompleteSet(t *testing.T) {
 }
 
 // TestTopicArmWithoutPickerCapability covers a catalog that can search datasets
-// but has no domain/glossary picker: the two picker arms contribute nothing and
-// claim nothing, so the merged coverage is the data-product arm's.
+// but has no picker: the picker arms contribute nothing and claim nothing, so
+// the merged coverage is complete.
 func TestTopicArmWithoutPickerCapability(t *testing.T) {
 	sem := &noPickerSemantic{}
 	sem.Provider = semantic.NewNoopProvider()
 	h := New(Deps{Semantic: sem})
 
 	values, cov := h.topics(context.Background(), "")
-	assert.Equal(t, []string{"Revenue Product"}, values)
-	assert.Equal(t, coverageUnknown, cov, "an uncounted product search proves nothing")
+	assert.Empty(t, values)
+	assert.Equal(t, coverageComplete, cov, "no picker means no topic matches")
 
 	terms, cov := h.glossaryTerms(context.Background(), "")
 	assert.Empty(t, terms)
@@ -582,7 +593,7 @@ func TestTopicArmDomainListingIsNeverProvable(t *testing.T) {
 		wantValues int
 	}{
 		{name: "listing succeeds", wantValues: 3},
-		{name: "listing fails", domainsErr: errors.New("datahub down"), wantValues: 2},
+		{name: "listing fails", domainsErr: errors.New("catalog down"), wantValues: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sem := &clampedSemantic{clampAt: 10, termMatches: 2, domains: 1, domainsErr: tc.domainsErr}
@@ -612,10 +623,6 @@ func TestArmsSubstituteTheListAllQuery(t *testing.T) {
 	sem.queries = nil
 	_, _ = h.datasetNames(ctx, "  ord  ")
 	assert.Equal(t, []string{"ord"}, sem.queries, "a typed prefix is sent as the query")
-
-	sem.queries = nil
-	_, _ = h.dataProductCandidates(ctx, "")
-	assert.Equal(t, []string{listAll}, sem.queries)
 }
 
 // TestOverCapPageProvesMoreWithoutACount covers the fallback signal: a page
@@ -674,10 +681,7 @@ func (u *uncountedPage) SearchTables(_ context.Context, _ semantic.SearchFilter)
 // noPickerSemantic answers the dataset search but implements no CatalogPicker.
 type noPickerSemantic struct{ semantic.Provider }
 
-func (noPickerSemantic) SearchTables(_ context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
-	if slices.Contains(filter.EntityTypes, dataProductEntityType) {
-		return []semantic.TableSearchResult{{Name: "Revenue Product"}}, nil
-	}
+func (noPickerSemantic) SearchTables(context.Context, semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	return nil, nil
 }
 

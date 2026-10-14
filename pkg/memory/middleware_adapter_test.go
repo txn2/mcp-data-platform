@@ -46,7 +46,7 @@ func TestRecallForEntities_SingleURN(t *testing.T) {
 	now := time.Now()
 	store := &mockStore{
 		entityLookupFn: func(_ context.Context, urn, _ string) ([]Record, error) {
-			if urn == "urn:li:dataset:foo" {
+			if urn == "mcp:dataset:(trino,warehouse,c.s.foo)" {
 				return []Record{
 					{
 						ID:         "mem-001",
@@ -63,7 +63,7 @@ func TestRecallForEntities_SingleURN(t *testing.T) {
 	}
 
 	adapter := NewMiddlewareAdapter(store)
-	snippets, err := adapter.RecallForEntities(context.Background(), []string{"urn:li:dataset:foo"}, "", 10)
+	snippets, err := adapter.RecallForEntities(context.Background(), []string{"mcp:dataset:(trino,warehouse,c.s.foo)"}, "", 10)
 	require.NoError(t, err)
 	require.Len(t, snippets, 1)
 	assert.Equal(t, "mem-001", snippets[0].ID)
@@ -78,11 +78,11 @@ func TestRecallForEntities_MultipleURNs(t *testing.T) {
 	store := &mockStore{
 		entityLookupFn: func(_ context.Context, urn, _ string) ([]Record, error) {
 			switch urn {
-			case "urn:li:dataset:foo":
+			case "mcp:dataset:(trino,warehouse,c.s.foo)":
 				return []Record{
 					{ID: "mem-001", Content: "Foo insight", CreatedAt: now},
 				}, nil
-			case "urn:li:dataset:bar":
+			case "mcp:dataset:(trino,warehouse,c.s.bar)":
 				return []Record{
 					{ID: "mem-002", Content: "Bar insight", CreatedAt: now},
 				}, nil
@@ -93,7 +93,7 @@ func TestRecallForEntities_MultipleURNs(t *testing.T) {
 
 	adapter := NewMiddlewareAdapter(store)
 	snippets, err := adapter.RecallForEntities(context.Background(),
-		[]string{"urn:li:dataset:foo", "urn:li:dataset:bar"}, "", 10)
+		[]string{"mcp:dataset:(trino,warehouse,c.s.foo)", "mcp:dataset:(trino,warehouse,c.s.bar)"}, "", 10)
 	require.NoError(t, err)
 	assert.Len(t, snippets, 2)
 }
@@ -115,7 +115,7 @@ func TestRecallForEntities_Dedup(t *testing.T) {
 
 	adapter := NewMiddlewareAdapter(store)
 	snippets, err := adapter.RecallForEntities(context.Background(),
-		[]string{"urn:li:dataset:foo", "urn:li:dataset:bar"}, "", 10)
+		[]string{"mcp:dataset:(trino,warehouse,c.s.foo)", "mcp:dataset:(trino,warehouse,c.s.bar)"}, "", 10)
 	require.NoError(t, err)
 	// Should be deduplicated to 1.
 	assert.Len(t, snippets, 1)
@@ -140,7 +140,7 @@ func TestRecallForEntities_LimitCapping(t *testing.T) {
 
 	adapter := NewMiddlewareAdapter(store)
 	snippets, err := adapter.RecallForEntities(context.Background(),
-		[]string{"urn:li:dataset:foo"}, "", 3)
+		[]string{"mcp:dataset:(trino,warehouse,c.s.foo)"}, "", 3)
 	require.NoError(t, err)
 	assert.Len(t, snippets, 3)
 }
@@ -164,7 +164,7 @@ func TestRecallForEntities_DefaultLimit(t *testing.T) {
 	adapter := NewMiddlewareAdapter(store)
 	// Passing 0 should default to defaultRecallLimit (5).
 	snippets, err := adapter.RecallForEntities(context.Background(),
-		[]string{"urn:li:dataset:foo"}, "", 0)
+		[]string{"mcp:dataset:(trino,warehouse,c.s.foo)"}, "", 0)
 	require.NoError(t, err)
 	assert.Len(t, snippets, defaultRecallLimit)
 }
@@ -178,7 +178,7 @@ func TestRecallForEntities_LookupError(t *testing.T) {
 
 	adapter := NewMiddlewareAdapter(store)
 	snippets, err := adapter.RecallForEntities(context.Background(),
-		[]string{"urn:li:dataset:foo"}, "analyst", 5)
+		[]string{"mcp:dataset:(trino,warehouse,c.s.foo)"}, "analyst", 5)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "entity lookup")
 	assert.Nil(t, snippets)

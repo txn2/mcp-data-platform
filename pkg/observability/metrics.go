@@ -114,8 +114,6 @@ const (
 	// "_total" / "_seconds" suffixes the Prometheus exporter appends:
 	//   - trino_queries_total{status, query_kind}
 	//   - trino_query_duration_seconds{query_kind}
-	//   - datahub_requests_total{operation, status}
-	//   - datahub_request_duration_seconds{operation}
 	//   - s3_operations_total{operation, status}
 	//   - s3_operation_duration_seconds{operation}
 	//   - oauth_token_issuance_total{grant_type, status}
@@ -143,8 +141,6 @@ const (
 
 	instTrinoQueries        = "trino_queries"
 	instTrinoQueryDuration  = "trino_query_duration"
-	instDataHubRequests     = "datahub_requests"
-	instDataHubReqDuration  = "datahub_request_duration"
 	instS3Operations        = "s3_operations"
 	instS3OpDuration        = "s3_operation_duration"
 	instOAuthIssuance       = "oauth_token_issuance"
@@ -174,7 +170,7 @@ const unitSeconds = "s"
 // turns it into the "_bytes" name suffix.
 const unitBytes = "By"
 
-// UpstreamStatus maps an error from an external dependency (Trino, DataHub, S3,
+// UpstreamStatus maps an error from an external dependency (Trino, S3,
 // an IdP) to a bounded status label: nil is StatusOK, anything else is
 // StatusUpstreamErr. It reuses the platform's existing status taxonomy
 // (see status.go) rather than introducing a parallel client_err/server_err set.
@@ -189,7 +185,7 @@ func UpstreamStatus(err error) string {
 // Histogram bucket boundaries (seconds). Tuned for tool-call and
 // outbound-HTTP latencies the platform actually serves: most calls
 // finish in tens to hundreds of milliseconds; the upper buckets cover
-// the long-tail (DataHub fetches, large Trino queries, slow upstream
+// the long-tail (large Trino queries, slow upstream
 // APIs) without wasting series on sub-millisecond buckets.
 //
 //nolint:gochecknoglobals // OTel histogram bounds are config, not state.
@@ -338,8 +334,6 @@ type Metrics struct {
 
 	trinoQueriesTotal    metric.Int64Counter
 	trinoQueryDuration   metric.Float64Histogram
-	datahubRequestsTotal metric.Int64Counter
-	datahubReqDuration   metric.Float64Histogram
 	s3OperationsTotal    metric.Int64Counter
 	s3OpDuration         metric.Float64Histogram
 	oauthIssuanceTotal   metric.Int64Counter
@@ -689,7 +683,7 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	return m.registerDBPoolInstruments(meter)
 }
 
-// registerToolkitInstruments registers the Trino/DataHub/S3/OAuth instruments
+// registerToolkitInstruments registers the Trino/S3/OAuth instruments
 // (issue #461). Each instrument's construction is a closure; a single loop runs
 // them and wraps the first failure, so there is one error path rather than one
 // per instrument.
@@ -748,18 +742,6 @@ func (m *Metrics) registerToolkitInstruments(meter metric.Meter) error {
 				metric.WithDescription("Trino query latency in seconds, labeled by query_kind."), metric.WithUnit(unitSeconds))
 			m.trinoQueryDuration = v
 			return wrapReg(instTrinoQueryDuration, err)
-		},
-		func() error {
-			v, err := meter.Int64Counter(instDataHubRequests,
-				metric.WithDescription("Total DataHub requests the platform made, labeled by operation and status: the semantic provider's reads, the datahub_* tools (one per call, named by what the tool does) and the apply_knowledge writer's reads and writes."))
-			m.datahubRequestsTotal = v
-			return wrapReg(instDataHubRequests, err)
-		},
-		func() error {
-			v, err := meter.Float64Histogram(instDataHubReqDuration,
-				metric.WithDescription("DataHub request latency in seconds, labeled by operation."), metric.WithUnit(unitSeconds))
-			m.datahubReqDuration = v
-			return wrapReg(instDataHubReqDuration, err)
 		},
 		func() error {
 			v, err := meter.Int64Counter(instS3Operations,
@@ -1218,21 +1200,6 @@ func (m *Metrics) RecordTrinoQuery(ctx context.Context, status, queryKind string
 	))
 	m.trinoQueryDuration.Record(ctx, duration.Seconds(),
 		metric.WithAttributes(attribute.String(attrQueryKind, queryKind)))
-}
-
-// RecordDataHubRequest records one DataHub request observation. operation is a
-// bounded label (get_entity, get_schema, get_lineage, get_glossary_term,
-// search_tables, ...); status is a bounded status constant. Nil-safe.
-func (m *Metrics) RecordDataHubRequest(ctx context.Context, operation, status string, duration time.Duration) {
-	if m == nil {
-		return
-	}
-	m.datahubRequestsTotal.Add(ctx, 1, metric.WithAttributes(
-		attribute.String(attrOperation, operation),
-		attribute.String(attrStatus, status),
-	))
-	m.datahubReqDuration.Record(ctx, duration.Seconds(),
-		metric.WithAttributes(attribute.String(attrOperation, operation)))
 }
 
 // RecordS3Operation records one S3 operation observation. operation is the S3

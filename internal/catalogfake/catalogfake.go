@@ -149,8 +149,14 @@ func (f *Store) PutDefinition(_ context.Context, in catalog.DefinitionInput) (*c
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	slug := in.Slug
-	if slug == "" {
+	switch {
+	case in.Kind == catalog.KindTag:
+		slug = in.Name
+	case slug == "":
 		slug = catalog.Slug(in.Name)
+	}
+	if err := f.checkDefinition(in, slug); err != nil {
+		return nil, err
 	}
 	if e := f.find(catalog.KeyRef(in.Kind, slug)); e != nil {
 		e.name, e.parent = in.Name, in.Parent
@@ -168,6 +174,29 @@ func (f *Store) PutDefinition(_ context.Context, in catalog.DefinitionInput) (*c
 		ref: ref, kind: in.Kind, name: in.Name, slug: slug, parent: in.Parent, aspects: map[catalog.AspectName]json.RawMessage{},
 	}
 	return &catalog.Definition{ID: id, Reference: ref.String(), Kind: in.Kind, Slug: slug, Name: in.Name, Parent: in.Parent}, nil
+}
+
+// checkDefinition refuses what the PostgreSQL store refuses: no name, a name
+// no slug comes from, and a parent the kind cannot have or that is not a
+// glossary node the catalog holds.
+func (f *Store) checkDefinition(in catalog.DefinitionInput, slug string) error {
+	if strings.TrimSpace(in.Name) == "" || slug == "" {
+		return fmt.Errorf("a definition needs a name a slug comes from: %w", catalog.ErrInvalidDefinition)
+	}
+	if in.Parent == "" {
+		return nil
+	}
+	if in.Kind != catalog.KindGlossaryTerm && in.Kind != catalog.KindGlossaryNode {
+		return fmt.Errorf("a %s has no parent: %w", in.Kind, catalog.ErrInvalidDefinition)
+	}
+	ref, err := catalog.ParseRef(in.Parent)
+	if err != nil || ref.Kind != catalog.KindGlossaryNode {
+		return fmt.Errorf("parent %q is not a glossary node: %w", in.Parent, catalog.ErrInvalidDefinition)
+	}
+	if f.find(ref) == nil {
+		return fmt.Errorf("parent %s: %w", in.Parent, catalog.ErrNotFound)
+	}
+	return nil
 }
 
 // GetDefinition implements catalog.Store.
@@ -381,6 +410,104 @@ func (f *Store) TaggedEntities(_ context.Context, tag string, limit int) ([]stri
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+// ListDefinitions implements catalog.Store: the definitions of the kinds
+// asked for, under the parent asked for, ordered by name. Text is ignored.
+func (f *Store) ListDefinitions(_ context.Context, q catalog.DefinitionQuery) ([]catalog.DefinitionSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]catalog.DefinitionSummary, 0)
+	for ref, e := range f.entities {
+		if !listed(e, q) {
+			continue
+		}
+		out = append(out, catalog.DefinitionSummary{
+			Reference: ref, Kind: e.kind, Slug: e.slug, Name: e.name,
+			Description: decodeAspects(e).Description, Parent: e.parent,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// listed reports whether a definition is one a listing asks for: of its kinds,
+// under its parent, or at the root when it asks for the roots.
+func listed(e *entity, q catalog.DefinitionQuery) bool {
+	if e.kind == catalog.KindDataset || e.kind == catalog.KindColumn {
+		return false
+	}
+	if len(q.Kinds) > 0 && !slices.Contains(q.Kinds, e.kind) {
+		return false
+	}
+	if q.Parent != "" {
+		return e.parent == q.Parent
+	}
+	return !q.Roots || e.parent == ""
+}
+
+// DeleteDefinition implements catalog.Store, refusing a definition anything
+// carries as the PostgreSQL store does.
+func (f *Store) DeleteDefinition(ctx context.Context, ref catalog.Ref) error {
+	uses, err := f.Uses(ctx, ref, 1)
+	if err != nil {
+		return err
+	}
+	if len(uses) > 0 {
+		return &catalog.InUseError{Reference: ref.String(), Entities: len(uses)}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e := f.find(ref)
+	if e == nil {
+		return catalog.ErrNotFound
+	}
+	delete(f.entities, e.ref.String())
+	return nil
+}
+
+// Uses implements catalog.Store for a tag, a glossary term and a domain.
+func (f *Store) Uses(_ context.Context, ref catalog.Ref, limit int) ([]catalog.Use, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	def := f.find(ref)
+	if def == nil {
+		return nil, catalog.ErrNotFound
+	}
+	out := make([]catalog.Use, 0)
+	for r, e := range f.entities {
+		if (e.kind != catalog.KindDataset && e.kind != catalog.KindColumn) || !carries(decodeAspects(e), def) {
+			continue
+		}
+		out = append(out, catalog.Use{
+			Reference: r, Dataset: e.ref.Dataset().String(), Name: e.name,
+			Column: e.ref.Column, Connection: e.ref.Connection,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Reference < out[j].Reference })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// carries reports whether curation carries a definition.
+func carries(a catalog.Aspects, def *entity) bool {
+	switch def.kind {
+	case catalog.KindTag:
+		return slices.Contains(a.Tags, def.name)
+	case catalog.KindGlossaryTerm:
+		return slices.Contains(a.GlossaryTerms, def.ref.String())
+	case catalog.KindDomain:
+		return a.Domain == def.ref.String()
+	default:
+		return false
+	}
+}
+
+// Browse implements catalog.Store; the fake holds no browsable levels.
+func (*Store) Browse(context.Context, catalog.BrowseQuery) ([]catalog.BrowseEntry, error) {
+	return []catalog.BrowseEntry{}, nil
 }
 
 var _ catalog.Store = (*Store)(nil)

@@ -54,7 +54,7 @@ func NewMiddlewareAdapter(store Store) *MiddlewareAdapter {
 	return &MiddlewareAdapter{store: store}
 }
 
-// RecallForEntities returns memory snippets linked to the given DataHub URNs.
+// RecallForEntities returns memory snippets linked to the given catalog references.
 func (a *MiddlewareAdapter) RecallForEntities(ctx context.Context, urns []string, persona string, limit int) ([]Snippet, error) {
 	if len(urns) == 0 {
 		return nil, nil

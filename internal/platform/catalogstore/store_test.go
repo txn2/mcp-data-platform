@@ -502,3 +502,23 @@ func TestSameJSON(t *testing.T) {
 	assert.False(t, sameJSON([]byte(`["a"]`), []byte(`["b"]`)))
 	assert.False(t, sameJSON([]byte(`not json`), []byte(`not json`)))
 }
+
+// A definition that cannot be stored as given is refused as the caller's
+// input, before any statement runs.
+func TestPutDefinitionRefusesInvalidInput(t *testing.T) {
+	s, mock := newMock(t)
+	for _, in := range []catalog.DefinitionInput{
+		{Kind: catalog.KindGlossaryTerm, Name: " "},
+		{Kind: catalog.KindGlossaryTerm, Name: "!!!"},
+		{Kind: catalog.KindTag, Name: "pii", Parent: "mcp:glossary_node:n"},
+		{Kind: catalog.KindGlossaryTerm, Name: "Revenue", Parent: "mcp:tag:pii"},
+	} {
+		_, err := s.PutDefinition(context.Background(), in)
+		if !errors.Is(err, catalog.ErrInvalidDefinition) {
+			t.Errorf("%+v: %v, want ErrInvalidDefinition", in, err)
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

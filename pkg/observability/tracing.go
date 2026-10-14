@@ -149,7 +149,7 @@ func (t *Tracer) Shutdown(ctx context.Context) error {
 // disabled — or this code runs outside any traced request — it returns a
 // non-recording no-op span (and a context carrying it). This lets adapter
 // call sites
-// (Trino/DataHub/S3/OAuth/enrichment/audit) open a child span
+// (Trino/S3/OAuth/enrichment/audit) open a child span
 // unconditionally with a single cheap check and never create orphan
 // spans or pay span-allocation cost when tracing is off.
 func ChildSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {

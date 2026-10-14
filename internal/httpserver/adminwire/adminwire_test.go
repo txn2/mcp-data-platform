@@ -19,7 +19,6 @@ func TestStoreDeps_NoDatabaseAttachesNothing(t *testing.T) {
 		Server:   platform.ServerConfig{Name: "adminwire-test", Transport: "http"},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
 		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
 	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = p.Close() })

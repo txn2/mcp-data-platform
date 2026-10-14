@@ -39,7 +39,8 @@ func (s *Store) DatasetsByPath(ctx context.Context, connectionKind, path string)
 
 // searchDatasets pages through the datasets that are not removed. $1 is the
 // text to match (” matches everything), $2 a connection kind (” any), $3
-// tags every match must carry (empty: no requirement).
+// tags every match must carry (empty: no requirement), $6 a connection (”
+// any), and $7 whether only the "kind/name" connections in $8 are searched.
 const searchDatasets = `
 SELECT e.reference, e.connection_kind, e.connection_name, e.path, e.name, e.dataset_type,
        COALESCE(d.value #>> '{}', ''), COALESCE(t.value, '[]'::jsonb), COALESCE(m.value #>> '{}', '')
@@ -52,6 +53,8 @@ WHERE e.kind = 'dataset' AND e.removed_at IS NULL
        OR (d.value #>> '{}') ILIKE '%' || $1 || '%')
   AND ($2 = '' OR e.connection_kind = $2)
   AND (cardinality($3::text[]) = 0 OR COALESCE(t.value, '[]'::jsonb) @> to_jsonb($3::text[]))
+  AND ($6 = '' OR e.connection_name = $6)
+  AND (NOT $7 OR (e.connection_kind || '/' || e.connection_name) = ANY($8::text[]))
 ORDER BY e.reference
 LIMIT $4 OFFSET $5`
 
@@ -76,7 +79,15 @@ func (s *Store) SearchDatasets(ctx context.Context, q catalog.DatasetQuery) ([]c
 	if tags == nil {
 		tags = []string{}
 	}
-	rows, err := s.db.QueryContext(ctx, searchDatasets, likeEscaper.Replace(text), q.ConnectionKind, pq.Array(tags), limit, max(q.Offset, 0))
+	if q.Scoped && len(q.Within) == 0 {
+		return []catalog.DatasetSummary{}, nil
+	}
+	within := q.Within
+	if within == nil {
+		within = []string{}
+	}
+	rows, err := s.db.QueryContext(ctx, searchDatasets, likeEscaper.Replace(text), q.ConnectionKind, pq.Array(tags),
+		limit, max(q.Offset, 0), q.Connection, q.Scoped, pq.Array(within))
 	if err != nil {
 		return nil, fmt.Errorf("searching datasets: %w", err)
 	}

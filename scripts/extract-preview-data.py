@@ -45,9 +45,7 @@ def main():
             'toolkits':           list(toolkits_cfg.keys()),
             'toolkit_descriptions': toolkit_descriptions or None,
             'features': {
-                'semantic_enrichment': bool(inj.get('trino_semantic_enrichment') or inj.get('s3_semantic_enrichment')),
-                'query_enrichment':    bool(inj.get('datahub_query_enrichment')),
-                'storage_enrichment':  bool(inj.get('datahub_storage_enrichment')),
+                'semantic_enrichment': bool(inj.get('trino_semantic_enrichment')),
                 'audit_logging':       bool(aud.get('enabled')),
                 'knowledge_capture':   bool(kn.get('enabled')),
             },

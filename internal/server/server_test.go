@@ -35,9 +35,6 @@ func TestNew(t *testing.T) {
 			Query: platform.QueryConfig{
 				Provider: "noop",
 			},
-			Storage: platform.StorageConfig{
-				Provider: "noop",
-			},
 		}
 
 		s, p, err := New(cfg)
@@ -65,7 +62,6 @@ func TestNew(t *testing.T) {
 			},
 			Semantic: platform.SemanticConfig{Provider: "noop"},
 			Query:    platform.QueryConfig{Provider: "noop"},
-			Storage:  platform.StorageConfig{Provider: "noop"},
 		}
 
 		_, p, err := New(cfg)
@@ -92,7 +88,6 @@ func TestNew(t *testing.T) {
 			},
 			Semantic: platform.SemanticConfig{Provider: "noop"},
 			Query:    platform.QueryConfig{Provider: "noop"},
-			Storage:  platform.StorageConfig{Provider: "noop"},
 		}
 
 		_, p, err := New(cfg)
@@ -121,7 +116,6 @@ func TestNew(t *testing.T) {
 			Server:   platform.ServerConfig{Name: "test-server", Transport: "stdio"},
 			Semantic: platform.SemanticConfig{Provider: "noop"},
 			Query:    platform.QueryConfig{Provider: "noop"},
-			Storage:  platform.StorageConfig{Provider: "noop"},
 			Personas: platform.PersonasConfig{DefaultPersona: "admin"},
 		}
 

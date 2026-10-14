@@ -86,12 +86,12 @@ export const mcpApps: McpAppRoute[] = [
         "customers",
       ],
       portal_url: "https://portal.acme.example.com",
-      toolkits: ["platform", "trino", "datahub", "s3"],
+      toolkits: ["platform", "trino", "search", "s3"],
       toolkit_descriptions: {
         platform:
           "Core platform tools: deployment info, connection listing, and resource access.",
         trino: "Federated SQL across the warehouse and the object store.",
-        datahub: "The metadata catalog: owners, tags, glossary terms, lineage.",
+        search: "The catalog and everything else the platform knows: search, then fetch a result.",
         s3: "Object storage for exports and uploaded reference material.",
       },
       features: {

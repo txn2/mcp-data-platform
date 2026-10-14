@@ -149,7 +149,6 @@ func FuzzServerConfig(f *testing.F) {
 			},
 			Semantic: SemanticConfig{Provider: "noop"},
 			Query:    QueryConfig{Provider: "noop"},
-			Storage:  StorageConfig{Provider: "noop"},
 		}
 
 		// Should never panic when creating platform

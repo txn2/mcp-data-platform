@@ -8,8 +8,8 @@ lessons:
       title: Monetary columns are integer cents
       trap_class: units_cents
       fact: In memory.bench.orders the monetary columns amount and discount are stored as INTEGERS IN US CENTS, not dollars; divide by 100 to get USD. Any total computed without dividing by 100 is off by a factor of 100.
-      entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
-      sink: datahub
+      entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
+      sink: catalog
       budget_tool_calls: 15
       teach:
         prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. In memory.bench.orders the monetary columns amount and discount are stored as INTEGERS IN US CENTS, not dollars; divide by 100 to get USD. Any total computed without dividing by 100 is off by a factor of 100. Please save this definition to memory now and link it to the dataset it concerns.
@@ -17,7 +17,7 @@ lessons:
       title: Net-revenue reporting policy
       trap_class: net_revenue
       fact: 'Company revenue reporting policy: revenue = amount - discount, over COMPLETED orders only (refunded and pending orders excluded). Amounts are in US cents. A gross figure that ignores discounts or includes non-completed orders is not policy revenue.'
-      entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+      entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
       sink: knowledge_page
       page:
         slug: revenue-reporting-policy
@@ -32,7 +32,7 @@ lessons:
             orders are excluded entirely. Any figure that includes refunded orders or ignores
             discounts is gross volume, not revenue, and must not be reported as revenue.
 
-            Two mechanical rules when computing revenue from [orders](urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)):
+            Two mechanical rules when computing revenue from [orders](mcp:dataset:(trino,e2e,memory.bench.orders)):
 
             1. The amount and discount columns are stored as integers in **US cents**.
                Divide by 100 for USD.
@@ -47,7 +47,7 @@ lessons:
       title: Fiscal calendar boundaries
       trap_class: fiscal_calendar
       fact: 'The company fiscal year runs February 1 through January 31: fiscal year 2025 is 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the January-December calendar year.'
-      entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+      entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
       sink: knowledge_page
       page:
         slug: fiscal-calendar-policy
@@ -79,8 +79,8 @@ lessons:
       title: Daily index freshness cutoff
       trap_class: freshness_cutoff
       fact: 'Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy. FRESHNESS: this index is refreshed only through 2025-11-30; it has NO rows for dates after that cutoff, so any question about a period on or after 2025-12-01 must be answered from memory.bench.orders directly, not this index.'
-      entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)
-      sink: datahub
+      entity_urn: mcp:dataset:(trino,e2e,memory.bench.daily_region_revenue)
+      sink: catalog
       budget_tool_calls: 15
       teach:
         prompt: 'For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy. FRESHNESS: this index is refreshed only through 2025-11-30; it has NO rows for dates after that cutoff, so any question about a period on or after 2025-12-01 must be answered from memory.bench.orders directly, not this index. Please save this definition to memory now and link it to the dataset it concerns.'
@@ -88,7 +88,7 @@ lessons:
       title: Key-account tier definition
       trap_class: tier_boundary
       fact: A 'key account' is any customer on the plus OR enterprise tier — a derived segment broader than the enterprise tier alone and not stored in any column. Counting only enterprise customers undercounts key accounts.
-      entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)
+      entity_urn: mcp:dataset:(trino,e2e,memory.bench.customers)
       sink: knowledge_page
       page:
         slug: customer-tier-definitions
@@ -115,8 +115,8 @@ lessons:
       title: legacy_orders is deprecated
       trap_class: deprecated_table
       fact: DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.
-      entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)
-      sink: datahub
+      entity_urn: mcp:dataset:(trino,e2e,memory.bench.legacy_orders)
+      sink: catalog
       budget_tool_calls: 15
       teach:
         prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis. Please save this definition to memory now and link it to the dataset it concerns.

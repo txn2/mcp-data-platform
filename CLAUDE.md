@@ -4,13 +4,13 @@ This file provides guidance to Claude Code when working with this project.
 
 ## Project Overview
 
-**mcp-data-platform** is a semantic data platform MCP server that composes multiple txn2 MCP libraries (mcp-trino, mcp-s3, mcp-datahub) with semantic layer integration. The key differentiator is **bidirectional cross-enrichment** where tool responses automatically include critical context from other services.
+**mcp-data-platform** is a semantic data platform MCP server that composes txn2 MCP libraries (mcp-trino, mcp-s3) with its own data catalog as the semantic layer. The key differentiator is **bidirectional cross-enrichment** where tool responses automatically include critical context from other services.
 
-Cross-enrichment requires a semantic provider. The rest of the platform does not: `createSemanticProvider` (and its query/storage counterparts) returns a noop for the empty and `noop` cases, so a deployment with no `semantic:` or `query:` block starts normally and the database-backed surfaces (gateways, knowledge, memory, portal, `search`/`fetch`) run on PostgreSQL alone. See `docs/server/deployment-shapes.md`.
+Cross-enrichment requires a semantic provider: with a database it is the platform catalog (`pkg/catalog`, `internal/platform/catalogstore`, `docs/server/catalog.md`), and `semantic.provider: noop` turns it off. The rest of the platform does not need one: `createSemanticProvider` returns a noop with no database or for `noop`, and `createQueryProvider` one for an empty or `noop` provider, so a deployment with no `query:` block starts normally and the database-backed surfaces (gateways, knowledge, memory, portal, `search`/`fetch`) run on PostgreSQL alone. See `docs/server/deployment-shapes.md`.
 
 **Key Design Goals:**
 - **Semantic-first**: All data access includes business context from the semantic layer
-- **Composable**: Integrates multiple MCP toolkits (Trino, DataHub, S3) into a unified platform
+- **Composable**: Integrates multiple MCP toolkits (Trino, S3, gateways) with its own catalog into a unified platform
 - **Secure**: OAuth 2.1 authentication, role-based personas, and comprehensive audit logging
 - **Extensible**: Plugin-based toolkit registry with middleware chain architecture
 
@@ -44,7 +44,7 @@ graph TB
 
         subgraph "Toolkits"
             Trino[Trino Toolkit]
-            DataHub[DataHub Toolkit]
+            Search[search / fetch]
             S3[S3 Toolkit]
         end
     end
@@ -57,9 +57,9 @@ graph TB
 
 ### Cross-Enrichment Pattern
 
-**Trino → DataHub**: When describing a table in Trino, the response includes DataHub metadata (owners, tags, glossary terms, deprecation warnings, quality scores).
+**Trino → catalog**: When describing or querying a table in Trino, the response includes the platform catalog's curation (description, owners, tags, glossary terms, properties, open incidents, column context).
 
-**DataHub → Trino**: When searching DataHub, results include query availability (can this be queried? how many rows? sample SQL).
+**Catalog → Trino**: `fetch` on a catalog dataset includes query availability (can this be queried, on which connection, how many rows).
 
 ## CRITICAL - Factual Integrity (No Confabulation)
 
@@ -174,7 +174,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 44 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 42 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter); helper subpackages are omitted for brevity. Regenerate this list with
 `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and diff against the packages
@@ -188,7 +188,7 @@ an implementation seam and belongs under `internal/`.
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (44 top-level packages)
+├── pkg/                            # PUBLIC API (42 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
@@ -202,7 +202,7 @@ mcp-data-platform/
 │   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 198 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 199 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
@@ -224,14 +224,12 @@ mcp-data-platform/
 │   ├── resource/                   # Managed resources: human-uploaded reference files
 │   ├── script/                     # Managed-script domain: record, typed params, version history, edit funnel (engine + MCP surface live under internal/platform/)
 │   ├── searchgate/                 # Per-session discovery signal for the search-first gate (postgres/ = replica-shared backend)
-│   ├── semantic/                   # Semantic layer abstraction (datahub/ = DataHub adapter)
+│   ├── semantic/                   # Semantic layer abstraction; the platform catalog implements it (internal/platform/catalogsemantic)
 │   ├── session/                    # Session externalization (postgres/ = multi-replica backend)
-│   ├── storage/                    # Storage provider abstraction (s3/ = S3 adapter)
 │   ├── textpatch/                  # Kind-agnostic anchored text editing: outline, locate, patch, unified diff (patchmcp/ = MCP error adapter)
 │   ├── toolkit/                    # Shared types for toolkit implementations
 │   ├── toolkits/                   # Toolkit adapters registered with the platform:
 │   │   ├── apigateway/             #   HTTP API gateway proxy toolkit
-│   │   ├── datahub/                #   DataHub toolkit
 │   │   ├── gateway/                #   MCP gateway toolkit (proxies tools from upstream MCP servers)
 │   │   ├── graphql/                #   GraphQL connection kind: one endpoint, an introspected schema kept per connection, graphql_discover/query/export
 │   │   ├── knowledge/              #   Knowledge capture toolkit
@@ -242,11 +240,10 @@ mcp-data-platform/
 │   │   ├── tools/                  #   toolsindex/ = tools-discovery indexjobs consumer
 │   │   └── trino/                  #   Trino toolkit
 │   ├── tuning/                     # AI tuning: prompts, hints, operational rules
-│   ├── urnbuild/                   # Constructs DataHub dataset URNs from query-engine table identifiers
 │   └── user/                       # Directory of known people keyed by email
 ├── internal/                       # Non-exported implementation (not part of the supported library surface)
 │   ├── catalogscan/                # (under internal/platform) the platform catalog's scan (#1918): Trino/API/GraphQL sources, per-connection exclusions and the interval (platform_settings section "catalog"), each connection's last scan (catalog_scans), the advisory-locked loop; internal/httpserver/catalogwire assembles it from the live toolkits and internal/admin/catalogscanapi serves it
-│   ├── catalogsemantic/            # (under internal/platform) the semantic.Provider over the platform catalog (#1919), the only provider on a deployment with a database; resolves a table by the calling connection, else the first connection that catalogs its path, and accepts urn:li:dataset URNs by path
+│   ├── catalogsemantic/            # (under internal/platform) the semantic.Provider over the platform catalog (#1919), the only provider on a deployment with a database; resolves a table by the calling connection, else the first connection that catalogs its path; a dataset is named only by its mcp:dataset reference
 │   ├── agentinstructions/          # The deployment's customized agent-instruction layer as a policy rather than a config value (#1607): the byte bound and size advisory both its writers enforce, the config-store adapter it is read and written through, and the `mcp:knowledge_page:<slug>` index-entry form BOTH instruction layers point at a page with
 │   ├── admin/                      # Admin-API seams built only by pkg/admin: auditapi/ (events + metrics), callapi/ (the call catalog + its review actions), catalogapi/ (OpenAPI spec bundles + embedding jobs), connoauthapi/ (connection OAuth, unified + legacy per-kind), secretapi/ (stored secrets, #2051), mapsapi/ (the maps settings, regions, refresh and size estimate, #2068), graphqlapi/ (a graphql connection's schema: read the state, re-read it from the endpoint, or take the one an operator pastes for an endpoint that disables introspection), notifyapi/ (notification delivery history + status counts), settingsapi/ (SMTP + review-queue-alert settings REST) — extracted by #1078
 │   ├── apigwmetrics/               # The api gateway's outbound HTTP instrumentation as an http.RoundTripper: the connection/status labels, and the persona the call was authorized under, read off the request context the tool call carries (#1615). Holds no gateway types, and was extracted when pkg/toolkits/apigateway reached its package-size budget
@@ -254,7 +251,6 @@ mcp-data-platform/
 │   ├── opsobs/                     # The recorder the platform's own operations report through (#1898): installed by internal/platform/obs like outbound's default, read by the authenticator chain (auth_attempts_total), the OIDC JWKS fetch, the HTTP gate's fail-open, browser sign-in and the domain operations (`Start(ctx, Op*)` opens a span under the call and counts domain_operations_total{operation,result}); also the label vocabulary those series use (AuthMethod*, AuthReason*, Denial*, Dependency*, Connection*, Op*, Sink*), kept off pkg/observability's exported surface
 │   ├── bgloop/                     # The one way the platform runs work in the background (#1897): `Run` (a timer, a wake channel, a stop channel), `Consume` (a channel of events), `Unit` (one claimed unit of work) and `Listen` (a LISTEN connection's state). Every iteration is counted by result, timed and stamped on success (`background_loop_*{loop}`), gets a span whose context its body logs with, and a skip under another replica's lock is `ErrSkipped`; loop names are constants in names.go. `.semgrep/go-background-loop.yml` refuses a ticker or an infinite loop around a select anywhere else
 │   ├── objectobs/                  # Every object operation on a bucket the platform owns (#1896): `Do` wraps one put/get/get_range/list/delete in a `storage.<operation>` client span and one `storage_operations_total{purpose,operation,result,reason}` observation, `Reason` reads a failure into access_denied/bucket_missing/quota_exceeded/not_found/other, and `WithPurpose` lets a caller writing through a shared client (the tile worker, an export, a script's output) report under its own purpose. Called by pkg/portal/s3adapter and the webhook objects; records through outbound.Metrics()
-│   ├── dhobs/                      # A DataHub call made outside the semantic provider's and the DataHub toolkit's own decorators (#1896): the apply_knowledge writer and the portal catalog's edits. `Do`/`Call` record datahub_requests_total, the duration histogram and a `datahub.<operation>` span through outbound.Metrics()
 │   ├── dbobs/                      # The platform's PostgreSQL pool opened through otelsql (#1896): a `postgres.<operation>` span per statement inside a traced request (none outside one), `db_client_operation_duration_seconds{operation}` and `db_client_slow_statements_total{operation}`, where the operation is the statement keyword, `vector_search` for a pgvector ranking, or the transaction step. The SQL text is on the span only with `OTEL_TRACES_INCLUDE_DB_STATEMENT=true`; the slow threshold is `MCP_PLATFORM_DB_SLOW_STATEMENT_THRESHOLD` (1s)
 │   ├── httpobs/                    # What every inbound HTTP request reports (#1889): the route TEMPLATE it matched (never the path), `http_server_request_duration_seconds{route,method,status_class}`, a server span named `{method} {route}` whose traceparent is written back onto the request so the MCP layer's spans nest under it, `http_rate_limited_total{limiter}` for every 429 a limiter marked (`MarkRateLimited`), and the `slow HTTP request` WARN past `server.slow_request_threshold`. `Routed(mux, wrap)` resolves a nested mux's template before the auth layer clones the request and refines it after the mux served; `Detached` keeps an in-process re-entry (the PDF route reading the content route) off the caller's record
 │   ├── mcpobs/                     # What every MCP request carries for observation (#1889, #1893): the caller's trace context from params._meta or the HTTP headers, the negotiated protocol version, the MCP semantic-convention attribute keys, and the observer of every method other than tools/call (a span named by the method, `mcp_requests_total{method,status}`), the outermost receiving middleware. pkg/middleware's tools/call tracer reads the same helpers
@@ -273,7 +269,7 @@ mcp-data-platform/
 │   ├── connstate/                  # Each connection's state as the calls that used it last found it (#1898): healthy, unreachable, auth_failed. Fed by the outbound chain (api, graphql, mcp), the Trino telemetry (mcp-trino's failure classification) and the S3 toolkit, read by mcp_platform_connections; nothing in it sends a request, and a connection no call has used reads configured
 │   ├── cfgmap/                     # The typed readers over the map[string]any a connection is stored as: the tolerant String/Duration/Int64/Bool/StringMap that absorb what a JSON round-trip did to an operator's value, in one place so two kinds cannot disagree about what `"call_timeout": 30` means (#1647)
 │   ├── httpjson/                   # RFC 9457 Problem Details responder + admin list-query param parsing, shared by the admin/portal decomposition seams (#1078)
-│   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, corshttp/ (the CORS layer and the webhook path that bypasses it, extracted when the root reached its size budget, #1889), datahubapi/, gatewayhttp/, health/, httpauth/, instanceheader/ (the `X-Platform-Instance` response header naming the process that served a request, #1708), mentionhttp/, notifyhttp/ (self-scoped notification prefs), scripthttp/ (managed-script admin + portal routes, including the administrator's owner transfer; its subpackages statehttp/, exclusivehttp/, granthttp/, outputshttp/, fireshttp/ and connchoicehttp/ serve a script's state, whether it runs one at a time (#1986), its run grants (#1846), the outputs of the caller's runs (#1848) when every visible schedule fires, laid out on the viewer's day, week and three months with each fire expanded by the scheduler's own parse (#1891), and the connections a connection-typed parameter may name (#1361); draftview/ renders what the draft routes report; flowhttp/ serves a version's flow diagram and its comparison with another version (#1906, #1908), a run drawn on it (#1907) and a script's tile (#1909)), sources/, thumbwire/ (assembles and starts the tile worker from the platform's stores, buckets and the assembled mux, #1787), maphttp/ (the basemap archives and their listing under /portal/maps/, no session, by range, #2068), mapwire/ (assembles the maps service, #2068), unsubhttp/ (no-login unsubscribe + its tokens), versionhttp/ (#1076, #1080)
+│   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, catalogapi/ (the portal catalog routes under /api/v1/portal/catalog, #1921: dataset search and browse, a dataset with its columns, curation, lineage and history, aspect writes and rollback, and the glossary, tags, domains and data products; read takes the persona's fetch grant and write its apply_knowledge grant, a dataset only on a connection the persona reaches, and every write is audited as an apply_knowledge call from the portal), catalogwire/ (assembles the catalog scan and the portal catalog routes from the live toolkits), corshttp/ (the CORS layer and the webhook path that bypasses it, extracted when the root reached its size budget, #1889), gatewayhttp/, health/, httpauth/, instanceheader/ (the `X-Platform-Instance` response header naming the process that served a request, #1708), mentionhttp/, notifyhttp/ (self-scoped notification prefs), scripthttp/ (managed-script admin + portal routes, including the administrator's owner transfer; its subpackages statehttp/, exclusivehttp/, granthttp/, outputshttp/, fireshttp/ and connchoicehttp/ serve a script's state, whether it runs one at a time (#1986), its run grants (#1846), the outputs of the caller's runs (#1848) when every visible schedule fires, laid out on the viewer's day, week and three months with each fire expanded by the scheduler's own parse (#1891), and the connections a connection-typed parameter may name (#1361); draftview/ renders what the draft routes report; flowhttp/ serves a version's flow diagram and its comparison with another version (#1906, #1908), a run drawn on it (#1907) and a script's tile (#1909)), sources/, thumbwire/ (assembles and starts the tile worker from the platform's stores, buckets and the assembled mux, #1787), maphttp/ (the basemap archives and their listing under /portal/maps/, no session, by range, #2068), mapwire/ (assembles the maps service, #2068), unsubhttp/ (no-login unsubscribe + its tokens), versionhttp/ (#1076, #1080)
 │   ├── sqlgate/                    # Collects the module's SQL and hands each statement to a real PostgreSQL to parse and plan (#1512); integration-tagged, so it is absent from the default build
 │   ├── sqltables/                  # The one lexical extractor of the tables a SQL statement reads (enrichment + call targets), and the statement's bounded kind and literal-free summary every Trino and PostgreSQL metric and span is labeled by (#1896)
 │   ├── tabletype/                  # The one model of a column type a table is declared with or a typed file is written from (#1833): the Trino types, the parse of the type text Trino reports for a query column, the ordered JSON decode, and the type inference a JSON-lines registration and a script's Parquet export share
@@ -330,7 +326,6 @@ mcp-data-platform/
 
 - `github.com/modelcontextprotocol/go-sdk` - Official MCP SDK for Go (same as txn2 MCP ecosystem)
 - `github.com/txn2/mcp-trino` - Trino MCP toolkit
-- `github.com/txn2/mcp-datahub` - DataHub MCP toolkit
 - `github.com/txn2/mcp-s3` - S3 MCP toolkit
 - `golang.org/x/crypto` - Cryptographic utilities (bcrypt for OAuth)
 - `gopkg.in/yaml.v3` - YAML configuration parsing
@@ -416,22 +411,17 @@ a config that still sets it is refused at startup (`pkg/platform/config.go`).
 
 ### Semantic Layer
 
-With a database, the platform catalog (`pkg/catalog`, `internal/platform/catalogstore`, `docs/server/catalog.md`) is the semantic provider; `semantic.provider: datahub` is read as the catalog until the key is removed (#1925), and `noop` turns the layer off. The block below is the historical DataHub shape.
+With a database, the platform catalog (`pkg/catalog`, `internal/platform/catalogstore`, `docs/server/catalog.md`) is the semantic provider and needs no `semantic:` block; `noop` turns the layer off. A configuration that names DataHub (`semantic.provider: datahub`, `toolkits.datahub`, `enrichment.datahub_query_enrichment`, `enrichment.datahub_storage_enrichment`, `knowledge.apply.datahub_connection`) is refused at startup (`pkg/platform/config_refusal.go`), naming the release that carries a DataHub catalog into the platform catalog.
 ```yaml
 semantic:
-  provider: datahub
-  instance: primary
-  cache:
-    enabled: true
-    ttl: 5m
+  provider: noop                   # Optional: turn the semantic layer off
 
 enrichment:
   trino_semantic_enrichment: true
-  datahub_query_enrichment: true
   unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON results (default: true)
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
-  semantic_fallback: false         # Issue #444: fall back to similarity search on URN miss (default: false)
-  semantic_fallback_top_k: 1       # Suggested matches per URN miss (default: 1, clamped to [1,10])
+  semantic_fallback: false         # Issue #444: fall back to similarity search on a lookup miss (default: false)
+  semantic_fallback_top_k: 1       # Suggested matches per miss (default: 1, clamped to [1,10])
 ```
 
 ### Managed Resources

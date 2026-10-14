@@ -149,7 +149,7 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 			// deliberately not among them any more: it carries the
 			// inline-VALUES bullet (#1326).
 			name:      "no accessible tools yields empty baseline",
-			tools:     []string{"datahub_get_lineage", "s3_list"},
+			tools:     []string{"graphql_query", "s3_list"},
 			wantEmpty: true,
 		},
 		{

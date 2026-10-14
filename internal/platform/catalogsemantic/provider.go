@@ -7,9 +7,8 @@
 // A dataset belongs to the connection that sees it, and a
 // semantic.TableIdentifier names no connection. The provider takes the
 // connection from the call being enriched when there is one, and otherwise
-// reads the first connection that catalogs a table at that path. It accepts a
-// dataset named by an mcp:dataset reference and by the urn:li:dataset form the
-// platform built before the catalog moved, which it resolves by the same path.
+// reads the first connection that catalogs a table at that path. A dataset is
+// named by its mcp:dataset reference; any other form is not found.
 package catalogsemantic
 
 import (
@@ -22,7 +21,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
-	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // Name is the provider's name.
@@ -44,10 +42,13 @@ type Reader interface {
 // by name, and false when no live connection has that name.
 type InstanceOf func(bound string) (string, bool)
 
-// Provider is the native semantic provider.
+// Provider is the native semantic provider. The curation it returns is
+// written by people and by agents, and reaches a model in tool results, so
+// every context read passes through the semantic sanitizer first.
 type Provider struct {
-	store    Reader
-	instance InstanceOf
+	store     Reader
+	instance  InstanceOf
+	sanitizer *semantic.Sanitizer
 }
 
 // New builds the provider. A nil instance lookup uses the bound name as the
@@ -56,7 +57,7 @@ func New(store Reader, instance InstanceOf) *Provider {
 	if instance == nil {
 		instance = func(bound string) (string, bool) { return bound, bound != "" }
 	}
-	return &Provider{store: store, instance: instance}
+	return &Provider{store: store, instance: instance, sanitizer: semantic.NewSanitizer(semantic.DefaultSanitizeConfig())}
 }
 
 var _ semantic.Provider = (*Provider)(nil)
@@ -128,21 +129,18 @@ func (p *Provider) byPath(ctx context.Context, path, what string) (*catalog.Data
 	return d, nil
 }
 
-// datasetByURN reads the dataset an mcp:dataset reference or a urn:li:dataset
-// URN names.
+// datasetByURN reads the dataset an mcp:dataset reference names. Any other
+// string names no dataset, and the not-found says which form is read.
 func (p *Provider) datasetByURN(ctx context.Context, urn string) (*catalog.Dataset, error) {
-	if ref, err := catalog.ParseRef(urn); err == nil && ref.Kind == catalog.KindDataset {
-		d, err := p.store.GetDataset(ctx, ref)
-		if err != nil {
-			return nil, datasetError(err, urn)
-		}
-		return d, nil
+	ref, err := catalog.ParseRef(urn)
+	if err != nil || ref.Kind != catalog.KindDataset {
+		return nil, notFound("dataset " + urn + " (a dataset is named mcp:dataset:(<kind>,<connection>,<path>))")
 	}
-	parsed, err := urnbuild.ParseDatasetURN(urn)
+	d, err := p.store.GetDataset(ctx, ref)
 	if err != nil {
-		return nil, notFound("dataset " + urn)
+		return nil, datasetError(err, urn)
 	}
-	return p.byPath(ctx, parsed.Name, urn)
+	return d, nil
 }
 
 // datasetError maps the store's not-found onto the semantic sentinel.
@@ -159,7 +157,35 @@ func (p *Provider) GetTableContext(ctx context.Context, table semantic.TableIden
 	if err != nil {
 		return nil, err
 	}
-	return p.tableContext(ctx, d), nil
+	raw := p.tableContext(ctx, d)
+	p.logPlanted(raw.URN, raw)
+	tc := p.sanitizer.SanitizeTableContext(raw)
+	tc.TagRefs = tagRefs(tc.Tags)
+	return tc, nil
+}
+
+// logPlanted warns, field by field, about each instruction pattern found in a
+// table's curation before it is scrubbed, so an operator can find the write
+// that planted it in the curation history.
+func (p *Provider) logPlanted(urn string, tc *semantic.TableContext) {
+	log := func(field, text string) { semantic.DetectAndLogInjection(p.sanitizer, urn, field, text) }
+	log("description", tc.Description)
+	for i, o := range tc.Owners {
+		log(fmt.Sprintf("owners[%d].name", i), o.Name)
+	}
+	for i, t := range tc.GlossaryTerms {
+		log(fmt.Sprintf("glossaryTerms[%d].description", i), t.Description)
+	}
+	if tc.Domain != nil {
+		log("domain.description", tc.Domain.Description)
+	}
+	for k, v := range tc.CustomProperties {
+		log(fmt.Sprintf("properties[%s]", k), v)
+	}
+	for i, in := range tc.Incidents {
+		log(fmt.Sprintf("incidents[%d].title", i), in.Title)
+		log(fmt.Sprintf("incidents[%d].description", i), in.Description)
+	}
 }
 
 // tableContext renders a dataset as the context enrichment carries.
@@ -208,14 +234,15 @@ func (p *Provider) GetColumnsContext(ctx context.Context, table semantic.TableId
 	}
 	out := make(map[string]*semantic.ColumnContext, len(d.Columns))
 	for _, c := range d.Columns {
-		out[c.Name] = &semantic.ColumnContext{
+		semantic.DetectAndLogInjection(p.sanitizer, d.Reference+" column "+c.Name, "description", c.Aspects.Description)
+		out[c.Name] = p.sanitizer.SanitizeColumnContext(&semantic.ColumnContext{
 			Name:          c.Name,
 			Description:   c.Aspects.Description,
 			Tags:          c.Aspects.Tags,
 			GlossaryTerms: p.terms(ctx, c.Aspects.GlossaryTerms),
 			IsPII:         hasTag(c.Aspects.Tags, "pii"),
 			IsSensitive:   hasTag(c.Aspects.Tags, "sensitive") || hasTag(c.Aspects.Tags, "pii"),
-		}
+		})
 	}
 	return out, nil
 }
@@ -233,10 +260,11 @@ func (p *Provider) GetGlossaryTerm(ctx context.Context, urn string) (*semantic.G
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", urn, err)
 	}
-	return &semantic.GlossaryTerm{
+	semantic.DetectAndLogInjection(p.sanitizer, def.Reference, "description", def.Aspects.Description)
+	return p.sanitizer.SanitizeGlossaryTerm(&semantic.GlossaryTerm{
 		URN: def.Reference, Name: def.Name, Description: def.Aspects.Description,
 		ParentNode: def.Parent, Owners: owners(def.Aspects.Owners), CustomProperties: def.Aspects.CustomProperties,
-	}, nil
+	}), nil
 }
 
 // SearchTables finds datasets. Query "*" lists them.
@@ -253,7 +281,7 @@ func (p *Provider) SearchTables(ctx context.Context, filter semantic.SearchFilte
 	for _, d := range found {
 		out = append(out, semantic.TableSearchResult{
 			URN: d.Reference, Name: d.Path, Platform: d.ConnectionKind,
-			Description: d.Description, Tags: d.Tags, Domain: p.domainName(ctx, d.Domain, domains),
+			Description: p.sanitizer.SanitizeDescription(d.Description), Tags: p.sanitizer.SanitizeTags(d.Tags), Domain: p.domainName(ctx, d.Domain, domains),
 		})
 	}
 	return out, nil

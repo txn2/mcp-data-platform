@@ -53,7 +53,6 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
           { kind: "graphql", name: "tableau-meta" },
           { kind: "mcp", name: "vendor-mcp" },
           { kind: "trino", name: "warehouse" },
-          { kind: "datahub", name: "catalog" },
         ],
       },
       isLoading: false,
@@ -140,12 +139,10 @@ describe("Secret editor", () => {
     });
     fireEvent.click(screen.getByLabelText("selenium-grid"));
     // A graphql or mcp connection's configuration may name a secret too
-    // (#2066), and so may a trino password (#1806); a datahub connection
-    // fills nothing.
+    // (#2066), and so may a trino password (#1806).
     expect(screen.getByLabelText("tableau-meta")).toBeTruthy();
     expect(screen.getByLabelText("vendor-mcp")).toBeTruthy();
     expect(screen.getByLabelText("warehouse")).toBeTruthy();
-    expect(screen.queryByLabelText("catalog")).toBeNull();
     fireEvent.click(screen.getByLabelText("finance"));
     fireEvent.click(screen.getByRole("button", { name: "Create secret" }));
     expect(h.put).toHaveBeenCalledWith(

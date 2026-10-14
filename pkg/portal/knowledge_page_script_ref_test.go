@@ -78,7 +78,7 @@ func TestResolveKnowledgePageRefs_ScriptResolvesForEveryReader(t *testing.T) {
 func TestListKnowledgePageRefs_ScriptListedForEveryReader(t *testing.T) {
 	refs := []knowledgepage.EntityRef{
 		{TargetType: knowledgepage.RefTargetScript, ScriptID: citedScriptID, Source: knowledgepage.RefSourcePromoted},
-		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:x", Source: knowledgepage.RefSourcePromoted},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,c.s.x)", Source: knowledgepage.RefSourcePromoted},
 	}
 	listed := func(user *User) map[string]string {
 		h := scriptRefHandler(user, citedScripts, refs)
@@ -97,6 +97,6 @@ func TestListKnowledgePageRefs_ScriptListedForEveryReader(t *testing.T) {
 	for _, u := range []*User{owner, kpViewer} {
 		got := listed(u)
 		assert.Equal(t, "Orders sync", got["mcp:script:"+citedScriptID])
-		assert.Contains(t, got, "urn:li:dataset:x")
+		assert.Contains(t, got, "mcp:dataset:(trino,warehouse,c.s.x)")
 	}
 }

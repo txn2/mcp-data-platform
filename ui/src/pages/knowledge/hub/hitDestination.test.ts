@@ -28,6 +28,17 @@ describe("hitDestination", () => {
     expect(hitDestination(hit("calls", "evt-1"))).toEqual({ href: "/activity/calls/evt-1" });
   });
 
+  it("opens a dataset or a definition on its Catalog tab", () => {
+    const ds = "mcp:dataset:(trino,acme,sales.orders)";
+    expect(hitDestination(hit("catalog", ds))).toEqual({
+      href: `/knowledge/catalog?ref=${encodeURIComponent(ds)}#tables`,
+    });
+    expect(hitDestination(hit("governance", "mcp:tag:pii"))).toEqual({
+      href: "/knowledge/catalog?ref=mcp%3Atag%3Apii#tags",
+    });
+    expect(hitDestination(hit("catalog", "not-a-ref"))).toBeNull();
+  });
+
   it("switches to the hub's own tab for memory and insights", () => {
     expect(hitDestination(hit("memory", "mem-1"))).toEqual({ tab: "memory" });
     expect(hitDestination(hit("insights", "ins-1"))).toEqual({ tab: "insights" });
@@ -36,7 +47,6 @@ describe("hitDestination", () => {
   // Sources with no portal surface, and an id that could not be interpolated
   // into a route, are not navigable: the drawer shows their metadata instead.
   it("has no destination for a source without a portal surface", () => {
-    expect(hitDestination(hit("datahub", "urn:li:dataset:(x,y,PROD)"))).toBeNull();
     expect(hitDestination(hit("endpoints", "GET /orders"))).toBeNull();
     expect(hitDestination(hit("connections", "trino/warehouse"))).toBeNull();
     expect(hitDestination(hit("knowledge_pages", "../../admin"))).toBeNull();

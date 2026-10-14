@@ -148,7 +148,7 @@ personas:
     context:
       description_prefix: |
         You are helping a data analyst explore and query data.
-        Always check DataHub for context before writing SQL.
+        Always check the catalog for context before writing SQL.
       agent_instructions_suffix: |
         Start with search to discover datasets. The search-first gate refuses
         trino_query/trino_execute until you have called search in the session.
@@ -168,7 +168,6 @@ personas:
         - "platform_info"
         - "search"
         - "fetch"
-        - "datahub_browse"
       deny: []
     connections:
       allow:
@@ -221,13 +220,13 @@ personas:
 # tools:
 #   allow:
 #     - "trino_*"
-#     - "datahub_*"
+#     - "s3_*"
 #   deny:
 #     - "*_delete_*"
 #
 #   # Override tool descriptions in tools/list to guide agent behavior.
 #   # Built-in overrides for trino_query and trino_execute already encourage
-#   # calling datahub_search first. Use this to customize or add more.
+#   # calling search first. Use this to customize or add more.
 #   description_overrides:
 #     trino_query: "Custom description for trino_query..."
 #     my_custom_tool: "Explain what this tool does"
@@ -260,24 +259,6 @@ toolkits:
       #   trino_query: "Execute a SQL query against the data warehouse"
       #   trino_describe_table: "Get table schema with column types and sample data"
 
-  datahub:
-    enabled: false
-    instances:
-      primary:
-        url: "https://datahub.example.com/api/graphql"
-        token: "${DATAHUB_TOKEN}"
-        debug: false            # Enable debug logging for GraphQL operations
-        read_only: true         # Restrict to read operations
-    # Which instance a request that names no connection means. Required
-    # once a kind configures more than one instance.
-    default: primary
-    config:
-      default_limit: 50
-      max_lineage_depth: 5
-      # descriptions:
-      #   datahub_browse: "Walk the catalog by platform, domain, tag, or entity type"
-      #   datahub_get_lineage: "Trace a dataset's upstream or downstream lineage"
-
   s3:
     enabled: false
     instances:
@@ -296,83 +277,24 @@ toolkits:
     config:
       read_only: true
 
-# Semantic layer (REQUIRED)
+# Semantic layer. With a database the platform's own catalog is the semantic
+# layer (docs/server/catalog.md); `noop` turns it off.
 semantic:
-  provider: noop              # datahub, noop
-  instance: primary
+  # provider: noop
   cache:
     enabled: true
     ttl: 5m
-
-  # URN mapping translates between query engine names and metadata catalog names.
-  # This is necessary when Trino uses different catalog/platform names than DataHub.
-  #
-  # Example: Trino queries "rdbms.public.users" but DataHub stores metadata as
-  # "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)"
-  #
-  # Configure urn_mapping to bridge this gap:
-  urn_mapping:
-    # Platform name used in DataHub URNs (e.g., "postgres", "mysql", "trino")
-    # If Trino connects to PostgreSQL, set this to "postgres" to match DataHub's platform
-    platform: ""
-
-    # Map Trino catalog names to DataHub catalog names
-    # Keys are Trino catalogs, values are DataHub catalogs
-    catalog_mapping: {}
-    # Example:
-    # catalog_mapping:
-    #   rdbms: warehouse      # Trino "rdbms" → DataHub "warehouse"
-    #   iceberg: datalake     # Trino "iceberg" → DataHub "datalake"
-
-  # Lineage-aware semantic enrichment inherits metadata from upstream datasets
-  # when columns lack documentation. See docs/lineage.md for details.
-  lineage:
-    enabled: false            # Enable lineage-aware column inheritance
-    max_hops: 2               # Max upstream traversal depth (1-5)
-    inherit:                  # Metadata types to inherit
-      - glossary_terms
-      - descriptions
-      # - tags                # Uncomment to also inherit tags
-    conflict_resolution: nearest  # nearest, all, skip
-    prefer_column_lineage: true   # Use column-level lineage when available
-    # column_transforms:      # Path normalization rules
-    #   - target_pattern: "*_flattened"
-    #     strip_prefix: "payload."
-    # aliases:                # Explicit source-target mappings
-    #   - source: "warehouse.raw.events"
-    #     targets: ["warehouse.analytics.*"]
-    cache_ttl: 10m
-    timeout: 5s
 
 # Query provider
 query:
   provider: noop              # trino, noop
   instance: production
 
-  # URN mapping for DataHub → Trino direction (reverse of semantic urn_mapping)
-  # Maps DataHub catalog names back to Trino catalog names for query resolution
-  urn_mapping:
-    catalog_mapping: {}
-    # Example (reverse of semantic mapping):
-    # catalog_mapping:
-    #   warehouse: rdbms      # DataHub "warehouse" → Trino "rdbms"
-    #   datalake: iceberg     # DataHub "datalake" → Trino "iceberg"
-
-# Cross-enrichment. The four enrichment flags default to true (the platform's
-# core differentiator is on by default; each is read-only and no-ops without its
-# provider). Set a flag to false to disable that direction.
+# Cross-enrichment. The two enrichment flags default to true (the platform's
+# core differentiator is on by default; each is read-only and no-ops without the
+# semantic provider). Set a flag to false to disable that direction.
 enrichment:
   # trino_semantic_enrichment: true     # Default: true
-  # datahub_query_enrichment: true      # Default: true
-  # s3_semantic_enrichment: true        # Default: true
-  # datahub_storage_enrichment: true    # Default: true
-
-  # Search schema preview
-  # Adds a bounded column-name+type preview to a DataHub result's query_context
-  # for available tables, so agents can write SQL without an intermediate
-  # fetch or trino_describe_table call.
-  # search_schema_preview: true            # Default: true
-  # schema_preview_max_columns: 15         # Default: 15
 
   # JSON unwrap default
   # Defaults unwrap_json to true on trino_query and trino_execute so
@@ -415,7 +337,7 @@ enrichment:
 # require_search: false to disable gating entirely.
 # workflow:
 #   require_search: false           # Default: true (gate on). false disables it.
-#   # discovery_tools: []           # Tools that satisfy the gate (defaults to search + the datahub_* tools)
+#   # discovery_tools: []           # Tools that satisfy the gate (defaults to search and fetch)
 #   # query_tools: []               # Tools that are gated (defaults to trino_query, trino_execute)
 
 # Purpose: why a data-access call was made
@@ -433,7 +355,6 @@ enrichment:
 #   # tools: []                     # Gated set: tool-name globs plus kind:<toolkit-kind>
 #   #   - search                    #   entries. Defaults to the data-access surface plus
 #   #   - trino_query               #   "kind:mcp" (every gateway-proxied tool).
-#   #   - "datahub_get_*"
 #   #   - "kind:mcp"
 
 # Per-user tool-call rate limiting

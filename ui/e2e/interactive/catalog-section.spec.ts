@@ -1,16 +1,17 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
 
-// Interactive coverage for the Catalog information architecture (#1194): the
-// Knowledge sub-tab row, the inner tabs nested under the one Catalog route, the
-// connection shared across them, and the two routes that were cut. These assert
-// the assembled app -- AppShell's route matching plus KnowledgeHub plus
-// CatalogSection -- not the container in isolation.
+// Interactive coverage for the Catalog information architecture (#1194, #1921):
+// the Knowledge sub-tab row, the inner tabs nested under the one Catalog
+// route, and the routes that were cut. These assert the assembled app --
+// AppShell's route matching plus KnowledgeHub plus CatalogSection -- not the
+// container in isolation.
 
 const tagFilter = /Filter tags by name/;
 const domainFilter = /Filter domains by name/;
-const tableSearch = /Search tables by name/;
-const docSearch = /Search context documents/;
+const productFilter = /Filter data products by name/;
+const glossaryFilter = /Filter terms and nodes by name/;
+const tableSearch = /Search tables by name, path/;
 
 async function gotoCatalog(page: Page): Promise<void> {
   await authenticate(page);
@@ -19,7 +20,7 @@ async function gotoCatalog(page: Page): Promise<void> {
 }
 
 test.describe("Catalog section", () => {
-  test("the Knowledge sub-tab row is four tabs, with the DataHub surfaces inside Catalog", async ({
+  test("the Knowledge sub-tab row is four tabs, with the catalog surfaces inside Catalog", async ({
     page,
   }) => {
     await authenticate(page);
@@ -28,21 +29,12 @@ test.describe("Catalog section", () => {
     for (const label of ["Search All", "Knowledge Pages", "Catalog", "Changesets"]) {
       await expect(page.getByRole("tab", { name: label, exact: true })).toBeVisible();
     }
-    // Tags and Context Docs are no longer siblings; they live one level down.
     await expect(page.getByRole("tab", { name: "Tags", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("tab", { name: "Context Docs", exact: true })).toHaveCount(0);
 
     await page.getByRole("tab", { name: "Catalog", exact: true }).click();
-    for (const label of ["Tables", "Context Docs", "Tags", "Domains", "Glossary"]) {
+    for (const label of ["Tables", "Glossary", "Tags", "Domains", "Data products"]) {
       await expect(page.getByRole("tab", { name: label, exact: true })).toBeVisible();
     }
-  });
-
-  test("renders one connection picker for the whole section", async ({ page }) => {
-    await gotoCatalog(page);
-    await expect(page.getByLabel("DataHub connection")).toHaveCount(1);
-    await page.getByRole("tab", { name: "Tags", exact: true }).click();
-    await expect(page.getByLabel("DataHub connection")).toHaveCount(1);
   });
 
   test("moves between inner tabs and records each one in the URL", async ({ page }) => {
@@ -57,12 +49,12 @@ test.describe("Catalog section", () => {
     expect(page.url()).toContain("/knowledge/catalog#domains");
 
     await page.getByRole("tab", { name: "Glossary", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Glossary" })).toBeVisible();
+    await expect(page.getByPlaceholder(glossaryFilter)).toBeVisible();
     expect(page.url()).toContain("/knowledge/catalog#glossary");
 
-    await page.getByRole("tab", { name: "Context Docs", exact: true }).click();
-    await expect(page.getByPlaceholder(docSearch)).toBeVisible();
-    expect(page.url()).toContain("/knowledge/catalog#context-docs");
+    await page.getByRole("tab", { name: "Data products", exact: true }).click();
+    await expect(page.getByPlaceholder(productFilter)).toBeVisible();
+    expect(page.url()).toContain("/knowledge/catalog#data-products");
 
     await page.getByRole("tab", { name: "Tables", exact: true }).click();
     await expect(page.getByPlaceholder(tableSearch)).toBeVisible();
@@ -83,8 +75,8 @@ test.describe("Catalog section", () => {
     await authenticate(page);
     await page.goto("/portal/knowledge");
     await page.getByRole("tab", { name: "Catalog", exact: true }).click();
-    await page.getByRole("tab", { name: "Context Docs", exact: true }).click();
-    await expect(page.getByPlaceholder(docSearch)).toBeVisible();
+    await page.getByRole("tab", { name: "Glossary", exact: true }).click();
+    await expect(page.getByPlaceholder(glossaryFilter)).toBeVisible();
 
     // Selecting an inner tab rewrites the hash rather than pushing an entry, so
     // Back leaves the section entirely and Forward returns to the tab that was
@@ -92,27 +84,23 @@ test.describe("Catalog section", () => {
     await page.goBack();
     await expect(page.getByPlaceholder(/Search all knowledge/i)).toBeVisible();
     await page.goForward();
-    await expect(page.getByPlaceholder(docSearch)).toBeVisible();
+    await expect(page.getByPlaceholder(glossaryFilter)).toBeVisible();
   });
 
-  test("keeps the entity deep link working, and its hash alongside it", async ({ page }) => {
-    // `/knowledge/catalog?urn=` is what a catalog reference links to from
-    // anywhere in the portal, and the restructure must not change it: it opens
-    // the entity on Tables, with no hash.
+  test("a dataset deep link opens the dataset, and survives a reload", async ({ page }) => {
+    // `/knowledge/catalog?ref=` is what a catalog reference links to from
+    // anywhere in the portal.
     await authenticate(page);
-    const urn = "urn:li:dataset:(urn:li:dataPlatform:trino,analytics.public.daily_sales,PROD)";
-    await page.goto(`/portal/knowledge/catalog?urn=${encodeURIComponent(urn)}`);
-    await expect(page.getByRole("heading", { name: /daily_sales/ })).toBeVisible();
+    const ref = "mcp:dataset:(trino,acme-warehouse,analytics.public.daily_sales)";
+    await page.goto(`/portal/knowledge/catalog?ref=${encodeURIComponent(ref)}#tables`);
+    await expect(page.getByRole("heading", { name: "daily_sales" })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "daily_sales" })).toBeVisible();
 
-    // Switching inner tabs rewrites only the hash, so the deep link survives.
+    // Leaving for another tab drops the dataset, which belongs to Tables.
     await page.getByRole("tab", { name: "Tags", exact: true }).click();
     await expect(page.getByPlaceholder(tagFilter)).toBeVisible();
-    expect(page.url()).toContain("urn=");
-    expect(page.url()).toContain("#tags");
-
-    // And coming back re-opens the entity the URL still names.
-    await page.getByRole("tab", { name: "Tables", exact: true }).click();
-    await expect(page.getByRole("heading", { name: /daily_sales/ })).toBeVisible();
+    expect(page.url()).not.toContain("ref=");
   });
 
   test("the retired sub-tab routes no longer resolve", async ({ page }) => {
@@ -123,7 +111,6 @@ test.describe("Catalog section", () => {
     await expect(page.getByRole("tab", { name: "Catalog", exact: true })).toHaveCount(0);
 
     await page.goto("/portal/knowledge/context-docs");
-    await expect(page.getByPlaceholder(docSearch)).toHaveCount(0);
     await expect(page.getByRole("tab", { name: "Catalog", exact: true })).toHaveCount(0);
   });
 });

@@ -1,242 +1,303 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
+import type { Change, Dataset, DatasetSummary, DefinitionSummary } from "@/api/portal/catalog";
 
-// Mock the DataHub API module so the tab renders against controlled data with no
-// network. Each hook is a vi.fn configured per test.
-vi.mock("@/api/portal/datahub", () => ({
+// The catalog hooks are stood in by fixtures: the list, one dataset, the
+// definitions a picker searches and the history, with each write recorded so
+// a test asserts exactly what the page sends.
+const fx = vi.hoisted(() => ({
+  results: [] as DatasetSummary[],
+  dataset: undefined as Dataset | undefined,
+  definitions: [] as DefinitionSummary[],
+  history: [] as Change[],
+  writes: [] as unknown[],
+  rollbacks: [] as unknown[],
+  searches: [] as unknown[],
+}));
+
+const query = (data: unknown) => ({ data, isLoading: false, isError: false, isFetching: false });
+const mutation = (log: unknown[]) => ({
+  mutate: (v: unknown, opts?: { onSuccess?: () => void }) => {
+    log.push(v);
+    opts?.onSuccess?.();
+  },
+  isPending: false,
+  isError: false,
+  error: null,
+});
+
+vi.mock("@/api/portal/catalog", () => ({
   MIN_SEARCH_LEN: 2,
-  useCatalogBrowse: vi.fn(),
-  useCatalogSearch: vi.fn(),
-  useCatalogEntity: vi.fn(),
-  useUpdateDescription: vi.fn(),
-  useUpdateTags: vi.fn(),
-  useUpdateOwners: vi.fn(),
-  useUpdateGlossaryTerms: vi.fn(),
-  useUpdateDomain: vi.fn(),
-  useTagLookup: vi.fn(),
-  useGlossaryLookup: vi.fn(),
-  useDomainLookup: vi.fn(),
+  useCatalogConnections: () =>
+    query({
+      connections: [
+        { kind: "trino", name: "acme" },
+        { kind: "api", name: "billing" },
+      ],
+      writable: true,
+    }),
+  useDatasetSearch: (p: unknown) => {
+    fx.searches.push(p);
+    return query(fx.results);
+  },
+  useDataset: (ref: string | null) => query(ref ? fx.dataset : undefined),
+  useDefinitions: () => query(fx.definitions),
+  useCatalogHistory: () => query(fx.history),
+  useSchemaDocument: () => query(undefined),
+  useWriteAspect: () => mutation(fx.writes),
+  useRollback: () => mutation(fx.rollbacks),
 }));
-// The connection picker lives on CatalogSection, not here; only the writable
-// lookup is still read from this module.
-vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
-  useConnectionWritable: vi.fn(() => true),
+
+// The markdown editor is CodeMirror, which jsdom cannot drive; a textarea
+// stands in with the same value/onChange/label contract.
+// Backlinks read the knowledge-page index, which has tests of its own.
+vi.mock("@/components/knowledge/KnowledgeBacklinks", () => ({
+  KnowledgeBacklinks: ({ urn }: { urn: string }) => <div>backlinks for {urn}</div>,
 }));
-// CodeMirror does not render cleanly in jsdom; stand in a plain textarea. The
-// markdown renderer is left real so these tests see the formatting a reader
-// gets.
 vi.mock("@/components/MarkdownEditor", () => ({
-  MarkdownEditor: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <textarea aria-label="description" value={value} onChange={(e) => onChange(e.target.value)} />
+  MarkdownEditor: ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label?: string }) => (
+    <textarea aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />
   ),
 }));
 
-let mockIsAdmin = true;
-let mockTools: string[] = [];
-vi.mock("@/stores/auth", () => ({
-  useAuthStore: (sel: (s: unknown) => unknown) =>
-    sel({ user: { tools: mockTools }, isAdmin: () => mockIsAdmin }),
-}));
-
 import { CatalogTab } from "./CatalogTab";
-import {
-  useCatalogBrowse,
-  useCatalogSearch,
-  useCatalogEntity,
-  useUpdateDescription,
-  useUpdateTags,
-  useUpdateOwners,
-  useUpdateGlossaryTerms,
-  useUpdateDomain,
-  useTagLookup,
-  useGlossaryLookup,
-  useDomainLookup,
-} from "@/api/portal/datahub";
-import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
-import { ApiError } from "@/api/portal/client";
 
-const q = (data: unknown) => ({ data, isLoading: false, isError: false }) as never;
-const lookupResult = (data: unknown) => ({ data, isFetching: false, isError: false }) as never;
-const noopMut = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }) as never;
+const REF = "mcp:dataset:(trino,acme,analytics.public.daily_sales)";
 
-// Descriptions are authored as markdown: DataHub stores the source and the
-// platform's own write paths (apply_knowledge, datahub_update) emit it.
-const markdownDescription = "**Daily sales.** One row per `order_id`.";
-
-const daily = {
-  urn: "urn:li:dataset:(urn:li:dataPlatform:trino,analytics.public.daily_sales,PROD)",
-  name: "analytics.public.daily_sales",
-  description: markdownDescription,
-  tags: ["urn:li:tag:finance"],
-};
+function dataset(over: Partial<Dataset> = {}): Dataset {
+  return {
+    id: "1",
+    reference: REF,
+    name: "daily_sales",
+    type: "table",
+    columns: [
+      { name: "revenue", data_type: "decimal(12,2)", ordinal: 2, nullable: true, aspects: { tags: ["finance"] } },
+      { name: "sale_date", data_type: "date", ordinal: 1, nullable: false, aspects: {} },
+    ],
+    aspects: {
+      description: "Daily sales by store.",
+      tags: ["certified"],
+      glossary_terms: ["mcp:glossary_term:t1"],
+      domain: "mcp:domain:d1",
+      owners: [{ owner: "sarah@example.com", type: "technical_owner" }],
+    },
+    created_at: "2026-10-01T00:00:00Z",
+    updated_at: "2026-10-01T00:00:00Z",
+    upstream: [
+      {
+        source: "mcp:dataset:(trino,acme,raw.events.clickstream)",
+        target: REF,
+        writer_kind: "query",
+        written_at: "2026-10-01T00:00:00Z",
+        depth: 1,
+      },
+    ],
+    downstream: [],
+    names: { "mcp:glossary_term:t1": "Revenue", "mcp:domain:d1": "Sales" },
+    writable: true,
+    ...over,
+  };
+}
 
 beforeEach(() => {
-  mockIsAdmin = true;
-  mockTools = [];
-  vi.mocked(useConnectionWritable).mockReturnValue(true);
-  vi.mocked(useCatalogBrowse).mockReturnValue(q([daily]));
-  vi.mocked(useCatalogSearch).mockReturnValue(q([]));
-  vi.mocked(useCatalogEntity).mockReturnValue(
-    q({
-      urn: daily.urn,
-      context: {
-        urn: daily.urn,
-        description: markdownDescription,
-        tags: ["finance"],
-        tag_refs: [{ urn: "urn:li:tag:finance", name: "finance" }],
-        owners: [{ urn: "urn:li:corpuser:sarah", type: "TECHNICAL_OWNER", name: "Sarah" }],
-        glossary_terms: [{ urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" }],
-        domain: { urn: "urn:li:domain:finance", name: "Finance" },
-      },
-      columns: {
-        revenue: { name: "revenue", description: "Revenue in **USD**", is_sensitive: true },
-      },
-    }),
-  );
-  [useUpdateDescription, useUpdateTags, useUpdateOwners, useUpdateGlossaryTerms, useUpdateDomain].forEach((h) =>
-    vi.mocked(h).mockImplementation(noopMut),
-  );
-  vi.mocked(useTagLookup).mockReturnValue(lookupResult([]));
-  vi.mocked(useGlossaryLookup).mockReturnValue(lookupResult([]));
-  vi.mocked(useDomainLookup).mockReturnValue(lookupResult([]));
+  fx.results = [
+    {
+      reference: REF,
+      connection_kind: "trino",
+      connection: "acme",
+      path: "analytics.public.daily_sales",
+      name: "daily_sales",
+      type: "table",
+      description: "Daily sales by store.",
+      tags: ["certified"],
+    },
+  ];
+  fx.dataset = dataset();
+  fx.definitions = [];
+  fx.history = [];
+  fx.writes = [];
+  fx.rollbacks = [];
+  fx.searches = [];
+  window.history.replaceState(null, "", "/knowledge/catalog#tables");
 });
 
-describe("CatalogTab", () => {
-  it("browses tables and opens an entity showing metadata and columns", () => {
-    render(<CatalogTab conn="primary" />);
-    expect(screen.getByText("analytics.public.daily_sales")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
-    expect(screen.getByRole("heading", { name: /daily_sales/ })).toBeInTheDocument();
-    expect(screen.getByText("Revenue")).toBeInTheDocument();
-    expect(screen.getByText("Sarah")).toBeInTheDocument();
-    expect(screen.getByText("Finance")).toBeInTheDocument();
-    // Column with a sensitivity badge.
-    expect(screen.getByText("revenue")).toBeInTheDocument();
-    expect(screen.getByText("Sensitive")).toBeInTheDocument();
+describe("CatalogTab list", () => {
+  it("lists the datasets the search returns and opens one, recording it in the URL", () => {
+    render(<CatalogTab />);
+    fireEvent.click(screen.getByRole("button", { name: /daily_sales/ }));
+    expect(screen.getByRole("heading", { name: "daily_sales" })).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get("ref")).toBe(REF);
   });
 
-  it("renders the entity description as markdown, not as source (#1101)", () => {
-    render(<CatalogTab conn="primary" />);
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
-
-    const bold = document.querySelector("strong");
-    expect(bold?.textContent).toBe("Daily sales.");
-    expect(document.querySelector("code")?.textContent).toBe("order_id");
-    expect(document.body.textContent).not.toContain("**Daily sales.**");
+  it("says the catalog is empty rather than showing nothing", () => {
+    fx.results = [];
+    render(<CatalogTab />);
+    expect(screen.getByText(/The catalog holds no tables yet/)).toBeInTheDocument();
   });
 
-  it("renders column descriptions as markdown (#1101)", () => {
-    render(<CatalogTab conn="primary" />);
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
+  it("filters by connection when the reader picks one", () => {
+    render(<CatalogTab />);
+    expect(screen.getByRole("combobox", { name: "Connection" })).toBeInTheDocument();
+    expect(fx.searches[fx.searches.length - 1]).toMatchObject({ connection_kind: "", connection: "" });
+  });
+});
 
-    const cell = screen.getByText("revenue").closest("tr")!;
-    expect(cell.querySelector("strong")?.textContent).toBe("USD");
-    expect(cell.textContent).not.toContain("**USD**");
+describe("CatalogTab dataset page", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", `/knowledge/catalog?ref=${encodeURIComponent(REF)}#tables`);
   });
 
-  it("strips markdown from the search-result snippet (#1101)", () => {
-    render(<CatalogTab conn="primary" />);
-
-    expect(screen.getByText("Daily sales. One row per order_id.")).toBeInTheDocument();
-    expect(document.body.textContent).not.toContain("**Daily sales.**");
+  it("opens the deep-linked dataset with its curation, names resolved", () => {
+    render(<CatalogTab />);
+    expect(screen.getByText("Daily sales by store.")).toBeInTheDocument();
+    expect(screen.getByText("certified")).toBeInTheDocument();
+    expect(screen.getAllByText("Revenue").length).toBeGreaterThan(0);
+    expect(screen.getByText("Sales")).toBeInTheDocument();
+    expect(screen.getByText("sarah@example.com")).toBeInTheDocument();
   });
 
-  it("shows edit affordances for a writer and drives a description edit", () => {
-    const mutate = vi.fn();
-    vi.mocked(useUpdateDescription).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
-    render(<CatalogTab conn="primary" />);
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
+  it("lists columns in their table order", () => {
+    render(<CatalogTab />);
+    const cells = screen.getAllByRole("row").map((r) => within(r).queryAllByRole("cell")[0]?.textContent);
+    expect(cells.filter(Boolean)).toEqual(["sale_date", "revenue"]);
+  });
 
-    // Edit the description.
-    const editButtons = screen.getAllByRole("button", { name: "Edit" });
-    fireEvent.click(editButtons[0]!);
-    // The description is edited in the shared markdown editor, stubbed here as a
-    // labelled textarea; the tag/owner/domain add fields are <input>s.
-    const editor = screen.getByLabelText("description");
-    fireEvent.change(editor, { target: { value: "Updated." } });
+  it("writes an edited description to the dataset's description aspect", () => {
+    render(<CatalogTab />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit description" })[0]!);
+    fireEvent.change(screen.getByLabelText("Dataset description"), { target: { value: "One row per store per day." } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(mutate).toHaveBeenCalledWith(
-      { urn: daily.urn, description: "Updated." },
-      expect.anything(),
-    );
+    expect(fx.writes).toEqual([
+      { reference: REF, aspect: "description", value: "One row per store per day.", expect: "Daily sales by store." },
+    ]);
   });
 
-  it("resolves a tag name to a URN through the picker (#785)", () => {
-    const mutate = vi.fn();
-    vi.mocked(useUpdateTags).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
-    vi.mocked(useTagLookup).mockReturnValue(
-      lookupResult([{ urn: "urn:li:tag:PII", name: "PII", description: "personal data" }]),
-    );
-    render(<CatalogTab conn="primary" />);
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
+  it("removes a tag by rewriting the tags aspect without it", () => {
+    render(<CatalogTab />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove tag certified" }));
+    expect(fx.writes).toEqual([{ reference: REF, aspect: "tags", value: null, expect: ["certified"] }]);
+  });
 
-    // The user types a display name, never a raw URN, and picks the result.
-    const input = screen.getByPlaceholderText("Search tags by name…");
+  it("adds a tag to a column through the column's own reference", () => {
+    fx.definitions = [
+      { reference: "mcp:tag:pii", kind: "tag", slug: "pii", name: "pii", children: 0 },
+    ];
+    render(<CatalogTab />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit column revenue" }));
+    const input = screen.getByLabelText("Add tag on revenue");
     fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: "PI" } });
-    fireEvent.click(screen.getByRole("button", { name: /PII/ }));
-
-    expect(mutate).toHaveBeenCalledWith(
-      { urn: daily.urn, add: ["urn:li:tag:PII"] },
-      expect.anything(),
-    );
+    fireEvent.change(input, { target: { value: "pii" } });
+    fireEvent.click(screen.getByRole("button", { name: /^pii/ }));
+    expect(fx.writes).toEqual([
+      {
+        reference: "mcp:column:(trino,acme,analytics.public.daily_sales,revenue)",
+        aspect: "tags",
+        value: ["finance", "pii"],
+        expect: ["finance"],
+      },
+    ]);
   });
 
-  it("removes a tag by its URN, not its display name (#785 review)", () => {
-    const mutate = vi.fn();
-    vi.mocked(useUpdateTags).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
-    render(<CatalogTab conn="primary" />);
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
-    // The existing "finance" tag chip removes by URN so DataHub can match it.
-    fireEvent.click(screen.getByRole("button", { name: "Remove finance" }));
-    expect(mutate).toHaveBeenCalledWith({ urn: daily.urn, remove: ["urn:li:tag:finance"] });
-  });
-
-  it("offers an exact typed tag URN as a fallback candidate (#785 review)", () => {
-    const mutate = vi.fn();
-    vi.mocked(useUpdateTags).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
-    // Name search returns nothing, but the user pastes an exact URN.
-    vi.mocked(useTagLookup).mockReturnValue(lookupResult([]));
-    render(<CatalogTab conn="primary" />);
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
-    const input = screen.getByPlaceholderText("Search tags by name…");
+  it("offers a typed name no tag has yet as a new tag", () => {
+    render(<CatalogTab />);
+    const input = screen.getByLabelText("Add tag");
     fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: "urn:li:tag:Quarantine" } });
-    fireEvent.click(screen.getByRole("button", { name: /urn:li:tag:Quarantine/ }));
-    expect(mutate).toHaveBeenCalledWith(
-      { urn: daily.urn, add: ["urn:li:tag:Quarantine"] },
-      expect.anything(),
-    );
+    fireEvent.change(input, { target: { value: "gold" } });
+    fireEvent.click(screen.getByRole("button", { name: /gold.*new tag/ }));
+    expect(fx.writes).toEqual([{ reference: REF, aspect: "tags", value: ["certified", "gold"], expect: ["certified"] }]);
   });
 
-  it("surfaces a visible inline error when an update fails", () => {
-    vi.mocked(useUpdateTags).mockReturnValue({
-      mutate: vi.fn(),
-      isPending: false,
-      isError: true,
-      error: new ApiError(400, 'invalid tag: "test" must be a urn:li:tag:<id> URN'),
-    } as never);
-    render(<CatalogTab conn="primary" />);
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
-    const alerts = screen.getAllByRole("alert");
-    expect(alerts.some((a) => /must be a urn:li:tag/.test(a.textContent ?? ""))).toBe(true);
+  it("adds a glossary term by its reference", () => {
+    fx.definitions = [
+      { reference: "mcp:glossary_term:t2", kind: "glossary_term", slug: "net-sales", name: "Net Sales", children: 0 },
+    ];
+    render(<CatalogTab />);
+    const input = screen.getByLabelText("Add glossary term");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "net" } });
+    fireEvent.click(screen.getByRole("button", { name: /Net Sales/ }));
+    expect(fx.writes).toEqual([
+      {
+        reference: REF,
+        aspect: "glossary_terms",
+        value: ["mcp:glossary_term:t1", "mcp:glossary_term:t2"],
+        expect: ["mcp:glossary_term:t1"],
+      },
+    ]);
   });
 
-  it("hides all edit affordances when the connection is read-only", () => {
-    vi.mocked(useConnectionWritable).mockReturnValue(false);
-    mockIsAdmin = true;
-    render(<CatalogTab conn="primary" />);
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
-    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add" })).not.toBeInTheDocument();
+  it("adds an owner and clears the domain", () => {
+    render(<CatalogTab />);
+    fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "lee@example.com" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Add" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(fx.writes).toEqual([
+      {
+        reference: REF,
+        aspect: "owners",
+        value: [
+          { owner: "sarah@example.com", type: "technical_owner" },
+          { owner: "lee@example.com", type: "technical_owner" },
+        ],
+        expect: [{ owner: "sarah@example.com", type: "technical_owner" }],
+      },
+      { reference: REF, aspect: "domain", value: null, expect: "mcp:domain:d1" },
+    ]);
   });
 
-  it("hides edit affordances when the persona lacks datahub_update and is not admin", () => {
-    mockIsAdmin = false;
-    mockTools = ["datahub_browse"];
-    render(<CatalogTab conn="primary" />);
-    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
-    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  it("adds a context document with an id and a title", () => {
+    render(<CatalogTab />);
+    fireEvent.click(screen.getByRole("button", { name: "Add document" }));
+    fireEvent.change(screen.getByLabelText("Document title"), { target: { value: "Grain" } });
+    fireEvent.change(screen.getByLabelText("Document content"), { target: { value: "One row per store." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const write = fx.writes[0] as { aspect: string; value: { id: string; title: string; content: string }[] };
+    expect(write.aspect).toBe("context_documents");
+    expect(write.value).toHaveLength(1);
+    expect(write.value[0]).toMatchObject({ title: "Grain", content: "One row per store." });
+    expect(write.value[0]!.id).not.toBe("");
+  });
+
+  it("shows nothing editable to a reader who may not write", () => {
+    fx.dataset = dataset({ writable: false });
+    render(<CatalogTab />);
+    expect(screen.queryByRole("button", { name: "Edit description" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Add tag")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Edit column/ })).not.toBeInTheDocument();
+  });
+
+  it("rolls a change back by its id", () => {
+    fx.history = [
+      {
+        id: "c9",
+        reference: REF,
+        aspect: "description",
+        version: 2,
+        previous: "Old.",
+        value: "Daily sales by store.",
+        written_by: "sarah@example.com",
+        written_at: "2026-10-02T00:00:00Z",
+      },
+    ];
+    render(<CatalogTab />);
+    expect(screen.getByText("was: Old.")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: /Roll back the Description change/ })[0]!);
+    expect(fx.rollbacks).toEqual([{ reference: REF, aspect: "description", change_id: "c9" }]);
+  });
+
+  it("opens an upstream dataset in place and goes back to the list", () => {
+    const up = "mcp:dataset:(trino,acme,raw.events.clickstream)";
+    render(<CatalogTab />);
+    fireEvent.click(screen.getByRole("link", { name: "clickstream" }));
+    expect(new URLSearchParams(window.location.search).get("ref")).toBe(up);
+    fireEvent.click(screen.getByRole("button", { name: /Back to tables/ }));
+    expect(window.location.search).toBe("");
+    expect(screen.getByRole("button", { name: /daily_sales/ })).toBeInTheDocument();
+  });
+
+  it("says so when the dataset cannot be opened", () => {
+    fx.dataset = undefined;
+    render(<CatalogTab />);
+    expect(screen.getByText("Dataset not found.")).toBeInTheDocument();
   });
 });

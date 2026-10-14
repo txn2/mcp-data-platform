@@ -5,7 +5,7 @@ description: Capture domain knowledge shared during AI sessions and write it to 
 # Knowledge Capture
 
 !!! tip "Memory Layer"
-    Knowledge capture lives in the [Memory Layer](../memory/overview.md) and is performed by the `memory_capture` tool (memory toolkit). It therefore requires the memory layer to be enabled: memory defaults on when a database is configured, and setting `memory.enabled: false` disables capture. Insights captured via `memory_capture` are stored in `memory_records` (the unified memory table) and can be recalled, enriched, and promoted to durable DataHub knowledge via `apply_knowledge`.
+    Knowledge capture lives in the [Memory Layer](../memory/overview.md) and is performed by the `memory_capture` tool (memory toolkit). It therefore requires the memory layer to be enabled: memory defaults on when a database is configured, and setting `memory.enabled: false` disables capture. Insights captured via `memory_capture` are stored in `memory_records` (the unified memory table) and can be recalled, enriched, and promoted to durable knowledge in the catalog or a knowledge page via `apply_knowledge`.
 
 ## The Problem
 
@@ -118,7 +118,7 @@ Applying an insight is what turns one person's capture into knowledge the organi
 Two properties follow from this:
 
 - No insight is public. Reaching applied insights requires an identified caller, so an anonymous visitor to a shared portal link never sees them.
-- Discovery does not depend on the sink. Before this boundary existed, an applied fact reached other people only if it happened to land on a knowledge page, or if a tool result named the dataset it hung off; a fact applied to the DataHub catalog on a table the agent was not already looking at had no search-time route to anyone but its capturer.
+- Discovery does not depend on the sink. Before this boundary existed, an applied fact reached other people only if it happened to land on a knowledge page, or if a tool result named the dataset it hung off; a fact applied to the catalog on a table the agent was not already looking at had no search-time route to anyone but its capturer.
 
 ![Knowledge: the catalog view](../images/screenshots/light/user-knowledge-catalog-light.webp#only-light)![Knowledge: the catalog view](../images/screenshots/dark/user-knowledge-catalog-dark.webp#only-dark)
 
@@ -138,9 +138,9 @@ An insight is a claim, and a delivered claim removes the consumer's reason to ch
   "ref": "i-9f2c",
   "text": "The orders table holds 1,140 rows for FY25.",
   "reference": "mcp:insight:i-9f2c",
-  "entity_urns": ["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.orders,PROD)"],
+  "entity_urns": ["mcp:dataset:(trino,warehouse,iceberg.retail.orders)"],
   "verifiable": {
-    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.orders,PROD)",
+    "urn": "mcp:dataset:(trino,warehouse,iceberg.retail.orders)",
     "query_table": "iceberg.retail.orders",
     "connection": "primary"
   }
@@ -254,7 +254,6 @@ knowledge:
 |-------|------|---------|-------------|
 | `knowledge.enabled` | bool | `false` | Enable the knowledge review and write-back toolkit (`apply_knowledge`). Knowledge capture lives in the memory toolkit (`memory_capture`) and is enabled with the memory layer, not this flag |
 | `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
-| `knowledge.apply.datahub_connection` | string | - | Has no effect: `apply_knowledge` writes to the [platform catalog](../server/catalog.md). Accepted so a configuration that still sets it starts |
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
 | `knowledge.verifiable_insights` | bool | `true` | Deliver a `verifiable` block on an insight whose linked entity resolves to a queryable table, on every delivery surface. Inert without a query provider; set `false` to deliver insights with no marker |
 

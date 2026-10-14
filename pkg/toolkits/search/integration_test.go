@@ -23,12 +23,12 @@ import (
 )
 
 // These tests assemble the real read path end to end: the search tool
-// handler -> knowledge.Router -> the real memory/insights/assets/datahub/prompts
+// handler -> knowledge.Router -> the real memory/insights/assets/catalog/prompts
 // provider adapters -> stores. The stores are fakes, but the per-user ones
 // enforce the same per-owner scoping the real Postgres stores do (CreatedBy /
 // CapturedBy / OwnerID), so the test proves the tool resolves the caller from
 // the platform context and the router carries that identity through each adapter.
-// The datahub and prompts fakes are shared (global content), so they also prove
+// The catalog and prompts fakes are shared (global content), so they also prove
 // shared sinks reach every caller without leaking per-user records.
 
 // scopedMemoryStore returns only records whose CreatedBy matches the query.
@@ -165,7 +165,7 @@ func (s *scopedAssetStore) Get(_ context.Context, id string) (*portal.Asset, err
 	return nil, fmt.Errorf("querying asset: %w", sql.ErrNoRows)
 }
 
-// globalCatalog is a shared datahub fake: it returns the same catalog hit for
+// globalCatalog is a shared catalog fake: it returns the same catalog hit for
 // every caller, modeling global (non-per-user) knowledge.
 type globalCatalog struct{}
 
@@ -642,13 +642,13 @@ func TestFetchAppliedInsightCrossIdentity(t *testing.T) {
 // scope: user B gets nothing from user A's entity-linked memory.
 func TestEntityPathScopedToCaller(t *testing.T) {
 	mem := &scopedMemoryStore{records: []memory.Record{
-		{ID: "e-alice", CreatedBy: userAEmail, Content: "alice orders note", Dimension: memory.DimensionEntity, EntityURNs: []string{"urn:li:dataset:orders"}},
+		{ID: "e-alice", CreatedBy: userAEmail, Content: "alice orders note", Dimension: memory.DimensionEntity, EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.orders)"}},
 	}}
 	router := knowledge.NewRouter(nil, nil, knowledge.NewMemoryProvider(mem))
 	tk := New("default", router)
 
 	// Entity-only query (no intent) by user B must not return alice's record.
-	res, _, err := tk.handleSearch(ctxFor(userBID, userBEmail), &mcp.CallToolRequest{}, searchInput{EntityURNs: []string{"urn:li:dataset:orders"}})
+	res, _, err := tk.handleSearch(ctxFor(userBID, userBEmail), &mcp.CallToolRequest{}, searchInput{EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.orders)"}})
 	if err != nil {
 		t.Fatalf("transport error: %v", err)
 	}
@@ -692,7 +692,7 @@ func callEntitySearch(ctx context.Context, t *testing.T, tk *Toolkit, urns []str
 // and the URN-linked memory grouped by source, rather than the old near-empty
 // result.
 func TestEntityFanoutUnionsAllSources(t *testing.T) {
-	const urn = "urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.os_acme_transactions,PROD)"
+	const urn = "mcp:dataset:(trino,warehouse,opensearch.default.os_acme_transactions)"
 	mem := &scopedMemoryStore{records: []memory.Record{
 		{ID: "m1", CreatedBy: userAEmail, Content: "alice note", Dimension: memory.DimensionEntity, EntityURNs: []string{urn}},
 	}}
@@ -724,8 +724,8 @@ func TestEntityFanoutUnionsAllSources(t *testing.T) {
 // TestEntityFanoutNonexistentURNReturnsZero proves a URN that no source has
 // linked content for returns nothing (no false matches), acceptance criterion 4.
 func TestEntityFanoutNonexistentURNReturnsZero(t *testing.T) {
-	const linked = "urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.os_acme_transactions,PROD)"
-	const missing = "urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.nope,PROD)"
+	const linked = "mcp:dataset:(trino,warehouse,opensearch.default.os_acme_transactions)"
+	const missing = "mcp:dataset:(trino,warehouse,opensearch.default.nope)"
 	mem := &scopedMemoryStore{records: []memory.Record{
 		{ID: "m1", CreatedBy: userAEmail, Content: "alice note", Dimension: memory.DimensionEntity, EntityURNs: []string{linked}},
 	}}
@@ -794,7 +794,7 @@ func TestGroupedOutputAndCoverage(t *testing.T) {
 		shown += len(g.Hits)
 	}
 	if !sources[knowledge.SourceCatalog] || !sources[knowledge.SourceConnections] {
-		t.Errorf("expected datahub and connections groups, got %v", sources)
+		t.Errorf("expected catalog and connections groups, got %v", sources)
 	}
 	if out.Count != shown {
 		t.Errorf("Count %d != total hits shown %d", out.Count, shown)
@@ -832,7 +832,7 @@ func TestSourcesNarrowsThroughTool(t *testing.T) {
 	}
 	for _, g := range out.Groups {
 		if g.Source == knowledge.SourceCatalog {
-			t.Errorf("sources=[connections] should exclude datahub, got group %q", g.Source)
+			t.Errorf("sources=[connections] should exclude catalog, got group %q", g.Source)
 		}
 	}
 }

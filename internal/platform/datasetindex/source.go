@@ -16,19 +16,16 @@ type Lister interface {
 	SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error)
 }
 
-// listQuery enumerates rather than searches: DataHub's search treats "*" as
-// "every entity", the same query the context-document browse (#695) pages
-// through, so results come back in the catalog's own order with no relevance
-// threshold applied.
+// listQuery enumerates rather than searches: the catalog's search treats "*"
+// as every dataset, so results come back in the catalog's own order with no
+// relevance threshold applied.
 const listQuery = "*"
 
 // pageSize is how many datasets one enumeration round trip asks for: large
 // enough to keep a few-thousand-dataset catalog to tens of calls, small enough
 // that one response stays a reasonable payload. It is a request, not a
-// guarantee — a lister may serve fewer, and the DataHub client clamps every
-// search to its own MaxLimit, 100 by default, which is what makes one sweep of
-// the default 5000-entry cap up to 50 round trips — so enumerate pages by what
-// came back rather than by this.
+// guarantee: a lister may serve fewer, so enumerate pages by what came back
+// rather than by this.
 const pageSize = 200
 
 // Source implements indexjobs.Source for the catalog-datasets kind. The unit is
@@ -86,9 +83,8 @@ func (s *Source) LoadItems(ctx context.Context, _ string) ([]indexjobs.Item, err
 //
 // Paging advances by how many rows came back, never by how many were asked for,
 // and only an empty page ends the enumeration. A lister is free to return fewer
-// rows than requested — the DataHub client clamps every search to its own
-// MaxLimit, which is below pageSize by default — so treating a short page as the
-// end of the corpus truncates it at the first response (#1231). Advancing by the
+// rows than requested, so treating a short page as the end of the corpus
+// truncates it at the first response (#1231). Advancing by the
 // returned length is correct whatever any layer below clamps to.
 //
 // A page that carries no indexable URN the corpus does not already hold ends the

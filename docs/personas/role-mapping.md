@@ -146,7 +146,7 @@ personas:
     priority: 1
     tools:
       # search discovers; fetch is the only tool that reads a result in full.
-      allow: ["platform_info", "search", "fetch", "datahub_get_*"]
+      allow: ["platform_info", "search", "fetch"]
     connections:
       allow: ["*"]
 

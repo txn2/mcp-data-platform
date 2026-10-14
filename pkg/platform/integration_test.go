@@ -100,8 +100,8 @@ func TestAuditAdapter_Integration_RealDB(t *testing.T) {
 		UserID:       "admin@example.com",
 		UserEmail:    "admin@example.com",
 		Persona:      "admin",
-		ToolName:     "datahub_search",
-		ToolkitKind:  "datahub",
+		ToolName:     "graphql_discover",
+		ToolkitKind:  "graphql",
 		ToolkitName:  "primary",
 		Parameters:   map[string]any{"query": "test"},
 		Success:      true,
@@ -119,7 +119,7 @@ func TestAuditAdapter_Integration_RealDB(t *testing.T) {
 	})
 	require.NoError(t, err, "failed to query events")
 	require.Len(t, events, 1, "expected 1 event")
-	assert.Equal(t, "datahub_search", events[0].ToolName)
+	assert.Equal(t, "graphql_discover", events[0].ToolName)
 }
 
 // TestPlatform_WithDatabase_RealDB tests platform initialization with a real database.

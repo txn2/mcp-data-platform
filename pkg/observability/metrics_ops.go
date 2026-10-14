@@ -69,7 +69,7 @@ func (m *Metrics) registerOpInstruments(meter metric.Meter) error {
 	o.ops = counter(instDomainOps,
 		"Platform operations a tool call or an admin request set off, labeled by operation (knowledge.apply, memory.capture, search.query, calls.record, configstore.write, resource.extract, table.register, prompt.serve, ...) and result (ok, error).")
 	o.knowledgeChanges = counter(instKnowledgeChanges,
-		"apply_knowledge outcomes and the insights it reviews, labeled by sink (datahub, knowledge_page, agent_instructions, insight) and result (created, applied, approved, rejected, failed).")
+		"apply_knowledge outcomes and the insights it reviews, labeled by sink (catalog, knowledge_page, agent_instructions, insight) and result (created, applied, approved, rejected, failed).")
 	o.searchResults = counter(instSearchResults, "Hits the search tool returned, summed over calls.")
 	o.archiveMembers = counter(instArchiveMembers, "Archive members a managed-resource extraction wrote.")
 	o.archiveBytes = counter(instArchiveBytes, "Uncompressed bytes a managed-resource extraction wrote.", metric.WithUnit(unitBytes))

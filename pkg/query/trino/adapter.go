@@ -5,14 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/query"
-	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 const (
@@ -40,15 +38,10 @@ type Config struct {
 	ReadOnly       bool
 	ConnectionName string
 
-	// CatalogMapping maps DataHub catalog names to Trino catalog names.
-	// This is the reverse of the semantic layer's catalog mapping.
-	// For example: {"warehouse": "rdbms"} means DataHub "warehouse" → Trino "rdbms"
-	CatalogMapping map[string]string
-
 	// EstimateRowCounts controls whether GetTableAvailability runs
 	// SELECT COUNT(*) to estimate row counts. Disabled by default because
-	// COUNT(*) can cause full table scans on large tables, making DataHub
-	// search enrichment very slow.
+	// COUNT(*) can cause full table scans on large tables, making every
+	// availability answer slow.
 	EstimateRowCounts bool
 }
 
@@ -141,48 +134,20 @@ func (*Adapter) Name() string {
 	return "trino"
 }
 
-// ResolveTable converts a URN to a table identifier. A platform catalog
-// reference (#1919) names its connection and path outright; a DataHub URN has
-// the reverse catalog mapping applied if one is configured.
-func (a *Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdentifier, error) {
-	if ref, err := catalog.ParseRef(urn); err == nil && ref.Kind == catalog.KindDataset {
-		if ref.ConnectionKind != "trino" || len(ref.Path) != tablePartsMinCount {
-			return nil, fmt.Errorf("reference %s is not a Trino table", urn)
-		}
-		return &query.TableIdentifier{
-			Catalog: ref.Path[0], Schema: ref.Path[1], Table: ref.Path[2], Connection: ref.Connection,
-		}, nil
+// ResolveTable converts a platform catalog dataset reference (#1919) to the
+// table it names: the reference carries its connection and path outright.
+// Anything else is refused, naming the form that is read.
+func (*Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdentifier, error) {
+	ref, err := catalog.ParseRef(urn)
+	if err != nil || ref.Kind != catalog.KindDataset {
+		return nil, fmt.Errorf("not a dataset reference: %q; a table is named mcp:dataset:(trino,<connection>,<catalog>.<schema>.<table>)", urn)
 	}
-	parsed, err := urnbuild.ParseDatasetURN(urn)
-	if err != nil {
-		return nil, fmt.Errorf("parsing dataset URN: %w", err)
+	if ref.ConnectionKind != "trino" || len(ref.Path) != tablePartsMinCount {
+		return nil, fmt.Errorf("reference %s is not a Trino table", urn)
 	}
-
-	parts := strings.Split(parsed.Name, ".")
-
-	switch len(parts) {
-	case 2:
-		return &query.TableIdentifier{
-			Catalog:    a.cfg.Catalog,
-			Schema:     parts[0],
-			Table:      parts[1],
-			Connection: a.cfg.ConnectionName,
-		}, nil
-	case tablePartsMinCount:
-		catalog := parts[0]
-		// Apply reverse catalog mapping if configured
-		if mapped, ok := a.cfg.CatalogMapping[catalog]; ok {
-			catalog = mapped
-		}
-		return &query.TableIdentifier{
-			Catalog:    catalog,
-			Schema:     parts[1],
-			Table:      parts[2],
-			Connection: a.cfg.ConnectionName,
-		}, nil
-	default:
-		return nil, fmt.Errorf("invalid table name in URN: %s", parsed.Name)
-	}
+	return &query.TableIdentifier{
+		Catalog: ref.Path[0], Schema: ref.Path[1], Table: ref.Path[2], Connection: ref.Connection,
+	}, nil
 }
 
 // GetTableAvailability checks if a table is queryable, estimating its row count

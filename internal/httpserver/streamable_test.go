@@ -267,7 +267,7 @@ func buildProductionMiddleware(t *testing.T, signingKey []byte, issuer string) (
 		Name:  "analyst",
 		Roles: []string{"dp_analyst"},
 		Tools: persona.ToolRules{
-			Allow: []string{"trino_*", "datahub_*", "s3_list_*"},
+			Allow: []string{"trino_*", "search", "s3_list_*"},
 			Deny:  []string{"*_delete_*"},
 		},
 	})

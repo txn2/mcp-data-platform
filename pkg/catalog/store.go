@@ -29,6 +29,7 @@ type Change struct {
 
 // Store is the catalog's storage.
 type Store interface {
+	Lister
 	// PutDataset creates or updates a dataset and replaces its column set with
 	// the one given. Curation on a column that is still declared is kept; a
 	// column no longer declared is removed with its curation.
@@ -96,6 +97,11 @@ type AspectEdit struct {
 	Checked bool
 }
 
+// ErrInvalidDefinition refuses a definition that cannot be stored as given: no
+// name, a name no slug can be derived from, or a parent that is not a glossary
+// node or that its kind cannot have.
+var ErrInvalidDefinition = errors.New("invalid definition")
+
 // ErrStale refuses a write whose writer read an aspect that has been written
 // since.
 var ErrStale = errors.New("the aspect was written since it was read")
@@ -125,9 +131,17 @@ func (e *ConflictError) Error() string {
 type DatasetQuery struct {
 	Text           string
 	ConnectionKind string
-	Tags           []string
-	Limit          int
-	Offset         int
+	// Connection narrows the search to one connection of ConnectionKind.
+	Connection string
+	// Scoped limits the search to the connections in Within, each written
+	// "<connection kind>/<connection>"; a scoped search with none finds
+	// nothing. It is how a caller holds a search to the connections its
+	// persona reaches.
+	Scoped bool
+	Within []string
+	Tags   []string
+	Limit  int
+	Offset int
 }
 
 // DatasetSummary is one dataset found by a search.

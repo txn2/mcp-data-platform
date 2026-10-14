@@ -48,12 +48,13 @@ func TestSearchDatasets(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t)
 	mock.ExpectQuery("FROM catalog_entities").
-		WithArgs(`order\_lines`, "trino", `{"pii"}`, 10, 5).
+		WithArgs(`order\_lines`, "trino", `{"pii"}`, 10, 5, "w", true, `{"trino/w"}`).
 		WillReturnRows(sqlmock.NewRows(searchCols).
 			AddRow("mcp:dataset:(trino,w,c.s.order_lines)", "trino", "w", "c.s.order_lines", "order_lines", "table",
 				"Lines", []byte(`["pii"]`), "Sales"))
 	got, err := s.SearchDatasets(ctx, catalog.DatasetQuery{
-		Text: "order_lines", ConnectionKind: "trino", Tags: []string{"pii"}, Limit: 10, Offset: 5,
+		Text: "order_lines", ConnectionKind: "trino", Connection: "w", Tags: []string{"pii"}, Limit: 10, Offset: 5,
+		Scoped: true, Within: []string{"trino/w"},
 	})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -63,16 +64,20 @@ func TestSearchDatasets(t *testing.T) {
 		Description: "Lines", Tags: []string{"pii"}, Domain: "Sales",
 	}, got[0])
 
-	mock.ExpectQuery("FROM catalog_entities").WithArgs("", "", `{}`, defaultSearchLimit, 0).
+	mock.ExpectQuery("FROM catalog_entities").WithArgs("", "", `{}`, defaultSearchLimit, 0, "", false, `{}`).
 		WillReturnRows(sqlmock.NewRows(searchCols))
 	got, err = s.SearchDatasets(ctx, catalog.DatasetQuery{Text: "*", Offset: -3})
 	require.NoError(t, err)
 	assert.Equal(t, []catalog.DatasetSummary{}, got, "* matches everything, and no match is an empty list")
 
-	mock.ExpectQuery("FROM catalog_entities").WithArgs(`50\%`, "", `{}`, defaultSearchLimit, 0).
+	mock.ExpectQuery("FROM catalog_entities").WithArgs(`50\%`, "", `{}`, defaultSearchLimit, 0, "", false, `{}`).
 		WillReturnRows(sqlmock.NewRows(searchCols))
 	_, err = s.SearchDatasets(ctx, catalog.DatasetQuery{Text: "50%"})
 	require.NoError(t, err, "a percent sign is matched as written")
+
+	got, err = s.SearchDatasets(ctx, catalog.DatasetQuery{Scoped: true})
+	require.NoError(t, err)
+	assert.Equal(t, []catalog.DatasetSummary{}, got, "a search scoped to no connection finds nothing without asking")
 
 	mock.ExpectQuery("FROM catalog_entities").WillReturnError(errDB)
 	_, err = s.SearchDatasets(ctx, catalog.DatasetQuery{})

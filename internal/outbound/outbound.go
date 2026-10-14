@@ -51,7 +51,6 @@ const (
 	KindSpecFetch    Kind = "spec_fetch"   // an OpenAPI document fetched for a catalog
 	KindPromQL       Kind = "promql"       // the PromQL proxy's Prometheus
 	KindRenderer     Kind = "renderer"     // the headless renderer's DevTools endpoint
-	KindDataHub      Kind = "datahub"      // the knowledge layer's DataHub REST writes
 	KindBranding     Kind = "branding"     // the portal's logo fetch
 	KindMaps         Kind = "maps"         // a basemap region's extract from its source build
 	KindStorage      Kind = "storage"      // the object store asked which server it is (internal/platform/capacity)

@@ -25,9 +25,9 @@ const TRINO_SCHEMA: ToolSchema = {
 };
 
 const TOOLS: ToolInfo[] = [
-  // datahub_browse sorts first so the buggy behavior (auto-select first tool)
-  // would land here, NOT on trino_query; the regression this test guards.
-  { name: "datahub_browse", toolkit: "datahub", kind: "datahub", connection: "", hidden: false },
+  // fetch sorts first so the buggy behavior (auto-select first tool) would
+  // land here, NOT on trino_query; the regression this test guards.
+  { name: "fetch", toolkit: "search", kind: "search", connection: "", hidden: false },
   { name: "trino_query", toolkit: "trino", kind: "trino", connection: "primary", hidden: false },
 ];
 

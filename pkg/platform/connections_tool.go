@@ -44,10 +44,6 @@ func (p *Platform) registerConnectionsTool() {
 // withheld: an operator who grants one connection should not have the tool hand
 // back the inventory of the rest.
 func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
-	var src connview.SourceResolver
-	if p.connectionSources != nil {
-		src = p.connectionSources
-	}
 	var pages connview.PageLookup
 	if kp := p.portalStore.KnowledgePageStore(); kp != nil {
 		pages = kp
@@ -58,12 +54,12 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 		personaName = pc.PersonaName
 	}
 	var permit connview.Permit
-	if scope := connectionScopeFor(p.personaRegistry, p.connectionSources, p.toolkitRegistry); scope != nil {
+	if scope := connectionScopeFor(p.personaRegistry, p.toolkitRegistry); scope != nil {
 		permit = func(_, name string) bool { return scope.AllowConnection(personaName, name) }
 	}
 
 	out := connview.Build(ctx, p.toolkitRegistry.All(), connview.Deps{
-		Source: src, Pages: pages, Permit: permit, Stored: StoredConnections(p),
+		Pages: pages, Permit: permit, Stored: StoredConnections(p),
 	})
 	out.Notice = knowledge.ConnectionsWithheldNotice(out.Withheld, personaName)
 

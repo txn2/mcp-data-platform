@@ -3,7 +3,7 @@
 id: lc-active-customers
 title: Active customers
 fact: An 'active customer' is any customer who has placed at least one order.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.customers)
 sink: knowledge_page
 page:
     slug: active-customer-definition

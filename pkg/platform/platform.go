@@ -35,7 +35,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/connbackfill"
 	"github.com/txn2/mcp-data-platform/internal/platform/connrecords"
-	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
+	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportadapters"
@@ -105,8 +105,6 @@ import (
 	searchgatepostgres "github.com/txn2/mcp-data-platform/pkg/searchgate/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/session"
-	"github.com/txn2/mcp-data-platform/pkg/storage"
-	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
@@ -169,11 +167,10 @@ type Platform struct {
 	audit *auditwiring.Layer
 
 	// Config store
-	configStore       configstore.Store
-	fileDefaults      map[string]string
-	connectionStore   ConnectionStore
-	connectionSources *ConnectionSourceMap
-	enrichmentStore   enrichment.Store
+	configStore     configstore.Store
+	fileDefaults    map[string]string
+	connectionStore ConnectionStore
+	enrichmentStore enrichment.Store
 	// connAuth owns the connection-OAuth token lifecycle (the unified
 	// connection_oauth_tokens store, the durable connection_auth_events store +
 	// nil-safe writer with its daily 90-day prune routine, and the background
@@ -187,7 +184,6 @@ type Platform struct {
 	// Providers
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
-	storageProvider  storage.Provider
 
 	// Registries
 	toolkitRegistry  *registry.Registry
@@ -232,7 +228,7 @@ type Platform struct {
 
 	// Knowledge-capture layer. The owner (pkg/platform/knowledgelayer) holds the
 	// insight store (the memory-backed adapter over memory_records, else the
-	// legacy Postgres store), the changeset store + DataHub writer for
+	// legacy Postgres store), the changeset store and catalog writer for
 	// apply_knowledge, and the capture_insight / apply_knowledge toolkit behind
 	// one Handle; the stores / writer / toolkit are read through its accessors and
 	// surfaced by the three admin accessors below. nil when knowledge is disabled
@@ -1090,12 +1086,6 @@ func (p *Platform) initProviders(opts *Options) error {
 		return fmt.Errorf("creating query provider: %w", err)
 	}
 
-	if opts.StorageProvider != nil {
-		p.storageProvider = opts.StorageProvider
-	} else if p.storageProvider, err = p.createStorageProvider(); err != nil {
-		return fmt.Errorf("creating storage provider: %w", err)
-	}
-
 	return nil
 }
 
@@ -1145,8 +1135,6 @@ func (p *Platform) initRegistries(opts *Options) error {
 		}
 	}
 
-	// Build the connection→DataHub source mapping for semantic enrichment.
-	p.connectionSources = p.buildConnectionSourceMap()
 	connbackfill.Run(context.Background(), p.db, p.toolkitRegistry.All())
 
 	return nil
@@ -1576,7 +1564,7 @@ func (p *Platform) initSessionGate() {
 // initKnowledge assembles the knowledge-capture layer via the knowledgelayer
 // owner: the insight store (the memory-backed adapter over memory_records when
 // the memory store is present, else the legacy Postgres store), the changeset
-// store + DataHub writer for apply_knowledge, and the capture_insight /
+// store and catalog writer for apply_knowledge, and the capture_insight /
 // apply_knowledge toolkit behind one Handle. It translates platform config into
 // the owner's Config, delegates assembly, then keeps the
 // prompt-creator wiring and toolkit registration here (both reach back into
@@ -1603,6 +1591,7 @@ func (p *Platform) initKnowledge() error {
 		return fmt.Errorf("creating knowledge layer: %w", err)
 	}
 	p.knowledge = handle
+	handle.Toolkit().SetCatalogReach(catalogReach(p))
 
 	// Wire prompt creator for add_prompt change type through the prompt layer's
 	// adapter. Toolkit registration stays a Platform/registry concern, so this is
@@ -1680,7 +1669,7 @@ func (p *Platform) initSearch() error {
 		VerifiableInsights: p.config.Knowledge.IsVerifiableInsightsEnabled(),
 		QueryProvider:      p.queryProvider,
 		PersonasForRoles:   iam.PersonasForRoles(p.personaRegistry),
-		ConnectionScope:    connectionScopeFor(p.personaRegistry, p.connectionSources, p.toolkitRegistry),
+		ConnectionScope:    connectionScopeFor(p.personaRegistry, p.toolkitRegistry),
 		Registry:           p.toolkitRegistry,
 		Embedding:          p.embeddingProv,
 	})
@@ -2508,7 +2497,7 @@ func (p *Platform) addPromptVisibilityMiddleware() {
 }
 
 // addDescriptionOverrideMiddleware registers description override middleware.
-// Built-in overrides guide agents toward DataHub discovery; config overrides
+// Built-in overrides guide agents toward catalog discovery; config overrides
 // (loaded from the file or the database-backed config_entries store) can
 // customize or extend them.
 //
@@ -2572,12 +2561,7 @@ func (p *Platform) addTasks() {
 
 // addEnrichmentMiddleware adds the semantic enrichment middleware if any injection is configured.
 func (p *Platform) addEnrichmentMiddleware() {
-	needsEnrichment := p.config.Enrichment.IsTrinoSemanticEnrichmentEnabled() ||
-		p.config.Enrichment.IsDataHubQueryEnrichmentEnabled() ||
-		p.config.Enrichment.IsS3SemanticEnrichmentEnabled() ||
-		p.config.Enrichment.IsDataHubStorageEnrichmentEnabled()
-
-	if !needsEnrichment {
+	if !p.config.Enrichment.IsTrinoSemanticEnrichmentEnabled() {
 		return
 	}
 
@@ -2589,7 +2573,6 @@ func (p *Platform) addEnrichmentMiddleware() {
 		middleware.MCPSemanticEnrichmentMiddleware(
 			p.semanticProvider,
 			p.queryProvider,
-			p.storageProvider,
 			enrichCfg,
 			mp,
 			knowledgePageProviders(p.portalStore.KnowledgePageStore())...,
@@ -2629,31 +2612,23 @@ func (b *knowledgePageEnrichmentBridge) PagesForEntities(ctx context.Context, ur
 // optional session dedup cache setup.
 func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 	cfg := middleware.EnrichmentConfig{
-		EnrichTrinoResults:          p.config.Enrichment.IsTrinoSemanticEnrichmentEnabled(),
-		EnrichDataHubResults:        p.config.Enrichment.IsDataHubQueryEnrichmentEnabled(),
-		EnrichS3Results:             p.config.Enrichment.IsS3SemanticEnrichmentEnabled(),
-		EnrichDataHubStorageResults: p.config.Enrichment.IsDataHubStorageEnrichmentEnabled(),
-		ResourceLinksEnabled:        p.config.Resources.IsEnabled(),
-		ColumnContextFiltering:      p.config.Enrichment.IsColumnContextFilteringEnabled(),
-		SearchSchemaPreview:         p.config.Enrichment.IsSearchSchemaPreviewEnabled(),
-		SchemaPreviewMaxColumns:     p.config.Enrichment.EffectiveSchemaPreviewMaxColumns(),
-		SemanticFallbackEnabled:     p.config.Enrichment.IsSemanticFallbackEnabled(),
-		ProvenQueries:               auditwiring.ProvenQueries(p.audit.Calls()),
-		SemanticFallbackTopK:        p.config.Enrichment.EffectiveSemanticFallbackTopK(),
-		VerifiableInsights:          p.config.Knowledge.IsVerifiableInsightsEnabled(),
-		MemoryLimit:                 p.config.Enrichment.EffectiveMemoryLimit(),
-		MemoryContextBudgetBytes:    p.config.Enrichment.EffectiveMemoryContextBudgetBytes(),
-		MemorySummaryBytes:          p.config.Enrichment.EffectiveMemorySummaryBytes(),
+		EnrichTrinoResults:       p.config.Enrichment.IsTrinoSemanticEnrichmentEnabled(),
+		ColumnContextFiltering:   p.config.Enrichment.IsColumnContextFilteringEnabled(),
+		SemanticFallbackEnabled:  p.config.Enrichment.IsSemanticFallbackEnabled(),
+		ProvenQueries:            auditwiring.ProvenQueries(p.audit.Calls()),
+		SemanticFallbackTopK:     p.config.Enrichment.EffectiveSemanticFallbackTopK(),
+		VerifiableInsights:       p.config.Knowledge.IsVerifiableInsightsEnabled(),
+		MemoryLimit:              p.config.Enrichment.EffectiveMemoryLimit(),
+		MemoryContextBudgetBytes: p.config.Enrichment.EffectiveMemoryContextBudgetBytes(),
+		MemorySummaryBytes:       p.config.Enrichment.EffectiveMemorySummaryBytes(),
 	}
 
 	// A table is named as the platform catalog names it (#1919); no catalog
 	// mapping applies, because the catalog keys a dataset by the connection's
 	// own catalog names.
 	cfg.DatasetURN = p.datasetURNFor
-	if p.connectionSources != nil {
-		cfg.ConnectionsForURN = func(urn string) []string {
-			return connsource.ConnectionNamesForURN(p.connectionSources, p.toolkitRegistry.All(), urn)
-		}
+	cfg.ConnectionsForURN = func(reference string) []string {
+		return connscope.RefConnections(p.toolkitRegistry.All(), reference)
 	}
 
 	if p.config.Enrichment.SessionDedup.IsEnabled() {
@@ -2679,10 +2654,9 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 // createSemanticProvider creates the semantic provider based on config.
 func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 	// The platform's own catalog is the semantic layer wherever there is a
-	// database (#1919); semantic.provider: noop still turns it off, and
-	// "datahub" is read as the catalog until the key is removed (#1925).
+	// database (#1919); semantic.provider: noop turns it off.
 	switch p.config.Semantic.Provider {
-	case "", kindDataHub, providerNoop:
+	case "", providerNoop:
 	default:
 		return nil, fmt.Errorf("unknown semantic provider: %s", p.config.Semantic.Provider)
 	}
@@ -2724,7 +2698,6 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 			MaxLimit:          trinoCfg.MaxLimit,
 			ReadOnly:          trinoCfg.ReadOnly,
 			ConnectionName:    trinoCfg.ConnectionName,
-			CatalogMapping:    p.config.Query.URNMapping.CatalogMapping,
 			EstimateRowCounts: p.config.Enrichment.EstimateRowCounts,
 		})
 		if err != nil {
@@ -2740,37 +2713,6 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 
 	default:
 		return nil, fmt.Errorf("unknown query provider: %s", p.config.Query.Provider)
-	}
-}
-
-// createStorageProvider creates the storage provider based on config.
-func (p *Platform) createStorageProvider() (storage.Provider, error) {
-	switch p.config.Storage.Provider {
-	case "s3":
-		// Get S3 config from toolkits
-		s3Cfg := toolkitcfg.S3Config(p.config.Toolkits, p.config.Storage.Instance)
-		if s3Cfg == nil {
-			return nil, fmt.Errorf("s3 instance %q not found in toolkits config", p.config.Storage.Instance)
-		}
-
-		adapter, err := s3storage.NewFromConfig(s3storage.Config{
-			Region:         s3Cfg.Region,
-			Endpoint:       s3Cfg.Endpoint,
-			AccessKeyID:    s3Cfg.AccessKeyID,
-			SecretKey:      s3Cfg.SecretKey,
-			BucketPrefix:   s3Cfg.BucketPrefix,
-			ConnectionName: s3Cfg.ConnectionName,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("creating s3 storage provider: %w", err)
-		}
-		return adapter, nil
-
-	case providerNoop, "":
-		return storage.NewNoopProvider(), nil
-
-	default:
-		return nil, fmt.Errorf("unknown storage provider: %s", p.config.Storage.Provider)
 	}
 }
 
@@ -2957,11 +2899,6 @@ func (p *Platform) QueryProvider() query.Provider {
 	return p.queryProvider
 }
 
-// StorageProvider returns the storage provider.
-func (p *Platform) StorageProvider() storage.Provider {
-	return p.storageProvider
-}
-
 // ToolkitRegistry returns the toolkit registry.
 func (p *Platform) ToolkitRegistry() *registry.Registry {
 	return p.toolkitRegistry
@@ -3049,11 +2986,6 @@ func (p *Platform) UnregisterRuntimePrompt(name string) {
 // ConnectionStore returns the connection instance store, or nil if not initialized.
 func (p *Platform) ConnectionStore() ConnectionStore {
 	return p.connectionStore
-}
-
-// ConnectionSources returns the connection→DataHub source mapping.
-func (p *Platform) ConnectionSources() *ConnectionSourceMap {
-	return p.connectionSources
 }
 
 // mergeDBConnectionsIntoConfig warms this process up with the connections the
@@ -3360,7 +3292,7 @@ func closeResource(errs *[]error, closer Closer) {
 // Close closes all platform resources in the correct order:
 //  1. Flush enrichment state, stop session cache, close session store
 //  2. Close audit logger + audit store (goroutine stops, can still use DB)
-//  3. Close providers and toolkit registry (trino, datahub, s3)
+//  3. Close providers and toolkit registry (trino, s3, gateways)
 //  4. Close database connection (last — nothing else needs it)
 func (p *Platform) Close() error {
 	var errs []error
@@ -3453,7 +3385,6 @@ func (p *Platform) closeProvidersAndRegistry(errs *[]error) {
 	slog.Debug("shutdown: closing providers")
 	closeResource(errs, p.semanticProvider)
 	closeResource(errs, p.queryProvider)
-	closeResource(errs, p.storageProvider)
 	closeResource(errs, p.portalStore)
 	closeResource(errs, p.toolkitRegistry)
 }

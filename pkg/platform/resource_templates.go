@@ -10,16 +10,17 @@ import (
 // resolved during initialization.
 //
 // The templates themselves live in internal/platform/resourcetemplates: they
-// answer from the two providers and the URN mapping alone and write nothing,
+// answer from the two providers alone and write nothing,
 // so they needed no part of this facade beyond those (#1628).
 func (p *Platform) registerResourceTemplates() {
 	if !p.config.Resources.IsEnabled() {
 		return
 	}
 	resourcetemplates.New(resourcetemplates.Deps{
-		Semantic:          p.semanticProvider,
-		Query:             p.queryProvider,
-		URNPlatform:       p.config.Semantic.URNMapping.Platform,
-		URNCatalogMapping: p.config.Semantic.URNMapping.CatalogMapping,
+		Semantic: p.semanticProvider,
+		Query:    p.queryProvider,
+		DatasetRef: func(catalogName, schema, table string) string {
+			return p.datasetURNFor(toolkitKindTrino, "", catalogName, schema, table)
+		},
 	}).Register(p.mcpServer)
 }

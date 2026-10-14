@@ -142,7 +142,7 @@ func TestSessionsSearchSkipsAnEntityOnlyQuery(t *testing.T) {
 
 	sessions := ranSession()
 	hits, err := NewSessionsProvider(sessions).Search(context.Background(), Query{
-		EntityURNs: []string{"urn:li:dataset:(urn:li:dataPlatform:trino,sales.orders,PROD)"},
+		EntityURNs: []string{"mcp:dataset:(trino,warehouse,sales.orders)"},
 		Caller:     Caller{UserID: "u1"},
 	})
 	if err != nil || len(hits) != 0 {
@@ -271,7 +271,7 @@ func TestSessionsFetchDeclinesForeignReferences(t *testing.T) {
 	for _, ref := range []string{
 		"mcp:asset:ast_1",
 		"mcp:call:evt-1",
-		"urn:li:dataset:(urn:li:dataPlatform:trino,sales.orders,PROD)",
+		"mcp:dataset:(trino,warehouse,sales.orders)",
 		"not a reference",
 		"",
 	} {

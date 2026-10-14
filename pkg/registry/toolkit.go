@@ -10,14 +10,14 @@ import (
 
 // Toolkit is the interface that all composable toolkits must implement.
 type Toolkit interface {
-	// Kind returns the toolkit type (e.g., "trino", "datahub", "s3").
+	// Kind returns the toolkit type (e.g., "trino", "s3", "api").
 	Kind() string
 
 	// Name returns the instance name from config.
 	Name() string
 
 	// Connection returns the connection name for audit logging.
-	// This identifies the specific backend connection (e.g., "prod-trino", "main-datahub").
+	// This identifies the specific backend connection (e.g., "prod-trino", "main-s3").
 	Connection() string
 
 	// RegisterTools registers all tools with the MCP server.

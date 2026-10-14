@@ -1,16 +1,12 @@
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import {
   ConfigField,
   ConfigToggle,
   update,
   type ConfigFormProps,
 } from "./fields";
-import { KeyValueEditor } from "./keyvalue";
 
 // Editor form for kind=trino connections. Field shape matches the mcp-trino
-// toolkit config plus the platform's DataHub integration keys
-// (datahub_source_name, catalog_mapping).
+// toolkit config.
 export function TrinoConfigForm({ config, onChange }: ConfigFormProps) {
   return (
     <>
@@ -80,30 +76,6 @@ export function TrinoConfigForm({ config, onChange }: ConfigFormProps) {
         onChange={(v) => onChange(update(config, "read_only", v))}
         help="Reject write SQL (INSERT, UPDATE, DELETE, CREATE, DROP) on this connection. Applies to this connection alone; other Trino connections are unaffected."
       />
-      <Separator className="mt-2" />
-      <div className="space-y-4">
-        <p className="text-xs font-medium">DataHub Integration</p>
-        <ConfigField
-          label="DataHub Source Name"
-          value={String(config.datahub_source_name ?? "")}
-          onChange={(v) => onChange(update(config, "datahub_source_name", v))}
-          placeholder="trino"
-          mono
-          help="The platform identifier in DataHub URNs for datasets accessible through this connection (e.g. trino, postgres, hive). Defaults to trino if not set."
-        />
-        <div className="space-y-1.5">
-          <Label className="text-xs">Catalog Mapping</Label>
-          <p className="text-xs text-muted-foreground">
-            Maps this connection's catalog names to DataHub catalog names. For example, if this connection uses catalog "rdbms" but DataHub knows it as "postgres", add rdbms &rarr; postgres.
-          </p>
-          <KeyValueEditor
-            entries={config.catalog_mapping as Record<string, string> ?? {}}
-            onChange={(v) => onChange(update(config, "catalog_mapping", Object.keys(v).length > 0 ? v : ""))}
-            keyPlaceholder="connection catalog"
-            valuePlaceholder="datahub catalog"
-          />
-        </div>
-      </div>
     </>
   );
 }

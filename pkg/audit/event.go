@@ -24,7 +24,7 @@ const (
 	EventTypeAdmin EventType = "admin"
 
 	// EventTypeMCPToolCall categorizes an MCP tool invocation routed
-	// through a non-apigateway toolkit (trino, datahub, s3, mcp gateway).
+	// through a non-apigateway toolkit (trino, s3, mcp gateway).
 	// Stamped into Event.EventKind at write time so the portal Activity
 	// view can exclude apigateway HTTP noise by default.
 	EventTypeMCPToolCall EventType = "mcp_tool_call"

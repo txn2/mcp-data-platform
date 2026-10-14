@@ -12,7 +12,7 @@ This is a design choice, and this page states what it buys, what it costs, and w
 
 ## The shape
 
-A connection is a named, operator-authored binding to one downstream system under one credential: a Trino cluster as one service account, a DataHub instance with one token, an S3 account, an upstream MCP server, an HTTP API. Nothing stops several connections from pointing at the *same* system under *different* credentials, and that is the intended shape rather than a workaround.
+A connection is a named, operator-authored binding to one downstream system under one credential: a Trino cluster as one service account, an S3 account, an upstream MCP server, an HTTP API. Nothing stops several connections from pointing at the *same* system under *different* credentials, and that is the intended shape rather than a workaround.
 
 ```mermaid
 graph LR
@@ -35,7 +35,7 @@ The same split is how the HTTP API gateway separates read from write against a s
 
 Three reasons.
 
-**The downstream systems are heterogeneous.** The platform federates Trino, DataHub, S3, arbitrary upstream MCP servers, and arbitrary REST APIs. Trino has session users and can be fronted by a system that enforces row policies; DataHub has its own actor model; a third-party MCP server and a vendor REST API typically have neither, and offer no token-exchange endpoint to impersonate a caller through. An identity model that only works for one of five backends is not an authorization model, it is a special case. The connection is the one construct every backend has: a credential and an endpoint.
+**The downstream systems are heterogeneous.** The platform federates Trino, S3, arbitrary upstream MCP servers, and arbitrary REST APIs. Trino has session users and can be fronted by a system that enforces row policies; a third-party MCP server and a vendor REST API typically have neither, and offer no token-exchange endpoint to impersonate a caller through. An identity model that only works for one of five backends is not an authorization model, it is a special case. The connection is the one construct every backend has: a credential and an endpoint.
 
 **A credential the operator wrote is auditable ahead of time.** An operator can read a connection's service account in the downstream system, see exactly what it can reach, and reason about the blast radius before anyone calls a tool. Per-user passthrough moves that reasoning into whatever the identity provider asserted at request time, spread across every user.
 

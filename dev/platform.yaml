@@ -14,7 +14,7 @@ server:
   name: acme-data-platform
   transport: http
   # DEV_API_PORT is auto-relocated by dev/start.sh when :8080 is held by
-  # another stack (e.g. a running DataHub). Defaults to 8080 when free. The
+  # another stack. Defaults to 8080 when free. The
   # second replica dev/start.sh runs is started with DEV_API_PORT set to its
   # own port (#1708).
   address: ":${DEV_API_PORT:-8080}"
@@ -28,7 +28,7 @@ server:
   state_probe_interval: 2s
   description: |
     ACME Corp's unified data platform providing governed access to the enterprise
-    data warehouse (Trino/Iceberg), data catalog (DataHub), and object storage (S3).
+    data warehouse (Trino/Iceberg), its data catalog, and object storage (S3).
 
     ## Available Data Domains
 
@@ -48,7 +48,7 @@ server:
 
     ## Discovery First
 
-    Always start by searching the data catalog (DataHub) before writing queries.
+    Always start by searching the data catalog before writing queries.
     Use `search` to find relevant datasets, then `fetch` a result's reference to
     read its schema, ownership, and quality scores before querying.
 
@@ -234,7 +234,8 @@ personas:
     tools:
       allow:
         - "trino_*"
-        - "datahub_*"
+        - "search"
+        - "fetch"
         - "s3_*"
       # No S3 deny: deleting an object is an action of s3_object, the same tool
       # that reads one, so a deny here would withhold the reads too. Whether
@@ -263,8 +264,6 @@ personas:
         - "trino_browse"
         - "search"
         - "fetch"
-        - "datahub_browse"
-        - "datahub_get_lineage"
         - "s3_list"
       deny: []
     connections:
@@ -288,7 +287,6 @@ personas:
         - "trino_describe_table"
         - "search"
         - "fetch"
-        - "datahub_browse"
         - "s3_list"
         - "s3_object"
       deny: []
@@ -325,7 +323,6 @@ personas:
       allow:
         - "search"
         - "fetch"
-        - "datahub_browse"
         - "s3_list"
         - "s3_object"
       deny: []
@@ -345,9 +342,7 @@ personas:
       allow:
         - "trino_query"
         - "trino_describe_table"
-        # datahub_search was retired for the unified search (#1590); a grant
-        # naming it granted nothing, and is what persona_tool_unregistered
-        # reports (#1898). search and fetch are a unit.
+        # search and fetch are a unit.
         - "search"
         - "fetch"
         - "s3_object"
@@ -370,7 +365,7 @@ personas:
       "dp_store_manager": "store-manager"
 
 # Toolkits: connect to remote ACME demo backends when env vars are set,
-# otherwise fall back to local-only (S3 via SeaweedFS, no Trino/DataHub).
+# otherwise fall back to local-only (S3 via SeaweedFS, no Trino).
 toolkits:
   trino:
     enabled: ${TRINO_ENABLED:-false}
@@ -384,7 +379,6 @@ toolkits:
         schema: "public"
         ssl: ${TRINO_SSL:-false}
         description: "ACME demo Trino — warehouse and opensearch catalogs"
-        datahub_source_name: "trino"
       acme-staging:
         host: "${TRINO_HOST:-localhost}"
         port: ${TRINO_PORT:-8080}
@@ -451,28 +445,10 @@ toolkits:
     config:
       default_limit: 1000
       max_limit: 10000
-      # Read-only by default, overridable, for the same reason as the DataHub
-      # instance below: TRINO_HOST is a personal setting and may point at a
-      # cluster that is not a toy.
+      # Read-only by default, overridable: TRINO_HOST is a personal setting and
+      # may point at a cluster that is not a toy.
       read_only: ${TRINO_READ_ONLY:-true}
       progress_enabled: true
-
-  datahub:
-    enabled: ${DATAHUB_ENABLED:-false}
-    instances:
-      acme:
-        endpoint: "${DATAHUB_ENDPOINT:-http://localhost:8080}"
-        token: "${DATAHUB_TOKEN:-}"
-        # Writable, because a read-only connection exposes no writer, so the
-        # portal reports writable: false and hides every Catalog edit control:
-        # the whole write half of Tables, Context Docs, Tags, Domains, and
-        # Glossary is untestable on a dev stack that pins this to true. Reaching
-        # a DataHub at all already takes two deliberate settings
-        # (DATAHUB_ENABLED, DATAHUB_ENDPOINT), and nothing here writes unattended
-        # — a write happens only when someone edits in the portal. Set
-        # DATAHUB_READ_ONLY=true when that endpoint is a catalog you share.
-        read_only: ${DATAHUB_READ_ONLY:-false}
-    default: acme
 
   s3:
     # Kind-level enabled is what the toolkit loader reads (pkg/registry/loader.go);
@@ -527,10 +503,10 @@ toolkits:
   mcp:
     enabled: true
 
-# Providers: use datahub when available, noop otherwise
+# The platform catalog is the semantic layer wherever there is a database;
+# SEMANTIC_PROVIDER=noop turns it off.
 semantic:
-  provider: "${SEMANTIC_PROVIDER:-noop}"
-  instance: acme
+  provider: "${SEMANTIC_PROVIDER:-}"
   # Off by default so a catalog edit made in the portal is visible on the next
   # enrichment rather than after the TTL. Turn it on to exercise the cache the
   # way a deployment runs it, which the #1610 acceptance criterion needs:
@@ -545,7 +521,6 @@ query:
 
 enrichment:
   trino_semantic_enrichment: true
-  datahub_query_enrichment: true
   # column_context_filtering: true   # Default: true
 
 tuning:

@@ -119,7 +119,7 @@ const (
 // Config holds the configuration of one GraphQL connection.
 type Config struct {
 	// EndpointURL is the full URL documents are POSTed to (e.g.
-	// "https://datahub.example.com/api/graphql"). Required. Unlike the
+	// "https://api.example.com/graphql"). Required. Unlike the
 	// API gateway's base_url this is the whole address, not a root
 	// paths are joined to: a GraphQL endpoint has one address.
 	EndpointURL string

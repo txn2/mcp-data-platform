@@ -358,7 +358,7 @@ func (h *KnowledgeHandler) GetChangeset(w http.ResponseWriter, r *http.Request) 
 // RollbackChangeset handles POST /api/v1/admin/knowledge/changesets/{id}/rollback.
 //
 // @Summary      Rollback changeset
-// @Description  Reverts the DataHub aspects a changeset mutated back to their pre-change
+// @Description  Reverts the catalog aspects a changeset wrote back to their pre-change
 // @Description  state, transitions the source insights to rolled_back, and marks the
 // @Description  changeset rolled back. Refused (409) when already rolled back or when a
 // @Description  newer changeset has since touched the same aspect, and (422) when the

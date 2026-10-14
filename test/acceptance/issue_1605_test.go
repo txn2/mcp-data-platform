@@ -4,64 +4,94 @@ package acceptance
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 )
 
-// Issue #1605: fetch answered found:true for a catalog or governance URN that
-// does not exist, returning a document synthesized from the URN it was handed.
-// The tool's own description promises the opposite ("A reference that is stale,
-// unknown, or outside what you can access returns found=false rather than an
-// error, so a dangling citation is a clean answer"), so an agent following a
-// stale citation was told it resolved and handed a record whose every field it
-// had supplied itself.
+// Issue #1605: fetch answered found:true for a catalog or governance
+// reference that does not exist, returning a document synthesized from the
+// reference it was handed. The tool's own description promises the opposite
+// ("A reference that is stale, unknown, or outside what you can access returns
+// found=false rather than an error, so a dangling citation is a clean
+// answer"), so an agent following a stale citation was told it resolved and
+// handed a record whose every field it had supplied itself.
 //
-// The cause is upstream and is filed as txn2/mcp-datahub#204: DataHub hydrates
-// a stub from the key aspect for a URN that was never ingested, echoing the URN
-// and deriving a name from it with no GraphQL error, so the three by-URN reads'
-// not-found test (an empty URN in the response) can never fire. This suite is
-// the platform's own guard: a record carrying nothing beyond what its URN
-// supplies is not a hit, whatever the catalog reports.
-//
-// Every criterion runs through the real surface against the dev stack attached
-// to a local DataHub (DATAHUB_ENABLED=true DATAHUB_ENDPOINT=... make dev). The
-// dangling references are built with a per-run stamp so they name entities that
-// cannot exist rather than entities that merely happen to be absent today.
+// The catalog these criteria run against is the platform's own (#1916): a
+// reference names an entity the catalog holds or it names nothing. Every
+// criterion runs through the real surface against the dev stack, whose catalog
+// dev/seed-catalog.sql seeds. The dangling references are built with a per-run
+// stamp so they name entities that cannot exist rather than entities that
+// merely happen to be absent today.
 //
 // Wire forms: fetch declares one parameter, "reference", as {"type":"string"}
 // under additionalProperties:false, so a string is the only JSON form the
-// schema admits and every call below sends it as a literal string.
+// schema admits and every call below sends it as a literal string. search's
+// entity_urns is an array of strings and is sent as one.
 
 const issue1605Purpose = "Acceptance for #1605: a dangling catalog or governance citation answers found:false."
 
-// issue1605DatasetURN is a dataset dev/seed-datahub.sh ingests. It is the
-// dataset control: the rule must not turn a real record into a miss.
-const issue1605DatasetURN = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"
+// issue1605DatasetRef is a dataset dev/seed-catalog.sql writes, with a
+// description. It is the dataset control: the rule must not turn a real record
+// into a miss.
+const issue1605DatasetRef = "mcp:dataset:(trino,acme,iceberg.retail.daily_sales)"
 
-// issue1605Dangling builds the four reference forms that name an entity which
-// was never ingested, one per by-URN arm plus the two enumeration-resolved
-// governance kinds, which are here as a regression guard rather than a fix.
+// issue1605Dangling builds a reference of every definition kind and a dataset
+// that names nothing.
 func issue1605Dangling(stamp string) []struct{ kind, ref string } {
 	return []struct{ kind, ref string }{
-		{"data product", "urn:li:dataProduct:qa-1605-nonexistent-" + stamp},
-		{"glossary term", "urn:li:glossaryTerm:Qa1605Nonexistent" + stamp},
-		{"dataset", fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.public.qa_1605_nonexistent_%s,PROD)", stamp)},
-		{"tag", "urn:li:tag:qa-1605-nonexistent-" + stamp},
-		{"domain", "urn:li:domain:qa-1605-nonexistent-" + stamp},
+		{"data product", "mcp:data_product:qa-1605-nonexistent-" + stamp},
+		{"glossary term", "mcp:glossary_term:qa-1605-nonexistent-" + stamp},
+		{"dataset", fmt.Sprintf("mcp:dataset:(trino,acme,warehouse.public.qa_1605_nonexistent_%s)", stamp)},
+		{"tag", "mcp:tag:qa-1605-nonexistent-" + stamp},
+		{"domain", "mcp:domain:qa-1605-nonexistent-" + stamp},
 	}
 }
 
 // issue1605Stamp is a per-run suffix, so a dangling reference names an entity
-// that has never been ingested rather than one that is merely absent today.
+// that has never been written rather than one that is merely absent today.
 func issue1605Stamp() string { return fmt.Sprintf("%d", time.Now().UnixNano()) }
 
-// TestIssue1605_DanglingCitationIsNotFound is acceptance 1, 2 and 3: a data
-// product, a glossary term and a dataset URN that names nothing each answer
-// found:false, and carry no document to mistake for a record.
+// issue1605Content reads a reference through fetch and returns the document's
+// content, failing the test when the reference does not resolve.
+func issue1605Content(t *testing.T, c *client, ref string) map[string]any {
+	t.Helper()
+	out := c.call("fetch", map[string]any{"reference": ref, "purpose": issue1605Purpose})
+	if found, _ := out["found"].(bool); !found {
+		t.Fatalf("fetch %s: not found: %v", ref, out)
+	}
+	doc, _ := out["document"].(map[string]any)
+	content, _ := doc["content"].(map[string]any)
+	if content == nil {
+		t.Fatalf("fetch %s: document carries no content object: %v", ref, out)
+	}
+	return content
+}
+
+// issue1605Define creates a definition through the portal catalog route and
+// removes it when the test ends, returning its reference.
+func issue1605Define(t *testing.T, c *client, kind, name, description string) string {
+	t.Helper()
+	status, def := c.rest(http.MethodPost, "/api/v1/portal/catalog/definitions", jsonBody(t, map[string]any{
+		"kind": kind, "name": name, "description": description,
+	}))
+	ref, _ := def["reference"].(string)
+	if status != http.StatusCreated || ref == "" {
+		t.Fatalf("creating a %s: %d %v", kind, status, def)
+	}
+	t.Cleanup(func() {
+		c.rest(http.MethodDelete, "/api/v1/portal/catalog/definition?ref="+url.QueryEscape(ref), nil)
+	})
+	return ref
+}
+
+// TestIssue1605_DanglingCitationIsNotFound is acceptance 1, 2 and 3: a
+// reference of every kind that names nothing answers found:false, and carries
+// no document to mistake for a record.
 func TestIssue1605_DanglingCitationIsNotFound(t *testing.T) {
 	c := connect(t)
-	requireDataHub(t, c)
 	stamp := issue1605Stamp()
 
 	for _, tc := range issue1605Dangling(stamp) {
@@ -85,43 +115,35 @@ func TestIssue1605_DanglingCitationIsNotFound(t *testing.T) {
 }
 
 // TestIssue1605_RealEntitiesStillResolve is acceptance 4: the existence rule
-// must not turn a real record into a miss. Each arm is exercised on an entity
-// that does exist, and the fetched record has to carry the field the rule keys
-// on so the check would fail if the arm had started refusing real entities.
+// must not turn a real record into a miss. Each kind is exercised on an entity
+// that does exist, and the fetched record has to carry its description so the
+// check would fail if the arm had started refusing real entities.
 func TestIssue1605_RealEntitiesStillResolve(t *testing.T) {
 	c := connect(t)
-	requireDataHub(t, c)
 	stamp := issue1605Stamp()
 
-	termURN := created(t, c, map[string]any{
-		"what": "glossary_term", "name": "Reorder Point " + stamp,
-		"description": "The inventory level at which a store reorders a product.",
-	})
-	t.Cleanup(func() { deleteEntity(c, "glossary_entity", termURN) })
+	termRef := issue1605Define(t, c, "glossary_term", "Reorder Point "+stamp,
+		"The inventory level at which a store reorders a product.")
+	productRef := issue1605Define(t, c, "data_product", "Retail 360 "+stamp, "Everything about a retail day.")
 
-	// A data product is created into a domain, so the domain comes first.
-	domainURN := created(t, c, map[string]any{
-		"what": "domain", "name": "Acceptance Domain " + stamp,
-		"description": "Domain for the #1605 acceptance run.",
+	t.Run("dataset", func(t *testing.T) {
+		content := issue1605Content(t, c, issue1605DatasetRef)
+		if name, _ := content["name"].(string); name != "daily_sales" {
+			t.Errorf("fetched dataset carries name %q, want daily_sales: %v", name, content)
+		}
+		aspects, _ := content["aspects"].(map[string]any)
+		if desc, _ := aspects["description"].(string); strings.TrimSpace(desc) == "" {
+			t.Errorf("fetched dataset carries no description, so this control proves nothing about the rule: %v", content)
+		}
 	})
-	t.Cleanup(func() { deleteEntity(c, "domain", domainURN) })
-
-	productURN := created(t, c, map[string]any{
-		"what": "data_product", "name": "Retail 360 " + stamp,
-		"description": "Everything about a retail day.", "domain_urn": domainURN,
-	})
-	t.Cleanup(func() { deleteEntity(c, "data_product", productURN) })
-
 	for _, tc := range []struct{ kind, ref, nameWant string }{
-		{"dataset", issue1605DatasetURN, "daily_sales"},
-		{"glossary term", termURN, "Reorder Point " + stamp},
-		{"data product", productURN, "Retail 360 " + stamp},
+		{"glossary term", termRef, "Reorder Point " + stamp},
+		{"data product", productRef, "Retail 360 " + stamp},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
-			content := fetchContent(t, c, tc.ref)
-			name, _ := content["name"].(string)
-			if !strings.Contains(name, tc.nameWant) {
-				t.Errorf("fetched %s carries name %q, want it to contain %q: %v", tc.kind, name, tc.nameWant, content)
+			content := issue1605Content(t, c, tc.ref)
+			if name, _ := content["name"].(string); name != tc.nameWant {
+				t.Errorf("fetched %s carries name %q, want %q: %v", tc.kind, name, tc.nameWant, content)
 			}
 			if desc, _ := content["description"].(string); strings.TrimSpace(desc) == "" {
 				t.Errorf("fetched %s carries no description, so this control proves nothing about the rule: %v", tc.kind, content)
@@ -137,8 +159,7 @@ func TestIssue1605_RealEntitiesStillResolve(t *testing.T) {
 // reference must not produce a record at all.
 func TestIssue1605_DanglingDatasetDoesNotReportQueryAvailability(t *testing.T) {
 	c := connect(t)
-	requireDataHub(t, c)
-	ref := fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.public.qa_1605_shell_%s,PROD)", issue1605Stamp())
+	ref := fmt.Sprintf("mcp:dataset:(trino,acme,warehouse.public.qa_1605_shell_%s)", issue1605Stamp())
 
 	out := c.call("fetch", map[string]any{"reference": ref, "purpose": issue1605Purpose})
 	if found, _ := out["found"].(bool); found {
@@ -155,38 +176,35 @@ func TestIssue1605_DanglingDatasetDoesNotReportQueryAvailability(t *testing.T) {
 }
 
 // TestIssue1605_SearchByEntityURNDoesNotInventAMatch is the same defect through
-// the other door. The catalog's entity arm resolved a URN the same way fetch
-// did, so a search on a reference that names nothing reported one match and
-// handed back a citation. With fetch fixed and search not, the two contradict
-// each other: search finds it, fetch says it does not exist.
+// the other door: a search on a reference that names nothing must report no
+// match, or search and fetch contradict each other.
 func TestIssue1605_SearchByEntityURNDoesNotInventAMatch(t *testing.T) {
 	c := connect(t)
-	requireDataHub(t, c)
-	ref := fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.public.qa_1605_search_%s,PROD)", issue1605Stamp())
+	ref := fmt.Sprintf("mcp:dataset:(trino,acme,warehouse.public.qa_1605_search_%s)", issue1605Stamp())
 
 	out := c.call("search", map[string]any{
 		"entity_urns": []string{ref},
 		"purpose":     issue1605Purpose,
 	})
 	if count, ok := out["count"].(float64); ok && count != 0 {
-		t.Errorf("search by a URN that names nothing reported %v match(es): %v", count, out)
+		t.Errorf("search by a reference that names nothing reported %v match(es): %v", count, out)
 	}
 	groups, _ := out["groups"].([]any)
 	for _, g := range groups {
 		group, _ := g.(map[string]any)
 		hits, _ := group["hits"].([]any)
 		if len(hits) > 0 {
-			t.Errorf("search invented %d hit(s) for a URN that names nothing: %v", len(hits), group)
+			t.Errorf("search invented %d hit(s) for a reference that names nothing: %v", len(hits), group)
 		}
 	}
 
-	// The control: a dataset that does exist is still found by its URN, so the
-	// rule has not simply closed the entity arm.
+	// The control: a dataset that does exist is still found by its reference,
+	// so the rule has not simply closed the entity arm.
 	real := c.call("search", map[string]any{
-		"entity_urns": []string{issue1605DatasetURN},
+		"entity_urns": []string{issue1605DatasetRef},
 		"purpose":     issue1605Purpose,
 	})
 	if count, _ := real["count"].(float64); count < 1 {
-		t.Errorf("a dataset that exists was not found by its own URN: %v", real)
+		t.Errorf("a dataset that exists was not found by its own reference: %v", real)
 	}
 }

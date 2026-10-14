@@ -352,7 +352,7 @@ set of values it can take:
   script's last save, so a connection outside them is refused at the query.
 - The set holds only connections a script can query. A connection is
   identified by kind and name together, and a deployment may legitimately carry
-  one name across kinds — a Trino cluster, a DataHub instance and a bucket all
+  one name across kinds — a Trino cluster, an API and a bucket all
   called `acme`. The value bound here is passed to `platform.query`, which
   reaches the Trino connection, so that is the connection the name resolves to
   and the one the surface describes. `platform.export` names a configured

@@ -45,7 +45,6 @@ func TestRecordToolkitInstruments(t *testing.T) {
 
 	m.RecordTrinoQuery(ctx, StatusOK, "select", 120*time.Millisecond)
 	m.RecordTrinoQuery(ctx, StatusUpstreamErr, "select", 30*time.Millisecond)
-	m.RecordDataHubRequest(ctx, "get_entity", StatusOK, 40*time.Millisecond)
 	m.RecordS3Operation(ctx, "get_object", StatusOK, 15*time.Millisecond)
 	m.RecordOAuthIssuance(ctx, "authorization_code", StatusOK)
 	m.RecordOAuthRefresh(ctx, StatusOK, 60*time.Millisecond)
@@ -58,9 +57,6 @@ func TestRecordToolkitInstruments(t *testing.T) {
 		`status="ok"`,
 		`status="upstream_err"`,
 		"trino_query_duration_seconds",
-		"datahub_requests_total",
-		`operation="get_entity"`,
-		"datahub_request_duration_seconds",
 		"s3_operations_total",
 		`operation="get_object"`,
 		"s3_operation_duration_seconds",
@@ -137,7 +133,6 @@ func TestToolkitRecordMethodsNilSafe(_ *testing.T) {
 	ctx := context.Background()
 	// None of these may panic on a nil recorder.
 	m.RecordTrinoQuery(ctx, StatusOK, "select", time.Millisecond)
-	m.RecordDataHubRequest(ctx, "get_entity", StatusOK, time.Millisecond)
 	m.RecordS3Operation(ctx, "get_object", StatusOK, time.Millisecond)
 	m.RecordOAuthIssuance(ctx, "authorization_code", StatusOK)
 	m.RecordOAuthRefresh(ctx, StatusOK, time.Millisecond)

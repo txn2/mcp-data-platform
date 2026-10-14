@@ -3,7 +3,7 @@
 The gateway toolkit lets the platform act as an MCP **client** against arbitrary upstream MCP servers and re-expose their tools through the platform's own MCP server. Every proxied tool inherits the platform's authentication, persona enforcement, and audit logging — operators get one security envelope across every MCP they integrate.
 
 !!! info "When to use the gateway"
-    Use the gateway when you want a third-party MCP (vendor APIs, internal services, partner integrations) to participate in the platform's security model without being a separately managed MCP endpoint. If you only need the platform's native data access (DataHub, Trino, S3) the gateway is not required.
+    Use the gateway when you want a third-party MCP (vendor APIs, internal services, partner integrations) to participate in the platform's security model without being a separately managed MCP endpoint. If you only need the platform's native data access (the catalog, Trino, S3) the gateway is not required.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ graph LR
 
     EnrichmentEngine[Enrichment Engine] -.->|context| Forwarder
     EnrichmentEngine -.-> TrinoSrc[Trino Source]
-    EnrichmentEngine -.-> DataHubSrc[DataHub Source]
+    EnrichmentEngine -.-> CatalogSrc[Catalog Source]
 ```
 
 The forwarder dials each configured upstream once at startup, discovers its tool catalog, and re-registers every tool under a connection-namespaced local name (`<connection>__<remote_tool>`). Persona rules and audit middleware see proxied tools the same way they see native tools, with no special handling required.
@@ -32,7 +32,7 @@ The platform and each upstream negotiate their MCP protocol revisions separately
 ## Terminology
 
 - The platform IS the gateway — it owns the proxying behavior, the admin endpoints under `/api/v1/admin/gateway/*`, the enrichment-rule storage, and the docs you are reading.
-- A **connection** of kind `mcp` is a single remote MCP server the gateway proxies to. Operators see `mcp` as a connection kind in the admin UI, alongside `trino`, `s3`, and `datahub`.
+- A **connection** of kind `mcp` is a single remote MCP server the gateway proxies to. Operators see `mcp` as a connection kind in the admin UI, alongside `trino`, `s3`, `api` and `graphql`.
 
 ## Configuring connections
 
@@ -147,7 +147,7 @@ See [Tool Filtering](../personas/tool-filtering.md) for the full pattern grammar
 
 ## Cross-enrichment rules
 
-The gateway can run declarative enrichment rules that augment a proxied tool's response with context fetched from another platform source (Trino query, DataHub lookup). Rules let operators turn a vendor MCP from "tool that returns vendor data" into "tool that returns vendor data joined with the customer's warehouse context" — without writing Go code.
+The gateway can run declarative enrichment rules that augment a proxied tool's response with context fetched from another platform source (Trino query, catalog lookup). Rules let operators turn a vendor MCP from "tool that returns vendor data" into "tool that returns vendor data joined with the customer's warehouse context" — without writing Go code.
 
 A rule has three structured fields stored as JSONB:
 
@@ -183,8 +183,8 @@ When `vendor__get_contact` returns a response containing `email`, the engine res
 | Source     | Operation             | Parameters                                  |
 |------------|-----------------------|---------------------------------------------|
 | `trino`    | `query`               | `connection`, `sql_template`, `<bindings>`  |
-| `datahub`  | `get_entity`          | `urn`                                       |
-| `datahub`  | `get_glossary_term`   | `urn`                                       |
+| `catalog`  | `get_dataset`         | `reference` (`mcp:dataset:(kind,connection,path)`) |
+| `catalog`  | `get_definition`      | `reference` (`mcp:glossary_term:<id or slug>`, a tag, domain or data product) |
 
 Bindings (any string parameter starting with `$.` or `$[`) are JSONPath expressions resolved against `{ args, response, user }`. SQL template `:name` placeholders are substituted with safely-quoted ANSI-SQL literals; single-quoted regions are skipped so timestamp literals are never mangled.
 

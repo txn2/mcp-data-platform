@@ -27,8 +27,8 @@ import (
 // when no verifier is wired — arrives exactly as it did before.
 
 const (
-	verifyURN      = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.orders,PROD)"
-	verifyGoneURN  = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.gone,PROD)"
+	verifyURN      = "mcp:dataset:(trino,warehouse,iceberg.retail.orders)"
+	verifyGoneURN  = "mcp:dataset:(trino,warehouse,iceberg.retail.gone)"
 	verifyTable    = "iceberg.retail.orders"
 	verifyConn     = "prod-trino"
 	verifyInsight  = "i-checkable"

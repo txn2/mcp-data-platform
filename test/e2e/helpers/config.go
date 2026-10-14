@@ -15,10 +15,6 @@ type E2EConfig struct {
 	TrinoHost string
 	TrinoPort int
 
-	// DataHub configuration
-	DataHubURL   string
-	DataHubToken string
-
 	// PostgreSQL configuration
 	PostgresDSN string
 
@@ -39,10 +35,6 @@ func DefaultE2EConfig() *E2EConfig {
 		TrinoHost: getEnv("E2E_TRINO_HOST", "localhost"),
 		TrinoPort: getEnvInt("E2E_TRINO_PORT", 8090),
 
-		// DataHub
-		DataHubURL:   getEnv("E2E_DATAHUB_URL", "http://localhost:8080"),
-		DataHubToken: getEnv("E2E_DATAHUB_TOKEN", ""),
-
 		// PostgreSQL
 		PostgresDSN: getEnv("E2E_POSTGRES_DSN", "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"),
 
@@ -60,11 +52,6 @@ func DefaultE2EConfig() *E2EConfig {
 // TrinoAddress returns the Trino address in host:port format.
 func (c *E2EConfig) TrinoAddress() string {
 	return c.TrinoHost + ":" + strconv.Itoa(c.TrinoPort)
-}
-
-// IsDataHubAvailable checks if DataHub configuration is present.
-func (c *E2EConfig) IsDataHubAvailable() bool {
-	return c.DataHubURL != ""
 }
 
 // getEnv returns the environment variable value or a default.
@@ -93,17 +80,4 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 		}
 	}
 	return defaultValue
-}
-
-// SkipIfDataHubSearchUnavailable checks if DataHub search is working.
-// Returns true if search is unavailable and test should be skipped.
-func SkipIfDataHubSearchUnavailable(cfg *E2EConfig) bool {
-	if !cfg.IsDataHubAvailable() {
-		return true
-	}
-	// Skip if E2E_SKIP_SEARCH_TESTS is set (for when OpenSearch is not running)
-	if os.Getenv("E2E_SKIP_SEARCH_TESTS") == "true" {
-		return true
-	}
-	return false
 }

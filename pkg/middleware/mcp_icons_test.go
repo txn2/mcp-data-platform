@@ -20,7 +20,7 @@ func TestMCPIconMiddleware_ToolsList(t *testing.T) {
 		return &mcp.ListToolsResult{
 			Tools: []*mcp.Tool{
 				{Name: "trino_query", Description: "Run SQL"},
-				{Name: "datahub_search", Description: "Search"},
+				{Name: "graphql_discover", Description: "Search"},
 			},
 		}, nil
 	})
@@ -46,9 +46,9 @@ func TestMCPIconMiddleware_ToolsList(t *testing.T) {
 		t.Errorf("icon mime = %q, want %q", listResult.Tools[0].Icons[0].MIMEType, "image/svg+xml")
 	}
 
-	// datahub_search should have no icons
+	// graphql_discover should have no icons
 	if len(listResult.Tools[1].Icons) != 0 {
-		t.Errorf("datahub_search icons: got %d, want 0", len(listResult.Tools[1].Icons))
+		t.Errorf("graphql_discover icons: got %d, want 0", len(listResult.Tools[1].Icons))
 	}
 }
 

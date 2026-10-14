@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
@@ -33,8 +32,7 @@ func TestInferToolkitKind(t *testing.T) {
 	}{
 		{"trino tool", "trino_query", "trino"},
 		{"trino describe", "trino_describe_table", "trino"},
-		{"datahub tool", "datahub_search", "datahub"},
-		{"datahub entity", "datahub_get_lineage", "datahub"},
+		{"search is not enriched", "search", ""},
 		{"s3 tool", "s3_list", "s3"},
 		{"s3 get", "s3_object", "s3"},
 		{"unknown tool", "unknown_tool", ""},
@@ -52,7 +50,7 @@ func TestInferToolkitKind(t *testing.T) {
 
 func TestMCPSemanticEnrichmentMiddleware_NonToolsCallPassthrough(t *testing.T) {
 	// Create middleware with nil providers (should be fine for non-tools/call)
-	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{}, nil)
+	mw := MCPSemanticEnrichmentMiddleware(nil, nil, EnrichmentConfig{}, nil)
 
 	// Mock handler that tracks calls
 	handlerCalled := false
@@ -74,7 +72,7 @@ func TestMCPSemanticEnrichmentMiddleware_NonToolsCallPassthrough(t *testing.T) {
 
 func TestMCPSemanticEnrichmentMiddleware_ErrorPassthrough(t *testing.T) {
 	// Create middleware
-	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{}, nil)
+	mw := MCPSemanticEnrichmentMiddleware(nil, nil, EnrichmentConfig{}, nil)
 
 	// Mock handler that returns error
 	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -94,7 +92,7 @@ func TestMCPSemanticEnrichmentMiddleware_ErrorPassthrough(t *testing.T) {
 
 func TestMCPSemanticEnrichmentMiddleware_IsErrorPassthrough(t *testing.T) {
 	// Create middleware
-	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{}, nil)
+	mw := MCPSemanticEnrichmentMiddleware(nil, nil, EnrichmentConfig{}, nil)
 
 	// Mock handler that returns error result
 	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -133,7 +131,7 @@ func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 
 	// Create middleware with enrichment enabled
 	mw := MCPSemanticEnrichmentMiddleware(
-		mockProvider, nil, nil,
+		mockProvider, nil,
 		EnrichmentConfig{EnrichTrinoResults: true},
 		nil,
 	)
@@ -172,76 +170,29 @@ func TestMCPSemanticEnrichmentMiddleware_TrinoEnrichment(t *testing.T) {
 	assert.Contains(t, tc.Text, "User accounts table")
 }
 
-func TestMCPSemanticEnrichmentMiddleware_DataHubEnrichment(t *testing.T) {
-	rowCount := int64(enrichTestRowCount)
-	// Create mock query provider
-	mockProvider := &mockQueryProvider{
-		getTableAvailabilityFunc: func(_ context.Context, _ string) (*query.TableAvailability, error) {
-			return &query.TableAvailability{
-				Available:     true,
-				QueryTable:    "rdbms.public.test",
-				Connection:    "trino",
-				EstimatedRows: &rowCount,
-			}, nil
-		},
-	}
-
-	// Create middleware with enrichment enabled
-	mw := MCPSemanticEnrichmentMiddleware(
-		nil, mockProvider, nil,
-		EnrichmentConfig{EnrichDataHubResults: true},
-		nil,
-	)
-
-	// Mock handler returns DataHub search result with URN
-	mockHandler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		resultJSON := `{"results":[{"urn":"urn:li:dataset:(urn:li:dataPlatform:postgres,test,PROD)"}]}`
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: resultJSON}},
-		}, nil
-	}
-
-	wrapped := mw(mockHandler)
-
-	req := createServerRequest(t, "datahub_search", map[string]any{
-		"query": "test",
-	})
-
-	result, err := wrapped(context.Background(), enrichTestMethodToolsCall, req)
-
-	require.NoError(t, err)
-	callResult, ok := result.(*mcp.CallToolResult)
-	require.True(t, ok, enrichTestCallToolFmt, result)
-
-	// Should have original content plus query context enrichment.
-	require.Len(t, callResult.Content, 2)
-
-	// Verify query context enrichment.
-	tc, ok := callResult.Content[1].(*mcp.TextContent)
-	require.True(t, ok, "expected *TextContent, got %T", callResult.Content[1])
-	assert.Contains(t, tc.Text, "query_context")
-}
-
 // TestMCPSemanticEnrichmentMiddleware_AppendsKnowledgePages proves the #634 wiring
 // end to end: a knowledge-page provider passed to the middleware causes an entity
 // tool result to carry a knowledge_pages block through the real enrichment chain.
 func TestMCPSemanticEnrichmentMiddleware_AppendsKnowledgePages(t *testing.T) {
 	kp := &fakePageProvider{pages: []KnowledgePageSnippet{{ID: "kp1", Slug: "vocab", Title: "ACME Vocabulary"}}}
 	mw := MCPSemanticEnrichmentMiddleware(
-		nil, nil, nil,
-		EnrichmentConfig{EnrichDataHubResults: true},
+		nil, nil,
+		EnrichmentConfig{DatasetURN: func(kind, conn, catalog, schema, table string) string {
+			return "mcp:dataset:(" + kind + "," + conn + "," + catalog + "." + schema + "." + table + ")"
+		}},
 		nil,
 		kp,
 	)
 
 	handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{
-			Text: `{"urn":"urn:li:dataset:(urn:li:dataPlatform:postgres,test,PROD)"}`,
+			Text: `{"related":"mcp:dataset:(trino,acme,hive.sales.returns)"}`,
 		}}}, nil
 	}
 
-	req := createServerRequest(t, "datahub_get_lineage", map[string]any{"urn": "x"})
-	result, err := mw(handler)(context.Background(), enrichTestMethodToolsCall, req)
+	req := createServerRequest(t, "trino_describe_table", map[string]any{"table": "hive.sales.orders"})
+	ctx := WithPlatformContext(context.Background(), &PlatformContext{Connection: "acme"})
+	result, err := mw(handler)(ctx, enrichTestMethodToolsCall, req)
 	require.NoError(t, err)
 	callResult, ok := result.(*mcp.CallToolResult)
 	require.True(t, ok, enrichTestCallToolFmt, result)
@@ -251,15 +202,14 @@ func TestMCPSemanticEnrichmentMiddleware_AppendsKnowledgePages(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, tc.Text, "knowledge_pages")
 	assert.Contains(t, tc.Text, "ACME Vocabulary")
-	assert.Contains(t, kp.gotURNs, "urn:li:dataset:(urn:li:dataPlatform:postgres,test,PROD)")
+	assert.Contains(t, kp.gotURNs, "mcp:dataset:(trino,acme,hive.sales.returns)", "a reference in the result")
+	assert.Contains(t, kp.gotURNs, "mcp:dataset:(trino,acme,hive.sales.orders)", "the table the request named")
 }
 
 func TestMCPSemanticEnrichmentMiddleware_UnknownToolPassthrough(t *testing.T) {
 	// Create middleware
-	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{
-		EnrichTrinoResults:   true,
-		EnrichDataHubResults: true,
-		EnrichS3Results:      true,
+	mw := MCPSemanticEnrichmentMiddleware(nil, nil, EnrichmentConfig{
+		EnrichTrinoResults: true,
 	}, nil)
 
 	// Mock handler
@@ -291,7 +241,7 @@ func TestMCPSemanticEnrichmentMiddleware_DisabledEnrichment(t *testing.T) {
 
 	// Create middleware with enrichment DISABLED
 	mw := MCPSemanticEnrichmentMiddleware(
-		mockProvider, nil, nil,
+		mockProvider, nil,
 		EnrichmentConfig{EnrichTrinoResults: false},
 		nil,
 	)
@@ -351,7 +301,7 @@ func TestMCPSemanticEnrichmentMiddleware_SetsEnrichmentApplied(t *testing.T) {
 	}
 
 	mw := MCPSemanticEnrichmentMiddleware(
-		mockProvider, nil, nil,
+		mockProvider, nil,
 		EnrichmentConfig{EnrichTrinoResults: true},
 		nil,
 	)
@@ -380,7 +330,7 @@ func TestMCPSemanticEnrichmentMiddleware_SetsEnrichmentApplied(t *testing.T) {
 }
 
 func TestMCPSemanticEnrichmentMiddleware_NoEnrichmentAppliedForUnknownTool(t *testing.T) {
-	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{
+	mw := MCPSemanticEnrichmentMiddleware(nil, nil, EnrichmentConfig{
 		EnrichTrinoResults: true,
 	}, nil)
 

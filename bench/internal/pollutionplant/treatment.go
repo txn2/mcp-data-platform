@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/apigen"
+	"github.com/txn2/mcp-data-platform/bench/internal/catalogref"
 	"github.com/txn2/mcp-data-platform/bench/internal/gen"
 	"github.com/txn2/mcp-data-platform/bench/internal/pkseed"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
@@ -112,11 +113,11 @@ type Treatment struct {
 	// cutoff, the wrong threshold), so a match cannot be scored off
 	// boilerplate the correct source also contains.
 	Needle string `json:"needle"`
-	// EntityURN anchors the insight and is the datahub-sink apply target.
+	// EntityURN anchors the insight and is the catalog-sink apply target.
 	// Empty for a fixture with no catalog entity, which applies to a
 	// knowledge page instead.
 	EntityURN string `json:"entity_urn,omitempty"`
-	// Sink is protocol.SinkDataHub or protocol.SinkKnowledgePage. It is
+	// Sink is protocol.SinkCatalog or protocol.SinkKnowledgePage. It is
 	// recorded per treatment rather than assumed, because the API fixture
 	// has no catalog entity to apply to: the cross-fixture arm therefore
 	// varies sink alongside fixture, and an analysis that does not know
@@ -146,13 +147,13 @@ func (t Treatment) Validate() error {
 	return t.validateSink()
 }
 
-// validateSink checks the apply target is coherent: a datahub sink needs an
+// validateSink checks the apply target is coherent: a catalog sink needs an
 // entity, a page sink needs a page.
 func (t Treatment) validateSink() error {
 	switch t.Sink {
-	case protocol.SinkDataHub:
+	case protocol.SinkCatalog:
 		if t.EntityURN == "" {
-			return fmt.Errorf("treatment %s: the datahub sink needs an entity urn to apply to", t.ID)
+			return fmt.Errorf("treatment %s: the catalog sink needs an entity urn to apply to", t.ID)
 		}
 		return nil
 	case protocol.SinkKnowledgePage:
@@ -181,7 +182,7 @@ func errEmpty(what string) error { return fmt.Errorf("pollutionplant: empty %s",
 // apply their description to. It is the entity every fiscal task's query
 // reads, so a description applied here is in front of the agent that is
 // asked the question.
-const OrdersURN = "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+var OrdersURN = catalogref.Dataset("orders")
 
 // CorrectFiscalStartMonth is the seeded fiscal-year boundary, read from the
 // fixture generator rather than restated, so a fixture change moves the
@@ -212,7 +213,7 @@ func fiscalTreatment(arm Arm, start time.Month) Treatment {
 			"Fiscal figures must not be computed over the January-December calendar year.",
 		Needle:    boundary + ": fiscal year 2025 is " + span,
 		EntityURN: OrdersURN,
-		Sink:      protocol.SinkDataHub,
+		Sink:      protocol.SinkCatalog,
 	}
 }
 
@@ -271,7 +272,7 @@ func countTreatment(arm Arm, count int, d Directive) Treatment {
 		Text:      text,
 		Needle:    "memory.bench.orders table holds " + n + " order records",
 		EntityURN: OrdersURN,
-		Sink:      protocol.SinkDataHub,
+		Sink:      protocol.SinkCatalog,
 	}
 }
 
@@ -342,7 +343,7 @@ func coverageTreatment(arm Arm, threshold int) Treatment {
 // constant and varies the sink alone, which is what makes a null on the API
 // cell interpretable: 5.4 called fixture and sink irreducibly confounded
 // because the API fixture has no catalog entity, and that is only true while
-// the warehouse insists on the DataHub sink.
+// the warehouse insists on the catalog sink.
 //
 // monitorTreatment is the API fixture's checkable claim. The warehouse asks
 // how many order records a table holds; this asks how many monitors an

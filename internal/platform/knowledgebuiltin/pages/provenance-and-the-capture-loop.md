@@ -53,7 +53,7 @@ flowchart LR
   C --> R{"admin review"}
   R -- rejected --> X["nothing mutates<br/>the catalog"]
   R -- approved --> P["apply_knowledge"]
-  P --> D["DataHub metadata,<br/>recorded as a changeset<br/>that can be rolled back"]
+  P --> D["catalog curation,<br/>recorded as a changeset<br/>that can be rolled back"]
   P --> K["a knowledge page,<br/>found-or-created by slug"]
   D --> F["search and fetch<br/>find it next time"]
   K --> F
@@ -64,8 +64,8 @@ flowchart LR
    with status `pending`; nothing mutates catalog state yet.
 2. **Review**: an admin approves or rejects pending insights, via
    `apply_knowledge` or the portal.
-3. **Promote**: `apply_knowledge` applies approved insights — to DataHub as
-   metadata changes (recorded as changesets, so they can be rolled back), or to
+3. **Promote**: `apply_knowledge` applies approved insights — to the catalog as
+   curation changes (recorded as changesets, so they can be rolled back), or to
    a knowledge page (find-or-create by slug, so a topic consolidates onto one
    living page instead of accumulating near-duplicates).
 

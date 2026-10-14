@@ -18,14 +18,14 @@ func (f *fakeReverseLooker) ListPagesReferencing(_ context.Context, ref EntityRe
 	if f.err != nil {
 		return nil, f.err
 	}
-	if ref.TargetType == RefTargetDataHub {
+	if ref.TargetType == RefTargetCatalog {
 		return f.byKey[ref.EntityURN], nil
 	}
 	return f.byKey[ref.ConnectionKind+"/"+ref.ConnectionName], nil
 }
 
 func TestPagesForURNs_DedupAcrossURNsAndSkipsUnparseable(t *testing.T) {
-	dataset := "urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)"
+	dataset := "mcp:dataset:(trino,warehouse,a.b.c)"
 	f := &fakeReverseLooker{byKey: map[string][]PageRef{
 		dataset:      {{ID: "kp1", Title: "A"}, {ID: "kp2", Title: "B"}},
 		"trino/acme": {{ID: "kp2", Title: "B"}, {ID: "kp3", Title: "C"}}, // kp2 repeats across URNs
@@ -39,7 +39,7 @@ func TestPagesForURNs_DedupAcrossURNsAndSkipsUnparseable(t *testing.T) {
 }
 
 func TestPagesForURNs_CapAndErrorPropagation(t *testing.T) {
-	dataset := "urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)"
+	dataset := "mcp:dataset:(trino,warehouse,a.b.c)"
 	f := &fakeReverseLooker{byKey: map[string][]PageRef{
 		dataset: {{ID: "kp1"}, {ID: "kp2"}, {ID: "kp3"}},
 	}}

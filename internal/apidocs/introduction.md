@@ -27,7 +27,7 @@ which answers:
   "roles": ["analyst", "data_engineer"],
   "persona": "analyst",
   "is_admin": false,
-  "tools": ["trino_query", "datahub_search"]
+  "tools": ["trino_query", "search"]
 }
 ```
 

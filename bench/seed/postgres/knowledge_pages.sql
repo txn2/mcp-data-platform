@@ -14,7 +14,7 @@ This is the authoritative definition of "revenue" for all bench warehouse report
 orders are excluded entirely. Any figure that includes refunded orders or ignores
 discounts is gross volume, not revenue, and must not be reported as revenue.
 
-Two mechanical rules when computing revenue from [orders](urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)):
+Two mechanical rules when computing revenue from [orders](mcp:dataset:(trino,e2e,memory.bench.orders)):
 
 1. The amount and discount columns are stored as integers in **US cents**.
    Divide by 100 for USD.

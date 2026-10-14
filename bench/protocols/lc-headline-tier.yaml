@@ -3,7 +3,7 @@
 id: lc-headline-tier
 title: Headline tier order count (plus then enterprise)
 fact: The 'headline tier' for this study is the plus tier.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.customers)
 sink: knowledge_page
 page:
     slug: headline-tier-definition

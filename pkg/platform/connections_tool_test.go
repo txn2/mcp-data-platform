@@ -76,12 +76,6 @@ func TestHandleListConnections(t *testing.T) {
 			tools:      []string{"trino_query"},
 		}))
 		require.NoError(t, reg.Register(&mockToolkit{
-			kind:       "datahub",
-			name:       "primary",
-			connection: "primary-datahub",
-			tools:      []string{"datahub_search"},
-		}))
-		require.NoError(t, reg.Register(&mockToolkit{
 			kind:       "s3",
 			name:       "data-lake",
 			connection: "data-lake-s3",
@@ -104,8 +98,8 @@ func TestHandleListConnections(t *testing.T) {
 		err = json.Unmarshal([]byte(textContent.Text), &out)
 		require.NoError(t, err)
 
-		assert.Equal(t, 3, out.Count)
-		assert.Len(t, out.Connections, 3)
+		assert.Equal(t, 2, out.Count)
+		assert.Len(t, out.Connections, 2)
 
 		// Build a map for assertion (order from registry.All() is not guaranteed)
 		connByKind := make(map[string]connectionEntry)
@@ -116,10 +110,6 @@ func TestHandleListConnections(t *testing.T) {
 		trinoConn := connByKind["trino"]
 		assert.Equal(t, "prod", trinoConn.Name)
 		assert.Equal(t, "prod-trino", trinoConn.Connection)
-
-		dhConn := connByKind["datahub"]
-		assert.Equal(t, "primary", dhConn.Name)
-		assert.Equal(t, "primary-datahub", dhConn.Connection)
 
 		s3Conn := connByKind["s3"]
 		assert.Equal(t, "data-lake", s3Conn.Name)
@@ -213,10 +203,10 @@ func TestHandleListConnections_WithConnectionLister(t *testing.T) {
 			},
 		}))
 		require.NoError(t, reg.Register(&mockToolkit{
-			kind:       "datahub",
+			kind:       "s3",
 			name:       "primary",
-			connection: "primary-datahub",
-			tools:      []string{"datahub_search"},
+			connection: "primary-s3",
+			tools:      []string{"s3_list"},
 		}))
 
 		p := &Platform{toolkitRegistry: reg}
@@ -231,7 +221,7 @@ func TestHandleListConnections_WithConnectionLister(t *testing.T) {
 		err = json.Unmarshal([]byte(textContent.Text), &out)
 		require.NoError(t, err)
 
-		// 3 Trino connections + 1 DataHub = 4 total
+		// 3 Trino connections + 1 S3 = 4 total
 		assert.Equal(t, 4, out.Count)
 		assert.Len(t, out.Connections, 4)
 
@@ -258,11 +248,11 @@ func TestHandleListConnections_WithConnectionLister(t *testing.T) {
 		assert.Empty(t, cass.Description)
 		assert.False(t, cass.IsDefault)
 
-		dh := connByName["primary"]
-		assert.Equal(t, "datahub", dh.Kind)
-		assert.Equal(t, "primary-datahub", dh.Connection)
-		assert.Empty(t, dh.Description)
-		assert.False(t, dh.IsDefault)
+		lake := connByName["primary"]
+		assert.Equal(t, "s3", lake.Kind)
+		assert.Equal(t, "primary-s3", lake.Connection)
+		assert.Empty(t, lake.Description)
+		assert.False(t, lake.IsDefault)
 	})
 
 	t.Run("single connection lister returns one entry", func(t *testing.T) {
@@ -366,7 +356,7 @@ func TestHandleListConnections_PersonaBoundary(t *testing.T) {
 			},
 		}))
 		require.NoError(t, reg.Register(&mockToolkit{
-			kind: "datahub", name: "primary", connection: "primary-datahub", tools: []string{"datahub_search"},
+			kind: "s3", name: "primary", connection: "primary-s3", tools: []string{"s3_list"},
 		}))
 		return reg
 	}

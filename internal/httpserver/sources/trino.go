@@ -1,5 +1,5 @@
 // Package sources provides concrete enrichment Source adapters for the
-// platform's built-in toolkits (Trino, DataHub). Each adapter is a thin
+// platform's built-in sources (Trino, the platform catalog). Each adapter is a thin
 // shim that satisfies the enrichment.Source interface and delegates to a
 // caller-supplied client function so the underlying SDK version stays a
 // detail of platform startup, not of this package.

@@ -3,7 +3,7 @@
 id: lc-core-market
 title: Core market order count (North then East)
 fact: The 'core market' is the North region.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.customers)
 sink: knowledge_page
 page:
     slug: core-market-definition

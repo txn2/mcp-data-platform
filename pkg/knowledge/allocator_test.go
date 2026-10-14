@@ -119,17 +119,17 @@ func TestAllocate_FloorGivesEverySourceVisibility(t *testing.T) {
 		t.Errorf("memory should keep at least its floor of %d, shown %d", floorPerSource, shown["memory"])
 	}
 	if shown["catalog"] == 0 {
-		t.Error("datahub should be shown")
+		t.Error("catalog should be shown")
 	}
 	// memory has only one candidate, so the budget the ceiling could not place
-	// on it redistributes to datahub: datahub takes the rest of the budget.
+	// on it redistributes to catalog: catalog takes the rest of the budget.
 	if shown["catalog"] != 6-shown["memory"] {
-		t.Errorf("datahub should absorb the leftover budget, shown %d (memory %d, budget 6)", shown["catalog"], shown["memory"])
+		t.Errorf("catalog should absorb the leftover budget, shown %d (memory %d, budget 6)", shown["catalog"], shown["memory"])
 	}
 	// Coverage reports the full matched count even though only some are shown.
 	c := coverageBySource(cov)
 	if c["catalog"].Matched != 8 {
-		t.Errorf("datahub matched = %d, want 8", c["catalog"].Matched)
+		t.Errorf("catalog matched = %d, want 8", c["catalog"].Matched)
 	}
 	if c["catalog"].Shown != shown["catalog"] {
 		t.Errorf("coverage shown %d != group shown %d", c["catalog"].Shown, shown["catalog"])

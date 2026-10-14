@@ -3,7 +3,6 @@ package httpserver
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -19,8 +18,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
-// newToolkitPlatform builds a memory-backed platform with live trino, datahub,
-// and apigateway toolkits registered. The toolkits construct their clients
+// newToolkitPlatform builds a memory-backed platform with live trino and
+// apigateway toolkits registered. The toolkits construct their clients
 // eagerly but do not connect, so the wiring helpers under test exercise their
 // real (non-early-return) paths without needing a live upstream.
 func newToolkitPlatform(t *testing.T) *platform.Platform {
@@ -29,7 +28,6 @@ func newToolkitPlatform(t *testing.T) *platform.Platform {
 		Server:   platform.ServerConfig{Name: "test"},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
 		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
 		Toolkits: map[string]any{
 			"trino": map[string]any{
 				"enabled": true,
@@ -37,14 +35,6 @@ func newToolkitPlatform(t *testing.T) *platform.Platform {
 					"primary": map[string]any{
 						"host": "trino.example.com", "port": 443,
 						"catalog": "iceberg", "user": "u",
-					},
-				},
-			},
-			"datahub": map[string]any{
-				"enabled": true,
-				"instances": map[string]any{
-					"primary": map[string]any{
-						"url": "https://datahub.example.com/api/graphql", "token": "t",
 					},
 				},
 			},
@@ -116,7 +106,6 @@ func TestBuildTrinoQueryFunc_NoToolkit(t *testing.T) {
 		Server:   platform.ServerConfig{Name: "test"},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
 		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
 	})
 	defer func() { _ = p.Close() }()
 	if buildTrinoQueryFunc(p) != nil {
@@ -124,88 +113,11 @@ func TestBuildTrinoQueryFunc_NoToolkit(t *testing.T) {
 	}
 }
 
-// TestBuildDataHubFuncs asserts the closures' contract on failure: each is a
-// pass-through to the bound client, so an unreachable upstream must surface the
-// client's error rather than be swallowed into a nil-nil result that a caller
-// would read as "no such entity".
-func TestBuildDataHubFuncs(t *testing.T) {
-	p := newToolkitPlatform(t)
-	defer func() { _ = p.Close() }()
-
-	getEntity, getTerm := buildDataHubFuncs(p)
-	if getEntity == nil || getTerm == nil {
-		t.Fatal("expected non-nil datahub closures with a datahub toolkit registered")
-	}
-
-	if _, err := getEntity(context.Background(), "urn:li:dataset:(urn:li:dataPlatform:trino,db.t,PROD)"); err == nil {
-		t.Error("getEntity against an unreachable datahub returned nil error, hiding the transport failure")
-	}
-	if _, err := getTerm(context.Background(), "urn:li:glossaryTerm:pii"); err == nil {
-		t.Error("getTerm against an unreachable datahub returned nil error, hiding the transport failure")
-	}
-}
-
-// TestBuildDataHubFuncs_NoToolkit covers the nil,nil return.
-func TestBuildDataHubFuncs_NoToolkit(t *testing.T) {
-	p := newTestPlatform(t, &platform.Config{
-		Server:   platform.ServerConfig{Name: "test"},
-		Semantic: platform.SemanticConfig{Provider: "noop"},
-		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
-	})
-	defer func() { _ = p.Close() }()
-	if ge, gt := buildDataHubFuncs(p); ge != nil || gt != nil {
-		t.Error("expected nil datahub closures without a datahub toolkit")
-	}
-}
-
-// TestBuildDataHubRegistrar covers the happy path: a live datahub toolkit
-// produces a bridge, and a non-nil route registrar over it.
-func TestBuildDataHubRegistrar(t *testing.T) {
-	p := newToolkitPlatform(t)
-	defer func() { _ = p.Close() }()
-
-	bridge := buildDataHubBridge(p)
-	if bridge == nil {
-		t.Fatal("expected non-nil bridge with a datahub toolkit registered")
-	}
-	reg := dataHubRegistrar(p, bridge, nil, []string{"admin"})
-	if reg == nil {
-		t.Fatal("expected non-nil registrar with a datahub toolkit registered")
-	}
-
-	// A registrar that mounts nothing is indistinguishable from a nil one at
-	// runtime, so assert the catalog route is actually reachable afterwards.
-	// Matching the pattern does not invoke the handler, so no request reaches
-	// DataHub.
-	mux := http.NewServeMux()
-	reg(mux)
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/datahub/connections", http.NoBody)
-	if _, pattern := mux.Handler(req); pattern == "" {
-		t.Error("registrar mounted no handler for the datahub connections route")
-	}
-}
-
-// TestBuildDataHubBridge_NoToolkit covers the nil return when no datahub
-// connection is registered (empty bridge), which is what leaves both the REST
-// registrar and the catalog labeler unwired.
-func TestBuildDataHubBridge_NoToolkit(t *testing.T) {
-	p := newTestPlatform(t, &platform.Config{
-		Server:   platform.ServerConfig{Name: "test"},
-		Semantic: platform.SemanticConfig{Provider: "noop"},
-		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
-	})
-	defer func() { _ = p.Close() }()
-	if buildDataHubBridge(p) != nil {
-		t.Error("expected nil bridge without a datahub toolkit")
-	}
-}
-
-// TestRegisterEnrichmentSources asserts that live trino and datahub toolkits
-// each land in the registry under the name enrichment rules reference them by.
-// Registering under any other name makes every rule that names the source fail
-// at evaluation time with "source not registered".
+// TestRegisterEnrichmentSources asserts that a live trino toolkit lands in the
+// registry under the name enrichment rules reference it by. Registering under
+// any other name makes every rule that names the source fail at evaluation time
+// with "source not registered". The catalog source needs a database, which this
+// platform has none of.
 func TestRegisterEnrichmentSources(t *testing.T) {
 	p := newToolkitPlatform(t)
 	defer func() { _ = p.Close() }()
@@ -213,7 +125,7 @@ func TestRegisterEnrichmentSources(t *testing.T) {
 	reg := enrichment.NewSourceRegistry()
 	registerEnrichmentSources(p, reg)
 
-	for _, name := range []string{enrichment.SourceTrino, enrichment.SourceDataHub} {
+	for _, name := range []string{enrichment.SourceTrino} {
 		src, ok := reg.Get(name)
 		if !ok {
 			t.Errorf("source %q not registered; rules naming it would fail at evaluation", name)
@@ -233,14 +145,13 @@ func TestRegisterEnrichmentSources_NoToolkits(t *testing.T) {
 		Server:   platform.ServerConfig{Name: "test"},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
 		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
 	})
 	defer func() { _ = p.Close() }()
 
 	reg := enrichment.NewSourceRegistry()
 	registerEnrichmentSources(p, reg)
 
-	for _, name := range []string{enrichment.SourceTrino, enrichment.SourceDataHub} {
+	for _, name := range []string{enrichment.SourceTrino, enrichment.SourceCatalog} {
 		if _, ok := reg.Get(name); ok {
 			t.Errorf("source %q registered without its toolkit", name)
 		}
@@ -321,7 +232,7 @@ func TestBuildPersonaResolver_ReachesCatalogRef(t *testing.T) {
 
 // TestWirePortalOptionalDeps drives the optional-dependency wiring against a
 // memory-backed platform: the nil-guarded branches are skipped, and the
-// persona-resolver and datahub-registrar paths run.
+// persona-resolver path runs.
 func TestWirePortalOptionalDeps(t *testing.T) {
 	p := newToolkitPlatform(t)
 	defer func() { _ = p.Close() }()
@@ -331,8 +242,8 @@ func TestWirePortalOptionalDeps(t *testing.T) {
 	if deps.PersonaResolver == nil {
 		t.Error("expected a persona resolver to be wired from the persona registry")
 	}
-	if deps.DataHubRegistrar == nil {
-		t.Error("expected a datahub registrar to be wired from the datahub toolkit")
+	if deps.CatalogRegistrar != nil {
+		t.Error("expected no catalog registrar without a database")
 	}
 	// A session is rolled up out of audit_logs, so the read model needs a
 	// database. This platform has none, and the portal's session routes stay

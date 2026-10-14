@@ -43,7 +43,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/session"
-	"github.com/txn2/mcp-data-platform/pkg/storage"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -73,14 +72,12 @@ const (
 	testLineageMaxHops      = 3
 	testLineageCacheTTL     = 10 * time.Minute
 	testLineageTimeout      = 5 * time.Second
-	testDefaultDataHubTO    = 30 * time.Second
 	testDefaultTrinoTO      = 120 * time.Second
 	testPriority            = 10
 	testRetentionDays       = 30
 	testMaxTableRows        = 500
 	testNewErrFmt           = "New() error = %v"
 	testMCPServerNilMsg     = "MCPServer() should not be nil"
-	testToolkitKeyDatahub   = "datahub"
 	testCfgKeyURL           = "url"
 	testCfgKeyToken         = "token"
 )
@@ -92,7 +89,6 @@ func newTestPlatform(t *testing.T, opts ...Option) *Platform {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	allOpts := append([]Option{WithConfig(cfg)}, opts...)
 	p, err := New(allOpts...)
@@ -118,9 +114,6 @@ func TestNew_MinimalConfigWithNoopProviders(t *testing.T) {
 			Provider: testProviderNoop,
 		},
 		Query: QueryConfig{
-			Provider: testProviderNoop,
-		},
-		Storage: StorageConfig{
 			Provider: testProviderNoop,
 		},
 	}
@@ -153,7 +146,6 @@ func TestInitializeResultCarriesBootstrapInstructions(t *testing.T) {
 		Server:   ServerConfig{Name: "test-platform"},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -192,13 +184,11 @@ func TestNew_WithInjectedProviders(t *testing.T) {
 	}
 	semProv := semantic.NewNoopProvider()
 	queryProv := query.NewNoopProvider()
-	storageProv := storage.NewNoopProvider()
 
 	p, err := New(
 		WithConfig(cfg),
 		WithSemanticProvider(semProv),
 		WithQueryProvider(queryProv),
-		WithStorageProvider(storageProv),
 	)
 	if err != nil {
 		t.Fatalf(testNewErrFmt, err)
@@ -209,9 +199,6 @@ func TestNew_WithInjectedProviders(t *testing.T) {
 	}
 	if p.QueryProvider() != queryProv {
 		t.Error("QueryProvider() did not return injected provider")
-	}
-	if p.StorageProvider() != storageProv {
-		t.Error("StorageProvider() did not return injected provider")
 	}
 }
 
@@ -283,20 +270,6 @@ func TestNew_UnknownProviders(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown storage provider", func(t *testing.T) {
-		cfg := &Config{
-			Server:   ServerConfig{Name: testServerName},
-			Semantic: SemanticConfig{Provider: testProviderNoop},
-			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage: StorageConfig{
-				Provider: "unknown",
-			},
-		}
-		_, err := New(WithConfig(cfg))
-		if err == nil {
-			t.Error("New() expected error for unknown storage provider")
-		}
-	})
 }
 
 func TestPlatformStartStop(t *testing.T) {
@@ -304,7 +277,6 @@ func TestPlatformStartStop(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -330,7 +302,6 @@ func TestPlatformClose(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -348,7 +319,6 @@ func TestLoadPersonas(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Personas: PersonasConfig{
 			Definitions: map[string]PersonaDef{
 				testRoleAnalyst: {
@@ -403,10 +373,8 @@ func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Enrichment: EnrichmentConfig{
 			TrinoSemanticEnrichment: new(true),
-			DataHubQueryEnrichment:  new(true),
 		},
 		Audit: AuditConfig{
 			Enabled: new(true),
@@ -444,7 +412,6 @@ func TestGetInstanceConfig(t *testing.T) {
 		},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -556,118 +523,6 @@ type testCloser struct {
 
 func (m *testCloser) Close() error {
 	return m.closeErr
-}
-
-func TestGetDataHubConfig(t *testing.T) {
-	t.Run("no instance config", func(t *testing.T) {
-		p := &Platform{
-			config: &Config{
-				Toolkits: nil,
-			},
-		}
-		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
-		if result != nil {
-			t.Error("expected nil for missing config")
-		}
-	})
-
-	t.Run("valid datahub config with url", func(t *testing.T) {
-		p := &Platform{
-			config: &Config{
-				Toolkits: map[string]any{
-					"datahub": map[string]any{
-						testInstancesKey: map[string]any{
-							testInstanceDefault: map[string]any{
-								"url":     "http://datahub:8080",
-								"token":   "test-token",
-								"timeout": "30s",
-							},
-						},
-					},
-				},
-			},
-		}
-		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
-		if result == nil {
-			t.Fatal("expected non-nil result")
-		}
-		if result.URL != "http://datahub:8080" {
-			t.Errorf("expected URL 'http://datahub:8080', got %q", result.URL)
-		}
-		if result.Token != "test-token" {
-			t.Errorf("expected Token 'test-token', got %q", result.Token)
-		}
-	})
-
-	t.Run("valid datahub config with endpoint fallback", func(t *testing.T) {
-		p := &Platform{
-			config: &Config{
-				Toolkits: map[string]any{
-					"datahub": map[string]any{
-						testInstancesKey: map[string]any{
-							testInstanceDefault: map[string]any{
-								"endpoint": "http://datahub:9080",
-							},
-						},
-					},
-				},
-			},
-		}
-		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
-		if result == nil {
-			t.Fatal("expected non-nil result")
-		}
-		if result.URL != "http://datahub:9080" {
-			t.Errorf("expected URL 'http://datahub:9080', got %q", result.URL)
-		}
-	})
-
-	t.Run("valid datahub config with debug enabled", func(t *testing.T) {
-		p := &Platform{
-			config: &Config{
-				Toolkits: map[string]any{
-					"datahub": map[string]any{
-						testInstancesKey: map[string]any{
-							testInstanceDefault: map[string]any{
-								"url":   "http://datahub:8080",
-								"debug": true,
-							},
-						},
-					},
-				},
-			},
-		}
-		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
-		if result == nil {
-			t.Fatal("expected non-nil result")
-		}
-		if !result.Debug {
-			t.Error("expected Debug to be true")
-		}
-	})
-
-	t.Run("valid datahub config with debug defaults to false", func(t *testing.T) {
-		p := &Platform{
-			config: &Config{
-				Toolkits: map[string]any{
-					"datahub": map[string]any{
-						testInstancesKey: map[string]any{
-							testInstanceDefault: map[string]any{
-								"url": "http://datahub:8080",
-							},
-						},
-					},
-				},
-			},
-		}
-		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
-		if result == nil {
-			t.Fatal("expected non-nil result")
-		}
-		if result.Debug {
-			t.Error("expected Debug to default to false")
-		}
-	})
 }
 
 func TestGetTrinoConfig(t *testing.T) {
@@ -861,31 +716,6 @@ func TestProviderInstanceNotFound(t *testing.T) {
 		}
 	})
 
-	t.Run("s3 instance not found", func(t *testing.T) {
-		cfg := &Config{
-			Server:   ServerConfig{Name: testServerName},
-			Semantic: SemanticConfig{Provider: testProviderNoop},
-			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage: StorageConfig{
-				Provider: "s3",
-				Instance: "nonexistent",
-			},
-			Toolkits: map[string]any{
-				"s3": map[string]any{
-					testInstancesKey: map[string]any{
-						testInstancePrimary: map[string]any{
-							"region": "us-west-2",
-						},
-					},
-				},
-			},
-		}
-
-		_, err := New(WithConfig(cfg))
-		if err == nil {
-			t.Error("New() expected error for nonexistent s3 instance")
-		}
-	})
 }
 
 func TestCreateAuthenticatorWithAPIKeys(t *testing.T) {
@@ -893,7 +723,6 @@ func TestCreateAuthenticatorWithAPIKeys(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Auth: AuthConfig{
 			APIKeys: APIKeyAuthConfig{
 				Enabled: true,
@@ -918,7 +747,6 @@ func TestPlatformStartError(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -953,7 +781,6 @@ func TestInstanceConfigMapTypes(t *testing.T) {
 			},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 		}
 
 		p, err := New(WithConfig(cfg))
@@ -975,7 +802,6 @@ func TestInstanceConfigMapTypes(t *testing.T) {
 			},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 		}
 
 		p, err := New(WithConfig(cfg))
@@ -996,7 +822,6 @@ func TestCreateAuthenticatorOIDCError(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Auth: AuthConfig{
 			OIDC: OIDCAuthConfig{
 				Enabled: true,
@@ -1017,7 +842,6 @@ func TestPlatformCloseMultiple(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -1039,7 +863,6 @@ func TestPlatformStopIdempotent(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -1070,7 +893,6 @@ func TestPlatformWithMultiplePersonas(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Personas: PersonasConfig{
 			Definitions: map[string]PersonaDef{
 				"viewer": {
@@ -1143,7 +965,6 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 			Server:   ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled:    true,
 				Issuer:     "http://localhost:8080",
@@ -1166,7 +987,6 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 			Server:   ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled:    true,
 				Issuer:     "http://localhost:8080",
@@ -1186,7 +1006,6 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 			Server:   ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled:    true,
 				Issuer:     "http://localhost:8080",
@@ -1205,7 +1024,6 @@ func TestParseOrGenerateSigningKey(t *testing.T) {
 			Server:   ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled:    true,
 				Issuer:     "http://localhost:8080",
@@ -1230,7 +1048,6 @@ func TestInitOAuth(t *testing.T) {
 			Server:   ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled: false,
 			},
@@ -1252,7 +1069,6 @@ func TestInitOAuth(t *testing.T) {
 			Server:   ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled: true,
 				Issuer:  "http://localhost:8080",
@@ -1287,7 +1103,6 @@ func TestInitOAuth(t *testing.T) {
 			Server:   ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled: true,
 				Issuer:  "http://localhost:8080",
@@ -1316,7 +1131,6 @@ func TestInitOAuth(t *testing.T) {
 			Server:   ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 			OAuth: OAuthConfig{
 				Enabled: true,
 				Issuer:  "http://localhost:8080",
@@ -1489,7 +1303,6 @@ func TestInitMCPApps_BuiltinPromptBrowserOperatorMerge(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Apps: map[string]AppConfig{
 				"prompt-browser": {
@@ -1518,7 +1331,6 @@ func TestInitMCPApps_DisabledExplicitly(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps:  MCPAppsConfig{Enabled: &disabled},
 	}
 	p, err := New(WithConfig(cfg))
@@ -1536,7 +1348,6 @@ func TestInitMCPApps_EnabledWithFilesystemApp(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Enabled: new(true),
 			Apps: map[string]AppConfig{
@@ -1581,7 +1392,6 @@ func TestInitMCPApps_MissingAssets(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Enabled: new(true),
 			Apps: map[string]AppConfig{
@@ -1607,7 +1417,6 @@ func TestInitMCPApps_DisabledAppNotRegistered(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Enabled: new(true),
 			Apps: map[string]AppConfig{
@@ -1645,7 +1454,6 @@ func TestInitMCPApps_CSPConfig(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Enabled: new(true),
 			Apps: map[string]AppConfig{
@@ -1692,7 +1500,6 @@ func TestInitMCPApps_CustomResourceURI(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Enabled: new(true),
 			Apps: map[string]AppConfig{
@@ -1727,7 +1534,6 @@ func TestInitMCPApps_DefaultEntryPoint(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Enabled: new(true),
 			Apps: map[string]AppConfig{
@@ -1761,7 +1567,6 @@ func TestInitMCPApps_ValidationError(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Enabled: new(true),
 			Apps: map[string]AppConfig{
@@ -1806,7 +1611,6 @@ func TestInitMCPApps_BuiltinPlatformInfoWithBranding(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Apps: map[string]AppConfig{
 				"platform-info": {
@@ -1845,7 +1649,6 @@ func TestInitMCPApps_BuiltinPlatformInfoWithAssetsPathOverride(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Apps: map[string]AppConfig{
 				"platform-info": {
@@ -1880,7 +1683,6 @@ func TestInitMCPApps_BuiltinPlatformInfoWithInvalidAssetsPath(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Apps: map[string]AppConfig{
 				"platform-info": {
@@ -1904,7 +1706,6 @@ func TestInitAuditNoopWhenDisabled(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Audit: AuditConfig{
 			Enabled: new(false),
 		},
@@ -1927,7 +1728,6 @@ func TestInitAuditNoopWithoutDatabase(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Audit: AuditConfig{
 			Enabled:       new(true),
 			LogToolCalls:  new(true),
@@ -2023,7 +1823,6 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Personas: PersonasConfig{
 			Definitions: map[string]PersonaDef{
 				testRoleAnalyst: {
@@ -2035,7 +1834,7 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 					},
 					Context: ContextDef{
 						DescriptionPrefix:         testSystemPrefix,
-						AgentInstructionsSuffix:   "Check DataHub first.",
+						AgentInstructionsSuffix:   "Check the catalog first.",
 						AgentInstructionsOverride: "",
 					},
 					Priority: testPriority,
@@ -2065,7 +1864,7 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 	if analyst.Context.DescriptionPrefix != testSystemPrefix {
 		t.Errorf("DescriptionPrefix = %q", analyst.Context.DescriptionPrefix)
 	}
-	if analyst.Context.AgentInstructionsSuffix != "Check DataHub first." {
+	if analyst.Context.AgentInstructionsSuffix != "Check the catalog first." {
 		t.Errorf("AgentInstructionsSuffix = %q", analyst.Context.AgentInstructionsSuffix)
 	}
 
@@ -2080,7 +1879,7 @@ func TestLoadPersonasWithFullPromptConfig(t *testing.T) {
 
 	// Test ApplyAgentInstructions
 	instructions := analyst.ApplyAgentInstructions("Base instructions")
-	if !containsSubstr(instructions, "Check DataHub first.") {
+	if !containsSubstr(instructions, "Check the catalog first.") {
 		t.Error("ApplyAgentInstructions missing AgentInstructionsSuffix")
 	}
 	if !containsSubstr(instructions, "Base instructions") {
@@ -2093,7 +1892,6 @@ func TestNew_NilToolkitsConfig(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		// Toolkits intentionally nil
 	}
 
@@ -2154,7 +1952,6 @@ func TestPlatform_AutoEnabledGatewayReceivesTokenStore(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	// Persistent connection store with no rows — exercises the "auto-
@@ -2203,7 +2000,6 @@ func TestNew_NoRulesEngine(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -2223,7 +2019,6 @@ func TestNew_NoAuthenticators_FallsBackToNoop(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		// Auth intentionally empty — no OIDC, no API keys, no OAuth
 	}
 
@@ -2244,7 +2039,6 @@ func TestNew_DefaultOAuthTTL(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		OAuth: OAuthConfig{
 			Enabled: true,
 			Issuer:  "http://localhost:8080",
@@ -2260,31 +2054,6 @@ func TestNew_DefaultOAuthTTL(t *testing.T) {
 
 	if p.OAuthServer() == nil {
 		t.Fatal("OAuthServer() should not be nil")
-	}
-}
-
-func TestNew_DefaultDataHubTimeout(t *testing.T) {
-	p := &Platform{
-		config: &Config{
-			Toolkits: map[string]any{
-				"datahub": map[string]any{
-					testInstancesKey: map[string]any{
-						testInstanceDefault: map[string]any{
-							"url": "http://datahub:8080",
-							// timeout not set — should default to 30s (L911)
-						},
-					},
-				},
-			},
-		},
-	}
-
-	cfg := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
-	if cfg == nil {
-		t.Fatal("getDataHubConfig() returned nil")
-	}
-	if cfg.Timeout != testDefaultDataHubTO {
-		t.Errorf("Timeout = %v, want %v", cfg.Timeout, testDefaultDataHubTO)
 	}
 }
 
@@ -2318,7 +2087,6 @@ func TestClose_NilAuditStore(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		// No audit configured — auditStore will be nil (L1084)
 	}
 
@@ -2346,7 +2114,6 @@ func TestPlatformInfo_WithTags(t *testing.T) {
 		},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -2373,7 +2140,6 @@ func TestNew_SigningKeyExactly32Bytes(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		OAuth: OAuthConfig{
 			Enabled:    true,
 			Issuer:     "http://localhost:8080",
@@ -2419,7 +2185,6 @@ func TestInitSessions_UnknownStore(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Sessions: SessionsConfig{Store: "redis"},
 	}))
 	if err == nil {
@@ -2435,7 +2200,6 @@ func TestInitSessions_DatabaseWithoutDB(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Sessions: SessionsConfig{Store: SessionStoreDatabase},
 	}))
 	if err == nil {
@@ -2621,7 +2385,6 @@ func TestInitKnowledge_Disabled(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Knowledge: KnowledgeConfig{
 			Enabled: new(false),
 		},
@@ -2643,7 +2406,6 @@ func TestInitKnowledge_EnabledWithoutDatabase(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Knowledge: KnowledgeConfig{
 			Enabled: new(true),
 		},
@@ -2678,12 +2440,10 @@ func TestInitKnowledge_ApplyEnabled_NoDatabase(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Knowledge: KnowledgeConfig{
 			Enabled: new(true),
 			Apply: KnowledgeApplyConfig{
 				Enabled:             new(true),
-				DataHubConnection:   "primary",
 				RequireConfirmation: true,
 			},
 		},
@@ -2705,43 +2465,6 @@ func TestInitKnowledge_ApplyEnabled_NoDatabase(t *testing.T) {
 	}
 	if p.KnowledgeChangesetStore() != nil {
 		t.Error("KnowledgeChangesetStore() should be nil without database")
-	}
-}
-
-func TestInitKnowledge_ApplyWithDataHubConnection(t *testing.T) {
-	cfg := &Config{
-		Server:   ServerConfig{Name: testServerName},
-		Semantic: SemanticConfig{Provider: testProviderNoop},
-		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
-		Knowledge: KnowledgeConfig{
-			Enabled: new(true),
-			Apply: KnowledgeApplyConfig{
-				Enabled:             new(true),
-				DataHubConnection:   testInstanceDefault,
-				RequireConfirmation: true,
-			},
-		},
-		Toolkits: map[string]any{
-			testToolkitKeyDatahub: map[string]any{
-				testInstancesKey: map[string]any{
-					testInstanceDefault: map[string]any{
-						testCfgKeyURL:   "http://datahub:8080",
-						testCfgKeyToken: "test-token",
-					},
-				},
-			},
-		},
-	}
-
-	p, err := New(WithConfig(cfg))
-	if err != nil {
-		t.Fatalf(testNewErrFmt, err)
-	}
-	defer func() { _ = p.Close() }()
-
-	if p.MCPServer() == nil {
-		t.Error(testMCPServerNilMsg)
 	}
 }
 
@@ -2799,7 +2522,6 @@ func TestAPIKeyAuthenticator_Accessor(t *testing.T) {
 			Server:   ServerConfig{Name: testServerName},
 			Semantic: SemanticConfig{Provider: testProviderNoop},
 			Query:    QueryConfig{Provider: testProviderNoop},
-			Storage:  StorageConfig{Provider: testProviderNoop},
 			Auth: AuthConfig{
 				APIKeys: APIKeyAuthConfig{
 					Enabled: true,
@@ -2836,7 +2558,6 @@ func TestKnowledgeInsightStore_Accessor(t *testing.T) {
 			Server:    ServerConfig{Name: testServerName},
 			Semantic:  SemanticConfig{Provider: testProviderNoop},
 			Query:     QueryConfig{Provider: testProviderNoop},
-			Storage:   StorageConfig{Provider: testProviderNoop},
 			Knowledge: KnowledgeConfig{Enabled: new(true)},
 		}
 		p, err := New(WithConfig(cfg))
@@ -2866,7 +2587,6 @@ func TestKnowledgeChangesetStore_Accessor(t *testing.T) {
 			Server:    ServerConfig{Name: testServerName},
 			Semantic:  SemanticConfig{Provider: testProviderNoop},
 			Query:     QueryConfig{Provider: testProviderNoop},
-			Storage:   StorageConfig{Provider: testProviderNoop},
 			Knowledge: KnowledgeConfig{Enabled: new(true)},
 		}
 		p, err := New(WithConfig(cfg))
@@ -2910,7 +2630,6 @@ func TestPlatform_ConfigStore_FileMode(t *testing.T) {
 		WithConfig(cfg),
 		WithSemanticProvider(semantic.NewNoopProvider()),
 		WithQueryProvider(query.NewNoopProvider()),
-		WithStorageProvider(storage.NewNoopProvider()),
 		WithPersonaRegistry(persona.NewRegistry()),
 		WithToolkitRegistry(registry.NewRegistry()),
 		WithAuthenticator(&middleware.NoopAuthenticator{}),
@@ -2937,9 +2656,8 @@ func TestNew_WithToolVisibilityFilter(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Tools: ToolsConfig{
-			Allow: []string{"trino_*", "datahub_*"},
+			Allow: []string{"trino_*", "s3_*"},
 			Deny:  []string{"*_delete_*"},
 		},
 	}
@@ -3044,7 +2762,7 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 	t.Run("no trino toolkit", func(_ *testing.T) {
 		p := &Platform{config: &Config{
 			Toolkits: map[string]any{
-				"datahub": map[string]any{},
+				"s3": map[string]any{},
 			},
 			Progress: ProgressConfig{Enabled: new(true)},
 		}}
@@ -3503,7 +3221,6 @@ func TestNew_WorkflowGatingEnabled(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Workflow: WorkflowConfig{
 			RequireSearch: new(true),
 		},
@@ -3568,7 +3285,6 @@ func TestNew_WorkflowGatingDisabled(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		// require_search: false explicitly disables the search-first gate.
 		Workflow: WorkflowConfig{RequireSearch: new(false)},
 	}
@@ -3591,7 +3307,6 @@ func TestNew_WorkflowGatingDefaultOn(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		// Workflow not set — the gate defaults to enabled.
 	}
 
@@ -3861,20 +3576,20 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		p := &Platform{
 			config: &Config{
 				Toolkits: map[string]any{
-					"datahub": map[string]any{cfgKeyEnabled: false},
+					"graphql": map[string]any{cfgKeyEnabled: false},
 				},
 			},
 			connectionStore: &mockConnectionStoreForTest{
 				instances: []ConnectionInstance{
-					{Kind: "datahub", Name: "catalog", Config: map[string]any{"endpoint": "http://localhost"}},
+					{Kind: "graphql", Name: "catalog", Config: map[string]any{"endpoint": "http://localhost"}},
 				},
 			},
 		}
 		p.mergeDBConnectionsIntoConfig()
 
-		kindMap, ok := p.config.Toolkits["datahub"].(map[string]any)
+		kindMap, ok := p.config.Toolkits["graphql"].(map[string]any)
 		if !ok {
-			t.Fatal("datahub kind map should exist")
+			t.Fatal("graphql kind map should exist")
 		}
 		if _, ok := kindMap[cfgKeyInstances]; ok {
 			t.Error("instances should not be created for disabled kind")
@@ -4535,7 +4250,6 @@ func TestBroadcaster_NonNilAfterNew(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4614,7 +4328,6 @@ func TestWireGatewayBroadcaster_NoBroadcaster(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4645,7 +4358,6 @@ func TestWireAPIGatewayRoutePolicy_DeniesViaInstalledPolicy(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4726,7 +4438,6 @@ func TestWireAPIGatewayRoutePolicy_NoToolkit_NoOp(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4746,7 +4457,6 @@ func TestWireGatewayIntegrations_NoToolkits_NoOp(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4774,7 +4484,6 @@ func TestWireAPIGatewayTokenStore(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4826,7 +4535,6 @@ func TestWireAPIGatewayEmbeddingProvider(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4870,7 +4578,6 @@ func TestEmbeddingProviderAccessor(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4894,7 +4601,6 @@ func TestWireAPIGatewayEmbeddingProvider_NoToolkit_NoOp(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4914,7 +4620,6 @@ func TestWireAPIGatewayTokenStore_NoToolkit_NoOp(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {
@@ -4934,7 +4639,6 @@ func TestWireAPIGatewayRoutePolicy_NoAuthorizer_NoOp(t *testing.T) {
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 	}
 	p, err := New(WithConfig(cfg))
 	if err != nil {

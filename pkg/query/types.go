@@ -39,7 +39,7 @@ type TableAvailability struct {
 // It is only ever produced for an entity a query provider reported as available,
 // so its presence means "this can be checked here", not "this was checked".
 type Verifiable struct {
-	URN        string `json:"urn" example:"urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.orders,PROD)"`
+	URN        string `json:"urn" example:"mcp:dataset:(trino,warehouse,iceberg.retail.orders)"`
 	QueryTable string `json:"query_table" example:"iceberg.retail.orders"`
 	Connection string `json:"connection,omitempty" example:"primary"`
 }

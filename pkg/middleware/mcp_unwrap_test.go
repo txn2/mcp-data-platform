@@ -95,7 +95,7 @@ func TestMCPUnwrapJSONMiddleware(t *testing.T) {
 	})
 
 	t.Run("ignores non-trino tools", func(t *testing.T) {
-		req := makeReq("datahub_search", map[string]any{"query": "test"})
+		req := makeReq("graphql_discover", map[string]any{"query": "test"})
 		_, _ = handler(context.Background(), methodToolsCall, req)
 
 		args := getArgs(t, req)

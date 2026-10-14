@@ -61,7 +61,7 @@ var approvedLabelKeys = map[string]string{
 	"go_version":        "the Go releases a deployment's builds use (mcp_platform_build_info)",
 	"dependency":        "the Dependency* constants in internal/opsobs (database, semantic, query, object_storage, idp, renderer)",
 	"code":              "the configuration warning codes internal/platform/configwarn declares",
-	"sink":              "the apply_knowledge sinks (datahub, knowledge_page, agent_instructions) plus insight",
+	"sink":              "the apply_knowledge sinks (catalog, knowledge_page, agent_instructions) plus insight",
 	"toolkit_kinds":     "mcp_platform_config_info: the toolkit kinds the platform ships, joined; one series per process",
 	"auth_methods":      "mcp_platform_config_info: the AuthMethod* constants in internal/opsobs, joined; one series per process",
 	"tracing":           "mcp_platform_config_info: true, false",

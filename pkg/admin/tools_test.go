@@ -38,8 +38,8 @@ func newTestMCPServer() *mcp.Server {
 	})
 
 	server.AddTool(&mcp.Tool{
-		Name:        "datahub_search",
-		Description: "Search DataHub catalog",
+		Name:        "graphql_discover",
+		Description: "Discover GraphQL operations",
 		// A write that states it destroys nothing and leaves openWorldHint
 		// unstated, so the admin routes are held to keeping "stated false"
 		// and "not stated" apart (#1706).
@@ -73,7 +73,7 @@ func TestGetToolSchemas(t *testing.T) {
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
-				{kind: "datahub", name: "primary", connection: "primary-datahub", tools: []string{"datahub_search"}},
+				{kind: "graphql", name: "primary", connection: "primary-graphql", tools: []string{"graphql_discover"}},
 			},
 		}
 		h := NewHandler(Deps{
@@ -97,9 +97,9 @@ func TestGetToolSchemas(t *testing.T) {
 		assert.Equal(t, "Execute a SQL query", trinoSchema.Description)
 		assert.NotNil(t, trinoSchema.Parameters)
 
-		dhSchema, ok := body.Schemas["datahub_search"]
-		require.True(t, ok, "datahub_search schema should be present")
-		assert.Equal(t, "datahub", dhSchema.Kind)
+		dhSchema, ok := body.Schemas["graphql_discover"]
+		require.True(t, ok, "graphql_discover schema should be present")
+		assert.Equal(t, "graphql", dhSchema.Kind)
 	})
 
 	t.Run("carries the annotations tools/list advertises", func(t *testing.T) {
@@ -121,7 +121,7 @@ func TestGetToolSchemas(t *testing.T) {
 		assert.JSONEq(t, `{"readOnlyHint":true,"idempotentHint":true,"openWorldHint":false}`,
 			string(raw.Schemas["trino_query"]["annotations"]))
 		assert.JSONEq(t, `{"readOnlyHint":false,"idempotentHint":false,"destructiveHint":false}`,
-			string(raw.Schemas["datahub_search"]["annotations"]))
+			string(raw.Schemas["graphql_discover"]["annotations"]))
 		_, stated := raw.Schemas["plain_tool"]["annotations"]
 		assert.False(t, stated, "a tool that advertises no annotations carries no annotations key")
 	})
@@ -312,7 +312,7 @@ func TestCallTool(t *testing.T) {
 
 	t.Run("handles nil parameters", func(t *testing.T) {
 		h := NewHandler(Deps{MCPServer: newTestMCPServer()}, nil)
-		body, _ := json.Marshal(toolCallRequest{ToolName: "datahub_search"})
+		body, _ := json.Marshal(toolCallRequest{ToolName: "graphql_discover"})
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)

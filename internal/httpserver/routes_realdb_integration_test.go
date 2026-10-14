@@ -48,7 +48,6 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/admin/auth/keys`), "registerAuthKeyRoutes: no API key manager (auth.api_keys is off)"},
 	{regexp.MustCompile(`^(GET|POST|PUT|DELETE) /api/v1/admin/webhooks/`), "mountWebhookAdminAPI: no object store for a webhook source"},
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/portal/api-keys`), "wirePortalUserKeys: no API key store with principals"},
-	{regexp.MustCompile(`^(GET|POST|PUT|DELETE) /api/v1/portal/datahub/`), "dataHubRegistrar: no DataHub toolkit"},
 	{regexp.MustCompile(`^GET /api/v1/portal/scripts/\{id\}/thumbnail$`), "flowhttp.RegisterPortal: tiles need the renderer"},
 	{regexp.MustCompile(`^GET /api/v1/portal/(assets/\{id\}/content-url|content/\{token\})$`), "contentURLsReady: no content URL signing key"},
 	{regexp.MustCompile(`^(GET|POST) /portal/notifications/unsubscribe$`), "mountNotificationUnsubscribe: no browser-session signing key"},
@@ -69,7 +68,6 @@ func TestEveryRouteReportsItsTemplate_RealDB(t *testing.T) {
 		Server:   platform.ServerConfig{Name: "test", SlowRequestThreshold: time.Hour},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
 		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
 		Database: platform.DatabaseConfig{DSN: dsn},
 		Portal:   platform.PortalConfig{Enabled: ptr(true)},
 		Resources: platform.ResourcesConfig{

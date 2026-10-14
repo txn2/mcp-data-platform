@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
-	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
@@ -15,7 +14,6 @@ import (
 // RegisterBuiltinFactories registers all built-in toolkit factories.
 func RegisterBuiltinFactories(r *Registry) {
 	r.RegisterAggregateFactory("trino", TrinoAggregateFactory)
-	r.RegisterFactory("datahub", DataHubFactory)
 	r.RegisterAggregateFactory("s3", S3AggregateFactory)
 	r.RegisterAggregateFactory(gatewaykit.Kind, GatewayAggregateFactory)
 	r.RegisterAggregateFactory(apigatewaykit.Kind, APIGatewayAggregateFactory)
@@ -34,19 +32,6 @@ func TrinoAggregateFactory(defaultName string, instances map[string]map[string]a
 	tk, err := trinokit.NewMulti(multiCfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating trino toolkit: %w", err)
-	}
-	return tk, nil
-}
-
-// DataHubFactory creates a DataHub toolkit from configuration.
-func DataHubFactory(name string, cfg map[string]any) (Toolkit, error) {
-	config, err := datahubkit.ParseConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("parsing datahub config: %w", err)
-	}
-	tk, err := datahubkit.New(name, config)
-	if err != nil {
-		return nil, fmt.Errorf("creating datahub toolkit: %w", err)
 	}
 	return tk, nil
 }
@@ -151,8 +136,6 @@ func ValidateConnectionConfig(kind string, cfg map[string]any) error {
 	switch kind {
 	case "trino":
 		_, err = trinokit.ParseConfig(cfg)
-	case "datahub":
-		_, err = datahubkit.ParseConfig(cfg)
 	case "s3":
 		_, err = s3kit.ParseConfig(cfg)
 	case gatewaykit.Kind:

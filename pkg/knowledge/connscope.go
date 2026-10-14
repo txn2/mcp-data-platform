@@ -57,10 +57,9 @@ func (c Caller) allowsConnection(name string) bool {
 // allowsURN reports whether the caller may see the catalog entity named by urn.
 // A URN that maps to no connection stays visible (the mapping, not the persona,
 // is what failed, and hiding on a guess would silently drop entities no
-// connection claims). A URN that maps to several connections — the platform
-// segment of a DataHub URN is shared by every connection of that platform — is
-// visible when the persona may reach ANY of them: the caller can legitimately
-// query the entity through that connection.
+// connection claims). A URN that maps to several connections is visible when
+// the persona may reach ANY of them: the caller can legitimately query the
+// entity through that connection.
 func (c Caller) allowsURN(urn string) bool {
 	if c.conn == nil || c.conn.scope == nil {
 		return true

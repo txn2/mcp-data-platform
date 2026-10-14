@@ -651,7 +651,7 @@ func TestDeclaredKeysRefusesAnythingButALivePageOfThisCorpus(t *testing.T) {
 		t.Fatalf("declaredKeys = (%v, %v), want ([a], nil)", keys, err)
 	}
 	for name, bad := range map[string][]refView{
-		"wrong type":   {{URN: "urn:li:dataset:x", Type: "dataset", Exists: true}},
+		"wrong type":   {{URN: "mcp:dataset:(trino,e2e,x)", Type: "dataset", Exists: true}},
 		"dead link":    {{URN: "mcp:knowledge_page:kp_a", Type: knowledgePageRefType, Exists: false}},
 		"foreign page": {{URN: "mcp:knowledge_page:kp_other", Type: knowledgePageRefType, Exists: true}},
 	} {

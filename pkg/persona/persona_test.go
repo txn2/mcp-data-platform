@@ -116,10 +116,10 @@ func TestApplyAgentInstructions(t *testing.T) {
 		{
 			name: "suffix appends to base",
 			context: ContextOverrides{
-				AgentInstructionsSuffix: "Always check DataHub first.",
+				AgentInstructionsSuffix: "Always check the catalog first.",
 			},
 			base:     "Base instructions",
-			expected: "Base instructions\n\nAlways check DataHub first.",
+			expected: "Base instructions\n\nAlways check the catalog first.",
 		},
 		{
 			name: "override replaces base",

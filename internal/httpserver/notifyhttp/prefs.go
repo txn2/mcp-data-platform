@@ -2,7 +2,7 @@
 // endpoints the portal settings page calls.
 //
 // It registers onto the portal's authenticated mux through a registrar hook
-// (the datahubapi pattern) rather than owning a server of its own, and it is
+// (the catalogapi pattern) rather than owning a server of its own, and it is
 // server-side self-scoped: the authenticated caller's email is the only key it
 // ever reads or writes.
 package notifyhttp

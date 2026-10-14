@@ -19,13 +19,13 @@ This guide covers deploying mcp-data-platform in various environments, from loca
 
 ## Docker Compose (Development/Small Teams)
 
-A complete full-stack deployment including DataHub, Trino, mcp-data-platform, Keycloak, and PostgreSQL.
+A complete full-stack deployment including Trino, mcp-data-platform, Keycloak, and PostgreSQL. The platform keeps its own data catalog in PostgreSQL, so no separate metadata service is deployed.
 
 ### Prerequisites
 
 - Docker 24.0+
 - Docker Compose 2.20+
-- 16GB RAM minimum (DataHub requires significant memory)
+- 8GB RAM minimum
 - 20GB free disk space
 
 ### Full-Stack Example
@@ -40,7 +40,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_MULTIPLE_DATABASES: datahub,keycloak,audit
+      POSTGRES_MULTIPLE_DATABASES: keycloak,audit
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh
@@ -69,80 +69,6 @@ services:
       postgres:
         condition: service_healthy
 
-  # DataHub GMS (Metadata Service)
-  datahub-gms:
-    image: acryldata/datahub-gms:v0.13.0@sha256:c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2
-    environment:
-      DATAHUB_GMS_HOST: datahub-gms
-      DATAHUB_GMS_PORT: 8080
-      EBEAN_DATASOURCE_HOST: postgres:5432
-      EBEAN_DATASOURCE_USERNAME: postgres
-      EBEAN_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      ELASTICSEARCH_HOST: elasticsearch
-      ELASTICSEARCH_PORT: 9200
-      KAFKA_BOOTSTRAP_SERVER: kafka:9092
-      KAFKA_SCHEMAREGISTRY_URL: http://schema-registry:8081
-    depends_on:
-      postgres:
-        condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # Elasticsearch for DataHub search
-  elasticsearch:
-    image: elasticsearch:7.17.18@sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  # Kafka for DataHub events
-  kafka:
-    image: confluentinc/cp-kafka:7.6.0@sha256:b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    depends_on:
-      - zookeeper
-    healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # Zookeeper for Kafka
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0@sha256:a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
-  # Schema Registry for Kafka
-  schema-registry:
-    image: confluentinc/cp-schema-registry:7.6.0@sha256:c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4
-    environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
-    depends_on:
-      kafka:
-        condition: service_healthy
-
   # Trino for SQL queries
   trino:
     image: trinodb/trino:440@sha256:d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5
@@ -160,7 +86,6 @@ services:
   mcp-data-platform:
     image: ghcr.io/txn2/mcp-data-platform:latest
     environment:
-      DATAHUB_TOKEN: ${DATAHUB_TOKEN}
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/audit
       OAUTH_SIGNING_KEY: ${OAUTH_SIGNING_KEY}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
@@ -170,7 +95,7 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      datahub-gms:
+      postgres:
         condition: service_healthy
       trino:
         condition: service_healthy
@@ -179,7 +104,6 @@ services:
 
 volumes:
   postgres_data:
-  elasticsearch_data:
 ```
 
 ### Platform Configuration
@@ -193,14 +117,6 @@ server:
   address: ":8080"
 
 toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: http://datahub-gms:8080
-        token: ${DATAHUB_TOKEN}
-    default: primary
-
   trino:
     enabled: true
     instances:
@@ -247,7 +163,6 @@ personas:
 
 enrichment:
   trino_semantic_enrichment: true
-  datahub_query_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 audit:
@@ -265,7 +180,6 @@ database:
 export POSTGRES_PASSWORD=$(openssl rand -base64 32)
 export OAUTH_SIGNING_KEY=$(openssl rand -base64 32)
 export KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32)
-export DATAHUB_TOKEN="your-datahub-token"
 
 # Start all services
 docker compose up -d
@@ -283,7 +197,7 @@ For rapid iteration during development:
 
 ```bash
 # Start dependencies only
-docker compose up -d postgres elasticsearch kafka zookeeper schema-registry datahub-gms trino keycloak
+docker compose up -d postgres trino keycloak
 
 # Run mcp-data-platform locally
 go run ./cmd/mcp-data-platform --config platform.yaml --transport http --address :8080
@@ -321,7 +235,6 @@ kubectl create namespace mcp-data-platform
 # Use external-secrets, sealed-secrets, or a secrets manager in production.
 kubectl create secret generic mcp-data-platform-secrets \
   --namespace mcp-data-platform \
-  --from-literal=datahub-token="$DATAHUB_TOKEN" \
   --from-literal=oauth-signing-key="$OAUTH_SIGNING_KEY" \
   --from-literal=keycloak-client-secret="$KEYCLOAK_CLIENT_SECRET" \
   --from-literal=encryption-key="$ENCRYPTION_KEY" \
@@ -374,13 +287,6 @@ data:
       dsn: ${DATABASE_URL}
 
     toolkits:
-      datahub:
-        enabled: true
-        instances:
-          primary:
-            url: http://datahub-gms.datahub:8080
-            token: ${DATAHUB_TOKEN}
-        default: primary
       trino:
         enabled: true
         instances:
@@ -392,13 +298,8 @@ data:
             ssl: false
         default: primary
 
-    semantic:
-      provider: datahub
-      instance: primary
-
     enrichment:
       trino_semantic_enrichment: true
-      datahub_query_enrichment: true
       column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
     oauth:
@@ -534,11 +435,6 @@ spec:
               value: "true"
             - name: OTEL_METRICS_ADDR
               value: ":9090"
-            - name: DATAHUB_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: mcp-data-platform-secrets
-                  key: datahub-token
             - name: OAUTH_SIGNING_KEY
               valueFrom:
                 secretKeyRef:
@@ -880,11 +776,6 @@ spec:
               value: "true"
             - name: OTEL_METRICS_ADDR
               value: ":9090"
-            - name: DATAHUB_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: mcp-data-platform-secrets
-                  key: datahub-token
             - name: OAUTH_SIGNING_KEY
               valueFrom:
                 secretKeyRef:
@@ -1124,8 +1015,7 @@ The full metric and label reference is in [Observability](observability.md).
 
 mcp-data-platform is stateless and scales horizontally. Key considerations:
 
-- **Connection pooling**: Each replica maintains its own connections to DataHub/Trino
-- **Cache coordination**: Semantic cache is per-instance; consider Redis for shared caching at scale
+- **Connection pooling**: Each replica maintains its own connections to Trino and PostgreSQL
 - **Load balancing**: Use sticky sessions for SSE connections
 
 ### Vertical Scaling
@@ -1142,7 +1032,7 @@ Common bottlenecks and solutions:
 
 | Bottleneck | Symptom | Solution |
 |------------|---------|----------|
-| DataHub API | High enrichment latency | Enable caching, increase DataHub resources |
+| PostgreSQL catalog reads | High enrichment latency | Check `db_client_operation_duration_seconds`; size the database |
 | Trino queries | Timeout errors | Tune Trino cluster, add query limits |
 | PostgreSQL audit | Write latency | Use async writes, add replicas |
 | Network | Connection timeouts | Deploy closer to data sources |

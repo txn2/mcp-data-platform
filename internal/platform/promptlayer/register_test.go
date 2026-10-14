@@ -312,8 +312,8 @@ func TestAutoPromptContent(t *testing.T) {
 
 func TestDynamicOverviewContentWithToolkits(t *testing.T) {
 	reg := registry.NewRegistry()
-	// Register mock toolkits for datahub and trino
-	_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
+	// Register mock toolkits for search and trino
+	_ = reg.Register(&mockToolkit{kind: "search", name: "primary"})
 	_ = reg.Register(&mockToolkit{kind: "trino", name: "default"})
 
 	h := newRegisterHandle("Test Platform", "Test platform for analytics.", nil, reg)
@@ -332,7 +332,7 @@ func TestDynamicOverviewContentWithToolkits(t *testing.T) {
 func TestWorkflowPromptsConditionalRegistration(t *testing.T) {
 	t.Run("registers when required toolkits are present", func(t *testing.T) {
 		reg := registry.NewRegistry()
-		_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
+		_ = reg.Register(&mockToolkit{kind: "search", name: "primary"})
 
 		mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
 		h := newRegisterHandle("", "Test platform.", nil, reg)
@@ -348,15 +348,15 @@ func TestWorkflowPromptsConditionalRegistration(t *testing.T) {
 		names := promptNames(resp.Prompts)
 		assert.Contains(t, names, "explore-available-data")
 		assert.Contains(t, names, "trace-data-lineage")
-		// create-interactive-dashboard requires portal + trino + datahub
+		// create-interactive-dashboard requires portal + trino + search
 		assert.NotContains(t, names, "create-interactive-dashboard")
-		// create-a-report requires trino + datahub
+		// create-a-report requires trino + search
 		assert.NotContains(t, names, "create-a-report")
 	})
 
 	t.Run("skips when required toolkits are missing", func(t *testing.T) {
 		reg := registry.NewRegistry()
-		// Only trino, no datahub
+		// Only trino, no search
 
 		mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
 		h := newRegisterHandle("", "", nil, reg)
@@ -374,7 +374,7 @@ func TestWorkflowPromptsConditionalRegistration(t *testing.T) {
 
 	t.Run("operator override skips auto-registration", func(t *testing.T) {
 		reg := registry.NewRegistry()
-		_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
+		_ = reg.Register(&mockToolkit{kind: "search", name: "primary"})
 
 		mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
 		h := newRegisterHandle("", "", []PromptSpec{
@@ -398,7 +398,7 @@ func TestWorkflowPromptsConditionalRegistration(t *testing.T) {
 
 	t.Run("all toolkits registers all prompts", func(t *testing.T) {
 		reg := registry.NewRegistry()
-		_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
+		_ = reg.Register(&mockToolkit{kind: "search", name: "primary"})
 		_ = reg.Register(&mockToolkit{kind: "trino", name: "default"})
 		_ = reg.Register(&mockToolkit{kind: "portal", name: "default"})
 
@@ -423,7 +423,7 @@ func TestWorkflowPromptsConditionalRegistration(t *testing.T) {
 
 func TestPromptMetadataCollection(t *testing.T) {
 	reg := registry.NewRegistry()
-	_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
+	_ = reg.Register(&mockToolkit{kind: "search", name: "primary"})
 
 	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
 	h := newRegisterHandle("", "Test platform.", []PromptSpec{
@@ -471,7 +471,7 @@ func TestPromptMetadataCollection(t *testing.T) {
 
 func TestPromptContentInJSON(t *testing.T) {
 	reg := registry.NewRegistry()
-	_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
+	_ = reg.Register(&mockToolkit{kind: "search", name: "primary"})
 
 	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
 	h := newRegisterHandle("", "Test.", []PromptSpec{
@@ -529,14 +529,14 @@ func TestIsOperatorPrompt(t *testing.T) {
 
 func TestHasAllToolkitKinds(t *testing.T) {
 	reg := registry.NewRegistry()
-	_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
+	_ = reg.Register(&mockToolkit{kind: "search", name: "primary"})
 	_ = reg.Register(&mockToolkit{kind: "trino", name: "default"})
 
 	h := &Handle{registry: reg}
 
-	assert.True(t, h.hasAllToolkitKinds([]string{"datahub"}))
-	assert.True(t, h.hasAllToolkitKinds([]string{"datahub", "trino"}))
-	assert.False(t, h.hasAllToolkitKinds([]string{"datahub", "portal"}))
+	assert.True(t, h.hasAllToolkitKinds([]string{"search"}))
+	assert.True(t, h.hasAllToolkitKinds([]string{"search", "trino"}))
+	assert.False(t, h.hasAllToolkitKinds([]string{"search", "portal"}))
 	assert.True(t, h.hasAllToolkitKinds([]string{}))
 }
 

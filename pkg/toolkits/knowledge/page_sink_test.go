@@ -190,11 +190,11 @@ func refURNs(refs []knowledgepage.EntityRef) []string {
 }
 
 // TestPromoteToPage_CarriesAndUnionsInsightRefs proves #664's core: a promoted
-// insight's entity_urns land on the page as promoted DataHub references, survive
+// insight's entity_urns land on the page as promoted catalog references, survive
 // into the changeset after-image, and union (no duplicates) across promotions.
 func TestPromoteToPage_CarriesAndUnionsInsightRefs(t *testing.T) {
-	urnA := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.a,PROD)"
-	urnB := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.b,PROD)"
+	urnA := "mcp:dataset:(trino,warehouse,iceberg.retail.a)"
+	urnB := "mcp:dataset:(trino,warehouse,iceberg.retail.b)"
 	store := &fullSpyStore{Insights: []Insight{
 		{ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{urnA}},
 		{ID: "i2", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{urnA, urnB}},
@@ -212,7 +212,7 @@ func TestPromoteToPage_CarriesAndUnionsInsightRefs(t *testing.T) {
 	require.NotNil(t, page)
 	require.Len(t, pw.refs[page.ID], 1)
 	assert.Equal(t, urnA, pw.refs[page.ID][0].EntityURN)
-	assert.Equal(t, knowledgepage.RefTargetDataHub, pw.refs[page.ID][0].TargetType)
+	assert.Equal(t, knowledgepage.RefTargetCatalog, pw.refs[page.ID][0].TargetType)
 	assert.Equal(t, knowledgepage.RefSourcePromoted, pw.refs[page.ID][0].Source)
 
 	// Second promotion to the same slug unions urnB; urnA is not duplicated.
@@ -231,9 +231,9 @@ func TestPromoteToPage_CarriesAndUnionsInsightRefs(t *testing.T) {
 // TestPromoteToPage_CarriesMixedInsightRefTypes proves acceptance criterion 1:
 // an insight whose references mix types (a dataset via entity_urns, a connection
 // and an asset mentioned inline in its text) carries all of them onto the page as
-// promoted references — not just the DataHub URN.
+// promoted references — not just the dataset reference.
 func TestPromoteToPage_CarriesMixedInsightRefTypes(t *testing.T) {
-	dataset := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	dataset := "mcp:dataset:(trino,warehouse,iceberg.retail.x)"
 	store := &fullSpyStore{Insights: []Insight{{
 		ID:          "i1",
 		SinkClass:   memory.SinkBusinessKnowledge,
@@ -299,7 +299,7 @@ func TestPromoteToPage_ReconcilesInlineBodyRefs(t *testing.T) {
 // 'references' list attach to the page (as source=promoted), independent of body
 // text, giving agents a format-proof citation path.
 func TestPromoteToPage_ExplicitReferences(t *testing.T) {
-	dataset := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	dataset := "mcp:dataset:(trino,warehouse,iceberg.retail.x)"
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
@@ -466,7 +466,7 @@ func TestPromoteToPage_RePromoteIsIdempotent(t *testing.T) {
 // fix; the valid insight references still land.
 func TestPromoteToPage_SkipsStaleInsightRefs(t *testing.T) {
 	gone := "mcp:asset:deleted-asset"
-	live := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	live := "mcp:dataset:(trino,warehouse,iceberg.retail.x)"
 	store := &fullSpyStore{Insights: []Insight{{
 		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{live, gone},
 	}}}
@@ -620,9 +620,9 @@ func jsonStrings(t *testing.T, v any) []string {
 // the write.
 func TestPromoteToPage_AttachesGovernanceReferences(t *testing.T) {
 	governance := []string{
-		"urn:li:glossaryTerm:8f3c1a94-6d21-4f0e-9d1b-2f5a7c0e4b11",
-		"urn:li:tag:pii",
-		"urn:li:domain:c3d4e5f6-1122-4a3b-8c9d-0e1f2a3b4c5d",
+		"mcp:glossary_term:8f3c1a94-6d21-4f0e-9d1b-2f5a7c0e4b11",
+		"mcp:tag:pii",
+		"mcp:domain:c3d4e5f6-1122-4a3b-8c9d-0e1f2a3b4c5d",
 	}
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
@@ -645,7 +645,7 @@ func TestPromoteToPage_AttachesGovernanceReferences(t *testing.T) {
 	pageID := pw.inserted[0]
 	stored := make([]string, 0, len(pw.refs[pageID]))
 	for _, r := range pw.refs[pageID] {
-		assert.Equal(t, knowledgepage.RefTargetDataHub, r.TargetType,
+		assert.Equal(t, knowledgepage.RefTargetCatalog, r.TargetType,
 			"a governance citation is stored as a catalog reference, keyed by entity_urn")
 		stored = append(stored, r.URN())
 	}
@@ -659,7 +659,7 @@ func TestPromoteToPage_AttachesGovernanceReferences(t *testing.T) {
 // reported in references_attached.
 func TestPromoteToPage_ReportsDroppedInsightRefs(t *testing.T) {
 	gone := "mcp:asset:deleted-asset"
-	live := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	live := "mcp:dataset:(trino,warehouse,iceberg.retail.x)"
 	store := &fullSpyStore{Insights: []Insight{{
 		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{live, gone},
 	}}}
@@ -685,7 +685,7 @@ func TestPromoteToPage_ReportsDroppedInsightRefs(t *testing.T) {
 // instead of believing every carried reference attached (#696).
 func TestPromoteToPage_ReportsNonCitableInsightRef(t *testing.T) {
 	memRef := "mcp:memory:mem_alice"
-	live := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	live := "mcp:dataset:(trino,warehouse,iceberg.retail.x)"
 	store := &fullSpyStore{Insights: []Insight{{
 		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{memRef, live},
 	}}}
@@ -761,7 +761,7 @@ func TestPromoteToPage_DedupesDroppedAcrossSources(t *testing.T) {
 // TestPromoteToPage_NoDroppedWhenAllResolve proves acceptance criterion 2 of #696:
 // a promotion where every reference resolves omits references_dropped entirely.
 func TestPromoteToPage_NoDroppedWhenAllResolve(t *testing.T) {
-	live := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	live := "mcp:dataset:(trino,warehouse,iceberg.retail.x)"
 	store := &fullSpyStore{Insights: []Insight{{
 		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{live},
 	}}}
@@ -959,8 +959,8 @@ func TestRevertPageChangeset_UpdateRestores(t *testing.T) {
 // TestRevertPageChangeset_RestoresRefs proves a page rollback restores the prior
 // reference set from the changeset previous-value (#664).
 func TestRevertPageChangeset_RestoresRefs(t *testing.T) {
-	urnA := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.a,PROD)"
-	urnB := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.b,PROD)"
+	urnA := "mcp:dataset:(trino,warehouse,iceberg.retail.a)"
+	urnB := "mcp:dataset:(trino,warehouse,iceberg.retail.b)"
 	prev := map[string]any{
 		pageFieldTitle: "Old", pageFieldBody: "old body", pageFieldSummary: "", pageFieldTags: []any{},
 		pageFieldEntityURNs: []any{urnA}, // []any mirrors a JSONB-decoded changeset value
@@ -971,8 +971,8 @@ func TestRevertPageChangeset_RestoresRefs(t *testing.T) {
 	// The page has both promoted URNs (urnB was added by the promotion being
 	// reverted) AND a manually-picked asset ref that must survive the rollback.
 	pw.refs["kp1"] = []knowledgepage.EntityRef{
-		knowledgepage.DataHubRef(urnA, knowledgepage.RefSourcePromoted),
-		knowledgepage.DataHubRef(urnB, knowledgepage.RefSourcePromoted),
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: urnA, Source: knowledgepage.RefSourcePromoted},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: urnB, Source: knowledgepage.RefSourcePromoted},
 		{TargetType: knowledgepage.RefTargetAsset, AssetID: "kept-asset", Source: knowledgepage.RefSourceManual},
 	}
 	csStore := &spyChangesetStore{Changesets: []Changeset{cs}}

@@ -8,9 +8,8 @@
 #     in-process fakes, no Docker or model API).
 #   smoke (workflow_dispatch) — boot the real compose stack + the a0 arm and run
 #     the scripted, no-API-key smoke end to end, plus a live self-check of the
-#     -baseline regression gate. DataHub is intentionally NOT in CI (it needs
-#     `datahub docker quickstart`), so the smoke runs on a0 (raw toolkit tools,
-#     no semantic layer), mirroring e2e-nightly. A tiny model-backed run is
+#     -baseline regression gate. The smoke runs on a0 (raw toolkit tools, no
+#     semantic layer), mirroring e2e-nightly. A tiny model-backed run is
 #     available behind an opt-in input + the ANTHROPIC_API_KEY secret; it is off
 #     by default so a dispatch spends nothing. Full model-backed runs happen at
 #     release time, like verify-release.

@@ -100,7 +100,6 @@ func TestNoKeyIsAddedWhereAnOlderReleaseAdvertisedAClosedObject(t *testing.T) {
 		Server:   ServerConfig{Name: "test-platform"},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
-		Storage:  StorageConfig{Provider: testProviderNoop},
 		Personas: PersonasConfig{Definitions: map[string]PersonaDef{"default": {
 			DisplayName: "Default",
 			Roles:       []string{auth.RoleAnonymous},

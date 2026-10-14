@@ -84,7 +84,7 @@ func TestRegistry_GetByKind(t *testing.T) {
 	reg := NewRegistry()
 	_ = reg.Register(&mockToolkit{kind: regTestTrino, name: regTestProd})
 	_ = reg.Register(&mockToolkit{kind: regTestTrino, name: "staging"})
-	_ = reg.Register(&mockToolkit{kind: "datahub", name: "main"})
+	_ = reg.Register(&mockToolkit{kind: "graphql", name: "main"})
 
 	trinoToolkits := reg.GetByKind(regTestTrino)
 	if len(trinoToolkits) != 2 {
@@ -95,7 +95,7 @@ func TestRegistry_GetByKind(t *testing.T) {
 func TestRegistry_AllAndAllTools(t *testing.T) {
 	reg := NewRegistry()
 	_ = reg.Register(&mockToolkit{kind: regTestTrino, name: regTestProd, tools: []string{"trino_query", "trino_describe"}})
-	_ = reg.Register(&mockToolkit{kind: "datahub", name: "main", tools: []string{"datahub_search"}})
+	_ = reg.Register(&mockToolkit{kind: "graphql", name: "main", tools: []string{"graphql_query"}})
 
 	all := reg.All()
 	if len(all) != 2 {
@@ -115,12 +115,12 @@ func TestRegistry_AllAndAllTools(t *testing.T) {
 // and a single-call assertion could not see it.
 func TestRegistry_EnumerationIsStable(t *testing.T) {
 	reg := NewRegistry()
-	for _, kind := range []string{"s3", regTestTrino, "datahub"} {
+	for _, kind := range []string{"s3", regTestTrino, "api"} {
 		_ = reg.Register(&mockToolkit{kind: kind, name: "acme", tools: []string{kind + "_list"}})
 	}
 
-	wantKinds := []string{"datahub", "s3", regTestTrino}
-	wantTools := []string{"datahub_list", "s3_list", "trino_list"}
+	wantKinds := []string{"api", "s3", regTestTrino}
+	wantTools := []string{"api_list", "s3_list", "trino_list"}
 	for range 20 {
 		all := reg.All()
 		kinds := make([]string, 0, len(all))
@@ -176,7 +176,7 @@ func TestRegistry_Providers(_ *testing.T) {
 func TestRegistry_RegisterAllTools(_ *testing.T) {
 	reg := NewRegistry()
 	_ = reg.Register(&mockToolkit{kind: regTestTrino, name: regTestProd, tools: []string{"trino_query"}})
-	_ = reg.Register(&mockToolkit{kind: "datahub", name: "main", tools: []string{"datahub_search"}})
+	_ = reg.Register(&mockToolkit{kind: "graphql", name: "main", tools: []string{"graphql_query"}})
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
 	reg.RegisterAllTools(server) // Should not panic
@@ -261,18 +261,6 @@ func TestRegisterBuiltinFactories(t *testing.T) {
 		_, ok := reg.GetAggregateFactory(regTestTrino)
 		if !ok {
 			t.Error("expected trino aggregate factory to be registered")
-		}
-	})
-
-	t.Run("datahub factory registered", func(t *testing.T) {
-		// Should fail with invalid config (missing url)
-		err := reg.CreateAndRegister(ToolkitConfig{
-			Kind:   "datahub",
-			Name:   regTestTest,
-			Config: map[string]any{},
-		})
-		if err == nil {
-			t.Error("expected error for missing datahub config")
 		}
 	})
 
@@ -384,14 +372,6 @@ func TestTrinoAggregateFactory(t *testing.T) {
 			t.Error("expected error for missing host")
 		}
 	})
-}
-
-func TestDataHubFactory(t *testing.T) {
-	// Test with invalid config
-	_, err := DataHubFactory(regTestTest, map[string]any{})
-	if err == nil {
-		t.Error("DataHubFactory() expected error for missing url")
-	}
 }
 
 func TestGatewayAggregateFactory_NoInstancesReturnsEmptyToolkit(t *testing.T) {
@@ -533,8 +513,8 @@ func TestGetToolkitForTool_MultipleToolkits(t *testing.T) {
 		tools: []string{"trino_query", "trino_describe"},
 	})
 	_ = reg.Register(&mockToolkit{
-		kind: "datahub", name: "main", connection: "main-datahub",
-		tools: []string{"datahub_search", "datahub_get_lineage"},
+		kind: "graphql", name: "main", connection: "main-graphql",
+		tools: []string{"graphql_query", "graphql_discover"},
 	})
 	_ = reg.Register(&mockToolkit{
 		kind: "s3", name: "storage", connection: "s3-storage",
@@ -546,7 +526,7 @@ func TestGetToolkitForTool_MultipleToolkits(t *testing.T) {
 		want ToolkitMatch
 	}{
 		{"trino_query", ToolkitMatch{Kind: regTestTrino, Name: "production", Connection: "prod-trino", Found: true}},
-		{"datahub_search", ToolkitMatch{Kind: "datahub", Name: "main", Connection: "main-datahub", Found: true}},
+		{"graphql_query", ToolkitMatch{Kind: "graphql", Name: "main", Connection: "main-graphql", Found: true}},
 		{"s3_list", ToolkitMatch{Kind: "s3", Name: "storage", Connection: "s3-storage", Found: true}},
 		{"unknown", ToolkitMatch{}},
 	}

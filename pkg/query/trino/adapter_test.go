@@ -124,69 +124,6 @@ func TestAdapterName(t *testing.T) {
 	}
 }
 
-func TestResolveTable(t *testing.T) {
-	mock := &mockTrinoClient{}
-	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test-conn"}, mock)
-	ctx := context.Background()
-
-	tests := []struct {
-		name        string
-		urn         string
-		wantCatalog string
-		wantSchema  string
-		wantTable   string
-		wantErr     bool
-	}{
-		{
-			name:        "valid URN with 3 parts",
-			urn:         "urn:li:dataset:(urn:li:dataPlatform:trino,mycatalog.myschema.mytable,PROD)",
-			wantCatalog: "mycatalog",
-			wantSchema:  "myschema",
-			wantTable:   "mytable",
-			wantErr:     false,
-		},
-		{
-			name:        "valid URN with 2 parts uses default catalog",
-			urn:         "urn:li:dataset:(urn:li:dataPlatform:trino,myschema.mytable,PROD)",
-			wantCatalog: "hive",
-			wantSchema:  "myschema",
-			wantTable:   "mytable",
-			wantErr:     false,
-		},
-		{
-			name:    "invalid URN - wrong prefix",
-			urn:     "urn:wrong:dataset:(urn:li:dataPlatform:trino,table,PROD)",
-			wantErr: true,
-		},
-		{
-			name:    "invalid URN - missing commas",
-			urn:     "urn:li:dataset:invalid",
-			wantErr: true,
-		},
-		{
-			name:    "invalid URN - single part name",
-			urn:     "urn:li:dataset:(urn:li:dataPlatform:trino,singletable,PROD)",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := adapter.ResolveTable(ctx, tt.urn)
-			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf(adapterTestUnexpectedErr, err)
-			}
-			assertTableIdentifier(t, result, tt.wantCatalog, tt.wantSchema, tt.wantTable)
-		})
-	}
-}
-
 func assertTableIdentifier(t *testing.T, result *query.TableIdentifier, wantCatalog, wantSchema, wantTable string) {
 	t.Helper()
 	if result.Catalog != wantCatalog {
@@ -214,7 +151,7 @@ func TestGetTableAvailability_TableExists(t *testing.T) {
 	}
 	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test", EstimateRowCounts: true}, mock)
 
-	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	result, err := adapter.GetTableAvailability(ctx, "mcp:dataset:(trino,test,default.schema.table)")
 	if err != nil {
 		t.Fatalf(adapterTestUnexpectedErr, err)
 	}
@@ -240,7 +177,7 @@ func TestGetTableAvailability_FloatCount(t *testing.T) {
 	}
 	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test", EstimateRowCounts: true}, mock)
 
-	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	result, err := adapter.GetTableAvailability(ctx, "mcp:dataset:(trino,test,default.schema.table)")
 	if err != nil {
 		t.Fatalf(adapterTestUnexpectedErr, err)
 	}
@@ -266,7 +203,7 @@ func TestGetTableAvailability_RowCountsDisabled(t *testing.T) {
 	// EstimateRowCounts defaults to false (zero value)
 	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
 
-	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	result, err := adapter.GetTableAvailability(ctx, "mcp:dataset:(trino,test,default.schema.table)")
 	if err != nil {
 		t.Fatalf(adapterTestUnexpectedErr, err)
 	}
@@ -301,7 +238,7 @@ func TestResolveLocation_NeverCounts(t *testing.T) {
 	}
 	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test", EstimateRowCounts: true}, mock)
 
-	result, err := adapter.ResolveLocation(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	result, err := adapter.ResolveLocation(ctx, "mcp:dataset:(trino,test,default.schema.table)")
 	if err != nil {
 		t.Fatalf(adapterTestUnexpectedErr, err)
 	}
@@ -328,7 +265,7 @@ func TestResolveLocation_NotExists(t *testing.T) {
 	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
 
 	result, err := adapter.ResolveLocation(context.Background(),
-		"urn:li:dataset:(urn:li:dataPlatform:trino,schema.gone,PROD)")
+		"mcp:dataset:(trino,test,default.schema.gone)")
 	if err != nil {
 		t.Fatalf(adapterTestUnexpectedErr, err)
 	}
@@ -346,7 +283,7 @@ func TestGetTableAvailability_NotExists(t *testing.T) {
 	}
 	adapter, _ := NewWithClient(Config{Catalog: "hive"}, mock)
 
-	result, err := adapter.GetTableAvailability(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	result, err := adapter.GetTableAvailability(ctx, "mcp:dataset:(trino,test,default.schema.table)")
 	if err != nil {
 		t.Fatalf(adapterTestUnexpectedErr, err)
 	}
@@ -378,7 +315,7 @@ func TestGetQueryExamples(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("valid URN", func(t *testing.T) {
-		examples, err := adapter.GetQueryExamples(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,myschema.mytable,PROD)")
+		examples, err := adapter.GetQueryExamples(ctx, "mcp:dataset:(trino,test,default.myschema.mytable)")
 		if err != nil {
 			t.Fatalf(adapterTestUnexpectedErr, err)
 		}
@@ -410,8 +347,8 @@ func TestGetExecutionContext(t *testing.T) {
 	ctx := context.Background()
 
 	urns := []string{
-		"urn:li:dataset:(urn:li:dataPlatform:trino,schema1.table1,PROD)",
-		"urn:li:dataset:(urn:li:dataPlatform:trino,schema2.table2,PROD)",
+		"mcp:dataset:(trino,test,default.schema1.table1)",
+		"mcp:dataset:(trino,test,default.schema2.table2)",
 		"invalid-urn", // Should be skipped
 	}
 
@@ -563,92 +500,21 @@ func TestAdapterCloseNilClient(t *testing.T) {
 	}
 }
 
-func TestResolveTableWithCatalogMapping(t *testing.T) {
-	mock := &mockTrinoClient{}
-	ctx := context.Background()
-
-	tests := []struct {
-		name           string
-		catalogMapping map[string]string
-		urn            string
-		wantCatalog    string
-		wantSchema     string
-		wantTable      string
-	}{
-		{
-			name:           "no mapping - uses original catalog",
-			catalogMapping: nil,
-			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
-			wantCatalog:    adapterTestWarehouse,
-			wantSchema:     "public",
-			wantTable:      "users",
-		},
-		{
-			name:           "mapping applied - warehouse to rdbms",
-			catalogMapping: map[string]string{adapterTestWarehouse: adapterTestCatalogRdbms},
-			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
-			wantCatalog:    adapterTestCatalogRdbms,
-			wantSchema:     "public",
-			wantTable:      "users",
-		},
-		{
-			name:           "mapping applied - multiple mappings",
-			catalogMapping: map[string]string{adapterTestWarehouse: adapterTestCatalogRdbms, "datalake": "iceberg"},
-			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,datalake.analytics.events,PROD)",
-			wantCatalog:    "iceberg",
-			wantSchema:     "analytics",
-			wantTable:      "events",
-		},
-		{
-			name:           "catalog not in mapping - uses original",
-			catalogMapping: map[string]string{adapterTestWarehouse: adapterTestCatalogRdbms},
-			urn:            "urn:li:dataset:(urn:li:dataPlatform:postgres,other.public.data,PROD)",
-			wantCatalog:    "other",
-			wantSchema:     "public",
-			wantTable:      "data",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			adapter, err := NewWithClient(Config{
-				Catalog:        "default",
-				ConnectionName: "test",
-				CatalogMapping: tt.catalogMapping,
-			}, mock)
-			if err != nil {
-				t.Fatalf(adapterTestUnexpectedErr, err)
-			}
-
-			result, err := adapter.ResolveTable(ctx, tt.urn)
-			if err != nil {
-				t.Fatalf(adapterTestUnexpectedErr, err)
-			}
-			if result.Catalog != tt.wantCatalog {
-				t.Errorf("expected catalog %q, got %q", tt.wantCatalog, result.Catalog)
-			}
-			if result.Schema != tt.wantSchema {
-				t.Errorf("expected schema %q, got %q", tt.wantSchema, result.Schema)
-			}
-			if result.Table != tt.wantTable {
-				t.Errorf("expected table %q, got %q", tt.wantTable, result.Table)
-			}
-		})
-	}
-}
-
 // Verify Adapter implements Provider interface.
 var _ query.Provider = (*Adapter)(nil)
 
 // TestResolveTableCatalogReference resolves a platform catalog reference
 // (#1919) to the table and connection it names, with no mapping applied.
 func TestResolveTableCatalogReference(t *testing.T) {
-	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test-conn", CatalogMapping: map[string]string{"x": "y"}}, &mockTrinoClient{})
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test-conn"}, &mockTrinoClient{})
 	got, err := adapter.ResolveTable(context.Background(), "mcp:dataset:(trino,warehouse,x.sales.orders)")
 	require.NoError(t, err)
 	assert.Equal(t, query.TableIdentifier{Catalog: "x", Schema: "sales", Table: "orders", Connection: "warehouse"}, *got)
 
-	for _, ref := range []string{"mcp:dataset:(api,stripe,listCharges)", "mcp:dataset:(trino,w,a.b)"} {
+	for _, ref := range []string{
+		"mcp:dataset:(api,stripe,listCharges)", "mcp:dataset:(trino,w,a.b)",
+		"urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)", "mcp:glossary_term:revenue",
+	} {
 		_, err = adapter.ResolveTable(context.Background(), ref)
 		assert.Error(t, err, ref)
 	}

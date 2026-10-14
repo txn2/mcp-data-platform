@@ -28,6 +28,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/catalogref"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/mcpc"
 	"github.com/txn2/mcp-data-platform/bench/internal/pool"
@@ -40,7 +41,7 @@ import (
 const (
 	captureTool = "memory_capture"
 	searchTool  = "search"
-	entityTool  = "datahub_get_entity"
+	entityTool  = catalogref.FetchTool
 	applyTool   = "apply_knowledge"
 )
 
@@ -299,7 +300,7 @@ func (c *Client) sinkCarries(ctx context.Context, s session, tr Treatment) (bool
 		}
 		return false, nil
 	}
-	entity, toolErr, err := s.Call(ctx, entityTool, map[string]any{"urn": tr.EntityURN})
+	entity, toolErr, err := s.Call(ctx, entityTool, catalogref.FetchArgs(tr.EntityURN))
 	if err != nil {
 		return false, fmt.Errorf("pollutionplant: %s: %w", entityTool, err)
 	}

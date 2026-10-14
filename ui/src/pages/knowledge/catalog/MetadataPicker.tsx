@@ -1,18 +1,26 @@
 import { useState } from "react";
 import { Search, Plus } from "lucide-react";
-import { type EntityRef } from "@/api/portal/datahub";
-import { MIN_SEARCH, shortUrn } from "./utils";
+import { MIN_SEARCH } from "./utils";
+
+/** Candidate is one value a picker offers: the key written into the aspect
+ * (a tag name, a definition reference) and the name shown for it. */
+export interface Candidate {
+  key: string;
+  label: string;
+  detail?: string;
+}
 
 /**
- * MetadataPicker is the shared typeahead used by the tag, glossary, and domain
- * editors (#785): the user types a display name and picks a result that resolves
- * to a URN, so raw URN entry is never required. Selecting a candidate does not
- * blur the input (the list uses onMouseDown preventDefault), and the dropdown
- * opens on focus for a preloaded list (openOnFocus) or once the query reaches the
- * search threshold otherwise.
+ * MetadataPicker is the shared typeahead used by the tag, glossary-term and
+ * domain editors (#785): the user types a display name and picks a result, so
+ * a raw reference is never typed. Selecting a candidate does not blur the input
+ * (the list uses onMouseDown preventDefault), and the dropdown opens on focus
+ * for a preloaded list (openOnFocus) or once the query reaches the search
+ * threshold otherwise.
  */
 export function MetadataPicker({
   placeholder,
+  label,
   query,
   setQuery,
   candidates,
@@ -24,13 +32,14 @@ export function MetadataPicker({
   emptyHint = "No matches.",
 }: {
   placeholder: string;
+  label: string;
   query: string;
   setQuery: (v: string) => void;
-  candidates: EntityRef[];
+  candidates: Candidate[];
   loading: boolean;
   isPending: boolean;
   existingKeys: Set<string>;
-  onPick: (ref: EntityRef) => void;
+  onPick: (c: Candidate) => void;
   openOnFocus?: boolean;
   emptyHint?: string;
 }) {
@@ -38,10 +47,11 @@ export function MetadataPicker({
   const open = focused && (openOnFocus || query.trim().length >= MIN_SEARCH);
 
   return (
-    <div className="relative mt-2 w-72">
+    <div className="relative mt-2 w-72 max-w-full">
       <div className="relative">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
+          aria-label={label}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setFocused(true)}
@@ -63,9 +73,9 @@ export function MetadataPicker({
             </li>
           ) : (
             candidates.map((c) => {
-              const already = existingKeys.has(c.urn);
+              const already = existingKeys.has(c.key);
               return (
-                <li key={c.urn}>
+                <li key={c.key}>
                   <button
                     type="button"
                     disabled={already || isPending}
@@ -73,10 +83,10 @@ export function MetadataPicker({
                     className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50"
                   >
                     <span className="truncate">
-                      <span className="font-medium">{c.name || shortUrn(c.urn)}</span>
-                      <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">
-                        {shortUrn(c.urn)}
-                      </span>
+                      <span className="font-medium">{c.label}</span>
+                      {c.detail && (
+                        <span className="ml-1.5 text-[11px] text-muted-foreground">{c.detail}</span>
+                      )}
                     </span>
                     {already ? (
                       <span className="shrink-0 text-muted-foreground">added</span>

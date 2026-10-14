@@ -62,7 +62,7 @@ func TestScriptRef_RealDB_CiteReadCascade(t *testing.T) {
 
 	// The CHECK refuses a script row that names a second target.
 	_, err = db.ExecContext(ctx, `INSERT INTO knowledge_page_entity_refs
-		(id, page_id, target_type, script_id, entity_urn) VALUES ($1, $2, 'script', $3, 'urn:li:tag:x')`,
+		(id, page_id, target_type, script_id, entity_urn) VALUES ($1, $2, 'script', $3, 'mcp:tag:x')`,
 		NewRefID(), page.ID, scriptID)
 	require.Error(t, err, "a script reference carrying a second target violates chk_kp_entity_ref_target")
 

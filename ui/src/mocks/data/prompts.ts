@@ -318,7 +318,7 @@ Sources to pull from:
 1. **Audit log** — every tool call by {{primary_operator}} and any teammates joining the incident channel.
 2. **Pipeline runs** — \`etl_pipelines.runs\` rows whose \`updated_at\` falls in the window, with their status transitions.
 3. **Trino query log** — top 20 long-running queries by user during the window.
-4. **DataHub deprecation events** — anything marked deprecated/restored in the window.
+4. **Catalog deprecation events** — anything marked deprecated/restored in the window.
 
 > Cite each entry with the underlying record (audit_event_id, query_id, run_id). No paraphrasing without a citation.
 
@@ -443,7 +443,7 @@ with the owner and a 7-day-or-less deadline. No "investigate further" placeholde
 This is the section the audience tends to skip — keep it short and only flag what matters.
 
 - Pipeline success rate this week vs. trailing 8 weeks.
-- Any tables flagged \`deprecated\` in DataHub that still received queries.
+- Any tables flagged \`deprecated\` in the catalog that still received queries.
 - Top 3 longest-running recurring queries (candidates for tuning).
 - Any audit log gaps (missing days, unusual operator activity).
 

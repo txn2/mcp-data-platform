@@ -119,8 +119,8 @@ var capabilities = []capability{
 	{tool: toolApplyKnowledge, line: func(map[string]bool) string {
 		return "Promote what holds. `apply_knowledge` drives the review queue captures enter: " +
 			"action `bulk_review` with `itemize:true` lists it, a dataset-specific fact promotes " +
-			"to a DataHub entity (`urn:li:...`) and broader domain knowledge to a knowledge page " +
-			"(`mcp:<type>:<key>`). The two namespaces never mix."
+			"to the catalog entity it is about (`mcp:dataset:...`) and broader domain knowledge " +
+			"to a knowledge page."
 	}},
 	{tool: toolSaveAsset, line: func(map[string]bool) string {
 		return "Output is an asset, whatever the user calls it: make it with `save_asset`, " +

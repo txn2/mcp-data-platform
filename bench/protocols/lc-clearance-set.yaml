@@ -3,7 +3,7 @@
 id: lc-clearance-set
 title: Clearance set
 fact: The 'clearance set' is the set of completed orders placed by customers in the West region.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
 sink: knowledge_page
 page:
     slug: clearance-set-definition

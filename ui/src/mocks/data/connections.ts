@@ -13,8 +13,8 @@ import type {
 // connection referenced on one page resolves to the same instance on another.
 //
 // These back the DB-managed read path: GET /connection-instances (list) and
-// GET /connection-instances/:kind/:name (detail). The kinds span the four
-// toolkit families (trino, s3, datahub) plus the gateway families (mcp, api).
+// GET /connection-instances/:kind/:name (detail). The kinds span the
+// toolkit families (trino, s3) plus the gateway families (mcp, api).
 export const mockConnectionInstances: ConnectionInstance[] = [
   {
     kind: "trino",
@@ -25,12 +25,6 @@ export const mockConnectionInstances: ConnectionInstance[] = [
       catalog: "warehouse",
       user: "mcp-data-platform",
       tls: true,
-      // Exercises the DataHub Integration section of the viewer.
-      datahub_source_name: "trino-prod",
-      catalog_mapping: {
-        warehouse: "prod_warehouse",
-        analytics: "prod_analytics",
-      },
     },
     description:
       "Production data warehouse with the **retail**, **inventory**, and **analytics** schemas.\n\nBacks the analyst persona's day-to-day querying and is the default `trino_query` target.",
@@ -51,30 +45,6 @@ export const mockConnectionInstances: ConnectionInstance[] = [
       "Staging Trino for testing schema changes and ETL pipelines before they reach `acme-warehouse`.",
     created_by: "sarah.chen@acme.example.com",
     updated_at: "2025-01-14T09:12:00Z",
-  },
-  {
-    kind: "datahub",
-    name: "acme-catalog",
-    config: {
-      server_url: "https://datahub.internal:8080",
-      timeout: "30s",
-    },
-    description:
-      "Production metadata catalog: business glossary, ownership, and column-level lineage.\n\nSource of the semantic context cross-enrichment attaches to Trino and gateway responses.",
-    created_by: "admin@acme.example.com",
-    updated_at: "2025-01-11T13:05:00Z",
-  },
-  {
-    kind: "datahub",
-    name: "acme-catalog-staging",
-    config: {
-      server_url: "https://datahub-staging.internal:8080",
-      timeout: "30s",
-    },
-    description:
-      "Staging metadata catalog for validating ingestion recipes before promotion.",
-    created_by: "marcus.johnson@acme.example.com",
-    updated_at: "2025-01-08T18:44:00Z",
   },
   {
     kind: "s3",
@@ -118,7 +88,7 @@ export const mockConnectionInstances: ConnectionInstance[] = [
       oauth_scope: "crm.read crm.write",
     },
     description:
-      "Gateway-proxied CRM MCP server. Responses are auto-enriched with DataHub context and Trino query availability via the cross-enrichment rules attached to this connection.",
+      "Gateway-proxied CRM MCP server. Responses are auto-enriched with catalog context and Trino query availability via the cross-enrichment rules attached to this connection.",
     created_by: "sarah.chen@acme.example.com",
     updated_at: "2025-01-21T15:30:00Z",
   },

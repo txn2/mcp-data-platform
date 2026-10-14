@@ -721,7 +721,7 @@ func baseAdminConfig() *platform.Config {
 					DisplayName: "Data Analyst",
 					Roles:       []string{"analyst"},
 					Tools: platform.ToolRulesDef{
-						Allow: []string{"trino_*", "datahub_*"},
+						Allow: []string{"trino_*", "search", "fetch"},
 					},
 				},
 			},

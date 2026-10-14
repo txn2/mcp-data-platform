@@ -13,13 +13,16 @@ import (
 )
 
 // Issue #1277: the graphql connection kind. Every criterion here runs
-// through the real MCP surface against a real GraphQL server the repository
-// runs itself: DataHub's GMS, at /api/graphql, which the platform already
-// integrates with. No fixture stands in for the upstream.
+// through the real MCP surface against a real GraphQL server the dev stack
+// runs: PostGraphile, publishing the gqlfixture schema (dev/seed-graphql.sql)
+// at http://localhost:9286/graphql (the `graphql` service in
+// dev/docker-compose.yml). It is an off-the-shelf server answering its own
+// introspection, validation, Relay paging and resolver errors; nothing in the
+// test stands in for it.
 //
-// Namespace descent is proved by the hand-authored namespaced schema in the
-// unit suite (internal/gqlschema/testdata), not here: DataHub's schema is
-// flat, and no vendor's schema is committed to this repository.
+// Namespace descent across vendor shapes is proved by the hand-authored
+// schemas in the unit suite (internal/gqlschema/testdata); the fixture's
+// appConfig namespace is the one this suite reaches through the real server.
 //
 // Wire forms: graphql_query's `variables` is typed ["object", "string"] and
 // admits the object itself and a string holding that object's JSON. Both are
@@ -34,13 +37,13 @@ const (
 )
 
 // issue1277Endpoint is the GraphQL endpoint the suite runs against: the
-// DataHub GMS the repository's own e2e environment brings up. Overridable so
-// the suite can be pointed at another deployment's DataHub.
+// dev stack's GraphQL fixture. Overridable with GRAPHQL_FIXTURE_URL so the
+// suite can be pointed at the same fixture elsewhere.
 func issue1277Endpoint() string {
-	if v := os.Getenv("DATAHUB_GRAPHQL_URL"); v != "" {
+	if v := os.Getenv("GRAPHQL_FIXTURE_URL"); v != "" {
 		return v
 	}
-	return "http://localhost:8085/api/graphql"
+	return "http://localhost:9286/graphql"
 }
 
 // requireGraphQLUpstream fails, rather than skipping, when no GraphQL server
@@ -55,7 +58,7 @@ func requireGraphQLUpstream(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	res, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
-		t.Fatalf("no GraphQL server answers at %s (%v). Start DataHub: `datahub docker quickstart`, or set DATAHUB_GRAPHQL_URL",
+		t.Fatalf("no GraphQL server answers at %s (%v). Start the dev stack (`make dev` runs the graphql fixture), or set GRAPHQL_FIXTURE_URL",
 			issue1277Endpoint(), err)
 	}
 	defer res.Body.Close() //nolint:errcheck // best-effort close
@@ -147,7 +150,7 @@ func TestIssue1277_ConnectionIntrospectsOnRegisterAndListsItsOperations(t *testi
 	}
 	count, _ := schema["operation_count"].(float64)
 	if count < 10 {
-		t.Fatalf("operation_count = %v; a metadata service's schema exposes more than that", count)
+		t.Fatalf("operation_count = %v; the fixture's schema exposes more than that", count)
 	}
 	if hash, _ := schema["schema_hash"].(string); hash == "" {
 		t.Error("the stored schema is not identified by a hash")
@@ -243,20 +246,19 @@ func TestIssue1277_DiscoverRendersASkeletonThatRuns(t *testing.T) {
 	}
 }
 
-// issue1277ReadOperation picks an operation that reads one entity by
-// identifier, which every metadata service exposes and which a skeleton can
-// be run with placeholder arguments. Chosen from what the connection
-// actually lists rather than hard-coded, so the suite does not pin a
-// vendor's schema.
+// issue1277ReadOperation picks the operation that reads one dataset by its
+// code, which a skeleton can be run with placeholder arguments. It is found
+// through discovery's own search, as a caller finds it, rather than assumed
+// listed.
 func issue1277ReadOperation(t *testing.T, c *client, connection string) string {
 	t.Helper()
 	out := issue1277Discover(t, c, map[string]any{"connection": connection, "query": "dataset", "limit": 20})
 	for _, id := range issue1277Operations(t, out) {
-		if id == "query:dataset" {
+		if id == "query:findDataset" {
 			return id
 		}
 	}
-	t.Fatalf("the connection lists no query:dataset operation: %v", issue1277Operations(t, out))
+	t.Fatalf("the connection lists no query:findDataset operation: %v", issue1277Operations(t, out))
 	return ""
 }
 
@@ -303,17 +305,17 @@ func TestIssue1277_VariablesReachTheEndpointInEveryFormTheSchemaAdmits(t *testin
 	c := connect(t)
 	name := issue1277Connect(t, c, "wireforms", nil)
 
-	const document = `query Read($urn: String!) { dataset(urn: $urn) { urn } }`
-	const urn = "urn:li:dataset:(urn:li:dataPlatform:acceptance,issue1277,PROD)"
+	const document = `query Read($code: String!) { findDataset(code: $code) { code } }`
+	const code = "acme-dataset-0042"
 
 	asObject := c.call(issue1277QueryTool, map[string]any{
 		"connection": name, "query": document,
-		"variables": map[string]any{"urn": urn},
+		"variables": map[string]any{"code": code},
 		"purpose":   issue1277Purpose,
 	})
 	asString := c.call(issue1277QueryTool, map[string]any{
 		"connection": name, "query": document,
-		"variables": `{"urn": "` + urn + `"}`,
+		"variables": `{"code": "` + code + `"}`,
 		"purpose":   issue1277Purpose,
 	})
 
@@ -327,9 +329,12 @@ func TestIssue1277_VariablesReachTheEndpointInEveryFormTheSchemaAdmits(t *testin
 			asObject["upstream_error"], asString["upstream_error"])
 	}
 	// A variable that did not reach the endpoint would be a null-argument
-	// error rather than a lookup that found nothing.
+	// error rather than the dataset the code names.
 	if asObject["upstream_error"] == true {
 		t.Fatalf("the object form was refused: %v", asObject["errors"])
+	}
+	if !strings.Contains(string(objectData), code) {
+		t.Errorf("the lookup did not read the dataset the variable named: %s", objectData)
 	}
 }
 
@@ -417,11 +422,11 @@ func TestIssue1277_AnErrorsArrayInAnHTTP200IsAnUpstreamError(t *testing.T) {
 	c := connect(t)
 	name := issue1277Connect(t, c, "errors", map[string]any{"schema_validation": "warn"})
 
-	// A document the schema admits but the resolver refuses: an
-	// unparseable URN. warn mode is what lets it reach the endpoint.
+	// A document the schema admits but the resolver refuses: a malformed
+	// dataset code.
 	out := c.call(issue1277QueryTool, map[string]any{
 		"connection": name,
-		"query":      `query Bad { dataset(urn: "not-a-urn") { urn } }`,
+		"query":      `query Bad { findDataset(code: "not-a-code") { code } }`,
 		"purpose":    issue1277Purpose,
 	})
 	if status, _ := out["status"].(float64); status != http.StatusOK {
@@ -454,7 +459,7 @@ func TestIssue1277_AnErrorsArrayInAnHTTP200IsAnUpstreamError(t *testing.T) {
 	if method, _ := record["method"].(string); method != "QUERY" {
 		t.Errorf("method = %q; the operation kind is what says the call only read", method)
 	}
-	if statement, _ := record["statement"].(string); !strings.Contains(statement, "dataset") {
+	if statement, _ := record["statement"].(string); !strings.Contains(statement, "findDataset") {
 		t.Errorf("statement = %q; the document is what a reader re-runs", statement)
 	}
 }
@@ -481,27 +486,27 @@ func issue1277WaitForCallRecord(t *testing.T, c *client, connection string) map[
 }
 
 // TestIssue1277_PaginateWalksTheEndpointsPagesIntoOneAnswer proves the walk
-// against the upstream's own paging. DataHub's scroll API carries a bare next
-// cursor rather than a Relay pageInfo, which is what next_cursor_path is for.
+// against the upstream's own paging: a Relay connection, whose next cursor
+// paginate reads from the pageInfo beside the items without being told where
+// it is.
 func TestIssue1277_PaginateWalksTheEndpointsPagesIntoOneAnswer(t *testing.T) {
 	requireGraphQLUpstream(t)
 	c := connect(t)
 	name := issue1277Connect(t, c, "paginate", nil)
 
-	const document = `query Scroll($scrollId: String) {
-	  scrollAcrossEntities(input: {query: "*", count: 1, scrollId: $scrollId}) {
-	    nextScrollId
-	    searchResults { entity { urn } }
+	const document = `query Page($after: Cursor) {
+	  allDatasets(first: 1, after: $after) {
+	    pageInfo { endCursor hasNextPage }
+	    nodes { code }
 	  }
 	}`
 
 	out := c.call(issue1277QueryTool, map[string]any{
 		"connection": name, "query": document,
 		"paginate": map[string]any{
-			"items":            "scrollAcrossEntities.searchResults",
-			"cursor_variable":  "scrollId",
-			"next_cursor_path": "scrollAcrossEntities.nextScrollId",
-			"max_pages":        3,
+			"items":           "allDatasets.nodes",
+			"cursor_variable": "after",
+			"max_pages":       3,
 		},
 		"purpose": issue1277Purpose,
 	})
@@ -515,7 +520,7 @@ func TestIssue1277_PaginateWalksTheEndpointsPagesIntoOneAnswer(t *testing.T) {
 	pages, _ := pagination["pages_fetched"].(float64)
 	merged, _ := pagination["items_merged"].(float64)
 	if pages < 2 {
-		t.Fatalf("pages_fetched = %v; a page size of 1 over a seeded catalog walks more than one", pages)
+		t.Fatalf("pages_fetched = %v; a page size of 1 over the fixture's 250 datasets walks more than one", pages)
 	}
 	if merged < pages {
 		t.Errorf("items_merged = %v over %v pages; each page carried one row", merged, pages)
@@ -526,12 +531,16 @@ func TestIssue1277_PaginateWalksTheEndpointsPagesIntoOneAnswer(t *testing.T) {
 	// The merged rows replace the first page's array in place, so the
 	// caller reads one page's shape holding every row.
 	data, _ := out["data"].(map[string]any)
-	scroll, _ := data["scrollAcrossEntities"].(map[string]any)
-	results, _ := scroll["searchResults"].([]any)
+	page, _ := data["allDatasets"].(map[string]any)
+	results, _ := page["nodes"].([]any)
 	if float64(len(results)) != merged {
 		t.Errorf("the merged array holds %d rows; the report says %v", len(results), merged)
 	}
 }
+
+// issue1277Mutation writes a dataset's description, the mutation the
+// read-only and persona criteria are refused.
+const issue1277Mutation = `mutation { updateDatasetByCode(input: {code: "acme-dataset-0001", datasetPatch: {description: "x"}}) { dataset { code } } }`
 
 // TestIssue1277_AReadOnlyConnectionRefusesMutationsForEveryPersona covers the
 // connection-level rule, which needs no persona at all.
@@ -542,7 +551,7 @@ func TestIssue1277_AReadOnlyConnectionRefusesMutationsForEveryPersona(t *testing
 
 	refusal := issue1277Refuse(t, c, issue1277QueryTool, map[string]any{
 		"connection": name,
-		"query":      `mutation { updateDescription(input: {resourceUrn: "urn:li:dataset:(urn:li:dataPlatform:x,y,PROD)", description: "x"}) }`,
+		"query":      issue1277Mutation,
 	})
 	if !strings.Contains(refusal, "read_only") {
 		t.Errorf("refusal = %q", refusal)
@@ -570,7 +579,7 @@ func TestIssue1277_APersonaThatDeniesMutationsCannotRunOrSeeThem(t *testing.T) {
 
 	refusal := issue1277Refuse(t, person, issue1277QueryTool, map[string]any{
 		"connection": name,
-		"query":      `mutation { updateDescription(input: {resourceUrn: "urn:li:dataset:(urn:li:dataPlatform:x,y,PROD)", description: "x"}) }`,
+		"query":      issue1277Mutation,
 	})
 	if !strings.Contains(refusal, "MUTATION") {
 		t.Errorf("the refusal does not name what was denied: %s", refusal)
@@ -590,7 +599,7 @@ func TestIssue1277_APersonaThatDeniesMutationsCannotRunOrSeeThem(t *testing.T) {
 
 	// And absent from the federated search too.
 	search := person.call("search", map[string]any{
-		"intent": "update description", "sources": []any{"endpoints"}, "limit": 50,
+		"intent": "update dataset", "sources": []any{"endpoints"}, "limit": 50,
 		"purpose": issue1277Purpose,
 	})
 	raw, err := json.Marshal(search)
@@ -606,7 +615,8 @@ func TestIssue1277_APersonaThatDeniesMutationsCannotRunOrSeeThem(t *testing.T) {
 	mixed := issue1277Refuse(t, person, issue1277QueryTool, map[string]any{
 		"connection": name,
 		"query": `mutation Mixed {
-		  updateDescription(input: {resourceUrn: "urn:li:dataset:(urn:li:dataPlatform:x,y,PROD)", description: "x"})
+		  updateDatasetByCode(input: {code: "acme-dataset-0001", datasetPatch: {description: "x"}}) { dataset { code } }
+		  createPlatform(input: {platform: {code: "acc1277", name: "x"}}) { platform { code } }
 		}`,
 	})
 	if mixed == "" {

@@ -1050,7 +1050,7 @@ func (r *Registrar) maySee(caller Caller, connection string) bool {
 	return r.deps.Scope.AllowConnection(caller.Persona, connection)
 }
 
-// audit records the statement the registrar ran, the way the portal's DataHub
+// audit records the statement the registrar ran, the way the portal's catalog
 // writes are recorded: same event kind, same fields, so a registration shows
 // up in the audit trail beside every other write the platform makes on a
 // caller's behalf. Best-effort -- a logging failure never fails the operation.

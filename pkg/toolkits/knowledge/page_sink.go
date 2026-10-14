@@ -131,7 +131,7 @@ type pagePromotionInput struct {
 	Tags    []string `json:"tags,omitempty"`
 	// References are explicit entity references to attach to the page, independent
 	// of the body text (#690): a reliable, format-proof citation path for agents.
-	// Each is a serialized reference string (mcp:<type>:<id> or urn:li:...), parsed
+	// Each is a serialized reference string (mcp:<type>:<id>), parsed
 	// and existence-checked before the page is written, and attached with the
 	// promotion (source=promoted) so a rollback undoes it.
 	References []string `json:"references,omitempty"`
@@ -367,9 +367,9 @@ func (t *Toolkit) preparePageRefs(ctx context.Context, page pagePromotionInput, 
 		return pageRefPlan{}, fmt.Errorf("filtering insight references: %w", err)
 	}
 
-	// Filter the body's inline references to those that exist, so a stale internal
-	// (mcp:) token in prose is skipped rather than FK-failing the inline reconcile
-	// after the page is written. A DataHub urn:li: ref is free text and always kept.
+	// Filter the body's inline references to those that exist, so a stale token
+	// in prose is skipped rather than FK-failing the inline reconcile after the
+	// page is written.
 	inlineWant := knowledgepage.ScanBodyRefs(page.Body)
 	inline, err := t.pageWriter.FilterExistingRefTargets(ctx, inlineWant)
 	if err != nil {
@@ -554,7 +554,7 @@ func (t *Toolkit) writePageRefs(ctx context.Context, pageID string, plan pageRef
 }
 
 // pageEntityURNs returns the serialized URNs of the page's promoted references
-// (every type, not just DataHub), for the changeset before/after image.
+// (every type), for the changeset before/after image.
 func (t *Toolkit) pageEntityURNs(ctx context.Context, pageID string) ([]string, error) {
 	refs, err := t.pageWriter.ListEntityRefs(ctx, pageID)
 	if err != nil {
@@ -593,10 +593,9 @@ func parsePageReferences(raw []string) ([]knowledgepage.EntityRef, error) {
 	return refs, nil
 }
 
-// promotedRefsFromURNs parses serialized reference URNs (any type: a urn:li:
-// DataHub URN or an mcp: internal reference) into promoted EntityRefs. An
-// unparseable or non-citable URN is skipped. This carries every citable reference
-// type an insight holds onto the page, not just DataHub URNs (#664); a personal
+// promotedRefsFromURNs parses serialized references into promoted EntityRefs.
+// An unparseable or non-citable reference is skipped. This carries every
+// citable reference type an insight holds onto the page (#664); a personal
 // memory reference an insight might carry is dropped here, since memory is not
 // citable on a shared page (#699).
 func promotedRefsFromURNs(urns []string) []knowledgepage.EntityRef {
@@ -725,7 +724,7 @@ func (t *Toolkit) collectPageInsightRefs(ctx context.Context, insightIDs []strin
 }
 
 // insightReferenceURNs returns the serialized reference URNs an insight carries:
-// its DataHub entity_urns plus the mcp:/urn:li: references mentioned inline in its
+// its entity_urns plus the mcp: references mentioned inline in its
 // text. These are carried onto the page on promotion (and by the backfill), so an
 // insight's references of every type survive synthesis into a knowledge page.
 func insightReferenceURNs(ins *Insight) []string {
@@ -827,9 +826,8 @@ type pageSnapshot struct {
 }
 
 // pageImageWithRefs renders a page before/after snapshot for a changeset value,
-// including the page's DataHub reference URNs so a rollback can restore them
-// (#664). Phase 0 only writes DataHub references; when the picker and inline
-// references land, this snapshot will need to carry the full typed ref set.
+// including the page's promoted references so a rollback can restore them
+// (#664).
 func pageImageWithRefs(s pageSnapshot) map[string]any {
 	return map[string]any{
 		pageFieldTitle:      s.title,

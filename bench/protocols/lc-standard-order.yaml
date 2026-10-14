@@ -3,7 +3,7 @@
 id: lc-standard-order
 title: Standard order count
 fact: A 'standard order' is any order whose amount is below $1,000.00 (100000 cents).
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
 sink: knowledge_page
 page:
     slug: standard-order-definition

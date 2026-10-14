@@ -10,7 +10,7 @@ import (
 )
 
 // Upstream tool names referenced across multiple middleware files. These are
-// fully-qualified MCP tool names exposed by the Trino and DataHub toolkits.
+// fully-qualified MCP tool names exposed by the Trino toolkit.
 const (
 	toolNameTrinoQuery   = "trino_query"
 	toolNameTrinoExecute = "trino_execute"

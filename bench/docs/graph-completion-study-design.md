@@ -361,7 +361,7 @@ firing early, before an episode was spent.
 ## Ops (carried from the probe, unchanged where proven)
 
 `make bench-gt-up` (ollama with `nomic-embed-text` required;
-`BENCH_METRICS_ADDR=:9095` when the DataHub quickstart is up), then per
+`BENCH_METRICS_ADDR=:9095` when another platform holds the default port), then per
 scale: `bench-gs-certify` -> `bench-gs-plant` -> wait for embeddings (live
 pages joined to their chunks; deletes are soft, so a chunk count alone lies)
 -> `bench-gs-gate` -> `bench-gs-reset`. The planter refuses a non-empty

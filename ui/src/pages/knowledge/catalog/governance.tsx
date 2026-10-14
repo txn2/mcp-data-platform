@@ -1,27 +1,22 @@
 import { useState } from "react";
 import { ArrowLeft, Trash2, type LucideIcon } from "lucide-react";
-import { useUpdateDescription, type EntityRef, type TableSearchResult } from "@/api/portal/datahub";
+import { useWriteAspect, type DefinitionSummary, type Use } from "@/api/portal/catalog";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
-import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { catalogHref } from "@/lib/entityRefs";
 import { markdownToPlainText } from "@/lib/markdownText";
-import { CancelButton, ListSkeleton, MutationError, SaveButton } from "./primitives";
-import { shortUrn } from "./utils";
+import { CancelButton, MutationError, SaveButton } from "./primitives";
 
-// Shared surfaces for the DataHub governance vocabularies under Catalog: Tags
-// (#1156) and Domains (#1157). Both list a vocabulary, open one entry to see
-// what it means and which tables it covers, and edit that entry through the same
-// three writes. What differs between them is the wording and the write routes,
-// not these mechanics, so they live here once rather than per kind.
+// Shared surfaces for the catalog's definitions under Catalog: the glossary,
+// tags, domains and data products. Each lists its entries, opens one to see what
+// it means and which datasets carry it, and edits it through the same writes,
+// so the mechanics live here once rather than per kind.
 
 // PageCapNotice states that a read came back full, so a capped list is never
-// presented as the whole set. limit is what the read can actually return, which
-// is not always what the surface asked for: the domain list is capped upstream.
+// presented as the whole set.
 export function PageCapNotice({
   shown,
   limit,
@@ -41,20 +36,20 @@ export function PageCapNotice({
   );
 }
 
-// VocabCard is one entry in a vocabulary list: its name, its description, and
+// VocabCard is one entry in a definition list: its name, its description, and
 // the click that opens it. An entry with no description says so rather than
-// rendering an empty line, so an undocumented tag or domain is visible as a gap
-// to fill rather than as whitespace. Descriptions are stored as markdown for
-// the kinds DataHub renders as markdown (#1200), so the two-line preview is
-// flattened to plain text rather than showing raw source.
+// rendering an empty line, so an undocumented entry is visible as a gap to fill.
+// Descriptions are markdown, so the two-line preview is flattened to plain text.
 export function VocabCard({
   entry,
   icon: Icon,
   onOpen,
+  trailing,
 }: {
-  entry: EntityRef;
+  entry: DefinitionSummary;
   icon: LucideIcon;
   onOpen: () => void;
+  trailing?: React.ReactNode;
 }) {
   return (
     <button
@@ -63,7 +58,8 @@ export function VocabCard({
     >
       <span className="flex items-center gap-2 text-sm font-medium">
         <Icon className="size-4 shrink-0 text-muted-foreground" />
-        {entry.name || shortUrn(entry.urn)}
+        {entry.name}
+        {trailing}
       </span>
       {entry.description ? (
         <span className="line-clamp-2 text-xs text-muted-foreground">
@@ -76,144 +72,66 @@ export function VocabCard({
   );
 }
 
-// TableLink renders one table a vocabulary entry covers. It deep-links into the
-// Tables tab's entity editor through the shared catalogHref, and stays a plain
-// row when there is no navigator or the URN is not a catalog reference, so it is
-// never styled as a link it cannot follow. trailing renders alongside the row
-// (a membership remove control, for the Domains tab).
-export function TableLink({
-  table,
-  onNavigate,
-  trailing,
-}: {
-  table: TableSearchResult;
-  onNavigate?: (path: string) => void;
-  trailing?: React.ReactNode;
-}) {
-  const href = catalogHref(table.urn);
+// UseLink renders one dataset or column carrying a definition. It deep-links
+// into the Tables tab through the shared catalogHref, and stays a plain row when
+// there is no navigator, so it is never styled as a link it cannot follow.
+export function UseLink({ use, onNavigate }: { use: Use; onNavigate?: (path: string) => void }) {
+  const href = catalogHref(use.dataset);
   const body = (
     <>
-      <span className="text-sm font-medium">{table.name || shortUrn(table.urn)}</span>
-      {table.description && (
-        <span className="line-clamp-2 text-xs text-muted-foreground">
-          {markdownToPlainText(table.description)}
-        </span>
-      )}
+      <span className="text-sm font-medium">
+        {use.name}
+        {use.column && <span className="font-mono text-muted-foreground">.{use.column}</span>}
+      </span>
+      <span className="text-xs text-muted-foreground">{use.connection}</span>
     </>
   );
   const shell = "flex flex-col gap-0.5 rounded-lg border p-3";
-
-  const row =
-    !href || !onNavigate ? (
-      <div className={`${shell} ${trailing ? "flex-1" : ""}`}>{body}</div>
-    ) : (
-      <a
-        href={href}
-        onClick={(e) => {
-          e.preventDefault();
-          onNavigate(href);
-        }}
-        className={`${shell} transition-colors hover:border-primary/50 hover:bg-muted/50 ${trailing ? "flex-1" : ""}`}
-      >
-        {body}
-      </a>
-    );
-
-  if (!trailing) return row;
+  if (!href || !onNavigate) return <div className={shell}>{body}</div>;
   return (
-    <div className="flex items-center gap-2">
-      {row}
-      {trailing}
-    </div>
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        onNavigate(href);
+      }}
+      className={`${shell} transition-colors hover:border-primary/50 hover:bg-muted/50`}
+    >
+      {body}
+    </a>
   );
 }
 
-// EntityDescription renders a vocabulary entry's description and, for an editor,
-// the edit form. The save is the shared entity-description write with the
-// entry's own URN: the platform's UpdateDescription routes by entity type, so a
-// tag, a domain, and a table are all edited through the one route. label names
-// the editing surface for assistive technology and for the tests that drive it.
-//
-// format is the caller's, not something read off the URN, because what decides
-// it is what DataHub renders for that kind: it renders a domain, a glossary
-// term, and a glossary node as markdown, and a tag as plain text (#1200).
-// Inferring markdown from a URN prefix would make that a guess rather than a
-// statement, and would silently give tags an editor whose output renders as raw
-// source everywhere else in the catalog.
+// EntityDescription renders a catalog entity's description and, for an editor,
+// the markdown edit form. The save writes the entity's description aspect, the
+// one write a dataset, a column and every definition kind share.
 export function EntityDescription({
-  conn,
-  entity,
+  reference,
+  value,
   canEdit,
   label,
-  format,
 }: {
-  conn: string;
-  entity: EntityRef;
+  reference: string;
+  value: string;
   canEdit: boolean;
   label: string;
-  format: "markdown" | "plain";
 }) {
-  const update = useUpdateDescription(conn);
+  const write = useWriteAspect();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(entity.description ?? "");
-  // The mutation's own result is the freshest description on this screen: the
-  // entry came from a list read that a save does not refetch into this component.
-  const current = update.isSuccess ? draft : (entity.description ?? "");
-
-  if (editing) {
-    return (
-      <SectionCard title="Description">
-        <div className="space-y-2">
-          {format === "markdown" ? (
-            <MarkdownEditor
-              value={draft}
-              onChange={setDraft}
-              label={label}
-              minHeight="240px"
-              placeholder="Describe this in markdown…"
-            />
-          ) : (
-            <Textarea
-              aria-label={label}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={3}
-            />
-          )}
-          <div className="flex gap-2">
-            <SaveButton
-              disabled={update.isPending}
-              onClick={() =>
-                update.mutate(
-                  { urn: entity.urn, description: draft.trim() },
-                  { onSuccess: () => setEditing(false) },
-                )
-              }
-            />
-            <CancelButton
-              onClick={() => {
-                setDraft(current);
-                setEditing(false);
-              }}
-            />
-          </div>
-          <MutationError mut={update} />
-        </div>
-      </SectionCard>
-    );
-  }
+  const [draft, setDraft] = useState(value);
 
   return (
     <SectionCard
       title="Description"
       action={
-        canEdit && (
+        canEdit &&
+        !editing && (
           <Button
             variant="ghost"
             size="xs"
             className="text-muted-foreground"
             onClick={() => {
-              setDraft(current);
+              setDraft(value);
               setEditing(true);
             }}
           >
@@ -222,21 +140,46 @@ export function EntityDescription({
         )
       }
     >
-      {!current ? (
-        <p className="text-sm italic text-muted-foreground">No description</p>
-      ) : format === "markdown" ? (
-        <MarkdownRenderer content={current} bare />
+      {editing ? (
+        <div className="space-y-2">
+          <MarkdownEditor
+            value={draft}
+            onChange={setDraft}
+            label={label}
+            minHeight="240px"
+            placeholder="Describe this in markdown…"
+          />
+          <div className="flex gap-2">
+            <SaveButton
+              disabled={write.isPending}
+              onClick={() =>
+                write.mutate(
+                  {
+                    reference,
+                    aspect: "description",
+                    value: draft.trim() === "" ? null : draft.trim(),
+                    expect: value === "" ? null : value,
+                  },
+                  { onSuccess: () => setEditing(false) },
+                )
+              }
+            />
+            <CancelButton onClick={() => setEditing(false)} />
+          </div>
+          <MutationError mut={write} />
+        </div>
+      ) : value ? (
+        <MarkdownRenderer content={value} bare />
       ) : (
-        <p className="text-sm">{current}</p>
+        <p className="text-sm italic text-muted-foreground">No description</p>
       )}
     </SectionCard>
   );
 }
 
-// DeleteControl retires a vocabulary entry behind a confirmation that states the
-// blast radius first. impact is the caller's: deleting a tag and deleting a
-// domain affect the tables they cover differently, so each kind says what its
-// own delete does rather than sharing one sentence.
+// DeleteControl removes a definition behind a confirmation that states what
+// the delete does first. The platform refuses a delete of a definition still in
+// use, and the refusal is shown as the mutation's error.
 export function DeleteControl({
   label,
   impact,
@@ -255,12 +198,7 @@ export function DeleteControl({
       <div className="flex justify-end gap-2">
         {confirming ? (
           <>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={onConfirm}
-              disabled={mut.isPending}
-            >
+            <Button variant="destructive" size="sm" onClick={onConfirm} disabled={mut.isPending}>
               Confirm delete
             </Button>
             <CancelButton onClick={() => setConfirming(false)} />
@@ -286,17 +224,8 @@ export function DeleteControl({
   );
 }
 
-// Usage is the state a "what does this entry cover" read can be in. A failed
-// read is distinct from an empty one: reporting "nothing" from a read that never
-// answered would understate a delete.
-export interface Usage {
-  loading: boolean;
-  failed: boolean;
-  count: number;
-}
-
-// BackToList is the return affordance a deep-linked view needs: the reader
-// arrived from a knowledge page rather than from the list, so there is no
+// BackToList is the return affordance a deep-linked view needs: the reader may
+// have arrived from a knowledge page rather than from the list, so there is no
 // browsing history within the tab to go back through.
 export function BackToList({ label, onBack }: { label: string; onBack: () => void }) {
   return (
@@ -307,68 +236,4 @@ export function BackToList({ label, onBack }: { label: string; onBack: () => voi
       <ArrowLeft className="h-4 w-4" /> {label}
     </button>
   );
-}
-
-/**
- * DeepLinkedEntry opens the vocabulary entry a `?urn=` deep link addresses
- * (#1159), so a knowledge page's citation of a tag or a domain lands on that
- * entry rather than on the list.
- *
- * The entry comes from the list the tab already loads because neither
- * vocabulary has a by-URN read upstream: DataHub can list tags and domains, but
- * cannot fetch one by URN. So a URN the list does not hold — one from another
- * connection, one retired since the page cited it, or one past the cap the list
- * read returns — says exactly that instead of opening a detail view assembled
- * from the URN alone, which would show an empty description as if the entry had
- * none.
- */
-export function DeepLinkedEntry({
-  urn,
-  entries,
-  isLoading,
-  isError,
-  what,
-  backLabel,
-  onBack,
-  children,
-}: {
-  urn: string;
-  entries: EntityRef[] | undefined;
-  isLoading: boolean;
-  isError: boolean;
-  // what names the kind in the miss and failure messages ("tag", "domain").
-  what: string;
-  backLabel: string;
-  onBack: () => void;
-  children: (entry: EntityRef) => React.ReactNode;
-}) {
-  if (isError || isLoading || !entries) {
-    return (
-      <div className="space-y-4">
-        <BackToList label={backLabel} onBack={onBack} />
-        {isError ? (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            Failed to load {what}s, so the linked {what} could not be opened.
-          </p>
-        ) : (
-          <ListSkeleton />
-        )}
-      </div>
-    );
-  }
-
-  const entry = entries.find((e) => e.urn === urn);
-  if (!entry) {
-    return (
-      <div className="space-y-4">
-        <BackToList label={backLabel} onBack={onBack} />
-        <EmptyState>
-          This connection lists no {what} with the URN{" "}
-          <span className="break-all font-mono text-xs">{urn}</span>. It may belong to another
-          connection, or have been retired since it was linked.
-        </EmptyState>
-      </div>
-    );
-  }
-  return <>{children(entry)}</>;
 }

@@ -121,7 +121,7 @@ func (*filterCSStore) RollbackChangeset(context.Context, string, string) error {
 func TestBackfillPageRefs(t *testing.T) {
 	store := newFakeBackfillStore(
 		// kp1 has an inline body ref AND a changeset source insight (promoted).
-		knowledgepage.Page{ID: "kp1", Slug: "fiscal", Body: "see [a](mcp:asset:asset-1) and urn:li:glossaryTerm:revenue"},
+		knowledgepage.Page{ID: "kp1", Slug: "fiscal", Body: "see [a](mcp:asset:asset-1) and mcp:glossary_term:revenue"},
 		// kp2 has neither -> no refs.
 		knowledgepage.Page{ID: "kp2", Slug: "empty", Body: "just prose"},
 	)
@@ -130,7 +130,7 @@ func TestBackfillPageRefs(t *testing.T) {
 	}}
 	insightStore := &fullSpyStore{Insights: []Insight{
 		// A duplicate and an empty URN exercise the de-dup/skip path.
-		{ID: "ins-1", EntityURNs: []string{"urn:li:dataset:promoted-x", "urn:li:dataset:promoted-x", ""}},
+		{ID: "ins-1", EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.promoted_x)", "mcp:dataset:(trino,warehouse,c.s.promoted_x)", ""}},
 	}}
 	tk := newApplyToolkit(t, insightStore, csStore, newFakeCatalog())
 
@@ -141,10 +141,10 @@ func TestBackfillPageRefs(t *testing.T) {
 	// kp1 inline: the two body references reconciled as inline.
 	inline := refURNset(store.inline["kp1"])
 	assert.Contains(t, inline, "mcp:asset:asset-1")
-	assert.Contains(t, inline, "urn:li:glossaryTerm:revenue")
+	assert.Contains(t, inline, "mcp:glossary_term:revenue")
 	// kp1 promoted: the insight's entity URN, source=promoted.
 	require.Len(t, store.promoted["kp1"], 1)
-	assert.Equal(t, "urn:li:dataset:promoted-x", store.promoted["kp1"][0].EntityURN)
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,c.s.promoted_x)", store.promoted["kp1"][0].EntityURN)
 	assert.Equal(t, knowledgepage.RefSourcePromoted, store.promoted["kp1"][0].Source)
 
 	// kp2: inline reconciled to empty (no refs), no promoted.
@@ -212,7 +212,7 @@ func TestBackfillPageRefs_BestEffortOnPromotedError(t *testing.T) {
 	cs := &filterCSStore{byTarget: map[string][]Changeset{
 		"kp:fiscal": {{SourceInsightIDs: []string{"ins-1"}}},
 	}}
-	insights := &fullSpyStore{Insights: []Insight{{ID: "ins-1", EntityURNs: []string{"urn:li:dataset:x"}}}}
+	insights := &fullSpyStore{Insights: []Insight{{ID: "ins-1", EntityURNs: []string{"mcp:dataset:(trino,warehouse,c.s.x)"}}}}
 	tk := newApplyToolkit(t, insights, cs, newFakeCatalog())
 
 	stats, err := tk.BackfillPageRefs(context.Background(), store)

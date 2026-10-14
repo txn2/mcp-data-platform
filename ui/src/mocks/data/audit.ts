@@ -85,15 +85,10 @@ const toolDefs: ToolDef[] = [
   // acme-billing-api (api gateway) — 6% of traffic. pickSource biases these
   // toward the REST shim, which is the population that dropdown exists for.
   { name: "api_invoke_endpoint", connection: "acme-billing-api", kind: "api", toolkit: "acme-billing-api", weight: 5 },
-  // acme-catalog (datahub) — 25% of traffic
-  { name: "datahub_search", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 12 },
-  { name: "datahub_get_entity", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 6 },
-  { name: "datahub_get_schema", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 3 },
-  { name: "datahub_get_lineage", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 2 },
-  { name: "datahub_browse", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 1 },
-  // acme-catalog-staging (datahub) — 3% of traffic
-  { name: "datahub_search", connection: "acme-catalog-staging", kind: "datahub", toolkit: "acme-catalog-staging", weight: 2 },
-  { name: "datahub_get_entity", connection: "acme-catalog-staging", kind: "datahub", toolkit: "acme-catalog-staging", weight: 1 },
+  // search and fetch (the catalog and everything else the platform knows),
+  // which belong to no connection — 28% of traffic
+  { name: "search", connection: "", kind: "search", toolkit: "search", weight: 17 },
+  { name: "fetch", connection: "", kind: "search", toolkit: "search", weight: 10 },
   // acme-data-lake (s3) — 8% of traffic
   { name: "s3_list", connection: "acme-data-lake", kind: "s3", toolkit: "acme-data-lake", weight: 5 },
   { name: "s3_object", connection: "acme-data-lake", kind: "s3", toolkit: "acme-data-lake", weight: 3 },
@@ -150,7 +145,7 @@ const trinoTables = [
   "customer_segments", "regional_performance", "supply_chain_orders",
   "price_adjustments", "return_rates", "employee_schedules",
 ];
-const datahubQueries = [
+const searchQueries = [
   "daily_sales", "inventory", "customer", "revenue", "store performance",
   "supply chain", "product catalog", "regional", "forecast", "shrinkage",
 ];
@@ -200,20 +195,10 @@ function toolParameters(tool: ToolDef): Record<string, unknown> {
       return {
         sql: `SELECT region, SUM(revenue) FROM ${seededItem(trinoSchemas)}.${seededItem(trinoTables)} GROUP BY region`,
       };
-    case "datahub_search":
-      return { query: seededItem(datahubQueries), limit: seededItem([10, 25, 50]) };
-    case "datahub_get_entity":
-      return { urn: `urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.${seededItem(trinoSchemas)}.${seededItem(trinoTables)},PROD)` };
-    case "datahub_get_schema":
-      return { urn: `urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.${seededItem(trinoSchemas)}.${seededItem(trinoTables)},PROD)` };
-    case "datahub_get_lineage":
-      return {
-        urn: `urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.${seededItem(trinoSchemas)}.${seededItem(trinoTables)},PROD)`,
-        direction: seededItem(["upstream", "downstream"]),
-        depth: seededItem([1, 2, 3]),
-      };
-    case "datahub_browse":
-      return { type: seededItem(["tags", "domains", "data_products"]) };
+    case "search":
+      return { query: seededItem(searchQueries), limit: seededItem([10, 25, 50]) };
+    case "fetch":
+      return { ref: `mcp:dataset:(trino,acme-warehouse,iceberg.${seededItem(trinoSchemas)}.${seededItem(trinoTables)})` };
     case "s3_list":
       return { bucket: seededItem(s3Buckets), prefix: seededItem(s3Prefixes) };
     case "s3_object":
@@ -249,9 +234,7 @@ const purposeGatedTools = new Set([
   "trino_describe_table",
   "api_invoke_endpoint",
   "api_export",
-  "datahub_get_entity",
-  "datahub_get_schema",
-  "datahub_get_lineage",
+  "fetch",
   "s3_object",
   "s3_list",
 ]);
@@ -272,12 +255,10 @@ function errorMessage(tool: ToolDef): string {
     "Query cancelled by user",
     "Memory limit exceeded: 2.1GB of 2.0GB",
   ];
-  const datahubErrors = [
-    "Entity not found for URN",
-    "Lineage depth exceeded maximum of 5 hops",
-    "Search index temporarily unavailable",
-    "Permission denied: restricted dataset",
-    "GraphQL query timeout after 30s",
+  const searchErrors = [
+    "reference not found",
+    "search index temporarily unavailable",
+    "connection not reachable by this persona",
   ];
   const s3Errors = [
     "NoSuchKey: The specified key does not exist",
@@ -288,7 +269,7 @@ function errorMessage(tool: ToolDef): string {
 
   switch (tool.kind) {
     case "trino": return seededItem(trinoErrors);
-    case "datahub": return seededItem(datahubErrors);
+    case "search": return seededItem(searchErrors);
     case "s3": return seededItem(s3Errors);
     default: return "Unknown error";
   }
@@ -301,11 +282,8 @@ function toolDuration(tool: ToolDef): number {
     case "trino_describe_table": return seededInt(20, 250);
     case "trino_explain": return seededInt(30, 400);
     case "trino_browse": return seededInt(5, 80);
-    case "datahub_search": return seededInt(25, 180);
-    case "datahub_get_entity": return seededInt(30, 200);
-    case "datahub_get_schema": return seededInt(25, 150);
-    case "datahub_get_lineage": return seededInt(40, 350);
-    case "datahub_browse": return seededInt(10, 100);
+    case "search": return seededInt(25, 180);
+    case "fetch": return seededInt(30, 200);
     case "s3_list": return seededInt(15, 100);
     case "s3_object": return seededInt(20, 500);
     default: return seededInt(10, 200);
@@ -649,12 +627,11 @@ export const mockTimeseries = generateTimeseries();
 
 export const mockToolBreakdown: BreakdownEntry[] = [
   { dimension: "trino_query", count: 1689, success_rate: 0.943, avg_duration_ms: 245.7 },
-  { dimension: "datahub_search", count: 869, success_rate: 0.991, avg_duration_ms: 67.3 },
+  { dimension: "search", count: 869, success_rate: 0.991, avg_duration_ms: 67.3 },
   { dimension: "trino_describe_table", count: 531, success_rate: 0.978, avg_duration_ms: 89.4 },
-  { dimension: "datahub_get_entity", count: 434, success_rate: 0.967, avg_duration_ms: 78.2 },
+  { dimension: "fetch", count: 434, success_rate: 0.967, avg_duration_ms: 78.2 },
   { dimension: "s3_list", count: 362, success_rate: 0.994, avg_duration_ms: 42.1 },
   { dimension: "s3_object", count: 338, success_rate: 0.953, avg_duration_ms: 156.8 },
-  { dimension: "datahub_get_schema", count: 241, success_rate: 0.988, avg_duration_ms: 62.5 },
   { dimension: "trino_browse", count: 193, success_rate: 1.0, avg_duration_ms: 28.3 },
 ];
 
@@ -684,16 +661,14 @@ export const mockPersonaBreakdown: BreakdownEntry[] = [
 
 export const mockConnectionBreakdown: BreakdownEntry[] = [
   { dimension: "acme-warehouse", count: 2413, success_rate: 0.952, avg_duration_ms: 189.3 },
-  { dimension: "acme-catalog", count: 1158, success_rate: 0.982, avg_duration_ms: 71.4 },
   { dimension: "acme-data-lake", count: 531, success_rate: 0.975, avg_duration_ms: 78.9 },
   { dimension: "acme-reports", count: 338, success_rate: 0.968, avg_duration_ms: 124.5 },
   { dimension: "acme-staging", count: 241, success_rate: 0.963, avg_duration_ms: 156.2 },
-  { dimension: "acme-catalog-staging", count: 146, success_rate: 0.986, avg_duration_ms: 58.7 },
 ];
 
 export const mockToolkitBreakdown: BreakdownEntry[] = [
   { dimension: "trino", count: 2654, success_rate: 0.954, avg_duration_ms: 185.2 },
-  { dimension: "datahub", count: 1304, success_rate: 0.982, avg_duration_ms: 69.8 },
+  { dimension: "search", count: 1304, success_rate: 0.982, avg_duration_ms: 69.8 },
   { dimension: "s3", count: 869, success_rate: 0.972, avg_duration_ms: 95.4 },
 ];
 
@@ -724,4 +699,4 @@ export const mockPerformance: PerformanceStats = {
 // Re-export lists for handler filtering
 export const mockToolNames = [...new Set(toolDefs.map((t) => t.name))];
 export const mockUsers = acmeUsers.map((u) => u.email);
-export const mockToolkitKinds = ["trino", "datahub", "s3"];
+export const mockToolkitKinds = ["trino", "search", "s3"];

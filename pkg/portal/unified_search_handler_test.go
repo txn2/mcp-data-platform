@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,12 +104,13 @@ func TestSearch_ForwardsAndGroups(t *testing.T) {
 func TestSearch_EntityURNsOnly(t *testing.T) {
 	router := &fakeSearchRouter{}
 	h := newSearchHandler(router, kpViewer, nil)
-	rec := doKP(h, "GET", "/api/v1/portal/search?entity_urns=urn:li:dataset:x", "")
+	rec := doKP(h, "GET", "/api/v1/portal/search?entity_urns=mcp:dataset:(trino,warehouse,c.s.x),mcp:tag:pii", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if len(router.got.EntityURNs) != 1 {
-		t.Errorf("entity_urns = %v, want one", router.got.EntityURNs)
+	want := []string{"mcp:dataset:(trino,warehouse,c.s.x)", "mcp:tag:pii"}
+	if !slices.Equal(router.got.EntityURNs, want) {
+		t.Errorf("entity_urns = %v, want %v: a comma inside a reference's tuple does not split it", router.got.EntityURNs, want)
 	}
 }
 

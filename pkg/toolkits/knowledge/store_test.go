@@ -69,7 +69,7 @@ func TestNoopStore_MarkApplied(t *testing.T) {
 
 func TestNoopStore_Supersede(t *testing.T) {
 	store := NewNoopStore()
-	count, err := store.Supersede(context.Background(), "urn:li:dataset:foo", "exclude-id")
+	count, err := store.Supersede(context.Background(), "mcp:dataset:(trino,warehouse,c.s.foo)", "exclude-id")
 	assert.NoError(t, err)
 	assert.Equal(t, 0, count)
 }

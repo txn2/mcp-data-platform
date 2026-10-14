@@ -8,7 +8,7 @@ package acceptance
 //
 // Every criterion runs against a graphql connection added at runtime through
 // the admin API, against the same real GraphQL endpoint #1277's criteria use:
-// DataHub's GMS at /api/graphql. No fixture stands in for the upstream.
+// the dev stack's GraphQL fixture, PostGraphile at http://localhost:9286/graphql.
 //
 // Wire forms: graphql_export's `variables` is typed ["object", "string"] and
 // admits the object itself and a string holding that object's JSON. Both are

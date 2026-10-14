@@ -3,7 +3,7 @@
 id: lc-premium-orders
 title: Premium order count
 fact: A 'premium order' is any order placed by a customer on the enterprise tier.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
 sink: knowledge_page
 page:
     slug: premium-order-definition

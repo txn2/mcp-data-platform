@@ -3,8 +3,8 @@
 # Two jobs:
 #   - harness: build, vet, lint, and unit-test the test/load module. Cheap and
 #     deterministic; the real regression guard for the harness code itself.
-#   - smoke:   stand up the compose stack (Postgres/Trino/SeaweedFS — no DataHub,
-#     same as e2e-nightly) and run each scenario at a short smoke scale, uploading
+#   - smoke:   stand up the compose stack (Postgres/Trino/SeaweedFS, the
+#     same stack as e2e-nightly) and run each scenario at a short smoke scale, uploading
 #     the JSON reports as an artifact.
 #
 # GitHub runners are noisy shared hardware, so the smoke numbers are INDICATIVE

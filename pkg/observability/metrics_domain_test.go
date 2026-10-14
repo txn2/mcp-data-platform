@@ -30,7 +30,7 @@ func TestDomainInstruments_Exposed(t *testing.T) {
 	m.RecordToolDenial(ctx, "", "no_persona")
 	m.RecordConfigWarning(ctx, "persona_tool_unregistered", 2)
 	m.RecordConfigWarning(ctx, "ignored", 0)
-	m.RecordKnowledgeChange(ctx, "datahub", "applied")
+	m.RecordKnowledgeChange(ctx, "catalog", "applied")
 	m.RecordSearchResults(ctx, 7)
 	m.RecordSearchResults(ctx, 0)
 	m.RecordArchiveExtraction(ctx, 3, 4096)
@@ -56,7 +56,7 @@ func TestDomainInstruments_Exposed(t *testing.T) {
 		`mcp_tool_call_denials_total{persona="analyst",reason="tool_denied"} 1`,
 		`mcp_tool_call_denials_total{persona="unknown",reason="no_persona"} 1`,
 		`config_validation_warnings_total{code="persona_tool_unregistered"} 2`,
-		`knowledge_changes_total{result="applied",sink="datahub"} 1`,
+		`knowledge_changes_total{result="applied",sink="catalog"} 1`,
 		`search_results_returned_total 7`,
 		`archive_members_extracted_total 3`,
 		`archive_extracted_bytes_total 4096`,
@@ -170,7 +170,7 @@ func TestDomainInstruments_NilSafe(t *testing.T) {
 	m.RecordConfigWarning(ctx, "c", 1)
 	m.RecordConfigInfo(ctx, ConfigInfo{})
 	m.RegisterPlatformState(nil)
-	m.RecordKnowledgeChange(ctx, "datahub", "applied")
+	m.RecordKnowledgeChange(ctx, "catalog", "applied")
 	m.RecordSearchResults(ctx, 1)
 	m.RecordArchiveExtraction(ctx, 1, 1)
 	m.RecordArchiveRefusal(ctx, "corrupt")
@@ -195,7 +195,7 @@ func TestStartOp_SpanUnderCall(t *testing.T) {
 	ctx, parent := tr.Start(context.Background(), "tool_call")
 	var m *Metrics
 	_, op := m.StartOp(ctx, "knowledge.apply")
-	op.End(ctx, errors.New("datahub refused"))
+	op.End(ctx, errors.New("catalog refused"))
 	parent.End()
 
 	spans := rec.Ended()

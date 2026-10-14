@@ -69,7 +69,7 @@ type Consumers struct {
 	// CatalogDatasets registers the catalog-dataset consumer, which mirrors the
 	// configured semantic catalog's dataset text into the platform's own index
 	// (#1131). Unlike the others it is not gated on a platform sub-store: its
-	// corpus lives in DataHub, so the caller reports whether a real catalog is
+	// corpus is read through the semantic provider, so the caller reports whether a real catalog is
 	// configured and the index is enabled.
 	CatalogDatasets bool
 }
@@ -375,8 +375,9 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 	})
 	// Catalog-dataset consumer: mirrors the semantic catalog's dataset text into
 	// the platform's own index so a fact applied to a description is reachable
-	// from a topical query that names no entity (#1131). Its corpus is DataHub,
-	// not a table, so it needs the catalog lister rather than a sub-store.
+	// from a topical query that names no entity (#1131). Its corpus is read
+	// through the semantic provider, so it needs the catalog lister rather than
+	// a sub-store.
 	tryRegister(cfg.Consumers.CatalogDatasets && cfg.CatalogLister != nil, "catalog datasets", func() error {
 		return datasetindex.RegisterConsumer(h.registry, cfg.DB, cfg.CatalogLister,
 			cfg.ModelName, cfg.CatalogIndexConfig)

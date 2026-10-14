@@ -8,11 +8,11 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 )
 
-// validLesson returns a minimal well-formed datahub-sink lesson.
+// validLesson returns a minimal well-formed catalog-sink lesson.
 func validLesson() Lesson {
 	return Lesson{
 		ID: "cs-a", Title: "A", TrapClass: "units_cents", Fact: "amounts are cents",
-		EntityURN: "urn:li:dataset:x", Sink: protocol.SinkDataHub, BudgetToolCalls: 5,
+		EntityURN: "mcp:dataset:(trino,e2e,x)", Sink: protocol.SinkCatalog, BudgetToolCalls: 5,
 		Teach: protocol.TeachStage{Prompt: "remember this"},
 	}
 }
@@ -89,8 +89,8 @@ lessons:
     title: A
     trap_class: units_cents
     fact: amounts are cents
-    entity_urn: urn:li:dataset:x
-    sink: datahub
+    entity_urn: mcp:dataset:(trino,e2e,x)
+    sink: catalog
     budget_tool_calls: 5
     teach:
       prompt: remember this
@@ -117,7 +117,7 @@ id: dup
 title: t
 eval_suite: s3
 lessons:
-  - {id: l, title: L, trap_class: units_cents, fact: f, entity_urn: u, sink: datahub, budget_tool_calls: 1, teach: {prompt: p}}
+  - {id: l, title: L, trap_class: units_cents, fact: f, entity_urn: u, sink: catalog, budget_tool_calls: 1, teach: {prompt: p}}
 `
 	writeYAML(t, filepath.Join(dir2, "a.yaml"), one)
 	writeYAML(t, filepath.Join(dir2, "b.yaml"), one)

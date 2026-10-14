@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,7 +58,7 @@ func TestApplyToCatalog_EveryChangeTypeAppliesAndRollsBack(t *testing.T) {
 			ref: column, check: func(is *assert.Assertions, a catalog.Aspects) { is.Equal("In cents", a.Description) },
 		},
 		{
-			name: "add_tag", changes: []ApplyChange{{ChangeType: "add_tag", Detail: "urn:li:tag:pii"}, {ChangeType: "add_tag", Detail: "mcp:tag:finance"}},
+			name: "add_tag", changes: []ApplyChange{{ChangeType: "add_tag", Detail: "mcp:tag:pii"}, {ChangeType: "add_tag", Detail: "mcp:tag:finance"}},
 			ref: testDataset, check: func(is *assert.Assertions, a catalog.Aspects) { is.Equal([]string{"pii", "finance"}, a.Tags) },
 		},
 		{
@@ -98,7 +99,7 @@ func TestApplyToCatalog_EveryChangeTypeAppliesAndRollsBack(t *testing.T) {
 			},
 		},
 		{
-			name: "set_structured_property", changes: []ApplyChange{{ChangeType: "set_structured_property", Target: "urn:li:structuredProperty:retention", Detail: "[90]"}},
+			name: "set_structured_property", changes: []ApplyChange{{ChangeType: "set_structured_property", Target: "retention", Detail: "[90]"}},
 			ref: testDataset, check: func(is *assert.Assertions, a catalog.Aspects) {
 				is.Equal(map[string][]any{"retention": {float64(90)}}, a.StructuredProperties)
 			},
@@ -247,10 +248,10 @@ func TestApplyToCatalog_StoreFailureWritesNothing(t *testing.T) {
 // target in no form the catalog reads are refused by name.
 func TestApplyToCatalog_Targets(t *testing.T) {
 	cases := map[string]string{
-		"urn:li:dataset:(urn:li:dataPlatform:trino,nowhere.t,PROD)": "holds no entity",
-		"mcp:dataset:(trino,acme)":                                  "entity_urn",
-		"orders":                                                    "is not a catalog reference",
-		"urn:li:dataset:broken":                                     "entity_urn",
+		"mcp:dataset:(trino,acme,nowhere.t)": "holds no entity",
+		"mcp:dataset:(trino,acme)":           "entity_urn",
+		"orders":                             "is not a catalog reference",
+		"urn:li:glossaryTerm:revenue":        "is not a catalog reference",
 	}
 	for target, want := range cases {
 		t.Run(target, func(t *testing.T) {
@@ -265,8 +266,8 @@ func TestApplyToCatalog_Targets(t *testing.T) {
 	}
 }
 
-// A definition is curated through its mcp: reference or the DataHub URN it
-// was imported from; a definition carries no tags.
+// A definition is curated through its mcp: reference, by id or by slug; a
+// definition carries no tags.
 func TestApplyToCatalog_Definitions(t *testing.T) {
 	csStore := &spyChangesetStore{}
 	cat := testCatalog()
@@ -274,7 +275,7 @@ func TestApplyToCatalog_Definitions(t *testing.T) {
 	require.NoError(t, err)
 	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, cat)
 
-	for _, target := range []string{term.Reference, "urn:li:glossaryTerm:Net Revenue"} {
+	for _, target := range []string{term.Reference, "mcp:glossary_term:net-revenue"} {
 		res, _, err := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{
 			Action: "apply", EntityURN: target,
 			Changes: []ApplyChange{{ChangeType: "update_description", Detail: "Revenue after refunds"}},
@@ -300,7 +301,7 @@ func TestApplyToCatalog_GlossaryTermCreatedOnce(t *testing.T) {
 	csStore := &spyChangesetStore{}
 	cat := testCatalog()
 	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, cat)
-	resp, _ := applyOK(t, tk, csStore, ApplyChange{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:Revenue"})
+	resp, _ := applyOK(t, tk, csStore, ApplyChange{ChangeType: "add_glossary_term", Detail: "Revenue"})
 	created, ok := resp["created_ids"].([]any)
 	require.True(t, ok)
 	require.Len(t, created, 1)
@@ -336,7 +337,7 @@ func TestApplyToCatalog_DeleteTag(t *testing.T) {
 	require.NoError(t, err)
 
 	res, _, err := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{
-		Action: "apply", EntityURN: "urn:li:tag:legacy", Changes: []ApplyChange{{ChangeType: "delete_tag"}},
+		Action: "apply", EntityURN: "mcp:tag:legacy", Changes: []ApplyChange{{ChangeType: "delete_tag"}},
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, resultText(res))
@@ -368,7 +369,7 @@ func TestApplyToCatalog_NoCatalog(t *testing.T) {
 
 func TestApplyToCatalog_UnknownSink(t *testing.T) {
 	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, testCatalog())
-	res, _, err := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{Action: "apply", Sink: "datahub"})
+	res, _, err := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{Action: "apply", Sink: "warehouse"})
 	require.NoError(t, err)
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "valid: catalog, knowledge_page, agent_instructions")
@@ -435,7 +436,7 @@ func TestBulkUntag_RemovesEverywhereAndRollsBack(t *testing.T) {
 	_, err := cat.WriteAspect(context.Background(), other, catalog.AspectTags, []byte(`["old"]`), "seed")
 	require.NoError(t, err)
 
-	res, _, err := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{Action: "bulk_untag", TagURN: "urn:li:tag:old"})
+	res, _, err := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{Action: "bulk_untag", TagURN: "mcp:tag:old"})
 	require.NoError(t, err)
 	require.False(t, res.IsError, resultText(res))
 	m := parseJSONResult(t, res)
@@ -631,4 +632,70 @@ func TestUntagAndPromotionRetryStaleReads(t *testing.T) {
 	_, err = NewCatalogQueryWriter(cat).CreateCuratedQuery(context.Background(), []string{testDatasetRef}, "mine", "SELECT 1", "")
 	require.NoError(t, err)
 	assert.Len(t, cat.Aspects(testDataset).CuratedQueries, 2)
+}
+
+// A DataHub URN names nothing in the platform catalog, so a tag or structured
+// property given as one is refused, naming the form that is read, rather than
+// stored as a tag or property called the URN.
+func TestApplyToCatalog_RefusesDataHubURNForms(t *testing.T) {
+	cat := testCatalog()
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, cat)
+	for _, ch := range []ApplyChange{
+		{ChangeType: "add_tag", Detail: "urn:li:tag:finance"},
+		{ChangeType: "remove_tag", Detail: "urn:li:tag:finance"},
+		{ChangeType: "set_structured_property", Target: "urn:li:structuredProperty:tier", Detail: "1"},
+		{ChangeType: "remove_structured_property", Target: "urn:li:structuredProperty:tier"},
+	} {
+		res, _, err := tk.handleApplyKnowledge(ctxWithUser("u", "s", "admin"), nil, applyKnowledgeInput{
+			Action: "apply", EntityURN: testEntityURN, Changes: []ApplyChange{ch}, Confirm: true,
+		})
+		require.NoError(t, err)
+		require.True(t, res.IsError, "%s with a URN was applied: %s", ch.ChangeType, resultText(res))
+		assert.Contains(t, resultText(res), "DataHub URN", ch.ChangeType)
+	}
+	assert.Empty(t, cat.Aspects(testDataset).Tags)
+	assert.Empty(t, cat.Aspects(testDataset).StructuredProperties)
+
+	res, _, err := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{Action: "bulk_untag", TagURN: "urn:li:tag:finance"})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "does not name a tag in the platform catalog")
+}
+
+// A curation write respects the caller's connection reach: an apply, a
+// rollback and a bulk_untag touching a dataset the persona does not reach are
+// refused, and nothing is written.
+func TestApplyToCatalog_RespectsTheCallersConnectionReach(t *testing.T) {
+	csStore := &spyChangesetStore{}
+	cat := testCatalog()
+	other := cat.AddDataset("hr", "test.salaries")
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, cat)
+	_, cs := applyOK(t, tk, csStore, ApplyChange{ChangeType: "add_tag", Detail: "shared"})
+	_, err := cat.WriteAspect(context.Background(), other, catalog.AspectTags, []byte(`["shared"]`), "seed")
+	require.NoError(t, err)
+
+	tk.SetCatalogReach(func(_ context.Context, reference string) bool { return !strings.Contains(reference, ",hr,") })
+
+	res, _, err := tk.handleApplyKnowledge(ctxWithUser("u", "s", "analyst"), nil, applyKnowledgeInput{
+		Action: "apply", EntityURN: other.String(), Changes: []ApplyChange{{ChangeType: "add_tag", Detail: "x"}}, Confirm: true,
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "on a connection your persona reaches")
+	assert.Equal(t, []string{"shared"}, cat.Aspects(other).Tags)
+
+	res, _, err = tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{Action: "bulk_untag", TagURN: "shared", Confirm: true})
+	require.NoError(t, err)
+	require.True(t, res.IsError, resultText(res))
+	assert.Contains(t, resultText(res), "1 datasets or columns on connections your persona does not reach")
+	assert.Equal(t, []string{"shared"}, cat.Aspects(testDataset).Tags, "nothing was untagged")
+
+	// The changeset written on the reached dataset still rolls back.
+	rollbackOK(t, tk, cs.ID)
+
+	tk.SetCatalogReach(func(context.Context, string) bool { return false })
+	res, _, err = tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{Action: "rollback", ChangesetID: cs.ID, Confirm: true})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "on a connection your persona reaches")
 }

@@ -53,6 +53,9 @@ func (t *Toolkit) handleRollback(ctx context.Context, input applyKnowledgeInput)
 	if input.EntityURN != "" && cs.TargetURN != input.EntityURN && cs.TargetURN != t.changesetTarget(ctx, input.EntityURN) {
 		return toolkit.ErrorResult("changeset " + input.ChangesetID + " does not belong to entity " + input.EntityURN), nil, nil
 	}
+	if !t.reaches(ctx, cs.TargetURN) {
+		return toolkit.ErrorResult(unreachable(cs.TargetURN)), nil, nil
+	}
 
 	deps := RollbackDeps{
 		Catalog: t.curator.store, Changesets: t.changesetStore, Insights: t.store,

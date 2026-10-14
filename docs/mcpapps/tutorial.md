@@ -178,7 +178,7 @@ The `platform_info` tool returns:
   "name": "mcp-data-platform",
   "version": "1.0.0",
   "description": "Semantic data platform MCP server with bidirectional cross-enrichment",
-  "toolkits": ["trino", "datahub", "s3"],
+  "toolkits": ["trino", "search", "s3"],
   "features": {
     "semantic_enrichment": true,
     "query_enrichment": true,
@@ -501,7 +501,7 @@ Replace the default JSON with your tool's output format:
   "name": "mcp-data-platform",
   "version": "1.0.0",
   "description": "Semantic data platform MCP server with bidirectional cross-enrichment",
-  "toolkits": ["trino", "datahub", "s3"],
+  "toolkits": ["trino", "search", "s3"],
   "features": {
     "semantic_enrichment": true,
     "query_enrichment": true,
@@ -547,7 +547,7 @@ Test with variations to ensure robustness:
 {
   "name": "full-platform",
   "version": "2.0.0",
-  "toolkits": ["trino", "datahub", "s3", "kafka", "redis", "postgres"],
+  "toolkits": ["trino", "search", "s3", "kafka", "redis", "postgres"],
   "features": {
     "semantic_enrichment": true,
     "query_enrichment": false,

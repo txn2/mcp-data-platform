@@ -207,7 +207,7 @@ func queryValues(r *http.Request, key string) []string {
 	}
 	out := make([]string, 0, len(raw))
 	for _, v := range raw {
-		for part := range strings.SplitSeq(v, ",") {
+		for _, part := range splitOutsideParens(v) {
 			if p := strings.TrimSpace(part); p != "" {
 				out = append(out, p)
 			}
@@ -217,4 +217,24 @@ func queryValues(r *http.Request, key string) []string {
 		return nil
 	}
 	return out
+}
+
+// splitOutsideParens splits a comma-separated list at the commas outside
+// parentheses, so a catalog reference whose tuple holds commas
+// (mcp:dataset:(trino,warehouse,a.b.c)) stays one value.
+func splitOutsideParens(v string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i, r := range v {
+		switch {
+		case r == '(':
+			depth++
+		case r == ')' && depth > 0:
+			depth--
+		case r == ',' && depth == 0:
+			out = append(out, v[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, v[start:])
 }

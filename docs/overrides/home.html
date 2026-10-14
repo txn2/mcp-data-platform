@@ -63,7 +63,7 @@
 
     <div class="hero__intro">
       <p class="hero__lede">
-        mcp-data-platform is the composable MCP server platform for AI assistants that need data with context. Compose <a href="https://mcp-datahub.txn2.com">mcp-datahub</a>, <a href="https://mcp-trino.txn2.com">mcp-trino</a>, and <a href="https://mcp-s3.txn2.com">mcp-s3</a> behind one endpoint with bidirectional cross-enrichment. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response. <strong>Semantic first</strong>: every data response includes business context from the semantic layer.
+        mcp-data-platform is the composable MCP server platform for AI assistants that need data with context. Compose <a href="https://mcp-trino.txn2.com">mcp-trino</a> and <a href="https://mcp-s3.txn2.com">mcp-s3</a> behind one endpoint with the platform's own data catalog and bidirectional cross-enrichment. Query a table and get its meaning, owners, tags, and open incidents in the same response. <strong>Semantic first</strong>: every data response includes business context from the semantic layer.
       </p>
       <p class="hero__lede hero__lede--muted">
         OAuth 2.1 inbound, OAuth 2.1 outbound to upstream MCPs, OIDC, API keys, role-based personas, audit logging, admin portal, and a gateway toolkit that re-exposes any third-party MCP server through the same auth pipeline. Run as a single binary or import as a Go library to compose your own platform. Apache 2.0.
@@ -134,10 +134,10 @@
         <header class="flagship__head">
           <p class="flagship__id">SRV-001 · go · <a class="flagship__url" href="server/overview/">server docs ↗</a></p>
           <h3 class="flagship__name">standalone platform</h3>
-          <p class="flagship__tag">One binary, one YAML. Composes DataHub, Trino, S3 behind one MCP endpoint.</p>
+          <p class="flagship__tag">One binary, one YAML. Its own catalog, Trino and S3 behind one MCP endpoint.</p>
         </header>
         <div class="flagship__body">
-          <p>Install with <code>go install</code>, Docker, or grab a release. Point it at DataHub via YAML config. Add Trino for SQL and S3 for objects when you are ready. Cross-enrichment is on by default. With no warehouse or catalog, the gateways, knowledge layer, memory, and portal run on PostgreSQL alone (see <a href="server/deployment-shapes/">deployment shapes</a>). Run over <code>stdio</code> for Claude Desktop, or <code>http</code> with OAuth 2.1 for hosted MCP clients.</p>
+          <p>Install with <code>go install</code>, Docker, or grab a release. Point it at PostgreSQL, which holds the catalog, via YAML config. Add Trino for SQL and S3 for objects when you are ready; every connection is scanned into the catalog. Cross-enrichment is on by default. With no warehouse, the catalog, gateways, knowledge layer, memory, and portal run on PostgreSQL alone (see <a href="server/deployment-shapes/">deployment shapes</a>). Run over <code>stdio</code> for Claude Desktop, or <code>http</code> with OAuth 2.1 for hosted MCP clients.</p>
         </div>
         <div class="flagship__demo">
           <div class="terminal">
@@ -148,13 +148,13 @@
 <pre class="terminal__body"><span class="t-prompt">$</span> go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
 
 <span class="t-prompt">$</span> claude mcp add data-platform \
-    -e DATAHUB_URL=https://datahub.example.com/api/graphql \
-    -e DATAHUB_TOKEN=<span class="t-ok">$TOKEN</span> \
+    -e DATABASE_URL=<span class="t-ok">$DATABASE_URL</span> \
+    -e TRINO_HOST=trino.example.com \
     -- mcp-data-platform --config platform.yaml
-<span class="t-mute">  added: data-platform (datahub + trino + s3, semantic on)</span>
+<span class="t-mute">  added: data-platform (catalog + trino + s3, semantic on)</span>
 
 <span class="t-prompt">$</span> claude
-<span class="t-mute"># ask: describe the orders table with owners and quality</span></pre>
+<span class="t-mute"># ask: describe the orders table with its owners and tags</span></pre>
           </div>
         </div>
         <footer class="flagship__foot">
@@ -171,7 +171,7 @@
           <p class="flagship__tag">Compose a custom platform. Bring your own toolkits and middleware.</p>
         </header>
         <div class="flagship__body">
-          <p><code>platform.New</code> returns a configured platform from a YAML config or functional options. The <em class="serif">ToolkitRegistry</em> loads DataHub, Trino, S3 and any custom toolkits. Wire <code>Use</code> middleware for redaction, audit, or transformation, then call <code>Run</code> to start the MCP server. No forking required.</p>
+          <p><code>platform.New</code> returns a configured platform from a YAML config or functional options. The <em class="serif">ToolkitRegistry</em> loads Trino, S3 and any custom toolkits. Wire <code>Use</code> middleware for redaction, audit, or transformation, then call <code>Run</code> to start the MCP server. No forking required.</p>
         </div>
         <div class="flagship__demo">
           <div class="terminal">
@@ -217,14 +217,14 @@ p.Run(ctx)</pre>
       <li class="stack__row">
         <div class="stack__main">
           <a class="stack__name" href="cross-enrichment/overview/">semantic cross-enrichment</a>
-          <p class="stack__desc">Trino results include DataHub metadata (owners, tags, glossary terms, quality scores, deprecation). DataHub searches show query availability and sample SQL. S3 operations include semantic context. Lineage inheritance fills in column metadata from upstream datasets. Session dedup avoids repeating context already sent.</p>
+          <p class="stack__desc">Trino results include the catalog's curation (description, owners, tags, glossary terms, open incidents). A dataset read from the catalog says whether and where it can be queried. Lineage is recorded as data moves. Session dedup avoids repeating context already sent.</p>
         </div>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row">
         <div class="stack__main">
           <a class="stack__name" href="server/multi-provider/">composable toolkits</a>
-          <p class="stack__desc">DataHub, Trino and S3 are components the platform composes, not infrastructure you must already run. DataHub is what cross-enrichment needs (the semantic layer) and can stay a silent backend the operator never surfaces. Add <code>mcp-trino</code> for federated SQL and <code>mcp-s3</code> for object storage when you need them, or run none of the three and keep the database-backed surfaces. Multi-instance per service, runtime instance selection, isolated failure domains. Add custom toolkits via the <code>Toolkit</code> interface.</p>
+          <p class="stack__desc">The catalog is built in: every connection is scanned into it, and people and agents curate it with versioned, reversible changes. Add <code>mcp-trino</code> for federated SQL and <code>mcp-s3</code> for object storage when you need them, or run neither and keep the database-backed surfaces. Multi-instance per service, runtime instance selection, isolated failure domains. Add custom toolkits via the <code>Toolkit</code> interface.</p>
         </div>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
@@ -252,7 +252,7 @@ p.Run(ctx)</pre>
       <li class="stack__row">
         <div class="stack__main">
           <a class="stack__name" href="server/gateway/">gateway toolkit</a>
-          <p class="stack__desc">Re-expose any well-behaved third-party MCP server through the platform's auth, persona, and audit pipeline. Connections authored in the admin portal (DB-backed, encrypted credentials). Tools surface as <code>&lt;connection&gt;__&lt;remote_tool&gt;</code>. OAuth 2.1 client_credentials and authorization_code+PKCE grants. Optional declarative cross-enrichment joins proxied responses with Trino or DataHub.</p>
+          <p class="stack__desc">Re-expose any well-behaved third-party MCP server through the platform's auth, persona, and audit pipeline. Connections authored in the admin portal (DB-backed, encrypted credentials). Tools surface as <code>&lt;connection&gt;__&lt;remote_tool&gt;</code>. OAuth 2.1 client_credentials and authorization_code+PKCE grants. Optional declarative cross-enrichment joins proxied responses with Trino or the catalog.</p>
         </div>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
@@ -266,14 +266,14 @@ p.Run(ctx)</pre>
       <li class="stack__row">
         <div class="stack__main">
           <a class="stack__name" href="knowledge/overview/">knowledge &amp; memory</a>
-          <p class="stack__desc">Capture tribal knowledge during AI sessions and write it back to DataHub through a human-in-the-loop governance workflow with changeset rollback. Persistent memory layer (PostgreSQL + pgvector) accumulates preferences, corrections, and domain knowledge across sessions, with staleness detection when referenced entities change.</p>
+          <p class="stack__desc">Capture tribal knowledge during AI sessions and write it to the catalog or knowledge pages through a human-in-the-loop governance workflow with changeset rollback. Persistent memory layer (PostgreSQL + pgvector) accumulates preferences, corrections, and domain knowledge across sessions, with staleness detection when referenced entities change.</p>
         </div>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row stack__row--more">
         <div class="stack__main">
           <a class="stack__name" href="ecosystem/">part of the txn2 mcp data platform</a>
-          <p class="stack__desc">Sister projects: <a href="https://mcp-datahub.txn2.com">mcp-datahub</a> for metadata catalogs, <a href="https://mcp-trino.txn2.com">mcp-trino</a> for federated SQL, <a href="https://mcp-s3.txn2.com">mcp-s3</a> for object storage. mcp-data-platform composes all three plus the operational layer that turns them into a platform.</p>
+          <p class="stack__desc">Sister projects: <a href="https://mcp-trino.txn2.com">mcp-trino</a> for federated SQL, <a href="https://mcp-s3.txn2.com">mcp-s3</a> for object storage. mcp-data-platform composes both plus the operational layer that turns them into a platform.</p>
         </div>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>

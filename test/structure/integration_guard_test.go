@@ -28,7 +28,7 @@ import (
 // RealDB-executed pattern. These suites need external systems CI does not
 // provide and stay manual.
 var allowlistedIntegrationDirs = map[string]string{
-	"test/e2e":        "manual e2e suite against a live DataHub / assembled server; a nightly is #880 finding 3.4",
+	"test/e2e":        "manual e2e suite against an assembled server and its upstreams; a nightly is #880 finding 3.4",
 	"test/smoke":      "manual post-deploy smoke against a running MCP server (requires MCP_API_KEY)",
 	"test/acceptance": "per-ticket acceptance suite against a running platform (make dev): run by `make acceptance`, required by `make verify-release`; a test here fails, never skips, when no server answers",
 }
@@ -183,8 +183,8 @@ func integrationOrphanMessage(rel, name string) string {
 			"\"RealDB\" (e.g. %s_RealDB) so `make test-realdb` runs it.\n"+
 			"  2. Needs no infrastructure at all: remove the `//go:build integration` tag so it "+
 			"runs in the plain `go test ./...` step.\n"+
-			"  3. Needs an external service CI cannot provide (Ollama, a running MCP, live "+
-			"DataHub): add an explicit env-var t.Skip and an allowlist entry in "+
+			"  3. Needs an external service CI cannot provide (Ollama, a running MCP, a live "+
+			"Trino): add an explicit env-var t.Skip and an allowlist entry in "+
 			"integration_guard_test.go (allowlistedIntegrationDirs or allowlistedIntegrationFuncs) "+
 			"with a one-line reason.",
 		name, rel, name)

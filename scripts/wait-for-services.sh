@@ -40,14 +40,5 @@ wait_for_service "Trino" \
 wait_for_service "SeaweedFS (S3)" \
     "curl -s -o /dev/null http://localhost:9000"
 
-# Wait for DataHub (if using datahub quickstart)
-if docker ps --format '{{.Names}}' | grep -q "datahub-gms"; then
-    wait_for_service "DataHub GMS" \
-        "curl -sf http://localhost:8080/health"
-    echo "DataHub detected and ready!"
-else
-    echo "DataHub not detected - skipping (use 'datahub docker quickstart' to start)"
-fi
-
 echo ""
 echo "All services are ready!"

@@ -40,13 +40,13 @@ purpose:
   require: false
   tools:
     - trino_query
-    - "datahub_get_*"
+    - "graphql_*"
     - "kind:mcp"
 `))
 	require.NoError(t, err)
 	assert.True(t, cfg.Purpose.IsEnabled())
 	assert.False(t, cfg.Purpose.IsRequired())
-	assert.Equal(t, []string{"trino_query", "datahub_get_*", "kind:mcp"}, cfg.Purpose.Tools)
+	assert.Equal(t, []string{"trino_query", "graphql_*", "kind:mcp"}, cfg.Purpose.Tools)
 }
 
 // TestBuildPurposeResolver proves the toolargs seam turns config into the
@@ -133,7 +133,6 @@ func TestDefaultPurposeToolsCoversTheDocumentedSet(t *testing.T) {
 		"trino_describe_table",
 		"api_invoke_endpoint",
 		"api_export",
-		"datahub_get_*",
 		"s3_object",
 		"s3_list",
 		"save_asset",

@@ -165,7 +165,7 @@ func (h *Handle) Start() {
 // buildEmbedder selects the embedding provider from config. Ollama when
 // requested; otherwise the noop provider with a specific WARN — the operator's
 // only signal that semantic ranking is off. The platform still boots so Trino,
-// S3, DataHub, OAuth, audit, and every other non-embedding feature remains
+// S3, OAuth, audit, and every other non-embedding feature remains
 // available; semantic ranking degrades to the lexical fallback and memory writes
 // persist Embedding: nil (the toolkit guards see Kind() == KindNoop) (#429).
 func buildEmbedder(cfg Config) embedding.Provider {

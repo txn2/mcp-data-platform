@@ -141,7 +141,7 @@ export function RuleEditor({
 
       <JSONField
         label="Enrich action"
-        hint='source must be "trino" or "datahub". String parameters starting with $. are JSONPath bindings against {args, response, user}.'
+        hint='source must be "trino" or "catalog". String parameters starting with $. are JSONPath bindings against {args, response, user}.'
         value={body.enrich_action}
         onChange={(v) => setBody({ ...body, enrich_action: v })}
       />

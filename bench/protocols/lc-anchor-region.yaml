@@ -3,7 +3,7 @@
 id: lc-anchor-region
 title: Anchor region net revenue (North then South)
 fact: The 'anchor region' for this study is North.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
 sink: knowledge_page
 page:
     slug: anchor-region-definition

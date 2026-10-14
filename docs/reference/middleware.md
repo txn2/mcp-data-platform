@@ -163,7 +163,7 @@ func MCPWorkflowGateMiddleware(tracker *SessionWorkflowTracker) mcp.Middleware
 3. Otherwise the middleware short-circuits with a `SEARCH_REQUIRED` error result and **never invokes the tool handler**, so the query does not execute
 4. Once `search` has been called once in a scope, subsequent query tool calls by that scope proceed with no further check (see **User-scoped discovery signal** below)
 
-Modeled on `MCPSessionGateMiddleware`: it is positioned inner to `MCPToolCallMiddleware` (so `PlatformContext` is populated and the current call is recorded on the tracker) and outer to audit/enrichment (so a blocked call never reaches those layers). Enabled by default; disabled only when `workflow.require_search: false` leaves the tracker unconfigured. The former `MCPRuleEnforcementMiddleware` (a warn-after-execution mechanism) and the static `tuning.rules.require_datahub_check` hint have been removed.
+Modeled on `MCPSessionGateMiddleware`: it is positioned inner to `MCPToolCallMiddleware` (so `PlatformContext` is populated and the current call is recorded on the tracker) and outer to audit/enrichment (so a blocked call never reaches those layers). Enabled by default; disabled only when `workflow.require_search: false` leaves the tracker unconfigured. The former `MCPRuleEnforcementMiddleware` (a warn-after-execution mechanism) has been removed.
 
 **User-scoped discovery signal:** discovery is tracked per **`PlatformContext.DiscoveryScopeKey`**: a genuinely distinct authenticated user identity when known (`user:<id>`), falling back to the session ID (`session:<id>`), and empty (ungateable, fail-open) when neither exists. Keying on the user rather than the raw session ID is deliberate: some MCP clients (notably claude.ai's web connector) open a **new MCP session for every tool call**, so a session-keyed gate would record `search` under one throwaway session and check the follow-up query under a different one, a 100% false `SEARCH_REQUIRED` even though the agent did search. Scoping to the user makes a single `search` open the gate for that user's subsequent per-call sessions. Only a *distinct* identity is used: the shared `anonymous`/`noop` identity assigned when auth is disabled is not distinct (every caller shares one `UserID`), so those callers fall back to the per-session key rather than collapsing onto one global scope. The tradeoff is that, for authenticated users, discovery is per-user-recent rather than strictly per-session, so a stable-session client's second conversation can inherit the first's discovery within the sliding window; this is acceptable for a workflow-quality nudge. A deployment with authentication disabled falls back to per-session gating for every caller; if such a deployment is also behind a client that opens a new session per tool call, there is no stable identity to gate on and the gate should be disabled (`workflow.require_search: false`).
 
@@ -203,11 +203,11 @@ Advertises the explicit session handle (issue #792) by injecting a `session_id` 
 func MCPSessionHandleSchemaMiddleware(initTool string) mcp.Middleware
 ```
 
-A list decorator like `ToolMetadataMiddleware`: it replaces each `Tool` in the response with a shallow copy carrying the augmented schema, so neither the server's shared tool registry nor upstream toolkits (mcp-trino, mcp-datahub, mcp-s3, gateway-proxied tools) are ever modified. Any schema representation (`*jsonschema.Schema`, `json.RawMessage`, or a map) is normalized via a JSON round-trip. Registered only when `sessions.handles.enabled` is on. The complementary extraction, validation, and stripping happens inside `MCPToolCallMiddleware` (see step 7 above).
+A list decorator like `ToolMetadataMiddleware`: it replaces each `Tool` in the response with a shallow copy carrying the augmented schema, so neither the server's shared tool registry nor upstream toolkits (mcp-trino, mcp-s3, gateway-proxied tools) are ever modified. Any schema representation (`*jsonschema.Schema`, `json.RawMessage`, or a map) is normalized via a JSON round-trip. Registered only when `sessions.handles.enabled` is on. The complementary extraction, validation, and stripping happens inside `MCPToolCallMiddleware` (see step 7 above).
 
 ### MCPDescriptionOverrideMiddleware
 
-Replaces tool descriptions in `tools/list` responses to inject workflow guidance (e.g., "call datahub_search first"). Built-in overrides for `trino_query` and `trino_execute` are always active; config overrides take precedence.
+Replaces tool descriptions in `tools/list` responses to inject workflow guidance (e.g., "call search first"). Built-in overrides for `trino_query` and `trino_execute` are always active; config overrides take precedence.
 
 ```go
 func MCPDescriptionOverrideMiddleware(overrides map[string]string) mcp.Middleware
@@ -240,7 +240,7 @@ func MCPSemanticEnrichmentMiddleware(
 2. Calls next handler to get result
 3. Skips enrichment if result is error
 4. Skips the export tools (`trino_export`, `api_export`, ...), whose result is asset metadata rather than rows: enriching it would describe the source tables the response does not contain
-5. Determines toolkit kind from tool name prefix (`trino_`, `datahub_`, `s3_`)
+5. Determines toolkit kind from tool name prefix (`trino_`, `s3_`)
 6. Calls appropriate enrichment function based on toolkit
 7. Appends semantic context to result content, and merges it into the structured result
 
@@ -349,10 +349,8 @@ func ToolMetadataMiddleware(reg *mcpapps.Registry) mcp.Middleware
 
 ```go
 type EnrichmentConfig struct {
-    EnrichTrinoResults          bool  // Add DataHub metadata to Trino results
-    EnrichDataHubResults        bool  // Add Trino query availability to DataHub results
-    EnrichS3Results             bool  // Add DataHub metadata to S3 results
-    EnrichDataHubStorageResults bool  // Add S3 availability to DataHub results
+    EnrichTrinoResults bool  // Add catalog context to Trino results
+    // ... session dedup, column filtering, semantic fallback, memory limits
 }
 ```
 

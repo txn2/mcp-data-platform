@@ -31,20 +31,20 @@ func TestIsToolVisible(t *testing.T) {
 		},
 		{
 			name:    "allow only - not matching",
-			tool:    "datahub_search",
+			tool:    "graphql_discover",
 			allow:   []string{"trino_*"},
 			visible: false,
 		},
 		{
 			name:    "deny only - matching",
-			tool:    "datahub_delete",
-			deny:    []string{"datahub_delete*"},
+			tool:    "graphql_delete",
+			deny:    []string{"graphql_delete*"},
 			visible: false,
 		},
 		{
 			name:    "deny only - not matching",
 			tool:    "s3_list",
-			deny:    []string{"datahub_delete*"},
+			deny:    []string{"graphql_delete*"},
 			visible: true,
 		},
 		{
@@ -63,7 +63,7 @@ func TestIsToolVisible(t *testing.T) {
 		},
 		{
 			name:    "allow and deny - not allowed",
-			tool:    "datahub_search",
+			tool:    "graphql_discover",
 			allow:   []string{"trino_*"},
 			deny:    []string{"*_delete_*"},
 			visible: false,
@@ -82,14 +82,14 @@ func TestIsToolVisible(t *testing.T) {
 		},
 		{
 			name:    "multiple allow patterns",
-			tool:    "datahub_search",
-			allow:   []string{"trino_*", "datahub_*"},
+			tool:    "graphql_discover",
+			allow:   []string{"trino_*", "graphql_*"},
 			visible: true,
 		},
 		{
 			name:    "multiple deny patterns",
-			tool:    "datahub_delete",
-			deny:    []string{"trino_delete_*", "datahub_delete*"},
+			tool:    "graphql_delete",
+			deny:    []string{"trino_delete_*", "graphql_delete*"},
 			visible: false,
 		},
 		{
@@ -204,7 +204,7 @@ func TestFilterToolVisibility(t *testing.T) {
 
 	t.Run("allow filters correctly", func(t *testing.T) {
 		result := &mcp.ListToolsResult{
-			Tools: makeTools(testAuditToolName, "trino_describe_table", "datahub_search", "s3_list"),
+			Tools: makeTools(testAuditToolName, "trino_describe_table", "graphql_discover", "s3_list"),
 		}
 		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}}, "tools/list", result)
 		if err != nil {
@@ -222,9 +222,9 @@ func TestFilterToolVisibility(t *testing.T) {
 
 	t.Run("deny filters correctly", func(t *testing.T) {
 		result := &mcp.ListToolsResult{
-			Tools: makeTools(testAuditToolName, "datahub_delete", "datahub_search"),
+			Tools: makeTools(testAuditToolName, "graphql_delete", "graphql_discover"),
 		}
-		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{ResolveGlobalDeny: staticDeny("datahub_delete*")}, "tools/list", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{ResolveGlobalDeny: staticDeny("graphql_delete*")}, "tools/list", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -233,14 +233,14 @@ func TestFilterToolVisibility(t *testing.T) {
 		if len(names) != 2 {
 			t.Fatalf("expected 2 tools, got %d: %v", len(names), names)
 		}
-		if names[0] != testAuditToolName || names[1] != "datahub_search" {
+		if names[0] != testAuditToolName || names[1] != "graphql_discover" {
 			t.Errorf("unexpected tools: %v", names)
 		}
 	})
 
 	t.Run("allow and deny combined", func(t *testing.T) {
 		result := &mcp.ListToolsResult{
-			Tools: makeTools(testAuditToolName, "trino_delete_table", "datahub_search", "s3_list"),
+			Tools: makeTools(testAuditToolName, "trino_delete_table", "graphql_discover", "s3_list"),
 		}
 		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}, ResolveGlobalDeny: staticDeny("*_delete_*")}, "tools/list", result)
 		if err != nil {
@@ -261,7 +261,7 @@ func TestMCPToolVisibilityMiddleware(t *testing.T) {
 	tools := []*mcp.Tool{
 		{Name: testAuditToolName},
 		{Name: "trino_describe_table"},
-		{Name: "datahub_search"},
+		{Name: "graphql_discover"},
 		{Name: "s3_list"},
 	}
 
@@ -314,7 +314,7 @@ func TestFilterToolVisibility_PersonaFiltering(t *testing.T) {
 		result := &mcp.ListToolsResult{
 			Tools: []*mcp.Tool{
 				{Name: "trino_query"},
-				{Name: "datahub_search"},
+				{Name: "graphql_discover"},
 				{Name: "s3_list"},
 			},
 		}

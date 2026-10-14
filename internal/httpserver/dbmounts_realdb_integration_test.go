@@ -34,7 +34,6 @@ func newRealDBPlatform(t *testing.T) *platform.Platform {
 		Server:   platform.ServerConfig{Name: "test"},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
 		Query:    platform.QueryConfig{Provider: "noop"},
-		Storage:  platform.StorageConfig{Provider: "noop"},
 		Database: platform.DatabaseConfig{DSN: dsn},
 		Portal:   platform.PortalConfig{Enabled: ptr(true)},
 		Resources: platform.ResourcesConfig{

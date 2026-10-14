@@ -110,7 +110,7 @@ var searchSchema = json.RawMessage(`{
     "entity_urns": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Exact entity-keyed lookup: return everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage. Use when you have specific datasets in hand rather than a natural-language question."
+      "description": "Exact entity-keyed lookup: return everything linked to these catalog references (mcp:dataset:(kind,connection,path): the catalog entity, insights about it, and your memory linked to it), expanded along lineage. Use when you have specific datasets in hand rather than a natural-language question."
     },
     "status": {
       "type": "string",
@@ -119,7 +119,7 @@ var searchSchema = json.RawMessage(`{
     "sources": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, governance, context_documents, knowledge_pages, memory, insights, feedback, assets, resources, prompts, scripts, calls, sessions, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored. To BROWSE (enumerate) a source instead of searching it, pass exactly one source here with no intent and no entity_urns (browsable sources: knowledge_pages, context_documents)."
+      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, governance, knowledge_pages, memory, insights, feedback, assets, resources, prompts, scripts, calls, sessions, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored. To BROWSE (enumerate) a source instead of searching it, pass exactly one source here with no intent and no entity_urns (browsable sources: knowledge_pages)."
     },
     "limit": {
       "type": "integer",
@@ -134,8 +134,8 @@ var searchSchema = json.RawMessage(`{
 
 // fetchInput is the deserialized fetch input: a single reference string, the
 // canonical citation search emits on every result (mcp:knowledge_page:<id>,
-// urn:li:document:<id>, urn:li:dataset:<id>, mcp:asset:<id>, mcp:prompt:<id>, or
-// mcp:connection:(kind,name)).
+// mcp:dataset:(kind,connection,path), mcp:glossary_term:<id>, mcp:asset:<id>,
+// mcp:prompt:<id>, or mcp:connection:(kind,name)).
 type fetchInput struct {
 	Reference string `json:"reference"`
 }
@@ -159,7 +159,7 @@ var fetchSchema = json.RawMessage(`{
   "properties": {
     "reference": {
       "type": "string",
-      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>, or the page's slug in place of the id), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), data products (urn:li:dataProduct:<id>), glossary terms (urn:li:glossaryTerm:<id>), tags (urn:li:tag:<id>), domains (urn:li:domain:<id>), saved assets (mcp:asset:<id>), uploaded reference material (mcp:resource:<id>), prompts (mcp:prompt:<id>), managed scripts (mcp:script:<id>), recorded calls (mcp:call:<id>), your own sessions (mcp:session:<id>), connections (mcp:connection:(kind,name)), captured insights (mcp:insight:<id>), your personal memory (mcp:memory:<id>), and the platform catalog's own datasets and columns (mcp:dataset:(kind,connection,path), mcp:column:(kind,connection,path,column)), glossary terms and nodes, domains and data products (mcp:glossary_term:<id>, mcp:glossary_node:<id>, mcp:domain:<id>, mcp:data_product:<id>, each also by slug in place of the id) and tags (mcp:tag:<name>). A dataset comes back as its full catalog record: business context, declared schema, saved queries, linked documents, and whether and where it is queryable. A glossary term, tag, or domain comes back with its definition and the datasets that carry it (a term also with its parent node and owners); a data product with its member datasets. The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). A resource comes back with its contents: text inline, a PDF and an Office document (docx, xlsx, pptx, odt, ods, odp) as their readable text, an image as the picture itself, and any other file as its bytes for your own tools to open. Only a resource above the inline size limit comes back as metadata plus its mcp:// URI, which you read the whole file by. A recorded call comes back as the statement or request that ran, what it was for, what came of it, and how many later sessions re-ran it; reading one is what makes your own re-run of it count as reuse. A session comes back as the work it was: what its calls were for, the assets and insights it produced as references you can follow, and its timeline in order, each cataloged call carrying its own mcp:call: reference and outcome. A managed script comes back as its contract — what it is, what parameters it takes, whether a run would be admitted, its schedule, and what its last successful run produced — not as its source code; finding one grants nothing, and running it is still run_script. Your memory is scoped to you; so are your insights until one is applied, at which point it is organization knowledge anyone can read. Returns the full content the search snippet was a preview of."
+      "description": "A reference to read in full: an mcp:<type>:<key> string. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>, or the page's slug in place of the id), saved assets (mcp:asset:<id>), uploaded reference material (mcp:resource:<id>), prompts (mcp:prompt:<id>), managed scripts (mcp:script:<id>), recorded calls (mcp:call:<id>), your own sessions (mcp:session:<id>), connections (mcp:connection:(kind,name)), captured insights (mcp:insight:<id>), your personal memory (mcp:memory:<id>), and the catalog's datasets and columns (mcp:dataset:(kind,connection,path), mcp:column:(kind,connection,path,column)), schema documents (mcp:schema_document:(kind,connection,filename)), glossary terms and nodes, domains and data products (mcp:glossary_term:<id>, mcp:glossary_node:<id>, mcp:domain:<id>, mcp:data_product:<id>, each also by slug in place of the id) and tags (mcp:tag:<name>). A dataset comes back as its full catalog record: its columns and their curation, its curated queries and context documents, its lineage within three hops either way, the schema document it was read from, and whether and where it is queryable. A dataset reference whose path stops above a dataset (mcp:dataset:(trino,<connection>,<catalog>) or (...,<catalog>.<schema>)) lists what is under it, and a connection lists the top of its catalog, which is how a connection's catalog is browsed. A glossary node comes back with the terms and nodes under it, which is how the glossary is browsed; a glossary term, tag or domain with its definition and the datasets and columns that carry it. The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a lineage edge's source or target). A resource comes back with its contents: text inline, a PDF and an Office document (docx, xlsx, pptx, odt, ods, odp) as their readable text, an image as the picture itself, and any other file as its bytes for your own tools to open. Only a resource above the inline size limit comes back as metadata plus its mcp:// URI, which you read the whole file by. A recorded call comes back as the statement or request that ran, what it was for, what came of it, and how many later sessions re-ran it; reading one is what makes your own re-run of it count as reuse. A session comes back as the work it was: what its calls were for, the assets and insights it produced as references you can follow, and its timeline in order, each cataloged call carrying its own mcp:call: reference and outcome. A managed script comes back as its contract — what it is, what parameters it takes, whether a run would be admitted, its schedule, and what its last successful run produced — not as its source code; finding one grants nothing, and running it is still run_script. Your memory is scoped to you; so are your insights until one is applied, at which point it is organization knowledge anyone can read. Returns the full content the search snippet was a preview of."
     }
   }
 }`)
@@ -193,9 +193,7 @@ func structuredResult(v any) (*mcp.CallToolResult, any, error) {
 // withResourceLinks appends one mcp.ResourceLink content block per hit that
 // carries a client-attachable file (today: managed resources), so a client with
 // native resource support can attach the file itself rather than only the JSON
-// pointer. It follows the in-tree precedent of the enrichment middleware's
-// schema:// and availability:// links on DataHub results. Duplicate URIs are
-// emitted once. A nil result or an error result is returned untouched.
+// pointer. Duplicate URIs are emitted once. A nil result or an error result is returned untouched.
 func withResourceLinks(res *mcp.CallToolResult, groups []knowledge.SourceGroup) *mcp.CallToolResult {
 	if res == nil || res.IsError {
 		return res
@@ -300,11 +298,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"many\". Raise `limit` to rank further into one source. To enumerate a whole source " +
 			"instead of relevance-ranking it (to audit or migrate it), call with exactly one `sources` entry, " +
 			"no intent, and an `offset`: this browses the complete set with a true total count (browsable: " +
-			"knowledge_pages, context_documents). Freshness: catalog and context-document results come from " +
-			"DataHub's search index, which is eventually consistent and can briefly lag a recent catalog write, so " +
-			"a result may still show pre-edit text right after you change it. To confirm a specific entity's " +
-			"current state after a write, read it directly (fetch its urn:li:... reference, or the " +
-			"resulting_state in the apply_knowledge apply response), not search.",
+			"knowledge_pages). Freshness: catalog results are ranked by the platform's index of dataset text, " +
+			"which is refreshed in the background and can briefly lag a recent catalog write, so a result may " +
+			"still show pre-edit text right after you change it. To confirm a specific entity's current state " +
+			"after a write, read it directly (fetch its mcp:dataset:... reference, or the resulting_state in " +
+			"the apply_knowledge apply response), not search.",
 		InputSchema:  searchSchema,
 		OutputSchema: searchResultSchema,
 		Annotations:  toolkit.ReadOnlyAnnotations(),
@@ -315,16 +313,15 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title: "Fetch",
 		Description: "Read a reference in full. search returns navigational pointers with truncated " +
 			"snippets; fetch dereferences one pointer's reference back to its complete content (a knowledge " +
-			"page's body, a context document's full text, a dataset's full catalog record (business context, " +
-			"declared schema, saved queries, linked documents, and whether and where it is queryable), a " +
-			"glossary term's, tag's, or domain's definition plus the datasets that carry it, a data " +
-			"product and its member datasets, an asset's metadata, " +
+			"page's body, a dataset's full catalog record (its columns and curation, curated queries, context " +
+			"documents, lineage, and whether and where it is queryable), the datasets under a catalog or " +
+			"schema, a glossary node's terms, a glossary term's, tag's, or domain's definition plus the " +
+			"datasets that carry it, a connection's schema document, an asset's metadata, " +
 			"an uploaded resource's contents, a prompt, a connection descriptor, a captured insight, " +
-			"or one of your personal memory records). A reference is either a urn:li:... form (the external " +
-			"DataHub catalog scheme) or an mcp:... form (the internal-platform scheme); fetch accepts both. " +
+			"or one of your personal memory records). A reference is an mcp:<type>:<key> string. " +
 			"The usual source is a search result's \"reference\" field (pass it verbatim), but a well-formed " +
-			"reference you already hold from another tool works too (for example a urn:li:dataset:... from " +
-			"datahub_get_lineage or an entity_urns lookup). A reference that is stale, unknown, or outside what " +
+			"reference you already hold from another tool works too (for example a lineage edge's source or " +
+			"target). A reference that is stale, unknown, or outside what " +
 			"you can access returns found=false rather than an error, so a dangling citation is a clean answer. " +
 			"fetch never reads content you could not have found with search: your own personal records, plus " +
 			"the insights the organization has applied. A stored file (an uploaded resource, a saved asset) " +

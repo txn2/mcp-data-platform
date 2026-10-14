@@ -108,12 +108,12 @@ func TestGatedPurposeTools(t *testing.T) {
 	}
 	reachable := []string{
 		"platform_info", "search", "trino_query", "manage_table",
-		"datahub_get_lineage", "vendor__list_contacts", "vendor__create_note",
+		"fetch", "vendor__list_contacts", "vendor__create_note",
 	}
 
 	t.Run("names the reachable gated tools and the kinds behind the rest", func(t *testing.T) {
 		named, kinds := GatedPurposeTools(Purpose{}, lookup, reachable)
-		assert.Equal(t, []string{"search", "trino_query", "datahub_get_lineage"}, named,
+		assert.Equal(t, []string{"search", "trino_query", "fetch"}, named,
 			"a glob is rendered as the names it resolves to; a kind entry is not")
 		assert.Equal(t, []string{"mcp"}, kinds,
 			"two proxied tools of one kind are one clause, not two names")

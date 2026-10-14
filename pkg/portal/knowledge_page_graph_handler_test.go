@@ -102,9 +102,9 @@ func TestKnowledgeGraph_TypedNodesEdgesAndIsolatedPages(t *testing.T) {
 		{ID: "kp3", Title: "Orphan Note", Tags: []string{}, UpdatedAt: updated},
 	}
 	refs := []knowledgepage.EntityRef{
-		{PageID: "kp1", TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:(trino,sales.orders,PROD)", Source: knowledgepage.RefSourcePromoted},
+		{PageID: "kp1", TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,sales.orders)", Source: knowledgepage.RefSourcePromoted},
 		{PageID: "kp1", TargetType: knowledgepage.RefTargetKnowledgePage, RefPageID: "kp2", Source: knowledgepage.RefSourceInline},
-		{PageID: "kp2", TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:(trino,sales.orders,PROD)", Source: knowledgepage.RefSourceManual},
+		{PageID: "kp2", TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,sales.orders)", Source: knowledgepage.RefSourceManual},
 		{PageID: "kp2", TargetType: knowledgepage.RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse", Source: knowledgepage.RefSourceManual},
 	}
 	h := newKnowledgePageHandler(newGraphStore(pages, refs), kpViewer)
@@ -126,11 +126,11 @@ func TestKnowledgeGraph_TypedNodesEdgesAndIsolatedPages(t *testing.T) {
 	require.NotNil(t, kp1.UpdatedAt)
 	assert.True(t, updated.Equal(*kp1.UpdatedAt))
 
-	dataset, ok := resp.nodeByID("urn:li:dataset:(trino,sales.orders,PROD)")
+	dataset, ok := resp.nodeByID("mcp:dataset:(trino,warehouse,sales.orders)")
 	require.True(t, ok)
 	assert.False(t, dataset.Page)
-	assert.Equal(t, knowledgepage.RefTargetDataHub, dataset.Type)
-	assert.Equal(t, "sales.orders", dataset.Label, "entity nodes carry a resolved name, not the raw URN")
+	assert.Equal(t, knowledgepage.RefTargetCatalog, dataset.Type)
+	assert.Equal(t, "orders", dataset.Label, "entity nodes carry a resolved name, not the raw reference")
 
 	conn, ok := resp.nodeByID("mcp:connection:(trino,warehouse)")
 	require.True(t, ok)
@@ -170,7 +170,7 @@ func TestKnowledgeGraph_InaccessibleEntityHasNeitherNodeNorEdge(t *testing.T) {
 	pages := []knowledgepage.Page{{ID: "kp1", Title: "Fiscal Calendar", Tags: []string{}}}
 	refs := []knowledgepage.EntityRef{
 		{PageID: "kp1", TargetType: knowledgepage.RefTargetAsset, AssetID: "secret", Source: knowledgepage.RefSourceManual},
-		{PageID: "kp1", TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:(trino,public.orders,PROD)", Source: knowledgepage.RefSourceManual},
+		{PageID: "kp1", TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,public.orders)", Source: knowledgepage.RefSourceManual},
 	}
 	deps := Deps{
 		KnowledgePageStore: newGraphStore(pages, refs),
@@ -245,7 +245,7 @@ func TestKnowledgeGraph_TruncationIsReported(t *testing.T) {
 		refs := make([]knowledgepage.EntityRef, 0, maxGraphNodes+50)
 		for i := range maxGraphNodes + 50 {
 			refs = append(refs, knowledgepage.EntityRef{
-				PageID: "kp1", TargetType: knowledgepage.RefTargetDataHub,
+				PageID: "kp1", TargetType: knowledgepage.RefTargetCatalog,
 				EntityURN: fmt.Sprintf("urn:li:dataset:(trino,sales.t%d,PROD)", i),
 				Source:    knowledgepage.RefSourceManual,
 			})
@@ -358,12 +358,12 @@ func mustJSON(t *testing.T, v any) string {
 // narrowing the window cannot leave an edge whose source page is absent.
 func TestKnowledgeGraphRefsAreScopedToTheListedPages(t *testing.T) {
 	store := newGraphStore(nil, []knowledgepage.EntityRef{
-		{PageID: "kp1", TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:(trino,a,PROD)"},
-		{PageID: "kp2", TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:(trino,b,PROD)"},
+		{PageID: "kp1", TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,a)"},
+		{PageID: "kp2", TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,b)"},
 	})
 	got, err := store.ListEntityRefsForPages(context.Background(), []string{"kp1"})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "kp1", got[0].PageID)
-	assert.True(t, strings.Contains(got[0].EntityURN, "trino,a"))
+	assert.True(t, strings.Contains(got[0].EntityURN, "warehouse,a"))
 }

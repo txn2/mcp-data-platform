@@ -54,7 +54,7 @@ const (
 // resolved to. It is OUTER to the audit/rule/enrichment steps and the
 // handler so the span's duration covers all of them, and the span becomes
 // the parent of every downstream span the toolkit adapters create
-// (Trino/DataHub/S3/OAuth/enrichment) via context propagation, so one tool
+// (Trino/S3/OAuth/enrichment) via context propagation, so one tool
 // call yields a single flame graph.
 //
 // The middleware short-circuits on a nil/disabled *observability.Tracer

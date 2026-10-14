@@ -510,7 +510,7 @@ func TestKindFor(t *testing.T) {
 	assert.Equal(t, portal.ProvenanceKindSQL, KindFor("trino"))
 	assert.Equal(t, portal.ProvenanceKindAPI, KindFor("api"))
 	assert.Equal(t, portal.ProvenanceKindGraphQL, KindFor("graphql"))
-	assert.Equal(t, portal.ProvenanceKindTool, KindFor("datahub"))
+	assert.Equal(t, portal.ProvenanceKindTool, KindFor("s3"))
 	assert.Equal(t, portal.ProvenanceKindTool, KindFor("s3"))
 	assert.Equal(t, portal.ProvenanceKindTool, KindFor("mcp"))
 	assert.Empty(t, KindFor("portal"), "saving an asset is not an asset's source")
@@ -533,7 +533,7 @@ func TestCaptureSummarizesToolCalls(t *testing.T) {
 		params map[string]any
 		want   string
 	}{
-		{"urn", map[string]any{"urn": "urn:li:dataset:(x)"}, "urn:li:dataset:(x)"},
+		{"urn", map[string]any{"urn": "mcp:dataset:(trino,w,x)"}, "mcp:dataset:(trino,w,x)"},
 		{"query", map[string]any{"query": "orders"}, "orders"},
 		{"table", map[string]any{"table": "orders"}, "orders"},
 		{"object", map[string]any{"bucket": "reports", "key": "q3.csv"}, "q3.csv"},
@@ -543,7 +543,7 @@ func TestCaptureSummarizesToolCalls(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			reader := &fakeReader{events: []audit.Event{
-				event("e1", "datahub_get_lineage", "datahub", 0, withParams(tt.params)),
+				event("e1", "s3_list", "s3", 0, withParams(tt.params)),
 			}}
 			capture := newTestCapturer(reader, nil).Capture(context.Background(), saveRequest())
 			require.Len(t, capture.Calls, 1)

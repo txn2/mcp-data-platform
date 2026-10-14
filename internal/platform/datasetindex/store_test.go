@@ -245,7 +245,7 @@ func TestSinkDelegates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, existing)
 
-	require.NoError(t, sink.StampExpected(ctx, key, 7), "the expected count lives in DataHub, not in a stamp")
+	require.NoError(t, sink.StampExpected(ctx, key, 7), "the expected count lives in the catalog, not in a stamp")
 
 	rows := []indexjobs.Vector{{ItemID: "urn:a", Embedding: vec(), Model: "model-x", TextHash: []byte("h")}}
 	mock.ExpectBegin()

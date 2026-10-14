@@ -355,7 +355,7 @@ const resources: Resource[] = [
     filename: "glossary.csv",
     display_name: "Business Glossary Export",
     description:
-      "Flat export of the DataHub business glossary: term, definition, owner, and related datasets.",
+      "Flat export of the catalog's business glossary: term, definition, owner, and related datasets.",
     mime_type: "text/csv",
     // Filled in below from the bytes this fixture serves.
     size_bytes: 0,
@@ -829,7 +829,7 @@ export const mockResourceContent: Record<string, string> = {
   <line x1="390" y1="106" x2="476" y2="106" stroke="#94a3b8" stroke-width="1.5"/>
   <rect x="250" y="196" width="140" height="52" rx="6" fill="#eff6ff" stroke="#93c5fd"/>
   <text x="320" y="220" font-family="system-ui" font-size="12" fill="#1e3a8a" text-anchor="middle">Semantic layer</text>
-  <text x="320" y="236" font-family="system-ui" font-size="9" fill="#3b82f6" text-anchor="middle">DataHub</text>
+  <text x="320" y="236" font-family="system-ui" font-size="9" fill="#3b82f6" text-anchor="middle">Catalog</text>
   <line x1="320" y1="132" x2="320" y2="196" stroke="#94a3b8" stroke-width="1.5"/>
   <rect x="476" y="196" width="140" height="52" rx="6" fill="#f0fdf4" stroke="#86efac"/>
   <text x="546" y="220" font-family="system-ui" font-size="12" fill="#14532d" text-anchor="middle">Query engine</text>

@@ -201,7 +201,7 @@ func TestHandleListChangesets_Success(t *testing.T) {
 	assert.Equal(t, testDatasetRef, entry["target_urn"])
 	assert.Equal(t, false, entry["rolled_back"])
 	assert.Equal(t, testDatasetRef, csStore.LastFilter.EntityURN,
-		"a DataHub dataset URN lists the changesets recorded under its catalog reference")
+		"a dataset reference lists the changesets recorded under it")
 }
 
 func TestHandleListChangesets_StoreError(t *testing.T) {

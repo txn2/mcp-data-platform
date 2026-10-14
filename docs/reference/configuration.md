@@ -13,10 +13,8 @@ going stale. A few topics have their own deeper reference:
 
 - [OAuth 2.1 Server](../auth/oauth-server.md) - the built-in inbound
   authorization server (`oauth:` block)
-- [Trino to DataHub](../cross-enrichment/trino-datahub.md#urn-mapping-for-mismatched-names) -
-  URN mapping when Trino and DataHub name the same data differently
-- [Lineage Inheritance](../cross-enrichment/lineage.md) - lineage-aware
-  column metadata inheritance (`semantic.lineage`)
+- [Platform Catalog](../server/catalog.md) - the catalog cross-enrichment
+  reads, its scans, curation and portal routes
 - [The Portal](../portal/index.md) - enabling it, branding, and the public
   viewer, with the guided tour of every screen it serves
 - [Knowledge Capture](../knowledge/overview.md) and

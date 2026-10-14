@@ -29,7 +29,7 @@ var validDimensions = map[string]bool{
 // memory_capture write path. Each maps to a dimension and a review/promotion
 // policy. personal_preference and episodic_event stay as live memory;
 // business_knowledge, schema_entity, and operational_rule are reviewed and
-// promotable to a canonical sink (DataHub for schema_entity; wiki/rules
+// promotable to a canonical sink (the catalog for schema_entity; wiki/rules
 // deferred).
 const (
 	SinkPersonalPreference = "personal_preference"
@@ -263,7 +263,7 @@ type Record struct {
 
 // RelatedColumn represents a column related to a memory record.
 type RelatedColumn struct {
-	URN       string `json:"urn" example:"urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"`
+	URN       string `json:"urn" example:"mcp:dataset:(trino,warehouse,hive.sales.orders)"`
 	Column    string `json:"column" example:"amount"`
 	Relevance string `json:"relevance" example:"direct"`
 }

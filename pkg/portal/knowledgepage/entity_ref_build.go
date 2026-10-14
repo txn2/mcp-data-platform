@@ -42,7 +42,7 @@ func ConnectionRef(kind, name string) string {
 // is empty. An insight is fetchable by its owner but is NOT citable on a knowledge
 // page (#699): it is per-user, so a shared-page citation would resolve for no one
 // else. The page-citation path rejects it (ParseCitableRef); promote the insight to
-// the catalog and cite the resulting urn:li:... entity instead.
+// the catalog and cite the catalog entity it was applied to instead.
 func InsightRef(id string) string {
 	return refOrEmpty(EntityRef{TargetType: RefTargetInsight, InsightID: id})
 }

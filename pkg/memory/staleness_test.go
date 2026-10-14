@@ -52,7 +52,7 @@ func TestParseURNToTable(t *testing.T) {
 	}{
 		{
 			name: "valid URN",
-			urn:  "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)",
+			urn:  "mcp:dataset:(trino,warehouse,catalog.schema.table)",
 			want: semantic.TableIdentifier{
 				Catalog: "catalog",
 				Schema:  "schema",
@@ -60,31 +60,28 @@ func TestParseURNToTable(t *testing.T) {
 			},
 		},
 		{
-			name:    "invalid prefix",
-			urn:     "urn:li:corpuser:foo",
+			name:    "another reference form",
+			urn:     "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)",
 			wantErr: true,
-			errMsg:  "invalid dataset URN",
+			errMsg:  "not a dataset reference",
 		},
 		{
-			name:    "malformed - missing comma",
-			urn:     "urn:li:dataset:(urn:li:dataPlatform:trino)",
+			name:    "not a dataset",
+			urn:     "mcp:glossary_term:revenue",
 			wantErr: true,
-			errMsg:  "invalid dataset URN format",
+			errMsg:  "not a dataset reference",
 		},
 		{
 			name:    "incomplete table path",
-			urn:     "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema,PROD)",
+			urn:     "mcp:dataset:(trino,warehouse,catalog.schema)",
 			wantErr: true,
-			errMsg:  "incomplete table path",
+			errMsg:  "does not name a table",
 		},
 		{
-			name: "extra dots in table path",
-			urn:  "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table.extra,PROD)",
-			want: semantic.TableIdentifier{
-				Catalog: "catalog",
-				Schema:  "schema",
-				Table:   "table",
-			},
+			name:    "a path longer than a table",
+			urn:     "mcp:dataset:(trino,warehouse,catalog.schema.table.extra)",
+			wantErr: true,
+			errMsg:  "does not name a table",
 		},
 	}
 	for _, tt := range tests {
@@ -151,7 +148,7 @@ func TestCheckEntityStaleness(t *testing.T) {
 
 		record := Record{
 			EntityURNs: []string{
-				"urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)",
+				"mcp:dataset:(trino,warehouse,catalog.schema.table)",
 			},
 		}
 		reason := w.checkEntityStaleness(context.Background(), record)
@@ -168,7 +165,7 @@ func TestCheckEntityStaleness(t *testing.T) {
 
 		record := Record{
 			EntityURNs: []string{
-				"urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)",
+				"mcp:dataset:(trino,warehouse,catalog.schema.table)",
 			},
 		}
 		reason := w.checkEntityStaleness(context.Background(), record)
@@ -185,29 +182,29 @@ func TestCheckEntityStaleness(t *testing.T) {
 
 		record := Record{
 			EntityURNs: []string{
-				"urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)",
+				"mcp:dataset:(trino,warehouse,catalog.schema.table)",
 			},
 		}
 		reason := w.checkEntityStaleness(context.Background(), record)
 		assert.Contains(t, reason, "lookup failed")
 	})
 
-	// #1610: mcp-datahub v1.15.1 made a URN the catalog holds no entity for
-	// visible here for the first time. It is not evidence the record went
+	// #1610: a reference the catalog holds no entity for is not evidence the
+	// record went
 	// stale -- a URN that was never ingested is indistinguishable from one that
 	// was removed, and flagging on it would mark every memory citing an
 	// uncataloged table at once.
 	t.Run("catalog holds no entity for the cited urn", func(t *testing.T) {
 		sp := &mockSemanticProvider{
 			tableCtxFn: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
-				return nil, fmt.Errorf("datahub holds no entity: %w", semantic.ErrNotFound)
+				return nil, fmt.Errorf("catalog holds no entity: %w", semantic.ErrNotFound)
 			},
 		}
 		w := NewStalenessWatcher(NewNoopStore(), sp, StalenessConfig{})
 
 		record := Record{
 			EntityURNs: []string{
-				"urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)",
+				"mcp:dataset:(trino,warehouse,catalog.schema.table)",
 			},
 		}
 		reason := w.checkEntityStaleness(context.Background(), record)
@@ -271,7 +268,7 @@ func (s *recordingStore) MarkStale(_ context.Context, ids []string, _ string) er
 	return nil
 }
 
-const stalenessTestURN = "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)"
+const stalenessTestURN = "mcp:dataset:(trino,warehouse,catalog.schema.table)"
 
 // #1625: the batch is drawn from entity-linked records. A record naming no
 // entity is not something a catalog can be asked about, so the watcher neither

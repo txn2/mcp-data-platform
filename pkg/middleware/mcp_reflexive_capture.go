@@ -49,8 +49,8 @@ type ReflexiveCaptor interface {
 	CaptureCorrection(ctx context.Context, c CorrectionCapture) error
 }
 
-// URNBuilder builds a DataHub dataset URN from a query table reference, applying
-// the connection's catalog mapping. Returns "" when a URN cannot be formed.
+// URNBuilder names the catalog dataset a query table reference is on its
+// connection. Returns "" when no reference can be formed.
 type URNBuilder func(connectionKind, connection, catalog, schema, table string) string
 
 // ReflexiveCaptureConfig configures the reflexive-capture middleware.

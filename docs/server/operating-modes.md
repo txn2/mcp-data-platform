@@ -16,6 +16,7 @@ mcp-data-platform has two operating modes, determined solely by whether `databas
 | `config_mode` (from `system/info`) | `file` | `database` |
 | Config source | YAML file only | YAML bootstrap + database |
 | Config mutations (persona/auth-key CRUD, config import) | blocked | enabled |
+| Platform catalog and cross-enrichment | off (the catalog lives in the database) | on |
 | Knowledge tools | hidden (not registered) | registered |
 | Knowledge admin API | 409 Conflict | available |
 | Audit logging | noop (silent) | PostgreSQL |
@@ -52,7 +53,7 @@ For production gateway deployments, run in database-backed mode with
 
 The lightest deployment. No external database required. Suitable for local development, single-user environments, or when external databases are not available.
 
-All configuration comes from the YAML file. Features that require persistence (audit logging, knowledge capture) run in noop mode and their tools are hidden from `tools/list`. The admin API is available but database-dependent endpoints return `409 Conflict` with an explanation.
+All configuration comes from the YAML file. Features that require persistence (the platform catalog and the cross-enrichment it feeds, audit logging, knowledge capture) run in noop mode and their tools are hidden from `tools/list`. The admin API is available but database-dependent endpoints return `409 Conflict` with an explanation.
 
 ```yaml
 server:
@@ -60,14 +61,6 @@ server:
   transport: stdio
 
 toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-    default: primary
-
   trino:
     enabled: true
     instances:
@@ -79,18 +72,9 @@ toolkits:
         ssl: true
     default: primary
 
-semantic:
-  provider: datahub
-  instance: primary
-
 query:
   provider: trino
   instance: primary
-
-enrichment:
-  trino_semantic_enrichment: true
-  datahub_query_enrichment: true
-  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 personas:
   analyst:
@@ -160,14 +144,6 @@ auth:
         roles: ["admin"]
 
 toolkits:
-  datahub:
-    enabled: true
-    instances:
-      primary:
-        url: https://datahub.example.com
-        token: ${DATAHUB_TOKEN}
-    default: primary
-
   trino:
     enabled: true
     instances:
@@ -179,17 +155,12 @@ toolkits:
         ssl: true
     default: primary
 
-semantic:
-  provider: datahub
-  instance: primary
-
 query:
   provider: trino
   instance: primary
 
 enrichment:
   trino_semantic_enrichment: true
-  datahub_query_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 personas:

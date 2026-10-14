@@ -56,7 +56,7 @@ func TestListKnowledgePageRefs(t *testing.T) {
 
 	t.Run("returns accessible refs with labels and hides inaccessible ones", func(t *testing.T) {
 		store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
-			{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:x", Source: knowledgepage.RefSourcePromoted},
+			{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,c.s.x)", Source: knowledgepage.RefSourcePromoted},
 			{TargetType: knowledgepage.RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse", Source: knowledgepage.RefSourceManual},
 			// No AssetStore in this handler -> the asset is inaccessible and must be hidden,
 			// so its id never reaches the viewer (the GET endpoint is access-filtered).
@@ -72,7 +72,7 @@ func TestListKnowledgePageRefs(t *testing.T) {
 		for _, r := range resp.Refs {
 			labels[r.URN] = r.Label
 		}
-		assert.Contains(t, labels, "urn:li:dataset:x")
+		assert.Contains(t, labels, "mcp:dataset:(trino,warehouse,c.s.x)")
 		assert.Equal(t, "warehouse (trino)", labels["mcp:connection:(trino,warehouse)"])
 		assert.NotContains(t, labels, "mcp:asset:private-asset", "inaccessible asset id must not be returned")
 	})
@@ -117,7 +117,7 @@ func TestSetKnowledgePageRefs(t *testing.T) {
 
 	t.Run("replaces manual refs and preserves promoted", func(t *testing.T) {
 		store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
-			{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:x", Source: knowledgepage.RefSourcePromoted},
+			{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,c.s.x)", Source: knowledgepage.RefSourcePromoted},
 			{TargetType: knowledgepage.RefTargetConnection, ConnectionKind: "trino", ConnectionName: "old", Source: knowledgepage.RefSourceManual},
 		}}
 		h := newKnowledgePageHandler(store, kpAdmin)
@@ -130,8 +130,8 @@ func TestSetKnowledgePageRefs(t *testing.T) {
 		for _, r := range resp.Refs {
 			urns = append(urns, r.URN)
 		}
-		// promoted datahub ref survives; the old manual connection is gone; new manual connection present.
-		assert.Contains(t, urns, "urn:li:dataset:x")
+		// promoted catalog ref survives; the old manual connection is gone; new manual connection present.
+		assert.Contains(t, urns, "mcp:dataset:(trino,warehouse,c.s.x)")
 		assert.Contains(t, urns, "mcp:connection:(trino,warehouse)")
 		assert.NotContains(t, urns, "mcp:connection:(trino,old)")
 	})
@@ -153,7 +153,7 @@ func TestResolveKnowledgePageRefs(t *testing.T) {
 	body := `{"urns":[
 		"mcp:knowledge_page:kp-2",
 		"mcp:connection:(trino,warehouse)",
-		"urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)",
+		"mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)",
 		"mcp:asset:asset-9",
 		"garbage"
 	]}`
@@ -171,7 +171,7 @@ func TestResolveKnowledgePageRefs(t *testing.T) {
 	assert.Equal(t, "Fiscal Calendar", byURN["mcp:knowledge_page:kp-2"].Label)
 	assert.True(t, byURN["mcp:knowledge_page:kp-2"].Exists)
 	assert.Equal(t, "warehouse (trino)", byURN["mcp:connection:(trino,warehouse)"].Label)
-	assert.Equal(t, "iceberg.retail.daily_sales", byURN["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"].Label)
+	assert.Equal(t, "daily_sales", byURN["mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)"].Label)
 	assert.True(t, byURN["mcp:connection:(trino,warehouse)"].Accessible)
 	// AssetStore not configured: access cannot be verified, so the ref is hidden.
 	assert.False(t, byURN["mcp:asset:asset-9"].Accessible)
@@ -218,7 +218,7 @@ func TestKnowledgePageBacklinks(t *testing.T) {
 	t.Run("returns referencing pages for an accessible entity", func(t *testing.T) {
 		store := &mockKnowledgePageStore{referencingPages: pages}
 		h := newKnowledgePageHandler(store, kpViewer)
-		w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/backlinks?urn=urn:li:dataset:x", "")
+		w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/backlinks?urn=mcp:dataset:(trino,warehouse,c.s.x)", "")
 		require.Equal(t, http.StatusOK, w.Code)
 		var resp backlinksResp
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
@@ -245,7 +245,7 @@ func TestKnowledgePageBacklinks(t *testing.T) {
 
 	t.Run("unauthenticated", func(t *testing.T) {
 		h := newKnowledgePageHandler(&mockKnowledgePageStore{}, nil)
-		w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/backlinks?urn=urn:li:dataset:x", "")
+		w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/backlinks?urn=mcp:dataset:(trino,warehouse,c.s.x)", "")
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 }
@@ -356,7 +356,7 @@ func TestResolveKnowledgePageRefs_WithStores(t *testing.T) {
 		RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
 	}
 	h := NewHandler(deps, testAuthMiddleware(kpViewer))
-	body := `{"urns":["mcp:asset:asset-9","mcp:collection:coll-1","mcp:prompt:11111111-1111-1111-1111-111111111111","urn:li:glossaryTerm:revenue"]}`
+	body := `{"urns":["mcp:asset:asset-9","mcp:collection:coll-1","mcp:prompt:11111111-1111-1111-1111-111111111111","mcp:glossary_term:revenue"]}`
 	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve", body)
 	require.Equal(t, http.StatusOK, w.Code)
 
@@ -370,7 +370,7 @@ func TestResolveKnowledgePageRefs_WithStores(t *testing.T) {
 	assert.True(t, byURN["mcp:asset:asset-9"].Accessible)
 	assert.Equal(t, "Q4 Review", byURN["mcp:collection:coll-1"].Label)
 	assert.Equal(t, "Summary Prompt", byURN["mcp:prompt:11111111-1111-1111-1111-111111111111"].Label)
-	assert.Equal(t, "revenue", byURN["urn:li:glossaryTerm:revenue"].Label)
+	assert.Equal(t, "revenue", byURN["mcp:glossary_term:revenue"].Label)
 }
 
 func TestResolveKnowledgePageRefs_AssetNotOwnedIsNotLeaked(t *testing.T) {
@@ -454,11 +454,18 @@ func TestResolveKnowledgePageRefs_BadInput(t *testing.T) {
 	})
 }
 
-func TestDatahubLabel(t *testing.T) {
-	assert.Equal(t, "iceberg.retail.daily_sales",
-		datahubLabel("urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"))
-	assert.Equal(t, "revenue", datahubLabel("urn:li:glossaryTerm:revenue"))
-	assert.Equal(t, "nocolon", datahubLabel("nocolon"))
+func TestPlatformCatalogLabelFallsBackToTheReference(t *testing.T) {
+	assert.Equal(t, "daily_sales", platformCatalogLabel("mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)", nil))
+	assert.Equal(t, "revenue", platformCatalogLabel("mcp:glossary_term:revenue", nil))
+	assert.Equal(t, "Revenue", platformCatalogLabel("mcp:glossary_term:revenue", map[string]string{"mcp:glossary_term:revenue": "Revenue"}))
+	assert.Equal(t, "nocolon", platformCatalogLabel("nocolon", nil))
+}
+
+func TestIsDefinitionRef(t *testing.T) {
+	assert.True(t, isDefinitionRef("mcp:glossary_term:revenue"))
+	assert.False(t, isDefinitionRef("mcp:dataset:(trino,w,a.b.c)"), "a dataset's name is in its reference")
+	assert.False(t, isDefinitionRef("mcp:schema_document:(api,w,spec.json)"))
+	assert.False(t, isDefinitionRef("mcp:asset:a1"))
 }
 
 // stubCatalogLabeler is a CatalogLabeler that answers from a fixed table and
@@ -480,19 +487,20 @@ func (s *stubCatalogLabeler) Labels(_ context.Context, urns []string) map[string
 	return out
 }
 
-// catalogPersona resolves every role to a persona that grants a DataHub tool,
+// catalogPersona resolves every role to a persona that grants fetch,
 // which is what catalog access is gated on.
 func catalogPersona(_ []string) *PersonaInfo {
-	return &PersonaInfo{Name: "analyst", Tools: []string{"search", "datahub_get_lineage"}}
+	return &PersonaInfo{Name: "analyst", Tools: []string{"search", "fetch"}}
 }
 
-// noCatalogPersona resolves to a persona with no DataHub tool at all.
+// noCatalogPersona resolves to a persona without fetch, the tool that reads
+// the catalog.
 func noCatalogPersona(_ []string) *PersonaInfo {
 	return &PersonaInfo{Name: "restricted", Tools: []string{"search"}}
 }
 
 // newLabelingHandler builds a knowledge-page handler with a catalog labeler
-// wired, the shape the server has when a DataHub connection is configured.
+// wired, the shape the server has when it has a database.
 func newLabelingHandler(store knowledgepage.Store, user *User, labeler CatalogLabeler, persona PersonaResolver) *Handler {
 	return NewHandler(Deps{
 		KnowledgePageStore: store,
@@ -505,18 +513,18 @@ func newLabelingHandler(store knowledgepage.Store, user *User, labeler CatalogLa
 
 // TestKnowledgePageRefs_GovernanceNamesResolve is the display-name contract
 // (#1159): a citation of a glossary term, a tag, or a domain renders as the
-// entity's name, not the generated key DataHub put inside its URN. Without the
+// entity's name, not the generated key inside its reference. Without the
 // labeler the same reference reads as "8f3c", which names nothing.
 func TestKnowledgePageRefs_GovernanceNamesResolve(t *testing.T) {
 	labeler := &stubCatalogLabeler{names: map[string]string{
-		"urn:li:glossaryTerm:8f3c": "Net Revenue",
-		"urn:li:tag:a1b2":          "PII",
-		"urn:li:domain:c3d4":       "Finance",
+		"mcp:glossary_term:8f3c": "Net Revenue",
+		"mcp:tag:a1b2":           "PII",
+		"mcp:domain:c3d4":        "Finance",
 	}}
 	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
-		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:glossaryTerm:8f3c", Source: knowledgepage.RefSourceManual},
-		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:a1b2", Source: knowledgepage.RefSourceManual},
-		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:domain:c3d4", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:glossary_term:8f3c", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:tag:a1b2", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:domain:c3d4", Source: knowledgepage.RefSourceManual},
 	}}
 	h := newLabelingHandler(store, kpViewer, labeler, catalogPersona)
 
@@ -529,9 +537,9 @@ func TestKnowledgePageRefs_GovernanceNamesResolve(t *testing.T) {
 	for _, r := range resp.Refs {
 		labels[r.URN] = r.Label
 	}
-	assert.Equal(t, "Net Revenue", labels["urn:li:glossaryTerm:8f3c"])
-	assert.Equal(t, "PII", labels["urn:li:tag:a1b2"])
-	assert.Equal(t, "Finance", labels["urn:li:domain:c3d4"])
+	assert.Equal(t, "Net Revenue", labels["mcp:glossary_term:8f3c"])
+	assert.Equal(t, "PII", labels["mcp:tag:a1b2"])
+	assert.Equal(t, "Finance", labels["mcp:domain:c3d4"])
 
 	// One batch for the whole page: a tag and a domain each cost a vocabulary
 	// listing upstream, so a per-reference resolve would multiply them.
@@ -544,7 +552,7 @@ func TestKnowledgePageRefs_GovernanceNamesResolve(t *testing.T) {
 func TestKnowledgePageRefs_UnresolvedFallsBackToTheURN(t *testing.T) {
 	labeler := &stubCatalogLabeler{names: map[string]string{}}
 	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
-		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:pii", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:tag:pii", Source: knowledgepage.RefSourceManual},
 	}}
 	h := newLabelingHandler(store, kpViewer, labeler, catalogPersona)
 
@@ -560,9 +568,9 @@ func TestKnowledgePageRefs_UnresolvedFallsBackToTheURN(t *testing.T) {
 // catalog references: an mcp: reference is resolved from the portal's own
 // stores, so sending it upstream would be a pointless round trip.
 func TestKnowledgePageRefs_OnlyCatalogURNsAreResolved(t *testing.T) {
-	labeler := &stubCatalogLabeler{names: map[string]string{"urn:li:tag:pii": "PII"}}
+	labeler := &stubCatalogLabeler{names: map[string]string{"mcp:tag:pii": "PII"}}
 	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
-		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:pii", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:tag:pii", Source: knowledgepage.RefSourceManual},
 		{TargetType: knowledgepage.RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse", Source: knowledgepage.RefSourceManual},
 		{TargetType: knowledgepage.RefTargetKnowledgePage, RefPageID: "kp2", Source: knowledgepage.RefSourceManual},
 	}}
@@ -571,18 +579,18 @@ func TestKnowledgePageRefs_OnlyCatalogURNsAreResolved(t *testing.T) {
 	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/refs", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, labeler.asked, 1)
-	assert.Equal(t, []string{"urn:li:tag:pii"}, labeler.asked[0])
+	assert.Equal(t, []string{"mcp:tag:pii"}, labeler.asked[0])
 }
 
 // TestKnowledgePageRefs_CatalogAccessGatesTheName proves the display name is
-// gated on catalog access, the same rule the DataHub REST surface applies. A
-// persona granted no DataHub tool cannot open the Catalog tab, so it must not
+// gated on catalog access, the same rule the portal catalog applies. A
+// persona not granted fetch cannot open the Catalog tab, so it must not
 // learn a governance entity's name through the reference list instead; it keeps
 // the label derivable from the URN, and the catalog is never read at all.
 func TestKnowledgePageRefs_CatalogAccessGatesTheName(t *testing.T) {
-	labeler := &stubCatalogLabeler{names: map[string]string{"urn:li:tag:a1b2": "PII"}}
+	labeler := &stubCatalogLabeler{names: map[string]string{"mcp:tag:a1b2": "PII"}}
 	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
-		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:a1b2", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:tag:a1b2", Source: knowledgepage.RefSourceManual},
 	}}
 	h := newLabelingHandler(store, kpViewer, labeler, noCatalogPersona)
 
@@ -597,11 +605,11 @@ func TestKnowledgePageRefs_CatalogAccessGatesTheName(t *testing.T) {
 
 // TestKnowledgePageRefs_AdminAlwaysGetsTheName proves the admin arm of the gate:
 // an admin holds catalog access regardless of what their persona resolves to,
-// matching the DataHub REST surface.
+// matching the portal catalog routes.
 func TestKnowledgePageRefs_AdminAlwaysGetsTheName(t *testing.T) {
-	labeler := &stubCatalogLabeler{names: map[string]string{"urn:li:tag:a1b2": "PII"}}
+	labeler := &stubCatalogLabeler{names: map[string]string{"mcp:tag:a1b2": "PII"}}
 	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
-		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:a1b2", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:tag:a1b2", Source: knowledgepage.RefSourceManual},
 	}}
 	h := newLabelingHandler(store, kpAdmin, labeler, noCatalogPersona)
 
@@ -614,11 +622,11 @@ func TestKnowledgePageRefs_AdminAlwaysGetsTheName(t *testing.T) {
 }
 
 // TestKnowledgePageRefs_NoLabelerKeepsURNLabels proves a deployment with no
-// DataHub connection still renders catalog citations, through the URN-derived
+// catalog labeler still renders catalog citations, through the reference-derived
 // name. The labeler is optional wiring, not a requirement.
 func TestKnowledgePageRefs_NoLabelerKeepsURNLabels(t *testing.T) {
 	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
-		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:pii", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:tag:pii", Source: knowledgepage.RefSourceManual},
 	}}
 	h := newKnowledgePageHandler(store, kpViewer)
 
@@ -634,11 +642,11 @@ func TestKnowledgePageRefs_NoLabelerKeepsURNLabels(t *testing.T) {
 // the markdown renderer calls, so an inline citation in a page body names its
 // term the same way the Related panel does.
 func TestResolveKnowledgePageRefs_GovernanceNames(t *testing.T) {
-	labeler := &stubCatalogLabeler{names: map[string]string{"urn:li:glossaryTerm:8f3c": "Net Revenue"}}
+	labeler := &stubCatalogLabeler{names: map[string]string{"mcp:glossary_term:8f3c": "Net Revenue"}}
 	h := newLabelingHandler(&mockKnowledgePageStore{page: livePage()}, kpViewer, labeler, catalogPersona)
 
 	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve",
-		`{"urns":["urn:li:glossaryTerm:8f3c"]}`)
+		`{"urns":["mcp:glossary_term:8f3c"]}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp struct {
 		Refs []resolvedRef `json:"refs"`
@@ -660,7 +668,7 @@ func TestCreateKnowledgePage_InlineReconcileErrorDoesNotFail(t *testing.T) {
 func TestCreateKnowledgePage_ReconcilesInlineRefs(t *testing.T) {
 	store := &mockKnowledgePageStore{}
 	h := newKnowledgePageHandler(store, kpAdmin)
-	body := `{"title":"Sales","body":"see [a](mcp:asset:asset-001) and urn:li:glossaryTerm:revenue"}`
+	body := `{"title":"Sales","body":"see [a](mcp:asset:asset-001) and mcp:glossary_term:revenue"}`
 	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages", body)
 	require.Equal(t, http.StatusCreated, w.Code)
 
@@ -670,14 +678,14 @@ func TestCreateKnowledgePage_ReconcilesInlineRefs(t *testing.T) {
 		urns = append(urns, rf.URN())
 	}
 	assert.Contains(t, urns, "mcp:asset:asset-001")
-	assert.Contains(t, urns, "urn:li:glossaryTerm:revenue")
+	assert.Contains(t, urns, "mcp:glossary_term:revenue")
 }
 
 func TestUpdateKnowledgePage_InlineReconcilePreservesPromoted(t *testing.T) {
 	store := &mockKnowledgePageStore{
 		page: livePage(),
 		refs: []knowledgepage.EntityRef{
-			{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:x", Source: knowledgepage.RefSourcePromoted},
+			{TargetType: knowledgepage.RefTargetCatalog, EntityURN: "mcp:dataset:(trino,warehouse,c.s.x)", Source: knowledgepage.RefSourcePromoted},
 			{TargetType: knowledgepage.RefTargetAsset, AssetID: "stale-inline", Source: knowledgepage.RefSourceInline},
 		},
 	}
@@ -690,7 +698,7 @@ func TestUpdateKnowledgePage_InlineReconcilePreservesPromoted(t *testing.T) {
 	for _, rf := range store.refs {
 		urns = append(urns, rf.URN())
 	}
-	assert.Contains(t, urns, "urn:li:dataset:x", "promoted ref preserved")
+	assert.Contains(t, urns, "mcp:dataset:(trino,warehouse,c.s.x)", "promoted ref preserved")
 	assert.Contains(t, urns, "mcp:collection:coll-1", "new inline ref from body")
 	assert.NotContains(t, urns, "mcp:asset:stale-inline", "old inline ref replaced")
 }

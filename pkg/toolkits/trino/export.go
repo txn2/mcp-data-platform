@@ -770,7 +770,7 @@ func (t *Toolkit) executeExportQuery(
 	return result, nil
 }
 
-// inheritSensitivityTags reads DataHub tags on source tables and returns
+// inheritSensitivityTags reads the catalog tags on source tables and returns
 // system tags for sensitive classifications. Degrades gracefully.
 func (t *Toolkit) inheritSensitivityTags(ctx context.Context, sql string) []string {
 	if t.semanticProvider == nil {

@@ -65,9 +65,9 @@ func TestLoadItemsMirrorsAndComposesText(t *testing.T) {
 }
 
 // corpusLister serves a corpus by offset and clamps every request to clampAt
-// rows, which is what the real lister does: the DataHub client clamps a search
-// to its own MaxLimit (100 by default), below the pageSize this package asks
-// for, so a page never comes back as long as it was requested.
+// rows, which is what a real lister may do: a catalog search clamps a page to
+// its own maximum, below the pageSize this package asks for, so a page never
+// comes back as long as it was requested.
 type corpusLister struct {
 	corpus  []semantic.TableSearchResult
 	clampAt int
@@ -110,8 +110,8 @@ func TestLoadItemsPagesUntilExhausted(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestLoadItemsEnumeratesPastAClampedPageSize is #1231: the DataHub client
-// clamps every search to 100 rows while the loop asks for pageSize (200). Paging
+// TestLoadItemsEnumeratesPastAClampedPageSize is #1231: a lister that clamps
+// every search to 100 rows while the loop asks for pageSize (200). Paging
 // by the requested size read the first short page as the end of the corpus, so
 // every deployment indexed exactly 100 datasets and reported full coverage.
 func TestLoadItemsEnumeratesPastAClampedPageSize(t *testing.T) {
@@ -252,7 +252,7 @@ func TestLoadItemsFailsClosedOnEnumerationError(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 
-	lister := &stubLister{err: errors.New("datahub down")}
+	lister := &stubLister{err: errors.New("catalog down")}
 	_, err := NewSource(store, lister, 100).LoadItems(context.Background(), SourceID)
 
 	require.Error(t, err, "a partial corpus must never reach the mirror: the replace that follows would prune real datasets")

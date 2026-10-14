@@ -166,7 +166,7 @@ func (r Ref) validateTuple() error {
 }
 
 // ParseRef parses a catalog reference. A string that is not one — another
-// platform reference, a urn:li: URN, or a malformed catalog reference — is
+// platform reference, a string of another scheme, or a malformed catalog reference — is
 // ErrInvalidRef.
 func ParseRef(s string) (Ref, error) {
 	s = strings.TrimSpace(s)
@@ -235,7 +235,7 @@ func parseTuple(kind Kind, body string) (Ref, error) {
 	if err != nil {
 		return Ref{}, err
 	}
-	path, err := parsePath(fields[2])
+	path, err := ParsePath(fields[2])
 	if err != nil {
 		return Ref{}, err
 	}
@@ -275,8 +275,9 @@ func parseDocument(body string) (Ref, error) {
 	return SchemaDocumentRef(parts[0], parts[1], parts[2]), nil
 }
 
-// parsePath splits a dotted path into its segments, honoring quoted segments.
-func parsePath(s string) ([]string, error) {
+// ParsePath splits a path in reference form, as PathString renders it, into
+// its segments, honoring quoted segments.
+func ParsePath(s string) ([]string, error) {
 	segs, err := splitOutside(s, pathSep)
 	if err != nil {
 		return nil, err

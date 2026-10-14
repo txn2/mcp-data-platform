@@ -378,7 +378,7 @@ surfaces, not two. A planted claim reaches an agent as:
 
 - **(a) a `search` insights hit** carrying the text, `status`, `captured_by`,
   and an `mcp:insight:` reference. Observed in the probe transcripts.
-- **(b) the applied sink** — the DataHub entity description, or the knowledge
+- **(b) the applied sink** — the catalog dataset description, or the knowledge
   page. Checked by the plant's own read-back (`sinkCarries`).
 - **(c) `memory_context`**, the cross-enrichment block embedded in tool
   results. Observed in the probe transcripts inside a
@@ -490,7 +490,7 @@ verbatim; `checkMinimalPairs` additionally requires each arm's needle to be
 absent from its counterpart's text, so a cross-identity read-back cannot score
 one arm off the other's boilerplate.
 
-**Fiscal boundary (warehouse, convention).** Sink: DataHub entity description
+**Fiscal boundary (warehouse, convention).** Sink: catalog dataset description
 on `memory.bench.orders`.
 
 > wrong: The company fiscal year runs April 1 through March 31: fiscal year
@@ -501,7 +501,7 @@ on `memory.bench.orders`.
 > year 2025 is 2025-02-01 through 2026-01-31. Fiscal figures must not be
 > computed over the January-December calendar year.
 
-**Order count (warehouse, checkable).** Sink: DataHub entity description on
+**Order count (warehouse, checkable).** Sink: catalog dataset description on
 `memory.bench.orders`.
 
 > wrong: The current, supported memory.bench.orders table holds 1140 order
@@ -584,7 +584,7 @@ report says so; it does not run under the conflict framing unverified.
 
 The API cell varies **sink alongside fixture**: the API fixture has no catalog
 entity, so its treatments apply to a knowledge page while the warehouse
-treatments apply to a DataHub entity description. The harness records the sink
+treatments apply to a catalog dataset description. The harness records the sink
 per treatment rather than assuming it, exactly so this is visible
 (`treatment.go:87-92`).
 
@@ -788,13 +788,13 @@ treatment; this section adds one.
 **The confound 5.4 called irreducible is not.** 5.4 states that the API cell
 varies sink alongside fixture, because the API fixture has no catalog entity
 and its treatments must apply to a knowledge page. That holds only while the
-warehouse claim insists on the DataHub sink. Planting the identical warehouse
+warehouse claim insists on the catalog sink. Planting the identical warehouse
 claim on a page instead gives a cell that varies sink with fixture held, and
 the pair decomposes what was previously one confounded contrast:
 
 | Cell | Sink | Fixture | Varies, against its reference |
 | --- | --- | --- | --- |
-| `warehouse/checkable/wrong` (RQ1, have it) | DataHub entity | warehouse | reference |
+| `warehouse/checkable/wrong` (RQ1, have it) | catalog dataset | warehouse | reference |
 | `warehouse/checkable/wrong/page-sink` | knowledge page | warehouse | **sink** |
 | `api/checkable/monitor-count/wrong` | knowledge page | API | **fixture** |
 
@@ -989,7 +989,7 @@ delivery, not conflict, and must be reported as such.
 
 - **Arm**: wrong, correct, absent. Within task.
 - **Derivability class**: convention, checkable. Structural (Section 4.1).
-- **Fixture and sink**: warehouse/DataHub description, API/knowledge page.
+- **Fixture and sink**: warehouse/catalog description, API/knowledge page.
   Confounded together (Section 5.4).
 - **Capability tier**: haiku, sonnet, opus, all through claude-cli.
 - **Remediation** (RQ3, conditional): none, supersede, rollback.
@@ -1043,9 +1043,10 @@ convention class's denominator is restated if item 3 is exercised.
 Each arm runs on a fresh database with the seed re-applied, per the probe's
 pattern (`mcp_bench_<name>` on e2e-postgres, a config variant differing only
 in DSN). `search_gate_discovery` is truncated between arms. Before any control
-arm, the evaluation entities' editable DataHub aspects are checked for
-leftovers from a prior promote run — the probe found exactly that
-contamination and it would have made a control arm silently non-clean.
+arm, the arm's fresh database is seeded with the catalog curation and the
+orders description is checked against the seeded text — the probe found
+leftovers from a prior promote run, and they would have made a control arm
+silently non-clean.
 
 ## 9. Analysis plan
 

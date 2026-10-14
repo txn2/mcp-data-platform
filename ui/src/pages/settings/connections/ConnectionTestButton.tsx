@@ -17,9 +17,7 @@ import { Plug } from "lucide-react";
 
 // TESTABLE_KINDS are the kinds the test endpoint serves. It mirrors the
 // server's own knownConnectionKinds minus mcp, which keeps the richer gateway
-// test: a datahub connection is configured in the platform's YAML rather than
-// managed as an instance, so the endpoint answers it "unknown connection kind"
-// and a button offering the action would be a refusal with no path in.
+// test.
 const TESTABLE_KINDS = ["trino", "s3", "api", "graphql"];
 
 // canTestConnection reports whether this kind can be opened on request.

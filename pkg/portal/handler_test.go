@@ -3017,7 +3017,7 @@ func TestGetMe_WithPersonaResolver(t *testing.T) {
 		ShareStore: &mockShareStore{},
 		PersonaResolver: func(roles []string) *PersonaInfo {
 			if len(roles) > 0 && roles[0] == "analyst" {
-				return &PersonaInfo{Name: "analyst", Tools: []string{"trino_query", "datahub_search"}}
+				return &PersonaInfo{Name: "analyst", Tools: []string{"trino_query", "search"}}
 			}
 			return nil
 		},
@@ -3032,7 +3032,7 @@ func TestGetMe_WithPersonaResolver(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, "analyst", resp.Persona)
 	assert.Contains(t, resp.Tools, "trino_query")
-	assert.Contains(t, resp.Tools, "datahub_search")
+	assert.Contains(t, resp.Tools, "search")
 }
 
 func TestDeriveThumbnailKeyVariant(t *testing.T) {

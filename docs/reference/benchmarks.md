@@ -17,7 +17,7 @@ The benchmark ablates the **knowledge layer specifically**: cross-enrichment,
 `search`, and the memory / `apply_knowledge` lifecycle. It is one feature's
 evaluation, not a whole-system score. It says nothing about OAuth 2.1 auth,
 personas, audit, the MCP and API gateways, the portal, or the raw
-Trino/DataHub/S3 toolkits. Every run holds the model, prompt scaffold, seed data,
+Trino/S3 toolkits. Every run holds the model, prompt scaffold, seed data,
 and task set constant and varies only the platform configuration, so the headline
 is always **arm vs arm** on a pinned model, never model vs model. Model identity
 is disclosed but is never the subject.
@@ -45,17 +45,17 @@ independent features. The system has a **capture/curation half** and a
 delivers.
 
 - **Capture / curation.** An agent records a fact (`memory`), it becomes an
-  insight, and `apply_knowledge` promotes it into a *sink*: a DataHub entity or
+  insight, and `apply_knowledge` promotes it into a *sink*: a catalog entity or
   column description, or a knowledge page.
 - **Surfacing.** Curated knowledge reaches the agent through
-  **cross-enrichment** (DataHub metadata is attached to query and describe
+  **cross-enrichment** (catalog curation is attached to query and describe
   results automatically) and **search** (knowledge pages).
 
 ```mermaid
 flowchart LR
   A[Agent teaches a fact] --> M[memory]
   M --> I[insight]
-  I -->|apply_knowledge| S1[DataHub entity / column description]
+  I -->|apply_knowledge| S1[catalog entity / column description]
   I -->|apply_knowledge| S2[knowledge page]
   S1 -->|cross-enrichment| AG[Agent, a later session]
   S2 -->|search| AG

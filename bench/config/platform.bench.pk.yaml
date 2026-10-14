@@ -20,8 +20,8 @@
 # confound. It costs one search call per episode, identically in every
 # cell.
 #
-# DataHub, Trino, and S3 are absent: the study's source is the API
-# connection, and knowledge.apply (which promotes to DataHub) is not part
+# Trino and S3 are absent: the study's source is the API connection, and
+# knowledge.apply (which promotes to the catalog) is not part
 # of any hypothesis. RQ4's supersede and propagation run entirely through
 # the memory surface.
 #
@@ -223,11 +223,14 @@ audit:
 rate_limit:
   enabled: false
 
+# No semantic provider: this arm measured discovery without one, which is what
+# an absent block meant before the platform catalog became the default
+# provider on a deployment with a database.
+semantic:
+  provider: noop
+
 enrichment:
   trino_semantic_enrichment: false
-  datahub_query_enrichment: false
-  s3_semantic_enrichment: false
-  datahub_storage_enrichment: false
 
 apigateway:
   # Keep the fixture catalog the only discoverable api surface.

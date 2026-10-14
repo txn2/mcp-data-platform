@@ -42,12 +42,12 @@ const knowledgeEnrichConcurrency = 8
 
 // dataKinds are the toolkit kinds that represent a data connection in the fallback
 // (non-ConnectionLister) path.
-var dataKinds = map[string]bool{"trino": true, "datahub": true, "s3": true}
+var dataKinds = map[string]bool{"trino": true, "s3": true}
 
 // ToolDescription is what list_connections tells a caller it answers. It lives
 // with the view it describes rather than with the tool registration, so the
 // sentence about a field and the field itself are added in one place.
-const ToolDescription = "List all configured data connections across toolkits (Trino, DataHub, S3, etc.). " +
+const ToolDescription = "List all configured data connections across toolkits (Trino, S3, API, GraphQL, MCP). " +
 	"Each connection includes a count and a bounded sample of the canonical knowledge pages that document it. " +
 	"Where the kind has the notion, a connection also reports read_only: true means write-class calls are refused " +
 	"on it, so plan the write path BEFORE staging data rather than meeting the refusal partway through. " +
@@ -79,13 +79,12 @@ type Entry struct {
 	// Reference is the canonical mcp:connection:(kind,name) citation string, so an
 	// agent can reference this connection from a knowledge page without composing
 	// it by hand.
-	Reference         string                        `json:"reference,omitempty"`
-	Description       string                        `json:"description,omitempty"`
-	IsDefault         bool                          `json:"is_default,omitempty"`
-	DataHubSourceName string                        `json:"datahub_source_name,omitempty"`
-	CatalogID         string                        `json:"catalog_id,omitempty"`
-	OperationCount    int                           `json:"operation_count,omitempty"`
-	Health            *toolkit.ConnectionHealthWire `json:"health,omitempty"`
+	Reference      string                        `json:"reference,omitempty"`
+	Description    string                        `json:"description,omitempty"`
+	IsDefault      bool                          `json:"is_default,omitempty"`
+	CatalogID      string                        `json:"catalog_id,omitempty"`
+	OperationCount int                           `json:"operation_count,omitempty"`
+	Health         *toolkit.ConnectionHealthWire `json:"health,omitempty"`
 	// ReadOnly is true when this connection refuses write-class calls, and is
 	// omitted entirely on a kind with no such notion (#1805).
 	ReadOnly *bool `json:"read_only,omitempty"`
@@ -115,11 +114,6 @@ type Permit func(kind, name string) bool
 // allows applies a Permit, treating nil as "every connection is visible".
 func (p Permit) allows(kind, name string) bool {
 	return p == nil || p(kind, name)
-}
-
-// SourceResolver resolves a connection's DataHub source name (empty when none).
-type SourceResolver interface {
-	DataHubSourceName(kind, name string) string
 }
 
 // PageLookup is the knowledge-page reverse lookup: the pages referencing a target.
@@ -155,12 +149,11 @@ type StoreLister interface {
 	ListStoredConnections(ctx context.Context) ([]Stored, error)
 }
 
-// Deps are Build's collaborators, each optional: a nil Source omits the
-// DataHub source names, a nil Pages skips the knowledge enrichment, a nil
+// Deps are Build's collaborators, each optional: a nil Pages skips the
+// knowledge enrichment, a nil
 // Permit enumerates every connection (what a system caller with no persona
 // needs), and a nil Stored enumerates only what this process serves.
 type Deps struct {
-	Source SourceResolver
 	Pages  PageLookup
 	Permit Permit
 	Stored StoreLister
@@ -192,9 +185,9 @@ func Build(ctx context.Context, toolkits []registry.Toolkit, deps Deps) Output {
 	for _, tk := range toolkits {
 		var n int
 		if lister, ok := tk.(toolkit.ConnectionLister); ok {
-			entries, n = appendFromLister(entries, seen, tk, lister, deps.Source, deps.Permit)
+			entries, n = appendFromLister(entries, seen, tk, lister, deps.Permit)
 		} else {
-			entries, n = appendFallback(entries, seen, tk, deps.Source, deps.Permit)
+			entries, n = appendFallback(entries, seen, tk, deps.Permit)
 		}
 		withheld += n
 	}
@@ -261,9 +254,6 @@ func appendStored(ctx context.Context, entries []Entry, seen map[string]int, dep
 			OperationCount: sc.OperationCount,
 			ReadOnly:       sc.ReadOnly,
 		}
-		if deps.Source != nil {
-			e.DataHubSourceName = deps.Source.DataHubSourceName(sc.Kind, sc.Name)
-		}
 		entries = append(entries, e)
 	}
 	return entries, withheld
@@ -271,7 +261,7 @@ func appendStored(ctx context.Context, entries []Entry, seen map[string]int, dep
 
 func appendFromLister(
 	entries []Entry, seen map[string]int, tk registry.Toolkit, lister toolkit.ConnectionLister,
-	src SourceResolver, permit Permit,
+	permit Permit,
 ) (out []Entry, withheld int) {
 	for _, conn := range lister.ListConnections() {
 		if !permit.allows(tk.Kind(), conn.Name) {
@@ -292,23 +282,20 @@ func appendFromLister(
 			Health:         conn.Health.Wire(),
 			ReadOnly:       conn.ReadOnly,
 		}
-		if src != nil {
-			e.DataHubSourceName = src.DataHubSourceName(tk.Kind(), conn.Name)
-		}
 		entries = append(entries, e)
 	}
 	return entries, withheld
 }
 
 func appendFallback(
-	entries []Entry, seen map[string]int, tk registry.Toolkit, src SourceResolver, permit Permit,
+	entries []Entry, seen map[string]int, tk registry.Toolkit, permit Permit,
 ) (out []Entry, withheld int) {
 	kind := tk.Kind()
 	if !dataKinds[kind] {
 		return entries, 0
 	}
 	// connid derives both names, so discovery keys on exactly what the
-	// authorizer checks and what the source map is keyed by (#1396).
+	// authorizer checks (#1396).
 	c := connid.NewResolver([]registry.Toolkit{tk}, nil).ByInstance(kind, connid.Instance(tk.Name()))
 	if !permit.allows(kind, string(c.Bound)) {
 		seen[seenKey(kind, tk.Name())] = withheldEntry
@@ -334,9 +321,6 @@ func appendFallback(
 	if reporter, ok := tk.(readOnlyReporter); ok {
 		readOnly := reporter.IsReadOnly()
 		e.ReadOnly = &readOnly
-	}
-	if src != nil {
-		e.DataHubSourceName = src.DataHubSourceName(kind, string(c.Bound))
 	}
 	return append(entries, e), 0
 }

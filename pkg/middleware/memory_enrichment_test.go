@@ -87,7 +87,7 @@ func TestEnrichWithMemories_URNsFound_MemoriesAttached(t *testing.T) {
 	}
 
 	data := map[string]any{
-		"table": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.revenue,PROD)",
+		"table": "mcp:dataset:(trino,warehouse,cat.schema.revenue)",
 	}
 	jsonBytes, _ := json.Marshal(data)
 	result := &mcp.CallToolResult{
@@ -102,7 +102,7 @@ func TestEnrichWithMemories_URNsFound_MemoriesAttached(t *testing.T) {
 	assert.Equal(t, "analyst", mp.recallPersona)
 	assert.Equal(t, defaultMemoryEnrichmentLimit, mp.recallLimit)
 	require.Len(t, mp.recallURNs, 1)
-	assert.Equal(t, "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.revenue,PROD)", mp.recallURNs[0])
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,cat.schema.revenue)", mp.recallURNs[0])
 
 	// Verify the appended content is valid JSON with memory_context
 	tc, ok := got.Content[1].(*mcp.TextContent)
@@ -118,7 +118,7 @@ func TestEnrichWithMemories_RecallError(t *testing.T) {
 	}
 
 	data := map[string]any{
-		"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)",
+		"urn": "mcp:dataset:(trino,warehouse,cat.schema.t1)",
 	}
 	jsonBytes, _ := json.Marshal(data)
 	result := &mcp.CallToolResult{
@@ -136,7 +136,7 @@ func TestEnrichWithMemories_EmptyMemories(t *testing.T) {
 	}
 
 	data := map[string]any{
-		"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)",
+		"urn": "mcp:dataset:(trino,warehouse,cat.schema.t1)",
 	}
 	jsonBytes, _ := json.Marshal(data)
 	result := &mcp.CallToolResult{
@@ -150,8 +150,8 @@ func TestEnrichWithMemories_EmptyMemories(t *testing.T) {
 
 func TestExtractEntityURNsFromResult_JSONWithURNs(t *testing.T) {
 	data := map[string]any{
-		"dataset":   "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.table1,PROD)",
-		"lineage":   "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.table2,PROD)",
+		"dataset":   "mcp:dataset:(trino,warehouse,cat.schema.table1)",
+		"lineage":   "mcp:dataset:(trino,warehouse,cat.schema.table2)",
 		"unrelated": "not a urn",
 	}
 	jsonBytes, _ := json.Marshal(data)
@@ -161,8 +161,8 @@ func TestExtractEntityURNsFromResult_JSONWithURNs(t *testing.T) {
 
 	urns := extractEntityURNsFromResult(result)
 	assert.Len(t, urns, 2)
-	assert.Contains(t, urns, "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.table1,PROD)")
-	assert.Contains(t, urns, "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.table2,PROD)")
+	assert.Contains(t, urns, "mcp:dataset:(trino,warehouse,cat.schema.table1)")
+	assert.Contains(t, urns, "mcp:dataset:(trino,warehouse,cat.schema.table2)")
 }
 
 func TestExtractEntityURNsFromResult_NonJSONContent(t *testing.T) {
@@ -180,7 +180,7 @@ func TestExtractEntityURNsFromResult_NestedURNs(t *testing.T) {
 	data := map[string]any{
 		"result": map[string]any{
 			"metadata": map[string]any{
-				"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.nested,PROD)",
+				"urn": "mcp:dataset:(trino,warehouse,cat.schema.nested)",
 			},
 		},
 	}
@@ -191,14 +191,14 @@ func TestExtractEntityURNsFromResult_NestedURNs(t *testing.T) {
 
 	urns := extractEntityURNsFromResult(result)
 	assert.Len(t, urns, 1)
-	assert.Equal(t, "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.nested,PROD)", urns[0])
+	assert.Equal(t, "mcp:dataset:(trino,warehouse,cat.schema.nested)", urns[0])
 }
 
 func TestExtractEntityURNsFromResult_ArrayURNs(t *testing.T) {
 	data := map[string]any{
 		"datasets": []any{
-			"urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)",
-			"urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t2,PROD)",
+			"mcp:dataset:(trino,warehouse,cat.schema.t1)",
+			"mcp:dataset:(trino,warehouse,cat.schema.t2)",
 			"not-a-urn",
 		},
 	}
@@ -213,8 +213,8 @@ func TestExtractEntityURNsFromResult_ArrayURNs(t *testing.T) {
 
 func TestExtractEntityURNsFromResult_Deduplication(t *testing.T) {
 	data := map[string]any{
-		"a": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)",
-		"b": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)",
+		"a": "mcp:dataset:(trino,warehouse,cat.schema.t1)",
+		"b": "mcp:dataset:(trino,warehouse,cat.schema.t1)",
 	}
 	jsonBytes, _ := json.Marshal(data)
 	result := &mcp.CallToolResult{
@@ -238,12 +238,12 @@ func TestExtractEntityURNsFromResult_NonTextContent(t *testing.T) {
 
 func TestExtractMemoryURNsFromMap(t *testing.T) {
 	data := map[string]any{
-		"top_level": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)",
+		"top_level": "mcp:dataset:(trino,warehouse,cat.schema.t1)",
 		"nested": map[string]any{
-			"deep": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t2,PROD)",
+			"deep": "mcp:dataset:(trino,warehouse,cat.schema.t2)",
 		},
 		"list": []any{
-			"urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t3,PROD)",
+			"mcp:dataset:(trino,warehouse,cat.schema.t3)",
 		},
 		"plain": "just a string",
 	}
@@ -259,7 +259,7 @@ func TestCollectURNsFromValue(t *testing.T) {
 	t.Run("string URN", func(t *testing.T) {
 		seen := make(map[string]bool)
 		var urns []string
-		collectURNsFromValue("urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)", seen, &urns)
+		collectURNsFromValue("mcp:dataset:(trino,warehouse,cat.schema.t1)", seen, &urns)
 		assert.Len(t, urns, 1)
 	})
 
@@ -274,7 +274,7 @@ func TestCollectURNsFromValue(t *testing.T) {
 		seen := make(map[string]bool)
 		var urns []string
 		collectURNsFromValue(map[string]any{
-			"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)",
+			"urn": "mcp:dataset:(trino,warehouse,cat.schema.t1)",
 		}, seen, &urns)
 		assert.Len(t, urns, 1)
 	})
@@ -283,8 +283,8 @@ func TestCollectURNsFromValue(t *testing.T) {
 		seen := make(map[string]bool)
 		var urns []string
 		collectURNsFromValue([]any{
-			"urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)",
-			"urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t2,PROD)",
+			"mcp:dataset:(trino,warehouse,cat.schema.t1)",
+			"mcp:dataset:(trino,warehouse,cat.schema.t2)",
 		}, seen, &urns)
 		assert.Len(t, urns, 2)
 	})
@@ -299,75 +299,11 @@ func TestCollectURNsFromValue(t *testing.T) {
 	t.Run("duplicate skipped", func(t *testing.T) {
 		seen := make(map[string]bool)
 		var urns []string
-		urn := "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.t1,PROD)"
+		urn := "mcp:dataset:(trino,warehouse,cat.schema.t1)"
 		collectURNsFromValue(urn, seen, &urns)
 		collectURNsFromValue(urn, seen, &urns)
 		assert.Len(t, urns, 1)
 	})
-}
-
-func TestIsDataHubURN(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{
-			name:     "valid dataset URN",
-			input:    "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.table,PROD)",
-			expected: true,
-		},
-		{
-			name:     "valid corpuser URN",
-			input:    "urn:li:corpuser:user@example.com",
-			expected: true,
-		},
-		{
-			name:     "too short",
-			input:    "urn:li:abc",
-			expected: false,
-		},
-		{
-			name:     "exactly minURNLength",
-			input:    "urn:li:abcd",
-			expected: true,
-		},
-		{
-			name:     "wrong prefix",
-			input:    "urn:xx:dataset:something-longer-than-ten",
-			expected: false,
-		},
-		{
-			name:     "not a URN at all",
-			input:    "just some string that is long enough",
-			expected: false,
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: false,
-		},
-		{
-			name:     "short string",
-			input:    "abc",
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, isDataHubURN(tt.input))
-		})
-	}
-}
-
-func TestIsDataHubURN_TooLong(t *testing.T) {
-	// Build a string that starts with "urn:li:" but is >= maxURNLength
-	long := "urn:li:dataset:"
-	for len(long) < maxURNLength {
-		long += "x"
-	}
-	assert.False(t, isDataHubURN(long))
 }
 
 // --- Issue #761: summary-first rendering, budget, dedup ---
@@ -528,7 +464,7 @@ func TestEnrichWithMemories_SummaryFirstWithReferenceAndBudget(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(map[string]any{
-		"table": "urn:li:dataset:(urn:li:dataPlatform:trino,cat.schema.revenue,PROD)",
+		"table": "mcp:dataset:(trino,warehouse,cat.schema.revenue)",
 	})
 	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}
 	pc := &PlatformContext{PersonaName: "analyst"}

@@ -332,8 +332,8 @@ func TestDeriveSinkClass(t *testing.T) {
 func TestNormalizeEntityURNs(t *testing.T) {
 	t.Parallel()
 
-	const orders = "urn:li:dataset:(urn:li:dataPlatform:trino,sales.orders,PROD)"
-	const regions = "urn:li:dataset:(urn:li:dataPlatform:trino,sales.regions,PROD)"
+	const orders = "mcp:dataset:(trino,warehouse,sales.orders)"
+	const regions = "mcp:dataset:(trino,warehouse,sales.regions)"
 
 	got := NormalizeEntityURNs([]string{orders, "  " + orders + "  ", regions, "", "   ", orders})
 	want := []string{orders, regions}

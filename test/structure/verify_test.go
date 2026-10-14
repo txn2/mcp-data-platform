@@ -12,7 +12,6 @@ package structure_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -238,17 +237,18 @@ func TestNoopOnlyInterfaces(t *testing.T) {
 // Gate: CLAUDE.md project structure map stays current
 // ---------------------------------------------------------------------------
 
-// TestDatasetURNGrammarCentralized verifies that the DataHub dataset URN
-// grammar (urn:li:dataset:(urn:li:dataPlatform:...)) is built and parsed only
-// in pkg/urnbuild (#760). Hand-rolled copies drift independently: an edge case
-// (commas in dataset names, non-PROD environments) fixed in one copy and not
-// the others produces URNs one subsystem emits and another fails to resolve.
+// TestNoForeignDatasetURNGrammar verifies that no production code builds or
+// parses the dataset URN grammar of the external catalog the platform ran
+// before its own
+// (urn:li:dataset:(urn:li:dataPlatform:...)). The platform names a dataset by
+// its mcp:dataset reference (#1917) and refuses the other form (#1925), so a
+// copy of that grammar is code that reads references nothing writes.
 //
 // The pattern matches grammar *implementations*: a parse-prefix string
 // constant ("...dataPlatform:"), a format-string build ("...dataPlatform:%s"),
 // or a concatenation build ("...dataPlatform:<platform>," +). Complete
 // example URNs in doc comments and struct tags are left alone.
-func TestDatasetURNGrammarCentralized(t *testing.T) {
+func TestNoForeignDatasetURNGrammar(t *testing.T) {
 	projectRoot := moduleRoot(t)
 
 	grammarRe := regexp.MustCompile(`urn:li:dataset:\(urn:li:dataPlatform:([a-zA-Z0-9_-]*,)?("|%s)`)
@@ -263,14 +263,10 @@ func TestDatasetURNGrammarCentralized(t *testing.T) {
 			}
 			rel, relErr := filepath.Rel(projectRoot, path)
 			require.NoError(t, relErr)
-			if strings.HasPrefix(rel, filepath.Join("pkg", "urnbuild")) {
-				return nil
-			}
 			content, readErr := os.ReadFile(path) //nolint:gosec // test reads project sources
 			require.NoError(t, readErr)
 			assert.False(t, grammarRe.Match(content),
-				"%s builds or parses the dataset URN grammar by hand. "+
-					"Use pkg/urnbuild (DatasetURN, DatasetURNFromName, ParseDatasetURN) instead.", rel)
+				"%s builds or parses a urn:li:dataset URN; a dataset is named by its mcp:dataset reference.", rel)
 			return nil
 		})
 		require.NoError(t, err)
@@ -889,49 +885,48 @@ func TestResearchPagesCarryWorkingPaperBanner(t *testing.T) {
 
 // TestDevSeedCatalogCitationsAreSeeded keeps the dev fixtures internally
 // consistent: every catalog dataset a seeded knowledge page cites must also be
-// in dev/datahub-datasets.json, which dev/seed-datahub.sh ingests.
+// a dataset dev/seed-catalog.sql writes into the platform catalog.
 //
-// Without this the two files drift apart silently. They already had: the seeded
-// pages cited nine iceberg.* datasets that nothing in the dev stack created, so
-// with a real DataHub attached every catalog citation resolved to an entity the
-// catalog had never heard of — the knowledge graph drew them as ordinary live
-// nodes and the catalog search found nothing. Adding a citation without a
-// fixture is the same bug, so it fails here instead.
+// Without this the two files drift apart silently. They had before: the seeded
+// pages cited datasets that nothing in the dev stack created, so every catalog
+// citation resolved to an entity the catalog had never heard of -- the
+// knowledge graph drew them as ordinary live nodes and the catalog search found
+// nothing. Adding a citation without seeding it is the same bug, so it fails
+// here instead.
 func TestDevSeedCatalogCitationsAreSeeded(t *testing.T) {
 	seed, err := os.ReadFile(rootPath(t, "dev", "seed.sql"))
 	if err != nil {
 		t.Fatalf("read dev/seed.sql: %v", err)
 	}
-	fixture, err := os.ReadFile(rootPath(t, "dev", "datahub-datasets.json"))
+	catalogSeed, err := os.ReadFile(rootPath(t, "dev", "seed-catalog.sql"))
 	if err != nil {
-		t.Fatalf("read dev/datahub-datasets.json: %v", err)
+		t.Fatalf("read dev/seed-catalog.sql: %v", err)
 	}
 
-	var datasets []struct {
-		URN string `json:"urn"`
+	seeded := map[string]bool{}
+	for _, m := range regexp.MustCompile(`'dataset', '(mcp:dataset:\([^)]*\))'`).FindAllStringSubmatch(string(catalogSeed), -1) {
+		seeded[m[1]] = true
 	}
-	if err := json.Unmarshal(fixture, &datasets); err != nil {
-		t.Fatalf("parse dev/datahub-datasets.json: %v", err)
-	}
-	seeded := make(map[string]bool, len(datasets))
-	for _, d := range datasets {
-		seeded[d.URN] = true
+	if len(seeded) == 0 {
+		t.Fatal("no datasets found in dev/seed-catalog.sql; the pattern has drifted")
 	}
 
-	cited := regexp.MustCompile(`urn:li:dataset:\([^)]*\)`).FindAllString(string(seed), -1)
+	// A citation assembled in SQL (a quote inside the parentheses) is not a
+	// whole reference, so only complete ones are read.
+	cited := regexp.MustCompile(`mcp:dataset:\([^)'\s]*\)`).FindAllString(string(seed), -1)
 	if len(cited) == 0 {
 		t.Fatal("no dataset citations found in dev/seed.sql; the pattern has drifted")
 	}
 
 	missing := map[string]bool{}
-	for _, urn := range cited {
-		if !seeded[urn] {
-			missing[urn] = true
+	for _, ref := range cited {
+		if !seeded[ref] {
+			missing[ref] = true
 		}
 	}
-	for urn := range missing {
-		t.Errorf("dev/seed.sql cites %s, which dev/datahub-datasets.json does not create.\n"+
-			"Add it to the fixture, or the dev catalog will not have the dataset the pages describe.", urn)
+	for ref := range missing {
+		t.Errorf("dev/seed.sql cites %s, which dev/seed-catalog.sql does not create.\n"+
+			"Add it to the catalog seed, or the dev catalog will not have the dataset the pages describe.", ref)
 	}
 }
 

@@ -206,7 +206,7 @@ type pingAdapter struct {
 	err error
 }
 
-func (pingAdapter) Name() string                 { return "datahub" }
+func (pingAdapter) Name() string                 { return "catalog" }
 func (p pingAdapter) Ping(context.Context) error { return p.err }
 
 // wrapped exposes its provider the way the semantic cache does.

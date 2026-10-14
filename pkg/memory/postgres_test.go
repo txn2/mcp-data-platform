@@ -32,9 +32,9 @@ func newTestRecord() Record {
 		Category:   CategoryBusinessCtx,
 		Confidence: ConfidenceHigh,
 		Source:     SourceUser,
-		EntityURNs: []string{"urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)"},
+		EntityURNs: []string{"mcp:dataset:(trino,warehouse,catalog.schema.table)"},
 		RelatedColumns: []RelatedColumn{
-			{URN: "urn:li:dataset:foo", Column: "revenue", Relevance: "primary"},
+			{URN: "mcp:dataset:(trino,warehouse,c.s.foo)", Column: "revenue", Relevance: "primary"},
 		},
 		Metadata: map[string]any{"context": "finance"},
 		Status:   StatusActive,
@@ -132,8 +132,8 @@ func TestPostgresStore_Get(t *testing.T) {
 	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
 		"mem-001", now, now, "user-abc", "analyst", DimensionKnowledge, "schema_entity",
 		"This is content about tables.", CategoryBusinessCtx, ConfidenceHigh, SourceUser,
-		`["urn:li:dataset:foo"]`,
-		`[{"urn":"urn:li:dataset:foo","column":"col1","relevance":"primary"}]`,
+		`["mcp:dataset:(trino,warehouse,c.s.foo)"]`,
+		`[{"urn":"mcp:dataset:(trino,warehouse,c.s.foo)","column":"col1","relevance":"primary"}]`,
 		`{"context":"finance"}`,
 		StatusActive, nil, nil, nil,
 	)
@@ -154,7 +154,7 @@ func TestPostgresStore_Get(t *testing.T) {
 	assert.Equal(t, ConfidenceHigh, record.Confidence)
 	assert.Equal(t, SourceUser, record.Source)
 	assert.Equal(t, StatusActive, record.Status)
-	assert.Equal(t, []string{"urn:li:dataset:foo"}, record.EntityURNs)
+	assert.Equal(t, []string{"mcp:dataset:(trino,warehouse,c.s.foo)"}, record.EntityURNs)
 	assert.Len(t, record.RelatedColumns, 1)
 	assert.Equal(t, "col1", record.RelatedColumns[0].Column)
 	assert.Nil(t, record.StaleAt)
@@ -488,7 +488,7 @@ func TestPostgresStore_EntityLookup_WithPersona(t *testing.T) {
 	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
 		"mem-001", now, now, "user-abc", "analyst", DimensionKnowledge, "schema_entity",
 		"Entity lookup result.", CategoryBusinessCtx, ConfidenceHigh, SourceUser,
-		`["urn:li:dataset:foo"]`, `[]`, `{}`,
+		`["mcp:dataset:(trino,warehouse,c.s.foo)"]`, `[]`, `{}`,
 		StatusActive, nil, nil, nil,
 	)
 
@@ -503,7 +503,7 @@ func TestPostgresStore_EntityLookup_WithPersona(t *testing.T) {
 		).
 		WillReturnRows(rows)
 
-	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:foo", "analyst", "")
+	records, err := store.EntityLookup(context.Background(), "mcp:dataset:(trino,warehouse,c.s.foo)", "analyst", "")
 	require.NoError(t, err)
 	assert.Len(t, records, 1)
 	assert.Equal(t, "mem-001", records[0].ID)
@@ -532,7 +532,7 @@ func TestPostgresStore_EntityLookup_WithoutPersona(t *testing.T) {
 		).
 		WillReturnRows(sqlmock.NewRows(memorySelectColumns))
 
-	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:bar", "", "")
+	records, err := store.EntityLookup(context.Background(), "mcp:dataset:(trino,warehouse,c.s.bar)", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, records)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -556,7 +556,7 @@ func TestPostgresStore_EntityLookup_UserScopedKeepsPending(t *testing.T) {
 		).
 		WillReturnRows(sqlmock.NewRows(memorySelectColumns))
 
-	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:qux", "", "user@example.com")
+	records, err := store.EntityLookup(context.Background(), "mcp:dataset:(trino,warehouse,c.s.qux)", "", "user@example.com")
 	require.NoError(t, err)
 	assert.Empty(t, records)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -878,7 +878,7 @@ func TestApplyFilter(t *testing.T) {
 			Category:  CategoryCorrection,
 			Status:    StatusActive,
 			Source:    SourceUser,
-			EntityURN: "urn:li:dataset:foo",
+			EntityURN: "mcp:dataset:(trino,warehouse,c.s.foo)",
 			Since:     &now,
 			Until:     &now,
 		})

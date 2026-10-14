@@ -24,7 +24,7 @@ func TestChangesetStore_RealDB_RoundTripAndRollback(t *testing.T) {
 	store := NewPostgresChangesetStore(testdb.New(t))
 	ctx := context.Background()
 
-	const urn = "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)"
+	const urn = "mcp:dataset:(trino,warehouse,memory.e2e_test.test_orders)"
 	cs := Changeset{
 		ID:               "cs_realdb_1",
 		TargetURN:        urn,

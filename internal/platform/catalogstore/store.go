@@ -278,7 +278,7 @@ func (s *Store) PutDefinition(ctx context.Context, in catalog.DefinitionInput) (
 		return nil, fmt.Errorf("kind %s is not a definition kind: %w", in.Kind, catalog.ErrInvalidRef)
 	}
 	if strings.TrimSpace(in.Name) == "" {
-		return nil, errors.New("a definition needs a name")
+		return nil, fmt.Errorf("a definition needs a name: %w", catalog.ErrInvalidDefinition)
 	}
 	slug := in.Slug
 	switch {
@@ -288,7 +288,7 @@ func (s *Store) PutDefinition(ctx context.Context, in catalog.DefinitionInput) (
 		slug = catalog.Slug(in.Name)
 	}
 	if slug == "" {
-		return nil, fmt.Errorf("no slug can be derived from %q", in.Name)
+		return nil, fmt.Errorf("no slug can be derived from %q: %w", in.Name, catalog.ErrInvalidDefinition)
 	}
 	parentID, err := s.definitionParent(ctx, in)
 	if err != nil {
@@ -316,14 +316,14 @@ func (s *Store) definitionParent(ctx context.Context, in catalog.DefinitionInput
 		return sql.NullString{}, nil
 	}
 	if in.Kind != catalog.KindGlossaryTerm && in.Kind != catalog.KindGlossaryNode {
-		return sql.NullString{}, fmt.Errorf("a %s has no parent", in.Kind)
+		return sql.NullString{}, fmt.Errorf("a %s has no parent: %w", in.Kind, catalog.ErrInvalidDefinition)
 	}
 	ref, err := catalog.ParseRef(in.Parent)
 	if err != nil {
 		return sql.NullString{}, fmt.Errorf("parent: %w", err)
 	}
 	if ref.Kind != catalog.KindGlossaryNode {
-		return sql.NullString{}, fmt.Errorf("parent %q is not a glossary node", in.Parent)
+		return sql.NullString{}, fmt.Errorf("parent %q is not a glossary node: %w", in.Parent, catalog.ErrInvalidDefinition)
 	}
 	e, err := resolve(ctx, s.db, ref)
 	if err != nil {

@@ -87,7 +87,7 @@ When Ollama is unavailable, memory records are stored without embeddings and a w
 
 ### Unconfigured State
 
-When `memory.embedding.provider` is unset or unrecognized, the platform substitutes a noop placeholder that returns zero vectors. This is the documented degraded state, not an error: the platform still boots so Trino, S3, DataHub, audit, OAuth, and every other non-embedding feature remains available.
+When `memory.embedding.provider` is unset or unrecognized, the platform substitutes a noop placeholder that returns zero vectors. This is the documented degraded state, not an error: the platform still boots so Trino, S3, the catalog, audit, OAuth, and every other non-embedding feature remains available.
 
 In this state:
 

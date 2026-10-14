@@ -103,7 +103,6 @@ func TestRetiredToolNamesAreReported(t *testing.T) {
 		"manage_asset", "save_asset", "manage_resource", "manage_script", "run_script",
 		"show_scripts", "manage_prompt", "show_prompts", "manage_feedback", "manage_table",
 		"memory_capture", "memory_manage", "apply_knowledge", "trino_query", "trino_execute",
-		"datahub_browse", "datahub_update",
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {

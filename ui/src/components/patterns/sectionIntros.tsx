@@ -110,7 +110,7 @@ function KnowledgeAbout() {
       capability reviews insights and promotes the good ones into{" "}
       <strong className="font-medium text-foreground">Knowledge</strong>: shared, trusted, and
       canonical. Each promotion lands where it fits best, decided when it is applied: a fact tied to
-      a specific dataset or column goes to the DataHub catalog, while broader business or domain
+      a specific dataset or column goes to the catalog, while broader business or domain
       knowledge becomes a knowledge page.
     </>
   );

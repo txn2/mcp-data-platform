@@ -15,8 +15,8 @@
 // The same Router is exposed two ways from one code path: as the
 // search agent tool (pull), and later as a retriever wired into the
 // enrichment middleware (push). PR1 (#632) builds the pull path with the
-// memory, insights, and assets providers; the technical catalog (datahub) and
-// prompt providers, and push injection, land in follow-up PRs.
+// memory, insights, and assets providers; the catalog and prompt providers,
+// and push injection, landed in follow-up PRs.
 package knowledge
 
 import (
@@ -167,7 +167,8 @@ func (c Caller) Anonymous() bool {
 //     query vector the Router computes once from Intent and shares across
 //     providers; nil selects lexical-only ranking.
 //   - EntityURNs is an exact, entity-keyed lookup: return knowledge linked to
-//     these DataHub URNs (memory uses this, optionally expanded along lineage).
+//     these catalog references (memory uses this, optionally expanded along
+//     lineage).
 //
 // At least one of Intent or EntityURNs is set. Status optionally filters by
 // lifecycle/review state where a provider tracks one (insight review status).
@@ -176,7 +177,7 @@ func (c Caller) Anonymous() bool {
 // display set.
 //
 // Sources optionally narrows the federation to a subset of provider names
-// (e.g. ["datahub"]). It only narrows: an empty Sources queries every provider
+// (e.g. ["catalog"]). It only narrows: an empty Sources queries every provider
 // the caller can access, and a name in Sources never opts a caller into a
 // provider their scope would otherwise exclude.
 type Query struct {
@@ -218,7 +219,7 @@ type Hit struct {
 	// author (catalog datasets, API endpoints, connections).
 	CapturedBy string `json:"captured_by,omitempty"`
 	// Reference is the canonical citation string for the hit's entity
-	// (mcp:<type>:<key> for an internal entity, urn:... for DataHub), so an agent
+	// (mcp:<type>:<key>), so an agent
 	// can reference it from a knowledge page without hand-assembling or guessing
 	// the form. Omitted when the entity is not referenceable.
 	Reference string `json:"reference,omitempty"`
@@ -326,7 +327,7 @@ type Provider interface {
 // arm first (exact, entity-matched), then the text-relevance arm, de-duplicated
 // across both via a shared seen-set so a result found both ways appears once at the
 // entity arm's rank. It holds the dedup-and-merge contract once for the catalog-style
-// sources (datahub, documents, knowledge pages) that share this shape, so the policy
+// sources (catalog, knowledge pages) that share this shape, so the policy
 // cannot drift between hand-copied Search methods. A text-arm error blanks the
 // provider (consistent with every two-arm provider); the entity arm isolates per-item
 // errors internally.

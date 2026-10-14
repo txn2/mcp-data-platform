@@ -9,8 +9,8 @@ import (
 
 // The cold-start curriculum (issue #963) teaches, one lesson at a time, the S3
 // trap facts the A2 seed pre-loads — but starting from the empty baseline
-// (DataHubMCEsEmpty, no knowledge pages). Each lesson promotes its fact to the
-// same channel A2 delivers it through: the datahub entity description (units,
+// (CatalogSQLEmpty, no knowledge pages). Each lesson promotes its fact to the
+// same channel A2 delivers it through: the catalog dataset description (units,
 // freshness, deprecation) or a portal knowledge page (net-revenue policy, fiscal
 // calendar, tier definitions). apply_knowledge restores the description text and
 // knowledge pages that carry the answer-bearing facts, so the S3 trap suite (all
@@ -30,7 +30,7 @@ import (
 // thrashing search that never reaches the capture tool).
 const coldStartBudget = protocolBudget
 
-// Datahub-sink lesson facts. Each becomes the promoted entity description, so it
+// Catalog-sink lesson facts. Each becomes the promoted entity description, so it
 // must carry the knowledge the trap suite needs on its own. The freshness and
 // deprecation facts reuse the exact A2 description text (dailyDescription,
 // legacyDescription), so the promoted description is byte-identical to A2's for
@@ -63,25 +63,25 @@ func (d *Dataset) Curriculum() curriculum.Curriculum {
 		Title:     "Cold-start knowledge growth over the S3 trap suite",
 		EvalSuite: "s3",
 		Lessons: []curriculum.Lesson{
-			datahubLesson("cs-units-cents", "Monetary columns are integer cents", "units_cents", unitsCentsFact, orders),
+			catalogLesson("cs-units-cents", "Monetary columns are integer cents", "units_cents", unitsCentsFact, orders),
 			pageLesson("cs-net-revenue", "Net-revenue reporting policy", "net_revenue", netRevenueFact, orders,
 				"revenue-reporting-policy", "Revenue Reporting Policy", revenuePolicySummary, revenuePolicyBody),
 			pageLesson("cs-fiscal-calendar", "Fiscal calendar boundaries", "fiscal_calendar", fiscalCalendarFact, orders,
 				"fiscal-calendar-policy", "Fiscal Calendar Policy", fiscalCalendarSummary, fiscalCalendarBody),
-			datahubLesson("cs-freshness-cutoff", "Daily index freshness cutoff", "freshness_cutoff", dailyDescription, daily),
+			catalogLesson("cs-freshness-cutoff", "Daily index freshness cutoff", "freshness_cutoff", dailyDescription, daily),
 			pageLesson("cs-tier-boundary", "Key-account tier definition", "tier_boundary", tierBoundaryFact, customers,
 				"customer-tier-definitions", "Customer Tier Definitions", tierDefinitionsSummary, tierDefinitionsBody),
-			datahubLesson("cs-deprecated-table", "legacy_orders is deprecated", "deprecated_table", legacyDescription, legacy),
+			catalogLesson("cs-deprecated-table", "legacy_orders is deprecated", "deprecated_table", legacyDescription, legacy),
 		},
 	}
 }
 
-// datahubLesson builds a lesson that promotes its fact to the entity's catalog
+// catalogLesson builds a lesson that promotes its fact to the entity's catalog
 // description (delivered to any identity via cross-enrichment).
-func datahubLesson(id, title, trapClass, fact, urn string) curriculum.Lesson {
+func catalogLesson(id, title, trapClass, fact, urn string) curriculum.Lesson {
 	return curriculum.Lesson{
 		ID: id, Title: title, TrapClass: trapClass, Fact: fact,
-		EntityURN: urn, Sink: protocol.SinkDataHub, BudgetToolCalls: coldStartBudget,
+		EntityURN: urn, Sink: protocol.SinkCatalog, BudgetToolCalls: coldStartBudget,
 		Teach: protocol.TeachStage{Prompt: teachPrompt(fact)},
 	}
 }

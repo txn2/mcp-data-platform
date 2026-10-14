@@ -95,30 +95,18 @@ var issue1692Expected = map[string]issue1692Expectation{
 	"api_export":      {destructive: false},
 	"graphql_export":  {destructive: false},
 
-	// The trino, datahub and s3 toolkits are built on the mcp-trino,
-	// mcp-datahub and mcp-s3 libraries, which declare these annotations
+	// The trino and s3 toolkits are built on the mcp-trino and mcp-s3
+	// libraries, which declare these annotations
 	// themselves. #1692 did not change them and named them as already
 	// correct; the rows are here so that claim is asserted rather than
 	// assumed, and so an upstream upgrade that drops one is caught where a
 	// user would feel it.
-	"trino_query":               {readOnly: true},
-	"trino_explain":             {readOnly: true},
-	"trino_browse":              {readOnly: true},
-	"trino_describe_table":      {readOnly: true},
-	"trino_list_connections":    {readOnly: true},
-	"trino_execute":             {destructive: true},
-	"datahub_search":            {readOnly: true},
-	"datahub_get_entity":        {readOnly: true},
-	"datahub_get_schema":        {readOnly: true},
-	"datahub_get_lineage":       {readOnly: true},
-	"datahub_get_queries":       {readOnly: true},
-	"datahub_browse":            {readOnly: true},
-	"datahub_get_glossary_term": {readOnly: true},
-	"datahub_get_data_product":  {readOnly: true},
-	"datahub_list_connections":  {readOnly: true},
-	"datahub_create":            {destructive: false},
-	"datahub_update":            {destructive: false},
-	"datahub_delete":            {destructive: true},
+	"trino_query":            {readOnly: true},
+	"trino_explain":          {readOnly: true},
+	"trino_browse":           {readOnly: true},
+	"trino_describe_table":   {readOnly: true},
+	"trino_list_connections": {readOnly: true},
+	"trino_execute":          {destructive: true},
 }
 
 // issue1692Native returns the tools this repository is answerable for: what

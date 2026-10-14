@@ -82,7 +82,7 @@ Custom additions specific to mcp-data-platform:
 - The hero subtitle reads "semantic platform" rather than "metadata catalog" (mcp-datahub), "object storage" (mcp-s3), or "federated sql" (mcp-trino) to position mcp-data-platform as the orchestration layer that composes the sister servers and adds the operational layer (auth, personas, audit, gateway, portal, knowledge, memory). The upstream design refers to this site as "the catalog" of MCP servers; in practice it is broader than a catalog, so the tagline foregrounds the differentiating semantic-first cross-enrichment.
 - The server flagship card's terminal demo uses `go install` + `claude mcp add data-platform` invocation against a YAML config file. The library card shows the canonical `platform.New` / `WithConfigFile` / `WithToolkit` / `Use` / `Run` path, which mirrors the project's actual Go API surface.
 - The stack list emphasises the eight defining capabilities of this project beyond a single MCP server: cross-enrichment, composability, OAuth 2.1 inbound and outbound, personas, audit, gateway, portal, and knowledge/memory. This is wider than the sister projects' stack lists because mcp-data-platform is the platform, not a single toolkit.
-- An `ecosystem` callout in the stack list points at the sister MCP projects (`mcp-datahub`, `mcp-s3`, `mcp-trino`) so readers see the broader composable suite. Links go to each project's documentation site, not its GitHub repo.
+- An `ecosystem` callout in the stack list points at the sister MCP projects the platform composes (`mcp-s3`, `mcp-trino`) so readers see the broader composable suite. Links go to each project's documentation site, not its GitHub repo.
 - The site preserves the existing `docs/javascripts/mermaid-fullscreen.js` viewer (loaded from `main.html`) and re-skins its overlay, toolbar, and expand button to txn2 tokens.
 
 ## Symbol design
@@ -92,7 +92,7 @@ Custom additions specific to mcp-data-platform:
 - **Base** (filled `var(--paper)`): three small circles arranged in a triangle (top at (50,22), bottom-left at (22,72), bottom-right at (78,72), each radius 7.5) plus three thin connecting bars from each outer node toward the central platform hub. Combined into one path via concatenated sub-paths.
 - **Accent** (filled `var(--signal)`): the central platform disc (cx=50, cy=52, radius 12), the largest single shape and the visual focal point. Breathes per the upstream `mark-breath` keyframes.
 
-The visual reads as composition: three data sources (DataHub, Trino, S3) feeding into a central platform hub. The geometry mirrors the existing brand's "triangle network" lockup (`docs/images/mcp_data_platform_logo.svg`) reduced to its essential form and recoloured to the txn2 palette. The accent breathing pulse animates only the central disc, leaving the outer nodes and connecting bars static.
+The visual reads as composition: three sources (the catalog, Trino, S3) feeding into a central platform hub. The geometry mirrors the existing brand's "triangle network" lockup (`docs/images/mcp_data_platform_logo.svg`) reduced to its essential form and recoloured to the txn2 palette. The accent breathing pulse animates only the central disc, leaving the outer nodes and connecting bars static.
 
 ## MkDocs Material learnings
 

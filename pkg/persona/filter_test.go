@@ -10,13 +10,13 @@ import (
 )
 
 const (
-	filterTestAnalyst       = "analyst"
-	filterTestAdmin         = "admin"
-	filterTestDatahubSearch = "datahub_search"
-	filterTestTrinoQuery    = "trino_query"
-	filterTestTrinoWild     = "trino_*"
-	filterTestFilterCount   = 3
-	filterTestWildcard      = "*"
+	filterTestAnalyst         = "analyst"
+	filterTestAdmin           = "admin"
+	filterTestGraphQLDiscover = "graphql_discover"
+	filterTestTrinoQuery      = "trino_query"
+	filterTestTrinoWild       = "trino_*"
+	filterTestFilterCount     = 3
+	filterTestWildcard        = "*"
 )
 
 func TestToolFilter_IsAllowed(t *testing.T) {
@@ -57,25 +57,25 @@ func TestToolFilter_IsAllowed(t *testing.T) {
 			name: "prefix deny",
 			persona: &Persona{
 				Name:  filterTestAnalyst,
-				Tools: ToolRules{Allow: []string{filterTestWildcard}, Deny: []string{"datahub_delete*"}},
+				Tools: ToolRules{Allow: []string{filterTestWildcard}, Deny: []string{"graphql_delete*"}},
 			},
-			toolName: "datahub_delete",
+			toolName: "graphql_delete",
 			want:     false,
 		},
 		{
 			name: "exact match allow",
 			persona: &Persona{
 				Name:  "exec",
-				Tools: ToolRules{Allow: []string{filterTestDatahubSearch}},
+				Tools: ToolRules{Allow: []string{filterTestGraphQLDiscover}},
 			},
-			toolName: filterTestDatahubSearch,
+			toolName: filterTestGraphQLDiscover,
 			want:     true,
 		},
 		{
 			name: "no match deny",
 			persona: &Persona{
 				Name:  "exec",
-				Tools: ToolRules{Allow: []string{filterTestDatahubSearch}},
+				Tools: ToolRules{Allow: []string{filterTestGraphQLDiscover}},
 			},
 			toolName: filterTestTrinoQuery,
 			want:     false,
@@ -102,7 +102,7 @@ func TestToolFilter_WhyAllowed(t *testing.T) {
 	persona := &Persona{
 		Name: "analyst",
 		Tools: ToolRules{
-			Allow: []string{"trino_*", "datahub_search"},
+			Allow: []string{"trino_*", "graphql_discover"},
 			Deny:  []string{"trino_execute"},
 		},
 	}
@@ -115,7 +115,7 @@ func TestToolFilter_WhyAllowed(t *testing.T) {
 		expectMatch bool
 	}{
 		{"trino_query", true, "trino_*", AccessSourceAllow, true},
-		{"datahub_search", true, "datahub_search", AccessSourceAllow, true},
+		{"graphql_discover", true, "graphql_discover", AccessSourceAllow, true},
 		{"trino_execute", false, "trino_execute", AccessSourceDeny, true},
 		{"s3_list", false, "", AccessSourceDefault, true},
 	}
@@ -155,7 +155,7 @@ func TestToolFilter_FilterTools(t *testing.T) {
 	persona := &Persona{
 		Name: "analyst",
 		Tools: ToolRules{
-			Allow: []string{filterTestTrinoWild, "datahub_*"},
+			Allow: []string{filterTestTrinoWild, "graphql_*"},
 			Deny:  []string{"trino_admin*"},
 		},
 	}
@@ -164,7 +164,7 @@ func TestToolFilter_FilterTools(t *testing.T) {
 		filterTestTrinoQuery,
 		"trino_describe",
 		"trino_admin_users",
-		filterTestDatahubSearch,
+		filterTestGraphQLDiscover,
 		"s3_list",
 	}
 
@@ -176,9 +176,9 @@ func TestToolFilter_FilterTools(t *testing.T) {
 
 	// Check specific tools
 	expected := map[string]bool{
-		filterTestTrinoQuery:    true,
-		"trino_describe":        true,
-		filterTestDatahubSearch: true,
+		filterTestTrinoQuery:      true,
+		"trino_describe":          true,
+		filterTestGraphQLDiscover: true,
 	}
 
 	for _, tool := range allowed {
@@ -209,7 +209,7 @@ func TestMatchPattern(t *testing.T) {
 	}{
 		{"*", "anything", true},
 		{filterTestTrinoWild, filterTestTrinoQuery, true},
-		{filterTestTrinoWild, filterTestDatahubSearch, false},
+		{filterTestTrinoWild, filterTestGraphQLDiscover, false},
 		{"exact_match", "exact_match", true},
 		{"exact_match", "other", false},
 		{"prefix_*_suffix", "prefix_middle_suffix", true},

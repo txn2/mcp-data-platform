@@ -211,7 +211,7 @@ export const mockChangelog: ChangelogEntry[] = [
       {
         type: "added",
         description:
-          "Enrichment pipeline for automatic query context augmentation from DataHub metadata",
+          "Enrichment pipeline for automatic query context augmentation from catalog metadata",
       },
       {
         type: "changed",
@@ -243,7 +243,7 @@ export const mockChangelog: ChangelogEntry[] = [
       {
         type: "added",
         description:
-          "Initial release with Trino query, DataHub metadata, and S3 object storage tools",
+          "Initial release with Trino query, catalog metadata, and S3 object storage tools",
       },
       {
         type: "added",

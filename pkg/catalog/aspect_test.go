@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -110,5 +111,44 @@ func TestSetUnknownAspect(t *testing.T) {
 	var a Aspects
 	if err := a.Set("bogus", json.RawMessage(`1`)); !errors.Is(err, ErrInvalidAspect) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestWithTextPassesEveryFreeTextValueThroughFn(t *testing.T) {
+	a := Aspects{
+		Description:          "d",
+		Tags:                 []string{"t"},
+		GlossaryTerms:        []string{"mcp:glossary_term:g"},
+		Owners:               []Owner{{Owner: "o", Type: "technical_owner"}},
+		Domain:               "mcp:domain:x",
+		CustomProperties:     map[string]string{"k": "v"},
+		StructuredProperties: map[string][]any{"s": {"v", 1.0}},
+		DocumentationLinks:   []Link{{URL: "https://example.com", Description: "l"}},
+		CuratedQueries:       []CuratedQuery{{Name: "n", SQL: "SELECT 1", Description: "q"}},
+		Incidents:            []Incident{{ID: "i", Title: "t", Description: "d", State: IncidentActive, Resolution: "r"}},
+		ContextDocuments:     []ContextDocument{{ID: "c", Title: "t", Content: "c", Category: "k"}},
+	}
+	got := a.WithText(func(s string) string { return "<" + s + ">" })
+	want := Aspects{
+		Description:          "<d>",
+		Tags:                 []string{"t"},
+		GlossaryTerms:        []string{"mcp:glossary_term:g"},
+		Owners:               []Owner{{Owner: "<o>", Type: "technical_owner"}},
+		Domain:               "mcp:domain:x",
+		CustomProperties:     map[string]string{"k": "<v>"},
+		StructuredProperties: map[string][]any{"s": {"<v>", 1.0}},
+		DocumentationLinks:   []Link{{URL: "https://example.com", Description: "<l>"}},
+		CuratedQueries:       []CuratedQuery{{Name: "<n>", SQL: "SELECT 1", Description: "<q>"}},
+		Incidents:            []Incident{{ID: "i", Title: "<t>", Description: "<d>", State: IncidentActive, Resolution: "<r>"}},
+		ContextDocuments:     []ContextDocument{{ID: "c", Title: "<t>", Content: "<c>", Category: "<k>"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v\nwant %+v", got, want)
+	}
+	if a.Description != "d" || a.Owners[0].Owner != "o" {
+		t.Fatal("the original curation was changed")
+	}
+	if empty := (Aspects{}).WithText(strings.ToUpper); empty.Owners != nil || empty.CustomProperties != nil {
+		t.Fatalf("absent aspects stayed absent: %+v", empty)
 	}
 }

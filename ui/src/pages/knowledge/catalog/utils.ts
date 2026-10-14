@@ -1,68 +1,68 @@
-import { MIN_SEARCH_LEN, type EntityRef } from "@/api/portal/datahub";
-import { catalogSubForURN, type CatalogSubTab } from "@/lib/entityRefs";
+import { MIN_SEARCH_LEN, type DefinitionKind } from "@/api/portal/catalog";
+import {
+  CATALOG_REF_PARAM,
+  catalogSubForRef,
+  isCatalogRef,
+  parseRef,
+  type CatalogSubTab,
+} from "@/lib/entityRefs";
 
 export const MIN_SEARCH = MIN_SEARCH_LEN;
 
-export function shortUrn(urn: string): string {
-  const parts = urn.split(":");
-  return parts[parts.length - 1] || urn;
+/** KIND_NAMES names each definition kind in a sentence. */
+export const KIND_NAMES: Record<DefinitionKind, string> = {
+  glossary_term: "glossary term",
+  glossary_node: "glossary node",
+  tag: "tag",
+  domain: "domain",
+  data_product: "data product",
+};
+
+/** refLabel names a catalog reference when no display name is known: the
+ * table, the column or the definition key it carries. */
+export function refLabel(ref: string): string {
+  return parseRef(ref)?.fallbackLabel ?? ref;
 }
 
-// filterDomains narrows the full domain list to those whose name or URN contains
-// the query (case-insensitive); an empty query returns the whole list so a
-// focused picker shows every domain.
-export function filterDomains(domains: EntityRef[], query: string): EntityRef[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return domains;
-  return domains.filter(
-    (d) => d.name.toLowerCase().includes(q) || d.urn.toLowerCase().includes(q),
-  );
-}
-
-/** CATALOG_URN_PARAM is the query parameter that deep-links one catalog entity. */
-export const CATALOG_URN_PARAM = "urn";
-
-/** urnFromLocation reads the deep-linked entity URN, if any. Only a well-formed
- * `urn:` value is accepted, so nothing else in the query string can be coerced
- * into a catalog lookup. */
-function urnFromLocation(): string | null {
+/** refFromLocation reads the deep-linked catalog reference, if any. Only a
+ * well-formed catalog reference is accepted, so nothing else in the query
+ * string can be coerced into a catalog lookup. */
+function refFromLocation(): string | null {
   if (typeof window === "undefined") return null;
-  const value = new URLSearchParams(window.location.search).get(CATALOG_URN_PARAM);
-  return value && value.startsWith("urn:") ? value : null;
+  const value = new URLSearchParams(window.location.search).get(CATALOG_REF_PARAM);
+  return value && isCatalogRef(value) ? value : null;
 }
 
 /**
- * deepLinkedURN returns the deep-linked entity URN when it is one the given
+ * deepLinkedRef returns the deep-linked reference when it is one the given
  * inner tab can open, and null otherwise (#1159).
  *
  * Every Catalog inner tab reads the entity from the same query parameter, and
- * the kind of URN decides which tab shows it, so each tab claims only its own
- * kinds. A glossary-term URN arriving with the Tables hash — a hand-edited or
- * stale link — therefore opens the Tables list rather than a table read that
+ * the kind of reference decides which tab shows it, so each tab claims only its
+ * own kinds. A glossary term arriving with the Tables hash (a hand-edited or
+ * stale link) therefore opens the Tables list rather than a dataset read that
  * cannot succeed.
  */
-export function deepLinkedURN(sub: CatalogSubTab): string | null {
-  const urn = urnFromLocation();
-  return urn && catalogSubForURN(urn) === sub ? urn : null;
+export function deepLinkedRef(sub: CatalogSubTab): string | null {
+  const ref = refFromLocation();
+  return ref && catalogSubForRef(ref) === sub ? ref : null;
 }
 
-/** clearURNFromLocation drops the deep link when the reader goes back to the
+/** clearRefFromLocation drops the deep link when the reader goes back to the
  * list, so a refresh does not reopen the entity they just left. */
-export function clearURNFromLocation() {
+export function clearRefFromLocation() {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
-  if (!url.searchParams.has(CATALOG_URN_PARAM)) return;
-  url.searchParams.delete(CATALOG_URN_PARAM);
+  if (!url.searchParams.has(CATALOG_REF_PARAM)) return;
+  url.searchParams.delete(CATALOG_REF_PARAM);
   window.history.replaceState(window.history.state, "", url.toString());
 }
 
-// withRawUrn prepends the typed query as a candidate when it is itself a
-// well-formed `urn:li:<type>:<id>` URN not already in the list, so an exact URN a
-// user pastes (or a value name search cannot surface) stays applicable.
-export function withRawUrn(candidates: EntityRef[], query: string, type: string): EntityRef[] {
-  const q = query.trim();
-  const prefix = `urn:li:${type}:`;
-  if (!q.startsWith(prefix) || q.length <= prefix.length) return candidates;
-  if (candidates.some((c) => c.urn === q)) return candidates;
-  return [{ urn: q, name: q }, ...candidates];
+/** setRefInLocation records the open entity in the URL, so a refresh or a
+ * copied link reopens it. */
+export function setRefInLocation(ref: string) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.set(CATALOG_REF_PARAM, ref);
+  window.history.replaceState(window.history.state, "", url.toString());
 }

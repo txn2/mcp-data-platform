@@ -3,7 +3,7 @@
 id: lc-charter-cohort
 title: Charter cohort
 fact: The 'charter cohort' is the set of customers on the plus tier.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.customers)
 sink: knowledge_page
 page:
     slug: charter-cohort-definition

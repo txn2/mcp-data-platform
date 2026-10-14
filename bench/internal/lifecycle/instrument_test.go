@@ -14,7 +14,7 @@ func TestNormalizeText(t *testing.T) {
 		{"", ""},
 		{"  Net Revenue!  ", "net revenue"},
 		{"Net\tRevenue\nexcludes  returns.", "net revenue excludes returns"},
-		{"URN:li:dataset", "urn li dataset"},
+		{"MCP:dataset", "mcp dataset"},
 		{"---", ""},
 		{"a1b2", "a1b2"},
 	}
@@ -52,9 +52,9 @@ func TestFactSurfaced(t *testing.T) {
 }
 
 func TestSurfacedTarget(t *testing.T) {
-	datahub := protocol.Protocol{Sink: protocol.SinkDataHub, Fact: "the fact"}
-	if got := surfacedTarget(datahub); got != "the fact" {
-		t.Errorf("datahub sink target = %q, want the fact", got)
+	catalogSink := protocol.Protocol{Sink: protocol.SinkCatalog, Fact: "the fact"}
+	if got := surfacedTarget(catalogSink); got != "the fact" {
+		t.Errorf("catalog sink target = %q, want the fact", got)
 	}
 	// The page-sink needle is the SUMMARY, not the body: search renders a page
 	// hit as title plus summary and the a3 surface has no page-body fetch, so a

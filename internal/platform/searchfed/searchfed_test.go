@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/catalogfake"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
@@ -159,7 +160,7 @@ func TestNew_InsightGating(t *testing.T) {
 }
 
 func TestNew_CatalogGating(t *testing.T) {
-	t.Run("datahub provider enabled adds the catalog provider", func(t *testing.T) {
+	t.Run("catalog enabled adds the catalog provider", func(t *testing.T) {
 		h := New(Config{
 			ToolkitName:      "default",
 			CatalogEnabled:   true,
@@ -190,56 +191,17 @@ func TestNew_CatalogGating(t *testing.T) {
 	})
 }
 
-// governanceSemantic embeds the noop provider and adds the vocabulary reads, so
-// it satisfies semantic.GovernanceReader — the capability the noop provider (and
-// therefore a deployment with no real catalog) lacks.
-type governanceSemantic struct {
-	semantic.Provider
-}
-
-func (governanceSemantic) ListDomains(context.Context) ([]semantic.EntityRef, error) { return nil, nil }
-
-func (governanceSemantic) SearchGlossaryTerms(context.Context, string, int) ([]semantic.EntityRef, error) {
-	return nil, nil
-}
-
-func (governanceSemantic) SearchTags(context.Context, string, int) ([]semantic.EntityRef, error) {
-	return nil, nil
-}
-
 func TestNew_GovernanceGating(t *testing.T) {
-	t.Run("a governance-capable catalog adds the governance source", func(t *testing.T) {
-		h := New(Config{
-			ToolkitName:      "default",
-			CatalogEnabled:   true,
-			SemanticProvider: governanceSemantic{Provider: semantic.NewNoopProvider()},
-			Registry:         registry.NewRegistry(),
-		})
-		assert.Contains(t, providerNames(t, h), knowledge.SourceGovernance)
-	})
+	h := New(Config{ToolkitName: "default", Catalog: catalogfake.New(), Registry: registry.NewRegistry()})
+	assert.Contains(t, providerNames(t, h), knowledge.SourceGovernance, "the platform catalog adds the governance source")
 
-	t.Run("a catalog without the vocabulary reads adds none", func(t *testing.T) {
-		// The noop provider has GetGlossaryTerm and SearchTables but no vocabulary
-		// lists, so it would be an always-empty governance source.
-		h := New(Config{
-			ToolkitName:      "default",
-			CatalogEnabled:   true,
-			SemanticProvider: semantic.NewNoopProvider(),
-			Registry:         registry.NewRegistry(),
-		})
-		assert.NotContains(t, providerNames(t, h), knowledge.SourceGovernance)
+	h = New(Config{
+		ToolkitName:      "default",
+		CatalogEnabled:   true,
+		SemanticProvider: semantic.NewNoopProvider(),
+		Registry:         registry.NewRegistry(),
 	})
-
-	t.Run("catalog gated off adds none even with a capable provider", func(t *testing.T) {
-		h := New(Config{
-			ToolkitName:      "default",
-			CatalogEnabled:   false,
-			SemanticProvider: governanceSemantic{Provider: semantic.NewNoopProvider()},
-			MemoryStore:      memory.NewNoopStore(),
-			Registry:         registry.NewRegistry(),
-		})
-		assert.NotContains(t, providerNames(t, h), knowledge.SourceGovernance)
-	})
+	assert.NotContains(t, providerNames(t, h), knowledge.SourceGovernance, "no catalog store, no governance source")
 }
 
 func TestNew_ThreadSearcherProvider(t *testing.T) {
@@ -389,59 +351,4 @@ func TestNew_SessionsProvider(t *testing.T) {
 		Registry:    registry.NewRegistry(),
 	})
 	assert.NotContains(t, providerNames(t, h), knowledge.SourceSessions)
-}
-
-// recordSemantic embeds the noop provider and adds the two by-URN reads a real
-// catalog offers (#1590), so the assembled fetch can be shown to reach them.
-type recordSemantic struct {
-	semantic.Provider
-}
-
-func (recordSemantic) GetDataset(_ context.Context, table semantic.TableIdentifier) (*semantic.Dataset, error) {
-	return &semantic.Dataset{
-		TableContext: semantic.TableContext{URN: "urn:li:dataset:(urn:li:dataPlatform:trino,db.s.t,PROD)", Description: "the record"},
-		Name:         table.Table,
-		Schema:       &semantic.DatasetSchema{Fields: []semantic.SchemaField{{FieldPath: "id", Type: "NUMBER"}}},
-	}, nil
-}
-
-func (recordSemantic) GetDataProduct(_ context.Context, urn string) (*semantic.DataProduct, error) {
-	return &semantic.DataProduct{URN: urn, Name: "Orders 360", Assets: []semantic.EntityRef{{URN: "urn:li:dataset:(urn:li:dataPlatform:trino,db.s.t,PROD)", Name: "t"}}}, nil
-}
-
-func TestNew_FetchReachesTheCatalogRecordReads(t *testing.T) {
-	h := New(Config{
-		ToolkitName:      "default",
-		CatalogEnabled:   true,
-		SemanticProvider: recordSemantic{Provider: semantic.NewNoopProvider()},
-		Registry:         registry.NewRegistry(),
-	})
-	require.NotNil(t, h)
-
-	doc, err := h.Router().Fetch(context.Background(), "urn:li:dataset:(urn:li:dataPlatform:trino,db.s.t,PROD)", knowledge.Caller{})
-	require.NoError(t, err)
-	ds, ok := doc.Content.(knowledge.CatalogDataset)
-	require.True(t, ok, "content = %T", doc.Content)
-	assert.Equal(t, "t", ds.Name)
-	require.NotNil(t, ds.Schema, "the dataset reader's schema reaches the fetched record")
-	assert.Nil(t, ds.QueryAvailability, "no query provider is wired")
-
-	doc, err = h.Router().Fetch(context.Background(), "urn:li:dataProduct:orders-360", knowledge.Caller{})
-	require.NoError(t, err)
-	product, ok := doc.Content.(knowledge.DataProductEntity)
-	require.True(t, ok, "content = %T", doc.Content)
-	assert.Equal(t, "Orders 360", product.Name)
-	assert.Len(t, product.Datasets, 1)
-}
-
-func TestNew_NoopCatalogClosesTheDataProductArm(t *testing.T) {
-	h := New(Config{
-		ToolkitName:      "default",
-		CatalogEnabled:   true,
-		SemanticProvider: semantic.NewNoopProvider(),
-		Registry:         registry.NewRegistry(),
-	})
-	require.NotNil(t, h)
-	_, err := h.Router().Fetch(context.Background(), "urn:li:dataProduct:orders-360", knowledge.Caller{})
-	assert.ErrorIs(t, err, knowledge.ErrNotFound)
 }

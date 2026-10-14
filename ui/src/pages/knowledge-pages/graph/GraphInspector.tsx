@@ -54,10 +54,10 @@ export function GraphInspector(props: GraphInspectorProps) {
       <aside>
         <InspectorHeader node={node} />
 
-        {/* A catalog node's label is derived from its URN, so it is neither the
-            entity's name nor something the catalog can be searched for. Resolve
-            it against the catalog and show what is actually there. */}
-        {node.type === "datahub" && <CatalogNodeDetail urn={node.id} />}
+        {/* A catalog node's label is derived from its reference, so it is not
+            the entity's name. Resolve it against the catalog and show what is
+            actually there. */}
+        {node.type === "catalog" && <CatalogNodeDetail urn={node.id} />}
 
         <InspectorStats
           node={node}

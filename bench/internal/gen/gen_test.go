@@ -21,15 +21,13 @@ func TestGenerateDeterministic(t *testing.T) {
 	if a.TrinoSQL() != b.TrinoSQL() || a.KnowledgePagesSQL() != b.KnowledgePagesSQL() {
 		t.Fatal("emitters are not deterministic")
 	}
-	am, _ := a.DataHubMCEs()
-	bm, _ := b.DataHubMCEs()
-	if string(am) != string(bm) {
-		t.Fatal("mce emitter is not deterministic")
+	ac, _ := a.CatalogSQL()
+	bc, _ := b.CatalogSQL()
+	if ac != bc {
+		t.Fatal("catalog emitter is not deterministic")
 	}
-	ae, _ := a.DataHubMCEsEmpty()
-	be, _ := b.DataHubMCEsEmpty()
-	if string(ae) != string(be) {
-		t.Fatal("empty mce emitter is not deterministic")
+	if a.CatalogSQLEmpty() != b.CatalogSQLEmpty() {
+		t.Fatal("empty catalog emitter is not deterministic")
 	}
 }
 
@@ -129,47 +127,34 @@ func TestScriptedSmokeCoversAllTasks(t *testing.T) {
 	}
 }
 
-// TestEmptyMCEsAreBare asserts the cold-start baseline carries the entities but
-// none of the knowledge the A2 seed does: every bench table is present as a
-// datasetProperties skeleton, and no description, column doc, tag, or
-// deprecation leaks in (any of those would let a fresh identity answer a trap
-// before the curriculum teaches it, flattening the learning curve).
-func TestEmptyMCEsAreBare(t *testing.T) {
-	ds := Generate()
-	raw, err := ds.DataHubMCEsEmpty()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var proposals []map[string]any
-	if err := json.Unmarshal(raw, &proposals); err != nil {
-		t.Fatalf("empty mces are not valid json: %v", err)
-	}
-	if len(proposals) != len(benchTables) {
-		t.Fatalf("empty seed has %d proposals, want one per table (%d)", len(proposals), len(benchTables))
-	}
-	present := map[string]bool{}
-	for _, p := range proposals {
-		if aspect := p["aspectName"]; aspect != "datasetProperties" {
-			t.Errorf("empty seed emits aspect %v, want only datasetProperties", aspect)
-		}
-		urn, _ := p["entityUrn"].(string)
-		present[urn] = true
-		aspect, _ := p["aspect"].(map[string]any)
-		body, _ := aspect["json"].(map[string]any)
-		if desc, _ := body["description"].(string); desc != "" {
-			t.Errorf("%s carries a description in the empty seed: %q", urn, desc)
-		}
-	}
+// TestEmptyCatalogIsBare asserts the cold-start baseline carries the datasets
+// but none of the knowledge the A2 seed does: every bench table and its columns
+// are present, and no aspect at all is written (a description, column doc, tag
+// or property would let a fresh identity answer a trap before the curriculum
+// teaches it, flattening the learning curve).
+func TestEmptyCatalogIsBare(t *testing.T) {
+	sql := Generate().CatalogSQLEmpty()
 	for _, table := range benchTables {
-		if !present[benchURN(table)] {
-			t.Errorf("empty seed missing entity for %s", table)
+		if !strings.Contains(sql, "'"+benchURN(table)+"'") {
+			t.Errorf("empty seed missing dataset %s", table)
+		}
+		for _, c := range benchColumns[table] {
+			if !strings.Contains(sql, "'"+columnRef(table, c.name)+"'") {
+				t.Errorf("empty seed missing column %s.%s", table, c.name)
+			}
 		}
 	}
-	// None of the A2 knowledge markers may appear in the bare baseline.
-	for _, needle := range []string{"US CENTS", "deprecation", "GROSS of discounts", "urn:li:tag:bench", "editableSchemaMetadata"} {
-		if strings.Contains(string(raw), needle) {
+	for _, needle := range []string{"catalog_aspects", "US CENTS", "deprecat", "GROSS of discounts", "mcp:tag:bench"} {
+		if strings.Contains(sql, needle) {
 			t.Errorf("empty seed leaks A2 knowledge marker %q", needle)
 		}
+	}
+}
+
+// TestColumnRef pins the column reference form the platform parses.
+func TestColumnRef(t *testing.T) {
+	if got, want := columnRef("orders", "amount"), "mcp:column:(trino,e2e,memory.bench.orders,amount)"; got != want {
+		t.Fatalf("columnRef = %q, want %q", got, want)
 	}
 }
 
@@ -264,17 +249,13 @@ func TestProtocolPagePayloadsCarrySummaries(t *testing.T) {
 func TestCommittedArtifactsMatch(t *testing.T) {
 	ds := Generate()
 	root := "../.."
-	mces, err := ds.DataHubMCEs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	emptyMCEs, err := ds.DataHubMCEsEmpty()
+	catalogSQL, err := ds.CatalogSQL()
 	if err != nil {
 		t.Fatal(err)
 	}
 	compareFile(t, filepath.Join(root, "seed/trino/setup.sql"), []byte(ds.TrinoSQL()))
-	compareFile(t, filepath.Join(root, "seed/datahub/bench_mces.json"), mces)
-	compareFile(t, filepath.Join(root, "seed/datahub/bench_mces_empty.json"), emptyMCEs)
+	compareFile(t, filepath.Join(root, "seed/postgres/catalog.sql"), []byte(catalogSQL))
+	compareFile(t, filepath.Join(root, "seed/postgres/catalog_empty.sql"), []byte(ds.CatalogSQLEmpty()))
 	compareFile(t, filepath.Join(root, "seed/postgres/knowledge_pages.sql"), []byte(ds.KnowledgePagesSQL()))
 
 	committed, err := task.Load(filepath.Join(root, "tasks"))
@@ -331,10 +312,10 @@ func TestEmittedContentCarriesTraps(t *testing.T) {
 			t.Errorf("trino sql missing table %s", table)
 		}
 	}
-	mces, _ := ds.DataHubMCEs()
-	for _, needle := range []string{"US CENTS", "deprecation", "GROSS of discounts", "2025-11-30"} {
-		if !strings.Contains(string(mces), needle) {
-			t.Errorf("mces missing %q", needle)
+	catalogSQL, _ := ds.CatalogSQL()
+	for _, needle := range []string{"US CENTS", "deprecation_note", "GROSS of discounts", "2025-11-30", "mcp:tag:bench"} {
+		if !strings.Contains(catalogSQL, needle) {
+			t.Errorf("catalog seed missing %q", needle)
 		}
 	}
 	kp := ds.KnowledgePagesSQL()

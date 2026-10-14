@@ -5,7 +5,7 @@ import type { SearchHit } from "@/api/portal/types";
 import { hitDestination } from "@/pages/knowledge/hub/hitDestination";
 import { KnowledgePagesPage } from "@/pages/knowledge-pages/KnowledgePagesPage";
 import { CatalogSection } from "@/pages/knowledge/CatalogSection";
-import { useDataHubConnections } from "@/api/portal/datahub";
+import { useCatalogConnections } from "@/api/portal/catalog";
 import {
   MyKnowledgeSection,
   MyMemorySection,
@@ -36,8 +36,7 @@ const TABS: { key: Tab; label: string }[] = [
 // The Knowledge tab is itself split into sub-tabs so federated search, the page
 // browse, the catalog, and changesets each get their own space and explanation
 // rather than stacking on one screen. The row stops at four because every
-// DataHub-backed surface lives inside Catalog (#1194); anything the portal's own
-// database backs stays outside it.
+// catalog surface lives inside Catalog (#1194).
 type KnowledgeSubTab = "search" | "pages" | "catalog" | "changesets";
 
 // subRoutePath maps the URL-addressable sub-tabs (#709, #719) to their
@@ -57,14 +56,14 @@ interface SubTabMeta {
 }
 
 // knowledgeSubTabsFor lists the Knowledge sub-tabs available to this reader:
-// Catalog only where a DataHub connection exists, and Changesets only for a
+// Catalog only where the reader may read the catalog, and Changesets only for a
 // reviewer (it is the apply audit). It sits outside the component because it is
 // a pure function of those two capabilities.
 function knowledgeSubTabsFor({
-  hasDataHub,
+  hasCatalog,
   canApply,
 }: {
-  hasDataHub: boolean;
+  hasCatalog: boolean;
   canApply: boolean;
 }): SubTabMeta[] {
   return [
@@ -72,21 +71,21 @@ function knowledgeSubTabsFor({
       key: "search",
       label: "Search All",
       description:
-        "The same discovery your agent uses to find what the platform already knows, surfaced here for you to audit, review, and reference. One query fans across every source it can access (the DataHub catalog, knowledge pages, memory, captured insights, saved assets, prompts, API endpoints, and connections), grouped by source. It ranks semantically when an embedding provider is configured and falls back to keyword search otherwise.",
+        "The same discovery your agent uses to find what the platform already knows, surfaced here for you to audit, review, and reference. One query fans across every source it can access (the catalog, knowledge pages, memory, captured insights, saved assets, prompts, API endpoints, and connections), grouped by source. It ranks semantically when an embedding provider is configured and falls back to keyword search otherwise.",
     },
     {
       key: "pages",
       label: "Knowledge Pages",
       description:
-        "Canonical business and domain knowledge, written as markdown and stored in the portal. Pages are one of the two knowledge sinks; technical and entity knowledge lives in the DataHub catalog instead. Holders of apply_knowledge can create, edit, and remove pages.",
+        "Canonical business and domain knowledge, written as markdown and stored in the portal. Pages are one of the two knowledge sinks; technical and entity knowledge lives in the catalog instead. Holders of apply_knowledge can create, edit, and remove pages.",
     },
-    ...(hasDataHub
+    ...(hasCatalog
       ? [
           {
             key: "catalog" as const,
             label: "Catalog",
             description:
-              "Your data catalog, and the second of the two knowledge sinks: the tables it holds, the context documents attached to them, and the tag, domain, and glossary vocabularies that describe them. Pick a connection once and it applies across the whole section.",
+              "The platform's data catalog, and the second of the two knowledge sinks: the datasets your connections expose, with their descriptions, columns, notes, lineage and history, and the glossary, tags, domains and data products that describe them.",
           },
         ]
       : []),
@@ -109,8 +108,8 @@ function knowledgeSubTabsFor({
  * /admin/knowledge surfaces into three capability-gated tabs:
  *
  *   - Knowledge (default): four sub-tabs - Search All (federated search),
- *     Knowledge Pages (browse internal pages), Catalog (every DataHub-backed
- *     surface, #1194), and Changesets (apply audit, reviewer-only).
+ *     Knowledge Pages (browse internal pages), Catalog (the platform catalog,
+ *     #1194, #1921), and Changesets (apply audit, reviewer-only).
  *   - Insights: your captured insights, and for apply_knowledge holders the
  *     full review queue and changesets.
  *   - Memory: your raw memory substrate classified by sink_class, and for
@@ -139,10 +138,10 @@ export function KnowledgeHub({
   // knowledgeSub, which only ever holds the in-page sub-tabs (search/changesets).
   const onRoute = routeSub != null;
   const [tab, setTab] = useState<Tab>(() => (onRoute ? "knowledge" : normalizeTab(initialTab)));
-  // DataHub connections gate the Catalog sub-tab: on a deployment with no
-  // DataHub configured the query returns [], so the tab is hidden rather than
-  // rendering an empty, non-functional body.
-  const hasDataHub = (useDataHubConnections().data?.length ?? 0) > 0;
+  // The catalog's own connection list gates the Catalog sub-tab: it answers
+  // only a reader whose persona grants fetch, on a deployment with a database,
+  // so the tab is hidden rather than rendering a body every read of refuses.
+  const hasCatalog = useCatalogConnections().isSuccess;
   // The pages sub-tab is URL-driven (a /knowledge/pages route); the in-page sub-tabs
   // can be carried in the hash (e.g. /knowledge#changesets) so leaving the pages
   // route opens the chosen one directly rather than defaulting to Search (#709).
@@ -168,10 +167,10 @@ export function KnowledgeHub({
   const insightStats = useInsightStats({ enabled: isAdmin });
   const pendingReviews = isAdmin ? (insightStats.data?.total_pending ?? 0) : 0;
 
-  const knowledgeSubTabs = knowledgeSubTabsFor({ hasDataHub, canApply });
+  const knowledgeSubTabs = knowledgeSubTabsFor({ hasCatalog, canApply });
   // A routed sub-tab is selected by the URL; the others by in-page state. Honor
   // the routed sub-tab only when it is actually available (e.g. a deep-link to
-  // /knowledge/catalog on a deployment with no DataHub connections falls back to
+  // /knowledge/catalog for a reader who cannot read the catalog falls back to
   // Search rather than selecting a tab that is not rendered).
   const available = (key: KnowledgeSubTab) => knowledgeSubTabs.some((s) => s.key === key);
   const activeSub: KnowledgeSubTab =
@@ -203,7 +202,7 @@ export function KnowledgeHub({
             label: "Review queue",
             badge: pendingReviews,
             description:
-              "Your account has permission to let your agent Apply Knowledge, which promotes your team's insights into team-wide, durable knowledge (knowledge pages and the DataHub catalog). Review what your team has captured: approve the insights worth promoting and reject the rest, so when you ask your agent to apply knowledge it works from a curated set.",
+              "Your account has permission to let your agent Apply Knowledge, which promotes your team's insights into team-wide, durable knowledge (knowledge pages and the catalog). Review what your team has captured: approve the insights worth promoting and reject the rest, so when you ask your agent to apply knowledge it works from a curated set.",
           },
         ]
       : []),
@@ -303,7 +302,7 @@ export function KnowledgeHub({
             <KnowledgePagesPage openPageId={initialPageId} onNavigate={onNavigate} />
           )}
           {/* Catalog is a section, not a leaf: its own inner tabs are Tables,
-              Context Docs, and Tags, addressed in the hash under this one
+              Glossary, Tags, Domains and Data products, addressed in the hash under this one
               route. The route pins the top tab, so the hash is free to address
               the inner one; anything it does not name opens Tables. */}
           {activeSub === "catalog" && (

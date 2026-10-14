@@ -2,8 +2,8 @@ import type { EnrichmentRule } from "@/api/admin/types";
 
 // Cross-enrichment enrichment rules attached to the acme-crm-gateway (mcp)
 // connection. These demonstrate the platform's headline feature: gateway-proxied
-// tool responses are automatically enriched with semantic context from DataHub
-// and query availability from Trino. Keyed by connection name to mirror the
+// tool responses are automatically enriched with semantic context from the
+// catalog and query availability from Trino. Keyed by connection name to mirror the
 // real `/gateway/connections/:connection/enrichment-rules` endpoint.
 export const mockEnrichmentRules: Record<string, EnrichmentRule[]> = {
   "acme-crm-gateway": [
@@ -16,13 +16,13 @@ export const mockEnrichmentRules: Record<string, EnrichmentRule[]> = {
         paths: ["accounts[].account_id"],
       },
       enrich_action: {
-        source: "acme-catalog",
-        operation: "datahub_get_entity",
-        parameters: { urn_template: "urn:li:dataset:(crm,accounts,PROD)" },
+        source: "catalog",
+        operation: "get_dataset",
+        parameters: { reference: "mcp:dataset:(api,acme-crm,accounts)" },
       },
       merge_strategy: { kind: "path", path: "accounts[].semantic" },
       description:
-        "Attach DataHub owners, glossary terms, and deprecation warnings to each returned account.",
+        "Attach the catalog's owners, glossary terms and description to each returned account.",
       enabled: true,
       created_by: "admin@acme.example.com",
       created_at: "2025-01-08T14:22:00Z",
@@ -55,9 +55,9 @@ export const mockEnrichmentRules: Record<string, EnrichmentRule[]> = {
         paths: ["opportunities[].stage"],
       },
       enrich_action: {
-        source: "acme-catalog",
-        operation: "datahub_get_glossary_term",
-        parameters: { term: "SalesStage" },
+        source: "catalog",
+        operation: "get_definition",
+        parameters: { reference: "mcp:glossary_term:sales-stage" },
       },
       merge_strategy: { kind: "path", path: "opportunities[].stage_definition" },
       description:

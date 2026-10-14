@@ -13,12 +13,12 @@ import (
 
 // Test constants for session gate tests.
 const (
-	gateTestToolDatahubSearch  = "datahub_search"
-	gateTestToolListConns      = "list_connections"
-	gateTestToolPlatformInfo   = "platform_info"
-	gateTestToolReadResource   = "read_resource"
-	gateTestToolTrinoQuery     = "trino_query"
-	gateTestToolSomeFutureTool = "some_future_tool"
+	gateTestToolGraphQLDiscover = "graphql_discover"
+	gateTestToolListConns       = "list_connections"
+	gateTestToolPlatformInfo    = "platform_info"
+	gateTestToolReadResource    = "read_resource"
+	gateTestToolTrinoQuery      = "trino_query"
+	gateTestToolSomeFutureTool  = "some_future_tool"
 )
 
 func TestNewSessionGate(t *testing.T) {
@@ -37,7 +37,7 @@ func TestNewSessionGate(t *testing.T) {
 		assert.True(t, gate.IsExempt(gateTestToolPlatformInfo))
 		assert.True(t, gate.IsExempt(gateTestToolListConns))
 		assert.True(t, gate.IsExempt(gateTestToolReadResource))
-		assert.False(t, gate.IsExempt(gateTestToolDatahubSearch))
+		assert.False(t, gate.IsExempt(gateTestToolGraphQLDiscover))
 	})
 
 	t.Run("default TTL", func(t *testing.T) {
@@ -234,7 +234,7 @@ func TestMCPSessionGateMiddleware(t *testing.T) {
 		})
 
 		pc := NewPlatformContext("test-req")
-		pc.ToolName = gateTestToolDatahubSearch
+		pc.ToolName = gateTestToolGraphQLDiscover
 		pc.SessionID = "s1"
 		ctx := WithPlatformContext(context.Background(), pc)
 
@@ -247,7 +247,7 @@ func TestMCPSessionGateMiddleware(t *testing.T) {
 		require.NotNil(t, callResult.GetError())
 		assert.Contains(t, callResult.GetError().Error(), "SETUP_REQUIRED")
 		assert.Contains(t, callResult.GetError().Error(), gateTestToolPlatformInfo)
-		assert.Contains(t, callResult.GetError().Error(), gateTestToolDatahubSearch)
+		assert.Contains(t, callResult.GetError().Error(), gateTestToolGraphQLDiscover)
 	})
 
 	t.Run("non-exempt tool after init proceeds", func(t *testing.T) {
@@ -263,7 +263,7 @@ func TestMCPSessionGateMiddleware(t *testing.T) {
 		})
 
 		pc := NewPlatformContext("test-req")
-		pc.ToolName = gateTestToolDatahubSearch
+		pc.ToolName = gateTestToolGraphQLDiscover
 		pc.SessionID = "s1"
 		ctx := WithPlatformContext(context.Background(), pc)
 
@@ -308,7 +308,7 @@ func TestMCPSessionGateMiddleware(t *testing.T) {
 
 		// s1 initialized - should proceed
 		pc1 := NewPlatformContext("test-req-1")
-		pc1.ToolName = gateTestToolDatahubSearch
+		pc1.ToolName = gateTestToolGraphQLDiscover
 		pc1.SessionID = "s1"
 		ctx1 := WithPlatformContext(context.Background(), pc1)
 
@@ -318,7 +318,7 @@ func TestMCPSessionGateMiddleware(t *testing.T) {
 
 		// s2 not initialized - should be gated
 		pc2 := NewPlatformContext("test-req-2")
-		pc2.ToolName = gateTestToolDatahubSearch
+		pc2.ToolName = gateTestToolGraphQLDiscover
 		pc2.SessionID = "s2"
 		ctx2 := WithPlatformContext(context.Background(), pc2)
 
@@ -392,14 +392,14 @@ func TestCheckAccess(t *testing.T) {
 	t.Run("initialized session returns nil", func(t *testing.T) {
 		gate := NewSessionGate(SessionGateConfig{InitTool: gateTestToolPlatformInfo})
 		gate.RecordInit("s1")
-		pc := &PlatformContext{ToolName: gateTestToolDatahubSearch, SessionID: "s1"}
+		pc := &PlatformContext{ToolName: gateTestToolGraphQLDiscover, SessionID: "s1"}
 		result := gate.checkAccess(pc)
 		assert.Nil(t, result)
 	})
 
 	t.Run("uninitialized session returns error", func(t *testing.T) {
 		gate := NewSessionGate(SessionGateConfig{InitTool: gateTestToolPlatformInfo})
-		pc := &PlatformContext{ToolName: gateTestToolDatahubSearch, SessionID: "s1"}
+		pc := &PlatformContext{ToolName: gateTestToolGraphQLDiscover, SessionID: "s1"}
 		result := gate.checkAccess(pc)
 		require.NotNil(t, result)
 		callResult, ok := result.(*mcp.CallToolResult)

@@ -4,7 +4,7 @@ description: "The admin Tools page: every registered tool, its schema, a live ru
 
 # Tools
 
-The Tools page is a master-detail view. The list on the left groups every registered tool by connection (Trino, DataHub, S3, platform, and gateway-proxied MCP) with search filtering; selecting a tool opens its detail across five tabs.
+The Tools page is a master-detail view. The list on the left groups every registered tool by connection (Trino, S3, platform, and gateway-proxied MCP) with search filtering; selecting a tool opens its detail across five tabs.
 
 ## Overview
 

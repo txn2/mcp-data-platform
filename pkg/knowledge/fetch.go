@@ -130,7 +130,7 @@ type DocumentRef struct {
 //
 // The Router asks each scope-permitted Fetcher in turn whether it owns a reference
 // and returns the first owner's content, so ownership across providers is
-// partitioned by reference form (mcp:knowledge_page:, urn:li:dataset:, ...) and
+// partitioned by reference form (mcp:knowledge_page:, mcp:dataset:, ...) and
 // never ambiguous.
 type Fetcher interface {
 	// Fetch dereferences ref to its full content for caller.

@@ -44,11 +44,11 @@ func TestGetToolDetail_FullJoin(t *testing.T) {
 
 	// Connections are deny-by-default, so a persona reaches the tool's
 	// connection (prod-trino) only via an explicit ConnsAllow. analyst and
-	// admin grant it; viewer is tool-denied anyway (datahub_* vs trino_query).
+	// admin grant it; viewer is tool-denied anyway (graphql_* vs trino_query).
 	personaStore := &mockPersonaStore{
 		listResult: []personastore.Definition{
 			{Name: "analyst", ToolsAllow: []string{"trino_*"}, ToolsDeny: []string{}, ConnsAllow: []string{"prod-trino"}},
-			{Name: "viewer", ToolsAllow: []string{"datahub_*"}, ToolsDeny: []string{}},
+			{Name: "viewer", ToolsAllow: []string{"graphql_*"}, ToolsDeny: []string{}},
 			{Name: "admin", ToolsAllow: []string{"*"}, ToolsDeny: []string{"*_delete_*"}, ConnsAllow: []string{"*"}},
 		},
 	}
@@ -66,7 +66,7 @@ func TestGetToolDetail_FullJoin(t *testing.T) {
 	metricsQuerier := &mockAuditMetricsQuerier{
 		breakdownResult: []audit.BreakdownEntry{
 			{Dimension: "trino_query", Count: 42, SuccessRate: 0.95, AvgDurationMS: 123.4},
-			{Dimension: "datahub_search", Count: 8, SuccessRate: 1.0, AvgDurationMS: 50},
+			{Dimension: "graphql_discover", Count: 8, SuccessRate: 1.0, AvgDurationMS: 50},
 		},
 	}
 
@@ -376,7 +376,7 @@ func TestMatchGlobalDeny(t *testing.T) {
 		{"exact", []string{"trino_query"}, "trino_query", true, "trino_query"},
 		{"glob", []string{"*_admin_*"}, "trino_admin_kill", true, "*_admin_*"},
 		{"first match wins", []string{"a*", "trino_*"}, "trino_query", true, "trino_*"},
-		{"no match", []string{"datahub_*"}, "trino_query", false, ""},
+		{"no match", []string{"graphql_*"}, "trino_query", false, ""},
 		{"empty list", nil, "trino_query", false, ""},
 	}
 	for _, tc := range tests {
@@ -581,7 +581,7 @@ func TestSetToolVisibility_ConcurrentAddsAreSerialized(t *testing.T) {
 	// Register a synthetic toolkit exposing 8 tool names so concurrent
 	// PUTs against different paths are all valid against toolExists.
 	toolNames := []string{
-		"trino_query", "trino_execute", "datahub_search", "datahub_get_lineage",
+		"trino_query", "trino_execute", "graphql_discover", "graphql_query",
 		"s3_list", "s3_get", "memory_recall", "memory_save",
 	}
 	reg := &mockToolkitRegistry{

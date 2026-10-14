@@ -249,8 +249,8 @@ func buildToolCallContext(ctx context.Context, req mcp.Request, pc *PlatformCont
 	resolved := populateToolkitMetadata(pc, toolkitLookup, toolName)
 
 	// Override connection from request arguments for accurate audit logging.
-	// With multi-connection toolkits that route by request arg (trino,
-	// datahub, s3), the toolkit's Connection() returns the default and the
+	// With multi-connection toolkits that route by request arg (trino, s3),
+	// the toolkit's Connection() returns the default and the
 	// actual connection comes from the "connection" argument.
 	//
 	// SKIP this override when the registry already resolved the connection

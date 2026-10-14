@@ -122,7 +122,7 @@ func TestGetPersona(t *testing.T) {
 			Roles:       []string{"analyst"},
 			Priority:    testPriority,
 			Tools: persona.ToolRules{
-				Allow: []string{"trino_*", "datahub_search"},
+				Allow: []string{"trino_*", "graphql_discover"},
 				Deny:  []string{"trino_explain"},
 			},
 		}
@@ -132,7 +132,7 @@ func TestGetPersona(t *testing.T) {
 		tkReg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", tools: []string{"trino_query", "trino_explain"}},
-				{kind: "datahub", name: "primary", tools: []string{"datahub_search", "datahub_get_lineage"}},
+				{kind: "graphql", name: "primary", tools: []string{"graphql_discover", "graphql_query"}},
 			},
 		}
 		h := NewHandler(Deps{PersonaRegistry: pReg, ToolkitRegistry: tkReg}, nil)
@@ -148,11 +148,11 @@ func TestGetPersona(t *testing.T) {
 		assert.Equal(t, "analyst", body.Name)
 		assert.Equal(t, "Data Analyst", body.DisplayName)
 		assert.Equal(t, 10, body.Priority)
-		// trino_query allowed (trino_*), trino_explain denied, datahub_search allowed explicitly
+		// trino_query allowed (trino_*), trino_explain denied, graphql_discover allowed explicitly
 		assert.Contains(t, body.Tools, "trino_query")
-		assert.Contains(t, body.Tools, "datahub_search")
+		assert.Contains(t, body.Tools, "graphql_discover")
 		assert.NotContains(t, body.Tools, "trino_explain")
-		assert.NotContains(t, body.Tools, "datahub_get_lineage")
+		assert.NotContains(t, body.Tools, "graphql_query")
 	})
 
 	t.Run("returns 404 for unknown persona", func(t *testing.T) {
@@ -926,7 +926,7 @@ func TestTestPersonaAccess(t *testing.T) {
 	})
 
 	t.Run("returns default-deny when no rule matches", func(t *testing.T) {
-		w := postBody(t, makeHandler(), "analyst", testPersonaAccessRequest{ToolName: "datahub_search"})
+		w := postBody(t, makeHandler(), "analyst", testPersonaAccessRequest{ToolName: "graphql_discover"})
 		require.Equal(t, http.StatusOK, w.Code)
 		var resp testPersonaAccessResponse
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
@@ -1117,7 +1117,7 @@ func TestPersonaWriteReturnsResolvedTools(t *testing.T) {
 		tkReg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", tools: []string{"trino_query", "trino_explain"}},
-				{kind: "datahub", name: "primary", tools: []string{"datahub_search"}},
+				{kind: "graphql", name: "primary", tools: []string{"graphql_discover"}},
 			},
 		}
 		return NewHandler(Deps{
@@ -1158,7 +1158,7 @@ func TestPersonaWriteReturnsResolvedTools(t *testing.T) {
 		h := newHandler(t, &persona.Persona{
 			Name:        "analyst",
 			DisplayName: "Data Analyst",
-			Tools:       persona.ToolRules{Allow: []string{"datahub_*"}},
+			Tools:       persona.ToolRules{Allow: []string{"graphql_*"}},
 		})
 
 		body := `{"display_name":"Data Analyst","roles":["analyst"],"allow_tools":["*"],"deny_tools":["trino_explain"]}`
@@ -1170,7 +1170,7 @@ func TestPersonaWriteReturnsResolvedTools(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 		var resp personaDetail
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		assert.Equal(t, []string{"datahub_search", "trino_query"}, resp.Tools)
+		assert.Equal(t, []string{"graphql_discover", "trino_query"}, resp.Tools)
 		assert.Equal(t, getTools(t, h, "analyst"), resp.Tools)
 	})
 

@@ -12,19 +12,19 @@ Cross-enrichment is the platform's core feature and needs a semantic layer. The 
 
 | Shape | Backends | Core capability |
 |-------|----------|-----------------|
-| [Semantic stack](#semantic-stack) | DataHub, optionally Trino and S3 | Cross-enrichment: every data response carries business context |
+| [Semantic stack](#semantic-stack) | PostgreSQL and Trino, optionally S3 | Cross-enrichment: every data response carries business context from the platform catalog |
 | [API and knowledge](#api-and-knowledge) | PostgreSQL | Gateways, knowledge, memory, portal, universal search |
 | [Combined](#combined) | Both | Cross-enrichment plus the database-backed surfaces |
 
 ## Semantic stack
 
-The shape the platform was built for. DataHub supplies meaning, Trino supplies SQL access, S3 supplies object storage, and [cross-enrichment](../cross-enrichment/overview.md) wires them together so a response from one service carries context from the others. See [The Data Stack](../concepts/components.md) for why each component was chosen, and [Overview](overview.md) for the configuration.
+The shape the platform was built for. The platform's own [catalog](catalog.md), kept in PostgreSQL, supplies meaning, Trino supplies SQL access, S3 supplies object storage, and [cross-enrichment](../cross-enrichment/overview.md) wires them together so a response from one service carries context from the others. See [The Data Stack](../concepts/components.md) for why each component was chosen, and [Overview](overview.md) for the configuration.
 
-DataHub is what cross-enrichment requires. Trino and S3 are optional additions to it.
+The database is what cross-enrichment requires: the catalog lives there. Every Trino connection is scanned into it, and people and agents curate it.
 
 ## API and knowledge
 
-A deployment with no data warehouse and no catalog. PostgreSQL is the one infrastructure requirement, because connections, catalogs, knowledge, memory, and portal assets are all database-backed.
+A deployment with no data warehouse. PostgreSQL is the one infrastructure requirement, because connections, catalogs, knowledge, memory, and portal assets are all database-backed.
 
 What this shape provides:
 
@@ -92,9 +92,9 @@ manage_table
 
 ### What this shape does not have
 
-- **Cross-enrichment.** With no semantic provider there is no business context to add, so responses carry only what the called service returned.
-- **Trino and S3 tools.** No `trino_*` or `s3_*` tools are registered, and no `datahub_*` tools.
-- **Catalog search results.** `search` federates the database-backed sources; the technical catalog provider registers only when the semantic provider is DataHub.
+- **Cross-enrichment.** With no warehouse there is no query result to enrich, so responses carry only what the called service returned.
+- **Trino and S3 tools.** No `trino_*` or `s3_*` tools are registered.
+- **Warehouse tables in the catalog.** The catalog holds the API and GraphQL connections' operations, which `search` and `fetch` read; there are no tables to catalog.
 - **Writing knowledge back to the catalog.** `apply_knowledge` writes to the [platform catalog](catalog.md), which a database-backed deployment has whether or not it sets a `semantic:` block. With `semantic.provider: noop` the catalog is off and catalog changes are refused rather than reported as written; use `sink: knowledge_page` to promote captured knowledge to a canonical knowledge page instead.
 
 ### Object storage is optional here too
@@ -152,7 +152,7 @@ Shape and mode are orthogonal:
 
 | | Standalone (no database) | Database-backed |
 |---|---|---|
-| **Semantic stack** | DataHub, Trino, S3 tools with cross-enrichment. No knowledge, memory, portal, or gateways. | Everything. |
+| **Semantic stack** | Trino and S3 tools without cross-enrichment: the catalog lives in the database. No knowledge, memory, portal, or gateways. | Everything. |
 | **API and knowledge** | Not available: every surface in this shape is database-backed. | The shape described above. |
 
 See [Operating Modes](operating-modes.md) for the full feature-availability comparison.

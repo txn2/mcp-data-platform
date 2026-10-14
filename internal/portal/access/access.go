@@ -133,9 +133,8 @@ func (c *Checker) CanManageAsset(asset *portaldomain.Asset, user *User) bool {
 
 // HasTool reports whether the user's resolved persona grants the named tool,
 // or the user is an admin. It is the shared capability check behind the
-// apply_knowledge and DataHub write authorizations; the admin arm only widens
-// access (a separate write-enabled-connection check still applies to DataHub
-// writes, so admin cannot mutate a read-only connection).
+// apply_knowledge and catalog write authorizations; the admin arm only widens
+// access.
 func (c *Checker) HasTool(user *User, tool string) bool {
 	if user == nil {
 		return false

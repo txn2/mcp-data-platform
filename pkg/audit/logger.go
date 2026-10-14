@@ -29,7 +29,7 @@ type Event struct {
 	UserEmail   string    `json:"user_email,omitempty" example:"marcus.johnson@example.com"`
 	Persona     string    `json:"persona,omitempty" example:"data-engineer"`
 	ToolName    string    `json:"tool_name" example:"trino_query"`
-	ToolkitKind string    `json:"toolkit_kind,omitempty" example:"datahub"`
+	ToolkitKind string    `json:"toolkit_kind,omitempty" example:"trino"`
 	ToolkitName string    `json:"toolkit_name,omitempty" example:"acme-catalog"`
 	Connection  string    `json:"connection,omitempty" example:"acme-catalog"`
 	// Purpose is the one sentence the caller gave for WHY this call was made:
@@ -69,7 +69,7 @@ type Event struct {
 	Authorized          bool   `json:"authorized" example:"true"`
 	// EventKind is the high-level category of the event, and the value the
 	// admin audit API's event_kind filter matches on. A tool call carries
-	// "mcp_tool_call" for the MCP toolkits (trino, datahub, s3, mcp gateway)
+	// "mcp_tool_call" for the MCP toolkits (trino, s3, mcp gateway)
 	// or "apigateway_invoke" for upstream HTTP API calls via the apigateway
 	// toolkit, which lets the portal split MCP activity from gateway noise
 	// without coupling to tool-name patterns. The rest of the platform's

@@ -3,7 +3,7 @@
 id: lc-settlement-total
 title: Settlement total Q4
 fact: The 'settlement total' is the gross revenue (sum of amount over completed orders) for calendar quarter 4 of 2025 (October through December).
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
 sink: knowledge_page
 page:
     slug: settlement-total-definition

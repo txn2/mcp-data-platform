@@ -11,14 +11,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
-	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
-	"github.com/txn2/mcp-data-platform/internal/admin/catalogimportapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/catalogscanapi"
-	"github.com/txn2/mcp-data-platform/internal/platform/catalogimport"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogscan"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
@@ -33,16 +29,14 @@ import (
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
-// Catalog is the assembled scan, and the DataHub import beside it.
+// Catalog is the assembled scan.
 type Catalog struct {
 	Settings *catalogscan.Store
 	Loop     *catalogscan.Loop
 	// Documents holds the schema documents the scan keeps (#1918).
 	Documents *catalogstore.Store
-	// Import runs the one-time import from DataHub (#1923).
-	Import   *catalogimport.Runner
-	platform *platform.Platform
-	admin    bool
+	platform  *platform.Platform
+	admin     bool
 }
 
 // Platform is what the scan is assembled from.
@@ -58,30 +52,7 @@ func Build(p *platform.Platform) *Catalog {
 	}
 	c := assemble(p.DB(), p.ToolkitRegistry())
 	c.platform, c.admin = p, p.Config().Admin.IsEnabled()
-	c.Import = importRunner(p.DB(), p.Config().Semantic.URNMapping)
 	return c
-}
-
-// importTimeout bounds one request the import makes to DataHub.
-const importTimeout = 60 * time.Second
-
-// importRunner assembles the DataHub import over the platform catalog.
-func importRunner(db *sql.DB, urns platform.URNMappingConfig) *catalogimport.Runner {
-	im := catalogimport.New(catalogstore.New(db), catalogimport.NewStore(db), catalogimport.Options{
-		Platform: urns.Platform, CatalogMapping: urns.CatalogMapping,
-	})
-	return catalogimport.NewRunner(db, im, catalogimport.NewRewriter(db), openDataHub)
-}
-
-// openDataHub opens a DataHub client for an import.
-func openDataHub(url, token string) (catalogimport.Source, error) {
-	cfg := dhclient.DefaultConfig()
-	cfg.URL, cfg.Token, cfg.Timeout = url, token, importTimeout
-	c, err := dhclient.New(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("opening a DataHub client: %w", err)
-	}
-	return catalogimport.NewDataHub(c), nil
 }
 
 // assemble builds the scan over a database and the live toolkits, keeping each
@@ -108,9 +79,6 @@ func (c *Catalog) MountAdmin(
 	catalogscanapi.Register(mux, auth(c.platform), catalogscanapi.Config{
 		Store: c.Settings, Scanner: c.Loop, Documents: c.Documents, Author: author,
 	})
-	if c.Import != nil {
-		catalogimportapi.Register(mux, auth(c.platform), catalogimportapi.Config{Runner: c.Import, Author: author})
-	}
 }
 
 // Start begins scanning.
@@ -120,13 +88,10 @@ func (c *Catalog) Start(ctx context.Context) {
 	}
 }
 
-// Stop ends scanning and any import under way.
+// Stop ends scanning.
 func (c *Catalog) Stop() {
 	if c != nil {
 		c.Loop.Stop()
-		if c.Import != nil {
-			c.Import.Stop()
-		}
 	}
 }
 

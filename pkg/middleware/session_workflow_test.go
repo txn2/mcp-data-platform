@@ -12,6 +12,56 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/searchgate"
 )
 
+// fakeClock is a clock a test moves by hand, so a timing rule is checked at
+// exactly the instants it names rather than at whatever a loaded machine's
+// sleep returns after.
+type fakeClock struct{ t time.Time }
+
+func (c *fakeClock) now() time.Time          { return c.t }
+func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
+
+// clockStore is the in-memory discovery store read against a fakeClock: a
+// record expires ttl after it was last marked.
+type clockStore struct {
+	clock *fakeClock
+	ttl   time.Duration
+	exp   map[string]time.Time
+}
+
+func newClockStore(clock *fakeClock, ttl time.Duration) *clockStore {
+	return &clockStore{clock: clock, ttl: ttl, exp: map[string]time.Time{}}
+}
+
+func (s *clockStore) MarkDiscovered(_ context.Context, scope string) error {
+	s.exp[scope] = s.clock.now().Add(s.ttl)
+	return nil
+}
+
+func (s *clockStore) HasDiscovered(_ context.Context, scope string) (bool, error) {
+	exp, ok := s.exp[scope]
+	return ok && s.clock.now().Before(exp), nil
+}
+
+func (s *clockStore) Cleanup(context.Context) error {
+	for k, exp := range s.exp {
+		if !s.clock.now().Before(exp) {
+			delete(s.exp, k)
+		}
+	}
+	return nil
+}
+
+func (*clockStore) Close() error { return nil }
+
+// clockedTracker is a tracker whose throttle and store both read clock.
+func clockedTracker(ttl time.Duration) (*SessionWorkflowTracker, *clockStore, *fakeClock) {
+	clock := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	store := newClockStore(clock, ttl)
+	tracker := NewSessionWorkflowTracker(nil, nil, store, ttl)
+	tracker.now = clock.now
+	return tracker, store, clock
+}
+
 func TestSessionWorkflowTracker_RecordDiscovery(t *testing.T) {
 	tracker := NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
 	ctx := context.Background()
@@ -21,8 +71,8 @@ func TestSessionWorkflowTracker_RecordDiscovery(t *testing.T) {
 	tracker.RecordToolCall(ctx, "s1", "search")
 	assert.True(t, tracker.HasPerformedDiscovery(ctx, "s1"))
 
-	// A datahub_* tool also counts as discovery (broad default set).
-	tracker.RecordToolCall(ctx, "s2", "datahub_browse")
+	// fetch also counts as discovery: it reads a dataset's curation and lineage.
+	tracker.RecordToolCall(ctx, "s2", "fetch")
 	assert.True(t, tracker.HasPerformedDiscovery(ctx, "s2"))
 }
 
@@ -76,7 +126,7 @@ func TestSessionWorkflowTracker_IsQueryTool(t *testing.T) {
 
 	assert.True(t, tracker.IsQueryTool("trino_query"))
 	assert.True(t, tracker.IsQueryTool("trino_execute"))
-	assert.False(t, tracker.IsQueryTool("datahub_search"))
+	assert.False(t, tracker.IsQueryTool("graphql_discover"))
 	assert.False(t, tracker.IsQueryTool("trino_describe_table"))
 }
 
@@ -184,21 +234,17 @@ func TestSessionWorkflowTracker_RetriesAfterWriteFailure(t *testing.T) {
 		"re-searching after a failed write persists and opens the gate on every replica")
 }
 
-// TestSessionWorkflowTracker_ExpiredRecordNotResurrectedBySlide is the
-// regression test for the finding that a non-discovery tool call could
-// resurrect an EXPIRED discovery record via a stale local throttle stamp,
-// opening the gate for a query that should be re-gated after inactivity. Once
-// the shared record's TTL lapses, a non-discovery slide must NOT recreate it.
+// TestSessionWorkflowTracker_ExpiredRecordNotResurrectedBySlide: once the
+// shared record's TTL lapses, a non-discovery slide must NOT recreate it, so a
+// query after inactivity is re-gated.
 func TestSessionWorkflowTracker_ExpiredRecordNotResurrectedBySlide(t *testing.T) {
-	const ttl = 40 * time.Millisecond
-	store := searchgate.NewMemoryStore(ttl)
-	tracker := NewSessionWorkflowTracker(nil, nil, store, ttl)
+	tracker, _, clock := clockedTracker(40 * time.Millisecond)
 	ctx := context.Background()
 
 	tracker.RecordToolCall(ctx, "user:alice", "search") // discover: stamp + record
 	require.True(t, tracker.HasPerformedDiscovery(ctx, "user:alice"))
 
-	time.Sleep(60 * time.Millisecond) // exceed the record TTL: the shared record expires
+	clock.advance(60 * time.Millisecond) // past the record TTL: the shared record expires
 
 	// A non-discovery tool call by the same scope must not resurrect the expired
 	// record off the lingering local stamp; the scope is re-gated.
@@ -216,13 +262,11 @@ func TestSessionWorkflowTracker_FailsOpenOnReadError(t *testing.T) {
 		"a store read error should fail open (allow), not block every query")
 }
 
-// TestSessionWorkflowTracker_SlidesWithActivity covers #789 review finding #1:
-// a session that discovered once and stays active must not be re-gated when the
-// original discovery TTL elapses — activity slides the window.
+// TestSessionWorkflowTracker_SlidesWithActivity: query activity at intervals
+// shorter than the TTL keeps a discovered session discovered well past the
+// TTL of its first discovery.
 func TestSessionWorkflowTracker_SlidesWithActivity(t *testing.T) {
-	const ttl = 100 * time.Millisecond
-	store := searchgate.NewMemoryStore(ttl)
-	tracker := NewSessionWorkflowTracker(nil, nil, store, ttl)
+	tracker, _, clock := clockedTracker(100 * time.Millisecond)
 	ctx := context.Background()
 
 	tracker.RecordToolCall(ctx, "s", "search") // discover once at t0
@@ -230,33 +274,34 @@ func TestSessionWorkflowTracker_SlidesWithActivity(t *testing.T) {
 	// Stay active with query-tool calls past the original TTL. Each call goes
 	// through RecordToolCall (as the real middleware does) before the gate check.
 	for range 3 {
-		time.Sleep(60 * time.Millisecond)
+		clock.advance(60 * time.Millisecond)
 		tracker.RecordToolCall(ctx, "s", "trino_query")
 		require.True(t, tracker.HasPerformedDiscovery(ctx, "s"),
 			"an active session must stay discovered as the window slides")
 	}
-	// ~180ms elapsed, well past the 100ms TTL, yet still discovered.
+	// 180ms after discovery, past the 100ms TTL, yet still discovered.
 }
 
-// TestSessionWorkflowTracker_SlidesOnNonQueryActivity covers the third-round
-// review finding: a discovered session doing only non-query, non-discovery work
-// must still keep the gate open (the window slides on any activity, not just
-// query tools).
+// TestSessionWorkflowTracker_SlidesOnNonQueryActivity: a discovered session
+// doing only non-query, non-discovery work keeps the gate open (the window
+// slides on any activity, not just query tools).
 func TestSessionWorkflowTracker_SlidesOnNonQueryActivity(t *testing.T) {
-	const ttl = 100 * time.Millisecond
-	store := searchgate.NewMemoryStore(ttl)
-	tracker := NewSessionWorkflowTracker(nil, nil, store, ttl)
+	tracker, _, clock := clockedTracker(100 * time.Millisecond)
 	ctx := context.Background()
 
 	tracker.RecordToolCall(ctx, "s", "search") // discover once
 
 	// Only non-query, non-discovery activity from here, past the original TTL.
 	for range 3 {
-		time.Sleep(60 * time.Millisecond)
+		clock.advance(60 * time.Millisecond)
 		tracker.RecordToolCall(ctx, "s", "s3_list")
 	}
 	assert.True(t, tracker.HasPerformedDiscovery(ctx, "s"),
 		"non-query activity by a discovered session must keep the gate open")
+
+	// And with no activity for longer than the TTL, the session is re-gated.
+	clock.advance(150 * time.Millisecond)
+	assert.False(t, tracker.HasPerformedDiscovery(ctx, "s"), "an idle session is gated again")
 }
 
 func TestSessionWorkflowTracker_ConcurrentAccess(t *testing.T) {
@@ -283,23 +328,23 @@ func TestSessionWorkflowTracker_ConcurrentAccess(t *testing.T) {
 	assert.True(t, tracker.HasPerformedDiscovery(ctx, "session-concurrent"))
 }
 
+// TestSessionWorkflowTracker_Cleanup: the store is the source of truth, so once
+// an expired record is cleaned the gate closes again.
 func TestSessionWorkflowTracker_Cleanup(t *testing.T) {
-	// A short-TTL store lets the discovery record expire; the store is the
-	// source of truth, so once its row is cleaned the gate closes again.
-	store := searchgate.NewMemoryStore(50 * time.Millisecond)
-	tracker := NewSessionWorkflowTracker(nil, nil, store, 50*time.Millisecond)
+	tracker, store, clock := clockedTracker(50 * time.Millisecond)
 	ctx := context.Background()
 
 	tracker.RecordToolCall(ctx, "s-expire", "search")
 	require.True(t, tracker.HasPerformedDiscovery(ctx, "s-expire"))
 
-	// Wait for the store record to expire, with no activity to slide it.
-	time.Sleep(80 * time.Millisecond)
+	// The store record expires, with no activity to slide it.
+	clock.advance(80 * time.Millisecond)
 
 	require.NoError(t, store.Cleanup(ctx))
 	tracker.evictStaleThrottle()
 
 	assert.False(t, tracker.HasPerformedDiscovery(ctx, "s-expire"), "expired discovery should be gone")
+	assert.Empty(t, store.exp, "the expired record was removed")
 }
 
 func TestSessionWorkflowTracker_StartCleanupAndStop(t *testing.T) {
@@ -317,20 +362,9 @@ func TestSessionWorkflowTracker_StartCleanupAndStop(t *testing.T) {
 }
 
 func TestDefaultDiscoveryTools(t *testing.T) {
-	// search is the front door; the datahub_* tools also satisfy the gate so
-	// personas granted datahub_* (but not search) are not deadlocked.
-	assert.Contains(t, DefaultDiscoveryTools, "search")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_lineage")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_browse")
-	assert.Len(t, DefaultDiscoveryTools, 3)
-	// The by-URN reads folded into fetch (#1590) are gone from the set: a name
-	// the platform no longer registers must not count as discovery either.
-	for _, retired := range []string{
-		"datahub_get_entity", "datahub_get_schema", "datahub_get_queries",
-		"datahub_get_glossary_term", "datahub_get_data_product",
-	} {
-		assert.NotContains(t, DefaultDiscoveryTools, retired)
-	}
+	// search is the front door; fetch, which reads a dataset with its curation
+	// and lineage, also satisfies the gate.
+	assert.Equal(t, []string{"search", "fetch"}, DefaultDiscoveryTools)
 }
 
 func TestDefaultQueryTools(t *testing.T) {
@@ -341,14 +375,14 @@ func TestDefaultQueryTools(t *testing.T) {
 
 func TestSessionWorkflowTracker_DiscoveryToolNames(t *testing.T) {
 	tracker := NewSessionWorkflowTracker(
-		[]string{"datahub_search", "datahub_get_lineage"},
+		[]string{"graphql_discover", "graphql_query"},
 		nil,
 		nil,
 		30*time.Minute,
 	)
 	names := tracker.DiscoveryToolNames()
 	assert.Len(t, names, 2)
-	assert.ElementsMatch(t, []string{"datahub_search", "datahub_get_lineage"}, names)
+	assert.ElementsMatch(t, []string{"graphql_discover", "graphql_query"}, names)
 }
 
 func TestSessionWorkflowTracker_QueryToolNames(t *testing.T) {

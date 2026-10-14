@@ -17,8 +17,8 @@ func validProtocol() Protocol {
 		ID:              "lc-example",
 		Title:           "Example lifecycle",
 		Fact:            "Revenue is amount minus discount over completed orders only.",
-		EntityURN:       "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
-		Sink:            SinkDataHub,
+		EntityURN:       "mcp:dataset:(trino,e2e,memory.bench.orders)",
+		Sink:            SinkCatalog,
 		BudgetToolCalls: 20,
 		Teach:           TeachStage{Prompt: "Remember: revenue is net."},
 		Recall: RecallStage{

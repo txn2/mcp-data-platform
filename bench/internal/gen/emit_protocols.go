@@ -124,7 +124,7 @@ func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader stri
 		{
 			ID: "lc-primary-region", Title: "Primary region (gross then net)",
 			Fact:      "The 'primary region' is the region with the highest gross revenue (sum of amount over completed orders) in memory.bench.orders.",
-			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
+			EntityURN: orders, Sink: protocol.SinkCatalog, BudgetToolCalls: protocolBudget,
 			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'primary region' is the region with the highest gross revenue (sum of the amount column over completed orders) in memory.bench.orders.")},
 			Recall: protocol.RecallStage{Prompt: "Which region is the primary region? Answer with the region name.", Grading: entityGrade(grossLeader, netLeader)},
 			Update: &protocol.UpdateStage{
@@ -152,7 +152,7 @@ func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader stri
 		{
 			ID: "lc-reporting-window", Title: "Reporting window completed orders (Q1 then Q3)",
 			Fact:      "The 'reporting window' for this study is calendar quarter 1 of 2025 (January through March).",
-			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
+			EntityURN: orders, Sink: protocol.SinkCatalog, BudgetToolCalls: protocolBudget,
 			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'reporting window' for this study is calendar quarter 1 of 2025 (January through March).")},
 			Recall: protocol.RecallStage{Prompt: "How many completed orders fall in the reporting window? Answer with the count.", Grading: countGrade(q1)},
 			Update: &protocol.UpdateStage{
@@ -166,7 +166,7 @@ func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader stri
 		{
 			ID: "lc-focus-month", Title: "Focus month order count (June then February)",
 			Fact:      "The 'focus month' for this study is June 2025.",
-			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
+			EntityURN: orders, Sink: protocol.SinkCatalog, BudgetToolCalls: protocolBudget,
 			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'focus month' for this study is June 2025.")},
 			Recall: protocol.RecallStage{Prompt: "How many orders were placed in the focus month? Answer with the count.", Grading: countGrade(june)},
 			Update: &protocol.UpdateStage{
@@ -215,7 +215,7 @@ func (d *Dataset) moreUpdateProtocols(orders, customers string) []protocol.Proto
 		{
 			ID: "lc-billing-window", Title: "Billing window completed orders (Q2 then Q4)",
 			Fact:      "The 'billing window' for this study is calendar quarter 2 of 2025 (April through June).",
-			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
+			EntityURN: orders, Sink: protocol.SinkCatalog, BudgetToolCalls: protocolBudget,
 			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'billing window' for this study is calendar quarter 2 of 2025 (April through June).")},
 			Recall: protocol.RecallStage{Prompt: "How many completed orders fall in the billing window? Answer with the count.", Grading: countGrade(q2)},
 			Update: &protocol.UpdateStage{
@@ -244,7 +244,7 @@ func (d *Dataset) moreUpdateProtocols(orders, customers string) []protocol.Proto
 		{
 			ID: "lc-benchmark-month", Title: "Benchmark month order count (March then September)",
 			Fact:      "The 'benchmark month' for this study is March 2025.",
-			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
+			EntityURN: orders, Sink: protocol.SinkCatalog, BudgetToolCalls: protocolBudget,
 			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'benchmark month' for this study is March 2025.")},
 			Recall: protocol.RecallStage{Prompt: "How many orders were placed in the benchmark month? Answer with the count.", Grading: countGrade(march)},
 			Update: &protocol.UpdateStage{
@@ -273,7 +273,7 @@ func (d *Dataset) moreUpdateProtocols(orders, customers string) []protocol.Proto
 		{
 			ID: "lc-reference-cohort", Title: "Reference cohort customer count (2023 then 2024)",
 			Fact:      "The 'reference cohort' is the set of customers whose account was created during calendar year 2023.",
-			EntityURN: customers, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
+			EntityURN: customers, Sink: protocol.SinkCatalog, BudgetToolCalls: protocolBudget,
 			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'reference cohort' is the set of customers whose account was created during calendar year 2023.")},
 			Recall: protocol.RecallStage{Prompt: "How many customers are in the reference cohort? Answer with the count.", Grading: countGrade(cohort2023)},
 			Update: &protocol.UpdateStage{
@@ -309,7 +309,7 @@ func (d *Dataset) singleShotProtocols(orders, customers string) []protocol.Proto
 			"How many warehouse inventory units back the priority orders?"),
 		singleShot("lc-top-line", "Top-line 2025",
 			"In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.",
-			orders, protocol.SinkDataHub, nil,
+			orders, protocol.SinkCatalog, nil,
 			netlessQuestion("What was the top-line for completed orders in calendar year 2025"), numericGrade(topLine),
 			"What was the marketing spend that produced the 2025 top-line?"),
 		singleShot("lc-active-customers", "Active customers",
@@ -324,7 +324,7 @@ func (d *Dataset) singleShotProtocols(orders, customers string) []protocol.Proto
 			"How many premium orders were returned because of a product defect?"),
 		singleShot("lc-leading-region", "Leading region by volume",
 			"The 'leading region' is the region whose customers placed the most orders.",
-			orders, protocol.SinkDataHub, nil,
+			orders, protocol.SinkCatalog, nil,
 			"Which region is the leading region? Answer with the region name.", entityGrade(leadRegion, otherRegions(leadRegion)...),
 			"What is the employee headcount of the leading region?"),
 		singleShot("lc-house-tier", "House tier",
@@ -334,7 +334,7 @@ func (d *Dataset) singleShotProtocols(orders, customers string) []protocol.Proto
 			"What is the net promoter score of the house tier?"),
 		singleShot("lc-target-cohort", "Target cohort 2024",
 			"The 'target cohort' is the set of customers whose account was created during calendar year 2024.",
-			customers, protocol.SinkDataHub, nil,
+			customers, protocol.SinkCatalog, nil,
 			"How many customers are in the target cohort? Answer with the count.", countGrade(cohort),
 			"What is the subscription renewal rate for the target cohort?"),
 		singleShot("lc-settlement-total", "Settlement total Q4",
@@ -349,7 +349,7 @@ func (d *Dataset) singleShotProtocols(orders, customers string) []protocol.Proto
 			"What is the office square footage of the peak region?"),
 		singleShot("lc-reporting-cohort", "Reporting cohort December",
 			"The 'reporting cohort' is the set of orders placed in December 2025.",
-			orders, protocol.SinkDataHub, nil,
+			orders, protocol.SinkCatalog, nil,
 			"How many orders are in the reporting cohort? Answer with the count.", countGrade(december),
 			"How many items on average were in each order of the reporting cohort?"),
 	}
@@ -375,7 +375,7 @@ func (d *Dataset) moreSingleShotProtocols(orders, customers string) []protocol.P
 	return []protocol.Protocol{
 		singleShot("lc-flagship-region", "Flagship region order count",
 			"The 'flagship region' for this study is the South region.",
-			orders, protocol.SinkDataHub, nil,
+			orders, protocol.SinkCatalog, nil,
 			"How many orders were placed by customers in the flagship region? Answer with the count.", countGrade(flagshipOrders),
 			"What is the retail store footprint of the flagship region?"),
 		singleShot("lc-standard-order", "Standard order count",
@@ -390,7 +390,7 @@ func (d *Dataset) moreSingleShotProtocols(orders, customers string) []protocol.P
 			"How many gift cards were sold within the holiday total?"),
 		singleShot("lc-closeout-total", "Closeout total",
 			"The 'closeout total' is the gross revenue (sum of amount over completed orders) for December 2025.",
-			orders, protocol.SinkDataHub, nil,
+			orders, protocol.SinkCatalog, nil,
 			netlessQuestion("What is the closeout total"), numericGrade(closeout),
 			"What was the total shipping cost within the closeout total?"),
 		singleShot("lc-charter-cohort", "Charter cohort",
@@ -400,7 +400,7 @@ func (d *Dataset) moreSingleShotProtocols(orders, customers string) []protocol.P
 			"What is the annual renewal rate of the charter cohort?"),
 		singleShot("lc-signature-segment", "Signature segment",
 			"The 'signature segment' is the set of customers on the enterprise tier.",
-			customers, protocol.SinkDataHub, nil,
+			customers, protocol.SinkCatalog, nil,
 			"How many customers are in the signature segment? Answer with the count.", countGrade(signature),
 			"What is the churn rate of the signature segment?"),
 		singleShot("lc-clearance-set", "Clearance set",
@@ -415,12 +415,12 @@ func (d *Dataset) moreSingleShotProtocols(orders, customers string) []protocol.P
 			"What is the annual membership fee for the value tier?"),
 		singleShot("lc-quiet-region", "Quiet region by volume",
 			"The 'quiet region' is the region whose customers placed the fewest orders.",
-			orders, protocol.SinkDataHub, nil,
+			orders, protocol.SinkCatalog, nil,
 			"Which region is the quiet region? Answer with the region name.", entityGrade(quietRegion, otherRegions(quietRegion)...),
 			"What is the employee headcount of the quiet region?"),
 		singleShot("lc-spring-window", "Spring window order count",
 			"The 'spring window' for this study is April 2025.",
-			orders, protocol.SinkDataHub, nil,
+			orders, protocol.SinkCatalog, nil,
 			"How many orders fall in the spring window? Answer with the count.", countGrade(spring),
 			"What was the average delivery time in days for orders in the spring window?"),
 	}

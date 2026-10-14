@@ -20,7 +20,8 @@ package acceptance
 //
 // Every criterion runs against the running platform and the upstreams the dev
 // stack runs: the api-test fixture, the mcp-test fixture, the stack's Trino,
-// and DataHub's GMS at /api/graphql for the GraphQL kind.
+// and the GraphQL fixture (PostGraphile at http://localhost:9286/graphql) for
+// the GraphQL kind.
 //
 // Wire forms: api_invoke_endpoint's query_params values are untyped, so
 // query_params.bytes is sent as a number and as a string, on the MCP tool and
@@ -57,20 +58,20 @@ const (
 	issue1878SizedResponse = 200_026
 )
 
-// issue1878SearchDocument repeats one catalog search under n aliases: a
-// small document whose answer is n times the search's, so it passes the
-// budget while the document, echoed in export_arguments, does not.
+// issue1878SearchDocument repeats one page of the fixture's datasets under n
+// aliases: a small document whose answer is n times the page's, so the answer
+// passes the budget while the document, echoed in export_arguments, does not.
 func issue1878SearchDocument(n int) string {
 	var b strings.Builder
 	b.WriteString("query Acc1878Search($show: Boolean!) { ")
 	for i := range n {
-		fmt.Fprintf(&b, `s%02d: searchAcrossEntities(input: {query: "*", start: 0, count: 100}) @include(if: $show) { searchResults { entity { urn type } } } `, i)
+		fmt.Fprintf(&b, `s%02d: allDatasets(first: 100) @include(if: $show) { nodes { code platform } } `, i)
 	}
 	b.WriteString("}")
 	return b.String()
 }
 
-// issue1878SearchAliases is how many times the search is repeated.
+// issue1878SearchAliases is how many times the page is repeated.
 const issue1878SearchAliases = 12
 
 // issue1878WideDocument selects __typename under n aliases, each long enough

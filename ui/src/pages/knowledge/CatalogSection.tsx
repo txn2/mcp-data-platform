@@ -1,18 +1,11 @@
-import { useCallback, useState } from "react";
-import { DataHubConnectionSelect } from "@/components/knowledge/DataHubConnectionSelect";
+import { useState } from "react";
+import { useCatalogConnections } from "@/api/portal/catalog";
 import { InfoHint } from "@/components/patterns/InfoHint";
 import { CatalogTab } from "./CatalogTab";
-import { ContextDocsTab } from "./ContextDocsTab";
-import { TagsTab } from "./TagsTab";
-import { DomainsTab } from "./DomainsTab";
+import { DefinitionsTab } from "./DefinitionsTab";
 import { GlossaryTab } from "./GlossaryTab";
 import { SubTabBar } from "./hub/SubTabBar";
 import { catalogSubHash, normalizeCatalogSub, type CatalogSubTab } from "./hubHash";
-
-// DH_CONN_STORAGE_KEY persists the selected connection across a refresh and
-// across arriving here from another route (a `?urn=` deep link remounts the
-// hub), so the section does not silently reset to the first connection.
-const DH_CONN_STORAGE_KEY = "mcp-portal-datahub-conn";
 
 // SUB_TAB_META labels and explains each inner tab. It is a Record, so a new
 // CatalogSubTab fails the build until it has both here, rather than rendering an
@@ -21,58 +14,43 @@ const SUB_TAB_META: Record<CatalogSubTab, { label: string; description: string }
   tables: {
     label: "Tables",
     description:
-      "The tables this connection catalogs, with their metadata: description, tags, owners, glossary terms, domain, and columns. Browse or search, open a table, and edit its metadata when your persona grants datahub_update and the connection is writable. Tables originate in source systems, so this is metadata editing, not table create/delete.",
-  },
-  context_docs: {
-    label: "Context Docs",
-    description:
-      "Markdown notes attached to a catalog entity: a dataset, glossary term, glossary node, or container. Browse or search, and manage documents with full create, edit, and delete when your persona grants the matching datahub tool and the connection is writable.",
-  },
-  tags: {
-    label: "Tags",
-    description:
-      "The tag vocabulary itself, rather than the tags carried by one table. Browse or filter this connection's tags, open one to see what it means and which tables carry it, and create, describe, or retire a tag when your persona grants the matching datahub tool and the connection is writable.",
-  },
-  domains: {
-    label: "Domains",
-    description:
-      "The business areas the catalog is grouped into, rather than the domain carried by one table. Browse or filter this connection's domains, open one to see what it covers and which tables are in it, and create, describe, or retire a domain — and move tables in and out of it — when your persona grants the matching datahub tool and the connection is writable.",
+      "The datasets the platform catalogs from your connections: Trino tables, API operations and GraphQL operations, with their curation. Search or open one to read its description, tags, glossary terms, owners, domain, columns, notes, lineage and history, and edit them when your persona grants apply_knowledge. The catalog scan finds datasets; this is where people describe them.",
   },
   glossary: {
     label: "Glossary",
     description:
-      "The business glossary: the terms this organization defines, in the hierarchy of nodes that organizes them. Walk the tree, open a term to see its definition, where it sits, the notes attached to it, and the tables it is applied to, and create, describe, or retire a term or a node when your persona grants the matching datahub tool and the connection is writable.",
+      "The business glossary: the terms this organization defines, filed under the nodes that organize them. Open a term to see its definition and the datasets and columns it is applied to, and create, describe or delete terms and nodes when your persona grants apply_knowledge.",
+  },
+  tags: {
+    label: "Tags",
+    description:
+      "The tags datasets and columns carry. Open one to see what it means and what carries it, and create, describe or delete a tag when your persona grants apply_knowledge.",
+  },
+  domains: {
+    label: "Domains",
+    description:
+      "The business areas datasets are grouped into. Open one to see what it covers and which datasets are in it, and create, describe or delete a domain when your persona grants apply_knowledge.",
+  },
+  data_products: {
+    label: "Data products",
+    description:
+      "The data products the organization publishes. Open one to read what it is, and create, describe or delete one when your persona grants apply_knowledge.",
   },
 };
 
 // SUB_TABS is the inner tab bar in display order (#1194): the described things
 // first, the vocabularies that describe them second.
-const SUB_TABS = (["tables", "context_docs", "tags", "domains", "glossary"] as const).map((key) => ({
+const SUB_TABS = (["tables", "glossary", "tags", "domains", "data_products"] as const).map((key) => ({
   key,
   label: SUB_TAB_META[key].label,
 }));
 
-// storedConn reads the last selected connection: "" when there is none, and
-// when storage is unavailable.
-function storedConn(): string {
-  try {
-    return globalThis.localStorage?.getItem(DH_CONN_STORAGE_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
 /**
- * CatalogSection is the Catalog tab of the Knowledge hub (#1194): the container
- * holding every DataHub-backed surface in the portal. Everything under Catalog
- * is DataHub; anything the portal's own database backs stays outside it.
- *
- * It owns what its inner tabs share. The connection is picked once here rather
- * than by each tab, and the body renders only once a connection is selected, so
- * a tab never has to gate on a connection it did not choose. The inner tabs are
- * addressable in the hash (/knowledge/catalog#tags), so the selection survives a
- * refresh and browser back/forward without making them separate routes -- which
- * is what would unmount this container and lose the shared connection.
+ * CatalogSection is the Catalog tab of the Knowledge hub (#1194, #1921): the
+ * platform's own catalog, its datasets and the definitions they are curated
+ * with. The inner tabs are addressable in the hash (/knowledge/catalog#tags),
+ * so the selection survives a refresh and browser back/forward without making
+ * them separate routes.
  */
 export function CatalogSection({
   initialSub,
@@ -84,53 +62,37 @@ export function CatalogSection({
   onNavigate?: (path: string) => void;
 }) {
   const [sub, setSub] = useState<CatalogSubTab>(() => normalizeCatalogSub(initialSub));
-  const [conn, setConnState] = useState(() => storedConn());
-  const setConn = useCallback((c: string) => {
-    setConnState(c);
-    try {
-      // Optional-chained: storage is absent under jsdom and blocked in some
-      // private modes. The in-memory value still applies either way.
-      globalThis.localStorage?.setItem(DH_CONN_STORAGE_KEY, c);
-    } catch {
-      /* storage unavailable; the selection just does not outlive this mount */
-    }
-  }, []);
+  const canEdit = useCatalogConnections().data?.writable ?? false;
 
   // Reflect the inner tab in the hash so the view is deep-linkable and survives
-  // a refresh, without a navigation that would remount the container. The
-  // relative form keeps the path and any `?urn=` deep link intact.
+  // a refresh, without a navigation that would remount the container. Changing
+  // tab drops an open entity's ?ref=, which belongs to the tab being left.
   const selectSub = (next: CatalogSubTab) => {
     setSub(next);
-    window.history.replaceState(null, "", `#${catalogSubHash(next)}`);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("ref");
+    url.hash = catalogSubHash(next);
+    window.history.replaceState(null, "", url.toString());
   };
 
   return (
-    // The Catalog surface is one bordered panel: its inner tab bar and
-    // connection picker sit in the panel's header strip, so the third level of
-    // navigation visibly belongs to this surface instead of stacking as another
-    // free-floating bar.
+    // The Catalog surface is one bordered panel: its inner tab bar sits in the
+    // panel's header strip, so the third level of navigation visibly belongs to
+    // this surface instead of stacking as another free-floating bar.
     <div className="rounded-xl border bg-card shadow-sm">
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <SubTabBar tabs={SUB_TABS} active={sub} onSelect={selectSub} dense />
         <InfoHint label="About this catalog tab">{SUB_TAB_META[sub].description}</InfoHint>
-        <div className="ml-auto">
-          <DataHubConnectionSelect value={conn} onChange={setConn} />
-        </div>
       </div>
-
-      {/* Keying on the connection resets each inner tab's own navigation when
-          the connection changes: an open table, document, tag, domain, or
-          glossary entity belongs to one connection, and leaving it on screen
-          would read its detail from the new one. */}
-      {conn && (
-        <div key={conn} className="p-4">
-          {sub === "tables" && <CatalogTab conn={conn} />}
-          {sub === "context_docs" && <ContextDocsTab conn={conn} />}
-          {sub === "tags" && <TagsTab conn={conn} onNavigate={onNavigate} />}
-          {sub === "domains" && <DomainsTab conn={conn} onNavigate={onNavigate} />}
-          {sub === "glossary" && <GlossaryTab conn={conn} onNavigate={onNavigate} />}
-        </div>
-      )}
+      {/* Keyed on the tab, so an entity open on one tab is not carried into
+          another that reads the same ?ref= parameter. */}
+      <div key={sub} className="p-4">
+        {sub === "tables" && <CatalogTab onNavigate={onNavigate} />}
+        {sub === "glossary" && <GlossaryTab canEdit={canEdit} onNavigate={onNavigate} />}
+        {(sub === "tags" || sub === "domains" || sub === "data_products") && (
+          <DefinitionsTab sub={sub} canEdit={canEdit} onNavigate={onNavigate} />
+        )}
+      </div>
     </div>
   );
 }

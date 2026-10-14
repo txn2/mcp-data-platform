@@ -115,7 +115,7 @@ type DeclaredConnections map[string]map[string]struct{}
 // PinDeclaredDefaults, which reads instances but adds none.
 //
 // Every kind is captured, including the ones the admin connection API does not
-// manage: a file-declared datahub instance is as much the file's as a trino one.
+// manage: a file-declared instance of any kind is as much the file's as a trino one.
 func Declared(toolkits map[string]any) DeclaredConnections {
 	declared := make(DeclaredConnections, len(toolkits))
 	for kind, kindCfg := range toolkits {
@@ -157,8 +157,7 @@ type StoredInstance struct {
 // (#338), the HTTP API gateway (#364) and the graphql kind (#1277).
 var dynamicKinds = []string{"mcp", "api", "graphql"}
 
-// storedKinds are the kinds a connection can be saved under. datahub is absent
-// deliberately: it is single-instance and declared in the file alone.
+// storedKinds are the kinds a connection can be saved under.
 var storedKinds = map[string]bool{"trino": true, "s3": true, "mcp": true, "api": true, "graphql": true}
 
 // MergeStored folds the saved connections into the toolkit configuration the

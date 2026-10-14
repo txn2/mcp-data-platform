@@ -38,8 +38,8 @@ type EndpointSearcher interface {
 // corpus by design (#645): an agent searching "customer retention" should see a
 // relevant operation next to the dataset and the insight without first having
 // to know an API gateway exists, list connections, and search each one.
-// api_discover stays the scoped drill-down, the way datahub_browse is the
-// scoped counterpart to catalog search.
+// api_discover stays the scoped drill-down, the way fetching a connection is
+// the scoped counterpart to catalog search.
 //
 // It is shared: endpoints are deployment-level, not per-user records. Two
 // filters narrow them. Each searcher applies its own per-(method, path) route

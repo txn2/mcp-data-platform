@@ -26,20 +26,21 @@ surface is the ablation mechanism. All four ablate one layer at a time:
 | Arm | Profile | What the agent gets |
 | --- | --- | --- |
 | `a0` | `platform.bench.a0.yaml` | Raw toolkit tools only (`trino_*`, `s3_*`); no semantic provider, no search, all cross-enrichment off, search-first gate off. Equivalent to wiring the standalone toolkit libraries. |
-| `a1` | `platform.bench.a1.yaml` | A0 plus semantic cross-enrichment: `trino_*`/`s3_*` results carry DataHub context automatically, but the agent still has no `search` and no `datahub_*` tools (the persona withholds them; the datahub instance exists only to feed enrichment). Isolates enrichment from discovery. |
+| `a1` | `platform.bench.a1.yaml` | A0 plus semantic cross-enrichment: `trino_*`/`s3_*` results carry the platform catalog's context automatically, but the agent still has no `search` and no `fetch` (the persona withholds them; the catalog only feeds enrichment). Isolates enrichment from discovery. |
 | `a2` | `platform.bench.a2.yaml` | The shipped semantic-first platform: A1 plus the discovery surface (`search`, `fetch`, `list_connections`), the search-first gate, and seeded knowledge pages. Runs before #1176 omitted `fetch` and `list_connections` from the persona allow-list, so the published knowledge-layer runs measured search-only delivery; the report's Errata section records the scope note. |
 | `a3` | `platform.bench.a3.yaml` | A2 plus the lifecycle surface: `memory_*` and `apply_knowledge`. On the single-episode S1–S4 suites A3 has nothing seeded to recall, so it tracks A2; the lifecycle's effect is measured by the S5 protocols (#944, below). |
 
 The search-first gate is not persona-aware, so the arms without a discovery
 tool (`a0`, `a1`) disable `workflow.require_search`; the profiles document this.
-The DataHub arms (`a1`, `a2`, `a3`) require a DataHub quickstart seeded via
-`make bench-seed-datahub`.
+`make bench-up` seeds the platform catalog with the bench curation
+(`bench/seed/postgres/catalog.sql`) on every arm; `a0` sets its semantic
+provider to `noop`, so the curation reaches only the arms that enrich.
 
 ## Seeded ground truth
 
 `seedgen` generates everything from one fixed-seed dataset model
-(`bench/internal/gen`, seed 930): Trino DDL/DML (memory catalog), DataHub metadata
-proposals (descriptions, column units, deprecation), knowledge-page SQL, and
+(`bench/internal/gen`, seed 930): Trino DDL/DML (memory catalog), the platform
+catalog's curation SQL (descriptions, column units, deprecation), knowledge-page SQL, and
 the task YAML whose ground truths are computed from the generated rows —
 derived, never hand-typed. `TestCommittedArtifactsMatch` fails if the
 committed artifacts drift from regeneration (`make bench-gen` refreshes them).
@@ -407,32 +408,32 @@ accumulates — a learning curve whose independent variable is the amount of
 **promoted (shared)** knowledge, holding the model, prompt, task set, and dataset
 constant.
 
-It runs on the `a3` arm against an **empty baseline**: an undocumented DataHub
-(`bench/seed/datahub/bench_mces_empty.json` — entities present, but no descriptions,
-column docs, tags, or glossary) and **no knowledge pages** (`bench-up` with
-`BENCH_SEED_PAGES=0`). Over an ordered **curriculum** of six lessons — one per S3
+It runs on the `a3` arm against an **empty baseline**: an undocumented catalog
+(`bench/seed/postgres/catalog_empty.sql`: datasets and columns present, but no
+descriptions, column docs, tags, or properties) and **no knowledge pages**
+(`bench-up` with `BENCH_SEED_PAGES=0`, which applies both). Over an ordered **curriculum** of six lessons — one per S3
 trap class — the harness:
 
 1. **Teaches** each fact (a teacher identity states it and captures it via
    `memory_capture`), then **promotes** it to its sink through `apply_knowledge`:
-   a DataHub entity description (units, freshness, deprecation) or a portal
+   a catalog dataset description (units, freshness, deprecation) or a portal
    knowledge page (net-revenue policy, fiscal calendar, tier definitions). Each
    lesson teaches the same S3 trap fact the A2 seed pre-loads, so the trap
    suite reaches its A2 accuracy ceiling once all six are promoted (the
    fact-bearing description and page channels are restored; A2's auxiliary
-   aspects — tags, the structured deprecation flag, column docs — are not, but
+   aspects — tags, the deprecation properties, column docs — are not, but
    the S3 traps read the fact text, not those). Capture and promotion are verified through
    the admin insights and changesets APIs, reusing the same reviewer-promotion
    path (`bench/internal/promote`) the S5 lifecycle uses; after the API verify, the
-   reviewer also reads the promoted content back from its sink (the entity's
-   effective description via `datahub_get_entity`, the page's summary via the
+   reviewer also reads the promoted content back from its sink (the dataset's
+   description via `fetch` on its catalog reference, the page's summary via the
    portal list) and fails the run when an API-confirmed apply is not readable
    there — a silent sink-write loss must abort before episodes are spent, not
    surface later as an unexplained flat curve.
 2. **Evaluates** at every checkpoint (the empty baseline and after each lesson)
    by re-running the fixed S3 trap suite with a **fresh, never-taught evaluator
    identity**. Its only knowledge source is what the platform surfaces —
-   cross-enrichment for the DataHub-sink facts, `search` for the page-sink facts
+   cross-enrichment for the catalog-sink facts, `search` for the page-sink facts
    — so accuracy climbs only because promotion pushed the fact into shared
    knowledge. This isolates the delivery of *promoted* knowledge (the coupling
    between the lifecycle and the enrichment layer), not an evaluator's own memory.
@@ -457,21 +458,17 @@ suite reuses one identity pool (a distinct teacher per lesson, fresh evaluators
 per checkpoint), and a run refuses to start when the lessons plus per-checkpoint
 evaluators exceed the pool.
 
-**A cold-start run requires a FRESH DataHub quickstart**, not just re-ingesting
-the empty seed. `apply_knowledge` description promotions write the
-`editableDatasetProperties` aspect, and a prior a2 seed leaves
-`editableSchemaMetadata` column docs, tags, and deprecation; the empty seed
-(`bench_mces_empty.json`) upserts only `datasetProperties`, so re-ingesting it
-cannot clear any of that, and the read path prefers the editable description
-when non-empty. A **baseline-integrity preflight** enforces this: before any
-episode is spent, the run reads every lesson entity through the platform,
-lists insights for every (teacher, lesson URN) pair, and scans knowledge pages
-for the curriculum slugs, refusing to start if anything is already there.
-Postgres state (search gate, memory records, changesets, knowledge pages) is
-reset by the `bench-cold-start` target's TRUNCATE; DataHub state requires
-`datahub docker nuke`, a re-quickstart, then `make bench-seed-datahub-empty`.
+**A cold-start run starts from an empty catalog curation.** `apply_knowledge`
+description promotions write the dataset's description aspect, and an a2 seed
+leaves descriptions, column docs, tags and properties behind. The
+`bench-cold-start` target's TRUNCATE clears all of it (catalog curation and its
+history, search gate, memory records, changesets, knowledge pages), leaving the
+undocumented datasets in place. A **baseline-integrity preflight** enforces
+this: before any episode is spent, the run reads every lesson dataset through
+`fetch`, lists insights, and scans knowledge pages, refusing to start if
+anything is already there.
 
-Between a successful datahub-sink promote and the next eval checkpoint the
+Between a successful catalog-sink promote and the next eval checkpoint the
 runner pauses for the `-settle` window (default `5m`, matching the a3 semantic
 cache TTL, `SETTLE=` on the make target) so a table-context cache entry
 populated by the previous checkpoint's evaluators can never serve the stale
@@ -505,9 +502,8 @@ make bench-calibrate              # judge-vs-human agreement rate
 make bench-down
 ```
 
-The S5 lifecycle protocols run against a booted `a3` arm (which needs the same
-DataHub quickstart as `a2`, plus the memory/knowledge Postgres tables that
-auto-enable):
+The S5 lifecycle protocols run against a booted `a3` arm (the same seeded
+catalog as `a2`, plus the memory/knowledge Postgres tables that auto-enable):
 
 ```bash
 make bench-up BENCH_ARM=a3        # boot the lifecycle arm
@@ -524,15 +520,14 @@ the insight/changeset APIs, supersede, grading, and the metrics against the live
 platform with no API key and no model variance.
 
 The cold-start suite (#963) boots the same `a3` arm but with the empty baseline
-(no knowledge pages, undocumented DataHub, on a FRESH quickstart; the preflight
-refuses leftovers from a prior run or an a2 seed, see the cold-start section
-above), then teaches the curriculum:
+(no knowledge pages, an undocumented catalog; the preflight refuses leftovers
+from a prior run or an a2 seed, see the cold-start section above), then teaches
+the curriculum:
 
 ```bash
-# Fresh DataHub quickstart first (datahub docker nuke + re-quickstart if reused),
-# then boot a3 with an empty enrichment layer: no knowledge pages, empty DataHub.
+# Boot a3 with an empty enrichment layer: no knowledge pages, and the catalog's
+# datasets present but undocumented (bench/seed/postgres/catalog_empty.sql).
 make bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0
-make bench-seed-datahub-empty            # entities present, undocumented
 
 make bench-cold-start-smoke              # scripted no-API-key loop validation (SETTLE=0s)
 make bench-cold-start K=1                # real learning-curve run (needs a model)
@@ -566,9 +561,8 @@ are always correct (the smoke measures plumbing, not model behavior), so its
 curve is flat-high; the climbing curve is a property of a real model run against
 the empty baseline.
 
-For the DataHub arms (`a1`, `a2`, `a3`), start a DataHub quickstart first (same
-external convention as e2e and load), then `make bench-seed-datahub` and
-`make bench-up BENCH_ARM=a2` (or `a1`/`a3`). Run each arm, then
+For the enriching arms, `make bench-up BENCH_ARM=a2` (or `a1`/`a3`) boots the
+platform and seeds the catalog. Run each arm, then
 `make bench-compare` renders the arm-by-suite comparison (accuracy with 95%
 bootstrap CIs, pass^k, median tool calls, the S3 trap-class breakdown, and the
 headline deltas vs the baseline) from all `results-*.json` files.

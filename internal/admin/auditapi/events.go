@@ -20,8 +20,8 @@ type auditEventResponse struct {
 // auditFiltersResponse holds unique values for dropdown filters.
 type auditFiltersResponse struct {
 	Users        []string          `json:"users" example:"marcus.johnson@example.com,lisa.chang@example.com"`
-	Tools        []string          `json:"tools" example:"trino_query,datahub_search,s3_list"`
-	ToolkitKinds []string          `json:"toolkit_kinds" example:"api,datahub,trino,s3,memory"`
+	Tools        []string          `json:"tools" example:"trino_query,search,s3_list"`
+	ToolkitKinds []string          `json:"toolkit_kinds" example:"api,trino,s3,memory"`
 	Sources      []string          `json:"sources" example:"mcp,rest,admin"`
 	EventKinds   []string          `json:"event_kinds" example:"admin,mcp_tool_call,apigateway_invoke,prompt_serve,resource_read,resource_move,script_run"`
 	UserLabels   map[string]string `json:"user_labels,omitempty"`
@@ -51,7 +51,7 @@ const (
 // @Produce      json
 // @Param        user_id       query  string  false  "Filter by user ID"
 // @Param        tool_name     query  string  false  "Filter by tool name"
-// @Param        toolkit_kind  query  string  false  "Filter by toolkit kind (e.g. api, trino, datahub, s3, memory)"
+// @Param        toolkit_kind  query  string  false  "Filter by toolkit kind (e.g. api, trino, s3, memory)"
 // @Param        source        query  string  false  "Filter by event source (e.g. mcp)"
 // @Param        event_kind    query  string  false  "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data."
 // @Param        session_id    query  string  false  "Filter by MCP session ID"

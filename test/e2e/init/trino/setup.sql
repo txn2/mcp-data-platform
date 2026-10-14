@@ -4,7 +4,7 @@
 -- Create schema if not exists
 CREATE SCHEMA IF NOT EXISTS memory.e2e_test;
 
--- Test orders table (with full metadata in DataHub)
+-- Test orders table (cataloged with owners and tags by the e2e catalog seed)
 CREATE TABLE IF NOT EXISTS memory.e2e_test.test_orders (
     order_id BIGINT,
     customer_id BIGINT,
@@ -21,7 +21,7 @@ INSERT INTO memory.e2e_test.test_orders VALUES
     (4, 102, DATE '2024-01-18', 320.00, 'completed'),
     (5, 103, DATE '2024-01-19', 180.75, 'cancelled');
 
--- Legacy users table (deprecated in DataHub)
+-- Legacy users table
 CREATE TABLE IF NOT EXISTS memory.e2e_test.legacy_users (
     user_id BIGINT,
     username VARCHAR(100),
@@ -36,7 +36,7 @@ INSERT INTO memory.e2e_test.legacy_users VALUES
     (102, 'charlie', 'charlie@example.com', TIMESTAMP '2023-07-01 09:00:00'),
     (103, 'diana', 'diana@example.com', TIMESTAMP '2023-07-20 14:45:00');
 
--- Products table (no DataHub metadata - tests no enrichment case)
+-- Products table (not cataloged - tests the no-enrichment case)
 CREATE TABLE IF NOT EXISTS memory.e2e_test.products (
     product_id BIGINT,
     name VARCHAR(255),

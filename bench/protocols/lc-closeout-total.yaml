@@ -3,8 +3,8 @@
 id: lc-closeout-total
 title: Closeout total
 fact: The 'closeout total' is the gross revenue (sum of amount over completed orders) for December 2025.
-entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
-sink: datahub
+entity_urn: mcp:dataset:(trino,e2e,memory.bench.orders)
+sink: catalog
 budget_tool_calls: 15
 teach:
     prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'closeout total' is the gross revenue (sum of amount over completed orders) for December 2025. Please save this definition to memory now and link it to the dataset it concerns.

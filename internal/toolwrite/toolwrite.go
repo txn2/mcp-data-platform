@@ -153,10 +153,6 @@ var readOnlyTools = map[string]bool{
 	"trino_describe_table": true,
 	// Object storage. s3_object is action-based and ruled on below.
 	"s3_list": true,
-	// The metadata catalog. datahub_create, datahub_update and datahub_delete
-	// are absent by their names.
-	"datahub_browse":      true,
-	"datahub_get_lineage": true,
 	// The two catalog reads. Their siblings api_invoke_endpoint and
 	// graphql_query are ruled on by what they send.
 	"api_discover":     true,
@@ -183,10 +179,6 @@ var writeTools = map[string]bool{
 	"trino_export":   true,
 	"api_export":     true,
 	"graphql_export": true,
-	// The metadata catalog's writes.
-	"datahub_create": true,
-	"datahub_update": true,
-	"datahub_delete": true,
 }
 
 // actionRule classifies one tool by the value of one argument.

@@ -222,7 +222,7 @@ mcp-data-platform/
 │   ├── middleware/          # Request/response middleware
 │   ├── registry/            # Toolkit registry
 │   ├── toolkit/             # Shared types every toolkit implements
-│   ├── toolkits/            # Toolkit adapters (trino, datahub, s3, apigateway, ...)
+│   ├── toolkits/            # Toolkit adapters (trino, s3, apigateway, search, ...)
 │   ├── audit/               # Audit logging
 │   ├── database/migrate/    # Migration runner + embedded SQL migrations
 │   └── tuning/              # Prompts, hints, rules

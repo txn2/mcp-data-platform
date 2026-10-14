@@ -65,7 +65,7 @@ func (*fakeStore) Promote(context.Context, string, callrecord.Promotion) error {
 
 func (*fakeStore) Reject(context.Context, string, callrecord.Rejection) error { return nil }
 
-// queryWriter is a DataHub write path that always succeeds.
+// queryWriter is a catalog write path that always succeeds.
 type queryWriter struct {
 	targets []string
 }

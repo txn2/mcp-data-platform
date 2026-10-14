@@ -43,7 +43,7 @@ const (
 // available table, so an Observation means "the platform can see this entity",
 // not "the platform looked".
 type Observation struct {
-	URN           string    `json:"urn" example:"urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"`
+	URN           string    `json:"urn" example:"mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)"`
 	QueryTable    string    `json:"query_table,omitempty" example:"iceberg.retail.daily_sales"`
 	Connection    string    `json:"connection,omitempty" example:"primary"`
 	EstimatedRows *int64    `json:"estimated_rows,omitempty" example:"1200"`

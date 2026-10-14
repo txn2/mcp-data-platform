@@ -12,11 +12,10 @@ import (
 )
 
 // TestCreateSemanticProviderIsTheCatalog proves the platform catalog is the
-// semantic layer wherever there is a database (#1919), whatever the retired
-// datahub setting says, and that noop and a missing database still give the
-// noop provider.
+// semantic layer wherever there is a database (#1919), and that noop and a
+// missing database still give the noop provider.
 func TestCreateSemanticProviderIsTheCatalog(t *testing.T) {
-	for _, provider := range []string{"", "datahub"} {
+	for _, provider := range []string{""} {
 		p := &Platform{config: &Config{Semantic: SemanticConfig{Provider: provider}}, db: &sql.DB{}}
 		got, err := p.createSemanticProvider()
 		require.NoError(t, err)

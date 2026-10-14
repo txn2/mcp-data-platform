@@ -31,7 +31,7 @@
               "category": "business_context",
               "content": "An 'active customer' is any customer who has placed at least one order.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -91,7 +91,7 @@
               "category": "business_context",
               "content": "The 'anchor region' for this study is North.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -112,7 +112,7 @@
               "category": "correction",
               "content": "The 'anchor region' for this study is South.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -172,7 +172,7 @@
               "category": "business_context",
               "content": "The 'benchmark month' for this study is March 2025.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -193,7 +193,7 @@
               "category": "correction",
               "content": "The 'benchmark month' for this study is September 2025.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -253,7 +253,7 @@
               "category": "business_context",
               "content": "The 'billing window' for this study is calendar quarter 2 of 2025 (April through June).",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -274,7 +274,7 @@
               "category": "correction",
               "content": "The 'billing window' for this study is calendar quarter 4 of 2025 (October through December).",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -334,7 +334,7 @@
               "category": "business_context",
               "content": "The 'charter cohort' is the set of customers on the plus tier.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -394,7 +394,7 @@
               "category": "business_context",
               "content": "The 'clearance set' is the set of completed orders placed by customers in the West region.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -454,7 +454,7 @@
               "category": "business_context",
               "content": "The 'closeout total' is the gross revenue (sum of amount over completed orders) for December 2025.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -514,7 +514,7 @@
               "category": "business_context",
               "content": "The 'core market' is the North region.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -535,7 +535,7 @@
               "category": "correction",
               "content": "The 'core market' is the East region.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -595,7 +595,7 @@
               "category": "business_context",
               "content": "The 'flagship region' for this study is the South region.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -655,7 +655,7 @@
               "category": "business_context",
               "content": "The 'focus month' for this study is June 2025.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -676,7 +676,7 @@
               "category": "correction",
               "content": "The 'focus month' for this study is February 2025.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -736,7 +736,7 @@
               "category": "business_context",
               "content": "The 'focus region' for this study is West.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -757,7 +757,7 @@
               "category": "correction",
               "content": "The 'focus region' for this study is East.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -817,7 +817,7 @@
               "category": "business_context",
               "content": "The 'headline tier' for this study is the plus tier.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -838,7 +838,7 @@
               "category": "correction",
               "content": "The 'headline tier' for this study is the enterprise tier.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -898,7 +898,7 @@
               "category": "business_context",
               "content": "The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -958,7 +958,7 @@
               "category": "business_context",
               "content": "The 'house tier' is the customer tier that placed the most orders.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -1018,7 +1018,7 @@
               "category": "business_context",
               "content": "The 'leading region' is the region whose customers placed the most orders.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1078,7 +1078,7 @@
               "category": "business_context",
               "content": "The 'peak region' is the region with the most customers.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -1138,7 +1138,7 @@
               "category": "business_context",
               "content": "A 'premium order' is any order placed by a customer on the enterprise tier.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1198,7 +1198,7 @@
               "category": "business_context",
               "content": "The 'primary region' is the region with the highest gross revenue (sum of amount over completed orders) in memory.bench.orders.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1219,7 +1219,7 @@
               "category": "correction",
               "content": "The 'primary region' is the region with the highest net revenue (amount minus discount over completed orders).",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1279,7 +1279,7 @@
               "category": "business_context",
               "content": "A 'priority order' is any order whose amount is at least $1,000.00 (100000 cents).",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1339,7 +1339,7 @@
               "category": "business_context",
               "content": "The 'quiet region' is the region whose customers placed the fewest orders.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1399,7 +1399,7 @@
               "category": "business_context",
               "content": "The 'reference cohort' is the set of customers whose account was created during calendar year 2023.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -1420,7 +1420,7 @@
               "category": "correction",
               "content": "The 'reference cohort' is the set of customers whose account was created during calendar year 2024.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -1480,7 +1480,7 @@
               "category": "business_context",
               "content": "The 'reporting cohort' is the set of orders placed in December 2025.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1540,7 +1540,7 @@
               "category": "business_context",
               "content": "The 'reporting window' for this study is calendar quarter 1 of 2025 (January through March).",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1561,7 +1561,7 @@
               "category": "correction",
               "content": "The 'reporting window' for this study is calendar quarter 3 of 2025 (July through September).",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1621,7 +1621,7 @@
               "category": "business_context",
               "content": "The 'settlement total' is the gross revenue (sum of amount over completed orders) for calendar quarter 4 of 2025 (October through December).",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1681,7 +1681,7 @@
               "category": "business_context",
               "content": "The 'signature segment' is the set of customers on the enterprise tier.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -1741,7 +1741,7 @@
               "category": "business_context",
               "content": "The 'spring window' for this study is April 2025.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1801,7 +1801,7 @@
               "category": "business_context",
               "content": "A 'standard order' is any order whose amount is below $1,000.00 (100000 cents).",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1861,7 +1861,7 @@
               "category": "business_context",
               "content": "The 'target cohort' is the set of customers whose account was created during calendar year 2024.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }
@@ -1921,7 +1921,7 @@
               "category": "business_context",
               "content": "In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.orders)"
               ],
               "type": "schema_entity"
             }
@@ -1981,7 +1981,7 @@
               "category": "business_context",
               "content": "The 'value tier' is the customer tier that placed the fewest orders.",
               "entity_urns": [
-                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+                "mcp:dataset:(trino,e2e,memory.bench.customers)"
               ],
               "type": "schema_entity"
             }

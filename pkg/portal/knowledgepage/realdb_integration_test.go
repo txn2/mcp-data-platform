@@ -99,13 +99,12 @@ func TestGovernanceRefs_RealDB_RoundTrip(t *testing.T) {
 	}
 	require.NoError(t, store.Insert(ctx, page))
 
-	// The URNs are the shapes DataHub actually assigns: a generated key for the
-	// term and the domain (createGlossaryTerm/createDomain pass no id), and the
-	// same form for a tag.
+	// The references are the shapes the catalog assigns: a generated id for the
+	// term and the domain, and the name for a tag.
 	governance := []string{
-		"urn:li:glossaryTerm:8f3c1a94-6d21-4f0e-9d1b-2f5a7c0e4b11",
-		"urn:li:tag:pii",
-		"urn:li:domain:c3d4e5f6-1122-4a3b-8c9d-0e1f2a3b4c5d",
+		"mcp:glossary_term:8f3c1a94-6d21-4f0e-9d1b-2f5a7c0e4b11",
+		"mcp:tag:pii",
+		"mcp:domain:c3d4e5f6-1122-4a3b-8c9d-0e1f2a3b4c5d",
 	}
 
 	// Attach through the authoring path's parser, not by hand-building rows: it
@@ -126,7 +125,7 @@ func TestGovernanceRefs_RealDB_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	urns := make([]string, 0, len(stored))
 	for _, r := range stored {
-		assert.Equal(t, RefTargetDataHub, r.TargetType)
+		assert.Equal(t, RefTargetCatalog, r.TargetType)
 		urns = append(urns, r.URN())
 	}
 	assert.ElementsMatch(t, governance, urns)
@@ -175,14 +174,14 @@ func TestGraph_RealDB_ListEntityRefsForPages(t *testing.T) {
 		require.NoError(t, store.Insert(ctx, p))
 	}
 	require.NoError(t, store.AddEntityRefs(ctx, live.ID, []EntityRef{
-		DataHubRef("urn:li:dataset:(trino,sales.orders,PROD)", RefSourcePromoted),
+		catalogRefFixture("mcp:dataset:(trino,warehouse,sales.orders)"),
 		{TargetType: RefTargetKnowledgePage, RefPageID: other.ID, Source: RefSourceManual},
 	}))
 	require.NoError(t, store.AddEntityRefs(ctx, gone.ID, []EntityRef{
-		DataHubRef("urn:li:dataset:(trino,hr.salaries,PROD)", RefSourcePromoted),
+		catalogRefFixture("mcp:dataset:(trino,warehouse,hr.salaries)"),
 	}))
 	require.NoError(t, store.AddEntityRefs(ctx, other.ID, []EntityRef{
-		DataHubRef("urn:li:dataset:(trino,marketing.leads,PROD)", RefSourcePromoted),
+		catalogRefFixture("mcp:dataset:(trino,warehouse,marketing.leads)"),
 	}))
 	require.NoError(t, store.SoftDelete(ctx, gone.ID))
 
@@ -195,7 +194,7 @@ func TestGraph_RealDB_ListEntityRefsForPages(t *testing.T) {
 		urns = append(urns, r.URN())
 	}
 	assert.ElementsMatch(t, []string{
-		"urn:li:dataset:(trino,sales.orders,PROD)",
+		"mcp:dataset:(trino,warehouse,sales.orders)",
 		"mcp:knowledge_page:" + other.ID,
 	}, urns, "the requested live page's references are returned in full")
 

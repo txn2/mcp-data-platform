@@ -88,7 +88,7 @@ func TestIsExportTool(t *testing.T) {
 	for _, name := range []string{"trino_export", "api_export", "s3_export"} {
 		assert.Truef(t, isExportTool(name), "%q must be treated as an export tool (bypass enrichment)", name)
 	}
-	for _, name := range []string{"trino_query", "trino_describe_table", "datahub_browse", "s3_object", "export_config"} {
+	for _, name := range []string{"trino_query", "trino_describe_table", "graphql_export_config", "s3_object", "export_config"} {
 		assert.Falsef(t, isExportTool(name), "%q must not be treated as an export tool", name)
 	}
 }
@@ -103,7 +103,7 @@ func TestIsExportTool(t *testing.T) {
 // TestIsExportTool for classification and by the assembled-server test below for
 // the response contract.)
 func TestEnrichment_ExportToolsBypassEnrichment(t *testing.T) {
-	mw := MCPSemanticEnrichmentMiddleware(exportEnrichmentProvider(), nil, nil,
+	mw := MCPSemanticEnrichmentMiddleware(exportEnrichmentProvider(), nil,
 		EnrichmentConfig{EnrichTrinoResults: true}, nil)
 
 	handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -144,7 +144,7 @@ func TestEnrichment_ExportContractViaAssembledServer(t *testing.T) {
 				return exportResponsePayload(t), nil
 			})
 			server.AddReceivingMiddleware(MCPSemanticEnrichmentMiddleware(
-				exportEnrichmentProvider(), nil, nil, EnrichmentConfig{EnrichTrinoResults: true}, nil))
+				exportEnrichmentProvider(), nil, EnrichmentConfig{EnrichTrinoResults: true}, nil))
 
 			ctx := context.Background()
 			t1, t2 := mcp.NewInMemoryTransports()
@@ -214,7 +214,7 @@ func TestExportContractViaAssembledChain(t *testing.T) {
 			// platform's: PlatformContext outermost, then the call reference,
 			// then enrichment (pkg/platform/middleware_chain.go).
 			server.AddReceivingMiddleware(MCPSemanticEnrichmentMiddleware(
-				exportEnrichmentProvider(), nil, nil, EnrichmentConfig{EnrichTrinoResults: true}, nil))
+				exportEnrichmentProvider(), nil, EnrichmentConfig{EnrichTrinoResults: true}, nil))
 			server.AddReceivingMiddleware(MCPCallReferenceMiddleware([]string{"trino", "api", "mcp"}, nil))
 			server.AddReceivingMiddleware(exportPlatformContextMiddleware(tc.toolkitKind))
 

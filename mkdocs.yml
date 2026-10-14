@@ -1,6 +1,6 @@
 site_name: txn2/mcp-data-platform
 site_url: https://mcp-data-platform.txn2.com
-site_description: Composable, semantic-first MCP server platform composing DataHub, Trino, and S3 with cross-enrichment, OAuth 2.1, personas, and audit logging
+site_description: Composable, semantic-first MCP server platform composing Trino, S3, and a built-in catalog with cross-enrichment, OAuth 2.1, personas, and audit logging
 site_author: Craig Johnston
 repo_url: https://github.com/txn2/mcp-data-platform
 repo_name: txn2/mcp-data-platform
@@ -150,9 +150,8 @@ nav:
       - Self-Configuration: server/self-configuration.md
       - Cross-Enrichment:
         - Overview: cross-enrichment/overview.md
-        - Trino to DataHub: cross-enrichment/trino-datahub.md
-        - DataHub to Trino: cross-enrichment/datahub-trino.md
-        - S3 Enrichment: cross-enrichment/s3.md
+        - Trino to Catalog: cross-enrichment/trino-catalog.md
+        - Catalog to Trino: cross-enrichment/catalog-trino.md
         - Lineage Inheritance: cross-enrichment/lineage.md
       - MCP Apps:
         - Overview: mcpapps/overview.md

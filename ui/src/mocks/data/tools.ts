@@ -133,82 +133,39 @@ export const mockToolSchemas: Record<string, ToolSchema> = {
       },
     },
   },
-  datahub_search: {
-    name: "datahub_search",
-    kind: "datahub",
+  search: {
+    name: "search",
+    kind: "search",
     description:
-      "Search for datasets, dashboards, pipelines, and other assets in the DataHub catalog. When a QueryProvider is configured, results include query_context showing which entities are queryable.",
+      "Search everything the platform knows: the catalog's datasets, the glossary, tags and domains, knowledge pages, memory, assets, prompts, API endpoints and connections. Each result carries a reference that fetch reads in full.",
     parameters: {
       type: "object",
       required: ["query"],
       properties: {
         query: {
           type: "string",
-          description: "Search query string",
-        },
-        entity_type: {
-          type: "string",
-          description: "Filter by entity type",
-          enum: ["DATASET", "DASHBOARD", "DATA_FLOW", "DATA_JOB"],
+          description: "What to look for",
         },
         limit: {
           type: "integer",
           description: "Maximum number of results",
           default: 10,
         },
-        offset: {
-          type: "integer",
-          description: "Offset for pagination",
-          default: 0,
-        },
       },
     },
   },
-  datahub_get_lineage: {
-    name: "datahub_get_lineage",
-    kind: "datahub",
+  fetch: {
+    name: "fetch",
+    kind: "search",
     description:
-      "Get upstream or downstream lineage for a DataHub entity. When a QueryProvider is configured, includes execution_context mapping URNs to query engine tables.",
+      "Read one reference a search result carries in full: a dataset with its columns, curation, lineage and query availability, a glossary term, a knowledge page.",
     parameters: {
       type: "object",
-      required: ["urn"],
+      required: ["ref"],
       properties: {
-        urn: {
+        ref: {
           type: "string",
-          description: "The DataHub URN of the entity",
-          format: "urn",
-        },
-        direction: {
-          type: "string",
-          description: "Lineage direction",
-          enum: ["UPSTREAM", "DOWNSTREAM"],
-          default: "DOWNSTREAM",
-        },
-        depth: {
-          type: "integer",
-          description: "Maximum depth of lineage hops",
-          default: 1,
-        },
-      },
-    },
-  },
-  datahub_browse: {
-    name: "datahub_browse",
-    kind: "datahub",
-    description:
-      "Browse the DataHub catalog: list tags, domains, and data products in a single tool. Specify the type parameter to choose what to browse.",
-    parameters: {
-      type: "object",
-      required: ["type"],
-      properties: {
-        type: {
-          type: "string",
-          description: "What to browse",
-          enum: ["tags", "domains", "data_products"],
-        },
-        filter: {
-          type: "string",
-          description: "Optional filter string (for tags)",
+          description: "The reference to read, e.g. mcp:dataset:(trino,acme,iceberg.sales.daily_sales)",
         },
       },
     },
@@ -300,7 +257,7 @@ export const mockToolSchemas: Record<string, ToolSchema> = {
     title: "Search Accounts",
     kind: "mcp",
     description:
-      "Search CRM accounts by name, industry, or region. Proxied from the upstream CRM MCP server; responses are enriched with DataHub catalog context.",
+      "Search CRM accounts by name, industry, or region. Proxied from the upstream CRM MCP server; responses are enriched with catalog context.",
     parameters: {
       type: "object",
       required: ["query"],
@@ -371,9 +328,8 @@ for (const name of [
   "trino_explain",
   "trino_browse",
   "trino_describe_table",
-  "datahub_search",
-  "datahub_get_lineage",
-  "datahub_browse",
+  "search",
+  "fetch",
   "s3_list",
 ]) {
   mockToolSchemas[name]!.annotations = { ...mockReadAnnotations };
@@ -403,12 +359,10 @@ export function generateMockResult(
       return trinoBrowseResult(params, duration);
     case "trino_describe_table":
       return trinoDescribeResult(params, duration);
-    case "datahub_search":
-      return datahubSearchResult(params, duration);
-    case "datahub_get_lineage":
-      return datahubLineageResult(params, duration);
-    case "datahub_browse":
-      return datahubBrowseResult(params, duration);
+    case "search":
+      return searchResult(params, duration);
+    case "fetch":
+      return fetchResult(params, duration);
     case "s3_list":
       return params.bucket ? s3ListObjectsResult(params, duration) : s3ListBucketsResult(duration);
     case "s3_object":
@@ -432,7 +386,7 @@ function textResult(text: string, duration: number, enrichmentBlocks?: string[])
 // Enrichment blocks — cross-service context added by middleware
 // ---------------------------------------------------------------------------
 
-/** Trino → DataHub: semantic context appended to Trino query/describe results */
+/** Trino → catalog: semantic context appended to Trino query/describe results */
 function trinoSemanticEnrichment(table: string): string {
   return JSON.stringify({
     semantic_context: {
@@ -442,25 +396,23 @@ function trinoSemanticEnrichment(table: string): string {
         { owner: "data-engineering", type: "DATAOWNER", group: true },
       ],
       tags: ["certified", "pii-free", "tier-1"],
-      domain: { name: "Retail Analytics", urn: "urn:li:domain:retail-analytics" },
-      quality_score: 0.94,
-      deprecation: null,
-      urn: `urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.sales.${table},PROD)`,
+      domain: { name: "Retail Analytics", urn: "mcp:domain:retail-analytics" },
+      urn: `mcp:dataset:(trino,acme,iceberg.sales.${table})`,
       glossary_terms: [
-        { urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" },
-        { urn: "urn:li:glossaryTerm:RetailMetrics", name: "Retail Metrics" },
+        { urn: "mcp:glossary_term:revenue", name: "Revenue" },
+        { urn: "mcp:glossary_term:retail-metrics", name: "Retail Metrics" },
       ],
       custom_properties: {
         refresh_schedule: "daily @ 02:00 UTC",
         sla: "99.5% availability",
         retention_days: "730",
       },
-      last_modified: { time: "2026-02-10T14:23:00Z", actor: "urn:li:corpuser:marcus.johnson" },
+      last_modified: "2026-02-10T14:23:00Z",
     },
     column_context: {
       revenue: {
         description: "Total revenue in USD for the period",
-        glossary_terms: [{ urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" }],
+        glossary_terms: [{ urn: "mcp:glossary_term:revenue", name: "Revenue" }],
         tags: ["metric"],
         is_pii: false,
         is_sensitive: false,
@@ -481,62 +433,8 @@ function trinoSemanticEnrichment(table: string): string {
       },
     },
     inheritance_sources: [
-      "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.staging.raw_pos_events,PROD)",
+      "mcp:dataset:(trino,acme,iceberg.staging.raw_pos_events)",
     ],
-  }, null, 2);
-}
-
-/** DataHub → Trino: query availability appended to DataHub search/entity results */
-function datahubQueryEnrichment(urns: string[]): string {
-  const context: Record<string, unknown> = {};
-  for (const urn of urns) {
-    const table = urn.match(/trino,([^,]+),/)?.[1] ?? "iceberg.sales.daily_sales";
-    context[urn] = {
-      available: true,
-      row_count: 145_230,
-      query_table: table,
-      last_queried: "2026-02-11T16:42:00Z",
-      sample_queries: [
-        {
-          query: `SELECT * FROM ${table} LIMIT 10`,
-          description: "Preview first 10 rows",
-        },
-        {
-          query: `SELECT region, SUM(revenue) as total_revenue FROM ${table} GROUP BY region ORDER BY total_revenue DESC`,
-          description: "Revenue by region",
-        },
-      ],
-    };
-  }
-  return JSON.stringify({ query_context: context }, null, 2);
-}
-
-/** S3 → DataHub: semantic metadata for S3 locations */
-function s3SemanticEnrichment(bucket: string, prefix: string): string {
-  return JSON.stringify({
-    semantic_context: {
-      matching_datasets: [
-        {
-          urn: `urn:li:dataset:(urn:li:dataPlatform:s3,${bucket}/${prefix}daily_sales,PROD)`,
-          name: "daily_sales",
-          description: "Daily aggregated sales by store and region — raw Parquet files",
-          owners: ["marcus.johnson@example.com"],
-          tags: ["certified", "raw-data"],
-          domain: "Retail Analytics",
-          quality_score: 0.91,
-        },
-        {
-          urn: `urn:li:dataset:(urn:li:dataPlatform:s3,${bucket}/${prefix}store_transactions,PROD)`,
-          name: "store_transactions",
-          description: "Raw POS transaction records from all ACME stores",
-          owners: ["amanda.lee@example.com"],
-          tags: ["pii", "raw-data"],
-          domain: "Retail Analytics",
-          quality_score: 0.87,
-        },
-      ],
-      note: "Semantic metadata from DataHub for S3 location",
-    },
   }, null, 2);
 }
 
@@ -692,147 +590,74 @@ function trinoDescribeResult(
   return textResult(JSON.stringify(result, null, 2), duration, [trinoSemanticEnrichment(tableName)]);
 }
 
-function datahubSearchResult(
-  params: Record<string, unknown>,
-  duration: number,
-): ToolCallResponse {
+// The datasets the search and fetch results below describe.
+const catalogDatasets = [
+  {
+    ref: "mcp:dataset:(trino,acme,iceberg.sales.daily_sales)",
+    name: "daily_sales",
+    description: "Daily aggregated sales by store and region",
+    tags: ["certified", "pii-free"],
+  },
+  {
+    ref: "mcp:dataset:(trino,acme,iceberg.sales.store_transactions)",
+    name: "store_transactions",
+    description: "Raw POS transaction records from all ACME stores",
+    tags: ["pii", "raw"],
+  },
+  {
+    ref: "mcp:dataset:(trino,acme,iceberg.inventory.inventory_levels)",
+    name: "inventory_levels",
+    description: "Current inventory levels by warehouse and SKU",
+    tags: ["certified", "real-time"],
+  },
+  {
+    ref: "mcp:dataset:(trino,acme,iceberg.finance.regional_performance)",
+    name: "regional_performance",
+    description: "Revenue and margin analysis by region and quarter",
+    tags: ["certified", "executive"],
+  },
+];
+
+function searchResult(params: Record<string, unknown>, duration: number): ToolCallResponse {
   const query = String(params.query ?? "").toLowerCase();
-  const results = [
-    {
-      urn: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.sales.daily_sales,PROD)",
-      name: "daily_sales",
-      platform: "trino",
-      type: "DATASET",
-      description: "Daily aggregated sales by store and region",
-      owners: ["marcus.johnson@example.com"],
-      tags: ["certified", "pii-free"],
-    },
-    {
-      urn: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.sales.store_transactions,PROD)",
-      name: "store_transactions",
-      platform: "trino",
-      type: "DATASET",
-      description: "Raw POS transaction records from all ACME stores",
-      owners: ["amanda.lee@example.com"],
-      tags: ["pii", "raw"],
-    },
-    {
-      urn: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD)",
-      name: "inventory_levels",
-      platform: "trino",
-      type: "DATASET",
-      description: "Current inventory levels by warehouse and SKU",
-      owners: ["rachel.thompson@example.com"],
-      tags: ["certified", "real-time"],
-    },
-    {
-      urn: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.finance.regional_performance,PROD)",
-      name: "regional_performance",
-      platform: "trino",
-      type: "DATASET",
-      description: "Revenue and margin analysis by region and quarter",
-      owners: ["jennifer.martinez@example.com"],
-      tags: ["certified", "executive"],
-    },
-  ];
-
-  // Filter loosely by query
-  const filtered = query
-    ? results.filter(
-        (r) =>
-          r.name.includes(query) ||
-          r.description.toLowerCase().includes(query) ||
-          r.tags.some((t) => t.includes(query)),
-      )
-    : results;
-
-  const resultSet = filtered.length > 0 ? filtered : results;
-  const urns = resultSet.map((r) => r.urn);
-  return textResult(JSON.stringify(resultSet, null, 2), duration, [datahubQueryEnrichment(urns)]);
+  const matched = catalogDatasets.filter(
+    (d) =>
+      d.name.includes(query) ||
+      d.description.toLowerCase().includes(query) ||
+      d.tags.some((t) => t.includes(query)),
+  );
+  const hits = (query && matched.length > 0 ? matched : catalogDatasets).map((d) => ({
+    source: "catalog",
+    ref: d.ref,
+    text: `${d.name}: ${d.description}`,
+  }));
+  return textResult(JSON.stringify({ query, groups: [{ source: "catalog", hits }] }, null, 2), duration);
 }
 
-function datahubLineageResult(
-  params: Record<string, unknown>,
-  duration: number,
-): ToolCallResponse {
-  const direction = String(params.direction ?? "DOWNSTREAM");
-  const lineage = {
-    entity: String(params.urn ?? ""),
-    direction,
-    relationships:
-      direction === "UPSTREAM"
-        ? [
-            {
-              urn: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.staging.raw_pos_events,PROD)",
-              name: "raw_pos_events",
-              type: "DATASET",
-              degree: 1,
-            },
-            {
-              urn: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.staging.store_master,PROD)",
-              name: "store_master",
-              type: "DATASET",
-              degree: 1,
-            },
-            {
-              urn: "urn:li:dataJob:(urn:li:dataFlow:(airflow,acme_etl,PROD),daily_sales_agg)",
-              name: "daily_sales_agg",
-              type: "DATA_JOB",
-              degree: 1,
-            },
-          ]
-        : [
-            {
-              urn: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD)",
-              name: "regional_performance",
-              type: "DATASET",
-              degree: 1,
-            },
-            {
-              urn: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.executive_summary,PROD)",
-              name: "executive_summary",
-              type: "DATASET",
-              degree: 2,
-            },
-            {
-              urn: "urn:li:dashboard:(looker,acme_sales_dashboard)",
-              name: "ACME Sales Dashboard",
-              type: "DASHBOARD",
-              degree: 2,
-            },
-          ],
-  };
-  return textResult(JSON.stringify(lineage, null, 2), duration);
-}
-
-function datahubBrowseResult(
-  params: Record<string, unknown>,
-  duration: number,
-): ToolCallResponse {
-  const browseType = String(params.type ?? "tags");
-
-  switch (browseType) {
-    case "domains":
-      return textResult(JSON.stringify([
-        { name: "Retail Analytics", urn: "urn:li:domain:retail-analytics", description: "Sales, transactions, and customer data" },
-        { name: "Inventory Management", urn: "urn:li:domain:inventory", description: "Stock levels, supply chain, and warehousing" },
-        { name: "Finance", urn: "urn:li:domain:finance", description: "Revenue, margins, and financial reporting" },
-      ], null, 2), duration);
-    case "data_products":
-      return textResult(JSON.stringify([
-        { name: "Daily Sales Report", urn: "urn:li:dataProduct:daily-sales", datasets: 3, domain: "Retail Analytics" },
-        { name: "Inventory Dashboard", urn: "urn:li:dataProduct:inventory-dashboard", datasets: 4, domain: "Inventory Management" },
-      ], null, 2), duration);
-    default: // tags
-      return textResult(JSON.stringify([
-        { name: "certified", count: 12 },
-        { name: "pii", count: 5 },
-        { name: "pii-free", count: 18 },
-        { name: "tier-1", count: 8 },
-        { name: "raw", count: 14 },
-        { name: "real-time", count: 3 },
-      ], null, 2), duration);
-  }
+function fetchResult(params: Record<string, unknown>, duration: number): ToolCallResponse {
+  const ref = String(params.ref ?? "");
+  const d = catalogDatasets.find((x) => x.ref === ref) ?? catalogDatasets[0]!;
+  const table = d.ref.replace(/^mcp:dataset:\(trino,acme,/, "").replace(/\)$/, "");
+  return textResult(
+    JSON.stringify(
+      {
+        ref: d.ref,
+        name: d.name,
+        description: d.description,
+        tags: d.tags,
+        upstream: ["mcp:dataset:(trino,acme,iceberg.staging.raw_pos_events)"],
+        query_context: {
+          available: true,
+          row_count: 145_230,
+          query_table: table,
+          sample_queries: [{ query: `SELECT * FROM ${table} LIMIT 10`, description: "Preview first 10 rows" }],
+        },
+      },
+      null,
+      2,
+    ),
+    duration,
+  );
 }
 
 function s3ListBucketsResult(duration: number): ToolCallResponse {
@@ -850,7 +675,6 @@ function s3ListObjectsResult(
   params: Record<string, unknown>,
   duration: number,
 ): ToolCallResponse {
-  const bucket = String(params.bucket ?? "acme-raw-transactions");
   const prefix = String(params.prefix ?? "");
   const objects = [
     { key: `${prefix}daily_sales/2026-02-11/part-00000.parquet`, size: 2_458_624, last_modified: "2026-02-11T03:15:00Z" },
@@ -861,7 +685,7 @@ function s3ListObjectsResult(
     { key: `${prefix}inventory_snapshot/2026-02-11.csv`, size: 856_320, last_modified: "2026-02-11T06:00:00Z" },
     { key: `${prefix}_metadata/manifest.json`, size: 4_096, last_modified: "2026-02-11T03:20:00Z" },
   ];
-  return textResult(JSON.stringify(objects, null, 2), duration, [s3SemanticEnrichment(bucket, prefix)]);
+  return textResult(JSON.stringify(objects, null, 2), duration);
 }
 
 function s3GetObjectResult(
@@ -870,8 +694,6 @@ function s3GetObjectResult(
 ): ToolCallResponse {
   const key = String(params.key ?? "");
 
-  const bucket = String(params.bucket ?? "acme-raw-transactions");
-  const enrichment = [s3SemanticEnrichment(bucket, "")];
 
   if (key.endsWith(".json")) {
     const text = JSON.stringify(
@@ -885,7 +707,7 @@ function s3GetObjectResult(
       null,
       2,
     );
-    return textResult(text, duration, enrichment);
+    return textResult(text, duration);
   }
 
   const text = [
@@ -901,5 +723,5 @@ function s3GetObjectResult(
     "...(truncated, 145230 total rows)",
   ].join("\n");
 
-  return textResult(text, duration, enrichment);
+  return textResult(text, duration);
 }

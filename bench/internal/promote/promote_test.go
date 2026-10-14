@@ -13,27 +13,28 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/catalogref"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/mcpc"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 )
 
-func TestBuildApplyArgsDataHub(t *testing.T) {
+func TestBuildApplyArgsCatalog(t *testing.T) {
 	args := BuildApplyArgs(Target{
-		Label: "lc-x", EntityURN: "urn:x", Sink: protocol.SinkDataHub, Fact: "amounts are cents",
+		Label: "lc-x", EntityURN: "urn:x", Sink: protocol.SinkCatalog, Fact: "amounts are cents",
 	}, "ins-1")
-	if args["sink"] != "datahub" || args["entity_urn"] != "urn:x" || args["confirm"] != true {
-		t.Fatalf("datahub args wrong: %+v", args)
+	if args["sink"] != "catalog" || args["entity_urn"] != "urn:x" || args["confirm"] != true {
+		t.Fatalf("catalog args wrong: %+v", args)
 	}
 	if ids, ok := args["insight_ids"].([]string); !ok || len(ids) != 1 || ids[0] != "ins-1" {
 		t.Fatalf("insight_ids wrong: %+v", args["insight_ids"])
 	}
 	changes, ok := args["changes"].([]map[string]any)
 	if !ok || len(changes) != 1 || changes[0]["change_type"] != "update_description" || changes[0]["detail"] != "amounts are cents" {
-		t.Fatalf("datahub changes wrong: %+v", args["changes"])
+		t.Fatalf("catalog changes wrong: %+v", args["changes"])
 	}
 	if _, hasPage := args["page"]; hasPage {
-		t.Error("datahub sink must not carry a page payload")
+		t.Error("catalog sink must not carry a page payload")
 	}
 }
 
@@ -56,7 +57,7 @@ func TestBuildApplyArgsKnowledgePage(t *testing.T) {
 		t.Errorf("page summary not sent: %+v", args["page"])
 	}
 	if _, hasChanges := args["changes"]; hasChanges {
-		t.Error("page sink must not carry datahub changes")
+		t.Error("page sink must not carry catalog changes")
 	}
 }
 
@@ -261,16 +262,16 @@ func newApplyFake(t *testing.T, applyError bool) *applyFake {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "applied"}}}, nil, nil
 		})
 	entitySchema := &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{
-		"session_id": {Type: "string"}, "urn": {Type: "string"},
+		"session_id": {Type: "string"}, "reference": {Type: "string"},
 	}, Required: []string{"session_id"}}
 	mcp.AddTool(server, &mcp.Tool{Name: EntityToolName, Description: "entity metadata", InputSchema: entitySchema},
 		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
-			urn, _ := args["urn"].(string)
+			urn, _ := args["reference"].(string)
 			f.mu.Lock()
 			desc := f.entityDesc[urn]
 			f.mu.Unlock()
-			raw, _ := json.Marshal(map[string]any{"urn": urn, "description": desc})
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
+			text := catalogref.Render(urn, catalogref.Curation{Description: desc})
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 		})
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	mux := http.NewServeMux()
@@ -306,7 +307,7 @@ func newApplyFake(t *testing.T, applyError bool) *applyFake {
 	return f
 }
 
-// applySink models the platform landing the change in its sink: a datahub
+// applySink models the platform landing the change in its sink: a catalog
 // change becomes the entity's description, a page payload becomes a live
 // knowledge page.
 func (f *applyFake) applySink(args map[string]any) {
@@ -349,7 +350,7 @@ func TestReviewerApply(t *testing.T) {
 				t.Fatalf("mint: %v", err)
 			}
 			r := Reviewer{Life: lifecycleapi.New(f.srv.URL, f.srv.Client())}
-			got, err := r.Apply(ctx, session, info.Handle, Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkDataHub, Fact: "f"}, "ins-1")
+			got, err := r.Apply(ctx, session, info.Handle, Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkCatalog, Fact: "f"}, "ins-1")
 			if err != nil {
 				t.Fatalf("apply: %v", err)
 			}
@@ -381,8 +382,8 @@ func TestReviewerApplySinkReadBack(t *testing.T) {
 		want      bool
 		wantErr   bool
 	}{
-		{name: "datahub sink holds the fact", target: Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkDataHub, Fact: "amounts are cents"}, want: true},
-		{name: "datahub sink lost the write", target: Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkDataHub, Fact: "amounts are cents"}, sinkLoses: true, wantErr: true},
+		{name: "catalog sink holds the fact", target: Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkCatalog, Fact: "amounts are cents"}, want: true},
+		{name: "catalog sink lost the write", target: Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkCatalog, Fact: "amounts are cents"}, sinkLoses: true, wantErr: true},
 		{name: "page sink holds the summary", target: pageTarget, want: true},
 		{name: "page sink lost the write", target: pageTarget, sinkLoses: true, wantErr: true},
 	}
@@ -442,7 +443,7 @@ func TestReviewerApplyPreAuditRefusalIsHarnessError(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 	r := Reviewer{Life: lifecycleapi.New(f.srv.URL, f.srv.Client())}
-	got, err := r.Apply(ctx, session, info.Handle, Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkDataHub, Fact: "f"}, "ins-1")
+	got, err := r.Apply(ctx, session, info.Handle, Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkCatalog, Fact: "f"}, "ins-1")
 	if err == nil {
 		t.Fatal("a pre-audit platform refusal must be a harness error, not a measured miss")
 	}
@@ -506,12 +507,12 @@ func TestBuildApplyArgsSendsForceNewWhenAsked(t *testing.T) {
 	}
 }
 
-// force_new is a page-sink concept; a datahub apply must not grow one.
-func TestBuildApplyArgsIgnoresForceNewOnTheDataHubSink(t *testing.T) {
+// force_new is a page-sink concept; a catalog apply must not grow one.
+func TestBuildApplyArgsIgnoresForceNewOnTheCatalogSink(t *testing.T) {
 	args := BuildApplyArgs(Target{
-		Sink: protocol.SinkDataHub, EntityURN: "urn:x", Fact: "f", ForceNewPage: true,
+		Sink: protocol.SinkCatalog, EntityURN: "urn:x", Fact: "f", ForceNewPage: true,
 	}, "ins-5")
 	if _, present := args["page"]; present {
-		t.Errorf("datahub apply carried a page payload: %+v", args)
+		t.Errorf("catalog apply carried a page payload: %+v", args)
 	}
 }

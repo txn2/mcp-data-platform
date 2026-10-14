@@ -2,9 +2,11 @@ package knowledge
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
@@ -66,12 +68,29 @@ type ConnectionLister interface {
 // persona restricted to one connection cannot discover the inventory of the
 // rest.
 type ConnectionsProvider struct {
-	lister ConnectionLister
+	lister  ConnectionLister
+	catalog CatalogBrowser
+}
+
+// connectionDocument is a fetched connection: what it is, and the top level of
+// what the platform catalog holds for it, each entry with the reference that
+// browses or fetches it. Catalog is empty for a connection nothing has been
+// cataloged from.
+type connectionDocument struct {
+	ConnectionInfo
+	Catalog []catalog.BrowseEntry `json:"catalog,omitempty"`
 }
 
 // NewConnectionsProvider builds the connections provider over a lister.
 func NewConnectionsProvider(lister ConnectionLister) *ConnectionsProvider {
 	return &ConnectionsProvider{lister: lister}
+}
+
+// SetCatalogBrowser has a fetched connection list the top level of its catalog,
+// which is where browsing a connection's datasets starts. Call once at wiring
+// time.
+func (p *ConnectionsProvider) SetCatalogBrowser(b CatalogBrowser) {
+	p.catalog = b
 }
 
 // Name returns the provenance label.
@@ -150,26 +169,41 @@ func (p *ConnectionsProvider) Search(_ context.Context, q Query) ([]Hit, error) 
 // connection outside the caller's persona (#1108), is ErrNotFound — the same
 // answer search gives by omitting it, so a citation cannot be used to read around
 // the boundary search enforces.
-func (p *ConnectionsProvider) Fetch(_ context.Context, ref string, caller Caller) (*Document, bool, error) {
+func (p *ConnectionsProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
 	parsed, err := knowledgepage.ParseEntityRef(ref)
 	if err != nil || parsed.TargetType != knowledgepage.RefTargetConnection {
 		// Not a connection reference: decline so the Router tries the next provider.
 		return nil, false, nil //nolint:nilerr // a non-connection reference is a decline, not a failure
 	}
 	for _, c := range p.lister.Connections() {
-		if c.Kind == parsed.ConnectionKind && c.Name == parsed.ConnectionName {
-			if !c.gateable() || !caller.allowsConnection(c.Bound) {
-				return nil, true, ErrNotFound
-			}
-			return &Document{
-				Reference: ref,
-				Source:    SourceConnections,
-				Title:     connectionHitText(c),
-				Content:   c,
-			}, true, nil
+		if c.Kind != parsed.ConnectionKind || c.Name != parsed.ConnectionName {
+			continue
 		}
+		if !c.gateable() || !caller.allowsConnection(c.Bound) {
+			return nil, true, ErrNotFound
+		}
+		doc, err := p.document(ctx, c)
+		if err != nil {
+			return nil, true, err
+		}
+		return &Document{Reference: ref, Source: SourceConnections, Title: connectionHitText(c), Content: doc}, true, nil
 	}
 	return nil, true, ErrNotFound
+}
+
+// document is a connection's descriptor with the top level of the datasets the
+// catalog holds for it.
+func (p *ConnectionsProvider) document(ctx context.Context, c ConnectionInfo) (connectionDocument, error) {
+	doc := connectionDocument{ConnectionInfo: c}
+	if p.catalog == nil {
+		return doc, nil
+	}
+	entries, err := p.catalog.Browse(ctx, catalog.BrowseQuery{ConnectionKind: c.Kind, Connection: c.Name})
+	if err != nil {
+		return doc, fmt.Errorf("browsing the catalog of %s: %w", c.Name, err)
+	}
+	doc.Catalog = entries
+	return doc, nil
 }
 
 // connectionScore is the token-overlap score of the connection's searchable text
@@ -181,8 +215,8 @@ func connectionScore(c ConnectionInfo, tokens []string) float64 {
 
 // tokenOverlapScore is the fraction of query tokens that appear as a substring of
 // a record's searchable text, in [0,1]. It is the lexical rule the sources with no
-// backend ranking of their own share — connections and DataHub domains, neither of
-// which any upstream search can rank — held once so the two cannot drift. A record
+// backend ranking of their own share (connections and catalog definitions)
+// held once so the two cannot drift. A record
 // matching more of the query ranks higher; zero means nothing matched.
 func tokenOverlapScore(text string, tokens []string) float64 {
 	if len(tokens) == 0 {

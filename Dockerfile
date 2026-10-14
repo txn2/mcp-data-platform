@@ -5,7 +5,7 @@ RUN apk add --no-cache ca-certificates
 
 FROM scratch
 
-# TLS root certificates for HTTPS connections (OIDC, DataHub, Trino, S3)
+# TLS root certificates for HTTPS connections (OIDC, Trino, S3, API connections)
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 # Copy the binary from goreleaser (multi-arch build context)
