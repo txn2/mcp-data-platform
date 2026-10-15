@@ -6,6 +6,7 @@ package whconfig
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/webhook/compactor"
@@ -32,6 +33,31 @@ type ReceiverConfig struct {
 	// WriteTimeout bounds writing one segment to object storage. A request
 	// whose segment has not been written by then is answered 503.
 	WriteTimeout time.Duration `yaml:"write_timeout"`
+	// Spool, when its directory is set, answers a request once its events
+	// are synced to this replica's disk and drains them to object storage
+	// behind the answer (#2121).
+	Spool SpoolConfig `yaml:"spool"`
+}
+
+// SpoolConfig is the receiver's local write-ahead spool. Off until Dir is
+// set: the spool needs a writable volume, which a read-only root file system
+// does not have.
+type SpoolConfig struct {
+	// Dir is the spool's directory, one per replica. An emptyDir keeps what
+	// it holds across a container restart; a volume of the replica's own
+	// (a StatefulSet's volumeClaimTemplates) keeps it across rescheduling.
+	Dir string `yaml:"dir"`
+	// MaxBytes bounds the bytes the spool holds. Past it a request is
+	// answered 503 with Retry-After. 0 takes 1 GiB.
+	MaxBytes int64 `yaml:"max_bytes"`
+	// MaxAge bounds how long the oldest event may wait to be drained. Past
+	// it a request is answered 503 with Retry-After. 0 takes an hour.
+	MaxAge time.Duration `yaml:"max_age"`
+}
+
+// SpoolEnabled reports whether this replica's receiver spools.
+func (c Config) SpoolEnabled() bool {
+	return c.ReceiverEnabled() && strings.TrimSpace(c.Receiver.Spool.Dir) != ""
 }
 
 // CompactorConfig decides whether this replica compacts and applies
@@ -72,19 +98,19 @@ func (c Config) CompactorEnabled() bool {
 const day = 24 * time.Hour
 
 // errNegative is a pacing value below zero.
-var errNegative = errors.New("webhooks: write_timeout, poll, grace, lease, batch, retry_backoff and retention_every cannot be negative")
+var errNegative = errors.New("webhooks: write_timeout, spool.max_bytes, spool.max_age, poll, grace, lease, batch, retry_backoff and retention_every cannot be negative")
 
 // Validate refuses a section that cannot pace anything.
 func (c Config) Validate() error {
 	for _, d := range []time.Duration{
-		c.Receiver.WriteTimeout, c.Compactor.Poll, c.Compactor.Grace, c.Compactor.Lease,
+		c.Receiver.WriteTimeout, c.Receiver.Spool.MaxAge, c.Compactor.Poll, c.Compactor.Grace, c.Compactor.Lease,
 		c.Compactor.RetryBackoff, c.Compactor.RetentionEvery,
 	} {
 		if d < 0 {
 			return errNegative
 		}
 	}
-	if c.Compactor.Batch < 0 {
+	if c.Compactor.Batch < 0 || c.Receiver.Spool.MaxBytes < 0 {
 		return errNegative
 	}
 	return nil

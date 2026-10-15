@@ -88,6 +88,7 @@ type fakeRecorder struct {
 	markErr    error
 	countErr   error
 	latencyErr error
+	spool      []whstore.SpoolState
 }
 
 func newRecorder() *fakeRecorder {
@@ -133,6 +134,13 @@ func (f *fakeRecorder) RecordLatency(_ context.Context, l []whstore.Latency) err
 	return nil
 }
 
+func (f *fakeRecorder) RecordSpool(_ context.Context, st whstore.SpoolState) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.spool = append(f.spool, st)
+	return nil
+}
+
 func (f *fakeRecorder) markCount(key string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -147,6 +155,9 @@ type fakeMetrics struct {
 	segments  int
 	acks      int
 	maxBuffer int
+	drained   int
+	drainFail int
+	spoolSeen int
 }
 
 func (m *fakeMetrics) WebhookRequest(_ context.Context, source, outcome string) {
@@ -177,6 +188,24 @@ func (m *fakeMetrics) WebhookBuffer(_ context.Context, _ string, n int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.maxBuffer = max(m.maxBuffer, n)
+}
+
+func (m *fakeMetrics) WebhookSpool(context.Context, int64, int64, int, time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.spoolSeen++
+}
+
+func (m *fakeMetrics) WebhookSpoolDrained(_ context.Context, _ string, n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.drained += n
+}
+
+func (m *fakeMetrics) WebhookSpoolDrainFailed(context.Context, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.drainFail++
 }
 
 // fakeRawWindows records the windows registered, and can fail or hold a
@@ -906,7 +935,12 @@ func TestStalledStoreBoundsTheBuffer(t *testing.T) {
 	}
 	assert.LessOrEqual(t, accepted, limit)
 	assert.Equal(t, requests, accepted+full)
-	assert.LessOrEqual(t, h.metrics.maxBuffer, limit, "the buffer never holds more than its limit")
+	// The buffer's writer records the gauge after it answers, so the value is
+	// read under the fake's lock.
+	h.metrics.mu.Lock()
+	maxBuffer := h.metrics.maxBuffer
+	h.metrics.mu.Unlock()
+	assert.LessOrEqual(t, maxBuffer, limit, "the buffer never holds more than its limit")
 }
 
 func TestStopAnswersWaitingRequests(t *testing.T) {

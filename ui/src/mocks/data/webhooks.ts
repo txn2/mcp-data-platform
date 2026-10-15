@@ -2,6 +2,7 @@ import type {
   WebhookAckLatency,
   WebhookHealth,
   WebhookSlowAck,
+  WebhookReplicaSpool,
   WebhookSource,
   WebhookStatus,
   WebhookStatusOverview,
@@ -280,5 +281,45 @@ export function mockWebhookOverview(
       .filter((r) => new Date(r.at).getTime() >= from)
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, 50),
+    spools: mockSpools,
   };
 }
+
+/** mockSpools are two receivers' spools (#2121): one draining, one that
+ * stopped with events waiting. */
+const mockSpools: WebhookReplicaSpool[] = [
+  {
+    replica: "mcp-data-platform-0",
+    dir: "/var/lib/mcp-data-platform/spool",
+    bytes: 182_400,
+    events: 212,
+    files: 2,
+    oldest_at: hoursAgo(0.001),
+    max_bytes: 1 << 30,
+    max_age_seconds: 3600,
+    drained_events: 402_113,
+    drain_failures: 0,
+    last_drain_at: hoursAgo(0.0005),
+    last_error: "",
+    started_at: hoursAgo(30),
+    updated_at: hoursAgo(0.002),
+    reporting: true,
+  },
+  {
+    replica: "mcp-data-platform-1",
+    dir: "/var/lib/mcp-data-platform/spool",
+    bytes: 9_830_400,
+    events: 11_402,
+    files: 7,
+    oldest_at: hoursAgo(0.4),
+    max_bytes: 1 << 30,
+    max_age_seconds: 3600,
+    drained_events: 380_220,
+    drain_failures: 14,
+    last_drain_at: hoursAgo(0.42),
+    last_error: "writing segment: put webhooks/esp/raw/dt=...: context deadline exceeded",
+    started_at: hoursAgo(30),
+    updated_at: hoursAgo(0.35),
+    reporting: false,
+  },
+];

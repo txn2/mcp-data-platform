@@ -1726,6 +1726,7 @@ thumbnails:
   retry_backoff: 1m                     # hold after the first unfinished try; x4 each try, at most 1h
   max_source_bytes: 1048576             # largest document a tile is drawn from (1 MB)
   large_source_bytes: 33554432          # the bound for PDF, CSV and TSV (32 MB)
+  allow_private_cidrs: []               # private prefixes a document may load files from (#2122)
 ```
 
 | Field | Type | Default | Description |
@@ -1741,6 +1742,7 @@ thumbnails:
 | `retry_backoff` | duration | `1m` | How long a document is held back after its first unfinished attempt; four times longer after each one after, at most an hour. |
 | `max_source_bytes` | int | `1048576` (1 MB) | The largest document a tile is drawn from, for every family but the three below. The renderer loads the whole document to draw it. |
 | `large_source_bytes` | int | `33554432` (32 MB) | The bound for the families whose tile is drawn from part of the file: page one of a PDF, the header and first rows of a CSV or TSV. |
+| `allow_private_cidrs` | list of CIDR | empty | Private address prefixes a document drawn by the renderer (a tile, or a PDF export) may load files from, such as an internal CDN a report takes its stylesheet from (#2122). Every other private, loopback, link-local and cloud-metadata address stays refused; a prefix that does not parse stops the platform at start. |
 
 A negative value for any of these is refused at startup.
 
@@ -1751,6 +1753,8 @@ Tiles are stored at 800×600. HTML, JSX, markdown, CSV, JSON and the text famili
 With no renderer answering, the platform starts and serves normally: files keep their content-type icons, and the platform logs once that no renderer answers and once when one does. A binary built without the portal UI embeds no tile page and draws nothing. A document the renderer cannot draw -- one that does not settle within `render_timeout`, an image no browser decodes, an artifact whose linked files did not load -- is recorded with the reason, shown on the file's Thumbnail panel, and not tried again until the file changes or its owner asks.
 
 Every claim is charged to the row as an attempt (#1868). An attempt that does not finish -- the renderer stops answering or closes the page while the document is loaded, the stored file cannot be read (a file whose object is gone), or the tile cannot be written -- records nothing and holds the document back for `retry_backoff`, then four times longer each time. At `max_attempts` the document is recorded as not drawable with the last reason, and leaves the queue until it changes or its tile is asked for again, so one document cannot hold the renderer or the rest of the queue. Before each document the worker asks the renderer whether it answers; a renderer that does not is not the next document's doing, so the rows not yet tried are handed back with their attempt returned. The warning that says the renderer stopped answering names the last document whose attempt did not finish.
+
+A document whose public stylesheet or script could not be fetched for a reason that may pass -- the network failed, or its server answered 429 or 5xx -- is an attempt that did not finish too, held back the same way (#2122): a tile drawn without its styles is a picture of unstyled text that would otherwise be stored as a good tile. A file its server says does not exist (404) is the document's own, and the page is drawn without it; a font is never waited for (#2062). An HTML or JSX frame reports itself ready only once every stylesheet it names has loaded or failed, its fonts have settled, and nothing about its styles or layout has changed for a short quiet period, and a JSX frame waits for its module to run rather than a fixed delay. The renderer keeps each public answer it fetched for ten minutes, so a library of documents on one CDN fetches each file once per pass.
 
 A collection's mosaic is held to the same rule, and one that cannot be composed from its members' tiles is not tried again until a member is added, removed or redrawn.
 
@@ -1771,6 +1775,10 @@ webhooks:
     enabled: true        # only needed to opt out; defaults to true
     address: ""          # also serve /hooks/ on a listener of its own
     write_timeout: 30s
+    spool:
+      dir: ""            # off until set: answer from local disk, drain behind the answer
+      max_bytes: 1073741824
+      max_age: 1h
   compactor:
     enabled: true        # only needed to opt out; defaults to true
     grace: 2m
@@ -1786,7 +1794,10 @@ webhooks:
 |-------|------|---------|-------------|
 | `receiver.enabled` | `*bool` | `true` | Serve `/hooks/` on this replica. A deployment that keeps bursts off the replicas serving MCP and the portal turns it off there and runs a receiver-only deployment behind the webhook Ingress. |
 | `receiver.address` | string | empty | Also serve `/hooks/` on this address, so the receiver can sit behind its own Service. The main listener serves it either way. |
-| `receiver.write_timeout` | duration | `30s` | How long writing one segment may take. A request whose segment is not written by then is answered `503`. |
+| `receiver.write_timeout` | duration | `30s` | How long writing one segment may take. A request whose segment is not written by then is answered `503`. With a spool, it bounds one drain of a spool file, and how long a stopping replica drains. |
+| `receiver.spool.dir` | string | empty | The receiver's local write-ahead spool (#2121), one directory per replica. When set, a request is answered once its events are synced here, and they are drained to object storage behind the answer; empty answers once they are in object storage. See [Inbound Webhooks](webhooks.md#a-local-spool). |
+| `receiver.spool.max_bytes` | int | `1073741824` (1 GiB) | Past this many bytes waiting, a request is answered `503` with `Retry-After`. |
+| `receiver.spool.max_age` | duration | `1h` | Once the oldest event waiting is older than this, a request is answered `503` with `Retry-After`. |
 | `compactor.enabled` | `*bool` | `true` | Compact windows and apply retention on this replica. |
 | `compactor.grace` | duration | `2m` | How long after a window ends the compactor waits for segments still being written into it. |
 | `compactor.poll` | duration | `30s` | How long an idle compactor waits before looking for work. |
@@ -1796,7 +1807,7 @@ webhooks:
 | `compactor.retention_every` | duration | `10m` | How often retention runs. |
 | `compactor.expired_window_retention_days` | int | `90` | How long the record of an expired window is kept once its partition, file and raw segments are gone. `0` uses the default; a negative value keeps them for as long as their source exists. |
 
-A negative value for any of the durations and `batch` is refused at startup. A source's table needs
+A negative value for any of the durations, `batch` and `spool.max_bytes` is refused at startup, and so is a spool directory that cannot be opened. A source's table needs
 a scratch connection whose catalog meets the requirements on
 [Scratch Catalog](scratch-catalog.md).
 

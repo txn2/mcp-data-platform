@@ -432,6 +432,7 @@ internal/httpserver/webhookwire -> internal/webhook/receiver
 internal/httpserver/webhookwire -> internal/webhook/whadmin
 internal/httpserver/webhookwire -> internal/webhook/whlayout
 internal/httpserver/webhookwire -> internal/webhook/whsource
+internal/httpserver/webhookwire -> internal/webhook/whspool
 internal/httpserver/webhookwire -> internal/webhook/whstore
 internal/httpserver/webhookwire -> internal/webhook/whtable
 internal/httpserver/webhookwire -> pkg/observability
@@ -1214,6 +1215,7 @@ internal/portal/assetrefapi -> pkg/contenttype
 internal/portal/assetrefapi -> pkg/resource
 internal/portal/assetrefs -> internal/httpjson
 internal/portal/assetrefs -> internal/logsan
+internal/portal/assetrefs -> internal/portal/contentrefs
 internal/portal/assetrefs -> internal/portal/portaldomain
 internal/portal/assetrefs -> pkg/blobserve
 internal/portal/assetrefs -> pkg/contenttype
@@ -1322,6 +1324,7 @@ internal/webhook/receiver -> internal/webhook/whauth
 internal/webhook/receiver -> internal/webhook/whevent
 internal/webhook/receiver -> internal/webhook/whlayout
 internal/webhook/receiver -> internal/webhook/whsource
+internal/webhook/receiver -> internal/webhook/whspool
 internal/webhook/receiver -> internal/webhook/whstore
 internal/webhook/receiver -> internal/wirejson
 internal/webhook/receiver -> pkg/ratelimit
@@ -1340,6 +1343,8 @@ internal/webhook/whevent -> internal/webhook/whsource
 internal/webhook/whsource -> internal/hmacsig
 internal/webhook/whsource -> internal/indexpolicy
 internal/webhook/whsource -> internal/webhook/jsonpath
+internal/webhook/whspool -> internal/webhook/whevent
+internal/webhook/whspool -> internal/webhook/whlayout
 internal/webhook/whtable -> internal/scratchcatalog
 internal/webhook/whtable -> internal/webhook/whevent
 internal/webhook/whtable -> internal/webhook/whlayout

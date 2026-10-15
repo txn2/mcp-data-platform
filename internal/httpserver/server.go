@@ -217,7 +217,10 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 
 	// Inbound webhooks (#1870): the receiver at /hooks/, the source admin
 	// routes, and the compactor, which starts once the mux is complete.
-	hooks := buildWebhooks(p, address)
+	hooks, err := buildWebhooks(p, address)
+	if err != nil {
+		return err
+	}
 	hooks.Mount(mux)
 	hooks.MountAdmin(mux, p, buildAdminAuth, adminEmail)
 	mountDatabaseAdminAPIs(mux, p)

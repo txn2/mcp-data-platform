@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { FileDown, LayoutGrid, Presentation } from "lucide-react";
 import { isSlideDeck, overviewMessage } from "@/lib/deck";
 import { downloadPdf } from "@/lib/pdfExport";
+import { ASSET_FRAME_SANDBOX } from "./assetFrame";
 
 /**
  * Whether this browser lets a page fullscreen an element it holds. Read once
@@ -39,9 +40,10 @@ interface Props {
  * in the artifact (`/portal/vendor/reveal/reveal.js`, the presentation runtime
  * the platform serves, #1767) named nothing at all; an srcdoc document resolves
  * such a URL against the page that framed it, which is the origin the artifact
- * was saved to. The sandbox is unchanged: `allow-scripts` without
+ * was saved to. The sandbox is ASSET_FRAME_SANDBOX: `allow-scripts` without
  * `allow-same-origin`, so the artifact's script runs in an opaque origin with
- * no reach into the viewer's origin or storage.
+ * no reach into the viewer's origin or storage, and `allow-downloads`, so a
+ * download the reader starts goes ahead (#2127).
  *
  * The frame takes the height its page leaves it: both viewers lay the content
  * column out as a flex column, and the frame grows to its end (#1769). Where
@@ -155,7 +157,7 @@ export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
       {placeControls(controls, controlsSlot)}
       <iframe
         ref={iframeRef}
-        sandbox="allow-scripts"
+        sandbox={ASSET_FRAME_SANDBOX}
         allow="fullscreen"
         srcDoc={content}
         className="min-h-[60vh] w-full min-w-0 flex-1 rounded-lg border border-border"

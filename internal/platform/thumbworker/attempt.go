@@ -149,6 +149,9 @@ const (
 	// failStorage is an attempt whose stored file could not be read or
 	// whose tile could not be written.
 	failStorage = "storage"
+	// failSubresource is an attempt whose document named a public
+	// stylesheet or script the platform could not get (#2122).
+	failSubresource = "subresource"
 	// failUndrawable is a row recorded as not drawable once its attempts
 	// ran out.
 	failUndrawable = "undrawable"
@@ -158,6 +161,9 @@ const (
 func unfinishedReason(err error) string {
 	if errors.Is(err, headless.ErrUnavailable) {
 		return failRenderer
+	}
+	if errors.Is(err, headless.ErrIncomplete) {
+		return failSubresource
 	}
 	return failStorage
 }

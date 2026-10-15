@@ -78,6 +78,28 @@ window.__mapsDrawn=function(bound){
 /*map-tracker:end*/`;
 
 /**
+ * How long the frame waits for its styles to be in (#2122): every stylesheet
+ * it names loaded or failed, its fonts settled, and nothing about its styles or
+ * its layout changing for STYLE_QUIET_MS. The quiet period is what catches CSS
+ * written at run time -- the Tailwind Play CDN script writes its <style> only
+ * after it sees the DOM, and a stylesheet a script adds after load is not in
+ * the document when load fires.
+ */
+const STYLE_SETTLE_TIMEOUT_MS = 6_000;
+
+/** How long nothing about a frame's styles or layout may change before they count as in. */
+const STYLE_QUIET_MS = 400;
+
+/**
+ * How long a JSX frame waits for its module to run (#2122): the module runs
+ * only once every module it imports from esm.sh has arrived, which is the
+ * signal the fixed delay before it stood in for. A module whose import failed
+ * never runs; the platform's renderer records that fetch as missing and the
+ * attempt is retried rather than stored.
+ */
+const MODULE_RUN_TIMEOUT_MS = 15_000;
+
+/**
  * How long the frame waits for the artifact's FIRST reference request before
  * deciding there is none coming.
  *
@@ -124,6 +146,9 @@ ${MAP_TRACKER}
   function isRef(u) {
     return typeof u === 'string' && u.indexOf(PREFIX) !== -1;
   }
+  function isSheet(t) {
+    return t && t.tagName === 'LINK' && /(^|\\s)stylesheet(\\s|$)/i.test(t.rel || '');
+  }
   document.addEventListener('securitypolicyviolation', function(e) {
     if (e.effectiveDirective === 'font-src') return;
     if (isRef(e.blockedURI)) state.failed++;
@@ -131,11 +156,56 @@ ${MAP_TRACKER}
   window.addEventListener('error', function(e) {
     var t = e.target;
     if (t && t.tagName === 'IMG' && isRef(t.currentSrc || t.src)) state.failed++;
+    if (isSheet(t)) t.__thumbnailSettled = true;
+    if (t && t.tagName === 'SCRIPT') window.__thumbnailScriptFailed = true;
   }, true);
-  window.addEventListener('load', function(e) {
+  // On the document, not the window: an element's load event never reaches
+  // the window, whose listeners hear only the document's own load.
+  document.addEventListener('load', function(e) {
     var t = e.target;
     if (t && t.tagName === 'IMG' && isRef(t.currentSrc || t.src)) state.started++;
+    if (isSheet(t)) t.__thumbnailSettled = true;
   }, true);
+  // Resolves once the document's styles are in (#2122): every stylesheet it
+  // names, including one a script added after load, has loaded or failed, its
+  // fonts have settled, and neither its styles nor its layout have changed for
+  // a quiet period -- or the bound has passed.
+  function styleSignature() {
+    var text = 0;
+    var styles = document.getElementsByTagName('style');
+    for (var i = 0; i < styles.length; i++) text += (styles[i].textContent || '').length;
+    var root = document.documentElement;
+    var body = document.body;
+    return [document.styleSheets.length, styles.length, text,
+      root ? root.scrollWidth : 0, root ? root.scrollHeight : 0,
+      body ? body.getBoundingClientRect().height : 0].join(',');
+  }
+  function sheetsPending() {
+    var links = document.getElementsByTagName('link');
+    for (var i = 0; i < links.length; i++) {
+      var l = links[i];
+      if (isSheet(l) && !l.disabled && !l.sheet && !l.__thumbnailSettled) return true;
+    }
+    return false;
+  }
+  window.__stylesSettled = function(bound, quiet) {
+    var fonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+    var fontsDone = false;
+    fonts.then(function() { fontsDone = true; }, function() { fontsDone = true; });
+    return new Promise(function(resolve) {
+      var waited = 0;
+      var last = styleSignature();
+      var still = 0;
+      function look() {
+        var sig = styleSignature();
+        if (sig !== last) { last = sig; still = 0; } else { still += 50; }
+        if (waited >= bound || (fontsDone && !sheetsPending() && still >= quiet)) { resolve(); return; }
+        waited += 50;
+        setTimeout(look, 50);
+      }
+      look();
+    });
+  };
   var nativeFetch = window.fetch;
   window.fetch = function(input) {
     // A Request carries the address as .url and a URL object as .href, so both
@@ -160,7 +230,12 @@ ${MAP_TRACKER}
 
 /**
  * The notifier that tells the parent the frame is ready to be captured, after
- * `delayMs` and after the artifact's reference loads have settled.
+ * `delayMs`, after a JSX frame's module ran (`awaitModule`), after the
+ * document's styles are in, and after its reference loads have settled.
+ *
+ * Styles come first (#2122): a capture taken before a stylesheet a script
+ * added after load arrived, or before run-time CSS was written, is a picture
+ * of unstyled text that the worker had no way to tell from the page.
  *
  * Waiting only on what is in flight at the delay would miss the common shape:
  * a dashboard fetches its referenced data from an effect that runs after the
@@ -177,7 +252,7 @@ ${MAP_TRACKER}
  * another frame's. A document with no watcher on it (the transform-failure page
  * below) reports none, which is right: there is nothing referenced to fail.
  */
-function notifierScript(assetId: string, delayMs: number): string {
+function notifierScript(assetId: string, delayMs: number, awaitModule = false): string {
   return `
 (function() {
   var waited = 0;
@@ -202,7 +277,21 @@ function notifierScript(assetId: string, delayMs: number): string {
     }
     ready();
   }
-  setTimeout(settle, ${delayMs});
+  function styled() {
+    var styles = window.__stylesSettled ? window.__stylesSettled(${STYLE_SETTLE_TIMEOUT_MS}, ${STYLE_QUIET_MS}) : Promise.resolve();
+    styles.then(settle);
+  }
+  var moduleWaited = 0;
+  function moduleRan() {
+    var done = !${awaitModule} || window.__thumbnailModuleRan || window.__thumbnailScriptFailed;
+    if (!done && moduleWaited < ${MODULE_RUN_TIMEOUT_MS}) {
+      moduleWaited += 50;
+      setTimeout(moduleRan, 50);
+      return;
+    }
+    styled();
+  }
+  setTimeout(moduleRan, ${delayMs});
 })();`;
 }
 
@@ -263,7 +352,9 @@ export type ThumbnailVariant = "light" | "dark";
  * Build a complete HTML document that transpiles and renders JSX content,
  * then notifies the parent when ready for capture. Reuses the same pipeline
  * as JsxRenderer (sucrase transform, import map, auto-mount, and its CSP) but
- * adds a postMessage notifier with a longer delay for async esm.sh loads.
+ * adds a postMessage notifier that waits for the module to run -- which is
+ * when every esm.sh module it imports has arrived -- rather than for a fixed
+ * delay (#2122).
  *
  * The asset id travels into the frame so its ready message names the document
  * it is about.
@@ -345,19 +436,22 @@ try {
   <div id="root"></div>
   <script type="module">
 window.onerror = function(msg, src, line, col, err) {
+  window.__thumbnailModuleRan = true;
   var el = document.createElement('pre');
   el.textContent = err && err.stack ? err.stack : msg;
   document.getElementById('root').appendChild(el);
 };
 window.addEventListener('unhandledrejection', function(e) {
+  window.__thumbnailModuleRan = true;
   var el = document.createElement('pre');
   el.textContent = 'Module load error: ' + (e.reason && e.reason.stack ? e.reason.stack : e.reason);
   document.getElementById('root').appendChild(el);
 });
 
 ${mountSection}
+window.__thumbnailModuleRan = true;
   </script>
-  <script>${notifierScript(assetId, 2000)}</script>
+  <script>${notifierScript(assetId, 0, true)}</script>
 </body>
 </html>`;
 }

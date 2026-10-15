@@ -11960,6 +11960,52 @@ definitions:
       username:
         type: string
     type: object
+  webhookapi.ReplicaSpool:
+    properties:
+      bytes:
+        type: integer
+      dir:
+        type: string
+      drain_failures:
+        type: integer
+      drained_events:
+        description: DrainedEvents and DrainFailures count since the receiver started.
+        type: integer
+      events:
+        type: integer
+      files:
+        type: integer
+      last_drain_at:
+        type: string
+      last_error:
+        description: |-
+          LastError is the newest drain failure, cleared by a drain that
+          succeeds.
+        type: string
+      max_age_seconds:
+        type: integer
+      max_bytes:
+        description: |-
+          MaxBytes and MaxAgeSeconds are the bounds past which the receiver
+          answers 503 with Retry-After.
+        type: integer
+      oldest_at:
+        description: |-
+          OldestAt is when the oldest event waiting was received; null when the
+          spool is empty.
+        type: string
+      replica:
+        type: string
+      reporting:
+        description: |-
+          Reporting is false for a receiver that has not reported for two
+          minutes: it stopped, and what it holds waits for it to start again.
+        type: boolean
+      started_at:
+        type: string
+      updated_at:
+        type: string
+    type: object
   webhookapi.SourceDetail:
     properties:
       source:
@@ -12139,6 +12185,13 @@ definitions:
       sources:
         items:
           $ref: '#/definitions/webhookapi.SourceStatus'
+        type: array
+      spools:
+        description: |-
+          Spools is every receiver's local spool, by replica: empty where no
+          receiver spools (#2121).
+        items:
+          $ref: '#/definitions/webhookapi.ReplicaSpool'
         type: array
       volume:
         items:
@@ -19648,7 +19701,12 @@ paths:
         when more than one applies the first in that order is reported. The volume
         series reads the per-minute request counts at or after `from`, the same bound
         as each source''s `last_hour` (range=hour) or `last_day` (range=day), so the
-        series sums to those counts.'
+        series sums to those counts. `spools` is every receiver''s local spool, by
+        replica, whatever `source` names: the events it acknowledged once they were
+        synced to its disk and has not yet drained to object storage, the bounds past
+        which it answers 503, and how its drain is going; a receiver that has not
+        reported for two minutes is `reporting: false`, and what it holds waits for
+        it to start again.'
       parameters:
       - default: hour
         description: 'Span of the volume series and the rejections: hour (one-minute

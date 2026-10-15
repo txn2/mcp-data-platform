@@ -42,7 +42,8 @@ func linkRefusal(body, contentType string) *mcp.CallToolResult {
 		"links between assets are not supported, and this content uses %s as a link target "+
 			"(an <a href> or a Markdown [text](...) link). A reference loads another file's content into "+
 			"this document, as an <img src>, a stylesheet or a fetch; it cannot be followed. "+
-			"Reference the asset to load its content, or name it in text. Nothing was written.",
+			"Reference the asset to load its content, name it in text, or add a download attribute "+
+			"(<a href=\"...\" download>) to offer it as a file to save. Nothing was written.",
 		strings.Join(linked, ", ")))
 }
 

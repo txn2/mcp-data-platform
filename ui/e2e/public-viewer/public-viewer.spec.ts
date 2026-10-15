@@ -312,7 +312,7 @@ test.describe("asset references", () => {
 
 /**
  * Render a document the way the HTML renderer does — a blob: URL in an
- * iframe sandboxed with allow-scripts and no allow-same-origin — inside the
+ * iframe sandboxed with allow-scripts and allow-downloads and no allow-same-origin — inside the
  * live viewer page, so it runs under the page's inherited policy. Returns the
  * frame's text.
  */
@@ -322,7 +322,7 @@ async function renderInArtifactFrame(page: Page, html: string, settleMs: number)
       const url = URL.createObjectURL(new Blob([doc as string], { type: "text/html;charset=utf-8" }));
       const frame = document.createElement("iframe");
       frame.id = "probe-frame";
-      frame.setAttribute("sandbox", "allow-scripts");
+      frame.setAttribute("sandbox", "allow-scripts allow-downloads");
       frame.src = url;
       document.body.appendChild(frame);
       await new Promise((resolve) => setTimeout(resolve, ms as number));

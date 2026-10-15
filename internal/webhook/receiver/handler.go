@@ -115,6 +115,10 @@ func (r *Receiver) accept(ctx context.Context, w http.ResponseWriter, src whsour
 		}, nil)
 		return
 	}
+	if r.cfg.Spool != nil {
+		r.acceptSpooled(ctx, w, src, d)
+		return
+	}
 	buf := r.bufferFor(src.Name)
 	if buf == nil {
 		r.refuse(w, d, refusal{outcome: OutcomeWriteFailed, reason: "the platform is shutting down", status: http.StatusServiceUnavailable, retryAfter: retryStopping}, nil)
@@ -143,13 +147,7 @@ func (r *Receiver) accept(ctx context.Context, w http.ResponseWriter, src whsour
 		}, &res.stages)
 		return
 	}
-	total := r.now().Sub(d.started)
-	r.count(src.Name, OutcomeAccepted)
-	r.observeAck(src.Name, total, res.stages)
-	if r.cfg.Metrics != nil {
-		r.cfg.Metrics.WebhookEvents(ctx, src.Name, len(d.events))
-		r.cfg.Metrics.WebhookAck(ctx, src.Name, total)
-	}
+	r.observeAccepted(ctx, src.Name, d, res.stages)
 	writeJSON(w, http.StatusAccepted, `{"accepted":`+strconv.Itoa(len(d.events))+`}`)
 }
 

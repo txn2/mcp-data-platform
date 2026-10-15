@@ -11,6 +11,7 @@ const base: WebhookStatusOverview = {
   sources: [],
   volume: [],
   rejections: [],
+  spools: [],
 };
 
 describe("volumeSeries", () => {
@@ -67,6 +68,7 @@ describe("volumeSeries", () => {
 describe("outcomeLabel", () => {
   it("names known outcomes and spells out unknown ones", () => {
     expect(outcomeLabel("buffer_full")).toBe("Buffer full");
+    expect(outcomeLabel("spool_full")).toBe("Spool full");
     expect(outcomeLabel("unknown_source")).toBe("Unknown source");
   });
 });

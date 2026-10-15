@@ -154,7 +154,8 @@ var (
 // raw bytes is not a page. The platform has no link between assets, and a
 // write that makes one is refused rather than stored as a link that goes
 // nowhere (#1875). A Markdown image, ![alt](ref), loads its destination and is
-// not a link.
+// not a link, and neither is an anchor with a download attribute, which saves
+// the file (#2127).
 func Linked(body, contentType string) []string {
 	switch contenttype.Normalize(contentType) {
 	case contenttype.HTML, contenttype.XHTML, contenttype.JSX, contenttype.SVG:
@@ -167,10 +168,15 @@ func Linked(body, contentType string) []string {
 	}
 }
 
-// anchorRefs returns the reference each anchor in body links to.
+// anchorRefs returns the reference each anchor in body links to. An anchor
+// with a download attribute is not a link: it saves the file it names, which
+// is what a reference is served as (#2127).
 func anchorRefs(body string) []string {
 	var out []string
 	for _, tag := range anchorTag.FindAllString(body, -1) {
+		if IsDownloadAnchor(tag) {
+			continue
+		}
 		for _, loc := range hrefValue.FindAllStringIndex(tag, -1) {
 			if uri := refAt(tag[loc[1]:]); uri != "" {
 				out = append(out, uri)
@@ -217,4 +223,52 @@ func dedupe(in []string) []string {
 		}
 	}
 	return out
+}
+
+var (
+	// quotedValue is an attribute value in quotes, or a JSX expression in
+	// braces. Its text says nothing about which attributes the tag has.
+	quotedValue = regexp.MustCompile(`"[^"]*"|'[^']*'|\{[^{}]*\}`)
+
+	// downloadAttr is the download attribute, bare or with a value. The
+	// whitespace before it keeps data-download and similar names out.
+	downloadAttr = regexp.MustCompile(`(?i)\sdownload(?:[\s=/>]|$)`)
+)
+
+// IsDownloadAnchor reports whether an <a> or <area> tag, from its '<' to its
+// '>', carries a download attribute: the reader saves what it names rather
+// than following it.
+func IsDownloadAnchor(tag string) bool {
+	return downloadAttr.MatchString(quotedValue.ReplaceAllString(tag, `""`))
+}
+
+// RewriteDownloadAnchors returns body with the reference each download anchor
+// names replaced by what replace returns for it, leaving every other anchor
+// and every other occurrence of the reference as written. replace reports
+// false for a reference it does not serve, which is left as written. It is
+// what lets the serving rewrite give a download anchor a URL that serves the
+// file as an attachment while an <img> naming the same file loads it.
+func RewriteDownloadAnchors(body string, replace func(ref string) (string, bool)) string {
+	return anchorTag.ReplaceAllStringFunc(body, func(tag string) string {
+		if !IsDownloadAnchor(tag) {
+			return tag
+		}
+		var b strings.Builder
+		last := 0
+		for _, loc := range hrefValue.FindAllStringIndex(tag, -1) {
+			uri := refAt(tag[loc[1]:])
+			if uri == "" {
+				continue
+			}
+			to, ok := replace(uri)
+			if !ok {
+				continue
+			}
+			_, _ = b.WriteString(tag[last:loc[1]])
+			_, _ = b.WriteString(to)
+			last = loc[1] + len(uri)
+		}
+		_, _ = b.WriteString(tag[last:])
+		return b.String()
+	})
 }

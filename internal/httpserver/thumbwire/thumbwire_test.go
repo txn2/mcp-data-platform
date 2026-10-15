@@ -284,3 +284,20 @@ func TestScriptTiles_NeedsTheDatabaseAndTheStorage(t *testing.T) {
 		t.Error("a database and storage read the tile")
 	}
 }
+
+// The renderer's egress guard takes the private prefixes the thumbnails
+// section allows, and refuses to start on one that does not parse (#2122).
+func TestNewRendererTakesTheAllowedPrivatePrefixes(t *testing.T) {
+	cfg := &platform.Config{}
+	if _, err := NewRenderer(cfg); err != nil {
+		t.Fatalf("no prefixes: %v", err)
+	}
+	cfg.Thumbnails.AllowPrivateCIDRs = []string{"10.20.0.0/16"}
+	if _, err := NewRenderer(cfg); err != nil {
+		t.Fatalf("a valid prefix: %v", err)
+	}
+	cfg.Thumbnails.AllowPrivateCIDRs = []string{"not-a-prefix"}
+	if _, err := NewRenderer(cfg); err == nil {
+		t.Fatal("a prefix that does not parse was accepted")
+	}
+}

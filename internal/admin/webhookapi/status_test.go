@@ -28,7 +28,8 @@ func TestStatusEveryListIsEmptyWithNoSources(t *testing.T) {
 		"silent_after_seconds": 86400,
 		"sources": [],
 		"volume": [],
-		"rejections": []
+		"rejections": [],
+		"spools": []
 	}`, rec.Body.String(), "every list is [] when there is nothing, never null")
 	assert.Equal(t, time.Hour, svc.span)
 	assert.Equal(t, time.Minute, svc.step)
@@ -119,4 +120,33 @@ func TestStatusRefusals(t *testing.T) {
 	rec = do(newMux(&fakeService{err: errors.New("pq: down")}), http.MethodGet, statusPath, "")
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "pq:", "an unexpected failure is not echoed")
+}
+
+// Every receiver's spool is reported by replica, with the bounds and the
+// drain's progress, and whether it still reports (#2121).
+func TestStatusReportsEverySpool(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	oldest := now.Add(-30 * time.Second)
+	svc := &fakeService{overview: whadmin.Overview{
+		Now: now, Since: now.Add(-time.Hour), Step: time.Minute,
+		Spools: []whadmin.SpoolOverview{{Reporting: true, State: whstore.SpoolState{
+			Replica: "mcp-0", Dir: "/var/spool", Bytes: 4096, Events: 12, Files: 2, Oldest: &oldest,
+			MaxBytes: 1 << 30, MaxAge: time.Hour, Drained: 900, DrainFailures: 3, LastError: "put: timeout",
+			StartedAt: now.Add(-time.Hour), UpdatedAt: now,
+		}}},
+	}}
+	rec := do(newMux(svc), http.MethodGet, statusPath, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got StatusOverview
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Spools, 1)
+	sp := got.Spools[0]
+	assert.Equal(t, "mcp-0", sp.Replica)
+	assert.Equal(t, int64(12), sp.Events)
+	assert.Equal(t, int64(3600), sp.MaxAgeSeconds)
+	assert.Equal(t, int64(900), sp.DrainedEvents)
+	assert.Equal(t, "put: timeout", sp.LastError)
+	assert.True(t, sp.Reporting)
+	require.NotNil(t, sp.OldestAt)
+	assert.Nil(t, sp.LastDrainAt)
 }

@@ -32,7 +32,7 @@ const defaultStatusRange = "hour"
 // status handles GET /api/v1/admin/webhooks/status.
 //
 // @Summary      Status of every webhook source
-// @Description  Returns every source's health, counts and acknowledgement latency in one response, the request volume by source and outcome over the range, and the newest 50 rejected requests of each outcome across all sources whose latest rejection falls within the range, each with its source (never a body). With `source`, every part of the response is that one source's. A rejected request whose events were read names them: `request_hash` is the SHA-256 of its body and `event_ids` the ids of its first 20 events. Latency is how long a delivery answered 202 waited for that answer, over the last hour and the last day; `p50_ms` and `p99_ms` are the upper bound of the bucket the percentile falls in (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms), capped at `max_ms`, and `slowest` is the slowest delivery with how long it spent in the buffer, recording its window and writing its segment. Health is disabled for a source turned off, failing for one with a window whose last compaction failed, silent for an enabled source that received no event in the last 24 hours (including one that never received any), and receiving otherwise; when more than one applies the first in that order is reported. The volume series reads the per-minute request counts at or after `from`, the same bound as each source's `last_hour` (range=hour) or `last_day` (range=day), so the series sums to those counts.
+// @Description  Returns every source's health, counts and acknowledgement latency in one response, the request volume by source and outcome over the range, and the newest 50 rejected requests of each outcome across all sources whose latest rejection falls within the range, each with its source (never a body). With `source`, every part of the response is that one source's. A rejected request whose events were read names them: `request_hash` is the SHA-256 of its body and `event_ids` the ids of its first 20 events. Latency is how long a delivery answered 202 waited for that answer, over the last hour and the last day; `p50_ms` and `p99_ms` are the upper bound of the bucket the percentile falls in (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms), capped at `max_ms`, and `slowest` is the slowest delivery with how long it spent in the buffer, recording its window and writing its segment. Health is disabled for a source turned off, failing for one with a window whose last compaction failed, silent for an enabled source that received no event in the last 24 hours (including one that never received any), and receiving otherwise; when more than one applies the first in that order is reported. The volume series reads the per-minute request counts at or after `from`, the same bound as each source's `last_hour` (range=hour) or `last_day` (range=day), so the series sums to those counts. `spools` is every receiver's local spool, by replica, whatever `source` names: the events it acknowledged once they were synced to its disk and has not yet drained to object storage, the bounds past which it answers 503, and how its drain is going; a receiver that has not reported for two minutes is `reporting: false`, and what it holds waits for it to start again.
 // @Tags         Webhooks
 // @Produce      json
 // @Param        range   query  string  false  "Span of the volume series and the rejections: hour (one-minute buckets) or day (fifteen-minute buckets)"  Enums(hour, day)  default(hour)
@@ -76,6 +76,16 @@ func overviewOf(rangeName string, ov whadmin.Overview) StatusOverview {
 		Sources:            make([]SourceStatus, 0, len(ov.Sources)),
 		Volume:             make([]VolumePoint, 0, len(ov.Volume)),
 		Rejections:         make([]SourceRejection, 0, len(ov.Rejections)),
+		Spools:             make([]ReplicaSpool, 0, len(ov.Spools)),
+	}
+	for _, sp := range ov.Spools {
+		st := sp.State
+		out.Spools = append(out.Spools, ReplicaSpool{
+			Replica: st.Replica, Dir: st.Dir, Bytes: st.Bytes, Events: st.Events, Files: st.Files,
+			OldestAt: st.Oldest, MaxBytes: st.MaxBytes, MaxAgeSeconds: int64(st.MaxAge / time.Second),
+			DrainedEvents: st.Drained, DrainFailures: st.DrainFailures, LastDrainAt: st.LastDrainAt,
+			LastError: st.LastError, StartedAt: st.StartedAt, UpdatedAt: st.UpdatedAt, Reporting: sp.Reporting,
+		})
 	}
 	for _, s := range ov.Sources {
 		out.Sources = append(out.Sources, SourceStatus{

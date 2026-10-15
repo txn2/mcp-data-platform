@@ -456,8 +456,9 @@ blob: data:` for a collection, whose items open in a same-origin iframe.
   `<script>` blocks are the artifact. A per-response nonce would cover the page
   and blank every HTML asset, since the inherited policy would reject script the
   server never saw. What isolates an artifact is the frame —
-  `sandbox="allow-scripts"` without `allow-same-origin`, so artifact script runs
-  in an opaque origin.
+  `sandbox="allow-scripts allow-downloads"` without `allow-same-origin`, so
+  artifact script runs in an opaque origin; `allow-downloads` (#2127) lets a
+  download the reader starts go ahead.
 - `script-src 'self'` is what lets the page load the viewer bundle from
   `/portal/view/_assets/` and fetch the rest of its chunks. On an https
   deployment `https:` already covered it; `'self'` is what makes a plaintext

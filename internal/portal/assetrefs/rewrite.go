@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
@@ -31,6 +32,19 @@ import (
 // prefix is what lets the composition root mount it outside the portal's
 // authentication chain instead of carving an exception out of it.
 const PathPrefix = "/portal/refs/"
+
+// downloadQuery marks a reference URL that serves the target as an attachment
+// rather than inline (#2127).
+const downloadQuery = "download=1"
+
+// DownloadURL is URL serving the target as an attachment: what a download
+// anchor naming a declared reference is rewritten to. A sandboxed frame has an
+// opaque origin, so a browser ignores the anchor's download attribute on any
+// URL it could fetch and navigates instead; the attachment disposition is
+// what turns that navigation into a saved file.
+func DownloadURL(base, assetID, refToken string) string {
+	return URL(base, assetID, refToken) + "?" + downloadQuery
+}
 
 // URL returns the absolute, credential-free URL a reference is served under.
 //
@@ -120,7 +134,7 @@ func Rewrite(content []byte, contentType, base, assetID string, refs []Ref) []by
 		return content
 	}
 	in := string(content)
-	out := strings.NewReplacer(pairs...).Replace(in)
+	out := strings.NewReplacer(pairs...).Replace(downloads(in, contentType, base, assetID, refs))
 	if out == in {
 		// Returning the caller's slice rather than a fresh one keeps a read
 		// that changed nothing from costing a copy of the whole document.
@@ -158,4 +172,29 @@ func replacements(base, assetID string, refs []Ref) []string {
 		pairs = append(pairs, ref.URI, URL(base, assetID, ref.RefToken))
 	}
 	return pairs
+}
+
+// downloads rewrites the declared references the content's download anchors
+// name to their attachment URL, ahead of the rewrite of every other
+// occurrence. Only markup has anchors: a CSV or JSON body is data, and text in
+// it that looks like an anchor is left alone.
+func downloads(content, contentType, base, assetID string, refs []Ref) string {
+	switch contenttype.Normalize(contentType) {
+	case contenttype.HTML, contenttype.XHTML, contenttype.JSX, contenttype.SVG, contenttype.Markdown:
+	default:
+		return content
+	}
+	tokens := make(map[string]string, len(refs))
+	for _, ref := range refs {
+		if ref.URI != "" && ref.RefToken != "" {
+			tokens[ref.URI] = ref.RefToken
+		}
+	}
+	return contentrefs.RewriteDownloadAnchors(content, func(uri string) (string, bool) {
+		token, ok := tokens[uri]
+		if !ok {
+			return "", false
+		}
+		return DownloadURL(base, assetID, token), true
+	})
 }

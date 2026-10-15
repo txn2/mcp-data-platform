@@ -225,7 +225,7 @@ query them; the tab is the at-a-glance read.
 | `connection_oauth_credentials` | gauge | `kind`, `state` (`ok`, `expiring`, `revoked`, `missing`) |
 | `thumbnail_renderer_up` | gauge | (none) |
 | `thumbnail_render_duration_seconds` | histogram | `kind` |
-| `thumbnail_render_failures_total` | counter | `kind`, `reason` (`document`, `renderer`, `storage`, `undrawable`) |
+| `thumbnail_render_failures_total` | counter | `kind`, `reason` (`document`, `renderer`, `storage`, `subresource`, `undrawable`) |
 | `audit_writer_queue_depth` | gauge | (none) |
 | `audit_write_duration_seconds` | histogram | `result` (`ok`, `error`, `timeout`) |
 | `pg_listen_connected` | gauge | `loop` |

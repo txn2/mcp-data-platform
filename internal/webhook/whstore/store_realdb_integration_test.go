@@ -472,3 +472,30 @@ func TestIdentifiedRejectionsRealDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, all.Rejections, 5)
 }
+
+// TestWebhookSpoolStateRealDB writes a receiver's spool state twice and reads
+// it back, and removes a replica that stopped reporting a week ago (#2121).
+func TestWebhookSpoolStateRealDB(t *testing.T) {
+	db := testdb.New(t)
+	st := New(db)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	oldest := now.Add(-time.Minute)
+	require.NoError(t, st.RecordSpool(ctx, SpoolState{
+		Replica: "gone", Dir: "/s", StartedAt: now.Add(-9 * 24 * time.Hour), UpdatedAt: now.Add(-8 * 24 * time.Hour),
+	}))
+	require.NoError(t, st.RecordSpool(ctx, SpoolState{Replica: "mcp-0", Dir: "/s", Events: 1, StartedAt: now, UpdatedAt: now}))
+	require.NoError(t, st.RecordSpool(ctx, SpoolState{
+		Replica: "mcp-0", Dir: "/s", Bytes: 99, Events: 3, Files: 1, Oldest: &oldest, MaxBytes: 1 << 30,
+		MaxAge: time.Hour, Drained: 7, DrainFailures: 1, LastError: "boom", StartedAt: now, UpdatedAt: now,
+	}))
+	got, err := st.SpoolStates(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "the replica that stopped reporting a week ago is removed")
+	assert.Equal(t, "mcp-0", got[0].Replica)
+	assert.Equal(t, int64(3), got[0].Events)
+	assert.Equal(t, time.Hour, got[0].MaxAge)
+	require.NotNil(t, got[0].Oldest)
+	assert.True(t, oldest.Equal(*got[0].Oldest))
+	assert.Equal(t, "boom", got[0].LastError)
+}

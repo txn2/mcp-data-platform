@@ -8,6 +8,11 @@
 // and backpressure is the sender's own retry queue: a full buffer or a failed
 // write is answered 503 with Retry-After, and the platform keeps no backlog of
 // its own beyond each source's buffer limit.
+//
+// A receiver given a spool (#2121) answers 202 once the events are synced to
+// its own disk instead, so a sender's wait is local disk latency rather than
+// object storage's, and drains them to object storage behind the answer; see
+// spool.go.
 package receiver
 
 import (
@@ -76,6 +81,11 @@ type Config struct {
 	// MissRefresh is the least time between two re-reads of the sources made
 	// for requests naming a source this replica does not serve.
 	MissRefresh time.Duration
+	// Spool, when set, is the receiver's local spool (#2121): a request is
+	// answered once its events are synced to it, and drained to object
+	// storage behind the answer. Nil answers once they are in object storage.
+	Spool       Spool
+	SpoolLimits SpoolLimits
 	Now         func() time.Time
 }
 
@@ -88,7 +98,13 @@ type Receiver struct {
 	mu       sync.RWMutex
 	sources  map[string]served
 	buffers  map[string]*buffer
+	drainers map[string]*drainer
 	limiters map[string]*limiter
+
+	// started is when the receiver was built; spool is how its drain has
+	// gone since.
+	started time.Time
+	spool   spoolTally
 
 	// missMu guards the re-reads requests for a name not served wait on:
 	// lastMiss is when the last of them started, and nextMiss the one not
@@ -173,7 +189,9 @@ func New(cfg Config) *Receiver {
 		writer:     whlayout.ReplicaSlug(cfg.Replica) + "-" + strconv.FormatInt(start.UnixNano(), writerIDBase),
 		sources:    map[string]served{},
 		buffers:    map[string]*buffer{},
+		drainers:   map[string]*drainer{},
 		limiters:   map[string]*limiter{},
+		started:    start,
 		counts:     map[countKey]int64{},
 		latency:    map[latencyKey]*whstore.Latency{},
 		regPending: map[string]rawWindow{},
@@ -198,6 +216,7 @@ func (r *Receiver) Start(ctx context.Context) {
 	go r.refreshLoop()
 	go r.statsLoop()
 	go r.registerLoop()
+	r.startDrains()
 }
 
 // Stop writes every pending buffer, answering the requests waiting on them,
@@ -396,6 +415,9 @@ func (r *Receiver) flushStats(ctx context.Context) error {
 	r.statsMu.Unlock()
 
 	var errs []error
+	if err := r.flushSpool(ctx); err != nil {
+		errs = append(errs, err)
+	}
 	if err := r.cfg.Recorder.RecordLatency(ctx, latency); err != nil {
 		r.cfg.Logger.WarnContext(ctx, "webhooks: writing acknowledgement latency", logKeyError, logsan.SanitizeForLog(err.Error()))
 		r.restoreLatency(latency)

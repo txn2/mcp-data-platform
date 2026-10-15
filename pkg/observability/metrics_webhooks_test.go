@@ -22,6 +22,9 @@ func TestWebhookInstruments_Exposed(t *testing.T) {
 	m.WebhookBuffer(ctx, "esp", 42)
 	m.WebhookCompaction(ctx, "esp", "compacted")
 	m.WebhookDuplicatesDropped(ctx, "esp", 7)
+	m.WebhookSpool(ctx, 4096, 12, 3, 90*time.Second)
+	m.WebhookSpoolDrained(ctx, "esp", 12)
+	m.WebhookSpoolDrainFailed(ctx, "esp")
 
 	body := scrapeMetrics(t, m.Handler())
 	for _, want := range []string{
@@ -33,6 +36,12 @@ func TestWebhookInstruments_Exposed(t *testing.T) {
 		`webhook_compactions_total{result="compacted",source="esp"} 1`,
 		`webhook_duplicates_dropped_total{source="esp"} 7`,
 		`webhook_ack_seconds_count{source="esp"} 1`,
+		`webhook_spool_bytes 4096`,
+		`webhook_spool_events 12`,
+		`webhook_spool_files 3`,
+		`webhook_spool_oldest_age_seconds 90`,
+		`webhook_spool_drained_events_total{source="esp"} 12`,
+		`webhook_spool_drain_failures_total{source="esp"} 1`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scrape missing %q", want)
@@ -50,6 +59,9 @@ func TestWebhookInstruments_NilSafe(_ *testing.T) {
 	m.WebhookBuffer(ctx, "a", 1)
 	m.WebhookCompaction(ctx, "a", "b")
 	m.WebhookDuplicatesDropped(ctx, "a", 1)
+	m.WebhookSpool(ctx, 1, 1, 1, time.Second)
+	m.WebhookSpoolDrained(ctx, "a", 1)
+	m.WebhookSpoolDrainFailed(ctx, "a")
 	empty := &Metrics{}
 	empty.WebhookRequest(ctx, "a", "b")
 	empty.WebhookEvents(ctx, "a", 1)
@@ -58,4 +70,7 @@ func TestWebhookInstruments_NilSafe(_ *testing.T) {
 	empty.WebhookBuffer(ctx, "a", 1)
 	empty.WebhookCompaction(ctx, "a", "b")
 	empty.WebhookDuplicatesDropped(ctx, "a", 1)
+	empty.WebhookSpool(ctx, 1, 1, 1, time.Second)
+	empty.WebhookSpoolDrained(ctx, "a", 1)
+	empty.WebhookSpoolDrainFailed(ctx, "a")
 }

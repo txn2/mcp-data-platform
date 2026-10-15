@@ -101,7 +101,7 @@ var storedColumns = []string{
 // Both halves read the artifact's own record of its sources rather than a link
 // table maintained beside it, so a record's outcome cannot disagree with the
 // asset or the insight that gives it meaning. The capture route wins when both
-// apply: an agent that wrote a description of what the query answers has said
+// apply: an agent that wrote a description of what the query computes has said
 // more than a save that happened to include it.
 //
 // The asset half distinguishes an export from a save by the tool that took the

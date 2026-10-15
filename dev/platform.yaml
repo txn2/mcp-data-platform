@@ -560,6 +560,11 @@ thumbnails:
   # half (#1868); test/acceptance/issue_1868_test.go is stated against these.
   max_attempts: 2
   retry_backoff: 5s
+  # The one private address a document's stylesheet or script may be fetched
+  # from on the dev stack (#2122): the acceptance suite serves a stylesheet
+  # there that fails and then answers, to show a tile drawn without it is
+  # retried rather than stored. A deployment names its internal CDN here.
+  allow_private_cidrs: ["127.0.0.1/32"]
 
 # Managed resources share the portal bucket in dev. Without this block they
 # default to a "resources" bucket the dev SeaweedFS never creates, and every
@@ -649,12 +654,22 @@ scripts:
     max_seconds: 900
 
 # Inbound webhooks (#1870). Sources are created in the portal (Admin >
-# Webhooks) on acme-scratch-resources, whose catalog reads the MinIO store the
-# managed resources live in. The compactor polls and applies retention more
+# Webhooks) on acme-scratch-resources, whose catalog reads the SeaweedFS store
+# the managed resources live in. The compactor polls and applies retention more
 # often than the defaults and waits five seconds after a window ends rather
 # than two minutes, so a source compacting every minute shows its compaction
 # and retention within seconds of their being owed.
+#
+# The spool (#2121) is off on the two replicas dev/start.sh runs: the
+# DEV_WEBHOOK_SPOOL_* variables are unset there. The acceptance suite starts a
+# replica of its own with them set (test/acceptance/issue_2121_test.go), so the
+# criteria about a stalled object store and a killed replica run against a
+# process they can stall and kill without touching the others.
 webhooks:
+  receiver:
+    spool:
+      dir: "${DEV_WEBHOOK_SPOOL_DIR:-}"
+      max_bytes: ${DEV_WEBHOOK_SPOOL_MAX_BYTES:-0}
   compactor:
     poll: 10s
     grace: 5s

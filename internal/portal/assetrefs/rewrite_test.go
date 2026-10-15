@@ -198,3 +198,19 @@ func TestBaseURLWithNothingToResolve(t *testing.T) {
 	assert.Equal(t, "/portal/refs/asset_1/tok-logo",
 		assetrefs.URL(assetrefs.BaseURL(req, ""), testAssetID, logoToken))
 }
+
+// TestRewriteGivesADownloadAnchorItsAttachmentURL: an anchor with a download
+// attribute naming a declared file is rewritten to the URL that serves it as
+// an attachment, and every other use of the file to the plain one (#2127).
+// Data is not markup, so a CSV holding anchor-like text is left to the plain
+// rewrite.
+func TestRewriteGivesADownloadAnchorItsAttachmentURL(t *testing.T) {
+	in := `<img src="` + logoURI + `"><a href="` + logoURI + `" download>save</a>`
+	got := string(assetrefs.Rewrite([]byte(in), "text/html", testBase, testAssetID, refs([2]string{logoURI, logoToken})))
+	plain := assetrefs.URL(testBase, testAssetID, logoToken)
+	assert.Equal(t, `<img src="`+plain+`"><a href="`+plain+`?download=1" download>save</a>`, got)
+
+	csv := `a,"<a href=""` + logoURI + `"" download>"`
+	got = string(assetrefs.Rewrite([]byte(csv), "text/csv", testBase, testAssetID, refs([2]string{logoURI, logoToken})))
+	assert.NotContains(t, got, "download=1")
+}

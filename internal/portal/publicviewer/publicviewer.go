@@ -57,9 +57,9 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 //     page and blank every HTML asset, because the inherited policy would
 //     then reject script the server never saw. What isolates an artifact is
 //     the frame, not this directive: the renderers set
-//     sandbox="allow-scripts" without allow-same-origin, so artifact script
-//     runs in an opaque origin with no reach into the viewer's origin or
-//     storage.
+//     sandbox="allow-scripts allow-downloads" without allow-same-origin, so
+//     artifact script runs in an opaque origin with no reach into the
+//     viewer's origin or storage.
 //   - script-src 'self' — the content-viewer bundle is loaded from
 //     /portal/view/_assets/ as a module rather than inlined, and its chunks
 //     are fetched by the same directive as it renders each family (#1355).

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Plus, Webhook } from "lucide-react";
 import { useWebhookStatus } from "@/api/admin/hooks";
 import type {
+  WebhookReplicaSpool,
   WebhookSourceRejection,
   WebhookSourceStatus,
   WebhookStatusOverview,
@@ -10,6 +11,7 @@ import type {
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { relativeTime } from "@/components/provenance/parts";
+import { formatBytes } from "@/lib/format";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -94,6 +96,7 @@ export function WebhooksPage({ onNavigate }: { onNavigate: (path: string) => voi
             onSource={setSource}
           />
           <SourcesTable sources={data?.sources} isLoading={isLoading} onOpen={open} />
+          <SpoolSection spools={data?.spools} />
           <RejectionsSection
             rejections={rejections}
             isLoading={isLoading || loading}
@@ -316,6 +319,74 @@ function RejectionsSection({
           <RejectionsTable rows={rejections} showSource onOpen={(r) => onOpen(r.source)} />
         </>
       )}
+    </SectionCard>
+  );
+}
+
+/** SpoolSection is every receiver's local spool (#2121): what each replica
+ * acknowledged and has not yet drained to object storage. It is shown only
+ * where a receiver spools. */
+function SpoolSection({ spools }: { spools: WebhookReplicaSpool[] | undefined }) {
+  if (!spools || spools.length === 0) return null;
+  return (
+    <SectionCard title="Spool">
+      <p className="mb-2 text-xs text-muted-foreground">
+        Each receiver with a spool answers a request once its events are on its own disk, and drains them to
+        object storage after. Events waiting here are acknowledged and not yet in a table. A receiver that is not
+        reporting has stopped, and drains what it holds when it starts again.
+      </p>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Replica</TableHead>
+              <TableHead className="text-right">Waiting</TableHead>
+              <TableHead className="text-right">Size</TableHead>
+              <TableHead>Oldest waiting</TableHead>
+              <TableHead className="text-right">Drained</TableHead>
+              <TableHead className="text-right">Drain failures</TableHead>
+              <TableHead>Last error</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {spools.map((s) => (
+              <TableRow key={s.replica}>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs" title={s.dir}>
+                      {s.replica}
+                    </span>
+                    <Badge
+                      variant={s.reporting ? "success" : "warning"}
+                      title={s.reporting ? `Last reported ${relativeTime(s.updated_at)}` : `No report since ${new Date(s.updated_at).toLocaleString()}`}
+                    >
+                      {s.reporting ? "Reporting" : "Not reporting"}
+                    </Badge>
+                  </div>
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{s.events.toLocaleString()}</TableCell>
+                <TableCell className="text-right tabular-nums" title={`Bound: ${formatBytes(s.max_bytes)}`}>
+                  {formatBytes(s.bytes)}
+                </TableCell>
+                <TableCell className="text-xs">
+                  {s.oldest_at ? (
+                    <span title={`${new Date(s.oldest_at).toLocaleString()}; bound: ${formatMs(s.max_age_seconds * 1000)}`}>
+                      {relativeTime(s.oldest_at)}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">None</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{s.drained_events.toLocaleString()}</TableCell>
+                <TableCell className="text-right tabular-nums">{s.drain_failures.toLocaleString()}</TableCell>
+                <TableCell className="max-w-xs truncate text-xs text-muted-foreground" title={s.last_error}>
+                  {s.last_error || "None"}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </SectionCard>
   );
 }

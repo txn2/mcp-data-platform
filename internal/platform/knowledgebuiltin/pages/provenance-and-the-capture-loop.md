@@ -41,6 +41,28 @@ The **purpose** on each call is the one sentence you state when making it. It
 is why an asset can say not only what ran but what it was for; write it for the
 person who will read the provenance panel, not for the tool.
 
+## What a capture holds and what it must not
+
+A capture records a fact about the data, never the data itself. Knowledge is
+read by every persona, including those that cannot query the source a fact came
+from, so a result copied into a capture escapes that source's access control,
+and it goes stale the moment the source changes. Record the method (source,
+join, filter, unit, trap) with the `mcp:call:<id>` that proves it, and a reader
+with access re-runs it at the source. Totals, counts, averages, shares,
+rankings, comparisons, per-entity figures and row values do not belong in a
+capture; a number belongs only when it is a stable definition, such as a
+divisor, a code or a threshold.
+
+Before: "Q3 revenue in the west region was $4.2M, up 12% on Q2."
+
+After: "Regional revenue comes from `sales.orders` joined to `stores` on
+`store_id`; `amount` is in cents and excludes returns, so divide by 100 and
+subtract `returns.amount` for net revenue."
+
+The same rule holds at review: `apply_knowledge` shares what it applies with
+every persona, so a reviewer strips figures and row values before applying and
+rejects an insight that is only figures.
+
 ## The capture loop: from conversation to catalog
 
 Domain knowledge shared during a session — what a column actually means, which

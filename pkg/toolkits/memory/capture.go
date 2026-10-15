@@ -482,7 +482,7 @@ var memoryCaptureSchema = json.RawMessage(`{
       "type": "string",
       "description": "Organizing axis (a hint, not a binding route): personal_preference (your working style/preference) and episodic_event (a one-off event) are live for you immediately; business_knowledge (a durable business fact), schema_entity (knowledge about a specific dataset/column, with entity_urns), and operational_rule (a how-to-operate rule) enter review for promotion to shared knowledge. The promotion destination (a catalog entity vs a knowledge page) is chosen at apply time, suggested by whether the insight carries entity_urns; it is not frozen here."
     },
-    "content": {"type": "string", "description": "The knowledge to record (10-4000 chars)."},
+    "content": {"type": "string", "description": "The knowledge to record (10-4000 chars): a fact about data (meaning, method, traps, definitions), never query results or row values; the source stays the system of record."},
     "category": {"type": "string", "description": "Optional sub-type: correction, business_context, data_quality, usage_guidance, relationship, enhancement, general (default business_context)."},
     "entity_urns": {"type": "array", "items": {"type": "string"}, "description": "Catalog references this capture is about, e.g. mcp:dataset:(trino,<connection>,<catalog>.<schema>.<table>) (schema_entity); max 10."},
     "related_columns": {"type": "array", "items": {"type": "object"}, "description": "Optional columns this capture relates to; max 20."},

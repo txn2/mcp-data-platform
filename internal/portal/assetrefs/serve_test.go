@@ -3,6 +3,7 @@ package assetrefs_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -455,4 +456,21 @@ func TestServeSurvivesTheTargetMovingLibrary(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "PNGBYTES", rec.Body.String(),
 		"the reference names the row, and the row still holds the same object")
+}
+
+// TestServeDownloadIsAnAttachment: the URL a download anchor is rewritten to
+// serves the file as an attachment, which is what makes a navigation from a
+// sandboxed frame save it; the plain URL keeps serving it inline (#2127).
+func TestServeDownloadIsAnAttachment(t *testing.T) {
+	h := serveFixture(t, readyDeps(loadedRefs(), logoBlobs()))
+
+	rec := get(t, h, assetrefs.PathPrefix+testAssetID+"/"+logoToken+"?download=1")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, strings.HasPrefix(rec.Header().Get("Content-Disposition"), "attachment"),
+		"got %q", rec.Header().Get("Content-Disposition"))
+	assert.Equal(t, "PNGBYTES", rec.Body.String())
+
+	rec = get(t, h, assetrefs.PathPrefix+testAssetID+"/"+logoToken)
+	assert.False(t, strings.HasPrefix(rec.Header().Get("Content-Disposition"), "attachment"),
+		"got %q", rec.Header().Get("Content-Disposition"))
 }

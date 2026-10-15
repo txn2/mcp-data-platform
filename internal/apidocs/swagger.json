@@ -10916,7 +10916,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every source's health, counts and acknowledgement latency in one response, the request volume by source and outcome over the range, and the newest 50 rejected requests of each outcome across all sources whose latest rejection falls within the range, each with its source (never a body). With `source`, every part of the response is that one source's. A rejected request whose events were read names them: `request_hash` is the SHA-256 of its body and `event_ids` the ids of its first 20 events. Latency is how long a delivery answered 202 waited for that answer, over the last hour and the last day; `p50_ms` and `p99_ms` are the upper bound of the bucket the percentile falls in (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms), capped at `max_ms`, and `slowest` is the slowest delivery with how long it spent in the buffer, recording its window and writing its segment. Health is disabled for a source turned off, failing for one with a window whose last compaction failed, silent for an enabled source that received no event in the last 24 hours (including one that never received any), and receiving otherwise; when more than one applies the first in that order is reported. The volume series reads the per-minute request counts at or after `from`, the same bound as each source's `last_hour` (range=hour) or `last_day` (range=day), so the series sums to those counts.",
+                "description": "Returns every source's health, counts and acknowledgement latency in one response, the request volume by source and outcome over the range, and the newest 50 rejected requests of each outcome across all sources whose latest rejection falls within the range, each with its source (never a body). With `source`, every part of the response is that one source's. A rejected request whose events were read names them: `request_hash` is the SHA-256 of its body and `event_ids` the ids of its first 20 events. Latency is how long a delivery answered 202 waited for that answer, over the last hour and the last day; `p50_ms` and `p99_ms` are the upper bound of the bucket the percentile falls in (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms), capped at `max_ms`, and `slowest` is the slowest delivery with how long it spent in the buffer, recording its window and writing its segment. Health is disabled for a source turned off, failing for one with a window whose last compaction failed, silent for an enabled source that received no event in the last 24 hours (including one that never received any), and receiving otherwise; when more than one applies the first in that order is reported. The volume series reads the per-minute request counts at or after `from`, the same bound as each source's `last_hour` (range=hour) or `last_day` (range=day), so the series sums to those counts. `spools` is every receiver's local spool, by replica, whatever `source` names: the events it acknowledged once they were synced to its disk and has not yet drained to object storage, the bounds past which it answers 503, and how its drain is going; a receiver that has not reported for two minutes is `reporting: false`, and what it holds waits for it to start again.",
                 "produces": [
                     "application/json"
                 ],
@@ -39191,6 +39191,61 @@
                 }
             }
         },
+        "webhookapi.ReplicaSpool": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "dir": {
+                    "type": "string"
+                },
+                "drain_failures": {
+                    "type": "integer"
+                },
+                "drained_events": {
+                    "description": "DrainedEvents and DrainFailures count since the receiver started.",
+                    "type": "integer"
+                },
+                "events": {
+                    "type": "integer"
+                },
+                "files": {
+                    "type": "integer"
+                },
+                "last_drain_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "description": "LastError is the newest drain failure, cleared by a drain that\nsucceeds.",
+                    "type": "string"
+                },
+                "max_age_seconds": {
+                    "type": "integer"
+                },
+                "max_bytes": {
+                    "description": "MaxBytes and MaxAgeSeconds are the bounds past which the receiver\nanswers 503 with Retry-After.",
+                    "type": "integer"
+                },
+                "oldest_at": {
+                    "description": "OldestAt is when the oldest event waiting was received; null when the\nspool is empty.",
+                    "type": "string"
+                },
+                "replica": {
+                    "type": "string"
+                },
+                "reporting": {
+                    "description": "Reporting is false for a receiver that has not reported for two\nminutes: it stopped, and what it holds waits for it to start again.",
+                    "type": "boolean"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "webhookapi.SourceDetail": {
             "type": "object",
             "properties": {
@@ -39422,6 +39477,13 @@
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/webhookapi.SourceStatus"
+                    }
+                },
+                "spools": {
+                    "description": "Spools is every receiver's local spool, by replica: empty where no\nreceiver spools (#2121).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/webhookapi.ReplicaSpool"
                     }
                 },
                 "volume": {

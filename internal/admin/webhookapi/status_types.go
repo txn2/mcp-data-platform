@@ -26,6 +26,39 @@ type StatusOverview struct {
 	Sources            []SourceStatus    `json:"sources"`
 	Volume             []VolumePoint     `json:"volume"`
 	Rejections         []SourceRejection `json:"rejections"`
+	// Spools is every receiver's local spool, by replica: empty where no
+	// receiver spools (#2121).
+	Spools []ReplicaSpool `json:"spools"`
+}
+
+// ReplicaSpool is one receiver's local spool as it last reported it (#2121):
+// the events it acknowledged and has not yet drained to object storage, and
+// how its drain is going.
+type ReplicaSpool struct {
+	Replica string `json:"replica"`
+	Dir     string `json:"dir"`
+	Bytes   int64  `json:"bytes"`
+	Events  int64  `json:"events"`
+	Files   int    `json:"files"`
+	// OldestAt is when the oldest event waiting was received; null when the
+	// spool is empty.
+	OldestAt *time.Time `json:"oldest_at"`
+	// MaxBytes and MaxAgeSeconds are the bounds past which the receiver
+	// answers 503 with Retry-After.
+	MaxBytes      int64 `json:"max_bytes"`
+	MaxAgeSeconds int64 `json:"max_age_seconds"`
+	// DrainedEvents and DrainFailures count since the receiver started.
+	DrainedEvents int64      `json:"drained_events"`
+	DrainFailures int64      `json:"drain_failures"`
+	LastDrainAt   *time.Time `json:"last_drain_at"`
+	// LastError is the newest drain failure, cleared by a drain that
+	// succeeds.
+	LastError string    `json:"last_error"`
+	StartedAt time.Time `json:"started_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	// Reporting is false for a receiver that has not reported for two
+	// minutes: it stopped, and what it holds waits for it to start again.
+	Reporting bool `json:"reporting"`
 }
 
 // SourceStatus is one source's line on the overview.

@@ -29,6 +29,9 @@ type Recorder interface {
 	RecordCounts(ctx context.Context, counts []whstore.Count) error
 	RecordRejections(ctx context.Context, rejections []whstore.Rejection) error
 	RecordLatency(ctx context.Context, latencies []whstore.Latency) error
+	// RecordSpool writes the receiver's spool state; called only when the
+	// receiver has a spool.
+	RecordSpool(ctx context.Context, st whstore.SpoolState) error
 }
 
 // RawWindows registers a new window's raw partition, so an event is queryable
@@ -49,4 +52,12 @@ type Metrics interface {
 	// WebhookBuffer reports how many events a source holds in memory: those
 	// waiting to be written and those in a write under way.
 	WebhookBuffer(ctx context.Context, source string, events int)
+	// WebhookSpool reports what the receiver's spool holds and how old its
+	// oldest event waiting is (#2121).
+	WebhookSpool(ctx context.Context, bytes, events int64, files int, oldestAge time.Duration)
+	// WebhookSpoolDrained counts events drained from the spool to object
+	// storage.
+	WebhookSpoolDrained(ctx context.Context, source string, events int)
+	// WebhookSpoolDrainFailed counts a drain of the spool that failed.
+	WebhookSpoolDrainFailed(ctx context.Context, source string)
 }
