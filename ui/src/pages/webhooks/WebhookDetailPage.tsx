@@ -266,9 +266,10 @@ function ResponseTimeSection({ status }: { status: WebhookStatus }) {
           )}
           <p className="mt-3 text-xs text-muted-foreground">
             The time from a request arriving to its answer. Expect the source's flush interval (one second unless
-            it sets another) plus one write to object storage. Median and 99th percentile are at most the value
-            shown. Buffer is the wait for the flush, Recording the database writes that record the window, and
-            Writing the write to object storage.
+            it sets another) plus one write to object storage, or one write to the replica's own disk where its
+            receiver has a spool. Median and 99th percentile are at most the value shown. Buffer is the wait for the
+            flush, Recording the database writes that record the window, and Writing the write the answer waited
+            for: to object storage, or to the replica's spool.
           </p>
         </>
       )}

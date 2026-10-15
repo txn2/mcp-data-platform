@@ -519,13 +519,13 @@ func tableCaller(p *platform.Platform, adminRoles []string) func(*portal.User) t
 
 // buildWebhooks assembles inbound webhooks (#1870). The source tables are
 // created through the same Trino executor table registrations use.
-func buildWebhooks(p *platform.Platform, address string) *webhookwire.Webhooks {
+func buildWebhooks(p *platform.Platform, address string) (*webhookwire.Webhooks, error) {
 	if p == nil {
-		return nil
+		return nil, nil //nolint:nilnil // a nil *Webhooks is a deployment without webhooks
 	}
 	exec := trinoExecutor(p)
 	if exec == nil {
-		return nil
+		return nil, nil //nolint:nilnil // as above
 	}
-	return webhookwire.Build(p, address, exec)
+	return webhookwire.Build(p, address, exec) //nolint:wrapcheck // names the spool directory
 }

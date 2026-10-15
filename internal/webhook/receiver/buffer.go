@@ -204,29 +204,51 @@ func (b *buffer) flush() error {
 // recording and writing took. Any failure fails every batch: a request is
 // answered 202 only when all of its events are in object storage.
 func (b *buffer) write(batches []*batch) (stages, error) {
-	length := b.r.window(b.source)
-	byWindow := map[time.Time][]whevent.Event{}
+	var events []whevent.Event
 	for _, bt := range batches {
-		for _, e := range bt.events {
-			w := e.Window(length)
-			byWindow[w] = append(byWindow[w], e)
-		}
+		events = append(events, bt.events...)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), b.r.cfg.WriteTimeout)
+	defer cancel()
+	return b.r.writeEvents(ctx, b.source, events, func(start time.Time) string {
+		return whlayout.SegmentKey(b.source, start, b.r.writer, b.r.seq.Add(1))
+	})
+}
+
+// writeEvents writes a source's events as segments, one per window of the
+// source's compact_every length, each under the key keyFor names for its
+// window, and records each window, returning how long recording and writing
+// took. It stops at the first failure.
+func (r *Receiver) writeEvents(ctx context.Context, source string, events []whevent.Event, keyFor func(start time.Time) string) (stages, error) {
+	length := r.window(source)
+	byWindow := map[time.Time][]whevent.Event{}
+	for _, e := range events {
+		w := e.Window(length)
+		byWindow[w] = append(byWindow[w], e)
 	}
 	starts := make([]time.Time, 0, len(byWindow))
 	for w := range byWindow {
 		starts = append(starts, w)
 	}
 	sort.Slice(starts, func(i, j int) bool { return starts[i].Before(starts[j]) })
-
-	ctx, cancel := context.WithTimeout(context.Background(), b.r.cfg.WriteTimeout)
-	defer cancel()
 	var st stages
 	for _, w := range starts {
-		if err := b.writeWindow(ctx, w, length, byWindow[w], &st); err != nil {
+		seg := segmentWrite{source: source, start: w, length: length, events: byWindow[w], key: keyFor(w)}
+		if err := r.writeWindow(ctx, seg, &st); err != nil {
 			return st, err
 		}
 	}
 	return st, nil
+}
+
+// segmentWrite is one segment: the source and window it is filed under, its
+// events, and the key it is written at.
+type segmentWrite struct {
+	source string
+	start  time.Time
+	length time.Duration
+	events []whevent.Event
+	key    string
 }
 
 // writeWindow writes one segment and records it against its window, adding
@@ -240,38 +262,37 @@ func (b *buffer) write(batches []*batch) (stages, error) {
 // and is compacted and expired like any other, even if the database is
 // unreachable when the write finishes; once it has, the row exists and the
 // record after each write keeps it current.
-func (b *buffer) writeWindow(ctx context.Context, start time.Time, length time.Duration, events []whevent.Event, st *stages) error {
-	data, err := whevent.EncodeSegment(events, b.r.now())
+func (r *Receiver) writeWindow(ctx context.Context, seg segmentWrite, st *stages) error {
+	data, err := whevent.EncodeSegment(seg.events, r.now())
 	if err != nil {
 		return fmt.Errorf("encoding the segment: %w", err)
 	}
-	if b.r.needsMark(b.source, start) {
-		if err := b.mark(ctx, start, length, st); err != nil {
+	if r.needsMark(seg.source, seg.start) {
+		if err := r.mark(ctx, seg.source, seg.start, seg.length, st); err != nil {
 			return err
 		}
-		b.r.markedWindow(b.source, start)
+		r.markedWindow(seg.source, seg.start)
 	}
-	key := whlayout.SegmentKey(b.source, start, b.r.writer, b.r.seq.Add(1))
-	began := b.r.now()
-	err = b.r.cfg.Objects.PutObject(ctx, b.r.cfg.Bucket, key, data, segmentContentType)
-	st.put += b.r.now().Sub(began)
+	began := r.now()
+	err = r.cfg.Objects.PutObject(ctx, r.cfg.Bucket, seg.key, data, segmentContentType)
+	st.put += r.now().Sub(began)
 	if err != nil {
 		return fmt.Errorf("writing segment: %w", err)
 	}
-	b.r.metricSegment(b.source)
-	if err := b.mark(ctx, start, length, st); err != nil {
+	r.metricSegment(seg.source)
+	if err := r.mark(ctx, seg.source, seg.start, seg.length, st); err != nil {
 		return err
 	}
-	b.r.queueRawWindow(b.source, start)
+	r.queueRawWindow(seg.source, seg.start)
 	return nil
 }
 
 // mark records a segment against its window, adding how long that took to
 // st.
-func (b *buffer) mark(ctx context.Context, start time.Time, length time.Duration, st *stages) error {
-	began := b.r.now()
-	err := b.r.cfg.Recorder.MarkSegment(ctx, b.source, start, length)
-	st.mark += b.r.now().Sub(began)
+func (r *Receiver) mark(ctx context.Context, source string, start time.Time, length time.Duration, st *stages) error {
+	began := r.now()
+	err := r.cfg.Recorder.MarkSegment(ctx, source, start, length)
+	st.mark += r.now().Sub(began)
 	if err != nil {
 		return fmt.Errorf("recording segment: %w", err)
 	}

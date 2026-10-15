@@ -168,6 +168,7 @@ type fakeWindows struct {
 	ids      []string
 	err      map[string]error
 	overview whstore.Overview
+	spools   []whstore.SpoolState
 	source   string
 	span     time.Duration
 	step     time.Duration
@@ -184,6 +185,10 @@ func (f *fakeWindows) Status(context.Context, string, time.Time) (whstore.Status
 
 func (f *fakeWindows) ResourceIDs(context.Context, string) ([]string, error) {
 	return f.ids, f.err["ids"]
+}
+
+func (f *fakeWindows) SpoolStates(context.Context) ([]whstore.SpoolState, error) {
+	return f.spools, f.err["spools"]
 }
 
 type fakeObjects struct {

@@ -78,10 +78,11 @@ func tileReader(p source) TileReader {
 //
 // A document may name an image or a font on a public host. The platform
 // fetches it through the same guard the util connection uses, so a document
-// cannot make the platform reach an address inside the deployment. Redirects
-// go back to the page, which asks again and is checked again.
+// cannot make the platform reach an address inside the deployment beyond the
+// prefixes thumbnails.allow_private_cidrs names. Redirects go back to the
+// page, which asks again and is checked again.
 func NewRenderer(cfg *platform.Config) (*headless.Renderer, error) {
-	guard, err := egressguard.New(nil)
+	guard, err := egressguard.New(cfg.Thumbnails.AllowPrivateCIDRs)
 	if err != nil {
 		return nil, fmt.Errorf("building the renderer's egress guard: %w", err)
 	}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { transform } from "sucrase";
+import { ASSET_FRAME_SANDBOX } from "./assetFrame";
 
 // The one platform path an artifact may reach: the route a declared reference
 // is rewritten to (assetrefs.PathPrefix on the Go side). An asset that names a
@@ -288,7 +289,7 @@ export function JsxRenderer({ content }: { content: string }) {
 
   return (
     <iframe
-      sandbox="allow-scripts"
+      sandbox={ASSET_FRAME_SANDBOX}
       src={blobUrl}
       className="w-full border border-border rounded-lg"
       style={{ height: "80vh" }}

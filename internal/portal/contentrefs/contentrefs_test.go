@@ -84,6 +84,11 @@ func TestLinked(t *testing.T) {
 		{"data-href is not href", `<a data-href="mcp:asset:a1" href="https://example.com">x</a>`, html, nil},
 		{"abbr is not a", `<abbr href="mcp:asset:a1">x</abbr>`, html, nil},
 		{"an ordinary link", `<a href="https://example.com">x</a>`, html, nil},
+		{"download anchor saves", `<a href="mcp://g/f.csv" download>get</a>`, html, nil},
+		{"download with a name", `<a download="f.csv" href="mcp:asset:a1">get</a>`, html, nil},
+		{"download in jsx", "<a href={\"mcp:asset:a1\"} download>get</a>", "text/jsx", nil},
+		{"data-download is not download", `<a data-download href="mcp:asset:a1">x</a>`, html, []string{"mcp:asset:a1"}},
+		{"download inside a value is not download", `<a title="a download link" href="mcp:asset:a1">x</a>`, html, []string{"mcp:asset:a1"}},
 		{"markdown link", "see [the data](mcp:asset:a1) here", markdown, []string{"mcp:asset:a1"}},
 		{"markdown angle destination", "[x](<mcp://g/f.csv>)", markdown, []string{"mcp://g/f.csv"}},
 		{"markdown autolink", "go to <mcp:asset:a1>.", markdown, []string{"mcp:asset:a1"}},
@@ -99,6 +104,38 @@ func TestLinked(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.want, contentrefs.Linked(tt.body, tt.contentType))
+		})
+	}
+}
+
+func TestRewriteDownloadAnchors(t *testing.T) {
+	t.Parallel()
+	serve := func(ref string) (string, bool) {
+		if ref == "mcp://g/f.csv" {
+			return "https://h/portal/refs/a/t?download=1", true
+		}
+		return "", false
+	}
+	tests := []struct{ name, body, want string }{
+		{
+			"download anchor", `<a href="mcp://g/f.csv" download>get</a>`,
+			`<a href="https://h/portal/refs/a/t?download=1" download>get</a>`,
+		},
+		{
+			"a load of the same file is left for the plain rewrite",
+			`<img src="mcp://g/f.csv"><a download href='mcp://g/f.csv'>x</a>`,
+			`<img src="mcp://g/f.csv"><a download href='https://h/portal/refs/a/t?download=1'>x</a>`,
+		},
+		{"a plain anchor is left", `<a href="mcp://g/f.csv">x</a>`, `<a href="mcp://g/f.csv">x</a>`},
+		{"an undeclared reference is left", `<a href="mcp://g/other.csv" download>x</a>`, `<a href="mcp://g/other.csv" download>x</a>`},
+		{"no anchors", `plain text`, `plain text`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := contentrefs.RewriteDownloadAnchors(tt.body, serve); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
 		})
 	}
 }

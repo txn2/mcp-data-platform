@@ -60,7 +60,8 @@ type SourceOverview struct {
 }
 
 // Overview is the status of every source at Now, the request series from
-// Since in buckets of Step, and the newest rejections of every source.
+// Since in buckets of Step, the newest rejections of every source, and every
+// receiver's spool.
 type Overview struct {
 	Now        time.Time
 	Since      time.Time
@@ -68,6 +69,20 @@ type Overview struct {
 	Sources    []SourceOverview
 	Volume     []whstore.VolumePoint
 	Rejections []whstore.Rejection
+	Spools     []SpoolOverview
+}
+
+// SpoolStale is how long a receiver may go without reporting its spool before
+// it is shown as not reporting: many times the stats flush it reports on.
+const SpoolStale = 2 * time.Minute
+
+// SpoolOverview is one receiver's spool (#2121): what it last reported, and
+// whether it still reports. A receiver that stopped with events waiting is
+// shown that way, since they are drained only when it, or a replica given its
+// volume, starts again.
+type SpoolOverview struct {
+	State     whstore.SpoolState
+	Reporting bool
 }
 
 // Overview reads the status of every source, or of the source named when
@@ -104,6 +119,14 @@ func (s *Service) Overview(ctx context.Context, source string, span, step time.D
 			sum = whstore.Summary{LastHour: map[string]int64{}, LastDay: map[string]int64{}}
 		}
 		out.Sources = append(out.Sources, SourceOverview{Source: src, Health: HealthOf(src, sum, now), Summary: sum})
+	}
+	spools, err := s.deps.Windows.SpoolStates(ctx)
+	if err != nil {
+		return Overview{}, fmt.Errorf("reading webhook spool states: %w", err)
+	}
+	out.Spools = make([]SpoolOverview, 0, len(spools))
+	for _, st := range spools {
+		out.Spools = append(out.Spools, SpoolOverview{State: st, Reporting: now.Sub(st.UpdatedAt) <= SpoolStale})
 	}
 	return out, nil
 }

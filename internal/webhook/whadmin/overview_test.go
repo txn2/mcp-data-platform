@@ -111,3 +111,28 @@ func TestOverviewFailures(t *testing.T) {
 	_, err = r.svc.Overview(ctx, "", time.Hour, time.Minute)
 	require.ErrorIs(t, err, errBoom)
 }
+
+// Every receiver's spool is on the overview, and one that stopped reporting
+// is shown as not reporting rather than dropped (#2121).
+func TestOverviewSpools(t *testing.T) {
+	r := newRig()
+	r.windows.overview = whstore.Overview{Since: now.Add(-time.Hour)}
+	r.windows.spools = []whstore.SpoolState{
+		{Replica: "a", Events: 3, UpdatedAt: now.Add(-10 * time.Second)},
+		{Replica: "b", Events: 9, UpdatedAt: now.Add(-SpoolStale - time.Second)},
+	}
+	ov, err := r.svc.Overview(ctx, "", time.Hour, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, ov.Spools, 2)
+	assert.True(t, ov.Spools[0].Reporting)
+	assert.False(t, ov.Spools[1].Reporting)
+
+	r.windows.spools = nil
+	ov, err = r.svc.Overview(ctx, "", time.Hour, time.Minute)
+	require.NoError(t, err)
+	assert.NotNil(t, ov.Spools, "no spool is an empty list")
+
+	r.windows.err = map[string]error{"spools": assert.AnError}
+	_, err = r.svc.Overview(ctx, "", time.Hour, time.Minute)
+	assert.Error(t, err)
+}

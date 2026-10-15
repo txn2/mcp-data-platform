@@ -33,6 +33,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whspool"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -58,8 +59,11 @@ type Webhooks struct {
 
 	receiver  *receiver.Receiver
 	compactor *compactor.Worker
-	address   string
-	listener  *http.Server
+	// spool is the receiver's local spool, closed after the receiver stops;
+	// nil when the receiver does not spool.
+	spool    *whspool.Spool
+	address  string
+	listener *http.Server
 	// observe is the request observer's config for the receiver's own
 	// listener, which serves one handler and no mux (#1889).
 	observe httpobs.Config
@@ -67,10 +71,12 @@ type Webhooks struct {
 
 // Build assembles webhooks from the platform. address is the main listener's,
 // which names this replica. It returns nil when the deployment cannot hold a
-// webhook source.
-func Build(p *platform.Platform, address string, exec whtable.Executor) *Webhooks {
+// webhook source, and an error when the receiver's spool is configured and
+// cannot be opened: an operator who asked for acknowledged events to be kept
+// on disk is told at start, not answered without it.
+func Build(p *platform.Platform, address string, exec whtable.Executor) (*Webhooks, error) {
 	if p == nil {
-		return nil
+		return nil, nil //nolint:nilnil // a nil *Webhooks is a deployment without webhooks, and every method on it does nothing
 	}
 	return buildFrom(p, address, exec)
 }
@@ -89,9 +95,9 @@ type platformSource interface {
 }
 
 // buildFrom is Build over the part of the platform it reads.
-func buildFrom(p platformSource, address string, exec whtable.Executor) *Webhooks {
+func buildFrom(p platformSource, address string, exec whtable.Executor) (*Webhooks, error) {
 	if p.DB() == nil || p.ResourceStore() == nil || p.ResourceS3Client() == nil || exec == nil {
-		return nil
+		return nil, nil //nolint:nilnil // as in Build: no webhooks, and no error
 	}
 	cfg := p.Config()
 	client, err := resourcelayer.OpenS3(resourcelayer.Config{
@@ -100,7 +106,7 @@ func buildFrom(p platformSource, address string, exec whtable.Executor) *Webhook
 	})
 	if err != nil || client == nil {
 		slog.Warn("Webhooks disabled: no client on the managed-resources connection", "error", err)
-		return nil
+		return nil, nil //nolint:nilnil // as in Build: no webhooks, and no error
 	}
 	uriScheme := cfg.Resources.Managed.URIScheme
 	if uriScheme == "" {
@@ -172,7 +178,7 @@ type metricsSink interface {
 }
 
 // assemble builds the stores, the receiver, the compactor and the service.
-func assemble(pt parts) *Webhooks {
+func assemble(pt parts) (*Webhooks, error) {
 	db := pt.db.DB()
 	sources := whsource.NewStore(db, pt.encryptor)
 	windows := whstore.New(db)
@@ -180,11 +186,24 @@ func assemble(pt parts) *Webhooks {
 	wcfg := pt.cfg.Webhooks
 	w := &Webhooks{address: wcfg.Receiver.Address, observe: httpobs.Config{Route: receiver.PathPrefix, Metrics: pt.observe}}
 	if wcfg.ReceiverEnabled() {
-		w.receiver = receiver.New(receiver.Config{
+		rcfg := receiver.Config{
 			Sources: sources, Objects: pt.objects, Bucket: pt.bucket, Recorder: windows,
 			RawWindows: rawWindows{tables: pt.tables}, Metrics: pt.metrics, Replica: pt.replica,
 			WriteTimeout: wcfg.WriteTimeout(),
-		})
+		}
+		if wcfg.SpoolEnabled() {
+			sp := wcfg.Receiver.Spool
+			spool, err := whspool.Open(whspool.Options{Dir: sp.Dir, MaxBytes: sp.MaxBytes, MaxAge: sp.MaxAge, Replica: pt.replica})
+			if err != nil {
+				return nil, fmt.Errorf("webhooks: opening the receiver's spool: %w", err)
+			}
+			w.spool = spool
+			rcfg.Spool = spool
+			rcfg.SpoolLimits = receiver.SpoolLimits{MaxBytes: orDefault(sp.MaxBytes, whspool.DefaultMaxBytes), MaxAge: orDefault(sp.MaxAge, whspool.DefaultMaxAge)}
+			st := spool.Stats()
+			slog.Info("Webhook receiver spools to local disk", "dir", sp.Dir, "waiting_events", st.Events, "waiting_files", st.Files)
+		}
+		w.receiver = receiver.New(rcfg)
 	}
 	if wcfg.CompactorEnabled() {
 		w.compactor = compactor.New(wcfg.Tuning(), compactor.Deps{
@@ -202,7 +221,15 @@ func assemble(pt parts) *Webhooks {
 		Changed: w.receiver.Reload, NewID: newRegistrationID, Logger: slog.Default(),
 		PersonaExists: pt.personaExists,
 	})
-	return w
+	return w, nil
+}
+
+// orDefault is v, or def when v is not positive.
+func orDefault[T int64 | time.Duration](v, def T) T {
+	if v > 0 {
+		return v
+	}
+	return def
 }
 
 // personaLookup reports whether the platform defines a persona.
@@ -287,6 +314,11 @@ func (w *Webhooks) Stop() {
 		cancel()
 	}
 	w.receiver.Stop()
+	if w.spool != nil {
+		if err := w.spool.Close(); err != nil {
+			slog.Warn("webhooks: closing the receiver's spool", "error", err)
+		}
+	}
 	w.compactor.Stop()
 }
 

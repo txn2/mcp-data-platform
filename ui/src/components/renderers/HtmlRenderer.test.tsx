@@ -16,7 +16,7 @@ function enableFullscreen(): void {
 
 /** The presented frame: the one without the modals grant. */
 function presentedFrame(container: HTMLElement): HTMLIFrameElement {
-  return container.querySelector('iframe[sandbox="allow-scripts"]')!;
+  return container.querySelector('iframe[sandbox="allow-scripts allow-downloads"]')!;
 }
 
 describe("HtmlRenderer", () => {
@@ -28,7 +28,9 @@ describe("HtmlRenderer", () => {
     // resolves against the page (#1767).
     expect(frame).toHaveAttribute("srcdoc", DECK);
     expect(frame).not.toHaveAttribute("src");
-    expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+    // allow-downloads lets a download the reader starts go ahead (#2127);
+    // there is still no allow-same-origin.
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-downloads");
     expect(frame).toHaveAttribute("allow", "fullscreen");
   });
 

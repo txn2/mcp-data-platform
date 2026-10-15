@@ -124,7 +124,9 @@ func (s *Server) assetsReady() bool {
 // With ?thumbnail=1 it answers the target's stored tile instead of its bytes,
 // through the same token and so under the same grant: the asset's References
 // panel shows a referenced file as a picture, and a reader of a shared asset
-// may have no access to the target's own thumbnail route (#1794).
+// may have no access to the target's own thumbnail route (#1794). With
+// ?download=1 it answers the bytes as an attachment: the URL a download
+// anchor naming the reference is rewritten to (#2127).
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		httpjson.WriteError(w, http.StatusMethodNotAllowed, msgMethodNotAllowed)
@@ -165,7 +167,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	opts.ForceAttachment = wantsDownload(r)
 	blobserve.Serve(w, r, opts)
+}
+
+// wantsDownload reports whether the URL is a download anchor's, which serves
+// the target as an attachment so the reader saves it (#2127).
+func wantsDownload(r *http.Request) bool {
+	return r.URL.Query().Get("download") == "1"
 }
 
 // reference turns the path's asset and token into the reference they name,

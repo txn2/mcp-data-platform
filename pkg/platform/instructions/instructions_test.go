@@ -310,7 +310,7 @@ func TestAccessibleTools(t *testing.T) {
 func TestBuild_NamesTheCaptureRoute(t *testing.T) {
 	baseline := Build([]string{toolSearch, toolFetch, toolMemoryCapture})
 
-	for _, want := range []string{"call_id", "`memory_capture` `sources`", "worth"} {
+	for _, want := range []string{"call_id", "`memory_capture` `sources`", "worth", "never the data", "row values"} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("baseline is missing %q:\n%s", want, baseline)
 		}

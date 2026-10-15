@@ -140,12 +140,27 @@ type Page struct {
 	// Transparent captures the page with no default background, so whatever
 	// the document leaves unpainted is transparent in the PNG (#1991).
 	Transparent bool
+	// RequireSubresources fails the render with ErrIncomplete when a public
+	// stylesheet or script the document named could not be fetched -- the
+	// network failed, or its server answered 429 or 5xx -- instead of
+	// capturing a page drawn without it (#2122). A file its server says does
+	// not exist is the document's own, and is drawn without.
+	RequireSubresources bool
 }
+
+// ErrIncomplete marks a render whose document named a public file it needs
+// and the platform could not get it. The document is not at fault and the
+// renderer is up, so a caller tries the document again later rather than
+// recording it as not drawable.
+var ErrIncomplete = errors.New("a file the document needs could not be fetched")
 
 // Renderer draws pages in the headless Chrome at endpoint.
 type Renderer struct {
 	endpoint string
 	public   *http.Client
+	// cache keeps the public responses documents fetched, for the renders
+	// after them (#2122).
+	cache *publicCache
 	// local reaches the renderer itself: its discovery document and the
 	// DevTools socket, on the outbound chain (#1895).
 	local *http.Client
@@ -165,6 +180,7 @@ func New(endpoint string, public *http.Client) *Renderer {
 	return &Renderer{
 		endpoint: endpoint,
 		public:   public,
+		cache:    newPublicCache(),
 		local:    outbound.NewClient(outbound.Options{Kind: outbound.KindRenderer, CheckRedirect: outbound.FollowRedirects}),
 	}
 }
@@ -190,6 +206,9 @@ type render struct {
 	// it started in its own process -- as against workers.
 	frames []string
 	armErr error
+	// missing is each needed public file that did not arrive, for a page
+	// that requires them.
+	missing []string
 }
 
 // Render draws p and returns the screenshot as a PNG.
@@ -246,6 +265,9 @@ func (r *Renderer) draw(ctx context.Context, p Page, capture func(*render, conte
 		return nil, err
 	}
 	if err := rs.failedArming(); err != nil {
+		return nil, err
+	}
+	if err := rs.missingFiles(); err != nil {
 		return nil, err
 	}
 	rs.snap(ctx)

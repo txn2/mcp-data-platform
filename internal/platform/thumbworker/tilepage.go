@@ -111,6 +111,10 @@ func (w *Worker) tilePage(src tileSource) headless.Page {
 		Scale:       scale,
 		Dark:        src.dark,
 		Transparent: transparent,
+		// A tile drawn without its stylesheet or module is a picture of
+		// unstyled text stored as a good tile (#2122): the attempt is
+		// retried instead.
+		RequireSubresources: true,
 	}
 }
 

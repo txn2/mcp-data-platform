@@ -411,6 +411,7 @@ func TestDrawAsset_AnUnfinishedAttemptSaysWhyAndRecordsNothing(t *testing.T) {
 		want  string
 	}{
 		{"the renderer went away", func(d *fakeDrawer, _ *fakeBlobs) { d.results = []error{headless.ErrUnavailable} }, "not available"},
+		{"a stylesheet did not arrive", func(d *fakeDrawer, _ *fakeBlobs) { d.results = []error{headless.ErrIncomplete} }, "could not be fetched"},
 		{"the document cannot be read", func(_ *fakeDrawer, b *fakeBlobs) { b.getErr = errors.New("NoSuchKey") }, "the stored file could not be read"},
 		{"the tile cannot be stored", func(_ *fakeDrawer, b *fakeBlobs) { b.putErr = errors.New("s3 down") }, "storing the tile"},
 	} {
@@ -599,6 +600,22 @@ func TestDrawAsset_TransparentFamiliesAreCapturedTransparent(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A tile page fails rather than draw without a public stylesheet or script
+// its document needs (#2122).
+func TestDrawAsset_ATileRequiresItsSubresources(t *testing.T) {
+	d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
+	a := asset("a1", "text/html", 1)
+	blobs.objects[bucket+"/"+a.S3Key] = []byte("<p>x</p>")
+	if err := worker(d, assets, blobs).drawAsset(context.Background(), a); err != nil {
+		t.Fatalf("drawAsset: %v", err)
+	}
+	for _, p := range d.pages {
+		if !p.RequireSubresources {
+			t.Error("a tile page draws without the files its document needs")
+		}
 	}
 }
 
@@ -904,6 +921,9 @@ func TestOutcomeAndReason(t *testing.T) {
 	}
 	if retry, _ := outcome(fmt.Errorf("x: %w", headless.ErrUnavailable)); !retry {
 		t.Error("an unavailable renderer must be retried")
+	}
+	if retry, reason := outcome(fmt.Errorf("x: %w", headless.ErrIncomplete)); !retry || reason != "" {
+		t.Error("a document whose stylesheet did not arrive must be retried, not recorded (#2122)")
 	}
 	if retry, _ := outcome(context.Canceled); !retry {
 		t.Error("a canceled render must be retried")

@@ -217,6 +217,26 @@ describe("WebhooksPage", () => {
     expect(screen.getByText("No requests in this range.")).toBeInTheDocument();
   });
 
+  // Every receiver's spool, by replica, with what waits and whether it still
+  // reports (#2121).
+  it("shows each receiver's spool and one that stopped reporting", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    const card = screen.getByRole("heading", { name: "Spool" }).closest("section, div[class*=rounded]")!;
+    const first = within(card as HTMLElement).getByText("mcp-data-platform-0").closest("tr")!;
+    expect(within(first).getByText("Reporting")).toBeInTheDocument();
+    expect(within(first).getByText("212")).toBeInTheDocument();
+    const second = within(card as HTMLElement).getByText("mcp-data-platform-1").closest("tr")!;
+    expect(within(second).getByText("Not reporting")).toBeInTheDocument();
+    expect(within(second).getByText("11,402")).toBeInTheDocument();
+    expect(within(second).getByText(/context deadline exceeded/)).toBeInTheDocument();
+  });
+
+  it("shows no spool card where no receiver spools", () => {
+    h.status = { data: { ...mockWebhookOverview(mockWebhookSources, "hour"), spools: [] }, isLoading: false, isError: false };
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    expect(screen.queryByRole("heading", { name: "Spool" })).not.toBeInTheDocument();
+  });
+
   it("explains what a source is when there is none", () => {
     h.status = { data: overview({}), isLoading: false, isError: false };
     render(<WebhooksPage onNavigate={vi.fn()} />);

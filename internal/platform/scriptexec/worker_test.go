@@ -81,8 +81,13 @@ func (*fakeRuns) ListRuns(context.Context, script.RunFilter) ([]script.Run, erro
 
 // Claim models the real store: a due pending run, or a running one whose
 // lease expired while its reclaims are under the cap, which counts the
-// reclaim and records the dead attempt.
-func (f *fakeRuns) Claim(_ context.Context, worker string, lease time.Duration, maxReclaims int) (*script.Run, error) {
+// reclaim and records the dead attempt. A claim on a canceled context fails,
+// as a query does: the worker cancels its claims before it releases a run at
+// shutdown, so a claim issued after that release never reaches the row.
+func (f *fakeRuns) Claim(ctx context.Context, worker string, lease time.Duration, maxReclaims int) (*script.Run, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("claiming a run: %w", err)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.claims++

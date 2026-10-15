@@ -191,4 +191,27 @@ export interface WebhookStatusOverview {
   sources: WebhookSourceStatus[];
   volume: WebhookVolumePoint[];
   rejections: WebhookSourceRejection[];
+  /** Every receiver's local spool, by replica; empty where none spools (#2121). */
+  spools: WebhookReplicaSpool[];
+}
+
+/** One receiver's local spool as it last reported it (#2121). */
+export interface WebhookReplicaSpool {
+  replica: string;
+  dir: string;
+  bytes: number;
+  events: number;
+  files: number;
+  /** When the oldest event waiting was received; null when the spool is empty. */
+  oldest_at: string | null;
+  max_bytes: number;
+  max_age_seconds: number;
+  drained_events: number;
+  drain_failures: number;
+  last_drain_at: string | null;
+  last_error: string;
+  started_at: string;
+  updated_at: string;
+  /** False for a receiver that has not reported for two minutes. */
+  reporting: boolean;
 }

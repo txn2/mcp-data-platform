@@ -172,11 +172,53 @@ holds events it has not written answered nobody for them, so their senders send
 them again. Backpressure is the sender's own retry queue, told to wait: the
 platform keeps no backlog beyond each source's buffer limit.
 
+### A local spool
+
+By default a `202` waits for object storage, so a sender's wait is object
+storage's latency at that moment. Many senders give up within a few seconds,
+and an object store slows down for ordinary reasons: a bulk copy or a backup
+reading the same cluster, healing, a slow credential refresh. A receiver given
+a spool directory (`webhooks.receiver.spool.dir`, #2121) answers once the events
+are synced to its own disk instead, and drains them to object storage behind
+the answer:
+
+| Step | Refusal |
+|---|---|
+| ... the steps above, through `buffer_limit` ... | |
+| The spool holds less than `max_bytes`, and its oldest event waiting is younger than `max_age` | `503`, `Retry-After: 5`, outcome `spool_full` |
+| The events are appended to the spool and synced | `503`, `Retry-After: 5`, outcome `write_failed` |
+| | `202`, `{"accepted": <events>}` |
+
+A `202` then means the events are on this replica's disk, synced. Each source
+has one file being appended to, sealed by the same rules a buffer is flushed by
+(`flush_max_events`, `flush_max_bytes`, `flush_max_interval_ms`), and a drainer
+writes each sealed file to object storage through the same windows and layout,
+retrying with backoff (one second, doubling, at most a minute) until the write
+succeeds, then removes the file. A file is written under its own name, so a
+file drained again after a crash, between its write and its removal, overwrites
+what the first drain wrote instead of adding to it: every acknowledged event
+lands once. The spool holds the events the request was read into, after it
+authenticated, not the raw request, so a drain never checks a signature again:
+a timestamped signature past its tolerance, or a secret rotated since, cannot
+refuse a request that was already acknowledged.
+
+A replica that is stopped seals what it holds and drains for as long as
+`write_timeout` allows; one that is killed, or stopped while object storage
+does not answer, drains what it holds when it starts again, before it serves
+its first request. A record whose sync did not finish was never acknowledged,
+and the next start cuts it off. Past `max_bytes` or `max_age` the receiver
+answers `503` with `Retry-After` rather than accept a request it cannot keep.
+A source deleted while its events wait in a spool has had its tables and
+objects removed with it, so its spooled file is discarded at its next drain
+with a `WARN` line, `webhooks: spooled events of a deleted source discarded`,
+rather than failing every drain. The Webhooks page shows each replica's spool.
+
 ### How long a sender waits
 
 A sender should expect its answer within the source's flush interval
 (`flush_max_interval_ms`, one second by default) plus one write to object
-storage and one database write that records the segment against its window.
+storage and one database write that records the segment against its window;
+with a spool, within one write to local disk.
 The first segment a replica writes into a window records the window once more
 before the write. Nothing else is done before the answer: registering a window's
 partition with the query engine runs on the replica's own loop. For a source
@@ -400,6 +442,12 @@ metastore still lists. An operator may add one as a backstop, set longer than
   had none, the last day), the windows owed a compaction (Pending), and the
   windows whose last compaction failed (Failing) with the newest one's error.
   Clicking a row opens the source's page.
+- **Spool**, where a receiver has one (#2121): one row per replica with the
+  events it acknowledged and has not yet drained (Waiting), their size, how
+  long the oldest has waited, the events drained and the drains that failed
+  since the replica started, and the newest drain error. A replica that has not
+  reported for two minutes is marked Not reporting: it stopped, and drains what
+  it holds when it starts again.
 - **Recent rejections**: the rejected requests across every source within the
   range, the newest 50 rows of each outcome, each with its source, time,
   outcome, reason, the events it refused (Events) and how many requests it
@@ -517,6 +565,10 @@ webhooks:
     enabled: true          # default; serve /hooks/ on this replica
     address: ""            # optional: also serve /hooks/ on a listener of its own
     write_timeout: 30s     # a segment not written by then is answered 503
+    spool:
+      dir: ""              # set to answer from local disk and drain behind the answer (#2121)
+      max_bytes: 1073741824
+      max_age: 1h
   compactor:
     enabled: true          # default; compact and apply retention on this replica
     grace: 2m              # wait after a window ends for segments still in flight
@@ -572,17 +624,68 @@ turns `webhooks.receiver.enabled` off there and runs a receiver-only
 deployment of the same image behind the webhook Ingress, with `address` set if
 it should listen on a port of its own.
 
+### Where the spool lives
+
+The spool is a directory on the replica, one per replica: a second process
+opening a directory another holds is refused at start. Its volume decides what
+survives:
+
+- An `emptyDir` survives a container restart, not the pod being rescheduled:
+  what was acknowledged and not yet drained when the pod is deleted is lost.
+- A volume of the replica's own keeps it across rollouts, evictions and node
+  drains: run the receiver as a StatefulSet with a `volumeClaimTemplates` entry
+  mounted at the spool directory. A ReadWriteOnce volume is tied to its node;
+  if the node is lost, that replica's events wait until the volume is attached
+  again. They are delayed, not lost.
+
+A replica drains only its own spool. Another replica does not take over a
+stopped replica's volume, so its events wait for it to start. The Webhooks page
+shows such a replica as not reporting, with what it holds.
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mcp-data-platform-hooks
+spec:
+  serviceName: mcp-data-platform-hooks
+  template:
+    spec:
+      containers:
+        - name: platform
+          volumeMounts:
+            - name: spool
+              mountPath: /var/lib/mcp-data-platform/spool
+  volumeClaimTemplates:
+    - metadata:
+        name: spool
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 2Gi
+```
+
+with `webhooks.receiver.spool.dir: /var/lib/mcp-data-platform/spool`. A spool
+directory that cannot be opened (not writable, or held by another process)
+stops the platform at start, naming it: an operator who asked for acknowledged
+events to be kept on disk is told then, not answered without it.
+
 ## Metrics
 
 | Series | Labels |
 |---|---|
-| `webhook_requests_total` | `source`, `outcome`: `accepted`, `unauthorized`, `too_large`, `rate_limited`, `buffer_full`, `write_failed`, `sender_gone`, `unknown_source`, `invalid_body` |
+| `webhook_requests_total` | `source`, `outcome`: `accepted`, `unauthorized`, `too_large`, `rate_limited`, `buffer_full`, `spool_full`, `write_failed`, `sender_gone`, `unknown_source`, `invalid_body` |
 | `webhook_events_total` | `source` |
 | `webhook_segments_written_total` | `source` |
 | `webhook_compactions_total` | `source`, `result`: `compacted`, `failed` |
 | `webhook_duplicates_dropped_total` | `source` |
 | `webhook_buffer_events` | `source`: events held in memory on this replica |
 | `webhook_ack_seconds` | `source`: request to acknowledgement |
+| `webhook_spool_bytes`, `webhook_spool_events`, `webhook_spool_files` | none: what this replica's spool holds |
+| `webhook_spool_oldest_age_seconds` | none: age of the oldest event waiting; rising means the spool is not draining |
+| `webhook_spool_drained_events_total` | `source`: events drained to object storage |
+| `webhook_spool_drain_failures_total` | `source`: drains that failed and are retried |
 
 A request to a name that is not a source is counted with an empty `source`
 label, so a caller cannot create series by inventing names.

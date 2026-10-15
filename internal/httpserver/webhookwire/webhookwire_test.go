@@ -340,10 +340,11 @@ func TestAssembleAndLifecycle(t *testing.T) {
 	cfg := &platform.Config{}
 	cfg.Webhooks.Receiver.Address = freeAddress(t)
 	cfg.Webhooks.Compactor.Poll = time.Hour
-	w := assemble(parts{
+	w, err := assemble(parts{
 		db: dbOnly{db}, objects: objects{c: &fakeS3{puts: map[string][]byte{}}}, bucket: "managed-resources",
 		tables: whtable.New(&fakeExec{}, "managed-resources"), cfg: cfg, replica: "host:8080",
 	})
+	require.NoError(t, err)
 	require.NotNil(t, w.Service)
 	require.NotNil(t, w.receiver)
 	require.NotNil(t, w.compactor)
@@ -380,7 +381,8 @@ func TestAssembleRespectsSwitches(t *testing.T) {
 	cfg := &platform.Config{Webhooks: whconfig.Config{
 		Receiver: whconfig.ReceiverConfig{Enabled: &off}, Compactor: whconfig.CompactorConfig{Enabled: &off},
 	}}
-	w := assemble(parts{db: dbOnly{db}, tables: whtable.New(&fakeExec{}, "b"), cfg: cfg})
+	w, err := assemble(parts{db: dbOnly{db}, tables: whtable.New(&fakeExec{}, "b"), cfg: cfg})
+	require.NoError(t, err)
 	assert.Nil(t, w.receiver)
 	assert.Nil(t, w.compactor)
 	assert.NotNil(t, w.Service, "a replica that neither receives nor compacts still manages sources")
@@ -393,7 +395,37 @@ func TestAssembleRespectsSwitches(t *testing.T) {
 	none.Mount(mux)
 	none.Start(ctx)
 	none.Stop()
-	assert.Nil(t, Build(nil, ":8080", nil))
+	none, err = Build(nil, ":8080", nil)
+	assert.Nil(t, none)
+	assert.NoError(t, err)
+}
+
+// A receiver given a spool directory opens it and closes it at stop, so the
+// next process can take it; a directory it cannot take is a start that fails
+// naming it (#2121).
+func TestAssembleOpensTheSpool(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	off := false
+	dir := t.TempDir()
+	cfg := &platform.Config{Webhooks: whconfig.Config{
+		Receiver:  whconfig.ReceiverConfig{Spool: whconfig.SpoolConfig{Dir: dir}},
+		Compactor: whconfig.CompactorConfig{Enabled: &off},
+	}}
+	w, err := assemble(parts{db: dbOnly{db}, tables: whtable.New(&fakeExec{}, "b"), cfg: cfg, replica: "host:8080"})
+	require.NoError(t, err)
+	require.NotNil(t, w.spool)
+	assert.Equal(t, dir, w.spool.Dir())
+
+	_, err = assemble(parts{db: dbOnly{db}, tables: whtable.New(&fakeExec{}, "b"), cfg: cfg, replica: "other:8080"})
+	require.Error(t, err, "a second receiver took a spool the first holds")
+	assert.Contains(t, err.Error(), dir)
+
+	w.Stop()
+	again, err := assemble(parts{db: dbOnly{db}, tables: whtable.New(&fakeExec{}, "b"), cfg: cfg, replica: "host:8080"})
+	require.NoError(t, err, "a stopped receiver did not release its spool")
+	again.Stop()
 }
 
 // fakePlatform is the part of the platform build reads.
@@ -455,16 +487,22 @@ func TestBuildFromThePlatform(t *testing.T) {
 		db: db, cfg: buildConfig("resources"), store: resource.NewPostgresStore(db),
 		blobs: nopBlobs{}, personas: reg,
 	}
-	w := buildFrom(p, ":8080", &fakeExec{})
+	w, err := buildFrom(p, ":8080", &fakeExec{})
+	require.NoError(t, err)
 	require.NotNil(t, w)
 	require.NotNil(t, w.Service)
 
-	assert.Nil(t, buildFrom(p, ":8080", nil), "no Trino executor, no webhooks")
+	none := func(p fakePlatform, exec whtable.Executor) *Webhooks {
+		w, err := buildFrom(p, ":8080", exec)
+		require.NoError(t, err)
+		return w
+	}
+	assert.Nil(t, none(p, nil), "no Trino executor, no webhooks")
 	p.blobs = nil
-	assert.Nil(t, buildFrom(p, ":8080", &fakeExec{}), "no managed-resources blob client, no webhooks")
+	assert.Nil(t, none(p, &fakeExec{}), "no managed-resources blob client, no webhooks")
 	p.blobs = nopBlobs{}
 	p.cfg = buildConfig("not-configured")
-	assert.Nil(t, buildFrom(p, ":8080", &fakeExec{}), "a managed-resources connection that is not configured")
+	assert.Nil(t, none(p, &fakeExec{}), "a managed-resources connection that is not configured")
 }
 
 func TestPersonaLookup(t *testing.T) {
@@ -497,4 +535,13 @@ func TestWindowResourcesCarryTheSourcesIndexPolicy(t *testing.T) {
 	_, err = h.Put(ctx, esp, start, "", []byte("x"))
 	require.NoError(t, err)
 	assert.Empty(t, w.created[0].Index)
+}
+
+// The spool's reported bounds are the configured ones, or the defaults the
+// spool applies for an unset one.
+func TestOrDefault(t *testing.T) {
+	assert.Equal(t, int64(5), orDefault(int64(5), 9))
+	assert.Equal(t, int64(9), orDefault(int64(0), 9))
+	assert.Equal(t, time.Minute, orDefault(time.Minute, time.Hour))
+	assert.Equal(t, time.Hour, orDefault(time.Duration(0), time.Hour))
 }

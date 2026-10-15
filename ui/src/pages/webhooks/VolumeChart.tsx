@@ -12,6 +12,7 @@ const COLORS: Record<string, string> = {
   too_large: "hsl(25, 95%, 53%)",
   rate_limited: "hsl(38, 92%, 50%)",
   buffer_full: "hsl(48, 96%, 53%)",
+  spool_full: "hsl(55, 90%, 45%)",
   write_failed: "hsl(330, 81%, 60%)",
   invalid_body: "hsl(280, 65%, 60%)",
 };

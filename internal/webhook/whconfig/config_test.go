@@ -42,3 +42,20 @@ func TestTuningAndValidate(t *testing.T) {
 	assert.Error(t, Config{Compactor: CompactorConfig{Grace: -1}}.Validate())
 	assert.Error(t, Config{Compactor: CompactorConfig{Batch: -1}}.Validate())
 }
+
+// The spool is off until a directory is set, and only where the replica
+// receives (#2121).
+func TestSpoolEnabled(t *testing.T) {
+	var c Config
+	assert.False(t, c.SpoolEnabled())
+	c.Receiver.Spool.Dir = "  "
+	assert.False(t, c.SpoolEnabled())
+	c.Receiver.Spool.Dir = "/var/lib/spool"
+	assert.True(t, c.SpoolEnabled())
+	off := false
+	c.Receiver.Enabled = &off
+	assert.False(t, c.SpoolEnabled(), "a replica that does not receive has nothing to spool")
+
+	assert.Error(t, Config{Receiver: ReceiverConfig{Spool: SpoolConfig{MaxBytes: -1}}}.Validate())
+	assert.Error(t, Config{Receiver: ReceiverConfig{Spool: SpoolConfig{MaxAge: -time.Second}}}.Validate())
+}

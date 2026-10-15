@@ -439,14 +439,14 @@ func (w *Worker) renderCtx(ctx context.Context) (context.Context, context.Cancel
 	return context.WithTimeout(ctx, w.cfg.RenderTimeout)
 }
 
-// outcome classifies a render error: the renderer being unavailable is
-// retried when the lease lapses, anything else is the document's and is
-// recorded.
+// outcome classifies a render error: the renderer being unavailable, or a
+// public file the document needs not arriving (#2122), is retried with
+// backoff; anything else is the document's and is recorded.
 func outcome(err error) (retry bool, reason string) {
 	if err == nil {
 		return false, ""
 	}
-	if errors.Is(err, headless.ErrUnavailable) || errors.Is(err, context.Canceled) {
+	if errors.Is(err, headless.ErrUnavailable) || errors.Is(err, headless.ErrIncomplete) || errors.Is(err, context.Canceled) {
 		return true, ""
 	}
 	return false, failureReason(err)

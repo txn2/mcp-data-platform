@@ -194,3 +194,19 @@ type unreadableRefStore struct{ failingRefStore }
 func (unreadableRefStore) ListByAsset(context.Context, string) ([]assetrefs.Ref, error) {
 	return nil, assert.AnError
 }
+
+// TestSaveAcceptsADownloadAnchorToADeclaredFile covers #2127: an anchor with a
+// download attribute offers a declared file to save, which is not a link, so
+// save_asset stores it and reports nothing undeclared.
+func TestSaveAcceptsADownloadAnchorToADeclaredFile(t *testing.T) {
+	tk, assets, _ := linkToolkit(t)
+	result, _, err := tk.handleSaveAsset(refCtx(""), nil, saveAssetInput{
+		Name: "Report", ContentType: "text/html",
+		Content:    `<a href="` + refLogoURI + `" download>Download</a>`,
+		References: []string{refLogoURI},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, "a download anchor is not a link: %v", result.Content)
+	assert.Len(t, assets.assets, 1)
+	assert.NotContains(t, decodeMap(t, result), fieldUndeclaredReferences)
+}

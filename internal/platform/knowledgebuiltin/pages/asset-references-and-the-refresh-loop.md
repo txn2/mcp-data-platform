@@ -76,6 +76,18 @@ and nothing is written: an `<a href="mcp:asset:...">` (or `<area>`, or an SVG
 `![alt](mcp:asset:...)`, loads the file and is accepted. To point a reader at
 another asset, name it in text.
 
+## Offering a file for download
+
+A page can let its reader take its data away. An anchor with a `download`
+attribute saves the file it names rather than following it, so it is not a
+link and is accepted: declare the file in `references` and write
+`<a href="mcp://global/sales/orders.csv" download>Download the data</a>` (or
+`mcp:asset:<id>`). Every viewing surface rewrites it to a URL that serves the
+file as an attachment, and the reader gets the file. A page can also build a
+file in script, a CSV of the table it renders through a `Blob` and an
+`<a download>` it clicks, and the download goes ahead when the reader starts
+it. A plain `<a href>` to a reference, with no `download`, is still refused.
+
 ## What this looks like in the assets you actually write
 
 The rewrite applies to any textual asset — `html`, `jsx`, `markdown`, `csv`,

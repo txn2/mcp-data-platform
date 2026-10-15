@@ -15,5 +15,5 @@ package toolkit
 // appends it directly.
 const CaptureRoute = "When a result meets the purpose you stated and the statement is worth " +
 	"running again, record it: memory_capture with sources=[\"<the call_id this result returned>\"] " +
-	"and a description of what the query answers and any caveats. That is what makes it findable " +
-	"by the next person, and what puts it up for promotion to the catalog."
+	"and a description of what the query computes and its caveats, not the values it returned. " +
+	"That is what makes it findable by the next person, and what puts it up for promotion to the catalog."

@@ -11,13 +11,18 @@ import (
 // Inbound webhook instruments (#1870). Exposed names:
 //
 //   - webhook_requests_total{source, outcome}   accepted, unauthorized, too_large, rate_limited,
-//     buffer_full, write_failed, unknown_source, invalid_body
+//     buffer_full, spool_full, write_failed, unknown_source, invalid_body, sender_gone
 //   - webhook_events_total{source}              events acknowledged
 //   - webhook_segments_written_total{source}    raw segments written to object storage
 //   - webhook_compactions_total{source, result} compacted, failed
 //   - webhook_duplicates_dropped_total{source}  event ids removed at compaction
 //   - webhook_buffer_events{source}             events held in memory on this replica
 //   - webhook_ack_seconds{source}               request to acknowledgement
+//   - webhook_spool_bytes, webhook_spool_events, webhook_spool_files
+//     what this replica's spool holds (#2121)
+//   - webhook_spool_oldest_age_seconds          age of the oldest event not yet drained
+//   - webhook_spool_drained_events_total{source} events drained to object storage
+//   - webhook_spool_drain_failures_total{source} drains that failed and are retried
 //
 // Cardinality: source is the set of administrator-created sources. A request
 // to a name that is not a source is counted under an empty source, so a
@@ -30,6 +35,12 @@ const (
 	instWebhookDuplicates = "webhook_duplicates_dropped"
 	instWebhookBuffer     = "webhook_buffer_events"
 	instWebhookAck        = "webhook_ack"
+	instWebhookSpoolBytes = "webhook_spool_bytes"
+	instWebhookSpoolEvts  = "webhook_spool_events"
+	instWebhookSpoolFiles = "webhook_spool_files"
+	instWebhookSpoolAge   = "webhook_spool_oldest_age_seconds"
+	instWebhookSpoolDrain = "webhook_spool_drained_events"
+	instWebhookSpoolFail  = "webhook_spool_drain_failures"
 
 	attrWebhookSource = "source"
 )
@@ -43,6 +54,10 @@ type webhookInstruments struct {
 	duplicates metric.Int64Counter
 	buffer     metric.Int64Gauge
 	ack        metric.Float64Histogram
+
+	spoolBytes, spoolEvents, spoolFiles metric.Int64Gauge
+	spoolAge                            metric.Float64Gauge
+	spoolDrained, spoolFailures         metric.Int64Counter
 }
 
 // registerWebhookInstruments registers the webhook series.
@@ -68,7 +83,14 @@ func (m *Metrics) registerWebhookInstruments(meter metric.Meter) error {
 		"Total compactions of a source's window, labeled by source and result (compacted, failed).")
 	wh.duplicates = counter(instWebhookDuplicates,
 		"Total events removed at compaction because an earlier event carried the same event id, labeled by source. Senders deliver at least once, so a steady rate is expected.")
+	wh.spoolDrained = counter(instWebhookSpoolDrain,
+		"Total events this replica's spool drained to object storage, labeled by source.")
+	wh.spoolFailures = counter(instWebhookSpoolFail,
+		"Total drains of this replica's spool that failed, labeled by source. A failed drain is retried with backoff; a steady rate means events are waiting on this replica's disk.")
 	if err != nil {
+		return err
+	}
+	if err := m.registerSpoolGauges(meter); err != nil {
 		return err
 	}
 	if wh.buffer, err = meter.Int64Gauge(instWebhookBuffer,
@@ -79,6 +101,33 @@ func (m *Metrics) registerWebhookInstruments(meter metric.Meter) error {
 		metric.WithDescription("Seconds from receiving a webhook request to acknowledging it, labeled by source. The acknowledgement waits for the segment to be written."),
 		metric.WithUnit(unitSeconds)); err != nil {
 		return wrapReg(instWebhookAck, err)
+	}
+	return nil
+}
+
+// registerSpoolGauges registers what a receiver's spool holds (#2121).
+func (m *Metrics) registerSpoolGauges(meter metric.Meter) error {
+	wh := &m.webhook
+	var err error
+	gauge := func(name, desc string) metric.Int64Gauge {
+		if err != nil {
+			return nil
+		}
+		var g metric.Int64Gauge
+		g, err = meter.Int64Gauge(name, metric.WithDescription(desc))
+		err = wrapReg(name, err)
+		return g
+	}
+	wh.spoolBytes = gauge(instWebhookSpoolBytes, "Bytes of acknowledged webhook events in this replica's spool, waiting to be drained to object storage.")
+	wh.spoolEvents = gauge(instWebhookSpoolEvts, "Acknowledged webhook events in this replica's spool, waiting to be drained to object storage.")
+	wh.spoolFiles = gauge(instWebhookSpoolFiles, "Files in this replica's spool: one being appended to per source, and those waiting to be drained.")
+	if err != nil {
+		return err
+	}
+	if wh.spoolAge, err = meter.Float64Gauge(instWebhookSpoolAge,
+		metric.WithDescription("Seconds since the oldest event in this replica's spool was received; 0 when the spool is empty. Rising means the spool is not draining."),
+		metric.WithUnit(unitSeconds)); err != nil {
+		return wrapReg(instWebhookSpoolAge, err)
 	}
 	return nil
 }
@@ -143,4 +192,31 @@ func (m *Metrics) WebhookDuplicatesDropped(ctx context.Context, source string, n
 		return
 	}
 	m.webhook.duplicates.Add(ctx, n, sourceAttr(source))
+}
+
+// WebhookSpool reports what this replica's spool holds. Nil-safe.
+func (m *Metrics) WebhookSpool(ctx context.Context, bytes, events int64, files int, oldestAge time.Duration) {
+	if m == nil || m.webhook.spoolBytes == nil {
+		return
+	}
+	m.webhook.spoolBytes.Record(ctx, bytes)
+	m.webhook.spoolEvents.Record(ctx, events)
+	m.webhook.spoolFiles.Record(ctx, int64(files))
+	m.webhook.spoolAge.Record(ctx, oldestAge.Seconds())
+}
+
+// WebhookSpoolDrained counts events drained from the spool. Nil-safe.
+func (m *Metrics) WebhookSpoolDrained(ctx context.Context, source string, events int) {
+	if m == nil || m.webhook.spoolDrained == nil {
+		return
+	}
+	m.webhook.spoolDrained.Add(ctx, int64(events), sourceAttr(source))
+}
+
+// WebhookSpoolDrainFailed counts one failed drain of the spool. Nil-safe.
+func (m *Metrics) WebhookSpoolDrainFailed(ctx context.Context, source string) {
+	if m == nil || m.webhook.spoolFailures == nil {
+		return
+	}
+	m.webhook.spoolFailures.Add(ctx, 1, sourceAttr(source))
 }

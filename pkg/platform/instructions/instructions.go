@@ -110,11 +110,11 @@ var capabilities = []capability{
 			"should repeat, so it is re-run rather than re-derived."
 	}},
 	{tool: toolMemoryCapture, line: func(map[string]bool) string {
-		return "Capture what you learn, with the call that proves it. `memory_capture` records a " +
-			"durable finding. Every query and API call returns its own `call_id`: when the " +
-			"result met the purpose you stated and the statement is worth running again, name " +
-			"it as an `mcp:call:<id>` in `memory_capture` `sources`, including when the answer " +
-			"only went into the conversation."
+		return "Capture facts about the data, never the data: knowledge reaches personas that " +
+			"cannot query every source. When a statement is worth running again, name its " +
+			"`call_id` as an `mcp:call:<id>` in `memory_capture` `sources`, even when its answer " +
+			"only went into the conversation; never record totals, counts, shares, rankings or " +
+			"row values (a stable divisor, code or threshold is fine)."
 	}},
 	{tool: toolApplyKnowledge, line: func(map[string]bool) string {
 		return "Promote what holds. `apply_knowledge` drives the review queue captures enter: " +

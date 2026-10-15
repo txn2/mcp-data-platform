@@ -5,10 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
@@ -36,7 +38,10 @@ var forwardedResponseHeaders = []string{
 // pausedRequest is the part of a Fetch.requestPaused event a decision needs.
 type pausedRequest struct {
 	RequestID string `json:"requestId"`
-	Request   struct {
+	// ResourceType is what the browser is loading the URL as: Document,
+	// Stylesheet, Script, Font, Image and so on.
+	ResourceType string `json:"resourceType"`
+	Request      struct {
 		URL     string            `json:"url"`
 		Method  string            `json:"method"`
 		Headers map[string]string `json:"headers"`
@@ -138,6 +143,10 @@ func ownReply(f File) reply {
 // a module resolves its relative imports against the address it was served
 // from.
 func (rs *render) servePublic(ctx context.Context, session string, p pausedRequest) {
+	if r, ok := rs.r.cache.get(p); ok {
+		rs.fulfill(ctx, session, p.RequestID, r)
+		return
+	}
 	fctx, cancel := context.WithTimeout(ctx, publicFetchTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(fctx, p.Request.Method, p.Request.URL, http.NoBody)
@@ -157,14 +166,19 @@ func (rs *render) servePublic(ctx context.Context, session string, p pausedReque
 			rs.refuse(ctx, session, p.RequestID)
 			return
 		}
+		rs.noteMissing(p, "it could not be fetched")
 		rs.fail(ctx, session, p.RequestID)
 		return
 	}
 	defer res.Body.Close() //nolint:errcheck // read-only response
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxPublicBody+1))
 	if err != nil || len(body) > maxPublicBody {
+		rs.noteMissing(p, "it could not be read")
 		rs.fail(ctx, session, p.RequestID)
 		return
+	}
+	if transient(res.StatusCode) {
+		rs.noteMissing(p, "its server answered "+strconv.Itoa(res.StatusCode))
 	}
 	headers := map[string]string{}
 	for _, h := range forwardedResponseHeaders {
@@ -172,7 +186,46 @@ func (rs *render) servePublic(ctx context.Context, session string, p pausedReque
 			headers[h] = v
 		}
 	}
-	rs.fulfill(ctx, session, p.RequestID, reply{res.StatusCode, headers, body})
+	r := reply{res.StatusCode, headers, body}
+	rs.r.cache.put(p, r, res.Header.Get("Cache-Control"))
+	rs.fulfill(ctx, session, p.RequestID, r)
+}
+
+// transient reports whether a public server's status says it may answer if
+// asked again: it was overloaded or failing, not telling the document the file
+// does not exist.
+func transient(status int) bool {
+	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+}
+
+// neededTypes are the loads a document cannot be drawn as written without: a
+// page whose stylesheet, script or module did not arrive draws unstyled or
+// not at all (#2122). A font is not among them, since a page in its fallback
+// face is still the page (#2062), nor an image, which the document's own
+// failure handling draws around.
+var neededTypes = map[string]bool{"Stylesheet": true, "Script": true}
+
+// noteMissing records a public file the document needed and did not get,
+// for a page that asked to fail on one.
+func (rs *render) noteMissing(p pausedRequest, why string) {
+	if !rs.page.RequireSubresources || !neededTypes[p.ResourceType] {
+		return
+	}
+	rs.mu.Lock()
+	rs.missing = append(rs.missing, strings.ToLower(p.ResourceType)+" "+p.Request.URL+" ("+why+")")
+	rs.mu.Unlock()
+}
+
+// missingFiles is the error a render whose page needed a public file it did
+// not get ends with, wrapping ErrIncomplete, or nil.
+func (rs *render) missingFiles() error {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if len(rs.missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("headless: %d file(s) the document needs could not be fetched: %s: %w",
+		len(rs.missing), strings.Join(rs.missing, "; "), ErrIncomplete)
 }
 
 // headerValue reads a header from the case-preserving map the browser sends.

@@ -38,7 +38,9 @@ func TestWithoutCORS_HooksAnswerTheirOwnOptions(t *testing.T) {
 }
 
 func TestWebhookMountsWithoutPlatform(t *testing.T) {
-	assert.Nil(t, buildWebhooks(nil, ":8080"))
+	hooks, err := buildWebhooks(nil, ":8080")
+	assert.Nil(t, hooks)
+	assert.NoError(t, err)
 	(*webhookwire.Webhooks)(nil).MountAdmin(http.NewServeMux(), nil, buildAdminAuth, adminEmail)
 }
 

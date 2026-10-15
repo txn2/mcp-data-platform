@@ -75,7 +75,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Name:  memoryCaptureToolName,
 		Title: "Capture Knowledge",
 		Description: "Record knowledge so it is never lost or re-derived. Call this PROACTIVELY whenever you " +
-			"learn something worth keeping; do not wait to be asked. Choose the sink-class via `type`: " +
+			"learn something worth keeping; do not wait to be asked. Capture facts about data (meaning, method, " +
+			"traps, definitions), never query results or row values; the source stays the system of record. Choose the sink-class via `type`: " +
 			"personal_preference and episodic_event are live for you immediately; business_knowledge, " +
 			"schema_entity (with entity_urns), and operational_rule are reviewed before promotion to a shared " +
 			"catalog. Examples: 'stores close at 9pm' -> business_knowledge; 'the amount column excludes returns' " +

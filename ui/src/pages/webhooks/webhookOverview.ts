@@ -12,6 +12,7 @@ export const OUTCOMES: { key: string; label: string }[] = [
   { key: "too_large", label: "Too large" },
   { key: "rate_limited", label: "Rate limited" },
   { key: "buffer_full", label: "Buffer full" },
+  { key: "spool_full", label: "Spool full" },
   { key: "write_failed", label: "Write failed" },
   { key: "sender_gone", label: "Sender gone" },
   { key: "invalid_body", label: "Invalid body" },

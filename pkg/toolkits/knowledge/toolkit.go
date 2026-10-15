@@ -228,13 +228,15 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"Be an expert reviewer, not a mechanical one: " +
 				"(1) discover existing knowledge first by searching the catalog and knowledge pages for the topic, so every decision is update-vs-create, never blind-create; " +
 				"(2) compare each insight against what exists (new, a refinement, a correction, or already covered); " +
-				"(3) synthesize: merge related insights into one coherent statement and resolve contradictions, rather than writing one record per raw insight; " +
-				"(4) route: entity-tied facts update the catalog entity (description, tags, glossary terms, curated queries); business or domain knowledge promotes to a knowledge page " +
+				"(3) strip data: applying an insight shares it with every persona, including those that cannot query its sources, so remove figures and row values before applying, " +
+				"reject an insight that is only figures, and keep a number only when it is a stable definition (a divisor, a code, a threshold); " +
+				"(4) synthesize: merge related insights into one coherent statement and resolve contradictions, rather than writing one record per raw insight; " +
+				"(5) route: entity-tied facts update the catalog entity (description, tags, glossary terms, curated queries); business or domain knowledge promotes to a knowledge page " +
 				"via sink=knowledge_page with a 'page' object, found-or-created by slug so repeat promotions consolidate and references accumulate; " +
-				"(5) update in place over duplicating, and create only when genuinely new: a create whose content closely matches an existing page is blocked and the candidate pages are returned, " +
+				"(6) update in place over duplicating, and create only when genuinely new: a create whose content closely matches an existing page is blocked and the candidate pages are returned, " +
 				"so re-apply against a candidate's slug to update it, or set page.force_new only when the new page is genuinely distinct; " +
-				"(6) prefer several focused, cross-linked pages over one large page, citing related pages with mcp:knowledge_page: references and building a thin index page that links to the focused ones; an oversized page is flagged with a non-blocking split suggestion; " +
-				"(7) mark insights applied, rejected, or superseded. " +
+				"(7) prefer several focused, cross-linked pages over one large page, citing related pages with mcp:knowledge_page: references and building a thin index page that links to the focused ones; an oversized page is flagged with a non-blocking split suggestion; " +
+				"(8) mark insights applied, rejected, or superseded. " +
 				"Access is granted per persona by tool visibility, not by an admin role. " +
 				"Sinks for the apply action: sink='catalog' (default) writes 'changes' to the catalog entity entity_urn names; sink='knowledge_page' promotes a business_knowledge or operational_rule " +
 				"insight to a page using the 'page' object {slug,title,summary,body,tags} and 'insight_ids'; sink='agent_instructions' promotes an operating rule into the " +
@@ -1079,13 +1081,14 @@ Always discover before you apply: search existing memory, insights, and knowledg
 
 1. **Discover existing knowledge.** For each pending insight, search the catalog and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.
 2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.
-3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.
-4. **Route to the right home.**
+3. **Strip data.** Applying an insight shares it with every persona, including those that cannot query its sources. Remove figures and row values before applying; reject an insight that is only figures; keep a number only when it is a stable definition (a divisor, a code, a threshold). This holds for every sink: a knowledge page body is read by every persona, whatever the sources it was written from.
+4. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.
+5. **Route to the right home.**
    - Tied to a catalog entity (dataset, column, glossary term): apply to the catalog (the default sink, sink=catalog), using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn, its mcp:dataset:(kind,connection,path) reference.
    - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.
-5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:<id>, mcp:connection:(kind,name), mcp:dataset:(kind,connection,path), and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing entity rejects the apply. References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).
-6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).
-7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.
+6. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:<id>, mcp:connection:(kind,name), mcp:dataset:(kind,connection,path), and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing entity rejects the apply. References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).
+7. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).
+8. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.
 
 ### Structure knowledge as a navigable graph
 
@@ -1205,7 +1208,7 @@ You can also capture insights you discover independently during data exploration
 **source: "agent_discovery"** — Use when you figure something out yourself during exploration:
 - Discovering what a column actually contains by sampling data (e.g., "column 'amt' appears to be in cents, not dollars, based on value ranges")
 - Finding join relationships not documented in lineage (e.g., "orders.cust_id matches customers.legacy_id, not customers.id")
-- Identifying data quality patterns through queries (e.g., "ship_date is NULL for 23% of completed orders since 2024-06")
+- Identifying data quality patterns through queries (e.g., "ship_date is NULL on completed orders created before the 2024-06 migration; filter on status, not ship_date")
 - Determining refresh cadence by observing max timestamps across multiple queries
 
 **source: "enrichment_gap"** — Use when flagging metadata gaps that need admin attention:
@@ -1228,6 +1231,7 @@ In these cases, ask the user to clarify before capturing anything.
 ### When NOT to Capture
 
 Do NOT capture insights for:
+- Query results, metrics, aggregates, rankings, comparisons, or row-level values (ids, names, amounts). They belong at the source: knowledge is read by personas that cannot query every source, so a result copied into it escapes that source's access control
 - Transient questions or debugging ("why is my query slow?")
 - Personal preferences ("I prefer using CTEs")
 - Information already present in the catalog metadata

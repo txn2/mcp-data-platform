@@ -97,13 +97,13 @@ describe("findComponentName", () => {
 });
 
 describe("JsxRenderer", () => {
-  it("renders an iframe with allow-scripts sandbox", () => {
+  it("renders an iframe sandboxed with allow-scripts and allow-downloads", () => {
     const { container } = render(
       <JsxRenderer content="function App() { return <div>Hello</div>; }" />,
     );
     const iframe = container.querySelector("iframe");
     expect(iframe).toBeTruthy();
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts allow-downloads");
     expect(iframe?.getAttribute("title")).toBe("JSX Preview");
   });
 

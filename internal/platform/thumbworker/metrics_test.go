@@ -41,6 +41,9 @@ func TestUnfinishedReasonAndKind(t *testing.T) {
 	if got := unfinishedReason(fmt.Errorf("draw: %w", headless.ErrUnavailable)); got != failRenderer {
 		t.Errorf("renderer unavailable read as %q", got)
 	}
+	if got := unfinishedReason(fmt.Errorf("draw: %w", headless.ErrIncomplete)); got != failSubresource {
+		t.Errorf("a missing stylesheet read as %q", got)
+	}
 	if got := unfinishedReason(errors.New("storing the tile: denied")); got != failStorage {
 		t.Errorf("storage failure read as %q", got)
 	}

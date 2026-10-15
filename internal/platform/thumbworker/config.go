@@ -62,6 +62,12 @@ type Config struct {
 	// from part of the file: page one of a PDF, the first rows of a CSV or
 	// TSV. Zero means 32 MB (thumbtypes.LargeSourceLimit).
 	LargeSourceBytes int64 `yaml:"large_source_bytes"`
+
+	// AllowPrivateCIDRs are private address prefixes a document drawn by the
+	// renderer may load files from (#2122): an internal CDN a report takes
+	// its stylesheet from. Every other private, loopback, link-local and
+	// metadata address stays refused. Empty refuses them all, the default.
+	AllowPrivateCIDRs []string `yaml:"allow_private_cidrs"`
 }
 
 // IsEnabled reports whether the platform draws tiles, defaulting to true.

@@ -197,6 +197,18 @@ describe("the capture frame's reference watch, run", () => {
     expect(state.failed).toBe(0);
   });
 
+  // An element's load event stops at the document; a listener on the window
+  // never hears it, which left a loaded image uncounted.
+  it("counts a loaded referenced image as started", () => {
+    const state = runWatcher() as Watched & { started: number };
+    const img = document.createElement("img");
+    img.src = `https://platform.example.com${REF_PATH_PREFIX}ast-1/abc`;
+    document.body.appendChild(img);
+    img.dispatchEvent(new Event("load"));
+    expect(state.started).toBe(1);
+    img.remove();
+  });
+
   it("does not count a refusal outside the reference route", () => {
     const state = runWatcher();
     violation("img-src", "https://beacon.example.com/pixel.gif");
@@ -278,5 +290,136 @@ describe("the capture frame's map wait, run", () => {
     expect(posted()).toBe(0);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(posted()).toBe(1);
+  });
+});
+
+// The frame reports ready only once its styles are in (#2122): a capture taken
+// while a stylesheet is loading, or while run-time CSS is still being written,
+// is a picture of unstyled text that nothing downstream can tell from the page.
+describe("the capture frame's style wait, run", () => {
+  const win = window as unknown as {
+    __stylesSettled?: unknown;
+    __thumbnailRefs?: unknown;
+    __thumbnailModuleRan?: unknown;
+    __thumbnailScriptFailed?: unknown;
+    __mapsDrawn?: unknown;
+    __mapCount?: unknown;
+    maplibregl?: unknown;
+  };
+
+  function scriptsOf(html: string): string[] {
+    return [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
+  }
+
+  /** Runs an HTML capture document's watcher and notifier; counts ready posts. */
+  function captureHtml(): () => number {
+    const scripts = scriptsOf(injectCaptureScript("<div>content</div>", "ast-style"));
+    new Function(scripts[0] ?? "")();
+    const post = vi.spyOn(window, "postMessage").mockImplementation(() => undefined);
+    new Function(scripts[scripts.length - 1] ?? "")();
+    return () => post.mock.calls.filter((c) => (c[0] as { type?: string }).type === "thumbnail-ready").length;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    document.head.innerHTML = "";
+    document.body.innerHTML = "";
+    delete win.__stylesSettled;
+    delete win.__thumbnailRefs;
+    delete win.__thumbnailModuleRan;
+    delete win.__thumbnailScriptFailed;
+    delete win.__mapsDrawn;
+    delete win.__mapCount;
+    delete win.maplibregl;
+  });
+
+  it("is not ready while a stylesheet a script added after load is still loading", async () => {
+    vi.useFakeTimers();
+    const posted = captureHtml();
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://cdn.example.com/late.css";
+    document.head.appendChild(link);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(posted()).toBe(0);
+    link.dispatchEvent(new Event("load"));
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(posted()).toBe(1);
+  });
+
+  // The watcher's text is a template: a rel with more than one token is
+  // matched as the browser reads it.
+  it("waits on a stylesheet whose rel carries more than one token", async () => {
+    vi.useFakeTimers();
+    const posted = captureHtml();
+    const link = document.createElement("link");
+    link.rel = "preload stylesheet";
+    document.head.appendChild(link);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(posted()).toBe(0);
+    link.dispatchEvent(new Event("load"));
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(posted()).toBe(1);
+  });
+
+  it("is ready once a failed stylesheet has failed: its absence is the platform's to judge", async () => {
+    vi.useFakeTimers();
+    const posted = captureHtml();
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    document.head.appendChild(link);
+    link.dispatchEvent(new Event("error"));
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(posted()).toBe(1);
+  });
+
+  it("waits for CSS written at run time to stop changing", async () => {
+    vi.useFakeTimers();
+    const posted = captureHtml();
+    const style = document.createElement("style");
+    document.head.appendChild(style);
+    // A script writing its CSS in pieces, as the Tailwind Play CDN does.
+    for (let i = 0; i < 10; i++) {
+      style.textContent += `.c${i}{color:red}`;
+      await vi.advanceTimersByTimeAsync(200);
+    }
+    expect(posted()).toBe(0);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(posted()).toBe(1);
+  });
+
+  it("is ready at its bound when a stylesheet never answers", async () => {
+    vi.useFakeTimers();
+    const posted = captureHtml();
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    document.head.appendChild(link);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(posted()).toBe(0);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(posted()).toBe(1);
+  });
+
+  it("waits for a JSX frame's module to run instead of a fixed delay", async () => {
+    vi.useFakeTimers();
+    const html = buildJsxThumbnailHtml("export default function App(){ return <div/>; }", "ast-jsx", "https://p.example.com");
+    expect(html).not.toContain("2000");
+    const scripts = scriptsOf(html);
+    const post = vi.spyOn(window, "postMessage").mockImplementation(() => undefined);
+    new Function(scripts[scripts.length - 1] ?? "")();
+    const posted = () => post.mock.calls.filter((c) => (c[0] as { type?: string }).type === "thumbnail-ready").length;
+    // esm.sh is slow: the module has not run after 3 seconds.
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(posted()).toBe(0);
+    win.__thumbnailModuleRan = true;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(posted()).toBe(1);
+  });
+
+  it("sets the module flag at the end of the module the JSX frame runs", () => {
+    const html = buildJsxThumbnailHtml("export default function App(){ return <div/>; }", "ast-jsx", "https://p.example.com");
+    const module = /<script type="module">([\s\S]*?)<\/script>/.exec(html)?.[1] ?? "";
+    expect(module.trimEnd().endsWith("window.__thumbnailModuleRan = true;")).toBe(true);
   });
 });

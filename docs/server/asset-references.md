@@ -44,7 +44,7 @@ The same three calls report the references the content names and the asset does 
 
 ### A reference is not a link
 
-The rewrite produces a URL that serves the target's bytes. That is what an `img`, a stylesheet or a `fetch` needs, and it is not something a reader can follow: the frame an HTML or JSX asset renders in is `sandbox="allow-scripts"`, which blocks top navigation, popups and downloads, and a file's raw bytes are not a page. The platform has no link between assets.
+The rewrite produces a URL that serves the target's bytes. That is what an `img`, a stylesheet or a `fetch` needs, and it is not something a reader can follow: the frame an HTML or JSX asset renders in is `sandbox="allow-scripts allow-downloads"`, which blocks top navigation and popups, and a file's raw bytes are not a page. The platform has no link between assets.
 
 A write that uses a reference as a link target is refused, naming each reference, and nothing is written:
 
@@ -53,7 +53,13 @@ A write that uses a reference as a link target is refused, naming each reference
 | HTML, XHTML, JSX, SVG | an `<a>` or `<area>` whose `href` (or SVG `xlink:href`) is a reference, including JSX `href={"..."}` |
 | Markdown | the above in embedded markup, an inline link whose destination is a reference, and an autolink wrapping one; fenced code and inline code are not read |
 
-A markdown image whose source is a reference loads the file and is accepted. To point a reader at another asset, name it in text. A `patch` is judged on the body the patch produces, dry runs included, so a patch that removes such a link from an older asset is accepted.
+A markdown image whose source is a reference loads the file and is accepted. To point a reader at another asset, name it in text.
+
+### Offering a file for download
+
+An anchor with a `download` attribute saves what it names instead of following it, so it is not a link and is accepted when its target is a reference: `<a href="mcp://global/sales/orders.csv" download>Download the data</a>`, or `mcp:asset:<id>`. The serving rewrite gives such an anchor the reference's URL with `?download=1`, which `/portal/refs/` answers with `Content-Disposition: attachment`. The frame's origin is opaque, so a browser ignores the `download` attribute on any URL it fetches and navigates instead; the attachment disposition is what turns that navigation into a saved file, and `allow-downloads` is what lets it go ahead inside the sandbox. Every other occurrence of the same reference (an `img`, a `fetch`) is rewritten to the plain URL. A reference the download anchor names and the asset does not declare is reported in `undeclared_references`, like any other.
+
+`allow-downloads` also lets a download the page builds itself go ahead: a CSV of the table it renders through a `Blob` and an `<a download>` it clicks. It grants the frame nothing it could not already read, since the page can `fetch` a declared file and draw it, and the opaque origin is unchanged. A `patch` is judged on the body the patch produces, dry runs included, so a patch that removes such a link from an older asset is accepted.
 
 On `manage_asset`, `references` replaces whatever the asset referenced before:
 
