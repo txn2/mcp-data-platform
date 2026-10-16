@@ -24,6 +24,11 @@ GREMLINS_VERSION := v0.6.0
 # local and CI must run the same scanner against the same schema. .github/workflows/ci.yml
 # installs this version.
 GOVULNCHECK_VERSION := v1.1.4
+# osv-scanner reads the GitHub advisory database, which carries advisories the
+# Go vulnerability database govulncheck reads does not (the 15 excelize
+# advisories of #2143 were in one and not the other), and it reads the UI's npm
+# lockfile, which nothing else scans. .github/workflows/ci.yml installs this version.
+OSV_SCANNER_VERSION := v2.6.0
 
 # Total-coverage floor. This is the single source of truth for the project
 # coverage gate: .github/workflows/ci.yml, codecov.yml (project target) and
@@ -361,7 +366,7 @@ mod-verify:
 	@echo "Verifying modules..."
 	$(GOMOD) verify
 
-## security: Run security checks (gosec + govulncheck)
+## security: Run security checks (gosec + govulncheck + osv-scanner)
 security:
 	@echo "Running gosec..."
 	gosec -quiet ./...
@@ -383,15 +388,32 @@ security:
 	status=$$?; \
 	rm -f $(GOVULN_REPORT); \
 	exit $$status
+	@$(MAKE) --no-print-directory osv
 
-## osv: Run osv-scanner (informational; mirrors OpenSSF Scorecard)
-## Not part of `verify`: osv-scanner scans the whole go.sum graph regardless of
-## reachability, so it flags test-only/indirect deps that never touch the
-## binary (which govulncheck, already in `security`, correctly reports as 0).
-## Suppressions with justification + expiry live in osv-scanner.toml.
+## osv: Fail on any known advisory against a manifest the platform ships from
+## osv-scanner judges go.mod, the UI's npm lockfile and the docs site's
+## requirements against the GitHub advisory database. Its Go call analysis
+## drops an advisory whose symbols the module never calls; an npm or pip
+## advisory counts whatever the code uses. An accepted advisory is listed in osv-scanner.toml with its
+## reason and an ignoreUntil date; past that date the entry stops applying and
+## the advisory fails the gate again, and an entry that no longer matches any
+## finding fails it too, so the file cannot hold a stale acceptance. CI runs
+## this target. bench/ and test/load/ are separate modules the release never
+## builds and are not scanned.
+OSV_MANIFESTS := -L go.mod -L $(UI_DIR)/package-lock.json -L docs/requirements.txt
+OSV_LOG := build/osv-scanner.log
 osv:
-	@echo "Running osv-scanner (informational)..."
-	@osv-scanner scan source -r --config osv-scanner.toml . || true
+	@echo "Running osv-scanner..."
+	@mkdir -p $(dir $(OSV_LOG))
+	@osv-scanner scan source --config osv-scanner.toml $(OSV_MANIFESTS) > $(OSV_LOG) 2>&1; \
+	status=$$?; \
+	cat $(OSV_LOG); \
+	if grep -q 'has unused ignores' $(OSV_LOG); then \
+		echo "ERROR: osv-scanner.toml accepts an advisory no longer reported; delete that entry."; \
+		status=1; \
+	fi; \
+	rm -f $(OSV_LOG); \
+	exit $$status
 
 ## semgrep: Run Semgrep SAST with standard and custom rules
 semgrep:
@@ -531,6 +553,24 @@ state-readers-check:
 ## verify fifteen minutes in. This reads both in under a second.
 e2e-copy-check:
 	@python3 scripts/e2e-copy-check.py
+
+## docs-build: Build the documentation site with mkdocs --strict (#2138)
+## The deploy workflow builds the site only after a merge to main, so a broken
+## nav entry used to stop the site deploying with every gate green. This builds
+## it the same way, in a virtualenv installed from docs/requirements.txt with
+## --require-hashes (the deploy workflow's install), rebuilt when that file
+## changes, so local and CI build with the same mkdocs and theme.
+DOCS_VENV := build/docs-venv
+DOCS_STAMP := $(DOCS_VENV)/.requirements.sha256
+docs-build:
+	@want=$$(shasum -a 256 docs/requirements.txt | cut -d' ' -f1); \
+	if [ ! -x $(DOCS_VENV)/bin/mkdocs ] || [ "$$(cat $(DOCS_STAMP) 2>/dev/null)" != "$$want" ]; then \
+		echo "Installing docs/requirements.txt into $(DOCS_VENV)..."; \
+		rm -rf $(DOCS_VENV) && python3 -m venv $(DOCS_VENV) && \
+		$(DOCS_VENV)/bin/pip install --quiet --require-hashes -r docs/requirements.txt && \
+		echo "$$want" > $(DOCS_STAMP) || exit 1; \
+	fi
+	@$(DOCS_VENV)/bin/mkdocs build --strict --site-dir build/docs-site
 
 ## route-manifest-check: Fail when a portal route has no screenshot manifest entry (#2055)
 ## route-sync.test.ts reads AppShell's pageTitles and the screenshot route
@@ -687,6 +727,14 @@ tools-check:
 		v=$$(go version -m $$(which govulncheck) 2>/dev/null | awk '$$1=="mod" && $$2=="golang.org/x/vuln" {print $$3}'); \
 		if [ -n "$$v" ] && [ "$$v" != "$(GOVULNCHECK_VERSION)" ]; then \
 			mismatch="$$mismatch  govulncheck: have $$v, want $(GOVULNCHECK_VERSION) — go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)\n"; \
+		fi; \
+	fi; \
+	if ! which osv-scanner > /dev/null 2>&1; then \
+		missing="$$missing  osv-scanner: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@$(OSV_SCANNER_VERSION)\n"; \
+	else \
+		v=$$(osv-scanner --version 2>&1 | grep -oE 'version: v?[0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+		if [ "v$$v" != "$(OSV_SCANNER_VERSION)" ]; then \
+			mismatch="$$mismatch  osv-scanner: have v$$v at $$(which osv-scanner), want $(OSV_SCANNER_VERSION) — go install github.com/google/osv-scanner/v2/cmd/osv-scanner@$(OSV_SCANNER_VERSION), ahead of any other copy on PATH\n"; \
 		fi; \
 	fi; \
 	which semgrep > /dev/null 2>&1       || missing="$$missing  semgrep: pip3 install semgrep\n"; \
@@ -904,6 +952,7 @@ preverify-fast:
 	@$(MAKE) --no-print-directory apidocs-openapi3-check
 	@$(MAKE) --no-print-directory semgrep-diff
 	@$(MAKE) --no-print-directory doc-check
+	@$(MAKE) --no-print-directory docs-build
 	@$(MAKE) --no-print-directory acceptance-check
 	@$(MAKE) --no-print-directory state-readers-check
 	@$(MAKE) --no-print-directory e2e-copy-check
@@ -948,7 +997,7 @@ preverify: preverify-fast
 ## They are chained rather than made dependent on each other, which would make
 ## a standalone `make bench-lint` pay for the main module's two-minute lint.
 ##
-## security (gosec + govulncheck) and the whole-tree semgrep follow it. They
+## security (gosec + govulncheck + osv-scanner) and the whole-tree semgrep follow it. They
 ## used to run in verify-go after the full race unit run, so a gosec finding
 ## failed verify fifteen minutes in with every test lane green (#2053); here
 ## they start with the other lanes and report in the first minutes.
@@ -976,15 +1025,10 @@ verify-ui:
 	@$(MAKE) --no-print-directory release-check
 	@echo "[lane done  $$(date +%T)] verify-ui"
 
-## docs-serve: Serve documentation locally
-docs-serve:
+## docs-serve: Serve documentation locally, with the pinned mkdocs docs-build installs
+docs-serve: docs-build
 	@echo "Serving documentation at http://localhost:8000..."
-	python3 -m mkdocs serve
-
-## docs-build: Build documentation
-docs-build:
-	@echo "Building documentation..."
-	python3 -m mkdocs build
+	$(DOCS_VENV)/bin/mkdocs serve
 
 ## help: Show this help message
 help:

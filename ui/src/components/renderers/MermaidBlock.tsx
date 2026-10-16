@@ -11,12 +11,14 @@ import DOMPurify from "dompurify";
 
 // DOMPurify's default FORBID_CONTENTS strips the children of `foreignObject`
 // (among others). We reuse that default list but drop `foreignobject` so the
-// HTML label markup mermaid places inside it survives. Everything else in the
-// list (script, style, iframe, ...) is still content-stripped.
+// HTML label markup mermaid places inside it survives, and drop the MathML
+// elements (`math`, `mi`, `mn`, `mo`, `ms`, `mtext`) so a math label KaTeX
+// rendered keeps its formula (#2144). Everything else in the list (script,
+// style, iframe, ...) is still content-stripped.
 const MERMAID_FORBID_CONTENTS = [
-  "annotation-xml", "audio", "colgroup", "desc", "head", "iframe", "math", "mi",
-  "mn", "mo", "ms", "mtext", "noembed", "noframes", "noscript", "plaintext",
-  "script", "style", "svg", "template", "thead", "title", "video", "xmp",
+  "annotation-xml", "audio", "colgroup", "desc", "head", "iframe", "noembed",
+  "noframes", "noscript", "plaintext", "script", "style", "svg", "template",
+  "thead", "title", "video", "xmp",
 ];
 
 /**
@@ -34,11 +36,13 @@ const MERMAID_FORBID_CONTENTS = [
  *     namespace check treats foreignObject as an HTML integration point and
  *     keeps its xhtml children (it only allows `annotation-xml` by default).
  * Plus `MERMAID_FORBID_CONTENTS` so foreignObject contents are not stripped.
- * Scripts and inline event handlers (onclick/onerror/...) are still removed.
+ * A label written as $$...$$ is MathML from KaTeX inside the foreignObject, so
+ * the `mathMl` profile allows DOMPurify's MathML elements (#2144).
+ * Scripts, inline event handlers (onclick/onerror/...) and links are still removed.
  */
 export function sanitizeMermaidSvg(svg: string): string {
   return DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true, html: true },
+    USE_PROFILES: { svg: true, svgFilters: true, html: true, mathMl: true },
     ADD_TAGS: ["foreignObject"],
     FORBID_CONTENTS: MERMAID_FORBID_CONTENTS,
     HTML_INTEGRATION_POINTS: { foreignobject: true, "annotation-xml": true },

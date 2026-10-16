@@ -11,6 +11,10 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
+// buildAssetsDir is where Vite writes the hashed files a build's index.html
+// names (its default build.assetsDir).
+const buildAssetsDir = "assets/"
+
 // Available returns true when the embedded dist directory contains frontend
 // assets (i.e., the frontend was built before the Go binary was compiled).
 func Available() bool {
@@ -65,12 +69,19 @@ func newSPAHandler(root fs.FS) http.Handler {
 			}
 		}
 
-		// SPA fallback: serve index.html directly for unmatched routes.
-		if indexHTML == nil {
+		// A build file this build does not have is a 404, never index.html:
+		// a page from another build (a rolling update) asking for its hashed
+		// files must fail the request, not get HTML under a stylesheet's or a
+		// chunk's immutable URL (#2139).
+		if indexHTML == nil || strings.HasPrefix(path, buildAssetsDir) {
 			http.NotFound(w, r)
 			return
 		}
+		// SPA fallback: serve index.html directly for unmatched routes. It
+		// names the current build's hashed files, so it is revalidated on
+		// every load.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(indexHTML)
 	})
 }

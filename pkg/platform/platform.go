@@ -2663,10 +2663,15 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 	if p.db == nil || p.config.Semantic.Provider == providerNoop {
 		return semantic.NewNoopProvider(), nil
 	}
+	var opts []catalogsemantic.Option
+	if p.config.Enrichment.IsLineageInheritanceEnabled() {
+		reach := catalogReach(p)
+		opts = append(opts, catalogsemantic.WithInheritance(catalogsemantic.Reach(reach)))
+	}
 	return catalogsemantic.New(catalogstore.New(p.db), func(bound string) (string, bool) {
 		c, ok := connectionResolver(p).ByBound(toolkitKindTrino, connid.Bound(bound))
 		return string(c.Instance), ok
-	}), nil
+	}, opts...), nil
 }
 
 // nativeCatalog reports whether the platform catalog is the semantic layer.

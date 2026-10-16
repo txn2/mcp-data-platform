@@ -488,7 +488,7 @@ export function AppShell() {
               error one catches the chunk that never does, which would
               otherwise unmount the whole portal. It is reset by the route, so
               navigating away from a broken page clears it. */}
-          <ErrorBoundary resetKey={route} fallback={<PageFailed />}>
+          <ErrorBoundary resetKey={route} fallback={<PageFailed />} reloadOnChunkError>
           <Suspense fallback={<PageLoading />}>
           {notFound && <PageNotFound route={route} onNavigate={navigate} />}
 

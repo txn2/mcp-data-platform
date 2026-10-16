@@ -23,8 +23,15 @@ func TestCreateSemanticProviderIsTheCatalog(t *testing.T) {
 		assert.True(t, nativeCatalog(got))
 	}
 
-	p := &Platform{config: &Config{Semantic: SemanticConfig{Provider: "noop"}}, db: &sql.DB{}}
+	// Turning lineage inheritance off still gives the catalog (#2130).
+	off := false
+	p := &Platform{config: &Config{Enrichment: EnrichmentConfig{LineageInheritance: &off}}, db: &sql.DB{}}
 	got, err := p.createSemanticProvider()
+	require.NoError(t, err)
+	assert.Equal(t, catalogsemantic.Name, got.Name())
+
+	p = &Platform{config: &Config{Semantic: SemanticConfig{Provider: "noop"}}, db: &sql.DB{}}
+	got, err = p.createSemanticProvider()
 	require.NoError(t, err)
 	assert.IsType(t, &semantic.NoopProvider{}, got)
 	assert.False(t, nativeCatalog(got))

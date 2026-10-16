@@ -273,14 +273,22 @@ func (s *Sanitizer) SanitizeColumnContext(cc *ColumnContext) *ColumnContext {
 		return nil
 	}
 
-	return &ColumnContext{
+	out := &ColumnContext{
 		Name:          cc.Name, // Field name is a system identifier
 		Description:   s.SanitizeDescription(cc.Description),
 		Tags:          s.SanitizeTags(cc.Tags),
 		GlossaryTerms: s.sanitizeGlossaryTerms(cc.GlossaryTerms),
 		IsPII:         cc.IsPII,
 		IsSensitive:   cc.IsSensitive,
+		BusinessName:  s.SanitizeString(cc.BusinessName),
 	}
+	if cc.InheritedFrom != nil {
+		// The source reference and column are system identifiers, the hop
+		// count and match method the provider's own (#2130).
+		from := *cc.InheritedFrom
+		out.InheritedFrom = &from
+	}
+	return out
 }
 
 func (s *Sanitizer) sanitizeOwners(owners []Owner) []Owner {

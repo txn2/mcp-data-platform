@@ -11,7 +11,10 @@
 //
 // What is repaired is only what the platform can prove is its own: an orphan
 // whose location is the directory of a file the platform stores, and a
-// registration whose table is gone. Everything else is reported and left.
+// registration whose table is gone. Everything else is reported and left. A
+// managed table (one with no external location, such as a managed script's
+// working table) is never a registration's and is neither reported nor
+// repaired (#2141).
 package tablereconcile
 
 import (
@@ -205,7 +208,10 @@ func (c *Reconciler) classify(
 			}
 			continue
 		}
-		if srcdir.Under(loc, webhookDirs) {
+		// A managed table (no external location) is never a registration's,
+		// which is an external table over a stored file: a managed script's
+		// working tables are the case, and they are not orphans (#2141).
+		if loc == "" || srcdir.Under(loc, webhookDirs) {
 			continue
 		}
 		src := c.sourceAt(ctx, loc)
@@ -309,6 +315,8 @@ func (c *Reconciler) dropOrphan(
 		return "the table could not be read: " + err.Error()
 	case !found:
 		return "the table is already gone"
+	case location == "":
+		return "a managed table, not one a registration makes; left alone"
 	case c.sourceAt(ctx, location) == nil:
 		return "not the platform's: it reads " + srcdir.Describe(location) + "; left alone"
 	}

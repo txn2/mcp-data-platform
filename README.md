@@ -293,7 +293,7 @@ make verify                                             # full CI-equivalent sui
 make vet-tags                                           # compile the integration-tagged build (~1s)
 make acceptance                                         # per-ticket acceptance suite against a running server (make dev)
 make acceptance ISSUE=1675                              # one ticket's criteria, recorded the same way
-make osv                                                # osv-scanner, informational (mirrors OpenSSF Scorecard)
+make osv                                                # osv-scanner over go.mod, ui/package-lock.json, docs/requirements.txt
 ```
 
 `make acceptance` runs [`test/acceptance`](test/acceptance/acceptance_test.go): one file per ticket, each executing that ticket's acceptance criteria as a real MCP client against a running platform, through the tool a user calls. It targets the dev stack (`make dev`) by default and fails rather than skips when no server answers. `make verify-release` runs it through `make acceptance-release`, which uses a stack already answering and otherwise starts one for the run and stops it after, so the release check passes in one command whether or not `make dev` is up; `make verify`'s Playwright suite, which wants port 5173, runs on the next free port when it finds a dev server there.
@@ -308,7 +308,7 @@ The running side of the same invariant is enforced by the platform itself: after
 
 `make verify` runs `govulncheck`, which does reachability analysis and reports only vulnerabilities your code actually calls. A finding against a dependency with no patched release would otherwise leave every build red, so the report is judged by [`scripts/govulncheck-gate.py`](scripts/govulncheck-gate.py) against [`.govulncheck-allow.txt`](.govulncheck-allow.txt), where an accepted advisory carries the reason it is accepted. The acceptance cannot outlive its reason: the gate fails the build when an accepted advisory starts naming a fixed version, and again when one stops being reported, so a stale line is a build failure rather than a silent suppression. CI runs the same script against the same file.
 
-`make osv` runs [osv-scanner](https://github.com/google/osv-scanner) the way [OpenSSF Scorecard](https://securityscorecards.dev/) does, flagging every vulnerable package in the dependency graph regardless of reachability. It is informational and not part of `verify`; suppressions for non-reachable and test-only findings are documented with justification and expiry in [`osv-scanner.toml`](osv-scanner.toml).
+`make verify` also runs [osv-scanner](https://github.com/google/osv-scanner) (`make osv`) over `go.mod`, `ui/package-lock.json` and `docs/requirements.txt`. It reads the GitHub advisory database, which carries advisories the Go vulnerability database does not (15 excelize advisories in #2143 reached only the first), and it is the only scan of the UI's npm lockfile. It fails on any finding, except a Go advisory whose symbols osv-scanner's call analysis finds the module never calls. An accepted advisory is listed in [`osv-scanner.toml`](osv-scanner.toml) with its reason and an `ignoreUntil` date: past that date the entry stops applying and the advisory fails the build again, and an entry that matches no finding fails it too. CI runs the same target.
 
 The React admin portal lives under [`ui/`](ui/README.md). Its CI job runs
 `npm run lint`, which enforces per-function complexity budgets that mirror the

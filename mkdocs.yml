@@ -152,7 +152,6 @@ nav:
         - Overview: cross-enrichment/overview.md
         - Trino to Catalog: cross-enrichment/trino-catalog.md
         - Catalog to Trino: cross-enrichment/catalog-trino.md
-        - Lineage Inheritance: cross-enrichment/lineage.md
       - MCP Apps:
         - Overview: mcpapps/overview.md
         - Configuration: mcpapps/configuration.md

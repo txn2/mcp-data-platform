@@ -551,6 +551,7 @@ internal/platform/catalogimport -> pkg/catalog
 internal/platform/catalogscan -> internal/bgloop
 internal/platform/catalogscan -> internal/logsan
 internal/platform/catalogscan -> pkg/catalog
+internal/platform/catalogsemantic -> internal/logsan
 internal/platform/catalogsemantic -> pkg/catalog
 internal/platform/catalogsemantic -> pkg/middleware
 internal/platform/catalogsemantic -> pkg/semantic

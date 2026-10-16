@@ -1069,6 +1069,7 @@ enrichment:
   trino_semantic_enrichment: true    # Add catalog context to Trino results
   unwrap_json: true               # Auto-unwrap single-row VARCHAR-of-JSON (default: true)
   column_context_filtering: true     # Only include SQL-referenced columns (default: true)
+  lineage_inheritance: true          # Columns borrow upstream curation along lineage (default: true)
   estimate_row_counts: false         # Run COUNT(*) for availability enrichment (default: false)
   semantic_fallback: false           # Suggest similar tables on a URN miss (default: false)
   semantic_fallback_top_k: 1         # Suggestions per miss, 1-10 (default: 1)
@@ -1092,6 +1093,7 @@ enrichment:
 | `trino_semantic_enrichment` | bool | `true` | Enrich Trino results with the platform catalog's curation. Default on; read-only and no-ops without a semantic provider. Set `false` to disable. |
 | `unwrap_json` | bool | `true` | Auto-unwrap single-row VARCHAR-of-JSON results |
 | `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
+| `lineage_inheritance` | bool | `true` | A column with no description or glossary terms of its own shows the same-named upstream column's, from the nearest dataset up to two hops up the catalog's lineage that the caller reaches, marked `inherited_from` ([Inherited column curation](catalog.md#inherited-column-curation)). Set `false` to disable |
 | `estimate_row_counts` | bool | `false` | Run `SELECT COUNT(*)` when reporting table availability, so a fetched catalog dataset's `query_availability` carries an estimated row count. Also what lets the insight review path state a row count beside a pending claim, and what the advisory claim-conflict marker compares against ([Knowledge governance](../knowledge/governance.md#observed-warehouse-state)). Off by default: `COUNT(*)` can trigger a full table scan and make search enrichment very slow |
 | `semantic_fallback` | bool | `false` | When a URN-equality lookup misses, fall back to similarity search and surface the top hit as a **suggested** match, annotated `match_kind=semantic` so the model knows it was inferred rather than resolved. Audit rows record `enrichment_match_kind` so operators can measure the false-positive rate. The platform catalog's dataset search ranks the suggestions |
 | `semantic_fallback_top_k` | int | `1` | Suggestions surfaced per miss when `semantic_fallback` is on. Clamped to 1-10 to keep suggested-match output bounded |

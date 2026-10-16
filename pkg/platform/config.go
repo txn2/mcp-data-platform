@@ -775,6 +775,13 @@ type EnrichmentConfig struct {
 	// touch a subset of a wide table. Defaults to true (nil = enabled).
 	ColumnContextFiltering *bool `yaml:"column_context_filtering"`
 
+	// LineageInheritance lets a column with no description or glossary terms
+	// of its own show the same-named column's from the nearest upstream
+	// dataset in the catalog's lineage (up to two hops), marked with where it
+	// came from, from datasets the caller's persona reaches. Defaults to true
+	// (nil = enabled). Issue #2130.
+	LineageInheritance *bool `yaml:"lineage_inheritance"`
+
 	// SemanticFallback enables the issue #444 fallback path: when a
 	// URN-equality lookup for a Trino table misses on the semantic
 	// provider, the platform calls SearchTables with Mode=semantic
@@ -827,6 +834,15 @@ func (c *EnrichmentConfig) IsColumnContextFilteringEnabled() bool {
 		return true
 	}
 	return *c.ColumnContextFiltering
+}
+
+// IsLineageInheritanceEnabled reports whether columns inherit curation along
+// the catalog's lineage, defaulting to true when not explicitly set.
+func (c *EnrichmentConfig) IsLineageInheritanceEnabled() bool {
+	if c.LineageInheritance == nil {
+		return true
+	}
+	return *c.LineageInheritance
 }
 
 // IsTrinoSemanticEnrichmentEnabled reports whether Trino results are enriched

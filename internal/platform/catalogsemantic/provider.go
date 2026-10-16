@@ -49,15 +49,21 @@ type Provider struct {
 	store     Reader
 	instance  InstanceOf
 	sanitizer *semantic.Sanitizer
+	// reach is set when lineage inheritance is on (WithInheritance).
+	reach Reach
 }
 
 // New builds the provider. A nil instance lookup uses the bound name as the
 // instance.
-func New(store Reader, instance InstanceOf) *Provider {
+func New(store Reader, instance InstanceOf, opts ...Option) *Provider {
 	if instance == nil {
 		instance = func(bound string) (string, bool) { return bound, bound != "" }
 	}
-	return &Provider{store: store, instance: instance, sanitizer: semantic.NewSanitizer(semantic.DefaultSanitizeConfig())}
+	p := &Provider{store: store, instance: instance, sanitizer: semantic.NewSanitizer(semantic.DefaultSanitizeConfig())}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 var _ semantic.Provider = (*Provider)(nil)
@@ -226,22 +232,37 @@ func (p *Provider) GetColumnContext(ctx context.Context, column semantic.ColumnI
 	return c, nil
 }
 
-// GetColumnsContext returns every column's curation, by column name.
+// GetColumnsContext returns every column's curation, by column name. With
+// lineage inheritance on, a column lacking a description or glossary terms
+// shows what the nearest upstream column of its name has (inherit.go).
 func (p *Provider) GetColumnsContext(ctx context.Context, table semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
 	d, err := p.dataset(ctx, table)
 	if err != nil {
 		return nil, err
 	}
+	borrowed := p.inherited(ctx, d)
 	out := make(map[string]*semantic.ColumnContext, len(d.Columns))
 	for _, c := range d.Columns {
-		semantic.DetectAndLogInjection(p.sanitizer, d.Reference+" column "+c.Name, "description", c.Aspects.Description)
+		description, terms := c.Aspects.Description, c.Aspects.GlossaryTerms
+		var from *semantic.InheritedMetadata
+		if in, ok := borrowed[columnKey(c.Name)]; ok {
+			if description == "" {
+				description = in.description
+			}
+			if len(terms) == 0 {
+				terms = in.terms
+			}
+			from = in.from
+		}
+		semantic.DetectAndLogInjection(p.sanitizer, d.Reference+" column "+c.Name, "description", description)
 		out[c.Name] = p.sanitizer.SanitizeColumnContext(&semantic.ColumnContext{
 			Name:          c.Name,
-			Description:   c.Aspects.Description,
+			Description:   description,
 			Tags:          c.Aspects.Tags,
-			GlossaryTerms: p.terms(ctx, c.Aspects.GlossaryTerms),
+			GlossaryTerms: p.terms(ctx, terms),
 			IsPII:         hasTag(c.Aspects.Tags, "pii"),
 			IsSensitive:   hasTag(c.Aspects.Tags, "sensitive") || hasTag(c.Aspects.Tags, "pii"),
+			InheritedFrom: from,
 		})
 	}
 	return out, nil
