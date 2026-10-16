@@ -74,7 +74,6 @@ const (
 	DefaultBufferLimit               = 50000
 	DefaultRawRetentionDays          = 1
 	DefaultCompactEveryMinutes       = 60
-	DefaultRollupEveryMinutes        = 5
 	DefaultCompactedDays             = 400
 	DefaultTolerance                 = 5 * time.Minute
 )
@@ -180,12 +179,6 @@ type Config struct {
 	// always a whole number of them.
 	CompactEveryMinutes int `json:"compact_every_minutes,omitempty"`
 
-	// RollupEveryMinutes is how often the open window's segments are merged
-	// into one object (#2132). A reader of the open window, which is every
-	// reader of recent events, reads one object per segment, and a busy
-	// source writes thousands an hour; merged, it reads a handful.
-	RollupEveryMinutes int `json:"rollup_every_minutes,omitempty"`
-
 	// RawRetentionDays is how long a raw segment is kept once the window it
 	// belongs to is compacted. A compacted window's events are all in its
 	// Parquet file, and a recompaction reads that file rather than the
@@ -252,9 +245,6 @@ func (c Config) withDefaults() Config {
 	if c.RawRetentionDays == 0 {
 		c.RawRetentionDays = DefaultRawRetentionDays
 	}
-	if c.RollupEveryMinutes == 0 {
-		c.RollupEveryMinutes = DefaultRollupEveryMinutes
-	}
 	if c.CompactedRetentionDays == nil {
 		d := DefaultCompactedDays
 		c.CompactedRetentionDays = &d
@@ -299,14 +289,6 @@ func (c Config) Window() time.Duration {
 		return time.Duration(DefaultCompactEveryMinutes) * time.Minute
 	}
 	return time.Duration(c.CompactEveryMinutes) * time.Minute
-}
-
-// RollupEvery is how often the open window's segments are merged.
-func (c Config) RollupEvery() time.Duration {
-	if c.RollupEveryMinutes <= 0 {
-		return time.Duration(DefaultRollupEveryMinutes) * time.Minute
-	}
-	return time.Duration(c.RollupEveryMinutes) * time.Minute
 }
 
 // RawRetention is how long a compacted window's raw segments are kept.

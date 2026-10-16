@@ -60,15 +60,14 @@ func TestSpoolEnabled(t *testing.T) {
 	assert.Error(t, Config{Receiver: ReceiverConfig{Spool: SpoolConfig{MaxAge: -time.Second}}}.Validate())
 }
 
-// TestRollupTuning covers #2132's pacing keys: they reach the compactor, and
-// a negative one is refused.
-func TestRollupTuning(t *testing.T) {
-	c := Config{Compactor: CompactorConfig{RollupCheckEvery: 5 * time.Second, RollupDeleteDelay: 10 * time.Second}}
-	tune := c.Tuning()
-	assert.Equal(t, 5*time.Second, tune.RollupCheckEvery)
-	assert.Equal(t, 10*time.Second, tune.RollupDeleteDelay)
+// TestRetiredRollupKeys covers #2140: the rollup's two pacing keys are
+// accepted whatever they hold, reach nothing, and are named for the warning
+// only when set.
+func TestRetiredRollupKeys(t *testing.T) {
+	assert.Empty(t, Config{}.RetiredKeys())
+	c := Config{Compactor: CompactorConfig{RollupCheckEvery: 5 * time.Second, RollupDeleteDelay: -time.Second}}
 	assert.NoError(t, c.Validate())
-
-	c.Compactor.RollupDeleteDelay = -time.Second
-	assert.ErrorIs(t, c.Validate(), errNegative)
+	assert.Equal(t, []string{"webhooks.compactor.rollup_check_every", "webhooks.compactor.rollup_delete_delay"}, c.RetiredKeys())
+	assert.Equal(t, Config{}.Tuning(), c.Tuning(), "the retired keys pace nothing")
+	assert.Equal(t, []string{"webhooks.compactor.rollup_delete_delay"}, Config{Compactor: CompactorConfig{RollupDeleteDelay: time.Hour}}.RetiredKeys())
 }

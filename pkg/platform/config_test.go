@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -923,6 +925,29 @@ injection:
 	if cfg.EnrichmentDeprecated != nil {
 		t.Error("EnrichmentDeprecated should be cleared after compat fold")
 	}
+}
+
+// TestLoadConfig_RetiredWebhookRollupKeys covers #2140: a configuration
+// that still sets the open-window rollup's pacing loads under strict parsing,
+// and the warning names each setting to remove.
+func TestLoadConfig_RetiredWebhookRollupKeys(t *testing.T) {
+	logs := captureRuntimeWarnings(t)
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+webhooks:
+  compactor:
+    rollup_check_every: 1m
+    rollup_delete_delay: 61m
+`)
+	assert.Equal(t, []string{"webhooks.compactor.rollup_check_every", "webhooks.compactor.rollup_delete_delay"}, cfg.Webhooks.RetiredKeys())
+	assert.Contains(t, logs.String(), "webhook settings no longer read")
+	assert.Contains(t, logs.String(), "webhooks.compactor.rollup_delete_delay")
+	assert.Contains(t, logs.String(), "code=deprecated_key")
+
+	logs.Reset()
+	loadTestConfig(t, "server:\n  name: test-platform\n")
+	assert.NotContains(t, logs.String(), "webhook settings no longer read")
 }
 
 func TestLoadConfig_EnrichmentKeyWinsOverInjection(t *testing.T) {

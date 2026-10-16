@@ -220,7 +220,6 @@ func validateLimits(c Config) error {
 			"config.compact_every_minutes must divide an hour evenly: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30 or 60",
 		},
 		{c.RawRetentionDays < 1, "config.raw_retention_days must be at least 1"},
-		{c.RollupEveryMinutes < 1, "config.rollup_every_minutes must be at least 1"},
 		{
 			c.CompactedRetentionDays != nil && *c.CompactedRetentionDays < 0,
 			"config.compacted_retention_days cannot be negative; 0 keeps compacted windows forever",

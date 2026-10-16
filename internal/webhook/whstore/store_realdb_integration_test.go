@@ -502,12 +502,10 @@ func TestWebhookSpoolStateRealDB(t *testing.T) {
 	assert.Equal(t, "boom", got[0].LastError)
 }
 
-// TestRawRegistrableAndRollupClaimRealDB covers #2133 and #2132 against a
-// migrated database: the windows a retention pass registers raw partitions
-// for, by when their last segment was written and whether their segments were
-// released; and the rollup claim, which one replica holds at a time and which
-// a window with no row cannot be claimed by.
-func TestRawRegistrableAndRollupClaimRealDB(t *testing.T) {
+// TestRawRegistrableRealDB covers #2133 against a migrated database: the
+// windows a retention pass registers raw partitions for, by when their last
+// segment was written and whether their segments were released.
+func TestRawRegistrableRealDB(t *testing.T) {
 	db := testdb.New(t)
 	st := New(db)
 	ctx := context.Background()
@@ -537,14 +535,4 @@ func TestRawRegistrableAndRollupClaimRealDB(t *testing.T) {
 	got, err = st.RawRegistrable(ctx, "esp", since)
 	require.NoError(t, err)
 	assert.Len(t, got, 1, "a segment landing after the release brings it back")
-
-	claimed, err := st.ClaimRollup(ctx, "esp", current, time.Minute)
-	require.NoError(t, err)
-	assert.True(t, claimed)
-	claimed, err = st.ClaimRollup(ctx, "esp", current, time.Minute)
-	require.NoError(t, err)
-	assert.False(t, claimed, "a window held is not claimed again")
-	claimed, err = st.ClaimRollup(ctx, "esp", current.Add(time.Hour), time.Minute)
-	require.NoError(t, err)
-	assert.False(t, claimed, "a window with no row is not claimed")
 }

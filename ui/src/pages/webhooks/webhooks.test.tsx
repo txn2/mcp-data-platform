@@ -350,12 +350,14 @@ describe("raw files (#2132, #2133)", () => {
     expect(screen.getByText("Partitions resynced.")).toBeInTheDocument();
   });
 
-  it("sends the merge interval and holds a save that came back with warnings", () => {
+  it("sends the raw retention and holds a save that came back with warnings", () => {
     const onSaved = vi.fn();
     render(<WebhookEditor name="email-events" onBack={vi.fn()} onSaved={onSaved} />);
-    fireEvent.change(screen.getByLabelText(/Merge recent raw files every/), { target: { value: "2" } });
+    expect(screen.queryByLabelText(/Merge recent raw files every/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Keep raw events/), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(h.update.mock.calls[0]![0].config.rollup_every_minutes).toBe(2);
+    expect(h.update.mock.calls[0]![0].config.raw_retention_days).toBe(2);
+    expect(h.update.mock.calls[0]![0].config).not.toHaveProperty("rollup_every_minutes");
     const { onSuccess } = h.update.mock.calls[0]![1] as { onSuccess: (s: unknown) => void };
     act(() => onSuccess({ ...busy, warnings: ["reading the partitions of webhook_email_events_raw took 57 s"] }));
     expect(onSaved).not.toHaveBeenCalled();

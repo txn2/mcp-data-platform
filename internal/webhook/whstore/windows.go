@@ -84,30 +84,6 @@ func (s *Store) ClaimOwed(ctx context.Context, endedBy time.Time, lease time.Dur
 	return scanWindows(rows, limit)
 }
 
-// ClaimRollup claims the open window starting at start for one rollup of its
-// segments, for lease (#2132), and reports whether it did. A window another
-// replica holds is not claimed, so two replicas never merge the same
-// segments. A window with no row has had no segment written and is not
-// claimed. The lease is short: a window ending while it is held waits for it
-// before it can be compacted.
-func (s *Store) ClaimRollup(ctx context.Context, source string, start time.Time, lease time.Duration) (bool, error) {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE webhook_windows
-		    SET claimed_until = NOW() + make_interval(secs => $3)
-		  WHERE source = $1 AND window_start = $2
-		    AND expired_at IS NULL
-		    AND (claimed_until IS NULL OR claimed_until < NOW())`,
-		source, start.UTC(), lease.Seconds())
-	if err != nil {
-		return false, fmt.Errorf("claiming a webhook window for rollup: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("claiming a webhook window for rollup: %w", err)
-	}
-	return n == 1, nil
-}
-
 // scanWindows reads rows of source, window_start, window_seconds,
 // generation, resource_id, location and attempts.
 func scanWindows(rows *sql.Rows, capacity int) ([]Window, error) {

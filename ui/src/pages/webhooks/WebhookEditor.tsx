@@ -470,14 +470,6 @@ function LimitsGroup({ form, set }: { form: WebhookForm; set: Setter }) {
           placeholder="1"
         />
         <ConfigField
-          label="Merge recent raw files every (minutes)"
-          type="number"
-          value={form.rollupEveryMinutes}
-          onChange={set("rollupEveryMinutes")}
-          placeholder="5"
-          help="A reader of recent events reads one file per write until they are merged."
-        />
-        <ConfigField
           label="Keep compacted files (days)"
           type="number"
           value={form.compactedRetentionDays}

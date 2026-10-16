@@ -39,8 +39,6 @@ export interface WebhookConfig {
   rate_limit_per_minute?: number;
   rate_limit_burst?: number;
   raw_retention_days?: number;
-  /** How often the open window's raw files are merged into one (#2132). */
-  rollup_every_minutes?: number;
   compacted_retention_days?: number;
   /** How search indexes the compacted windows; absent leaves it to resources.index. */
   index?: "full" | "metadata" | "none";

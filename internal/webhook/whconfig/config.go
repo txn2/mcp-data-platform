@@ -82,12 +82,25 @@ type CompactorConfig struct {
 	// window is kept (#1904). 0 takes 90; a negative value keeps them for as
 	// long as their source exists.
 	ExpiredWindowRetentionDays int `yaml:"expired_window_retention_days"`
-	// RollupCheckEvery is how often the open windows are looked at for a
-	// rollup of their raw files (#2132), and RollupDeleteDelay the least
-	// time between a rollup and the deletion of the files it merged. Zero
-	// takes 1m and 2m.
+	// RollupCheckEvery and RollupDeleteDelay paced the open window's rollup,
+	// which deleted files a running query had listed and is gone (#2140).
+	// They are accepted so a configuration that sets them still starts, and
+	// RetiredKeys names them; nothing reads them.
 	RollupCheckEvery  time.Duration `yaml:"rollup_check_every"`
 	RollupDeleteDelay time.Duration `yaml:"rollup_delete_delay"`
+}
+
+// RetiredKeys names the settings in the section that nothing reads any more,
+// for the configuration warning that tells an operator to remove them.
+func (c Config) RetiredKeys() []string {
+	keys := make([]string, 0, 2)
+	if c.Compactor.RollupCheckEvery != 0 {
+		keys = append(keys, "webhooks.compactor.rollup_check_every")
+	}
+	if c.Compactor.RollupDeleteDelay != 0 {
+		keys = append(keys, "webhooks.compactor.rollup_delete_delay")
+	}
+	return keys
 }
 
 // ReceiverEnabled reports whether this replica serves /hooks/.
@@ -104,13 +117,13 @@ func (c Config) CompactorEnabled() bool {
 const day = 24 * time.Hour
 
 // errNegative is a pacing value below zero.
-var errNegative = errors.New("webhooks: write_timeout, spool.max_bytes, spool.max_age, poll, grace, lease, batch, retry_backoff, retention_every, rollup_check_every and rollup_delete_delay cannot be negative")
+var errNegative = errors.New("webhooks: write_timeout, spool.max_bytes, spool.max_age, poll, grace, lease, batch, retry_backoff and retention_every cannot be negative")
 
 // Validate refuses a section that cannot pace anything.
 func (c Config) Validate() error {
 	for _, d := range []time.Duration{
 		c.Receiver.WriteTimeout, c.Receiver.Spool.MaxAge, c.Compactor.Poll, c.Compactor.Grace, c.Compactor.Lease,
-		c.Compactor.RetryBackoff, c.Compactor.RetentionEvery, c.Compactor.RollupCheckEvery, c.Compactor.RollupDeleteDelay,
+		c.Compactor.RetryBackoff, c.Compactor.RetentionEvery,
 	} {
 		if d < 0 {
 			return errNegative
@@ -129,8 +142,6 @@ func (c Config) Tuning() compactor.Tuning {
 		Grace: c.Compactor.Grace, RetryBackoff: c.Compactor.RetryBackoff,
 		RetentionEvery:     c.Compactor.RetentionEvery,
 		ExpiredWindowsKept: time.Duration(c.Compactor.ExpiredWindowRetentionDays) * day,
-		RollupCheckEvery:   c.Compactor.RollupCheckEvery,
-		RollupDeleteDelay:  c.Compactor.RollupDeleteDelay,
 	}
 }
 

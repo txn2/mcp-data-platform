@@ -69,11 +69,6 @@ type Tuning struct {
 	// ExpiredWindowsKept is how long an expired window's record is kept. A
 	// negative value keeps them for as long as their source exists.
 	ExpiredWindowsKept time.Duration
-	// RollupCheckEvery is how often the open windows are looked at for a
-	// rollup, and RollupDeleteDelay the least time between a rollup and the
-	// deletion of what it merged (#2132).
-	RollupCheckEvery  time.Duration
-	RollupDeleteDelay time.Duration
 }
 
 func (t Tuning) withDefaults() Tuning {
@@ -94,12 +89,6 @@ func (t Tuning) withDefaults() Tuning {
 	}
 	if t.RetentionEvery <= 0 {
 		t.RetentionEvery = DefaultRetentionEvery
-	}
-	if t.RollupCheckEvery <= 0 {
-		t.RollupCheckEvery = DefaultRollupCheckEvery
-	}
-	if t.RollupDeleteDelay <= 0 {
-		t.RollupDeleteDelay = DefaultRollupDeleteDelay
 	}
 	if t.ExpiredWindowsKept == 0 {
 		t.ExpiredWindowsKept = DefaultExpiredWindowsKept
@@ -126,7 +115,10 @@ type Worker struct {
 	deps   Deps
 
 	lastRetention time.Time
-	lastRollup    time.Time
+	// viewed is the sources whose view this process has made current, and
+	// viewsCurrent whether every source listed has been (#2140).
+	viewed       map[string]bool
+	viewsCurrent bool
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -145,7 +137,7 @@ func New(t Tuning, d Deps) *Worker {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Worker{tuning: t.withDefaults(), deps: d, stop: make(chan struct{}), done: make(chan struct{})}
+	return &Worker{tuning: t.withDefaults(), deps: d, viewed: map[string]bool{}, stop: make(chan struct{}), done: make(chan struct{})}
 }
 
 // Start runs the worker until Stop.
@@ -210,8 +202,8 @@ func (w *Worker) compactPass(ctx context.Context) (bool, error) {
 			return w.compactOne(ctx, h)
 		})
 	}
-	if w.rollupDue(now) {
-		_ = bgloop.Unit(ctx, bgloop.NameWebhookRollup, w.Rollup)
+	if w.viewsOwed() {
+		_ = bgloop.Unit(ctx, bgloop.NameWebhookViews, w.ReplaceViews)
 	}
 	if now.Sub(w.lastRetention) >= w.tuning.RetentionEvery {
 		w.lastRetention = now
@@ -247,9 +239,15 @@ func (w *Worker) compact(ctx context.Context, src whsource.Source, h whstore.Win
 	if err != nil {
 		return fmt.Errorf("resolving the source's connection: %w", err)
 	}
-	keys, err := w.deps.Objects.ListKeys(ctx, w.deps.Bucket, whlayout.WindowPrefix(src.Name, h.Start))
+	listed, err := w.deps.Objects.ListKeys(ctx, w.deps.Bucket, whlayout.WindowPrefix(src.Name, h.Start))
 	if err != nil {
 		return fmt.Errorf("listing the window's segments: %w", err)
+	}
+	keys := make([]string, 0, len(listed))
+	for _, key := range listed {
+		if whlayout.HoldsEvents(key) {
+			keys = append(keys, key)
+		}
 	}
 	events, err := w.gather(ctx, h, keys)
 	if err != nil {
@@ -289,9 +287,6 @@ func (w *Worker) gather(ctx context.Context, h whstore.Window, keys []string) ([
 		return nil, err
 	}
 	for _, key := range keys {
-		if !whlayout.HoldsEvents(key) {
-			continue
-		}
 		data, err := w.deps.Objects.GetObject(ctx, w.deps.Bucket, key)
 		if err != nil {
 			return nil, fmt.Errorf("reading segment %s: %w", key, err)
