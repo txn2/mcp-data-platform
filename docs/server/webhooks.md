@@ -79,7 +79,8 @@ The sender is then given `https://platform.example.com/hooks/email-events`.
 | `config.flush_max_bytes` | Default 8 MiB. |
 | `config.buffer_limit` | Events one replica holds in memory for the source before it answers `503`. Default 50,000. |
 | `config.rate_limit_per_minute`, `config.rate_limit_burst` | Optional. The limit is on the source, not on a client address, and each replica holds it for itself: with N replicas behind a load balancer, a sender can be admitted up to N times the rate and the burst. Size it as what one replica should take for this source, as `buffer_limit` is. |
-| `config.raw_retention_days` | How long a compacted window's raw segments are kept. Default 7. |
+| `config.raw_retention_days` | How long a compacted window's raw segments are kept. Default 1 (7 before #2134). The segments are a safety margin only: a compacted window's events are all in its Parquet file, and a recompaction reads that file. Every day kept is objects the raw table and retention list. |
+| `config.rollup_every_minutes` | How often the open window's segments are merged into one object (#2132). Default 5; at least 1. See [The open window's rollup](#the-open-windows-rollup). The portal's source editor shows it as **Merge recent raw files every (minutes)**. |
 | `config.compacted_retention_days` | How long a compacted window is kept. Default 400; `0` keeps it forever. |
 | `config.index` | How search indexes each compacted window's file: `full`, `metadata` or `none`. Absent leaves it to the deployment's `resources.index` rules, which can match these files with `origin: [webhook]` ([Search indexing](configuration.md#search-indexing)). Applies from the next compaction on. The portal's source editor shows it as **Search**. |
 
@@ -288,6 +289,41 @@ minute it starts at:
 Every replica writes its own segments, named by itself, so replicas never
 coordinate on a write.
 
+### The open window's rollup
+
+Until a window is compacted, a reader reads it from its raw segments, one
+object each, and a busy source writes thousands an hour: 70 events a second
+written every 200 ms by three replicas is about 3,700 segments an hour, and a
+count over one such hour took 130 s against 20 s for the same hour compacted.
+Every reader of recent events pays that, and pays more when the object store is
+slow (#2132).
+
+So the open window is rolled up. Every `rollup_every_minutes` (default 5), one
+replica merges the segments written into the open window since the last rollup
+into one object in the same directory and format, `rollup-{time}.jsonl.gz`,
+which the raw table reads like any segment. A reader of the open window then
+reads one object per rollup plus the segments written since the last one: at
+most twelve rollups for an hour's window.
+
+The merged segments are not deleted at once. A query lists a directory and then
+reads what it listed, so a segment deleted between the two fails that query.
+They are deleted by a later pass, at least `webhooks.compactor.rollup_delete_delay`
+(default 2 minutes) after the rollup. Until then an event is in a segment and in
+the rollup, and the raw side returns it twice; the raw side already holds a
+sender's retries until compaction, which keeps one event per event id. A hidden
+`.rollup-{time}.keys` object beside each rollup lists what it merged; the query
+engine skips names beginning with `.` and compaction skips it by name.
+
+Only the open window is rolled up: a window that has ended is compaction's. A
+window that closes before a rollup's segments could be deleted is not rolled up
+at all, since the rollup would add an object and a second copy of every event
+and remove nothing: with the defaults, a `compact_every_minutes` of 2 or less
+is never rolled up, and needs none. One
+replica rolls a window up at a time, through a short claim on the window's
+record that holds back its compaction no longer than a minute.
+`webhooks.compactor.rollup_check_every` (default 1 minute) is how often the
+open windows are looked at.
+
 ### Compaction
 
 A window is compacted once it has ended and `webhooks.compactor.grace` has
@@ -415,7 +451,17 @@ Retention runs in the compactor, per source.
 - **Raw segments** of a compacted window are deleted once the window's last
   segment is older than `raw_retention_days`. A window owed a compaction is never
   touched, so retention never deletes an event that is not yet in a Parquet
-  file.
+  file. The window's raw partition is unregistered once its segments are
+  deleted.
+- **Raw partitions** are kept by name from the window records (#2133): a pass
+  registers the raw partition of every window a segment landed in during the
+  last two retention intervals, which covers a window a
+  receiver could not register and one a late segment reopened. A pass never
+  lists the raw table's location, so what it costs is the windows that changed,
+  not every segment raw retention keeps. `POST
+  /api/v1/admin/webhooks/sources/{name}/sync-partitions` (the **Resync
+  partitions** action on the source's page) runs the full listing
+  (`sync_partition_metadata` FULL) as a repair, for example after a restore.
 - **A whole window** older than `compacted_retention_days` is removed: its
   partition is unregistered first, so the view stops serving it, then its
   resource and any raw segments are deleted. Each step is recorded in the
@@ -440,7 +486,9 @@ metastore still lists. An operator may add one as a backstop, set longer than
   how long accepted requests waited for their answer (Response time: the 99th
   percentile, with the slowest beneath, over the last hour or, when the hour
   had none, the last day), the windows owed a compaction (Pending), and the
-  windows whose last compaction failed (Failing) with the newest one's error.
+  windows whose last compaction failed (Failing) with the newest one's error,
+  and the raw files recorded against the open window (Raw files (current
+  window); hover for the 95th percentile per window over the last day).
   Clicking a row opens the source's page.
 - **Spool**, where a receiver has one (#2121): one row per replica with the
   events it acknowledged and has not yet drained (Waiting), their size, how
@@ -505,7 +553,9 @@ The page reads `GET /api/v1/admin/webhooks/status?range=hour|day`, and
         "count": 1832, "p50_ms": 1000, "p99_ms": 2500, "max_ms": 2380,
         "slowest": {"at": "2026-09-29T11:00:21Z", "total_ms": 2380, "buffer_ms": 990, "mark_ms": 1310, "put_ms": 80}
       },
-      "ack_last_day": {"count": 40211, "p50_ms": 1000, "p99_ms": 2500, "max_ms": 2380, "slowest": {"at": "2026-09-29T11:00:21Z", "total_ms": 2380, "buffer_ms": 990, "mark_ms": 1310, "put_ms": 80}}
+      "ack_last_day": {"count": 40211, "p50_ms": 1000, "p99_ms": 2500, "max_ms": 2380, "slowest": {"at": "2026-09-29T11:00:21Z", "total_ms": 2380, "buffer_ms": 990, "mark_ms": 1310, "put_ms": 80}},
+      "segments_open_window": 412,
+      "segments_per_window_p95": 3650
     }
   ],
   "volume": [
@@ -539,6 +589,25 @@ object storage (`put_ms`); it is `null` when nothing was accepted. A response
 time creeping toward a sender's timeout shows here before requests start to
 fail. The counts are kept for 48 hours, like the request counts.
 
+`segments_open_window` is how many segments were recorded against the source's
+open window, and `segments_per_window_p95` the 95th percentile of that count
+over the windows that started in the last day (#2132): the objects a reader of
+a window reads before a rollup merges them, which is the read cost to watch
+before readers time out. A receiver records its first write of a window twice,
+so a count can exceed the segments written by one per replica. The source's
+own `GET /api/v1/admin/webhooks/sources/{name}` carries both in its `status`.
+
+A create or a change of a source is answered with the source and, when there
+is something to say, `warnings` (#2132, #2134): the read of the raw table's
+partitions the save makes took 5 seconds or more, which an uncached file
+metastore causes ([Scratch Catalog](scratch-catalog.md#the-catalog)), or
+failed (the save waits at most 15 seconds for it and reports a read still
+running then as slow); or the settings imply more than 1,000 segments between two rollups of
+the open window (`rollup_every_minutes` over `flush_max_interval_ms`, times the
+replicas whose spool reported in the last two minutes, at least one). A
+warning never refuses the save. The portal shows them as **Saved, with
+warnings** before it opens the source.
+
 ## The source's page
 
 A source's page shows:
@@ -553,6 +622,9 @@ A source's page shows:
 - the window length, the last compacted window, the windows owed a compaction,
   and the last failure;
 - the oldest window held, beside the retention settings;
+- the raw files in the current window, and the 95th percentile per window over
+  the last day, with **Resync partitions**, which runs the full listing of the
+  raw table's location as a repair (see [Retention](#retention));
 - the rejected requests, the newest 50 rows of each outcome: when, the
   outcome, why, the events refused (their ids, with the body's SHA-256 on hover
   and a copy button), and how many requests a row stands for. Never the body.
@@ -577,6 +649,8 @@ webhooks:
     batch: 4
     retry_backoff: 1m
     retention_every: 10m
+    rollup_check_every: 1m   # how often the open windows are looked at for a rollup (#2132)
+    rollup_delete_delay: 2m  # least time between a rollup and deleting what it merged
 ```
 
 Every source is served on one port and routed by path, so a deployment needs one

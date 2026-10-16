@@ -3,6 +3,8 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -10,7 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
+	"github.com/txn2/mcp-data-platform/internal/platform/tablereconcile"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
@@ -166,6 +170,10 @@ func (p pickerTrino) AcceptsWrites(name string) bool { return !p.readOnly[name] 
 
 func (pickerTrino) TableExists(context.Context, string, string, string, string) (bool, error) {
 	return true, nil
+}
+
+func (pickerTrino) TableLocation(context.Context, string, string, string, string) (location string, found bool, err error) {
+	return "", true, nil
 }
 
 // TestScratchConnectionChoices is the picker's whole rule: a choice it offers
@@ -345,4 +353,49 @@ func TestRegistrationMaxBytes_IsTheDeploymentsUploadCeiling(t *testing.T) {
 	// A nil config cannot make a registration read by zero, which would refuse
 	// every file rather than the oversize ones.
 	assert.EqualValues(t, resource.MaxUploadBytes, registrationMaxBytes(nil))
+}
+
+// TestTableAdminConfig: the listing is always offered; the reconcile only
+// when the query engine can list a schema, and only with a store to read.
+func TestTableAdminConfig(t *testing.T) {
+	reg := tableregister.New(tableregister.Deps{})
+	cfg := tableAdminConfig(reg, nil, tablereconcile.Deps{})
+	assert.NotNil(t, cfg.Registrations)
+	assert.Nil(t, cfg.Reconciler, "no engine, no reconcile")
+
+	cfg = tableAdminConfig(reg, pickerTrino{}, tablereconcile.Deps{})
+	assert.Nil(t, cfg.Reconciler, "an engine that cannot list a schema, no reconcile")
+
+	cfg = tableAdminConfig(reg, listingTrino{}, tablereconcile.Deps{})
+	assert.Nil(t, cfg.Reconciler, "no store, no reconcile")
+
+	cfg = tableAdminConfig(reg, listingTrino{}, tablereconcile.Deps{Store: regstoreStub{}})
+	assert.NotNil(t, cfg.Reconciler)
+	assert.NotPanics(t, func() { mountTableAdmin(http.NewServeMux(), nil) })
+}
+
+// listingTrino is a picker engine that can also list a schema.
+type listingTrino struct{ pickerTrino }
+
+func (listingTrino) ListTables(context.Context, string, string, string) ([]trinotoolkit.SchemaTable, bool, error) {
+	return nil, false, nil
+}
+
+// regstoreStub is a registration store that holds nothing.
+type regstoreStub struct{ tableregister.Store }
+
+// TestAdminTableCaller: a repair is audited under the administrator the admin
+// API authenticated, and as an administrator when none is on the request.
+func TestAdminTableCaller(t *testing.T) {
+	var got tableregister.Caller
+	h := admin.RequireAdmin(&admin.APIKeyAuthenticator{Keys: map[string]admin.User{
+		"k": {UserID: "u1", Email: "ops@example.com", Roles: []string{"admin"}},
+	}})(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = adminTableCaller(r) }))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req.Header.Set("X-API-Key", "k")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	assert.Equal(t, tableregister.Caller{UserID: "u1", Email: "ops@example.com", Roles: []string{"admin"}, IsAdmin: true}, got)
+
+	bare := adminTableCaller(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody))
+	assert.Equal(t, tableregister.Caller{IsAdmin: true}, bare)
 }

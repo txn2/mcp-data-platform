@@ -587,7 +587,7 @@ func (r *Registrar) moveTable(
 // the failure the outcome carries tells the caller to register again, which
 // rebuilds it.
 func (r *Registrar) restoreDroppedTable(ctx context.Context, reg Registration, ran []string, cause error) {
-	if !slices.Contains(ran, dropTableStatement(reg)) {
+	if !slices.Contains(ran, DropTableStatement(reg)) {
 		return
 	}
 	ctx, cancel := cleanupContext(ctx)

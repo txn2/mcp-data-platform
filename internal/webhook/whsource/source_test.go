@@ -28,7 +28,7 @@ func TestWithDefaults(t *testing.T) {
 	assert.Equal(t, time.Second, c.FlushInterval())
 	assert.Equal(t, DefaultFlushMaxBytes, c.FlushMaxBytes)
 	assert.Equal(t, DefaultBufferLimit, c.BufferLimit)
-	assert.Equal(t, 7*24*time.Hour, c.RawRetention())
+	assert.Equal(t, 24*time.Hour, c.RawRetention(), "raw segments are kept a day past compaction (#2134)")
 	assert.Equal(t, time.Hour, c.Window(), "an hour unless the source says otherwise")
 	assert.Equal(t, time.Hour, Config{}.Window())
 	assert.Equal(t, 5*time.Minute, Config{CompactEveryMinutes: 5}.Window())
@@ -143,6 +143,7 @@ func TestValidateRefuses(t *testing.T) {
 		}),
 		"bad signed":        mutate(func(s *Source) { s.Auth.Signed = "headers" }),
 		"bad index":         mutate(func(s *Source) { s.Config.Index = "partial" }),
+		"negative rollup":   mutate(func(s *Source) { s.Config.RollupEveryMinutes = -1 }),
 		"bad id header":     mutate(func(s *Source) { s.Auth.IDHeader = "X Id" }),
 		"bad header format": mutate(func(s *Source) { s.Auth.HeaderFormat = "svix" }),
 		"id signed without id header": mutate(func(s *Source) {
@@ -190,4 +191,12 @@ func TestValidateRefuses(t *testing.T) {
 			assert.True(t, errors.Is(err, ErrInvalid), err)
 		})
 	}
+}
+
+// TestRollupEvery covers #2132's setting: five minutes unless set, refused
+// below one.
+func TestRollupEvery(t *testing.T) {
+	assert.Equal(t, 5*time.Minute, Config{}.RollupEvery())
+	assert.Equal(t, DefaultRollupEveryMinutes, Source{}.WithDefaults().Config.RollupEveryMinutes)
+	assert.Equal(t, 2*time.Minute, Config{RollupEveryMinutes: 2}.RollupEvery())
 }

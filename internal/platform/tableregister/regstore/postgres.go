@@ -292,6 +292,12 @@ func listPredicate(f tableregister.Filter) (where string, args []any) {
 	if f.SourceKind != "" {
 		add("source_kind = $%d", f.SourceKind)
 	}
+	if f.SourceID != "" {
+		add("source_id = $%d", f.SourceID)
+	}
+	if p := tableregister.SlugifyTableName(f.Persona); p != "" {
+		add(`table_name LIKE $%d ESCAPE '`+likeEscape+`'`, escapeLike(p+"_")+"%")
+	}
 	if q := strings.TrimSpace(f.Query); q != "" {
 		// ILIKE is the case-insensitive match, so the query is bound as typed:
 		// lower-casing it here would be work the operator already does.

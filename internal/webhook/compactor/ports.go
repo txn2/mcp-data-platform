@@ -19,8 +19,10 @@ type WindowStore interface {
 	RecordCompacted(ctx context.Context, h whstore.Window, c whstore.Compaction) error
 	RecordFailure(ctx context.Context, h whstore.Window, reason string, hold time.Duration) error
 	RawDeletable(ctx context.Context, source string, cutoff time.Time) ([]whstore.Window, error)
+	RawRegistrable(ctx context.Context, source string, since time.Time) ([]whstore.Window, error)
 	Expirable(ctx context.Context, source string, cutoff time.Time) ([]whstore.Window, error)
 	MarkRawDeleted(ctx context.Context, h whstore.Window) error
+	ClaimRollup(ctx context.Context, source string, start time.Time, lease time.Duration) (bool, error)
 	MarkUnregistered(ctx context.Context, h whstore.Window) error
 	MarkExpired(ctx context.Context, h whstore.Window) error
 	PruneCounts(ctx context.Context, before time.Time) error
@@ -39,6 +41,7 @@ type Objects interface {
 	// listing takes.
 	ListKeys(ctx context.Context, bucket, prefix string) ([]string, error)
 	GetObject(ctx context.Context, bucket, key string) ([]byte, error)
+	PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
 	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
@@ -49,5 +52,6 @@ type Tables interface {
 	S3Location(prefix string) string
 	RegisterWindow(ctx context.Context, tg whtable.Target, src whsource.Source, window time.Time, location string) error
 	UnregisterWindow(ctx context.Context, tg whtable.Target, src whsource.Source, window time.Time) error
-	SyncRaw(ctx context.Context, tg whtable.Target, src whsource.Source) error
+	RegisterRawWindow(ctx context.Context, tg whtable.Target, src whsource.Source, window time.Time) error
+	UnregisterRawWindow(ctx context.Context, tg whtable.Target, src whsource.Source, window time.Time) error
 }

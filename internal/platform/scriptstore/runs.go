@@ -916,7 +916,54 @@ func (s *Store) FailureStreaks(ctx context.Context, scriptIDs []string) (map[str
 	for id, c := range counting {
 		out[id] = c.streak
 	}
-	return out, nil
+	return out, s.attachLatestRuns(ctx, scriptIDs, out)
+}
+
+// latestRunsQuery reads each script's newest run whatever its status, by the
+// order the streak reads finished runs in, off idx_script_runs_script.
+const latestRunsQuery = `
+	SELECT DISTINCT ON (script_id) script_id, id, status, created_at, started_at
+	  FROM script_runs
+	 WHERE script_id = ANY($1)
+	 ORDER BY script_id, created_at DESC, id DESC`
+
+// attachLatestRuns sets Latest on every streak in out from each script's
+// newest run (#2135). A script with no finished run has no streak, and is
+// left absent as FailureStreakReader says.
+func (s *Store) attachLatestRuns(ctx context.Context, scriptIDs []string, out map[string]runstate.FailureStreak) error {
+	if len(out) == 0 {
+		return nil
+	}
+	rows, err := s.db.QueryContext(ctx, latestRunsQuery, pq.Array(scriptIDs))
+	if err != nil {
+		return fmt.Errorf("read latest script runs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			id      string
+			latest  runstate.LatestRun
+			started sql.NullTime
+		)
+		if err := rows.Scan(&id, &latest.ID, &latest.Status, &latest.CreatedAt, &started); err != nil {
+			return fmt.Errorf("scan latest script run: %w", err)
+		}
+		st, ok := out[id]
+		if !ok {
+			continue
+		}
+		latest.CreatedAt = latest.CreatedAt.UTC()
+		if started.Valid {
+			at := started.Time.UTC()
+			latest.StartedAt = &at
+		}
+		st.Latest = &latest
+		out[id] = st
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate latest script runs: %w", err)
+	}
+	return nil
 }
 
 // streakCount reads one script's finished runs, newest first, into its

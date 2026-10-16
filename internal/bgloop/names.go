@@ -50,6 +50,7 @@ const (
 	NameWebhookSegmentWrite = "webhook_segment_write"
 	NameWebhookCompaction   = "webhook_compaction"
 	NameWebhookRetention    = "webhook_retention"
+	NameWebhookRollup       = "webhook_rollup"
 	NameWebhookRefresh      = "webhook_source_refresh"
 	NameWebhookStats        = "webhook_stats_flush"
 	NameWebhookRawWindows   = "webhook_raw_windows"

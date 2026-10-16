@@ -42,6 +42,12 @@ type SourceView struct {
 	CreatedBy string          `json:"created_by,omitempty"`
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt time.Time       `json:"updated_at"`
+	// Warnings is what a create or change answers with besides the source,
+	// without refusing it: a slow read of its partitions, which an uncached
+	// file metastore causes (#2134), and settings under which the open window
+	// holds more segments between rollups than a reader should read (#2132).
+	// Absent from a list or a read.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // SourceDetail is one source with its status.

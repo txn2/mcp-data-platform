@@ -181,13 +181,13 @@ func countRows() *sqlmock.Rows {
 }
 
 func summaryRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"last_segment", "last_compacted", "pending", "failing", "oldest", "last_error"})
+	return sqlmock.NewRows([]string{"last_segment", "last_compacted", "pending", "failing", "oldest", "last_error", "segments_open", "segments_p95"})
 }
 
 func TestStatus(t *testing.T) {
 	st, mock := newMock(t)
 	mock.ExpectQuery(`FROM webhook_request_counts`).WillReturnRows(countRows().AddRow("accepted", 2, 5).AddRow("unauthorized", 0, 1))
-	mock.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(start, start, 1, 0, start, nil))
+	mock.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(start, start, 1, 0, start, nil, 41, 3650))
 	mock.ExpectQuery(qLatencyBuckets).WithArgs(start.Add(-time.Hour), start.Add(-24*time.Hour), "esp").
 		WillReturnRows(latencyBucketRows().AddRow("esp", 3, 2, 4))
 	mock.ExpectQuery(qSlowest).WillReturnRows(slowestRows().AddRow("esp", true, true, 40, start, 1, 2, 30))
@@ -210,6 +210,8 @@ func TestStatus(t *testing.T) {
 	require.NotNil(t, s.LastSegmentAt)
 	assert.Equal(t, 1, s.Pending)
 	assert.Equal(t, "the token does not match", s.Rejections[0].Reason)
+	assert.Equal(t, int64(41), s.SegmentsOpenWindow)
+	assert.Equal(t, int64(3650), s.SegmentsPerWindowP95)
 }
 
 func TestStatusFailures(t *testing.T) {
@@ -227,21 +229,21 @@ func TestStatusFailures(t *testing.T) {
 		},
 		func(m sqlmock.Sqlmock) {
 			m.ExpectQuery(`webhook_request_counts`).WillReturnRows(countRows())
-			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil))
+			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil, 0, 0))
 			m.ExpectQuery(qLatencyBuckets).WillReturnRows(latencyBucketRows())
 			m.ExpectQuery(qSlowest).WillReturnRows(slowestRows())
 			m.ExpectQuery(`FROM webhook_rejections`).WillReturnError(errDown)
 		},
 		func(m sqlmock.Sqlmock) {
 			m.ExpectQuery(`webhook_request_counts`).WillReturnRows(countRows())
-			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil))
+			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil, 0, 0))
 			m.ExpectQuery(qLatencyBuckets).WillReturnRows(latencyBucketRows())
 			m.ExpectQuery(qSlowest).WillReturnRows(slowestRows())
 			m.ExpectQuery(`FROM webhook_rejections`).WillReturnRows(sqlmock.NewRows([]string{"x"}).AddRow(1))
 		},
 		func(m sqlmock.Sqlmock) {
 			m.ExpectQuery(`webhook_request_counts`).WillReturnRows(countRows())
-			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil))
+			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil, 0, 0))
 			m.ExpectQuery(qLatencyBuckets).WillReturnRows(latencyBucketRows())
 			m.ExpectQuery(qSlowest).WillReturnRows(slowestRows())
 			m.ExpectQuery(`FROM webhook_rejections`).WillReturnRows(
@@ -249,7 +251,7 @@ func TestStatusFailures(t *testing.T) {
 		},
 		func(m sqlmock.Sqlmock) {
 			m.ExpectQuery(`webhook_request_counts`).WillReturnRows(countRows())
-			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil))
+			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil, 0, 0))
 			m.ExpectQuery(qLatencyBuckets).WillReturnError(errDown)
 		},
 	}
@@ -339,4 +341,37 @@ func TestCollapseRejections(t *testing.T) {
 	pre := collapseRejections([]Rejection{{Source: "esp", At: at(5), FirstAt: at(9), Count: 4, Outcome: "x"}})
 	assert.Equal(t, at(5), pre[0].FirstAt, "a first after the latest is read as the latest")
 	assert.Equal(t, int64(4), pre[0].Count, "a run handed in keeps its count")
+}
+
+// TestRollupClaimFailures: a refused statement and an unreadable count are
+// both errors, never a claim.
+func TestRollupClaimFailures(t *testing.T) {
+	st, mock := newMock(t)
+	mock.ExpectExec(`SET claimed_until`).WillReturnError(errors.New("down"))
+	claimed, err := st.ClaimRollup(context.Background(), "esp", time.Now(), time.Minute)
+	require.Error(t, err)
+	assert.False(t, claimed)
+
+	mock.ExpectExec(`SET claimed_until`).WillReturnResult(sqlmock.NewErrorResult(errors.New("no count")))
+	claimed, err = st.ClaimRollup(context.Background(), "esp", time.Now(), time.Minute)
+	require.Error(t, err)
+	assert.False(t, claimed)
+}
+
+// TestRawRegistrable reads the windows holding raw segments written since a
+// time, by source.
+func TestRawRegistrable(t *testing.T) {
+	st, mock := newMock(t)
+	mock.ExpectQuery(`AND last_segment_at >= \$2\s+AND \(raw_deleted_at IS NULL OR raw_deleted_at < last_segment_at\)`).
+		WithArgs("esp", start).
+		WillReturnRows(windowRows().AddRow("esp", start, 3600, 4, "", "", 0))
+	got, err := st.RawRegistrable(context.Background(), "esp", start)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(4), got[0].Generation)
+
+	mock.ExpectQuery(`last_segment_at >=`).WillReturnError(errors.New("down"))
+	_, err = st.RawRegistrable(context.Background(), "esp", start)
+	require.Error(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

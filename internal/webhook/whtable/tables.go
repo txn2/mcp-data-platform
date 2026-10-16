@@ -179,6 +179,11 @@ func ViewStatement(tg Target, src whsource.Source) string {
 // SyncRaw makes the raw table's partitions match the window directories that
 // exist: a window a segment was just written into becomes readable, and a
 // window whose segments retention deleted stops being listed.
+//
+// It lists the raw table's whole location, every segment of every window raw
+// retention keeps, so it is an administrator's repair and never part of a
+// retention pass (#2133): retention registers and unregisters the windows it
+// changed by name.
 func (t *Tables) SyncRaw(ctx context.Context, tg Target, src whsource.Source) error {
 	stmt := "CALL " + quoteIdent(tg.Catalog) + ".system.sync_partition_metadata(" +
 		quoteLiteral(tg.Schema) + listSep + quoteLiteral(src.RawTableName()) + ", 'FULL')"
@@ -215,6 +220,18 @@ func (t *Tables) RegisterRawWindow(ctx context.Context, tg Target, src whsource.
 	return classify(tg, fmt.Errorf("registering raw window %s of webhook source %s: %w", windowName(start), src.Name, err))
 }
 
+// UnregisterRawWindow removes a window's raw partition, once retention has
+// deleted its segments, so the raw table stops listing a directory that holds
+// nothing (#2133). A window with no raw partition is already unregistered.
+func (t *Tables) UnregisterRawWindow(ctx context.Context, tg Target, src whsource.Source, start time.Time) error {
+	stmt := partitionCall(tg, "unregister_partition", src.RawTableName(), start, "")
+	err := t.exec.Exec(ctx, tg.Connection, stmt)
+	if err == nil || partitionMissing(err) {
+		return nil
+	}
+	return classify(tg, fmt.Errorf("unregistering raw window %s of webhook source %s: %w", windowName(start), src.Name, err))
+}
+
 // UnregisterWindow removes a window's compacted partition, which puts the
 // window back on the raw side of the view. A window with no partition is
 // already unregistered.
@@ -248,6 +265,19 @@ func (t *Tables) Probe(ctx context.Context, tg Target, src whsource.Source) erro
 		return err
 	}
 	return t.UnregisterWindow(ctx, tg, src, probe)
+}
+
+// PartitionReadTime reads the raw table's partitions once and reports how long
+// it took (#2134). On a file metastore every partition lookup is object-store
+// lists and reads unless the catalog caches them, and a slow read here is
+// what the compactor's partition calls and every reader of the view pay.
+func (t *Tables) PartitionReadTime(ctx context.Context, tg Target, src whsource.Source) (time.Duration, error) {
+	stmt := "SELECT count(*) FROM " + qualified(tg, src.RawTableName()+"$partitions")
+	began := time.Now()
+	if err := t.exec.Exec(ctx, tg.Connection, stmt); err != nil {
+		return 0, fmt.Errorf("reading the partitions of %s: %w", src.RawTableName(), err)
+	}
+	return time.Since(began), nil
 }
 
 // partitionMissing reports the catalog's answer for a partition that is not

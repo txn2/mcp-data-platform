@@ -151,6 +151,8 @@ export const mockWebhookStatus: Record<string, WebhookStatus> = {
     oldest_window: hourStart(24 * 30),
     ack_last_hour: acks(18342, 1000, 2500, { total_ms: 2380, buffer_ms: 990, mark_ms: 1310, put_ms: 80 }, 0.3),
     ack_last_day: acks(402113, 1000, 2500, { total_ms: 24600, buffer_ms: 1000, mark_ms: 1600, put_ms: 22000 }, 13),
+    segments_open_window: 412,
+    segments_per_window_p95: 3650,
     rejections: [
       {
         at: hoursAgo(0.4),
@@ -177,6 +179,8 @@ export const mockWebhookStatus: Record<string, WebhookStatus> = {
     oldest_window: hourStart(24 * 9),
     ack_last_hour: NO_ACKS,
     ack_last_day: NO_ACKS,
+    segments_open_window: 0,
+    segments_per_window_p95: 6,
     rejections: [],
   },
   "billing-events": {
@@ -189,6 +193,8 @@ export const mockWebhookStatus: Record<string, WebhookStatus> = {
     oldest_window: hourStart(24 * 20),
     ack_last_hour: NO_ACKS,
     ack_last_day: NO_ACKS,
+    segments_open_window: 0,
+    segments_per_window_p95: 3,
     rejections: [{ at: hoursAgo(2), first_at: hoursAgo(2), count: 1, outcome: "unauthorized", reason: "the credentials do not match", request_hash: "", event_ids: [] }],
   },
   "order-updates": {
@@ -202,6 +208,8 @@ export const mockWebhookStatus: Record<string, WebhookStatus> = {
     oldest_window: hourStart(24 * 3),
     ack_last_hour: acks(420, 1000, 1000, { total_ms: 1040, buffer_ms: 1000, mark_ms: 12, put_ms: 28 }, 0.2),
     ack_last_day: acks(9800, 1000, 1000, { total_ms: 1210, buffer_ms: 1000, mark_ms: 160, put_ms: 50 }, 8),
+    segments_open_window: 38,
+    segments_per_window_p95: 120,
     rejections: [{ at: hoursAgo(0.5), first_at: hoursAgo(0.6), count: 5, outcome: "invalid_body", reason: "the body is not JSON", request_hash: "", event_ids: [] }],
   },
 };
@@ -272,6 +280,8 @@ export function mockWebhookOverview(
         failing: st.failing,
         ack_last_hour: st.ack_last_hour,
         ack_last_day: st.ack_last_day,
+        segments_open_window: st.segments_open_window,
+        segments_per_window_p95: st.segments_per_window_p95,
         ...(st.last_error ? { last_error: st.last_error } : {}),
       };
     }),

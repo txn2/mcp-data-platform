@@ -203,13 +203,14 @@ function SourcesTable({
             <TableHead className="text-right">Last day</TableHead>
             <TableHead className="text-right">Response time</TableHead>
             <TableHead className="text-right">Pending</TableHead>
+            <TableHead className="text-right">Raw files (current window)</TableHead>
             <TableHead>Failing</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={8} className="py-6 text-center text-sm text-muted-foreground">
+              <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
                 Loading...
               </TableCell>
             </TableRow>
@@ -236,6 +237,12 @@ function SourcesTable({
                 <CountsCell counts={s.last_day} />
                 <ResponseTimeCell source={s} />
                 <TableCell className="text-right tabular-nums">{s.pending}</TableCell>
+                <TableCell
+                  className="text-right tabular-nums"
+                  title={`95th percentile over the last day: ${s.segments_per_window_p95 ?? 0}`}
+                >
+                  {s.segments_open_window ?? 0}
+                </TableCell>
                 <TableCell className="max-w-72">
                   {s.failing > 0 ? (
                     <>

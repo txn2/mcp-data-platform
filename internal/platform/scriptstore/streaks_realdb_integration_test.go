@@ -66,4 +66,20 @@ func TestRealDB_FailureStreaks(t *testing.T) {
 	h := streaks[healthy.ID]
 	assert.Zero(t, h.Failed, "the newest finished run succeeded")
 	require.NotNil(t, h.LastSuccessAt)
+	require.NotNil(t, h.Latest)
+	assert.Equal(t, "dpx_healthy_02", h.Latest.ID)
+
+	// #2135: a run queued after the newest failure is the latest run, open,
+	// while the streak still names the failure.
+	require.NoError(t, s.Enqueue(ctx, &script.Run{
+		ID: "dpx_failing_06", ScriptID: failing.ID, VersionID: fv.ID, Version: fv.Version, Trigger: script.TriggerSchedule,
+	}))
+	streaks, err = s.FailureStreaks(ctx, []string{failing.ID})
+	require.NoError(t, err)
+	f = streaks[failing.ID]
+	assert.Equal(t, "dpx_failing_05", f.LastFailedRunID)
+	require.NotNil(t, f.Latest)
+	assert.Equal(t, "dpx_failing_06", f.Latest.ID)
+	assert.Equal(t, script.RunStatusPending, f.Latest.Status)
+	assert.Nil(t, f.Latest.StartedAt)
 }

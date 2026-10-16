@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/tablesapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablehttp"
@@ -16,10 +17,13 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/webhookwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
+	"github.com/txn2/mcp-data-platform/internal/platform/tablelookup"
+	"github.com/txn2/mcp-data-platform/internal/platform/tablereconcile"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister/regstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
+	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
@@ -320,7 +324,7 @@ func wireTableToolRegistrar(p *platform.Platform, adminRoles []string) {
 			sink.SetTableRegistrar(adapter)
 		}
 	}
-	wireTableLookup(p, tableregister.NewLookup(registrar))
+	wireTableLookup(p, tablelookup.New(registrar))
 }
 
 // tableRegistrarSink is satisfied by the portal toolkit, which serves
@@ -332,7 +336,7 @@ type tableRegistrarSink interface {
 // wireTableLookup binds the lookup on the search federation, which pushes it
 // into every provider that can carry a table reference. A deployment with no
 // router leaves hits as they were.
-func wireTableLookup(p *platform.Platform, lookup *tableregister.Lookup) {
+func wireTableLookup(p *platform.Platform, lookup *tablelookup.Lookup) {
 	if p == nil {
 		return
 	}
@@ -528,4 +532,50 @@ func buildWebhooks(p *platform.Platform, address string) (*webhookwire.Webhooks,
 		return nil, nil //nolint:nilnil // as above
 	}
 	return webhookwire.Build(p, address, exec) //nolint:wrapcheck // names the spool directory
+}
+
+// mountTableAdmin registers the administrator's view of table registrations
+// and the reconcile of a scratch schema against them (#2136), behind the
+// admin API's authentication, when the admin API is enabled and tables can be
+// registered at all.
+func mountTableAdmin(mux *http.ServeMux, p *platform.Platform) {
+	if p == nil || !p.Config().Admin.IsEnabled() {
+		return
+	}
+	registrar := tableRegistrar(p)
+	if !registrar.Available() {
+		return
+	}
+	cfg := tableAdminConfig(registrar, trinoExecutor(p), tablereconcile.Deps{
+		Store:  catalogwire.RegistrationStore(p, regstore.NewPostgresStore(p.DB())),
+		Locate: platformTableLocator(p), ResourceBucket: p.Config().Resources.Managed.S3Bucket,
+	})
+	tablesapi.Register(mux, buildAdminAuth(p), cfg)
+	slog.Info("Table registration admin API enabled on /api/v1/admin/tables/registrations and /api/v1/admin/tables/reconcile")
+}
+
+// tableAdminConfig is what the table admin routes act through: the listing
+// always, and the reconcile when the query engine can list a schema. deps
+// carries the store and the locator; the engine and the auditor are filled
+// in here.
+func tableAdminConfig(registrar *tableregister.Registrar, exec tableregister.Executor, deps tablereconcile.Deps) tablesapi.Config {
+	cfg := tablesapi.Config{Registrations: registrar, Caller: adminTableCaller}
+	engine, ok := exec.(tablereconcile.Engine)
+	if !ok {
+		return cfg
+	}
+	deps.Engine, deps.Audit = engine, registrar
+	if rec := tablereconcile.New(deps); rec != nil {
+		cfg.Reconciler = rec
+	}
+	return cfg
+}
+
+// adminTableCaller is the administrator a repair is audited under.
+func adminTableCaller(r *http.Request) tableregister.Caller {
+	u := admin.GetUser(r.Context())
+	if u == nil {
+		return tableregister.Caller{IsAdmin: true}
+	}
+	return tableregister.Caller{UserID: u.UserID, Email: u.Email, Roles: u.Roles, IsAdmin: true}
 }

@@ -327,3 +327,23 @@ func (s *Service) warn(msg, source string, err error) {
 	s.deps.Logger.Warn("webhooks: "+msg, "source", logsan.SanitizeForLog(source),
 		"error", logsan.SanitizeForLog(err.Error()))
 }
+
+// SyncPartitions makes a source's raw partitions match the window directories
+// in the bucket by listing them all. Retention keeps the partitions by name and
+// never lists (#2133); this is the repair an administrator runs when the two
+// have drifted, a restore for one.
+func (s *Service) SyncPartitions(ctx context.Context, name string) error {
+	src, err := s.deps.Sources.Get(ctx, name)
+	if err != nil {
+		return err //nolint:wrapcheck // ErrNotFound is what a surface renders
+	}
+	src = src.WithDefaults()
+	tg, err := s.deps.Tables.TargetFor(src.Connection)
+	if err != nil {
+		return err //nolint:wrapcheck // the connection refusal says what is wrong
+	}
+	if err := s.deps.Tables.SyncRaw(ctx, tg, src); err != nil {
+		return fmt.Errorf("syncing the raw partitions of %s: %w", name, err)
+	}
+	return nil
+}

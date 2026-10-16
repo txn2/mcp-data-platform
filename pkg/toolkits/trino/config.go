@@ -91,7 +91,11 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.ReadOnly = getBool(cfg, "read_only")
 
 	// Where table registrations land on this connection.
-	c.Scratch = getScratchConfig(cfg)
+	scratch, err := getScratchConfig(cfg)
+	if err != nil {
+		return c, err
+	}
+	c.Scratch = scratch
 
 	// Timeout with duration parsing
 	if timeout, err := getDuration(cfg, "timeout"); err != nil {
@@ -116,15 +120,22 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 // getScratchConfig extracts the scratch registration target from a config map.
 // A block that names only one of the two is not a usable target and is dropped
 // with a warning rather than half-honored: a registration built on it would
-// name a catalog with no schema, or the reverse, and fail at the DDL.
-func getScratchConfig(cfg map[string]any) ScratchConfig {
+// name a catalog with no schema, or the reverse, and fail at the DDL. A
+// statement_timeout that does not parse is an error, like the connection's own
+// timeout.
+func getScratchConfig(cfg map[string]any) (ScratchConfig, error) {
 	raw, ok := cfg["scratch"].(map[string]any)
 	if !ok {
-		return ScratchConfig{}
+		return ScratchConfig{}, nil
+	}
+	timeout, err := getDuration(raw, "statement_timeout")
+	if err != nil {
+		return ScratchConfig{}, fmt.Errorf("invalid scratch.statement_timeout: %w", err)
 	}
 	sc := ScratchConfig{
-		Catalog: getString(raw, "catalog"),
-		Schema:  getString(raw, "schema"),
+		Catalog:          getString(raw, "catalog"),
+		Schema:           getString(raw, "schema"),
+		StatementTimeout: max(timeout, 0),
 	}
 	if sc.Catalog == "" || sc.Schema == "" {
 		if sc.Catalog != "" || sc.Schema != "" {
@@ -132,9 +143,9 @@ func getScratchConfig(cfg map[string]any) ScratchConfig {
 				"catalog", logsan.SanitizeForLog(sc.Catalog),
 				"schema", logsan.SanitizeForLog(sc.Schema))
 		}
-		return ScratchConfig{}
+		return ScratchConfig{}, nil
 	}
-	return sc
+	return sc, nil
 }
 
 // getElicitationConfig extracts elicitation configuration from a config map.

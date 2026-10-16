@@ -11636,12 +11636,213 @@ definitions:
       table:
         type: string
     type: object
+  tablereconcile.Drifted:
+    properties:
+      location:
+        type: string
+      registration:
+        $ref: '#/definitions/tableregister.Registration'
+    type: object
+  tablereconcile.Missing:
+    properties:
+      provable:
+        description: |-
+          Provable is false for a webhook source's table, which is removed with
+          the source and never by a repair.
+        type: boolean
+      registration:
+        $ref: '#/definitions/tableregister.Registration'
+    type: object
+  tablereconcile.Orphan:
+    properties:
+      location:
+        type: string
+      provable:
+        description: |-
+          Provable is whether the platform can show the table is its own, which
+          is what a repair requires.
+        type: boolean
+      source:
+        allOf:
+        - $ref: '#/definitions/tablereconcile.SourceRef'
+        description: Source is the stored file the location belongs to, when it is
+          one.
+      table:
+        type: string
+    type: object
+  tablereconcile.Reconciliation:
+    properties:
+      catalog:
+        type: string
+      connection:
+        type: string
+      drifted:
+        items:
+          $ref: '#/definitions/tablereconcile.Drifted'
+        type: array
+      missing:
+        items:
+          $ref: '#/definitions/tablereconcile.Missing'
+        type: array
+      orphans:
+        items:
+          $ref: '#/definitions/tablereconcile.Orphan'
+        type: array
+      schema:
+        type: string
+      truncated:
+        description: |-
+          Truncated is whether the schema held more tables than one listing
+          returns, so the orphans are a partial list and none is reported
+          missing.
+        type: boolean
+    type: object
+  tablereconcile.RepairItem:
+    properties:
+      action:
+        enum:
+        - drop
+        - forget
+        type: string
+      registration_id:
+        type: string
+      table:
+        type: string
+    type: object
+  tablereconcile.RepairOutcome:
+    properties:
+      action:
+        enum:
+        - drop
+        - forget
+        type: string
+      done:
+        description: Done is whether it was carried out; Reason says why when it was
+          not.
+        type: boolean
+      reason:
+        type: string
+      registration_id:
+        type: string
+      table:
+        type: string
+    type: object
+  tablereconcile.SourceRef:
+    properties:
+      exists:
+        description: Exists is whether the platform still holds the file.
+        type: boolean
+      id:
+        type: string
+      kind:
+        type: string
+    type: object
   tableregister.Column:
     properties:
       name:
         type: string
       type:
         type: string
+    type: object
+  tableregister.Registration:
+    properties:
+      all_varchar:
+        description: |-
+          AllVarchar marks a JSON-lines registration made before its columns were
+          typed (#1833), when every column was declared VARCHAR. A follow keeps
+          the rule, so a query written against the table keeps working whatever
+          the next version of the file holds; registering the file again under
+          the same name makes a typed registration in its place.
+        type: boolean
+      catalog:
+        type: string
+      columns:
+        items:
+          $ref: '#/definitions/tableregister.Column'
+        type: array
+      connection:
+        type: string
+      follow:
+        description: |-
+          Follow means the registration is moved to the source's new head
+          directory when a revision or version is written (#1536). It is what a
+          registration gets unless the caller pins it: a person or an agent that
+          replaces a file expects the table over it to read the new contents.
+          Pinned -- follow off -- is the choice for a report that must keep
+          returning the rows it was registered over until somebody decides
+          otherwise.
+        type: boolean
+      follow_error:
+        description: |-
+          FollowError is why the last follow did not move the registration, and is
+          empty while it is where the file is. It is kept on the record because a
+          follow never fails the write that triggered it, so the listing has to be
+          able to say what is behind and why without the log of that write.
+        type: string
+      format:
+        description: |-
+          Format names the reader the table is declared with: "csv", "jsonl" for
+          a JSON-lines file, whose values come back exactly (#1820), or "parquet"
+          (#1833). It is decided by the file, not by the caller, and it is on the
+          record because the CREATE TABLE is written again at every follow and
+          when a failed follow puts a table back.
+        type: string
+      id:
+        type: string
+      location:
+        type: string
+      registered_at:
+        type: string
+      registered_by:
+        type: string
+      repair:
+        description: |-
+          Repair means the registration corrects its file: a version of the source
+          carrying a defect a reader cannot see past, of a kind the platform can
+          correct, is saved corrected as the file's next version and the table is
+          moved onto that version (#1577). Off -- the default, and what a
+          registration made without asking gets -- such a version leaves the
+          registration where it was with the reason recorded on it, because nobody
+          asked for the file to be rewritten.
+
+          It is on the record because the follow has nothing else to act on: the
+          choice was made once, at a registration, and the versions it applies to
+          arrive afterwards. It does nothing for a registration that is not
+          following, which never meets a new version at all.
+        type: boolean
+      schema:
+        type: string
+      source_id:
+        type: string
+      source_kind:
+        type: string
+      table:
+        type: string
+    type: object
+  tablesapi.RegistrationList:
+    properties:
+      registrations:
+        items:
+          $ref: '#/definitions/tableregister.Registration'
+        type: array
+      total:
+        type: integer
+    type: object
+  tablesapi.RepairRequest:
+    properties:
+      connection:
+        type: string
+      repair:
+        items:
+          $ref: '#/definitions/tablereconcile.RepairItem'
+        type: array
+    type: object
+  tablesapi.RepairResponse:
+    properties:
+      outcomes:
+        items:
+          $ref: '#/definitions/tablereconcile.RepairOutcome'
+        type: array
     type: object
   testreport.Coverage:
     properties:
@@ -12120,6 +12321,18 @@ definitions:
           Pending counts windows owed a compaction; Failing, those whose last
           attempt failed, with the newest one's error in LastError.
         type: integer
+      segments_open_window:
+        description: |-
+          SegmentsOpenWindow is how many segments were recorded against the
+          source's open window, and SegmentsPerWindowP95 the 95th percentile of
+          that count over the windows that started in the last day (#2132). Each
+          is an object a reader of the window reads until a rollup merges it; a
+          count can exceed the segments written by one per replica.
+        example: 412
+        type: integer
+      segments_per_window_p95:
+        example: 3650
+        type: integer
       table:
         type: string
     type: object
@@ -12151,6 +12364,16 @@ definitions:
         type: string
       updated_at:
         type: string
+      warnings:
+        description: |-
+          Warnings is what a create or change answers with besides the source,
+          without refusing it: a slow read of its partitions, which an uncached
+          file metastore causes (#2134), and settings under which the open window
+          holds more segments between rollups than a reader should read (#2132).
+          Absent from a list or a read.
+        items:
+          type: string
+        type: array
     type: object
   webhookapi.StatusOverview:
     properties:
@@ -12269,7 +12492,17 @@ definitions:
       raw_retention_days:
         description: |-
           RawRetentionDays is how long a raw segment is kept once the window it
-          belongs to is compacted.
+          belongs to is compacted. A compacted window's events are all in its
+          Parquet file, and a recompaction reads that file rather than the
+          segments, so they are a safety margin and nothing else; every day kept
+          is objects the raw table and retention list (#2134).
+        type: integer
+      rollup_every_minutes:
+        description: |-
+          RollupEveryMinutes is how often the open window's segments are merged
+          into one object (#2132). A reader of the open window, which is every
+          reader of recent events, reads one object per segment, and a busy
+          source writes thousands an hour; merged, it reads a handful.
         type: integer
       split:
         type: string
@@ -12380,6 +12613,15 @@ definitions:
         items:
           $ref: '#/definitions/whstore.Rejection'
         type: array
+      segments_open_window:
+        description: |-
+          SegmentsOpenWindow and SegmentsPerWindowP95 are the segments recorded
+          against the open window, and the 95th percentile of that count over
+          the windows that started in the last day (#2132), as the overview of
+          every source reports them.
+        type: integer
+      segments_per_window_p95:
+        type: integer
     type: object
 host: localhost:8080
 info:
@@ -19251,6 +19493,126 @@ paths:
       summary: Get system info
       tags:
       - System
+  /admin/tables/reconcile:
+    get:
+      description: Lists the tables in a connection's scratch schema that no registration
+        holds (orphans), with the location each reads and the stored file it belongs
+        to when there is one; the registrations whose table is gone (missing); and
+        the registrations whose table reads somewhere else (drifted). A webhook source's
+        own tables are neither. An orphan is provable when its location is the directory
+        of a file the platform stores; only provable orphans and missing registrations
+        can be repaired.
+      parameters:
+      - description: Connection
+        in: query
+        name: connection
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/tablereconcile.Reconciliation'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Reconcile a scratch schema against its registrations
+      tags:
+      - Tables
+    post:
+      consumes:
+      - application/json
+      description: 'Carries out each repair asked for: "drop" removes an orphan table
+        by name when its location is the directory of a file the platform stores,
+        and "forget" removes a registration whose table is gone. Each is proved again
+        when it is made; one that cannot be is reported and not made. Every repair
+        carried out is audited.'
+      parameters:
+      - description: The repairs
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/tablesapi.RepairRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/tablesapi.RepairResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Repair what a reconcile found
+      tags:
+      - Tables
+  /admin/tables/registrations:
+    get:
+      description: Every table registration on the platform, newest first, filtered
+        by connection, by the persona a table was registered under (the prefix its
+        name carries), by source kind and id, and by a free-text match on the qualified
+        name.
+      parameters:
+      - description: Connection
+        in: query
+        name: connection
+        type: string
+      - description: Persona the table was registered under
+        in: query
+        name: persona
+        type: string
+      - description: resource, asset or webhook
+        in: query
+        name: source_kind
+        type: string
+      - description: Source id; read with source_kind
+        in: query
+        name: source_id
+        type: string
+      - description: Matches the qualified name
+        in: query
+        name: q
+        type: string
+      - description: Page size, at most 200
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/tablesapi.RegistrationList'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List table registrations
+      tags:
+      - Tables
   /admin/tools:
     get:
       description: Returns all registered tools across all toolkits and platform-level
@@ -19679,6 +20041,36 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Change a webhook source
+      tags:
+      - Webhooks
+  /admin/webhooks/sources/{name}/sync-partitions:
+    post:
+      description: Makes the raw table's partitions match the window directories in
+        the bucket by listing every raw segment the source holds (sync_partition_metadata
+        FULL). Retention keeps the partitions by name and never lists the bucket;
+        this is the repair for when the two have drifted, a restore for one. On a
+        busy source it lists every segment raw retention keeps and can take minutes.
+      parameters:
+      - description: Source name
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Resync a webhook source's raw partitions
       tags:
       - Webhooks
   /admin/webhooks/status:

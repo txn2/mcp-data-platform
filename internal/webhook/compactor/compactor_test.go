@@ -43,6 +43,8 @@ type fakeWindows struct {
 	pruned   bool
 	// expiredBefore is the cutoff the last DeleteExpired was given.
 	expiredBefore time.Time
+	// held makes every rollup claim lose, as another replica's would.
+	held bool
 }
 
 type windowRow struct {
@@ -53,6 +55,9 @@ type windowRow struct {
 	unregistered bool
 	expired      bool
 	compaction   whstore.Compaction
+	// lastSegment is when the window's last segment was written; zero reads
+	// as the window's start.
+	lastSegment time.Time
 }
 
 func newWindows() *fakeWindows {
@@ -143,6 +148,40 @@ func (f *fakeWindows) Expirable(_ context.Context, source string, cutoff time.Ti
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeWindows) RawRegistrable(_ context.Context, source string, since time.Time) ([]whstore.Window, error) {
+	if err := f.err["rawregistrable"]; err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []whstore.Window
+	for _, r := range f.rows {
+		last := r.lastSegment
+		if last.IsZero() {
+			last = r.Start
+		}
+		if r.Source == source && !r.expired && !r.rawDeleted && !last.Before(since) {
+			out = append(out, r.Window)
+		}
+	}
+	return out, nil
+}
+
+// ClaimRollup claims a window that has a row and no live claim, the way the
+// store does; claimed records the claims, held makes every claim lose.
+func (f *fakeWindows) ClaimRollup(_ context.Context, source string, start time.Time, _ time.Duration) (bool, error) {
+	if err := f.err["claimrollup"]; err != nil {
+		return false, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.held {
+		return false, nil
+	}
+	_, ok := f.rows[source+start.String()]
+	return ok, nil
 }
 
 func (f *fakeWindows) MarkRawDeleted(_ context.Context, h whstore.Window) error {
@@ -247,6 +286,17 @@ func (f *fakeObjects) DeleteObject(_ context.Context, _, key string) error {
 	return nil
 }
 
+func (f *fakeObjects) PutObject(_ context.Context, _, key string, data []byte, _ string) error {
+	if err := f.err["put"]; err != nil {
+		return err
+	}
+	if err := f.err["putmanifest"]; err != nil && strings.Contains(key, "/.rollup-") {
+		return err
+	}
+	f.put(key, data)
+	return nil
+}
+
 func (f *fakeObjects) put(key string, data []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -255,12 +305,13 @@ func (f *fakeObjects) put(key string, data []byte) {
 
 type fakeTables struct {
 	registered map[string]string
-	syncs      int
-	err        map[string]error
+	// raw is the raw partitions registered, by source and window start.
+	raw map[string]bool
+	err map[string]error
 }
 
 func newTables() *fakeTables {
-	return &fakeTables{registered: map[string]string{}, err: map[string]error{}}
+	return &fakeTables{registered: map[string]string{}, raw: map[string]bool{}, err: map[string]error{}}
 }
 
 func (f *fakeTables) TargetFor(string) (whtable.Target, error) {
@@ -288,9 +339,20 @@ func (f *fakeTables) UnregisterWindow(_ context.Context, _ whtable.Target, src w
 	return nil
 }
 
-func (f *fakeTables) SyncRaw(context.Context, whtable.Target, whsource.Source) error {
-	f.syncs++
-	return f.err["sync"]
+func (f *fakeTables) RegisterRawWindow(_ context.Context, _ whtable.Target, src whsource.Source, h time.Time) error {
+	if err := f.err["registerraw"]; err != nil {
+		return err
+	}
+	f.raw[src.Name+h.String()] = true
+	return nil
+}
+
+func (f *fakeTables) UnregisterRawWindow(_ context.Context, _ whtable.Target, src whsource.Source, h time.Time) error {
+	if err := f.err["unregisterraw"]; err != nil {
+		return err
+	}
+	delete(f.raw, src.Name+h.String())
+	return nil
 }
 
 // fakeResources keeps each resource's file in the fake object store, under a
@@ -564,8 +626,92 @@ func TestRawRetention(t *testing.T) {
 	assert.False(t, pending.rawDeleted, "an uncompacted window's segments are never deleted")
 	keys, _ := r.objects.ListKeys(ctx, "", "webhooks/esp/raw/")
 	assert.Len(t, keys, 2)
-	assert.Equal(t, 1, r.tables.syncs, "the raw partitions are synced after segments go")
 	assert.True(t, r.windows.pruned)
+}
+
+// TestRetentionKeepsRawPartitionsByName covers #2133: a pass unregisters the
+// raw partition of each window whose segments it deleted and registers the
+// raw partition of each window a segment landed in since the previous pass,
+// by name, with no listing of the table's location; a window untouched since
+// is left as it is.
+func TestRetentionKeepsRawPartitionsByName(t *testing.T) {
+	r := newRig(t)
+	old := window.Add(-10 * 24 * time.Hour)
+	released := r.windows.add("esp", old, 1)
+	released.compacted, released.compactedGen = true, 1
+	r.tables.raw["esp"+old.String()] = true
+	r.segment(t, old, segAt{"a", 1, 0}, "a")
+
+	recent := now.Add(-30 * time.Minute).Truncate(time.Hour)
+	fresh := r.windows.add("esp", recent, 1)
+	fresh.lastSegment = now.Add(-10 * time.Minute)
+
+	quiet := r.windows.add("esp", now.Add(-5*time.Hour).Truncate(time.Hour), 1)
+	quiet.lastSegment = now.Add(-5 * time.Hour)
+
+	require.NoError(t, r.w.Retention(ctx))
+	assert.True(t, released.rawDeleted)
+	assert.NotContains(t, r.tables.raw, "esp"+old.String(), "the released window's raw partition is unregistered")
+	assert.Contains(t, r.tables.raw, "esp"+recent.String(), "a window written since the last pass is registered")
+	assert.NotContains(t, r.tables.raw, "esp"+quiet.Start.String(), "a window nothing changed is not touched")
+}
+
+// TestRetentionRawPartitionFailures: a failure to read, register or
+// unregister a raw partition fails the source's pass and names the step.
+func TestRetentionRawPartitionFailures(t *testing.T) {
+	for key, want := range map[string]string{
+		"rawregistrable": "reading the windows to register",
+		"registerraw":    "registering the raw window",
+		"unregisterraw":  "unregistering the raw window",
+	} {
+		t.Run(key, func(t *testing.T) {
+			r := newRig(t)
+			old := window.Add(-10 * 24 * time.Hour)
+			released := r.windows.add("esp", old, 1)
+			released.compacted, released.compactedGen = true, 1
+			fresh := r.windows.add("esp", now.Truncate(time.Hour), 1)
+			fresh.lastSegment = now
+			r.segment(t, old, segAt{"a", 1, 0}, "a")
+			if key == "rawregistrable" {
+				r.windows.err[key] = errBoom
+			} else {
+				r.tables.err[key] = errBoom
+			}
+			err := r.w.Retention(ctx)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), want)
+		})
+	}
+}
+
+// TestExpireUnregistersTheRawWindow: an expired window's raw partition goes
+// with it, and a failure to remove it stops the window short of expired.
+func TestExpireUnregistersTheRawWindow(t *testing.T) {
+	r := newRig(t)
+	old := window.Add(-500 * 24 * time.Hour)
+	row := r.windows.add("esp", old, 1)
+	r.segment(t, old, segAt{"a", 1, 0}, "a")
+	r.clock = old.Add(3 * time.Hour)
+	require.True(t, r.w.Pass(ctx))
+	r.tables.raw["esp"+old.String()] = true
+	r.clock = now
+
+	r.tables.err["unregisterraw"] = errBoom
+	err := r.w.Retention(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unregistering the raw window")
+	assert.False(t, row.expired)
+
+	delete(r.tables.err, "unregisterraw")
+	require.NoError(t, r.w.Retention(ctx))
+	assert.True(t, row.expired)
+	assert.NotContains(t, r.tables.raw, "esp"+old.String())
+}
+
+// TestRawLookback is two retention intervals.
+func TestRawLookback(t *testing.T) {
+	w := &Worker{tuning: Tuning{RetentionEvery: 10 * time.Minute}}
+	assert.Equal(t, 20*time.Minute, w.rawLookback())
 }
 
 func TestCompactedRetentionResumes(t *testing.T) {

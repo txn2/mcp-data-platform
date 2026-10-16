@@ -29,6 +29,8 @@ type Tables interface {
 	Create(ctx context.Context, tg whtable.Target, src whsource.Source) error
 	Probe(ctx context.Context, tg whtable.Target, src whsource.Source) error
 	Drop(ctx context.Context, tg whtable.Target, src whsource.Source) error
+	SyncRaw(ctx context.Context, tg whtable.Target, src whsource.Source) error
+	PartitionReadTime(ctx context.Context, tg whtable.Target, src whsource.Source) (time.Duration, error)
 }
 
 // Registrations records the source's table. tableregister's store satisfies

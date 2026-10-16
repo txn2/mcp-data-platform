@@ -60,6 +60,8 @@ hive.metastore.catalog.dir=s3://<scratch-bucket>/trino-metastore/
 hive.recursive-directories=false
 hive.timestamp-precision=MICROSECONDS
 hive.allow-register-partition-procedure=true
+hive.metastore-cache-ttl=10m
+hive.metastore-refresh-interval=1m
 fs.native-s3.enabled=true
 s3.endpoint=<the store holding BOTH managed resources and portal assets>
 s3.path-style-access=true
@@ -67,6 +69,20 @@ s3.region=us-east-1
 s3.aws-access-key=${ENV:SCRATCH_S3_KEY}
 s3.aws-secret-key=${ENV:SCRATCH_S3_SECRET}
 ```
+
+`hive.metastore-cache-ttl` and `hive.metastore-refresh-interval` are required
+for webhook sources and table registration on a file metastore (#2134). The
+Hive connector caches nothing by default (`hive.metastore-cache-ttl=0s`), and
+on a file metastore every partition lookup is then a round of object-store
+lists and reads. On one deployment with about 180 webhook partitions, reading a
+view's `$partitions` took 57 s uncached and 2 s with the values above; uncached,
+the compactor's `register_partition` calls and scripts' table registrations
+timed out whenever the store was slow. Every statement the platform sends that
+changes the metastore (a table's `CREATE` and `DROP`, the partition procedures)
+runs on the coordinator. A webhook source's connection check times a
+`$partitions` read and warns when it is slow; Trino does not report a
+catalog's properties through SQL, so the check cannot read the cache setting
+itself.
 
 **Trino reads catalog properties at startup. After changing one, restart the
 coordinator and every worker.** A worker still running the old properties
@@ -310,6 +326,9 @@ Then exercise the features:
 | *"the scratch catalog does not allow register_partition; set hive.allow-register-partition-procedure=true"* | Creating a source, the connection test | Set the property and restart the coordinator and every worker. |
 | *"the Trino user of connection X may not EXECUTE scratch.system.P; ... add a procedures rule"* | Creating a source, the connection test | Add the `procedures` rule from [Access control](#access-control) for the connection's Trino user. |
 | *"Access Denied: Cannot create table ..."* | Registering a table, creating a source | Give the scratch identity `all` on the scratch catalog. |
+| *"reading the partitions of ... took N s"* (a warning, not a refusal) | Creating or changing a source | Set `hive.metastore-cache-ttl` and `hive.metastore-refresh-interval` on the scratch catalog (see [The catalog](#the-catalog)) and restart the coordinator and every worker. |
+| *"registering the table: ... context deadline exceeded"* | Registering a table, a scheduled export that registers its output | The metastore took longer than the statement timeout. Set `scratch.statement_timeout` on the connection to a bound the metastore meets. |
+| *"X already exists in the scratch schema and no registration holds it; it reads L, not this file"* | Registering a table | A table nothing registered holds the name and reads another location. Choose another table name, or drop that table after checking what reads it. |
 
 ## Related
 

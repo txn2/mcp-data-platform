@@ -33,6 +33,14 @@ type Summary struct {
 	// waited for that answer.
 	AckLastHour AckLatency
 	AckLastDay  AckLatency
+	// SegmentsOpenWindow is how many segments were recorded against the
+	// source's open window, and SegmentsPerWindowP95 the 95th percentile of
+	// that count over the windows that started in the last day (#2132): the
+	// objects a reader of a window reads before a rollup merges them. A
+	// receiver records its first write of a window twice, so each count can
+	// exceed the segments written by one per replica.
+	SegmentsOpenWindow   int64
+	SegmentsPerWindowP95 int64
 }
 
 // VolumePoint is the number of requests of one source with one outcome in
@@ -72,7 +80,7 @@ func (s *Store) Overview(ctx context.Context, source string, now time.Time, span
 	var latency map[string]ackSpans
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return s.overviewCounts(gctx, source, now, counts) })
-	g.Go(func() error { return s.overviewWindows(gctx, source, windows) })
+	g.Go(func() error { return s.overviewWindows(gctx, source, now, windows) })
 	g.Go(func() (err error) {
 		latency, err = s.readLatency(gctx, source, now)
 		return err
@@ -108,6 +116,7 @@ func mergeSummaries(counts, windows map[string]Summary, latency map[string]ackSp
 			sum = emptySummary()
 		}
 		sum.LastSegmentAt, sum.Pending, sum.Failing, sum.LastError = w.LastSegmentAt, w.Pending, w.Failing, w.LastError
+		sum.SegmentsOpenWindow, sum.SegmentsPerWindowP95 = w.SegmentsOpenWindow, w.SegmentsPerWindowP95
 		out[name] = sum
 	}
 	for name, l := range latency {
@@ -161,17 +170,22 @@ func (s *Store) overviewCounts(ctx context.Context, source string, now time.Time
 }
 
 // overviewWindows fills each source's window aggregates, as Status reads them
-// for one source: the last error is the newest window's that has one.
-func (s *Store) overviewWindows(ctx context.Context, source string, out map[string]Summary) error {
+// for one source: the last error is the newest window's that has one. A
+// window's generation is the segments recorded against it, which is what the
+// segment counts read.
+func (s *Store) overviewWindows(ctx context.Context, source string, now time.Time, out map[string]Summary) error {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT source,
 		        MAX(last_segment_at),
 		        COUNT(*) FILTER (WHERE generation <> compacted_generation),
 		        COUNT(*) FILTER (WHERE generation <> compacted_generation AND last_error <> ''),
-		        COALESCE((ARRAY_AGG(last_error ORDER BY window_start DESC) FILTER (WHERE last_error <> ''))[1], '')
+		        COALESCE((ARRAY_AGG(last_error ORDER BY window_start DESC) FILTER (WHERE last_error <> ''))[1], ''),
+		        COALESCE(MAX(generation) FILTER (WHERE window_start + make_interval(secs => window_seconds) > $2), 0),
+		        COALESCE(CEIL(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY generation)
+		                 FILTER (WHERE window_start >= $3)), 0)::bigint
 		   FROM webhook_windows
 		  WHERE expired_at IS NULL AND ($1::text = '' OR source = $1::text)
-		  GROUP BY source`, source)
+		  GROUP BY source`, source, now.UTC(), now.Add(-24*time.Hour).UTC())
 	if err != nil {
 		return fmt.Errorf("reading webhook window status: %w", err)
 	}
@@ -182,7 +196,8 @@ func (s *Store) overviewWindows(ctx context.Context, source string, out map[stri
 			sum    Summary
 			last   sql.NullTime
 		)
-		if err := rows.Scan(&source, &last, &sum.Pending, &sum.Failing, &sum.LastError); err != nil {
+		if err := rows.Scan(&source, &last, &sum.Pending, &sum.Failing, &sum.LastError,
+			&sum.SegmentsOpenWindow, &sum.SegmentsPerWindowP95); err != nil {
 			return fmt.Errorf("scanning webhook window status: %w", err)
 		}
 		sum.LastSegmentAt = timePtr(last)

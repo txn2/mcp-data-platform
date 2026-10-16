@@ -1,7 +1,7 @@
 import { INDEX_POLICY_LABELS } from "@/pages/resources/parts/IndexPolicyField";
 import { useState } from "react";
-import { AlertTriangle, Pencil, Trash2, Webhook } from "lucide-react";
-import { useDeleteWebhookSource, useWebhookSource } from "@/api/admin/hooks";
+import { AlertTriangle, Pencil, RefreshCw, Trash2, Webhook } from "lucide-react";
+import { useDeleteWebhookSource, useSyncWebhookPartitions, useWebhookSource } from "@/api/admin/hooks";
 import type { WebhookAckLatency, WebhookSource, WebhookStatus } from "@/api/admin/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
@@ -300,15 +300,22 @@ function StorageSection({ source, status }: { source: WebhookSource; status: Web
         <Fact label="Last compacted window" value={status.last_compacted_window ? windowLabel(status.last_compacted_window) : "None yet"} />
         <Fact label="Windows waiting to be compacted" value={String(status.pending)} />
         <Fact label="Oldest window held" value={status.oldest_window ? windowLabel(status.oldest_window) : "None"} />
-        <Fact label="Raw events kept after compaction" value={`${c.raw_retention_days ?? 7} days`} />
+        <Fact label="Raw events kept after compaction" value={`${c.raw_retention_days ?? 1} days`} />
         <Fact label="Compacted files kept" value={keep} />
         <Fact label="Compacted files visible to" value={c.persona ? `The ${c.persona} persona` : "Administrators only"} />
         <Fact label="Search" value={c.index ? INDEX_POLICY_LABELS[c.index] : "Default"} />
+        <Fact label="Raw files in the current window" value={String(status.segments_open_window)} />
+        <Fact
+          label="Raw files per window, 95th percentile (day)"
+          value={String(status.segments_per_window_p95)}
+        />
       </dl>
       <p className="mt-3 text-xs text-muted-foreground">
         Each window is compacted shortly after it ends. Until then its events are read straight from what
-        arrived, duplicates included.
+        arrived, duplicates included, and its raw files are merged every few minutes so a reader reads a
+        handful of files rather than one per write.
       </p>
+      <ResyncAction name={source.name} />
     </SectionCard>
   );
 }
@@ -328,6 +335,40 @@ function RejectionsSection({ status }: { status: WebhookStatus }) {
         </>
       )}
     </SectionCard>
+  );
+}
+
+/** ResyncAction runs the full listing of a source's raw files that retention
+ * never runs (#2133), behind a confirm that names its cost. */
+function ResyncAction({ name }: { name: string }) {
+  const [open, setOpen] = useState(false);
+  const [done, setDone] = useState(false);
+  const sync = useSyncWebhookPartitions();
+  return (
+    <div className="mt-3 flex items-center gap-3">
+      <Button type="button" variant="outline" size="xs" onClick={() => setOpen(true)}>
+        <RefreshCw />
+        Resync partitions
+      </Button>
+      {done && <span className="text-xs text-muted-foreground">Partitions resynced.</span>}
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={`Resync the partitions of ${name}?`}
+        description="Lists every raw file the source holds and makes the raw table's partitions match. Retention keeps them by name; this is for when the two have drifted, after a restore for example. On a busy source it can take minutes and slows the object store while it runs."
+        confirmLabel="Resync partitions"
+        loading={sync.isPending}
+        error={sync.error ? sync.error.message : undefined}
+        onConfirm={() =>
+          sync.mutate(name, {
+            onSuccess: () => {
+              setOpen(false);
+              setDone(true);
+            },
+          })
+        }
+      />
+    </div>
   );
 }
 

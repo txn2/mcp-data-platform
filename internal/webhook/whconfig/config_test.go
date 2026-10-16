@@ -59,3 +59,16 @@ func TestSpoolEnabled(t *testing.T) {
 	assert.Error(t, Config{Receiver: ReceiverConfig{Spool: SpoolConfig{MaxBytes: -1}}}.Validate())
 	assert.Error(t, Config{Receiver: ReceiverConfig{Spool: SpoolConfig{MaxAge: -time.Second}}}.Validate())
 }
+
+// TestRollupTuning covers #2132's pacing keys: they reach the compactor, and
+// a negative one is refused.
+func TestRollupTuning(t *testing.T) {
+	c := Config{Compactor: CompactorConfig{RollupCheckEvery: 5 * time.Second, RollupDeleteDelay: 10 * time.Second}}
+	tune := c.Tuning()
+	assert.Equal(t, 5*time.Second, tune.RollupCheckEvery)
+	assert.Equal(t, 10*time.Second, tune.RollupDeleteDelay)
+	assert.NoError(t, c.Validate())
+
+	c.Compactor.RollupDeleteDelay = -time.Second
+	assert.ErrorIs(t, c.Validate(), errNegative)
+}

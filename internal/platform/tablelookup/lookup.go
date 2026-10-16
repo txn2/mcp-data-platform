@@ -1,10 +1,22 @@
-package tableregister
+// Package tablelookup adapts the table registrar to the discovery layer: it
+// answers, for a page of search hits or one fetched record, which of them are
+// readable as query-engine tables. It was moved out of tableregister when that
+// package reached its size budget (#2136).
+package tablelookup
 
 import (
 	"context"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 )
+
+// Tables is the half of the registrar a lookup reads.
+// tableregister.Registrar satisfies it.
+type Tables interface {
+	Available() bool
+	TablesFor(ctx context.Context, kind string, ids []string) (map[string][]tableregister.Registration, error)
+}
 
 // Lookup adapts a Registrar to the discovery layer's TableLookup: it answers,
 // for a page of search hits or one fetched record, which of them are readable
@@ -14,13 +26,13 @@ import (
 // halves -- the registration's recorded location and the record's current head
 // key -- and only this side knows what a registration is.
 type Lookup struct {
-	reg *Registrar
+	reg Tables
 }
 
 // NewLookup adapts a Registrar for discovery. A nil or unwired Registrar
 // yields a lookup that finds nothing, which is a deployment with no
 // registration mechanism rather than an error every search has to carry.
-func NewLookup(reg *Registrar) *Lookup { return &Lookup{reg: reg} }
+func New(reg Tables) *Lookup { return &Lookup{reg: reg} }
 
 // TablesFor returns every table reference of every subject that has one.
 //
@@ -81,7 +93,7 @@ func indexSubjects(
 // carries, with the four state fields manage_table action=list reports so the
 // surfaces cannot disagree (#1627), and the column names a caller needs to
 // write the query without a second call (#1666).
-func hitTable(reg Registration, subject knowledge.TableSubject) knowledge.HitTable {
+func hitTable(reg tableregister.Registration, subject knowledge.TableSubject) knowledge.HitTable {
 	names := make([]string, 0, len(reg.Columns))
 	typed := make([]knowledge.HitColumn, 0, len(reg.Columns))
 	for _, c := range reg.Columns {
@@ -94,7 +106,7 @@ func hitTable(reg Registration, subject knowledge.TableSubject) knowledge.HitTab
 		Table:          reg.QualifiedName(),
 		Columns:        names,
 		ColumnTypes:    typed,
-		Sample:         SampleJoinSQL(reg),
+		Sample:         tableregister.SampleJoinSQL(reg),
 		Stale:          reg.IsStale(subject.Bucket, subject.HeadKey),
 		Follow:         reg.Follow,
 		Repair:         reg.Repair,

@@ -103,6 +103,53 @@ func TestBuildNamesFailingAutomations(t *testing.T) {
 	assert.Equal(t, script.StatusActive, scripts.gotFilter.Status)
 }
 
+// #2135: each failing automation names its newest run, and says when a run
+// newer than the failure is pending or running, so a reader holds off while
+// recovery is under way.
+func TestBuildSaysWhetherANewerRunIsUnderWay(t *testing.T) {
+	started := testMark.Add(4 * time.Hour)
+	for _, tc := range []struct {
+		name       string
+		latest     *runstate.LatestRun
+		want       *AutomationRun
+		superseded bool
+	}{
+		{
+			"running", &runstate.LatestRun{ID: "dpx_next", Status: script.RunStatusRunning, StartedAt: &started},
+			&AutomationRun{RunID: "dpx_next", Status: "running", StartedAt: "2026-08-10T13:00:00Z"}, true,
+		},
+		{
+			"pending", &runstate.LatestRun{ID: "dpx_next", Status: script.RunStatusPending},
+			&AutomationRun{RunID: "dpx_next", Status: "pending"}, true,
+		},
+		{
+			"the failure itself", &runstate.LatestRun{ID: "dpx_0de8", Status: script.RunStatusFailed, StartedAt: &started},
+			&AutomationRun{RunID: "dpx_0de8", Status: "failed", StartedAt: "2026-08-10T13:00:00Z"}, false,
+		},
+		{"none read", nil, nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scripts := weatherWatch()
+			st := scripts.streaks["sc-weather"]
+			st.Latest = tc.latest
+			scripts.streaks["sc-weather"] = st
+			h := testHandle(&fakeAssets{}, &fakeShares{}, &fakeThreads{}, &fakeMarks{mark: &testMark})
+			h.scripts = scripts
+
+			digest := h.Build(context.Background(), testCaller())
+			require.NotNil(t, digest)
+			require.Len(t, digest.FailingAutomations, 1)
+			got := digest.FailingAutomations[0]
+			assert.Equal(t, tc.want, got.LatestRun)
+			assert.Equal(t, tc.superseded, got.SupersededByRunning)
+
+			raw, err := json.Marshal(got)
+			require.NoError(t, err)
+			assert.Contains(t, string(raw), `"superseded_by_running":`, "the flag is always present, false included")
+		})
+	}
+}
+
 // #1973: an automation its owner retired -- superseded, deprecated or
 // disabled -- is not briefed again, however its last run ended; the one still
 // in service is.

@@ -10229,6 +10229,179 @@
                 }
             }
         },
+        "/admin/tables/reconcile": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the tables in a connection's scratch schema that no registration holds (orphans), with the location each reads and the stored file it belongs to when there is one; the registrations whose table is gone (missing); and the registrations whose table reads somewhere else (drifted). A webhook source's own tables are neither. An orphan is provable when its location is the directory of a file the platform stores; only provable orphans and missing registrations can be repaired.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Reconcile a scratch schema against its registrations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection",
+                        "name": "connection",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/tablereconcile.Reconciliation"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Carries out each repair asked for: \"drop\" removes an orphan table by name when its location is the directory of a file the platform stores, and \"forget\" removes a registration whose table is gone. Each is proved again when it is made; one that cannot be is reported and not made. Every repair carried out is audited.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Repair what a reconcile found",
+                "parameters": [
+                    {
+                        "description": "The repairs",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/tablesapi.RepairRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/tablesapi.RepairResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/tables/registrations": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every table registration on the platform, newest first, filtered by connection, by the persona a table was registered under (the prefix its name carries), by source kind and id, and by a free-text match on the qualified name.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "List table registrations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection",
+                        "name": "connection",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Persona the table was registered under",
+                        "name": "persona",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "resource, asset or webhook",
+                        "name": "source_kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Source id; read with source_kind",
+                        "name": "source_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Matches the qualified name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size, at most 200",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/tablesapi.RegistrationList"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/tools": {
             "get": {
                 "security": [
@@ -10899,6 +11072,49 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/webhooks/sources/{name}/sync-partitions": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Makes the raw table's partitions match the window directories in the bucket by listing every raw segment the source holds (sync_partition_metadata FULL). Retention keeps the partitions by name and never lists the bucket; this is the repair for when the two have drifted, a restore for one. On a busy source it lists every segment raw retention keeps and can take minutes.",
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "Resync a webhook source's raw partitions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Source name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -38728,6 +38944,146 @@
                 }
             }
         },
+        "tablereconcile.Drifted": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string"
+                },
+                "registration": {
+                    "$ref": "#/definitions/tableregister.Registration"
+                }
+            }
+        },
+        "tablereconcile.Missing": {
+            "type": "object",
+            "properties": {
+                "provable": {
+                    "description": "Provable is false for a webhook source's table, which is removed with\nthe source and never by a repair.",
+                    "type": "boolean"
+                },
+                "registration": {
+                    "$ref": "#/definitions/tableregister.Registration"
+                }
+            }
+        },
+        "tablereconcile.Orphan": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string"
+                },
+                "provable": {
+                    "description": "Provable is whether the platform can show the table is its own, which\nis what a repair requires.",
+                    "type": "boolean"
+                },
+                "source": {
+                    "description": "Source is the stored file the location belongs to, when it is one.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/tablereconcile.SourceRef"
+                        }
+                    ]
+                },
+                "table": {
+                    "type": "string"
+                }
+            }
+        },
+        "tablereconcile.Reconciliation": {
+            "type": "object",
+            "properties": {
+                "catalog": {
+                    "type": "string"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "drifted": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tablereconcile.Drifted"
+                    }
+                },
+                "missing": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tablereconcile.Missing"
+                    }
+                },
+                "orphans": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tablereconcile.Orphan"
+                    }
+                },
+                "schema": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "description": "Truncated is whether the schema held more tables than one listing\nreturns, so the orphans are a partial list and none is reported\nmissing.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "tablereconcile.RepairItem": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "drop",
+                        "forget"
+                    ]
+                },
+                "registration_id": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                }
+            }
+        },
+        "tablereconcile.RepairOutcome": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "drop",
+                        "forget"
+                    ]
+                },
+                "done": {
+                    "description": "Done is whether it was carried out; Reason says why when it was not.",
+                    "type": "boolean"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "registration_id": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                }
+            }
+        },
+        "tablereconcile.SourceRef": {
+            "type": "object",
+            "properties": {
+                "exists": {
+                    "description": "Exists is whether the platform still holds the file.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                }
+            }
+        },
         "tableregister.Column": {
             "type": "object",
             "properties": {
@@ -38736,6 +39092,106 @@
                 },
                 "type": {
                     "type": "string"
+                }
+            }
+        },
+        "tableregister.Registration": {
+            "type": "object",
+            "properties": {
+                "all_varchar": {
+                    "description": "AllVarchar marks a JSON-lines registration made before its columns were\ntyped (#1833), when every column was declared VARCHAR. A follow keeps\nthe rule, so a query written against the table keeps working whatever\nthe next version of the file holds; registering the file again under\nthe same name makes a typed registration in its place.",
+                    "type": "boolean"
+                },
+                "catalog": {
+                    "type": "string"
+                },
+                "columns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tableregister.Column"
+                    }
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "follow": {
+                    "description": "Follow means the registration is moved to the source's new head\ndirectory when a revision or version is written (#1536). It is what a\nregistration gets unless the caller pins it: a person or an agent that\nreplaces a file expects the table over it to read the new contents.\nPinned -- follow off -- is the choice for a report that must keep\nreturning the rows it was registered over until somebody decides\notherwise.",
+                    "type": "boolean"
+                },
+                "follow_error": {
+                    "description": "FollowError is why the last follow did not move the registration, and is\nempty while it is where the file is. It is kept on the record because a\nfollow never fails the write that triggered it, so the listing has to be\nable to say what is behind and why without the log of that write.",
+                    "type": "string"
+                },
+                "format": {
+                    "description": "Format names the reader the table is declared with: \"csv\", \"jsonl\" for\na JSON-lines file, whose values come back exactly (#1820), or \"parquet\"\n(#1833). It is decided by the file, not by the caller, and it is on the\nrecord because the CREATE TABLE is written again at every follow and\nwhen a failed follow puts a table back.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "location": {
+                    "type": "string"
+                },
+                "registered_at": {
+                    "type": "string"
+                },
+                "registered_by": {
+                    "type": "string"
+                },
+                "repair": {
+                    "description": "Repair means the registration corrects its file: a version of the source\ncarrying a defect a reader cannot see past, of a kind the platform can\ncorrect, is saved corrected as the file's next version and the table is\nmoved onto that version (#1577). Off -- the default, and what a\nregistration made without asking gets -- such a version leaves the\nregistration where it was with the reason recorded on it, because nobody\nasked for the file to be rewritten.\n\nIt is on the record because the follow has nothing else to act on: the\nchoice was made once, at a registration, and the versions it applies to\narrive afterwards. It does nothing for a registration that is not\nfollowing, which never meets a new version at all.",
+                    "type": "boolean"
+                },
+                "schema": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                }
+            }
+        },
+        "tablesapi.RegistrationList": {
+            "type": "object",
+            "properties": {
+                "registrations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tableregister.Registration"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "tablesapi.RepairRequest": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "repair": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tablereconcile.RepairItem"
+                    }
+                }
+            }
+        },
+        "tablesapi.RepairResponse": {
+            "type": "object",
+            "properties": {
+                "outcomes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tablereconcile.RepairOutcome"
+                    }
                 }
             }
         },
@@ -39394,6 +39850,15 @@
                     "description": "Pending counts windows owed a compaction; Failing, those whose last\nattempt failed, with the newest one's error in LastError.",
                     "type": "integer"
                 },
+                "segments_open_window": {
+                    "description": "SegmentsOpenWindow is how many segments were recorded against the\nsource's open window, and SegmentsPerWindowP95 the 95th percentile of\nthat count over the windows that started in the last day (#2132). Each\nis an object a reader of the window reads until a rollup merges it; a\ncount can exceed the segments written by one per replica.",
+                    "type": "integer",
+                    "example": 412
+                },
+                "segments_per_window_p95": {
+                    "type": "integer",
+                    "example": 3650
+                },
                 "table": {
                     "type": "string"
                 }
@@ -39435,6 +39900,13 @@
                 },
                 "updated_at": {
                     "type": "string"
+                },
+                "warnings": {
+                    "description": "Warnings is what a create or change answers with besides the source,\nwithout refusing it: a slow read of its partitions, which an uncached\nfile metastore causes (#2134), and settings under which the open window\nholds more segments between rollups than a reader should read (#2132).\nAbsent from a list or a read.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -39565,7 +40037,11 @@
                     "type": "integer"
                 },
                 "raw_retention_days": {
-                    "description": "RawRetentionDays is how long a raw segment is kept once the window it\nbelongs to is compacted.",
+                    "description": "RawRetentionDays is how long a raw segment is kept once the window it\nbelongs to is compacted. A compacted window's events are all in its\nParquet file, and a recompaction reads that file rather than the\nsegments, so they are a safety margin and nothing else; every day kept\nis objects the raw table and retention list (#2134).",
+                    "type": "integer"
+                },
+                "rollup_every_minutes": {
+                    "description": "RollupEveryMinutes is how often the open window's segments are merged\ninto one object (#2132). A reader of the open window, which is every\nreader of recent events, reads one object per segment, and a busy\nsource writes thousands an hour; merged, it reads a handful.",
                     "type": "integer"
                 },
                 "split": {
@@ -39708,6 +40184,13 @@
                     "items": {
                         "$ref": "#/definitions/whstore.Rejection"
                     }
+                },
+                "segments_open_window": {
+                    "description": "SegmentsOpenWindow and SegmentsPerWindowP95 are the segments recorded\nagainst the open window, and the 95th percentile of that count over\nthe windows that started in the last day (#2132), as the overview of\nevery source reports them.",
+                    "type": "integer"
+                },
+                "segments_per_window_p95": {
+                    "type": "integer"
                 }
             }
         }

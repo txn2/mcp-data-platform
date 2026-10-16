@@ -59,6 +59,21 @@ type AutomationNotice struct {
 	Scheduled bool `json:"scheduled"`
 	// New is whether it failed since the caller was last briefed.
 	New bool `json:"new"`
+	// LatestRun is the automation's newest run whatever its status, which is
+	// the failed run itself until another one is queued (#2135).
+	LatestRun *AutomationRun `json:"latest_run,omitempty"`
+	// SupersededByRunning is whether a run newer than the failed one is
+	// pending or running: the failure may already be fixed, and a reader
+	// acting on it should wait for that run to finish (#2135).
+	SupersededByRunning bool `json:"superseded_by_running"`
+}
+
+// AutomationRun is one run as a notice names it.
+type AutomationRun struct {
+	RunID  string `json:"run_id"`
+	Status string `json:"status"`
+	// StartedAt is when it started, RFC3339; absent while it is pending.
+	StartedAt string `json:"started_at,omitempty"`
 }
 
 // failingAutomations returns the automations the caller owns whose latest
@@ -154,6 +169,14 @@ func automationNotice(sc script.Script, st runstate.FailureStreak, scheduled boo
 	}
 	if st.LastSuccessAt != nil {
 		n.LastSucceededAt = stamp(*st.LastSuccessAt)
+	}
+	if l := st.Latest; l != nil {
+		n.LatestRun = &AutomationRun{RunID: l.ID, Status: l.Status}
+		if l.StartedAt != nil {
+			n.LatestRun.StartedAt = stamp(*l.StartedAt)
+		}
+		open := l.Status == script.RunStatusPending || l.Status == script.RunStatusRunning
+		n.SupersededByRunning = open && l.ID != st.LastFailedRunID
 	}
 	return n
 }

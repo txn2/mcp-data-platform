@@ -298,6 +298,12 @@ type Filter struct {
 	// SourceKind limits the listing to KindResource or KindAsset. Empty spans
 	// both, which is the point of the listing.
 	SourceKind string
+	// SourceID limits the listing to the registrations of one source; it is
+	// read with SourceKind.
+	SourceID string
+	// Persona limits the listing to tables registered under a persona, which
+	// is the prefix every such table's name carries (#2136).
+	Persona string
 	// Query matches the qualified name -- catalog, schema and table -- without
 	// regard to case.
 	Query string

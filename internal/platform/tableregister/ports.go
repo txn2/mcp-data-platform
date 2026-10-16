@@ -31,6 +31,12 @@ type Executor interface {
 	// registration row would otherwise go on describing a table that is
 	// not there.
 	TableExists(ctx context.Context, connection, catalog, schema, table string) (bool, error)
+	// TableLocation reports the external_location a table was created with
+	// and whether it exists. It is how a registration recognizes a table an
+	// earlier registration of the same file left behind with no record
+	// (#2131): the location is the one thing the table says about where it
+	// came from.
+	TableLocation(ctx context.Context, connection, catalog, schema, table string) (location string, found bool, err error)
 }
 
 // ObjectReader reads the source object and lists what sits beside it.
