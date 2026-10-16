@@ -224,6 +224,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	hooks.Mount(mux)
 	hooks.MountAdmin(mux, p, buildAdminAuth, adminEmail)
 	mountDatabaseAdminAPIs(mux, p)
+	mountTableAdmin(mux, p) // table registrations and the scratch reconcile (#2136)
 
 	// Street maps (#2068): the basemap archives and their listing, served
 	// with no session ahead of the portal UI's catch-all, the settings routes,

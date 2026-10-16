@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
-	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
@@ -47,8 +46,12 @@ type fakeTrino struct {
 	// DDL of a registration succeed and the drop that rolls it back fail.
 	errFor func(sql string) error
 	// tables is what the coordinator holds, so a CREATE over a name that is
-	// still there fails the way Trino fails it.
-	tables map[string]bool
+	// still there fails the way Trino fails it; locations is where each one
+	// reads, taken from the CREATE that made it.
+	tables    map[string]bool
+	locations map[string]string
+	// locationErr fails every TableLocation lookup.
+	locationErr error
 	// readOnly makes the connection refuse write SQL, which is a fact about
 	// the connection rather than a failure of a statement.
 	readOnly bool
@@ -83,14 +86,42 @@ func (f *fakeTrino) apply(sql string) error {
 		if f.tables[name] {
 			return errors.New("line 1:1: Table '" + name + "' already exists")
 		}
-		if f.tables == nil {
-			f.tables = map[string]bool{}
-		}
-		f.tables[name] = true
+		f.hold(name, externalLocationIn(sql))
 	case strings.HasPrefix(sql, dropTablePrefix):
 		delete(f.tables, strings.TrimPrefix(sql, dropTablePrefix))
 	}
 	return nil
+}
+
+// hold puts a table on the coordinator, reading location; it is how a test
+// stands up a table that no registration made.
+func (f *fakeTrino) hold(name, location string) {
+	if f.tables == nil {
+		f.tables = map[string]bool{}
+	}
+	if f.locations == nil {
+		f.locations = map[string]string{}
+	}
+	f.tables[name] = true
+	f.locations[name] = location
+}
+
+// externalLocationIn reads the location literal out of a CREATE TABLE.
+func externalLocationIn(sql string) string {
+	_, rest, _ := strings.Cut(sql, "external_location = '")
+	location, _, _ := strings.Cut(rest, "'")
+	return location
+}
+
+func (f *fakeTrino) TableLocation(_ context.Context, _, catalog, schema, table string) (location string, found bool, err error) {
+	if f.locationErr != nil {
+		return "", false, f.locationErr
+	}
+	name := QuoteIdentifier(catalog) + "." + QuoteIdentifier(schema) + "." + QuoteIdentifier(table)
+	if !f.tables[name] {
+		return "", false, nil
+	}
+	return f.locations[name], true, nil
 }
 
 func (f *fakeTrino) ScratchTarget(string) (trino.ScratchConfig, bool) {
@@ -851,128 +882,6 @@ func TestRegistrar_UnavailableWithoutWiring(t *testing.T) {
 }
 
 // --- discovery lookup ---
-
-// TestLookup_TablesFor is what puts a table reference on a search hit: the
-// connection, the qualified name, and the CAST a join needs.
-func TestLookup_TablesFor(t *testing.T) {
-	h := newHarness(t)
-	reg, err := h.reg.Register(context.Background(), testCaller(), testSource(),
-		Request{Connection: "scratch", Follow: true})
-	require.NoError(t, err)
-
-	lookup := NewLookup(h.reg)
-	tables, err := lookup.TablesFor(context.Background(), []knowledge.TableSubject{{
-		Kind: knowledge.TableKindAsset, ID: "asset_1",
-		Bucket: "portal-assets", HeadKey: "artifacts/u1/asset_1/content.csv",
-	}})
-	require.NoError(t, err)
-
-	require.Len(t, tables["asset_1"], 1)
-	got := tables["asset_1"][0]
-	assert.Equal(t, reg.ID, got.RegistrationID)
-	assert.Equal(t, "scratch", got.Connection)
-	assert.Equal(t, reg.QualifiedName(), got.Table)
-	assert.Contains(t, got.Sample, "CAST(t.\"store_id\" AS BIGINT)",
-		"every column is VARCHAR, so the sample shows the cast a join needs")
-	assert.False(t, got.Stale)
-	assert.True(t, got.Follow, "a registration follows its file unless the caller pins it")
-	assert.False(t, got.Repair)
-	assert.Empty(t, got.FollowError)
-
-	// The columns come along so a caller that fetched the record writes the
-	// SELECT without describing the table first (#1666).
-	names := make([]string, 0, len(reg.Columns))
-	for _, c := range reg.Columns {
-		names = append(names, c.Name)
-	}
-	assert.Equal(t, names, got.Columns)
-	assert.NotEmpty(t, got.Columns, "the registration declares columns, so the lookup reports them")
-}
-
-// TestLookup_TablesForReportsEveryRegistration is #1627: a file registered
-// twice yields both, newest first, each with the state manage_table
-// action=list reports. The second is the one a follow disowned -- precisely
-// what the old single-value lookup returned.
-func TestLookup_TablesForReportsEveryRegistration(t *testing.T) {
-	h := newHarness(t)
-	first, err := h.reg.Register(context.Background(), testCaller(), testSource(),
-		Request{Connection: "scratch", TableName: "feed"})
-	require.NoError(t, err)
-	second, err := h.reg.Register(context.Background(), testCaller(), testSource(),
-		Request{Connection: "scratch", TableName: "feed_norepair"})
-	require.NoError(t, err)
-
-	// A follow that could not move the newer registration records why on it,
-	// which is the state the QA report reproduced.
-	const gone = "the table no longer exists"
-	require.NoError(t, h.store.RecordFollowFailure(context.Background(), second.ID, gone))
-
-	tables, err := NewLookup(h.reg).TablesFor(context.Background(), []knowledge.TableSubject{{
-		Kind: knowledge.TableKindAsset, ID: "asset_1",
-		Bucket: "portal-assets", HeadKey: "artifacts/u1/asset_1/content.csv",
-	}})
-	require.NoError(t, err)
-	require.Len(t, tables["asset_1"], 2, "both registrations over the file")
-
-	assert.Equal(t, second.ID, tables["asset_1"][0].RegistrationID, "newest first")
-	assert.Equal(t, gone, tables["asset_1"][0].FollowError)
-	assert.Equal(t, first.ID, tables["asset_1"][1].RegistrationID)
-	assert.Empty(t, tables["asset_1"][1].FollowError)
-	assert.NotEqual(t, tables["asset_1"][0].Table, tables["asset_1"][1].Table,
-		"each entry names its own table")
-}
-
-// TestLookup_MovedHeadKeyReadsStale is the revision case: a new version writes
-// under a new directory and moves the head, and the table keeps serving the
-// revision it was registered against.
-func TestLookup_MovedHeadKeyReadsStale(t *testing.T) {
-	h := newHarness(t)
-	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
-		Request{Connection: "scratch"})
-	require.NoError(t, err)
-
-	tables, err := NewLookup(h.reg).TablesFor(context.Background(), []knowledge.TableSubject{{
-		Kind: knowledge.TableKindAsset, ID: "asset_1",
-		Bucket: "portal-assets", HeadKey: "artifacts/u1/asset_1/v2/content.csv",
-	}})
-	require.NoError(t, err)
-	require.Len(t, tables["asset_1"], 1)
-	assert.True(t, tables["asset_1"][0].Stale, "the head moved to a directory the table does not point at")
-}
-
-// TestLookup_OverwriteInPlaceIsNotStale: replacing the object at the same key
-// changes what the table returns with no re-registration, which is what makes
-// a repeating drop a re-upload rather than a chore.
-func TestLookup_OverwriteInPlaceIsNotStale(t *testing.T) {
-	h := newHarness(t)
-	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
-		Request{Connection: "scratch"})
-	require.NoError(t, err)
-
-	tables, err := NewLookup(h.reg).TablesFor(context.Background(), []knowledge.TableSubject{{
-		Kind: knowledge.TableKindAsset, ID: "asset_1",
-		Bucket: "portal-assets", HeadKey: "artifacts/u1/asset_1/content.csv",
-	}})
-	require.NoError(t, err)
-	require.Len(t, tables["asset_1"], 1)
-	assert.False(t, tables["asset_1"][0].Stale)
-}
-
-func TestLookup_UnregisteredSubjectIsAbsent(t *testing.T) {
-	h := newHarness(t)
-	tables, err := NewLookup(h.reg).TablesFor(context.Background(), []knowledge.TableSubject{{
-		Kind: knowledge.TableKindAsset, ID: "asset_unknown", Bucket: "b", HeadKey: "d/content.csv",
-	}})
-	require.NoError(t, err)
-	assert.Empty(t, tables["asset_unknown"])
-}
-
-func TestLookup_NoRegistrarFindsNothing(t *testing.T) {
-	tables, err := NewLookup(New(Deps{})).TablesFor(context.Background(),
-		[]knowledge.TableSubject{{Kind: knowledge.TableKindAsset, ID: "asset_1"}})
-	require.NoError(t, err)
-	assert.Empty(t, tables)
-}
 
 // TestRegister_ReadsTheStoreItsKindLivesIn pins that the two kinds are read
 // through their own object stores. A deployment names portal.s3_connection and

@@ -28,7 +28,7 @@ func newUnorderedMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 
 func countCols() []string { return []string{"source", "outcome", "hour", "day"} }
 func windowCols() []string {
-	return []string{"source", "last_segment_at", "pending", "failing", "last_error"}
+	return []string{"source", "last_segment_at", "pending", "failing", "last_error", "segments_open", "segments_p95"}
 }
 func volumeCols() []string { return []string{"source", "bucket", "outcome", "count"} }
 func rejectionCols() []string {
@@ -45,8 +45,8 @@ func TestOverview(t *testing.T) {
 			AddRow("crm", "accepted", 0, 1))
 	mock.ExpectQuery(qWindows).WillReturnRows(
 		sqlmock.NewRows(windowCols()).
-			AddRow("esp", seg, 1, 1, "segment k: not gzip").
-			AddRow("quiet", nil, 0, 0, ""))
+			AddRow("esp", seg, 1, 1, "segment k: not gzip", 412, 3650).
+			AddRow("quiet", nil, 0, 0, "", 0, 0))
 	mock.ExpectQuery(qVolume).WithArgs(start.Add(-time.Hour), 60, "").WillReturnRows(
 		sqlmock.NewRows(volumeCols()).AddRow("esp", start.Add(-time.Minute), "accepted", 5))
 	mock.ExpectQuery(qRejections).WithArgs(maxOverviewRejections, start.Add(-time.Hour), "").WillReturnRows(
@@ -68,6 +68,8 @@ func TestOverview(t *testing.T) {
 	assert.Equal(t, 1, esp.Pending)
 	assert.Equal(t, 1, esp.Failing)
 	assert.Equal(t, "segment k: not gzip", esp.LastError)
+	assert.Equal(t, int64(412), esp.SegmentsOpenWindow)
+	assert.Equal(t, int64(3650), esp.SegmentsPerWindowP95)
 
 	crm := ov.Summaries["crm"]
 	assert.Nil(t, crm.LastSegmentAt, "a source with counts and no window has no last event")
@@ -96,7 +98,7 @@ func TestOverviewOfOneSource(t *testing.T) {
 	st, mock := newUnorderedMock(t)
 	since := start.Add(-24 * time.Hour)
 	mock.ExpectQuery(qCounts).WithArgs(start.Add(-time.Hour), since, "esp").WillReturnRows(sqlmock.NewRows(countCols()))
-	mock.ExpectQuery(qWindows).WithArgs("esp").WillReturnRows(sqlmock.NewRows(windowCols()))
+	mock.ExpectQuery(qWindows).WithArgs("esp", start, since).WillReturnRows(sqlmock.NewRows(windowCols()))
 	mock.ExpectQuery(qVolume).WithArgs(since, 900, "esp").WillReturnRows(sqlmock.NewRows(volumeCols()))
 	mock.ExpectQuery(qRejections).WithArgs(maxOverviewRejections, since, "esp").WillReturnRows(sqlmock.NewRows(rejectionCols()))
 	mock.ExpectQuery(qLatencyBuckets).WithArgs(start.Add(-time.Hour), since, "esp").WillReturnRows(latencyBucketRows())
@@ -145,9 +147,9 @@ func TestOverviewFailures(t *testing.T) {
 		"windows": {
 			query: qWindows,
 			good:  func() *sqlmock.Rows { return sqlmock.NewRows(windowCols()) },
-			bad:   func() *sqlmock.Rows { return sqlmock.NewRows(windowCols()).AddRow("esp", nil, "x", 0, "") },
+			bad:   func() *sqlmock.Rows { return sqlmock.NewRows(windowCols()).AddRow("esp", nil, "x", 0, "", 0, 0) },
 			rows: func() *sqlmock.Rows {
-				return sqlmock.NewRows(windowCols()).AddRow("esp", nil, 0, 0, "").RowError(0, errDown)
+				return sqlmock.NewRows(windowCols()).AddRow("esp", nil, 0, 0, "", 0, 0).RowError(0, errDown)
 			},
 		},
 		"volume": {

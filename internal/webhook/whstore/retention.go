@@ -25,6 +25,23 @@ func (s *Store) RawDeletable(ctx context.Context, source string, cutoff time.Tim
 		source, cutoff.UTC())
 }
 
+// RawRegistrable returns the windows of source that hold raw segments, not
+// expired, whose last segment was written at or after since: the windows a
+// retention pass makes sure the raw table lists (#2133). A window whose
+// segments were deleted is included again once a segment lands in it after
+// the deletion.
+func (s *Store) RawRegistrable(ctx context.Context, source string, since time.Time) ([]Window, error) {
+	return s.windows(ctx,
+		`SELECT source, window_start, window_seconds, generation, resource_id, location, attempts
+		   FROM webhook_windows
+		  WHERE source = $1
+		    AND expired_at IS NULL
+		    AND last_segment_at >= $2
+		    AND (raw_deleted_at IS NULL OR raw_deleted_at < last_segment_at)
+		  ORDER BY window_start`,
+		source, since.UTC())
+}
+
 // Expirable returns the windows of source that ended at or before cutoff and
 // are not yet expired, and the expired ones a segment has landed in since,
 // whose raw objects have to be deleted again so the view does not serve them.

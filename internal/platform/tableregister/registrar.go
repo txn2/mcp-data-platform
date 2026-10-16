@@ -198,11 +198,15 @@ func (r *Registrar) registerTable(ctx context.Context, caller Caller, src Source
 	a := attempt{caller: caller, req: req, p: p}
 	ddl := BuildDDL(p.reg, p.existing != nil)
 	ran, execErr := r.runDDL(ctx, req.Connection, ddl)
+	if execErr != nil {
+		ddl, ran, execErr = r.settleCreate(ctx, a, ddl, ran, execErr)
+	}
 	r.audit(ctx, auditRecord{
 		caller: caller, reg: p.reg, ddl: ddl, source: req.Source, repair: p.repair, err: execErr,
 	})
 	if execErr != nil {
 		r.forgetDroppedRegistration(ctx, a, ran, execErr)
+		r.dropAbandoned(ctx, a, ddl, ran, execErr)
 		return nil, repairedFailure(p.repair, execErr)
 	}
 
@@ -231,7 +235,12 @@ func (r *Registrar) registerTable(ctx context.Context, caller Caller, src Source
 		}
 	}
 	if err := r.deps.Store.Insert(ctx, p.reg); err != nil {
-		r.rollBackTable(ctx, a, err)
+		// A name another registration of the same file recorded while this one
+		// ran is theirs, and so is the table under it: only a registration of
+		// the same file can have replaced this one's table (#2131).
+		if !errors.Is(err, ErrNameTaken) {
+			r.rollBackTable(ctx, a, err)
+		}
 		return nil, repairedFailure(p.repair, failedf("recording the registration", err))
 	}
 	// A correction moved the file's head, which is the same move every other
@@ -749,7 +758,7 @@ func (r *Registrar) runDDL(ctx context.Context, connection string, ddl []string)
 // row and rebuilds the table.
 func (r *Registrar) forgetDroppedRegistration(ctx context.Context, a attempt, ran []string, cause error) {
 	replaced := a.p.existing
-	if replaced == nil || !slices.Contains(ran, dropTableStatement(a.p.reg)) {
+	if replaced == nil || !slices.Contains(ran, DropTableStatement(a.p.reg)) {
 		return
 	}
 	ctx, cancel := cleanupContext(ctx)
@@ -816,7 +825,7 @@ func (r *Registrar) rollBackTable(ctx context.Context, a attempt, cause error) {
 	ctx, cancel := cleanupContext(ctx)
 	defer cancel()
 	reg := a.p.reg
-	stmt := dropTableStatement(reg)
+	stmt := DropTableStatement(reg)
 	execErr := r.deps.Trino.Exec(ctx, a.req.Connection, stmt)
 	r.audit(ctx, auditRecord{
 		caller: a.caller, reg: reg, ddl: []string{stmt}, source: a.req.Source, err: errors.Join(cause, execErr),
@@ -844,7 +853,7 @@ func (r *Registrar) Unregister(ctx context.Context, caller Caller, id, source st
 		return err
 	}
 
-	stmt := dropTableStatement(*reg)
+	stmt := DropTableStatement(*reg)
 	execErr := r.deps.Trino.Exec(ctx, reg.Connection, stmt)
 	r.audit(ctx, auditRecord{caller: caller, reg: *reg, ddl: []string{stmt}, source: source, err: execErr})
 	if execErr != nil {
@@ -912,7 +921,7 @@ func (r *Registrar) UnregisterAllForSource(ctx context.Context, kind, sourceID s
 	}
 	dropped := map[string]string{}
 	for _, reg := range regs {
-		if err := r.deps.Trino.Exec(ctx, reg.Connection, dropTableStatement(reg)); err != nil {
+		if err := r.deps.Trino.Exec(ctx, reg.Connection, DropTableStatement(reg)); err != nil {
 			slog.WarnContext(ctx, "table registration: dropping the table of a deleted source failed",
 				logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
 		}
@@ -1102,6 +1111,22 @@ func (r *Registrar) audit(ctx context.Context, rec auditRecord) {
 		slog.WarnContext(ctx, "table registration audit log failed", logFieldError, logsan.SanitizeForLog(err.Error()),
 			logFieldTable, logsan.SanitizeForLog(rec.reg.QualifiedName()))
 	}
+}
+
+// Statement is a statement run on a registration's table outside a
+// registration, by Caller, from Source, and how it ended.
+type Statement struct {
+	Caller       Caller
+	Registration Registration
+	DDL          []string
+	Source       string
+	Err          error
+}
+
+// AuditStatement records a statement the way the registrar records its own:
+// what a repair of the scratch schema did (#2136).
+func (r *Registrar) AuditStatement(ctx context.Context, s Statement) {
+	r.audit(ctx, auditRecord{caller: s.Caller, reg: s.Registration, ddl: s.DDL, source: s.Source, err: s.Err})
 }
 
 // auditRecord is what one audited registration or unregistration carries: who

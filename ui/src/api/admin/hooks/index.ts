@@ -18,3 +18,4 @@ export * from "./secrets";
 export * from "./webhooks";
 export * from "./maps";
 export * from "./catalogScan";
+export * from "./tableReconcile";

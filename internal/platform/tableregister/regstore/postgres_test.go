@@ -449,3 +449,18 @@ func TestPostgresStore_ListReportsFailedReads(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// TestListPredicate_FiltersBySourceAndPersona covers #2136's listing filters:
+// one source by kind and id, and a persona by the prefix its tables carry,
+// with the underscore matched as itself.
+func TestListPredicate_FiltersBySourceAndPersona(t *testing.T) {
+	where, args := listPredicate(tableregister.Filter{
+		AllConnections: true, SourceKind: "resource", SourceID: "r1", Persona: "Data Analyst",
+	})
+	assert.Equal(t, ` WHERE source_kind = $1 AND source_id = $2 AND table_name LIKE $3 ESCAPE '\'`, where)
+	assert.Equal(t, []any{"resource", "r1", `data\_analyst\_%`}, args)
+
+	where, args = listPredicate(tableregister.Filter{AllConnections: true, Persona: "!!"})
+	assert.Empty(t, where, "a persona that slugs to nothing filters nothing")
+	assert.Empty(t, args)
+}

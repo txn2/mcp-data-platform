@@ -86,6 +86,13 @@ type SourceStatus struct {
 	// waited for that answer.
 	AckLastHour whstore.AckLatency `json:"ack_last_hour"`
 	AckLastDay  whstore.AckLatency `json:"ack_last_day"`
+	// SegmentsOpenWindow is how many segments were recorded against the
+	// source's open window, and SegmentsPerWindowP95 the 95th percentile of
+	// that count over the windows that started in the last day (#2132). Each
+	// is an object a reader of the window reads until a rollup merges it; a
+	// count can exceed the segments written by one per replica.
+	SegmentsOpenWindow   int64 `json:"segments_open_window" example:"412"`
+	SegmentsPerWindowP95 int64 `json:"segments_per_window_p95" example:"3650"`
 }
 
 // VolumePoint is the number of requests of one source with one outcome in the

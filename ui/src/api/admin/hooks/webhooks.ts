@@ -82,3 +82,23 @@ export function useDeleteWebhookSource() {
     },
   });
 }
+
+/** useSyncWebhookPartitions lists every raw file a source holds and makes its
+ * raw partitions match (#2133): the repair, never part of retention. */
+export function useSyncWebhookPartitions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiFetchRaw(`/webhooks/sources/${encodeURIComponent(name)}/sync-partitions`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(body.detail ?? `Resyncing the partitions failed with status ${res.status}`);
+      }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: KEY });
+    },
+  });
+}

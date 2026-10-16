@@ -674,6 +674,10 @@ webhooks:
     poll: 10s
     grace: 5s
     retention_every: 30s
+    # The open window's raw files are merged within seconds rather than every
+    # minute, so the acceptance suite sees a rollup and its cleanup (#2132).
+    rollup_check_every: 5s
+    rollup_delete_delay: 10s
 
 # Retention sweeps (#1904) run every 30 seconds rather than once a day, so a
 # deleted item backdated past its retention is seen removed within a minute.

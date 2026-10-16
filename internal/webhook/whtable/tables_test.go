@@ -165,3 +165,35 @@ func TestQuoting(t *testing.T) {
 	assert.Equal(t, `'it''s'`, quoteLiteral("it's"))
 	assert.Equal(t, "s3://b/x/", New(nil, "b").S3Location("/x/"))
 }
+
+// TestUnregisterRawWindow covers #2133: retention removes a released window's
+// raw partition by name, a partition already gone is not an error, and any
+// other refusal is.
+func TestUnregisterRawWindow(t *testing.T) {
+	start := time.Date(2026, 9, 24, 7, 15, 0, 0, time.UTC)
+	f := &fakeExec{}
+	require.NoError(t, New(f, "managed-resources").UnregisterRawWindow(ctx, tg, src, start))
+	assert.Equal(t, `CALL "scratch_resources".system.unregister_partition('uploads', 'webhook_crm_contacts_raw', ARRAY['dt', 'hour', 'minute'], ARRAY['2026-09-24', '07', '15'])`, f.stmts[0])
+
+	gone := &fakeExec{failOn: "unregister_partition", failWith: errors.New("Partition 'dt=2026-09-24/hour=07/minute=15' does not exist")}
+	assert.NoError(t, New(gone, "b").UnregisterRawWindow(ctx, tg, src, start))
+	other := &fakeExec{failOn: "unregister_partition", failWith: errors.New("boom")}
+	err := New(other, "b").UnregisterRawWindow(ctx, tg, src, start)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unregistering raw window 2026-09-24 07:15")
+}
+
+// TestPartitionReadTime covers #2134: the read is of the raw table's
+// partitions, and a failure names the table.
+func TestPartitionReadTime(t *testing.T) {
+	f := &fakeExec{}
+	took, err := New(f, "b").PartitionReadTime(ctx, tg, src)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, took, time.Duration(0))
+	assert.Equal(t, `SELECT count(*) FROM "scratch_resources"."uploads"."webhook_crm_contacts_raw$partitions"`, f.stmts[0])
+
+	failing := &fakeExec{failOn: "$partitions", failWith: errors.New("timed out")}
+	_, err = New(failing, "b").PartitionReadTime(ctx, tg, src)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading the partitions of webhook_crm_contacts_raw")
+}

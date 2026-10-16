@@ -193,20 +193,97 @@ func TestCheckExecWritable_NoInterceptorPermits(t *testing.T) {
 // TestGetScratchConfig covers the parse, including the half-configured block
 // that is dropped rather than half-honored.
 func TestGetScratchConfig(t *testing.T) {
-	full := getScratchConfig(map[string]any{
+	parse := func(cfg map[string]any) ScratchConfig {
+		t.Helper()
+		sc, err := getScratchConfig(cfg)
+		require.NoError(t, err)
+		return sc
+	}
+	full := parse(map[string]any{
 		"scratch": map[string]any{"catalog": "scratch", "schema": "uploads"},
 	})
 	assert.Equal(t, ScratchConfig{Catalog: "scratch", Schema: "uploads"}, full)
 
-	assert.Equal(t, ScratchConfig{}, getScratchConfig(map[string]any{}),
+	assert.Equal(t, ScratchConfig{}, parse(map[string]any{}),
 		"no block means registration is unavailable")
-	assert.Equal(t, ScratchConfig{}, getScratchConfig(map[string]any{"scratch": "not-a-map"}))
-	assert.Equal(t, ScratchConfig{}, getScratchConfig(map[string]any{
+	assert.Equal(t, ScratchConfig{}, parse(map[string]any{"scratch": "not-a-map"}))
+	assert.Equal(t, ScratchConfig{}, parse(map[string]any{
 		"scratch": map[string]any{"catalog": "scratch"},
 	}), "a catalog with no schema is not a usable target")
-	assert.Equal(t, ScratchConfig{}, getScratchConfig(map[string]any{
+	assert.Equal(t, ScratchConfig{}, parse(map[string]any{
 		"scratch": map[string]any{"schema": "uploads"},
 	}), "a schema with no catalog is not a usable target")
+}
+
+// TestGetScratchConfig_StatementTimeout covers the bound a registration's
+// statements run under (#2131): both forms the connection's own timeout takes,
+// a negative value read as unset, and a value that does not parse refused
+// rather than dropped.
+func TestGetScratchConfig_StatementTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value any
+		want  time.Duration
+	}{
+		{name: "duration string", value: "10m", want: 10 * time.Minute},
+		{name: "seconds", value: 300, want: 300 * time.Second},
+		{name: "seconds as float", value: float64(90), want: 90 * time.Second},
+		{name: "negative is unset", value: "-5s", want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sc, err := getScratchConfig(map[string]any{"scratch": map[string]any{
+				"catalog": "scratch", "schema": "uploads", "statement_timeout": tc.value,
+			}})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, sc.StatementTimeout)
+		})
+	}
+
+	_, err := getScratchConfig(map[string]any{"scratch": map[string]any{
+		"catalog": "scratch", "schema": "uploads", "statement_timeout": "ten minutes",
+	}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scratch.statement_timeout")
+
+	_, err = ParseConfig(map[string]any{
+		"host": "trino.example.com", "user": "u",
+		"scratch": map[string]any{"catalog": "scratch", "schema": "uploads", "statement_timeout": "soon"},
+	})
+	require.Error(t, err, "a connection whose scratch timeout does not parse is refused at startup")
+}
+
+// TestExecTimeout_IsTheScratchTargets pins that the bound Exec runs under is
+// the connection's scratch statement_timeout, follows a connection added at
+// run time, and is zero (the connection's own timeout) where none is set.
+func TestExecTimeout_IsTheScratchTargets(t *testing.T) {
+	tk, err := NewMulti(MultiConfig{
+		DefaultConnection: "warehouse",
+		Instances: map[string]Config{
+			"warehouse": {Host: "trino.example.com", User: "u"},
+			"scratch": {Host: "trino.example.com", User: "u", Scratch: ScratchConfig{
+				Catalog: "scratch", Schema: "uploads", StatementTimeout: 7 * time.Minute,
+			}},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tk.Close() })
+
+	assert.Equal(t, 7*time.Minute, tk.execTimeout("scratch"))
+	assert.Zero(t, tk.execTimeout("warehouse"))
+
+	require.NoError(t, tk.AddConnection("added", map[string]any{
+		"host": "trino.example.com", "user": "u",
+		"scratch": map[string]any{"catalog": "scratch", "schema": "uploads", "statement_timeout": "45s"},
+	}))
+	assert.Equal(t, 45*time.Second, tk.execTimeout("added"))
+
+	err = tk.AddConnection("bad", map[string]any{
+		"host": "trino.example.com", "user": "u",
+		"scratch": map[string]any{"catalog": "scratch", "schema": "uploads", "statement_timeout": "later"},
+	})
+	require.Error(t, err)
+	_, ok := tk.ScratchTarget("bad")
+	assert.False(t, ok, "a connection refused for its timeout holds no target")
 }
 
 // TestParseConfig_ReadsTheScratchTarget pins that the YAML reaches Config.

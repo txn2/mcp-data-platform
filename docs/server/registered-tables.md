@@ -843,6 +843,37 @@ name is claimed on registration. Re-registering your own name replaces it;
 taking someone else's is refused, naming who holds it. Administrators are
 unrestricted.
 
+**A table under the name that no registration records.** A `CREATE TABLE` the
+platform stopped waiting for, because its deadline passed or its caller went
+away, can still be completed by the coordinator, leaving a table with no
+registration. When the next registration of a file finds such a table and it
+reads that file's own directory (any version of it), the table can only be
+left over from an earlier registration of the same file, so it is replaced and
+recorded. A table over anything else is refused, naming where it reads. After an
+abandoned `CREATE`, the platform also drops the table it may have made when the
+table reads the file's directory, and records the drop in the audit trail.
+`scratch.statement_timeout` on the connection sets how long each statement may
+run; see [Configuration](configuration.md#trino).
+
+## Reconciling the scratch schema
+
+An administrator sees the scratch schema against the registrations on the
+**Reconcile** tab of **Scratch Tables** (#2136), per connection, in three
+lists:
+
+- **Tables with no registration**: each with the location it reads and the
+  file that location belongs to. A table over a file the platform stores is
+  offered for repair, which drops it; any other is marked *Not the platform's;
+  left alone*.
+- **Registrations whose table is gone**: offered for repair, which removes the
+  registration. A webhook source's is not: it goes with the source.
+- **Tables reading somewhere else**: a registration whose table reads another
+  location. Shown, never repaired.
+
+**Repair selected** proves each choice again as it is made and lists the ones
+that could not be made with the reason. The routes behind it are on the
+[Admin API](admin-api.md#table-registration-endpoints).
+
 ## What the scratch schema is
 
 The scratch schema is a shared workspace. Everyone granted the connection can

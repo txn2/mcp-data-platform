@@ -53,6 +53,10 @@ func (*fakeTrino) TableExists(context.Context, string, string, string, string) (
 	return true, nil
 }
 
+func (*fakeTrino) TableLocation(context.Context, string, string, string, string) (location string, found bool, err error) {
+	return "", true, nil
+}
+
 type fakeObjects struct {
 	body    []byte
 	entries []tableregister.ObjectEntry

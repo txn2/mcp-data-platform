@@ -1,6 +1,6 @@
 import { INDEX_POLICY_LABELS } from "@/pages/resources/parts/IndexPolicyField";
 import { useState } from "react";
-import { Webhook } from "lucide-react";
+import { AlertTriangle, Webhook } from "lucide-react";
 import {
   useCreateWebhookSource,
   usePersonas,
@@ -11,7 +11,7 @@ import type { WebhookAuthMode, WebhookSource } from "@/api/admin/types";
 import { useTableConnections } from "@/api/tables/hooks";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { PageHeader } from "@/components/patterns/PageHeader";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   ConfigField,
@@ -78,6 +78,7 @@ function EditorForm({
   const creating = source === undefined;
   const [form, setForm] = useState<WebhookForm>(source ? fromSource(source) : EMPTY_FORM);
   const [shown, setShown] = useState<string[]>([]);
+  const [warned, setWarned] = useState<{ name: string; warnings: string[] } | null>(null);
   const create = useCreateWebhookSource();
   const update = useUpdateWebhookSource(source?.name ?? "");
   const saving = create.isPending || update.isPending;
@@ -91,12 +92,24 @@ function EditorForm({
     setShown(found);
     if (found.length > 0) return;
     const body = toInput(form, creating);
+    // A save that came back with warnings stays here until they are read.
+    const done = (s: WebhookSource) =>
+      s.warnings?.length ? setWarned({ name: s.name, warnings: s.warnings }) : onSaved(s.name);
     if (creating) {
-      create.mutate(body, { onSuccess: (s) => onSaved(s.name) });
+      create.mutate(body, { onSuccess: done });
     } else {
-      update.mutate(body, { onSuccess: (s) => onSaved(s.name) });
+      update.mutate(body, { onSuccess: done });
     }
   };
+
+  if (warned) {
+    return (
+      <div className="space-y-4">
+        <EditorHeader source={source} onBack={onBack} />
+        <SavedWithWarnings warnings={warned.warnings} onOpen={() => onSaved(warned.name)} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -123,6 +136,27 @@ function EditorForm({
         </p>
       )}
     </div>
+  );
+}
+
+/** SavedWithWarnings is what a save that succeeded with warnings shows: the
+ * warnings, and the way on to the source. */
+export function SavedWithWarnings({ warnings, onOpen }: { warnings: string[]; onOpen: () => void }) {
+  return (
+    <Alert className="border-amber-500/50 py-3 text-amber-900 dark:text-amber-200">
+      <AlertTriangle />
+      <AlertTitle>Saved, with warnings</AlertTitle>
+      <AlertDescription>
+        <ul className="list-disc space-y-1 pl-4">
+          {warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+        <Button type="button" size="xs" className="mt-3" onClick={onOpen}>
+          Open the source
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -433,7 +467,15 @@ function LimitsGroup({ form, set }: { form: WebhookForm; set: Setter }) {
           type="number"
           value={form.rawRetentionDays}
           onChange={set("rawRetentionDays")}
-          placeholder="7"
+          placeholder="1"
+        />
+        <ConfigField
+          label="Merge recent raw files every (minutes)"
+          type="number"
+          value={form.rollupEveryMinutes}
+          onChange={set("rollupEveryMinutes")}
+          placeholder="5"
+          help="A reader of recent events reads one file per write until they are merged."
         />
         <ConfigField
           label="Keep compacted files (days)"

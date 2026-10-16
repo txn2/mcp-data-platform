@@ -69,6 +69,11 @@ type Tuning struct {
 	// ExpiredWindowsKept is how long an expired window's record is kept. A
 	// negative value keeps them for as long as their source exists.
 	ExpiredWindowsKept time.Duration
+	// RollupCheckEvery is how often the open windows are looked at for a
+	// rollup, and RollupDeleteDelay the least time between a rollup and the
+	// deletion of what it merged (#2132).
+	RollupCheckEvery  time.Duration
+	RollupDeleteDelay time.Duration
 }
 
 func (t Tuning) withDefaults() Tuning {
@@ -89,6 +94,12 @@ func (t Tuning) withDefaults() Tuning {
 	}
 	if t.RetentionEvery <= 0 {
 		t.RetentionEvery = DefaultRetentionEvery
+	}
+	if t.RollupCheckEvery <= 0 {
+		t.RollupCheckEvery = DefaultRollupCheckEvery
+	}
+	if t.RollupDeleteDelay <= 0 {
+		t.RollupDeleteDelay = DefaultRollupDeleteDelay
 	}
 	if t.ExpiredWindowsKept == 0 {
 		t.ExpiredWindowsKept = DefaultExpiredWindowsKept
@@ -115,6 +126,7 @@ type Worker struct {
 	deps   Deps
 
 	lastRetention time.Time
+	lastRollup    time.Time
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -198,6 +210,9 @@ func (w *Worker) compactPass(ctx context.Context) (bool, error) {
 			return w.compactOne(ctx, h)
 		})
 	}
+	if w.rollupDue(now) {
+		_ = bgloop.Unit(ctx, bgloop.NameWebhookRollup, w.Rollup)
+	}
 	if now.Sub(w.lastRetention) >= w.tuning.RetentionEvery {
 		w.lastRetention = now
 		_ = bgloop.Unit(ctx, bgloop.NameWebhookRetention, w.Retention)
@@ -274,6 +289,9 @@ func (w *Worker) gather(ctx context.Context, h whstore.Window, keys []string) ([
 		return nil, err
 	}
 	for _, key := range keys {
+		if !whlayout.HoldsEvents(key) {
+			continue
+		}
 		data, err := w.deps.Objects.GetObject(ctx, w.deps.Bucket, key)
 		if err != nil {
 			return nil, fmt.Errorf("reading segment %s: %w", key, err)

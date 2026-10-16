@@ -95,6 +95,7 @@ func overviewOf(rangeName string, ov whadmin.Overview) StatusOverview {
 			LastHour:    counts(s.Summary.LastHour), LastDay: counts(s.Summary.LastDay),
 			Pending: s.Summary.Pending, Failing: s.Summary.Failing, LastError: s.Summary.LastError,
 			AckLastHour: s.Summary.AckLastHour, AckLastDay: s.Summary.AckLastDay,
+			SegmentsOpenWindow: s.Summary.SegmentsOpenWindow, SegmentsPerWindowP95: s.Summary.SegmentsPerWindowP95,
 		})
 	}
 	for _, p := range ov.Volume {

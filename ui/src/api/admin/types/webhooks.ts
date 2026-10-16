@@ -39,6 +39,8 @@ export interface WebhookConfig {
   rate_limit_per_minute?: number;
   rate_limit_burst?: number;
   raw_retention_days?: number;
+  /** How often the open window's raw files are merged into one (#2132). */
+  rollup_every_minutes?: number;
   compacted_retention_days?: number;
   /** How search indexes the compacted windows; absent leaves it to resources.index. */
   index?: "full" | "metadata" | "none";
@@ -57,6 +59,9 @@ export interface WebhookSource {
   created_by?: string;
   created_at: string;
   updated_at: string;
+  /** What a create or change answered besides the source, without refusing
+   * it (#2132, #2134); absent from a list or a read. */
+  warnings?: string[];
 }
 
 /** WebhookRejection is a run of refused requests with one outcome and
@@ -107,6 +112,10 @@ export interface WebhookStatus {
   ack_last_hour: WebhookAckLatency;
   ack_last_day: WebhookAckLatency;
   rejections: WebhookRejection[];
+  /** Raw files recorded against the open window, and the 95th percentile of
+   * that count over the windows of the last day (#2132). */
+  segments_open_window: number;
+  segments_per_window_p95: number;
 }
 
 export interface WebhookSourceDetail {
@@ -166,6 +175,10 @@ export interface WebhookSourceStatus {
   last_error?: string;
   ack_last_hour: WebhookAckLatency;
   ack_last_day: WebhookAckLatency;
+  /** Raw files recorded against the open window, and the 95th percentile of
+   * that count over the windows of the last day (#2132). */
+  segments_open_window: number;
+  segments_per_window_p95: number;
 }
 
 /** WebhookVolumePoint is one source's requests with one outcome in the

@@ -63,7 +63,13 @@ present, every authenticated caller gets it.
       "failed_at": "2026-08-15T17:00:18Z",
       "last_succeeded_at": "2026-08-15T16:41:44Z",
       "scheduled": true,
-      "new": true
+      "new": true,
+      "latest_run": {
+        "run_id": "dpx_7c1e04b2a96d4f0e8b3a51c9d2f60e17",
+        "status": "running",
+        "started_at": "2026-08-15T17:05:02Z"
+      },
+      "superseded_by_running": true
     }
   ],
   "failing_automations_total": 1
@@ -101,7 +107,13 @@ again, or returning it to active, lists its failed run again. Each entry
 names the failed run (`run_id`, for `manage_script` get_run), the version it
 ran, why it failed (`cause` and `retryable`, the values the run itself records),
 the last line of its error, how many finished runs in a row have failed, when a
-run last succeeded, and whether a schedule will fire it again. Ownership is the
+run last succeeded, and whether a schedule will fire it again. `latest_run` is
+the automation's newest run whatever its status (`pending`, `running`,
+`succeeded`, `failed`, `canceled`), with `started_at` once it has started, and
+`superseded_by_running` is true when a run newer than the failed one is pending
+or running (#2135). An entry with it set may already be fixed: a monitor or an
+agent acting on the error waits for that run to finish rather than acting on a
+failure the run may be recovering from. Ownership is the
 automation's owner email, so an administrator is briefed on their own
 automations only.
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { WebhookStatusOverview } from "@/api/admin/types";
 import { mockWebhookOverview, mockWebhookSources, mockWebhookStatus } from "@/mocks/data/webhooks";
 
@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
+  sync: vi.fn(),
 }));
 
 vi.mock("@/api/admin/hooks", async (importOriginal) => {
@@ -27,6 +28,7 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
     useCreateWebhookSource: () => ({ mutate: h.create, isPending: false, error: null }),
     useUpdateWebhookSource: () => ({ mutate: h.update, isPending: false, error: null }),
     useDeleteWebhookSource: () => ({ mutate: h.remove, isPending: false, error: null }),
+    useSyncWebhookPartitions: () => ({ mutate: h.sync, isPending: false, error: null }),
     usePersonas: () => ({ data: { personas: [{ name: "marketing", display_name: "Marketing" }] } }),
   };
 });
@@ -59,6 +61,7 @@ beforeEach(() => {
   h.create.mockReset();
   h.update.mockReset();
   h.remove.mockReset();
+  h.sync.mockReset();
 });
 
 // overview is the status response with every list emptied, for the tests
@@ -105,7 +108,7 @@ describe("WebhooksPage", () => {
           {
             name: "new-source", enabled: true, health: "silent", auth_mode: "hmac", connection: "c", table: "webhook_new_source",
             last_event_at: null, last_hour: {}, last_day: {}, pending: 0, failing: 0,
-            ack_last_hour: noAcks, ack_last_day: noAcks,
+            ack_last_hour: noAcks, ack_last_day: noAcks, segments_open_window: 0, segments_per_window_p95: 0,
           },
         ],
       }),
@@ -320,6 +323,55 @@ describe("WebhookDetailPage", () => {
     expect(h.remove).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Delete source" }));
     expect(h.remove).toHaveBeenCalledWith("email-events", expect.anything());
+  });
+});
+
+describe("raw files (#2132, #2133)", () => {
+  it("shows the raw files of each source's current window in the overview", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    const cell = within(row("email-events")).getByText("412");
+    expect(cell).toHaveAttribute("title", "95th percentile over the last day: 3650");
+  });
+
+  it("shows a source's raw files and resyncs its partitions after confirming", () => {
+    render(<WebhookDetailPage name="email-events" onBack={vi.fn()} onNavigate={vi.fn()} />);
+    expect(screen.getByText("Raw files in the current window")).toBeInTheDocument();
+    expect(screen.getByText("Raw files per window, 95th percentile (day)")).toBeInTheDocument();
+    expect(screen.getByText("3650")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Resync partitions/ }));
+    expect(screen.getByText(/Lists every raw file the source holds/)).toBeInTheDocument();
+    expect(h.sync).not.toHaveBeenCalled();
+    const buttons = screen.getAllByRole("button", { name: "Resync partitions" });
+    const confirm = buttons[buttons.length - 1]!;
+    fireEvent.click(confirm);
+    expect(h.sync).toHaveBeenCalledWith("email-events", expect.anything());
+    const { onSuccess } = h.sync.mock.calls[0]![1] as { onSuccess: () => void };
+    act(() => onSuccess());
+    expect(screen.getByText("Partitions resynced.")).toBeInTheDocument();
+  });
+
+  it("sends the merge interval and holds a save that came back with warnings", () => {
+    const onSaved = vi.fn();
+    render(<WebhookEditor name="email-events" onBack={vi.fn()} onSaved={onSaved} />);
+    fireEvent.change(screen.getByLabelText(/Merge recent raw files every/), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(h.update.mock.calls[0]![0].config.rollup_every_minutes).toBe(2);
+    const { onSuccess } = h.update.mock.calls[0]![1] as { onSuccess: (s: unknown) => void };
+    act(() => onSuccess({ ...busy, warnings: ["reading the partitions of webhook_email_events_raw took 57 s"] }));
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(screen.getByText("Saved, with warnings")).toBeInTheDocument();
+    expect(screen.getByText(/took 57 s/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open the source" }));
+    expect(onSaved).toHaveBeenCalledWith("email-events");
+  });
+
+  it("goes straight to the source after a save with no warnings", () => {
+    const onSaved = vi.fn();
+    render(<WebhookEditor name="email-events" onBack={vi.fn()} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const { onSuccess } = h.update.mock.calls[0]![1] as { onSuccess: (s: unknown) => void };
+    act(() => onSuccess({ ...busy, warnings: [] }));
+    expect(onSaved).toHaveBeenCalledWith("email-events");
   });
 });
 

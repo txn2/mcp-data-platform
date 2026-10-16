@@ -24,6 +24,13 @@ import (
 // expired. Each step is recorded in the platform database, so a pass that
 // stops part-way is finished by the next. Each failure is logged, does not
 // stop the steps after it, and is returned joined with the others.
+//
+// The raw table's partitions are kept by name from the window records, never
+// by listing the table's location (#2133): a window whose segments go has its
+// raw partition unregistered, and a window a segment landed in since the
+// previous pass is registered, which covers one the receiver could not
+// register and one a late segment reopened. What a pass costs is the windows
+// that changed, not everything raw retention keeps.
 func (w *Worker) Retention(ctx context.Context) error {
 	sources, err := w.deps.Sources.List(ctx)
 	if err != nil {
@@ -70,14 +77,32 @@ func (w *Worker) retainSource(ctx context.Context, src whsource.Source) error {
 			return err
 		}
 	}
-	if err := w.releaseRawBefore(ctx, src, now.Add(-src.Config.RawRetention())); err != nil {
+	if err := w.releaseRawBefore(ctx, tg, src, now.Add(-src.Config.RawRetention())); err != nil {
 		return err
 	}
-	// The raw table's partitions are made to match the directories that
-	// exist: a window whose segments are gone is dropped, and a window the
-	// receiver could not register when it wrote its first segment is added.
-	if err := w.deps.Tables.SyncRaw(ctx, tg, src); err != nil {
-		return fmt.Errorf("syncing the raw partitions: %w", err)
+	return w.registerRawSince(ctx, tg, src, now.Add(-w.rawLookback()))
+}
+
+// rawLookback is how far back a pass registers the raw partitions of windows
+// a segment landed in: two retention intervals, so a pass that failed or was
+// skipped is covered by the next. Each window in it costs a call on the
+// catalog's metastore, so it is no longer than that.
+func (w *Worker) rawLookback() time.Duration {
+	return 2 * w.tuning.RetentionEvery
+}
+
+// registerRawSince registers the raw partition of every window of src that
+// holds segments written since since. Registering one already registered is
+// not an error.
+func (w *Worker) registerRawSince(ctx context.Context, tg whtable.Target, src whsource.Source, since time.Time) error {
+	windows, err := w.deps.Windows.RawRegistrable(ctx, src.Name, since)
+	if err != nil {
+		return fmt.Errorf("reading the windows to register: %w", err)
+	}
+	for _, h := range windows {
+		if err := w.deps.Tables.RegisterRawWindow(ctx, tg, src, h.Start); err != nil {
+			return fmt.Errorf("registering the raw window: %w", err)
+		}
 	}
 	return nil
 }
@@ -98,7 +123,7 @@ func (w *Worker) expireBefore(ctx context.Context, tg whtable.Target, src whsour
 
 // releaseRawBefore deletes the raw segments of every compacted window of src
 // whose last segment was written before cutoff.
-func (w *Worker) releaseRawBefore(ctx context.Context, src whsource.Source, cutoff time.Time) error {
+func (w *Worker) releaseRawBefore(ctx context.Context, tg whtable.Target, src whsource.Source, cutoff time.Time) error {
 	raw, err := w.deps.Windows.RawDeletable(ctx, src.Name, cutoff)
 	if err != nil {
 		return fmt.Errorf("reading the windows whose segments may go: %w", err)
@@ -106,6 +131,9 @@ func (w *Worker) releaseRawBefore(ctx context.Context, src whsource.Source, cuto
 	for _, h := range raw {
 		if err := w.deleteRaw(ctx, src, h); err != nil {
 			return err
+		}
+		if err := w.deps.Tables.UnregisterRawWindow(ctx, tg, src, h.Start); err != nil {
+			return fmt.Errorf("unregistering the raw window: %w", err)
 		}
 		if err := w.deps.Windows.MarkRawDeleted(ctx, h); err != nil {
 			return fmt.Errorf("recording the segments deleted: %w", err)
@@ -129,6 +157,9 @@ func (w *Worker) expire(ctx context.Context, tg whtable.Target, src whsource.Sou
 	}
 	if err := w.deleteRaw(ctx, src, h); err != nil {
 		return err
+	}
+	if err := w.deps.Tables.UnregisterRawWindow(ctx, tg, src, h.Start); err != nil {
+		return fmt.Errorf("unregistering the raw window: %w", err)
 	}
 	if err := w.deps.Windows.MarkExpired(ctx, h); err != nil {
 		return fmt.Errorf("recording the window expired: %w", err)

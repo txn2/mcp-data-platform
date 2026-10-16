@@ -142,6 +142,10 @@ func (*followTrino) TableExists(context.Context, string, string, string, string)
 	return true, nil
 }
 
+func (*followTrino) TableLocation(context.Context, string, string, string, string) (location string, found bool, err error) {
+	return "", true, nil
+}
+
 // followObjects is one bucket: the resource route writes revisions into it,
 // and the registrar reads heads and lists directories out of it.
 type followObjects struct {

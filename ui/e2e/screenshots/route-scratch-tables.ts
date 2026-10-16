@@ -16,6 +16,15 @@ export const scratchTableRoutes: ScreenshotRoute[] = [
     category: "user",
   },
   {
+    // The administrator's reconcile of a scratch schema against its
+    // registrations (#2136): tables nothing registered, registrations whose
+    // table is gone, tables reading somewhere else, and the provable ones
+    // offered for repair.
+    slug: "scratch-tables-reconcile",
+    path: "/portal/scratch-tables/reconcile",
+    category: "admin",
+  },
+  {
     // One registration: what to query, the columns with their types, the file
     // behind it, and the directory it reads. Opened on the reader's own
     // current registration, so the capture carries the action they are

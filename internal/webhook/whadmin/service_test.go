@@ -3,6 +3,7 @@ package whadmin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -90,8 +91,28 @@ func (m *memSources) Delete(_ context.Context, name string) error {
 }
 
 type fakeTables struct {
-	created, dropped, probed int
-	err                      map[string]error
+	created, dropped, probed, synced int
+	err                              map[string]error
+	// partitionRead is how long PartitionReadTime reports; partitionHangs
+	// makes it answer only when its context ends.
+	partitionRead  time.Duration
+	partitionHangs bool
+}
+
+func (f *fakeTables) PartitionReadTime(ctx context.Context, _ whtable.Target, _ whsource.Source) (time.Duration, error) {
+	if f.partitionHangs {
+		<-ctx.Done()
+		return 0, fmt.Errorf("reading the partitions: %w", ctx.Err())
+	}
+	return f.partitionRead, f.err["partitions"]
+}
+
+func (f *fakeTables) SyncRaw(context.Context, whtable.Target, whsource.Source) error {
+	if err := f.err["sync"]; err != nil {
+		return err
+	}
+	f.synced++
+	return nil
 }
 
 func (f *fakeTables) TargetFor(string) (whtable.Target, error) {
@@ -494,4 +515,27 @@ func TestNewDefaults(t *testing.T) {
 	assert.NotNil(t, s.deps.Logger)
 	assert.NotNil(t, s.deps.Now)
 	s.deps.Changed()
+}
+
+// TestSyncPartitions covers the administrator's repair of #2133: it lists the
+// raw table's location through SyncRaw, for a source that exists, and names
+// what failed.
+func TestSyncPartitions(t *testing.T) {
+	r := newRig()
+	_, err := r.svc.Create(ctx, input())
+	require.NoError(t, err)
+
+	require.NoError(t, r.svc.SyncPartitions(ctx, "esp"))
+	assert.Equal(t, 1, r.tables.synced)
+
+	require.ErrorIs(t, r.svc.SyncPartitions(ctx, "nope"), ErrNotFound)
+
+	r.tables.err["sync"] = errors.New("listing timed out")
+	err = r.svc.SyncPartitions(ctx, "esp")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "syncing the raw partitions of esp")
+
+	delete(r.tables.err, "sync")
+	r.tables.err["target"] = errors.New("no scratch target")
+	require.Error(t, r.svc.SyncPartitions(ctx, "esp"))
 }

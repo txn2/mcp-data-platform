@@ -2052,6 +2052,85 @@ import's lock. A run with no
 counts every one. `where` on a skip names the platform table and row, or the
 catalog entity and aspect, it concerns.
 
+## Table Registration Endpoints
+
+Every table registration on the platform, and a connection's scratch schema
+reconciled against them (#2136). The portal shows the reconcile to
+administrators as the **Reconcile** tab of **Scratch Tables**.
+
+### List Registrations
+
+```
+GET /api/v1/admin/tables/registrations?connection=&persona=&source_kind=&source_id=&q=&limit=&offset=
+```
+
+Every registration, newest first, as `{"registrations": [...], "total": N}`.
+`persona` matches the prefix a table registered under that persona carries,
+`source_kind` and `source_id` name one source, and `q` matches the qualified
+name. A page is at most 200.
+
+### Reconcile a Scratch Schema
+
+```
+GET /api/v1/admin/tables/reconcile?connection=acme-scratch-resources
+```
+
+```json
+{
+  "connection": "acme-scratch-resources",
+  "catalog": "scratch_resources",
+  "schema": "uploads",
+  "orphans": [
+    {"table": "admin_daily_orders", "location": "s3://resources/resources/user/u1/res_7f2a/v/rev_31/",
+     "source": {"kind": "resource", "id": "res_7f2a", "exists": true}, "provable": true},
+    {"table": "scratch_by_hand", "location": "s3://team-bucket/exports/2026/", "provable": false}
+  ],
+  "missing": [{"registration": {"id": "reg_5d11", "table": "analyst_store_rebates", "...": "..."}, "provable": true}],
+  "drifted": [{"registration": {"id": "reg_88e0", "table": "analyst_weekly_kpis", "...": "..."}, "location": "s3://portal-assets/artifacts/u3/ast_3b7/v4/"}],
+  "truncated": false
+}
+```
+
+`orphans` are tables in the scratch schema no registration holds, each with the
+location it reads (from `SHOW CREATE TABLE`) and, when the location is the
+directory of a file the platform stores, that file. An orphan is `provable`
+when its location is the directory of a managed resource or portal asset the
+platform holds, or lies under the managed-resources bucket's `resources/`
+prefix, where it is a resource's directory whether or not the resource still
+exists. `missing` are registrations whose table is gone; a webhook source's is
+not `provable`, because its table is removed with the source. `drifted` are
+registrations whose table reads somewhere other than the registration says,
+reported and never repaired. A webhook source's own raw and compacted tables
+are none of these. `truncated` means the schema held more than 50,000 tables,
+so `orphans` is partial and nothing is reported missing. A connection with no
+scratch target is `400`.
+
+### Repair
+
+```
+POST /api/v1/admin/tables/reconcile
+```
+
+```json
+{"connection": "acme-scratch-resources", "repair": [
+  {"action": "drop", "table": "admin_daily_orders"},
+  {"action": "forget", "registration_id": "reg_5d11"}
+]}
+```
+
+`drop` removes an orphan table, `forget` removes a registration whose table is
+gone. Each is proved again when it is made, and one that cannot be is reported
+and not made: a table a registration now holds, a table whose location is not
+the platform's ("not the platform's: it reads ...; left alone"), a table
+already gone, a registration whose table exists again. The answer is
+`{"outcomes": [{"action": ..., "table" or "registration_id": ..., "done": true|false, "reason": ...}]}`.
+Every repair made is an audit event under the administrator, with source
+`admin`. At most 500 repairs a request.
+
+A table re-created by a registration of the same file needs no repair: the
+next registration of a file adopts a table with no registration that reads that
+file's directory (#2131).
+
 ## Gateway Endpoints
 
 Gateway connections (kind `mcp`) proxy upstream MCP servers and re-expose

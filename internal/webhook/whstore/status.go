@@ -34,6 +34,12 @@ type Status struct {
 	AckLastHour AckLatency  `json:"ack_last_hour"`
 	AckLastDay  AckLatency  `json:"ack_last_day"`
 	Rejections  []Rejection `json:"rejections"`
+	// SegmentsOpenWindow and SegmentsPerWindowP95 are the segments recorded
+	// against the open window, and the 95th percentile of that count over
+	// the windows that started in the last day (#2132), as the overview of
+	// every source reports them.
+	SegmentsOpenWindow   int64 `json:"segments_open_window"`
+	SegmentsPerWindowP95 int64 `json:"segments_per_window_p95"`
 }
 
 // Status reads a source's status at now.
@@ -52,10 +58,14 @@ func (s *Store) Status(ctx context.Context, source string, now time.Time) (Statu
 		        MIN(window_start),
 		        (SELECT last_error FROM webhook_windows e
 		          WHERE e.source = $1 AND e.expired_at IS NULL AND e.last_error <> ''
-		          ORDER BY e.window_start DESC LIMIT 1)
+		          ORDER BY e.window_start DESC LIMIT 1),
+		        COALESCE(MAX(generation) FILTER (WHERE window_start + make_interval(secs => window_seconds) > $2), 0),
+		        COALESCE(CEIL(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY generation)
+		                 FILTER (WHERE window_start >= $3)), 0)::bigint
 		   FROM webhook_windows
-		  WHERE source = $1 AND expired_at IS NULL`, source,
-	).Scan(&lastSeg, &lastCompacted, &st.Pending, &st.Failing, &oldest, &lastError); err != nil {
+		  WHERE source = $1 AND expired_at IS NULL`, source, now.UTC(), now.Add(-24*time.Hour).UTC(),
+	).Scan(&lastSeg, &lastCompacted, &st.Pending, &st.Failing, &oldest, &lastError,
+		&st.SegmentsOpenWindow, &st.SegmentsPerWindowP95); err != nil {
 		return Status{}, fmt.Errorf("reading webhook window status: %w", err)
 	}
 	st.LastSegmentAt = timePtr(lastSeg)

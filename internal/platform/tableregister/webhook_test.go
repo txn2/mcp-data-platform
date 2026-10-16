@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 )
 
 // fakeHolders maps resources to the webhook source each is a window of.
@@ -58,15 +56,6 @@ func TestTablesForResolvesAnHourToItsSource(t *testing.T) {
 	require.Len(t, found["hour-1"], 1)
 	assert.Equal(t, "webhook_esp", found["hour-1"][0].Table)
 	assert.Empty(t, found["plain"])
-
-	lookup := NewLookup(reg)
-	tables, err := lookup.TablesFor(context.Background(), []knowledge.TableSubject{
-		{Kind: knowledge.TableKindResource, ID: "hour-1", Bucket: "managed-resources", HeadKey: "resources/global/global/hour-1/10-00.parquet"},
-	})
-	require.NoError(t, err)
-	require.Len(t, tables["hour-1"], 1)
-	assert.False(t, tables["hour-1"][0].Stale, "a webhook table is not over one file and is never stale")
-	assert.Equal(t, "scratch_resources.uploads.webhook_esp", tables["hour-1"][0].Table)
 }
 
 func TestTablesForWithoutHolders(t *testing.T) {

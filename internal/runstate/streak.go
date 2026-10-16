@@ -35,6 +35,21 @@ type FailureStreak struct {
 	// LastSuccessAt is when the script's most recent successful run finished,
 	// nil when none has.
 	LastSuccessAt *time.Time
+	// Latest is the script's newest run whatever its status, finished or
+	// not, so a reader of a failing streak can tell a script still broken
+	// from one whose next run is already under way (#2135). Nil when the
+	// store read none.
+	Latest *LatestRun
+}
+
+// LatestRun is a script's newest run: its id, its status (pending, running,
+// succeeded, failed, ...), when it was created, and when it started, nil
+// while it has not.
+type LatestRun struct {
+	ID        string
+	Status    string
+	CreatedAt time.Time
+	StartedAt *time.Time
 }
 
 // FailureStreakReader reads the failure streak of each of a set of scripts.

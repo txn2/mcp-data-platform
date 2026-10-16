@@ -32,7 +32,8 @@ const ConfigSchemaJSON = `{
       "description": "Where a table registration writes on this connection. A target, not a boundary.",
       "properties": {
         "catalog": {"type": "string", "description": "Catalog a registration creates its table in."},
-        "schema": {"type": "string", "description": "Schema a registration creates its table in."}
+        "schema": {"type": "string", "description": "Schema a registration creates its table in."},
+        "statement_timeout": {"type": ["string", "integer"], "description": "Bound on each statement that creates, drops or fills a table in this target, as a duration string (\"10m\") or a number of seconds. Unset uses the connection's timeout."}
       }
     },
     "elicitation": {"type": "object", "description": "Per-connection elicitation triggers (cost estimation, PII consent)."}

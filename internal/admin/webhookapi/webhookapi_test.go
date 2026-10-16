@@ -67,6 +67,24 @@ func (f *fakeService) Update(_ context.Context, name string, u whadmin.Update) (
 
 func (f *fakeService) Delete(context.Context, string) error { return f.err }
 
+func (*fakeService) Warnings(_ context.Context, src whsource.Source) []string {
+	if src.Name == "slow" {
+		return []string{"reading the partitions took 57 s"}
+	}
+	return []string{}
+}
+
+func (f *fakeService) SyncPartitions(_ context.Context, name string) error {
+	if f.err != nil {
+		return f.err
+	}
+	if _, ok := f.sources[name]; !ok {
+		return whadmin.ErrNotFound
+	}
+	f.source = name
+	return nil
+}
+
 const base = sourcesPath
 
 // wrapped counts the requests the admin authentication saw.
@@ -197,4 +215,41 @@ func TestRegisterWithoutService(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, func(h http.Handler) http.Handler { return h }, Config{})
 	assert.Equal(t, http.StatusNotFound, do(mux, http.MethodGet, base, "").Code)
+}
+
+// TestSyncPartitionsRoute: the repair answers 204, a source that does not
+// exist 404, a connection with no scratch target 400, and an engine failure
+// 503 carrying what the engine said.
+func TestSyncPartitionsRoute(t *testing.T) {
+	svc := &fakeService{sources: map[string]whsource.Source{"esp": stored}}
+	mux := newMux(svc)
+	assert.Equal(t, http.StatusNoContent, do(mux, http.MethodPost, base+"/esp/sync-partitions", "").Code)
+	assert.Equal(t, "esp", svc.source)
+	assert.Equal(t, http.StatusNotFound, do(mux, http.MethodPost, base+"/nope/sync-partitions", "").Code)
+
+	svc.err = whtable.ErrNoScratchTarget
+	assert.Equal(t, http.StatusBadRequest, do(mux, http.MethodPost, base+"/esp/sync-partitions", "").Code)
+
+	svc.err = errors.New("listing timed out")
+	rec := do(mux, http.MethodPost, base+"/esp/sync-partitions", "")
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Contains(t, rec.Body.String(), "listing timed out")
+}
+
+// TestSaveAnswersWithWarnings: a create and a change carry the service's
+// warnings beside the source; a list and a read carry none.
+func TestSaveAnswersWithWarnings(t *testing.T) {
+	svc := &fakeService{sources: map[string]whsource.Source{"slow": {Name: "slow", Connection: "scratch"}}}
+	mux := newMux(svc)
+	body := `{"name":"slow","connection":"scratch","auth":{"mode":"hmac","secret":"k","signature_header":"X-Sig"}}`
+	rec := do(mux, http.MethodPost, base, body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"warnings":["reading the partitions took 57 s"]`)
+
+	rec = do(mux, http.MethodPut, base+"/slow", `{"auth":{"mode":"hmac","signature_header":"X-Sig"}}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"warnings":["reading the partitions took 57 s"]`)
+
+	rec = do(mux, http.MethodGet, base, "")
+	assert.NotContains(t, rec.Body.String(), "warnings")
 }

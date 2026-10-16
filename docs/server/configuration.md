@@ -872,6 +872,7 @@ toolkits:
         scratch:                 # Where a registered table is created (#1327)
           catalog: scratch
           schema: uploads
+          statement_timeout: 10m # Optional; defaults to the connection's timeout
     default: primary
 ```
 
@@ -891,6 +892,7 @@ toolkits:
 | `read_only` | bool | `false` | Reject write SQL on this connection. Set per instance: the other instances of the same toolkit are unaffected, and a call that omits `connection` is judged by the default instance's setting |
 | `scratch.catalog` | string | - | Catalog a [registered table](registered-tables.md) is created in on this connection. Unset (or set without `schema`) means registration is unavailable here |
 | `scratch.schema` | string | - | Schema a registered table is created in. Required alongside `catalog`; a block naming only one is ignored with a warning |
+| `scratch.statement_timeout` | duration | the connection's `timeout` | How long each statement that creates, drops or fills a table in the scratch target may run: a table registration, a follow, a webhook source's tables and partitions. A `CREATE TABLE` on a Hive catalog with a file metastore over slow object storage can take longer than the query that wrote the file. A value that does not parse refuses the connection |
 | `connection_name` | string | - | No effect; accepted for compatibility and warned about at startup. Trino routes by the `instances:` key, so that key is the name `list_connections` advertises, a `connection` parameter carries, an audit row records and a persona rule matches. See [Connection Names](multi-provider.md#connection-names) |
 | `descriptions` | map | `{}` | Override tool descriptions for this instance (key: `s3_list` or `s3_object`, value: description text) |
 
@@ -1788,6 +1790,8 @@ webhooks:
     retry_backoff: 1m
     retention_every: 10m
     expired_window_retention_days: 90
+    rollup_check_every: 1m
+    rollup_delete_delay: 2m
 ```
 
 | Field | Type | Default | Description |
@@ -1805,6 +1809,8 @@ webhooks:
 | `compactor.batch` | int | `4` | Windows one pass claims. |
 | `compactor.retry_backoff` | duration | `1m` | How long a failed window is held back, times its attempts, at most an hour. |
 | `compactor.retention_every` | duration | `10m` | How often retention runs. |
+| `compactor.rollup_check_every` | duration | `1m` | How often the open windows are looked at for a rollup of their raw segments (#2132). See [Inbound Webhooks](webhooks.md#the-open-windows-rollup). |
+| `compactor.rollup_delete_delay` | duration | `2m` | The least time between a rollup and the deletion of the segments it merged, so a query that listed them first still reads them. |
 | `compactor.expired_window_retention_days` | int | `90` | How long the record of an expired window is kept once its partition, file and raw segments are gone. `0` uses the default; a negative value keeps them for as long as their source exists. |
 
 A negative value for any of the durations, `batch` and `spool.max_bytes` is refused at startup, and so is a spool directory that cannot be opened. A source's table needs

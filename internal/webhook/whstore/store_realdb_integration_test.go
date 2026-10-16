@@ -287,6 +287,8 @@ func TestWebhookOverviewRealDB(t *testing.T) {
 	assert.Equal(t, 1, esp.Pending)
 	assert.Equal(t, 1, esp.Failing)
 	assert.Equal(t, "segment k: not gzip", esp.LastError)
+	assert.Zero(t, esp.SegmentsOpenWindow, "the window recorded has ended")
+	assert.Equal(t, int64(1), esp.SegmentsPerWindowP95, "one segment recorded against the one window of the day")
 
 	crm := ov.Summaries["crm"]
 	assert.Equal(t, map[string]int64{"accepted": 4}, crm.LastHour)
@@ -498,4 +500,51 @@ func TestWebhookSpoolStateRealDB(t *testing.T) {
 	require.NotNil(t, got[0].Oldest)
 	assert.True(t, oldest.Equal(*got[0].Oldest))
 	assert.Equal(t, "boom", got[0].LastError)
+}
+
+// TestRawRegistrableAndRollupClaimRealDB covers #2133 and #2132 against a
+// migrated database: the windows a retention pass registers raw partitions
+// for, by when their last segment was written and whether their segments were
+// released; and the rollup claim, which one replica holds at a time and which
+// a window with no row cannot be claimed by.
+func TestRawRegistrableAndRollupClaimRealDB(t *testing.T) {
+	db := testdb.New(t)
+	st := New(db)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO webhook_sources (name, connection_name) VALUES ('esp', 'scratch')`)
+	require.NoError(t, err)
+
+	current := time.Now().UTC().Truncate(time.Hour)
+	older := current.Add(-3 * time.Hour)
+	require.NoError(t, st.MarkSegment(ctx, "esp", current, time.Hour))
+	require.NoError(t, st.MarkSegment(ctx, "esp", older, time.Hour))
+	_, err = db.ExecContext(ctx, `UPDATE webhook_windows SET last_segment_at = NOW() - INTERVAL '3 hours' WHERE window_start = $1`, older)
+	require.NoError(t, err)
+
+	since := time.Now().Add(-time.Hour)
+	got, err := st.RawRegistrable(ctx, "esp", since)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "only the window written since")
+	assert.Equal(t, current, got[0].Start)
+
+	require.NoError(t, st.MarkRawDeleted(ctx, got[0]))
+	got, err = st.RawRegistrable(ctx, "esp", since)
+	require.NoError(t, err)
+	assert.Empty(t, got, "a window whose segments were released holds none")
+	_, err = db.ExecContext(ctx, `UPDATE webhook_windows SET raw_deleted_at = NOW() - INTERVAL '1 minute' WHERE window_start = $1`, current)
+	require.NoError(t, err)
+	require.NoError(t, st.MarkSegment(ctx, "esp", current, time.Hour))
+	got, err = st.RawRegistrable(ctx, "esp", since)
+	require.NoError(t, err)
+	assert.Len(t, got, 1, "a segment landing after the release brings it back")
+
+	claimed, err := st.ClaimRollup(ctx, "esp", current, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, claimed)
+	claimed, err = st.ClaimRollup(ctx, "esp", current, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, claimed, "a window held is not claimed again")
+	claimed, err = st.ClaimRollup(ctx, "esp", current.Add(time.Hour), time.Minute)
+	require.NoError(t, err)
+	assert.False(t, claimed, "a window with no row is not claimed")
 }

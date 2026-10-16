@@ -124,6 +124,13 @@ func (c Config) IsSSLVerifyEnabled() bool {
 type ScratchConfig struct {
 	Catalog string `yaml:"catalog"`
 	Schema  string `yaml:"schema"`
+	// StatementTimeout bounds each statement Exec runs on the connection, in
+	// place of the connection's query timeout. Zero leaves the connection's.
+	// A CREATE TABLE on a Hive catalog with a file metastore over slow object
+	// storage can take longer than the query that wrote the file, and a
+	// deadline that expires while the coordinator goes on to create the table
+	// leaves a table the platform has no record of (#2131).
+	StatementTimeout time.Duration `yaml:"statement_timeout"`
 }
 
 // Configured reports whether this target names somewhere to write.
@@ -666,6 +673,10 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	if err := t.validateDynamic(name, conn); err != nil {
 		return err
 	}
+	scratch, err := getScratchConfig(config)
+	if err != nil {
+		return fmt.Errorf("adding trino connection %s: %w", name, err)
+	}
 	if err := t.manager.AddConnection(name, conn); err != nil {
 		return fmt.Errorf("adding trino connection %s: %w", name, err)
 	}
@@ -700,7 +711,7 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 
 	// Same reasoning for the registration target: without this the connection
 	// would register nothing until the next restart.
-	if scratch := getScratchConfig(config); scratch.Configured() {
+	if scratch.Configured() {
 		if t.scratch == nil {
 			t.scratch = make(map[string]ScratchConfig)
 		}

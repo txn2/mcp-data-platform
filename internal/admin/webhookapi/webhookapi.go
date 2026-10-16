@@ -23,6 +23,9 @@ import (
 // sourcesPath is the collection route.
 const sourcesPath = "/api/v1/admin/webhooks/sources"
 
+// nameParam is the path parameter naming a source.
+const nameParam = "name"
+
 // maxBodyBytes bounds a request body. A source is a few hundred bytes of
 // settings.
 const maxBodyBytes = 64 << 10
@@ -35,6 +38,8 @@ type Service interface {
 	Update(ctx context.Context, name string, u whadmin.Update) (whsource.Source, error)
 	Delete(ctx context.Context, name string) error
 	Overview(ctx context.Context, source string, span, step time.Duration) (whadmin.Overview, error)
+	SyncPartitions(ctx context.Context, name string) error
+	Warnings(ctx context.Context, src whsource.Source) []string
 }
 
 // Config carries the service and the parent-owned helpers.
@@ -60,6 +65,7 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 	mux.Handle("GET "+sourcesPath+"/{name}", wrap(http.HandlerFunc(h.get)))
 	mux.Handle("PUT "+sourcesPath+"/{name}", wrap(http.HandlerFunc(h.update)))
 	mux.Handle("DELETE "+sourcesPath+"/{name}", wrap(http.HandlerFunc(h.remove)))
+	mux.Handle("POST "+sourcesPath+"/{name}/sync-partitions", wrap(http.HandlerFunc(h.syncPartitions)))
 }
 
 // decode reads a JSON body, refusing unknown fields and trailing data.
@@ -113,7 +119,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /admin/webhooks/sources/{name} [get]
 func (h *handler) get(w http.ResponseWriter, r *http.Request) {
-	src, st, err := h.cfg.Service.Get(r.Context(), r.PathValue("name"))
+	src, st, err := h.cfg.Service.Get(r.Context(), r.PathValue(nameParam))
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -150,7 +156,9 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	httpjson.WriteJSON(w, http.StatusCreated, viewOf(src))
+	view := viewOf(src)
+	view.Warnings = h.cfg.Service.Warnings(r.Context(), src)
+	httpjson.WriteJSON(w, http.StatusCreated, view)
 }
 
 // update handles PUT /api/v1/admin/webhooks/sources/{name}.
@@ -174,7 +182,7 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	src, err := h.cfg.Service.Update(r.Context(), r.PathValue("name"), whadmin.Update{
+	src, err := h.cfg.Service.Update(r.Context(), r.PathValue(nameParam), whadmin.Update{
 		Enabled: in.Enabled, Auth: authOf(in.Auth), Config: in.Config,
 		RotationOverlap: time.Duration(in.RotationOverlapSeconds) * time.Second,
 	})
@@ -182,7 +190,9 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	httpjson.WriteJSON(w, http.StatusOK, viewOf(src))
+	view := viewOf(src)
+	view.Warnings = h.cfg.Service.Warnings(r.Context(), src)
+	httpjson.WriteJSON(w, http.StatusOK, view)
 }
 
 // remove handles DELETE /api/v1/admin/webhooks/sources/{name}.
@@ -197,11 +207,37 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /admin/webhooks/sources/{name} [delete]
 func (h *handler) remove(w http.ResponseWriter, r *http.Request) {
-	if err := h.cfg.Service.Delete(r.Context(), r.PathValue("name")); err != nil {
+	if err := h.cfg.Service.Delete(r.Context(), r.PathValue(nameParam)); err != nil {
 		writeServiceError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// syncPartitions handles POST /api/v1/admin/webhooks/sources/{name}/sync-partitions.
+//
+// @Summary      Resync a webhook source's raw partitions
+// @Description  Makes the raw table's partitions match the window directories in the bucket by listing every raw segment the source holds (sync_partition_metadata FULL). Retention keeps the partitions by name and never lists the bucket; this is the repair for when the two have drifted, a restore for one. On a busy source it lists every segment raw retention keeps and can take minutes.
+// @Tags         Webhooks
+// @Param        name  path  string  true  "Source name"
+// @Success      204
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      503  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/webhooks/sources/{name}/sync-partitions [post]
+func (h *handler) syncPartitions(w http.ResponseWriter, r *http.Request) {
+	err := h.cfg.Service.SyncPartitions(r.Context(), r.PathValue(nameParam))
+	switch {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, whadmin.ErrNotFound):
+		httpjson.WriteError(w, http.StatusNotFound, "webhook source not found")
+	case errors.Is(err, whtable.ErrNoScratchTarget), errors.Is(err, whtable.ErrReadOnly):
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+	default:
+		httpjson.WriteError(w, http.StatusServiceUnavailable, err.Error())
+	}
 }
 
 // writeServiceError maps the service's refusals to their status. A refusal's

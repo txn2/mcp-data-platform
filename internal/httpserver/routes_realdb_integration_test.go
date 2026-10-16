@@ -54,6 +54,7 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`^POST /api/v1/admin/(api-gateway|gateway)/connections/\{name\}/oauth-start$`), "connoauthapi legacy per-kind OAuth: the unified connection OAuth routes are registered instead"},
 	{regexp.MustCompile(`/calls/\{id\}/(promote|reject)$`), "callapi.Register: no call promoter"},
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/(tables|table-connections|(portal/assets|resources)/\{id\}/tables)`), "mountTableAPI: the table registrar needs a Trino connection and an object store; the test platform has neither"},
+	{regexp.MustCompile(`^(GET|POST) /api/v1/admin/tables/`), "mountTableAdmin: the table registrar needs a Trino connection and an object store; the test platform has neither"},
 }
 
 // TestEveryRouteReportsItsTemplate_RealDB is the gate for #1889: every
