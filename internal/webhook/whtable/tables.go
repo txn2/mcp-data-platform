@@ -163,6 +163,12 @@ func (t *Tables) createTable(tg Target, table, prefix, format string) string {
 // ViewStatement renders the view readers name. Each window is read from
 // exactly one side: the compacted table when the window's partition is
 // registered there, and the raw segments otherwise.
+//
+// The raw side keeps one event per event id in each window, the earliest
+// received and then the earliest landed, which is the event compaction keeps
+// (#2140). A window's raw files can hold an event more than once: a sender's
+// retry, and an object a release before this one merged segments into. Read
+// raw, the window answers what it will answer compacted.
 func ViewStatement(tg Target, src whsource.Source) string {
 	cols := make([]string, 0, len(whevent.Columns))
 	for _, c := range append(append([]string{}, whevent.Columns...), PartitionColumns...) {
@@ -170,10 +176,21 @@ func ViewStatement(tg Target, src whsource.Source) string {
 	}
 	list := strings.Join(cols, listSep)
 	partitions := quoteIdent(tg.Catalog) + nameSep + quoteIdent(tg.Schema) + nameSep + quoteIdent(src.CompactedTableName()+"$partitions")
+	first := `row_number() OVER (PARTITION BY "dt", "hour", "minute", "event_id" ORDER BY "received_at", "landed_at")`
 	return "CREATE OR REPLACE VIEW " + qualified(tg, src.TableName()) + " SECURITY INVOKER AS " +
 		"SELECT " + list + " FROM " + qualified(tg, src.CompactedTableName()) +
-		" UNION ALL SELECT " + list + " FROM " + qualified(tg, src.RawTableName()) + " r" +
-		" WHERE NOT EXISTS (SELECT 1 FROM " + partitions + " p WHERE p.\"dt\" = r.\"dt\" AND p.\"hour\" = r.\"hour\" AND p.\"minute\" = r.\"minute\")"
+		" UNION ALL SELECT " + list + " FROM (SELECT " + list + listSep + first + " AS \"first\" FROM " + qualified(tg, src.RawTableName()) + " r" +
+		" WHERE NOT EXISTS (SELECT 1 FROM " + partitions + " p WHERE p.\"dt\" = r.\"dt\" AND p.\"hour\" = r.\"hour\" AND p.\"minute\" = r.\"minute\"))" +
+		" WHERE \"first\" = 1"
+}
+
+// ReplaceView makes the source's view the one this release defines. The
+// statement is idempotent, so a view already current is rewritten unchanged.
+func (t *Tables) ReplaceView(ctx context.Context, tg Target, src whsource.Source) error {
+	if err := t.exec.Exec(ctx, tg.Connection, ViewStatement(tg, src)); err != nil {
+		return fmt.Errorf("replacing the view of webhook source %s: %w", src.Name, err)
+	}
+	return nil
 }
 
 // SyncRaw makes the raw table's partitions match the window directories that

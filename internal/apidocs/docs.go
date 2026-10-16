@@ -39857,7 +39857,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "segments_open_window": {
-                    "description": "SegmentsOpenWindow is how many segments were recorded against the\nsource's open window, and SegmentsPerWindowP95 the 95th percentile of\nthat count over the windows that started in the last day (#2132). Each\nis an object a reader of the window reads until a rollup merges it; a\ncount can exceed the segments written by one per replica.",
+                    "description": "SegmentsOpenWindow is how many segments were recorded against the\nsource's open window, and SegmentsPerWindowP95 the 95th percentile of\nthat count over the windows that started in the last day (#2132). Each\nis an object a reader of the window reads until the window is\ncompacted; a count can exceed the segments written by one per replica.",
                     "type": "integer",
                     "example": 412
                 },
@@ -39908,7 +39908,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "warnings": {
-                    "description": "Warnings is what a create or change answers with besides the source,\nwithout refusing it: a slow read of its partitions, which an uncached\nfile metastore causes (#2134), and settings under which the open window\nholds more segments between rollups than a reader should read (#2132).\nAbsent from a list or a read.",
+                    "description": "Warnings is what a create or change answers with besides the source,\nwithout refusing it: a slow read of its partitions, which an uncached\nfile metastore causes (#2134). Absent from a list or a read.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -40044,10 +40044,6 @@ const docTemplate = `{
                 },
                 "raw_retention_days": {
                     "description": "RawRetentionDays is how long a raw segment is kept once the window it\nbelongs to is compacted. A compacted window's events are all in its\nParquet file, and a recompaction reads that file rather than the\nsegments, so they are a safety margin and nothing else; every day kept\nis objects the raw table and retention list (#2134).",
-                    "type": "integer"
-                },
-                "rollup_every_minutes": {
-                    "description": "RollupEveryMinutes is how often the open window's segments are merged\ninto one object (#2132). A reader of the open window, which is every\nreader of recent events, reads one object per segment, and a busy\nsource writes thousands an hour; merged, it reads a handful.",
                     "type": "integer"
                 },
                 "split": {

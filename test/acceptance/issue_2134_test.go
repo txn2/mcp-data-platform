@@ -42,7 +42,4 @@ func TestIssue2134_ARawSegmentIsKeptADayAndTheSaveTimesThePartitionRead(t *testi
 	if cfg["raw_retention_days"] != float64(1) {
 		t.Fatalf("raw_retention_days = %v, not the default of 1", cfg["raw_retention_days"])
 	}
-	if cfg["rollup_every_minutes"] != float64(5) {
-		t.Fatalf("rollup_every_minutes = %v, not the default of 5", cfg["rollup_every_minutes"])
-	}
 }

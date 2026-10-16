@@ -80,7 +80,6 @@ The sender is then given `https://platform.example.com/hooks/email-events`.
 | `config.buffer_limit` | Events one replica holds in memory for the source before it answers `503`. Default 50,000. |
 | `config.rate_limit_per_minute`, `config.rate_limit_burst` | Optional. The limit is on the source, not on a client address, and each replica holds it for itself: with N replicas behind a load balancer, a sender can be admitted up to N times the rate and the burst. Size it as what one replica should take for this source, as `buffer_limit` is. |
 | `config.raw_retention_days` | How long a compacted window's raw segments are kept. Default 1 (7 before #2134). The segments are a safety margin only: a compacted window's events are all in its Parquet file, and a recompaction reads that file. Every day kept is objects the raw table and retention list. |
-| `config.rollup_every_minutes` | How often the open window's segments are merged into one object (#2132). Default 5; at least 1. See [The open window's rollup](#the-open-windows-rollup). The portal's source editor shows it as **Merge recent raw files every (minutes)**. |
 | `config.compacted_retention_days` | How long a compacted window is kept. Default 400; `0` keeps it forever. |
 | `config.index` | How search indexes each compacted window's file: `full`, `metadata` or `none`. Absent leaves it to the deployment's `resources.index` rules, which can match these files with `origin: [webhook]` ([Search indexing](configuration.md#search-indexing)). Applies from the next compaction on. The portal's source editor shows it as **Search**. |
 
@@ -289,40 +288,29 @@ minute it starts at:
 Every replica writes its own segments, named by itself, so replicas never
 coordinate on a write.
 
-### The open window's rollup
+### Reading the open window
 
 Until a window is compacted, a reader reads it from its raw segments, one
-object each, and a busy source writes thousands an hour: 70 events a second
-written every 200 ms by three replicas is about 3,700 segments an hour, and a
-count over one such hour took 130 s against 20 s for the same hour compacted.
-Every reader of recent events pays that, and pays more when the object store is
-slow (#2132).
+object each. A busy source writes thousands an hour (70 events a second written
+every 200 ms by three replicas is about 3,700 segments an hour), so a query
+over a recent window costs one object read per segment. A source whose readers
+feel that cost takes a shorter `compact_every_minutes`: each window is
+compacted sooner and holds fewer segments.
 
-So the open window is rolled up. Every `rollup_every_minutes` (default 5), one
-replica merges the segments written into the open window since the last rollup
-into one object in the same directory and format, `rollup-{time}.jsonl.gz`,
-which the raw table reads like any segment. A reader of the open window then
-reads one object per rollup plus the segments written since the last one: at
-most twelve rollups for an hour's window.
+The view keeps one event per event id in each window it reads from the raw
+side: the earliest received, then the earliest written, which is the event
+compaction keeps (#2140). A sender's retry is in the raw segments twice until
+compaction, and the view returns it once, so a window answers the same before
+and after it is compacted.
 
-The merged segments are not deleted at once. A query lists a directory and then
-reads what it listed, so a segment deleted between the two fails that query.
-They are deleted by a later pass, at least `webhooks.compactor.rollup_delete_delay`
-(default 2 minutes) after the rollup. Until then an event is in a segment and in
-the rollup, and the raw side returns it twice; the raw side already holds a
-sender's retries until compaction, which keeps one event per event id. A hidden
-`.rollup-{time}.keys` object beside each rollup lists what it merged; the query
-engine skips names beginning with `.` and compaction skips it by name.
-
-Only the open window is rolled up: a window that has ended is compaction's. A
-window that closes before a rollup's segments could be deleted is not rolled up
-at all, since the rollup would add an object and a second copy of every event
-and remove nothing: with the defaults, a `compact_every_minutes` of 2 or less
-is never rolled up, and needs none. One
-replica rolls a window up at a time, through a short claim on the window's
-record that holds back its compaction no longer than a minute.
-`webhooks.compactor.rollup_check_every` (default 1 minute) is how often the
-open windows are looked at.
+Raw segments are never deleted while their window is open. A query lists a
+window's directory and then reads what it listed, so a file deleted between
+the two fails the query. v1.146.1 merged the open window's segments into one
+object and deleted them afterwards (#2132), which failed queries that listed
+them and, until the delete, returned each merged event twice; that merge is
+gone. The objects it wrote stay until the window's raw files are released, the
+view reads each event in them once, and the hidden `.rollup-{time}.keys` list
+beside each is skipped by the query engine and by compaction.
 
 ### Compaction
 
@@ -592,20 +580,17 @@ fail. The counts are kept for 48 hours, like the request counts.
 `segments_open_window` is how many segments were recorded against the source's
 open window, and `segments_per_window_p95` the 95th percentile of that count
 over the windows that started in the last day (#2132): the objects a reader of
-a window reads before a rollup merges them, which is the read cost to watch
-before readers time out. A receiver records its first write of a window twice,
+a window reads before it is compacted, which is the read cost to watch before
+readers time out. A receiver records its first write of a window twice,
 so a count can exceed the segments written by one per replica. The source's
 own `GET /api/v1/admin/webhooks/sources/{name}` carries both in its `status`.
 
 A create or a change of a source is answered with the source and, when there
-is something to say, `warnings` (#2132, #2134): the read of the raw table's
+is something to say, `warnings` (#2134): the read of the raw table's
 partitions the save makes took 5 seconds or more, which an uncached file
 metastore causes ([Scratch Catalog](scratch-catalog.md#the-catalog)), or
 failed (the save waits at most 15 seconds for it and reports a read still
-running then as slow); or the settings imply more than 1,000 segments between two rollups of
-the open window (`rollup_every_minutes` over `flush_max_interval_ms`, times the
-replicas whose spool reported in the last two minutes, at least one). A
-warning never refuses the save. The portal shows them as **Saved, with
+running then as slow). A warning never refuses the save. The portal shows them as **Saved, with
 warnings** before it opens the source.
 
 ## The source's page
@@ -649,9 +634,11 @@ webhooks:
     batch: 4
     retry_backoff: 1m
     retention_every: 10m
-    rollup_check_every: 1m   # how often the open windows are looked at for a rollup (#2132)
-    rollup_delete_delay: 2m  # least time between a rollup and deleting what it merged
 ```
+
+`compactor.rollup_check_every` and `compactor.rollup_delete_delay` paced the
+v1.146.1 merge of the open window (#2140). A configuration that sets them still
+starts; each is logged as `deprecated_key` and does nothing. Remove them.
 
 Every source is served on one port and routed by path, so a deployment needs one
 Ingress rule for all of them. A sender whose configured URL cannot change is

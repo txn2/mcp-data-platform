@@ -343,21 +343,6 @@ func TestCollapseRejections(t *testing.T) {
 	assert.Equal(t, int64(4), pre[0].Count, "a run handed in keeps its count")
 }
 
-// TestRollupClaimFailures: a refused statement and an unreadable count are
-// both errors, never a claim.
-func TestRollupClaimFailures(t *testing.T) {
-	st, mock := newMock(t)
-	mock.ExpectExec(`SET claimed_until`).WillReturnError(errors.New("down"))
-	claimed, err := st.ClaimRollup(context.Background(), "esp", time.Now(), time.Minute)
-	require.Error(t, err)
-	assert.False(t, claimed)
-
-	mock.ExpectExec(`SET claimed_until`).WillReturnResult(sqlmock.NewErrorResult(errors.New("no count")))
-	claimed, err = st.ClaimRollup(context.Background(), "esp", time.Now(), time.Minute)
-	require.Error(t, err)
-	assert.False(t, claimed)
-}
-
 // TestRawRegistrable reads the windows holding raw segments written since a
 // time, by source.
 func TestRawRegistrable(t *testing.T) {

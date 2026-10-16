@@ -43,8 +43,6 @@ type fakeWindows struct {
 	pruned   bool
 	// expiredBefore is the cutoff the last DeleteExpired was given.
 	expiredBefore time.Time
-	// held makes every rollup claim lose, as another replica's would.
-	held bool
 }
 
 type windowRow struct {
@@ -169,21 +167,6 @@ func (f *fakeWindows) RawRegistrable(_ context.Context, source string, since tim
 	return out, nil
 }
 
-// ClaimRollup claims a window that has a row and no live claim, the way the
-// store does; claimed records the claims, held makes every claim lose.
-func (f *fakeWindows) ClaimRollup(_ context.Context, source string, start time.Time, _ time.Duration) (bool, error) {
-	if err := f.err["claimrollup"]; err != nil {
-		return false, err
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.held {
-		return false, nil
-	}
-	_, ok := f.rows[source+start.String()]
-	return ok, nil
-}
-
 func (f *fakeWindows) MarkRawDeleted(_ context.Context, h whstore.Window) error {
 	if err := f.err["rawdeleted"]; err != nil {
 		return err
@@ -286,17 +269,6 @@ func (f *fakeObjects) DeleteObject(_ context.Context, _, key string) error {
 	return nil
 }
 
-func (f *fakeObjects) PutObject(_ context.Context, _, key string, data []byte, _ string) error {
-	if err := f.err["put"]; err != nil {
-		return err
-	}
-	if err := f.err["putmanifest"]; err != nil && strings.Contains(key, "/.rollup-") {
-		return err
-	}
-	f.put(key, data)
-	return nil
-}
-
 func (f *fakeObjects) put(key string, data []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -307,7 +279,9 @@ type fakeTables struct {
 	registered map[string]string
 	// raw is the raw partitions registered, by source and window start.
 	raw map[string]bool
-	err map[string]error
+	// views is the sources whose view was rewritten, in order.
+	views []string
+	err   map[string]error
 }
 
 func newTables() *fakeTables {
@@ -352,6 +326,15 @@ func (f *fakeTables) UnregisterRawWindow(_ context.Context, _ whtable.Target, sr
 		return err
 	}
 	delete(f.raw, src.Name+h.String())
+	return nil
+}
+
+// ReplaceView records each source whose view was rewritten.
+func (f *fakeTables) ReplaceView(_ context.Context, _ whtable.Target, src whsource.Source) error {
+	if err := f.err["view"]; err != nil {
+		return err
+	}
+	f.views = append(f.views, src.Name)
 	return nil
 }
 

@@ -1790,8 +1790,6 @@ webhooks:
     retry_backoff: 1m
     retention_every: 10m
     expired_window_retention_days: 90
-    rollup_check_every: 1m
-    rollup_delete_delay: 2m
 ```
 
 | Field | Type | Default | Description |
@@ -1809,8 +1807,7 @@ webhooks:
 | `compactor.batch` | int | `4` | Windows one pass claims. |
 | `compactor.retry_backoff` | duration | `1m` | How long a failed window is held back, times its attempts, at most an hour. |
 | `compactor.retention_every` | duration | `10m` | How often retention runs. |
-| `compactor.rollup_check_every` | duration | `1m` | How often the open windows are looked at for a rollup of their raw segments (#2132). See [Inbound Webhooks](webhooks.md#the-open-windows-rollup). |
-| `compactor.rollup_delete_delay` | duration | `2m` | The least time between a rollup and the deletion of the segments it merged, so a query that listed them first still reads them. |
+| `compactor.rollup_check_every`, `compactor.rollup_delete_delay` | duration | none | Not read (#2140). They paced the v1.146.1 merge of the open window, which is gone; a configuration that sets them still starts and logs `deprecated_key`. See [Inbound Webhooks](webhooks.md#reading-the-open-window). |
 | `compactor.expired_window_retention_days` | int | `90` | How long the record of an expired window is kept once its partition, file and raw segments are gone. `0` uses the default; a negative value keeps them for as long as their source exists. |
 
 A negative value for any of the durations, `batch` and `spool.max_bytes` is refused at startup, and so is a spool directory that cannot be opened. A source's table needs

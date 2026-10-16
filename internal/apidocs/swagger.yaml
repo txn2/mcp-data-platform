@@ -12326,8 +12326,8 @@ definitions:
           SegmentsOpenWindow is how many segments were recorded against the
           source's open window, and SegmentsPerWindowP95 the 95th percentile of
           that count over the windows that started in the last day (#2132). Each
-          is an object a reader of the window reads until a rollup merges it; a
-          count can exceed the segments written by one per replica.
+          is an object a reader of the window reads until the window is
+          compacted; a count can exceed the segments written by one per replica.
         example: 412
         type: integer
       segments_per_window_p95:
@@ -12368,9 +12368,7 @@ definitions:
         description: |-
           Warnings is what a create or change answers with besides the source,
           without refusing it: a slow read of its partitions, which an uncached
-          file metastore causes (#2134), and settings under which the open window
-          holds more segments between rollups than a reader should read (#2132).
-          Absent from a list or a read.
+          file metastore causes (#2134). Absent from a list or a read.
         items:
           type: string
         type: array
@@ -12496,13 +12494,6 @@ definitions:
           Parquet file, and a recompaction reads that file rather than the
           segments, so they are a safety margin and nothing else; every day kept
           is objects the raw table and retention list (#2134).
-        type: integer
-      rollup_every_minutes:
-        description: |-
-          RollupEveryMinutes is how often the open window's segments are merged
-          into one object (#2132). A reader of the open window, which is every
-          reader of recent events, reads one object per segment, and a busy
-          source writes thousands an hour; merged, it reads a handful.
         type: integer
       split:
         type: string

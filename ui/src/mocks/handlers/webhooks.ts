@@ -55,7 +55,7 @@ export const webhookHandlers = [
       path: `/hooks/${name}`,
       table: `webhook_${name.replace(/-/g, "_")}`,
       auth: { ...body.auth, secret: undefined, secret_set: true } as WebhookSource["auth"],
-      config: { raw_retention_days: 1, rollup_every_minutes: 5, compacted_retention_days: 400, ...body.config },
+      config: { raw_retention_days: 1, compacted_retention_days: 400, ...body.config },
       created_by: "admin@example.com",
       created_at: now,
       updated_at: now,
@@ -97,7 +97,7 @@ export const webhookHandlers = [
       updated_at: new Date().toISOString(),
     };
     sources[i] = next;
-    return HttpResponse.json({ ...next, ...mockWarnings(next) });
+    return HttpResponse.json(next);
   }),
 
   http.post(`${ADMIN_BASE}/webhooks/sources/:name/sync-partitions`, ({ params }) => {
@@ -112,17 +112,3 @@ export const webhookHandlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 ];
-
-/** mockWarnings is the platform's segment estimate (#2132) for one replica:
- * a write every flush interval, between two rollups. */
-function mockWarnings(s: WebhookSource): { warnings?: string[] } {
-  const interval = s.config.flush_max_interval_ms ?? 1000;
-  const every = s.config.rollup_every_minutes ?? 5;
-  const implied = Math.floor((every * 60_000) / interval);
-  if (implied <= 1000) return {};
-  return {
-    warnings: [
-      `with flush_max_interval_ms ${interval} on 1 receiving replica, a busy source writes up to ${implied} segments between rollups of its open window (rollup_every_minutes ${every}), and a reader of recent events reads each one; raise flush_max_interval_ms or lower rollup_every_minutes`,
-    ],
-  };
-}

@@ -77,8 +77,26 @@ func TestCreate(t *testing.T) {
 	assert.Contains(t, f.stmts[3], `CREATE OR REPLACE VIEW "scratch_resources"."uploads"."webhook_crm_contacts" SECURITY INVOKER AS`)
 	assert.Contains(t, f.stmts[3], `FROM "scratch_resources"."uploads"."webhook_crm_contacts_compacted$partitions" p WHERE p."dt" = r."dt" AND p."hour" = r."hour" AND p."minute" = r."minute"`)
 
+	assert.Contains(t, f.stmts[3], `row_number() OVER (PARTITION BY "dt", "hour", "minute", "event_id" ORDER BY "received_at", "landed_at") AS "first" FROM "scratch_resources"."uploads"."webhook_crm_contacts_raw" r`)
+	assert.True(t, strings.HasSuffix(f.stmts[3], `) WHERE "first" = 1`), f.stmts[3])
+
 	f = &fakeExec{failOn: "VIEW", failWith: errors.New("no")}
 	assert.Error(t, New(f, "b").Create(ctx, tg, src))
+}
+
+// TestReplaceView rewrites the view alone, the statement Create ends with, so
+// a source created by an earlier release reads its raw side deduplicated
+// (#2140).
+func TestReplaceView(t *testing.T) {
+	f := &fakeExec{}
+	require.NoError(t, New(f, "managed-resources").ReplaceView(ctx, tg, src))
+	require.Len(t, f.stmts, 1)
+	assert.Equal(t, ViewStatement(tg, src), f.stmts[0])
+
+	f = &fakeExec{failOn: "VIEW", failWith: errors.New("no")}
+	err := New(f, "b").ReplaceView(ctx, tg, src)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "replacing the view of webhook source crm-contacts")
 }
 
 func TestDrop(t *testing.T) {

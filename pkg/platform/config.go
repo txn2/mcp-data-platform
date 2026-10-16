@@ -1838,6 +1838,7 @@ func loadConfigWithRegistry(data []byte, reg *versionRegistry) (*Config, error) 
 // applyDefaults applies default values to the config.
 func applyDefaults(cfg *Config) {
 	applyEnrichmentCompat(cfg)
+	warnRetiredWebhookKeys(cfg)
 	applyServerDefaults(cfg)
 	applyServiceDefaults(cfg)
 	applySessionDedupDefaults(cfg)
@@ -1847,6 +1848,17 @@ func applyDefaults(cfg *Config) {
 	applyResourceDefaults(cfg)
 	applyElicitationDefaults(cfg)
 	applySessionGateDefaults(cfg)
+}
+
+// warnRetiredWebhookKeys logs the webhook settings set in the configuration
+// that nothing reads any more (#2140), so an operator removes them; the
+// configuration still starts.
+func warnRetiredWebhookKeys(cfg *Config) {
+	if keys := cfg.Webhooks.RetiredKeys(); len(keys) > 0 {
+		configwarn.Warn(context.Background(), configwarn.CodeDeprecatedKey,
+			"webhook settings no longer read: the open window is no longer rolled up, so these do nothing; remove them",
+			"settings", keys)
+	}
 }
 
 // applyEnrichmentCompat folds the deprecated "injection" config key onto the
