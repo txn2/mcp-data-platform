@@ -27,6 +27,8 @@ type fakeReader struct {
 	lastQuery   catalog.DatasetQuery
 	err         error
 	pathErr     error
+	lineageErr  error
+	lineageAsks int
 }
 
 func (f *fakeReader) GetDataset(_ context.Context, ref catalog.Ref) (*catalog.Dataset, error) {
@@ -72,6 +74,10 @@ func (f *fakeReader) SearchDatasets(_ context.Context, q catalog.DatasetQuery) (
 }
 
 func (f *fakeReader) Lineage(context.Context, string, catalog.Direction, int) ([]catalog.Hop, error) {
+	f.lineageAsks++
+	if f.lineageErr != nil {
+		return nil, f.lineageErr
+	}
 	return f.hops, f.err
 }
 

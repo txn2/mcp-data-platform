@@ -87,3 +87,65 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("fallback")).toBeInTheDocument();
   });
 });
+
+describe("ErrorBoundary reloadOnChunkError", () => {
+  let consoleErr: ReturnType<typeof vi.spyOn>;
+  const reload = vi.fn();
+  const location = window.location;
+  beforeEach(() => {
+    consoleErr = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      sessionStorage.clear();
+    } catch {
+      // storage disabled in this environment
+    }
+    reload.mockClear();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...location, reload } });
+  });
+  afterEach(() => {
+    consoleErr.mockRestore();
+    Object.defineProperty(window, "location", { configurable: true, value: location });
+  });
+
+  // A page from one build asking a replica on the other build for its chunk
+  // (#2139): the portal reloads once by itself.
+  it("reloads once when a lazy chunk does not load", async () => {
+    const Missing = lazy(() =>
+      Promise.reject(new TypeError("Failed to fetch dynamically imported module: /portal/assets/X-abc.js")),
+    );
+    render(
+      <ErrorBoundary fallback={<p>could not load</p>} reloadOnChunkError>
+        <Suspense fallback={<p>loading</p>}>
+          <Missing />
+        </Suspense>
+      </ErrorBoundary>,
+    );
+    await waitFor(() => expect(screen.getByText("could not load")).toBeInTheDocument());
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reload for a render error", () => {
+    render(
+      <ErrorBoundary fallback={<p>fallback</p>} reloadOnChunkError>
+        <Boom />
+      </ErrorBoundary>,
+    );
+    expect(screen.getByText("fallback")).toBeInTheDocument();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("does not reload unless asked to", async () => {
+    const Missing = lazy(() =>
+      Promise.reject(new TypeError("Failed to fetch dynamically imported module: /portal/assets/X-abc.js")),
+    );
+    render(
+      <ErrorBoundary fallback={<p>could not load</p>}>
+        <Suspense fallback={<p>loading</p>}>
+          <Missing />
+        </Suspense>
+      </ErrorBoundary>,
+    );
+    await waitFor(() => expect(screen.getByText("could not load")).toBeInTheDocument());
+    expect(reload).not.toHaveBeenCalled();
+  });
+});

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { reloadOnceForChunkError } from "@/lib/chunkReload";
 
 interface Props {
   children: ReactNode;
@@ -10,6 +11,12 @@ interface Props {
    * error instead of pinning it there until a reload.
    */
   resetKey?: string;
+  /**
+   * Reload the page once, on its own, when the failure is a code chunk that
+   * did not load (#2139). The portal sets it; the fallback still shows if the
+   * reloaded page fails the same way.
+   */
+  reloadOnChunkError?: boolean;
 }
 
 interface State {
@@ -50,6 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
     // Left visible in the console on purpose: the fallback tells the reader
     // what to do, and this is what tells whoever they report it to what broke.
     console.error("render failed", error, info.componentStack);
+    if (this.props.reloadOnChunkError) reloadOnceForChunkError(error);
   }
 
   render() {

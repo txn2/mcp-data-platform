@@ -172,6 +172,36 @@ Lineage edges are recorded when the platform moves data:
 Each edge records what wrote it: the audited call, the script, or the
 registration. The semantic layer's lineage walk reads them.
 
+### Inherited column curation
+
+A column with no description or no glossary terms of its own shows the
+same-named column's from the nearest upstream dataset that has them, up to two
+hops up its lineage (#2130). Columns match by name, ignoring case; the catalog's
+lineage is between datasets, not columns. A column keeps whatever curation it
+has and borrows only what it lacks, and tags are never borrowed, since a tag
+such as `pii` says something about the column itself. An upstream dataset on a
+connection the caller's persona does not reach lends nothing.
+
+Inherited curation reaches an agent in the column context of a Trino result,
+marked with where it came from:
+
+```json
+"column_context": {
+  "email": {
+    "description": "Where the customer is contacted.",
+    "inherited_from": {
+      "source_dataset": "mcp:dataset:(trino,warehouse,pg.crm.customers)",
+      "source_column": "email", "hops": 1, "match_method": "name_exact"
+    }
+  }
+},
+"inheritance_sources": ["mcp:dataset:(trino,warehouse,pg.crm.customers)"]
+```
+
+It is never written to the downstream column, so curating the upstream column
+changes what every downstream column shows. `enrichment.lineage_inheritance:
+false` turns it off.
+
 ## The portal catalog
 
 The portal's **Knowledge > Catalog** section is where people read and curate
@@ -277,6 +307,13 @@ logged once at startup as `deprecated_key`: `semantic.provider: datahub`,
 `enrichment.schema_preview_max_columns` and
 `knowledge.apply.datahub_connection`. Remove them once the import has finished:
 the next release refuses them.
+
+Lineage inheritance carries over without its settings (#2130). Through v1.145,
+`semantic.lineage` let a column with no curation of its own show its upstream
+column's along DataHub lineage. The platform catalog does the same along its own
+lineage, which the import carries over, and it is on by default; the
+`semantic.lineage` settings themselves are not read. See
+[Inherited column curation](#inherited-column-curation).
 
 ### What the import carries over
 

@@ -39,6 +39,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
    go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
    go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+   go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.5.1
    ```
 
    The portal under `ui/` runs on the Node major in `ui/.nvmrc`, which CI's

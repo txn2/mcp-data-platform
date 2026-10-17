@@ -870,6 +870,11 @@ lists:
 - **Tables reading somewhere else**: a registration whose table reads another
   location. Shown, never repaired.
 
+A managed table, one with no external location such as the working tables a
+managed script creates with `trino_execute`, is in none of the lists (#2141).
+A registration is always an external table over a stored file, so a managed
+table is never one, and a repair never drops it.
+
 **Repair selected** proves each choice again as it is made and lists the ones
 that could not be made with the reason. The routes behind it are on the
 [Admin API](admin-api.md#table-registration-endpoints).

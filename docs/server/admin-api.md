@@ -2101,7 +2101,10 @@ exists. `missing` are registrations whose table is gone; a webhook source's is
 not `provable`, because its table is removed with the source. `drifted` are
 registrations whose table reads somewhere other than the registration says,
 reported and never repaired. A webhook source's own raw and compacted tables
-are none of these. `truncated` means the schema held more than 50,000 tables,
+are none of these, and neither is a managed table (one with no external
+location, such as a managed script's working table, #2141): a registration is
+always an external table over a stored file, so a managed table is never one
+and a repair refuses to drop it. `truncated` means the schema held more than 50,000 tables,
 so `orphans` is partial and nothing is reported missing. A connection with no
 scratch target is `400`.
 

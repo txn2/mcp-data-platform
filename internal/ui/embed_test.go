@@ -115,3 +115,36 @@ func TestSPAHandler_NestedUnknownRoute_Fallback(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "<html>SPA</html>")
 }
+
+// A hashed build file the embedded build does not have answers 404, never
+// index.html: during a rolling update a page from one build asks a replica on
+// the other build for its files, and HTML under a stylesheet's or a chunk's
+// URL breaks the page and can be cached as that file (#2139).
+func TestSPAHandler_MissingAsset_Returns404(t *testing.T) {
+	h := newSPAHandler(testFS())
+
+	for _, path := range []string{"/assets/index-DOESNOTEXIST.css", "/assets/AutomationsPage-DOESNOTEXIST.js", "/assets/nested/missing.js"} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, http.NoBody)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusNotFound, rec.Code, path)
+		assert.NotContains(t, rec.Body.String(), "<html>SPA</html>", path)
+	}
+}
+
+// index.html names the current build's hashed files, so it is never served
+// from a cache: a reload always picks up the file names this build has (#2139).
+func TestSPAHandler_IndexHTML_NoCache(t *testing.T) {
+	h := newSPAHandler(testFS())
+
+	for _, path := range []string{"/", "/automations/abc/runs/def", "/assets-overview"} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, http.NoBody)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code, path)
+		assert.Contains(t, rec.Body.String(), "<html>SPA</html>", path)
+		assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"), path)
+	}
+}

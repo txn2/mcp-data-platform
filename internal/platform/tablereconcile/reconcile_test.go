@@ -228,6 +228,28 @@ func TestReconcile(t *testing.T) {
 	assert.Equal(t, "s3://portal-assets/elsewhere/", got.Drifted[0].Location)
 }
 
+// TestReconcileLeavesManagedTablesAlone: a table with no external location is
+// a managed table, which a registration never is (a registration is an
+// external table over a stored file), so it is not an orphan. A managed
+// script's working tables are the case (#2141).
+func TestReconcileLeavesManagedTablesAlone(t *testing.T) {
+	r := newRig()
+	r.engine.tables["ht_art_culture_batches"] = ""
+	r.engine.tables["by_hand"] = "s3://somebody/else/"
+
+	got, err := r.rec.Reconcile(ctx, "scratch")
+	require.NoError(t, err)
+	require.Len(t, got.Orphans, 1, "a managed table is not an orphan: %v", got.Orphans)
+	assert.Equal(t, "by_hand", got.Orphans[0].Table)
+
+	out, err := r.rec.Repair(ctx, tableregister.Caller{}, "scratch",
+		[]RepairItem{{Action: ActionDrop, Table: "ht_art_culture_batches"}})
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	assert.False(t, out[0].Done, "a managed table is never dropped by a repair")
+	assert.Contains(t, r.engine.tables, "ht_art_culture_batches")
+}
+
 // TestReconcileCutListing: a listing cut short reports no registration as
 // missing, since its table may be past the cut, and empty groups are lists.
 func TestReconcileCutListing(t *testing.T) {

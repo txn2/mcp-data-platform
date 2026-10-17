@@ -73,11 +73,13 @@ func TestToolPinsAgree(t *testing.T) {
 	gosecPin := makefileVar(t, makefile, "GOSEC_VERSION")
 	gremlinsPin := makefileVar(t, makefile, "GREMLINS_VERSION")
 	govulncheckPin := makefileVar(t, makefile, "GOVULNCHECK_VERSION")
+	osvPin := makefileVar(t, makefile, "OSV_SCANNER_VERSION")
 
 	golangciInstall := `golangci-lint/v2/cmd/golangci-lint@(v[0-9.]+)`
 	gosecInstall := `gosec/v2/cmd/gosec@(v[0-9.]+)`
 	gremlinsInstall := `gremlins/cmd/gremlins@(v[0-9.]+)`
 	govulncheckInstall := `golang.org/x/vuln/cmd/govulncheck@(v[0-9.]+)`
+	osvInstall := `osv-scanner/v2/cmd/osv-scanner@(v[0-9.]+)`
 
 	cases := []struct {
 		what    string
@@ -95,6 +97,8 @@ func TestToolPinsAgree(t *testing.T) {
 		{"mutation.yml gremlins install", mutation, gremlinsInstall, gremlinsPin},
 		{"CONTRIBUTING.md govulncheck install", contributing, govulncheckInstall, govulncheckPin},
 		{"ci.yml govulncheck install", ci, govulncheckInstall, govulncheckPin},
+		{"CONTRIBUTING.md osv-scanner install", contributing, osvInstall, osvPin},
+		{"ci.yml osv-scanner install", ci, osvInstall, osvPin},
 	}
 	for _, c := range cases {
 		for _, got := range allSubmatches(c.text, c.pattern) {

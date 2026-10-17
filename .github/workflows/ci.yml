@@ -276,6 +276,13 @@ jobs:
           fi
           python3 scripts/govulncheck-gate.py govulncheck-report.json
 
+      # The same target `make security` ends with, so an advisory govulncheck's
+      # database does not carry (#2143) fails CI as it fails a local verify.
+      - name: Run osv-scanner
+        run: |
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.5.1  # OSV_SCANNER_VERSION in the Makefile
+          make osv
+
       - name: Run Semgrep
         uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1
         with:

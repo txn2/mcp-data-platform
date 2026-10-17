@@ -14,6 +14,15 @@ updates:
         patterns:
           - "github.com/mark3labs/mcp-go*"
 
+  - package-ecosystem: npm
+    directory: /ui
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps(ui):"
+    labels:
+      - dependencies
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

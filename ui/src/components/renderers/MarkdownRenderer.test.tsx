@@ -80,6 +80,40 @@ describe("sanitizeMermaidSvg", () => {
     expect(out.toLowerCase()).not.toContain("<iframe");
     expect(out).toContain("safe");
   });
+
+  // A node label written as $$...$$ is rendered by mermaid with KaTeX as
+  // MathML inside the label's foreignObject (#2144).
+  const mathLabel = (inner: string) =>
+    `<svg><foreignObject><div xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><span class="katex"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow>${inner}</mrow><annotation encoding="application/x-tex">\\sqrt{x^2+y^2}</annotation></semantics></math></span></span></div></foreignObject></svg>`;
+
+  it("keeps the MathML KaTeX renders a math label as", () => {
+    const out = sanitizeMermaidSvg(
+      mathLabel("<msqrt><mrow><msup><mi>x</mi><mn>2</mn></msup><mo>+</mo><msup><mi>y</mi><mn>2</mn></msup></mrow></msqrt>"),
+    );
+    expect(out).toContain("<math");
+    expect(out).toContain("<msqrt>");
+    expect(out).toContain("<mi>x</mi>");
+    expect(out).toContain("<mn>2</mn>");
+    expect(out).toContain("<mo>+</mo>");
+  });
+
+  it("strips a <script> and an event handler smuggled inside a math label", () => {
+    const out = sanitizeMermaidSvg(
+      mathLabel(`<mi onclick="window.__pwned=1">x</mi><script>window.__pwned=1</script><mtext>safe</mtext>`),
+    );
+    expect(out).not.toContain("__pwned");
+    expect(out.toLowerCase()).not.toContain("<script");
+    expect(out.toLowerCase()).not.toContain("onclick");
+    expect(out).toContain("<mtext>safe</mtext>");
+  });
+
+  it("strips a link on a MathML element", () => {
+    const out = sanitizeMermaidSvg(
+      mathLabel(`<mi href="javascript:alert(1)" xlink:href="javascript:alert(1)">x</mi>`),
+    );
+    expect(out.toLowerCase()).not.toContain("javascript:");
+    expect(out).toContain(">x</mi>");
+  });
 });
 
 import { render } from "@testing-library/react";

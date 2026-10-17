@@ -1374,6 +1374,32 @@ enrichment:
 	})
 }
 
+// Lineage inheritance is on unless a deployment turns it off (#2130).
+func TestEnrichmentConfig_IsLineageInheritanceEnabled(t *testing.T) {
+	off, on := false, true
+	for _, tc := range []struct {
+		name string
+		set  *bool
+		want bool
+	}{{"nil defaults to true", nil, true}, {"explicit true", &on, true}, {"explicit false", &off, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &EnrichmentConfig{LineageInheritance: tc.set}
+			if got := cfg.IsLineageInheritanceEnabled(); got != tc.want {
+				t.Errorf("IsLineageInheritanceEnabled() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+enrichment:
+  lineage_inheritance: false
+`)
+	if cfg.Enrichment.IsLineageInheritanceEnabled() {
+		t.Error("expected lineage_inheritance: false to turn inheritance off")
+	}
+}
+
 func TestEnrichmentConfig_IsColumnContextFilteringEnabled(t *testing.T) {
 	t.Run("nil defaults to true", func(t *testing.T) {
 		cfg := &EnrichmentConfig{}

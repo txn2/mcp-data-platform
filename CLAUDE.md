@@ -420,6 +420,7 @@ enrichment:
   trino_semantic_enrichment: true
   unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON results (default: true)
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
+  lineage_inheritance: true        # Issue #2130: columns borrow upstream curation along catalog lineage (default: true)
   semantic_fallback: false         # Issue #444: fall back to similarity search on a lookup miss (default: false)
   semantic_fallback_top_k: 1       # Suggested matches per miss (default: 1, clamped to [1,10])
 ```
