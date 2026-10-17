@@ -369,7 +369,10 @@ mod-verify:
 ## security: Run security checks (gosec + govulncheck + osv-scanner)
 security:
 	@echo "Running gosec..."
-	gosec -quiet ./...
+	@# GOOS=linux reads the code with the types CI's Linux runner sees: a
+	@# field typed differently by platform (syscall.Statfs_t.Bsize is int64 on
+	@# Linux, uint32 on darwin) is otherwise judged locally on darwin's.
+	GOOS=linux gosec -quiet ./...
 	@echo "Running govulncheck..."
 	@# govulncheck exits 3 when our code calls a vulnerable symbol, whether or
 	@# not a fixed version exists, and has no way to accept a finding. The gate

@@ -21,6 +21,11 @@ func VolumeOf(dir string) (Volume, error) {
 	if err := syscall.Statfs(dir, &st); err != nil {
 		return Volume{}, fmt.Errorf("reading the spool volume: %w", err)
 	}
-	bsize := uint64(st.Bsize) //nolint:gosec,unconvert // a block size is positive; its type differs by platform
+	// Bsize is int64 on Linux and uint32 on darwin; a filesystem reporting a
+	// block size of zero or less has no size to compute.
+	if st.Bsize <= 0 {
+		return Volume{}, fmt.Errorf("reading the spool volume: block size %d", st.Bsize)
+	}
+	bsize := uint64(st.Bsize)
 	return Volume{Total: st.Blocks * bsize, Free: st.Bavail * bsize}, nil
 }
