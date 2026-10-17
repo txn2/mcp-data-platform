@@ -1,6 +1,7 @@
 package whadmin
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"sort"
@@ -65,11 +66,25 @@ type SourceOverview struct {
 type Overview struct {
 	Now        time.Time
 	Since      time.Time
+	Until      time.Time
 	Step       time.Duration
 	Sources    []SourceOverview
 	Volume     []whstore.VolumePoint
 	Rejections []whstore.Rejection
 	Spools     []SpoolOverview
+	// Telemetry is the history charted over the span (#2150), and
+	// MemoryLimit the memory this replica may use, zero when it has no
+	// limit, which the largest window is set against.
+	Telemetry   whstore.Telemetry
+	MemoryLimit int64
+}
+
+// Span is the stretch of time an overview's series covers: the last Back
+// before now, or From until Until when Back is zero; in buckets of Step.
+type Span struct {
+	Back        time.Duration
+	From, Until time.Time
+	Step        time.Duration
 }
 
 // SpoolStale is how long a receiver may go without reporting its spool before
@@ -90,43 +105,84 @@ type SpoolOverview struct {
 // its health; the request series over span before now in buckets of step;
 // and the newest rejections within that span. A source named that does not
 // exist is ErrNotFound.
-func (s *Service) Overview(ctx context.Context, source string, span, step time.Duration) (Overview, error) {
-	list, err := s.List(ctx)
+func (s *Service) Overview(ctx context.Context, source string, span Span) (Overview, error) {
+	list, err := s.sourcesNamed(ctx, source)
 	if err != nil {
 		return Overview{}, err
 	}
-	if source != "" {
-		list = only(list, source)
-		if len(list) == 0 {
-			return Overview{}, ErrNotFound
-		}
-	}
 	now := s.deps.Now().UTC()
-	ov, err := s.deps.Windows.Overview(ctx, source, now, span, step)
+	ov, err := s.deps.Windows.Overview(ctx, source, now, span.at(now))
 	if err != nil {
 		return Overview{}, fmt.Errorf("reading webhook overview: %w", err)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 	out := Overview{
-		Now: now, Since: ov.Since, Step: step,
-		Sources:    make([]SourceOverview, 0, len(list)),
+		Now: now, Since: ov.Since, Until: cmp.Or(ov.Until, now), Step: span.Step,
+		Sources:    sourceOverviews(list, ov.Summaries, now),
 		Volume:     nonNil(ov.Volume),
 		Rejections: nonNil(ov.Rejections),
+		Telemetry:  ov.Telemetry,
 	}
+	if s.deps.MemoryLimit != nil {
+		out.MemoryLimit = s.deps.MemoryLimit()
+	}
+	if out.Spools, err = s.spoolOverviews(ctx, now); err != nil {
+		return Overview{}, err
+	}
+	return out, nil
+}
+
+// sourcesNamed is every source, or the source named when source is not
+// empty; a source named that does not exist is ErrNotFound.
+func (s *Service) sourcesNamed(ctx context.Context, source string) ([]whsource.Source, error) {
+	list, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if source == "" {
+		return list, nil
+	}
+	list = only(list, source)
+	if len(list) == 0 {
+		return nil, ErrNotFound
+	}
+	return list, nil
+}
+
+// at is the span as the store reads it at now. A span back from now has no
+// upper bound, so a row written by another replica a moment after now is not
+// left out.
+func (sp Span) at(now time.Time) whstore.Span {
+	if sp.Back > 0 {
+		return whstore.Span{Since: now.Add(-sp.Back), Step: sp.Step}
+	}
+	return whstore.Span{Since: sp.From, Until: sp.Until, Step: sp.Step}
+}
+
+// sourceOverviews is each source of list with its summary and health at now;
+// a source with no summary has empty counts.
+func sourceOverviews(list []whsource.Source, summaries map[string]whstore.Summary, now time.Time) []SourceOverview {
+	out := make([]SourceOverview, 0, len(list))
 	for _, src := range list {
-		sum, ok := ov.Summaries[src.Name]
+		sum, ok := summaries[src.Name]
 		if !ok {
 			sum = whstore.Summary{LastHour: map[string]int64{}, LastDay: map[string]int64{}}
 		}
-		out.Sources = append(out.Sources, SourceOverview{Source: src, Health: HealthOf(src, sum, now), Summary: sum})
+		out = append(out, SourceOverview{Source: src, Health: HealthOf(src, sum, now), Summary: sum})
 	}
+	return out
+}
+
+// spoolOverviews is every receiver's spool, each marked reporting when it
+// reported within SpoolStale of now.
+func (s *Service) spoolOverviews(ctx context.Context, now time.Time) ([]SpoolOverview, error) {
 	spools, err := s.deps.Windows.SpoolStates(ctx)
 	if err != nil {
-		return Overview{}, fmt.Errorf("reading webhook spool states: %w", err)
+		return nil, fmt.Errorf("reading webhook spool states: %w", err)
 	}
-	out.Spools = make([]SpoolOverview, 0, len(spools))
+	out := make([]SpoolOverview, 0, len(spools))
 	for _, st := range spools {
-		out.Spools = append(out.Spools, SpoolOverview{State: st, Reporting: now.Sub(st.UpdatedAt) <= SpoolStale})
+		out = append(out, SpoolOverview{State: st, Reporting: now.Sub(st.UpdatedAt) <= SpoolStale})
 	}
 	return out, nil
 }

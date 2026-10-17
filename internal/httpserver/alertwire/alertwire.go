@@ -20,6 +20,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
+	"github.com/txn2/mcp-data-platform/internal/platform/storagecap"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whalert"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -169,6 +171,10 @@ func AdminDeps(deps *admin.Deps, p *platform.Platform, notify *notifydelivery.Ha
 	deps.ReviewQueueAlert = ReviewAlertSettings(p, reviewalert.KnowledgeTarget())
 	deps.ConnectionAlert = ConnAlertSettings(p)
 	deps.ScriptRunAlert = ScriptRunAlertSettings(p)
+	if p.DB() != nil {
+		deps.StorageSettings = storagecap.NewSettingsStore(p.DB())
+		deps.WebhookAlert = whalert.NewSettingsStore(p.DB())
+	}
 	// Notification channels: the records, the test send, and the check that
 	// tells an operator their channel names a connection nothing serves
 	// (#1720).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"sync"
@@ -64,20 +65,54 @@ type spoolTally struct {
 	mu        sync.Mutex
 	lastDrain time.Time
 	lastError string
+	// streaks holds, per source, how many of its drains have failed since
+	// its last that succeeded and when the first of them failed (#2149). Per
+	// source, so one source draining does not hide another failing.
+	streaks map[string]drainStreak
 }
 
-func (t *spoolTally) drainedAt(at time.Time, events int) {
+// drainStreak is one source's drains failing in a row.
+type drainStreak struct {
+	count int64
+	since time.Time
+}
+
+func (t *spoolTally) drainedAt(at time.Time, source string, events int) {
 	t.drained.Add(int64(events))
 	t.mu.Lock()
 	t.lastDrain, t.lastError = at, ""
+	delete(t.streaks, source)
 	t.mu.Unlock()
 }
 
-func (t *spoolTally) failed(err error) {
+func (t *spoolTally) failed(at time.Time, source string, err error) {
 	t.failures.Add(1)
 	t.mu.Lock()
 	t.lastError = logsan.SanitizeForLog(err.Error())
+	if t.streaks == nil {
+		t.streaks = map[string]drainStreak{}
+	}
+	st, ok := t.streaks[source]
+	if !ok {
+		st.since = at
+	}
+	st.count++
+	t.streaks[source] = st
 	t.mu.Unlock()
+}
+
+// streak is the longest run of failed drains of any source and when the
+// earliest still-failing run began: the replica's worst drain.
+func (t *spoolTally) streak() (count int64, since time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, st := range t.streaks {
+		count = max(count, st.count)
+		if since.IsZero() || st.since.Before(since) {
+			since = st.since
+		}
+	}
+	return count, since
 }
 
 func (t *spoolTally) last() (drainedAt time.Time, lastError string) {
@@ -121,11 +156,13 @@ func (r *Receiver) acceptSpooled(ctx context.Context, w http.ResponseWriter, src
 // observeAccepted counts and times a delivery answered 202.
 func (r *Receiver) observeAccepted(ctx context.Context, source string, d delivery, st stages) {
 	total := r.now().Sub(d.started)
-	r.count(source, OutcomeAccepted)
+	r.count(source, OutcomeAccepted, http.StatusAccepted)
+	r.tallyReceived(len(d.events))
 	r.observeAck(source, total, st)
 	if r.cfg.Metrics != nil {
 		r.cfg.Metrics.WebhookEvents(ctx, source, len(d.events))
 		r.cfg.Metrics.WebhookAck(ctx, source, total)
+		r.cfg.Metrics.WebhookAckStages(ctx, source, st.buffer, st.mark, st.put)
 	}
 }
 
@@ -239,7 +276,7 @@ func (d *drainer) pass(ctx context.Context) error {
 
 func (d *drainer) fail(err error) error {
 	d.failures++
-	d.r.spool.failed(err)
+	d.r.spool.failed(d.r.now(), d.source, err)
 	if d.r.cfg.Metrics != nil {
 		d.r.cfg.Metrics.WebhookSpoolDrainFailed(context.Background(), d.source)
 	}
@@ -273,7 +310,7 @@ func (d *drainer) drain(ctx context.Context, seg whspool.Segment) error {
 	if err := d.r.cfg.Spool.Remove(seg); err != nil {
 		return err //nolint:wrapcheck // names the file
 	}
-	d.r.spool.drainedAt(d.r.now(), len(events))
+	d.r.spool.drainedAt(d.r.now(), d.source, len(events))
 	if d.r.cfg.Metrics != nil {
 		d.r.cfg.Metrics.WebhookSpoolDrained(context.Background(), d.source, len(events))
 	}
@@ -321,7 +358,7 @@ func (d *drainer) discard(seg whspool.Segment, events int) error {
 // behind; a stop without it leaves the files for the next start.
 func (d *drainer) final() {
 	if err := d.r.cfg.Spool.Seal(d.source); err != nil {
-		d.r.spool.failed(err)
+		d.r.spool.failed(d.r.now(), d.source, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), d.r.cfg.WriteTimeout)
 	defer cancel()
@@ -330,7 +367,7 @@ func (d *drainer) final() {
 			return
 		}
 		if err := d.drain(ctx, seg); err != nil {
-			d.r.spool.failed(err)
+			d.r.spool.failed(d.r.now(), d.source, err)
 			return
 		}
 	}
@@ -366,6 +403,13 @@ func (r *Receiver) spoolState() whstore.SpoolState {
 	}
 	if !lastDrain.IsZero() {
 		out.LastDrainAt = &lastDrain
+	}
+	if n, since := r.spool.streak(); n > 0 {
+		out.ConsecutiveFailures, out.FailingSince = n, &since
+	}
+	if v, err := r.volumeOf(out.Dir); err == nil && v.Total <= math.MaxInt64 {
+		total, free := int64(v.Total), int64(min(v.Free, v.Total)) //nolint:gosec // bounded above
+		out.FsTotal, out.FsFree = &total, &free
 	}
 	return out
 }

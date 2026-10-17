@@ -14,10 +14,25 @@ import (
 
 const (
 	qCounts     = `SELECT source, outcome`
-	qWindows    = `FROM webhook_windows\s+WHERE expired_at IS NULL AND`
-	qVolume     = `AS bucket`
+	qWindows    = `MAX\(last_segment_at\)`
+	qVolume     = `AS bucket,`
 	qRejections = `SELECT source, first_at, rejected_at, count, outcome, reason, request_hash, event_ids FROM \(`
 )
+
+// expectTelemetry queues the telemetry reads of an overview (#2150), each
+// answering nothing.
+func expectTelemetry(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`AS at, source, http_status, SUM\(count\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"at", "source", "status", "count"}))
+	mock.ExpectQuery(`FROM webhook_replica_minutes`).
+		WillReturnRows(sqlmock.NewRows([]string{"at", "replica", "r", "d", "b", "sb", "se", "a"}))
+	mock.ExpectQuery(`WITH binned AS`).
+		WillReturnRows(sqlmock.NewRows([]string{"at", "source", "max", "bs", "ms", "ps", "buckets"}))
+	mock.ExpectQuery(`FROM webhook_compactions`).
+		WillReturnRows(sqlmock.NewRows([]string{"s", "w", "c", "d", "l", "sg", "e", "i", "dc", "o"}))
+	mock.ExpectQuery(`COALESCE\(SUM\(raw_bytes\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"s", "rb", "rs", "cb", "cw"}))
+}
 
 func newUnorderedMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 	t.Helper()
@@ -47,15 +62,16 @@ func TestOverview(t *testing.T) {
 		sqlmock.NewRows(windowCols()).
 			AddRow("esp", seg, 1, 1, "segment k: not gzip", 412, 3650).
 			AddRow("quiet", nil, 0, 0, "", 0, 0))
-	mock.ExpectQuery(qVolume).WithArgs(start.Add(-time.Hour), 60, "").WillReturnRows(
+	expectTelemetry(mock)
+	mock.ExpectQuery(qVolume).WithArgs(start.Add(-time.Hour), 60, "", start).WillReturnRows(
 		sqlmock.NewRows(volumeCols()).AddRow("esp", start.Add(-time.Minute), "accepted", 5))
-	mock.ExpectQuery(qRejections).WithArgs(maxOverviewRejections, start.Add(-time.Hour), "").WillReturnRows(
+	mock.ExpectQuery(qRejections).WithArgs(maxOverviewRejections, start.Add(-time.Hour), "", start).WillReturnRows(
 		sqlmock.NewRows(rejectionCols()).AddRow("esp", start.Add(-time.Second), start, 3, "unauthorized", "the signature does not match", "", "{}"))
 	mock.ExpectQuery(qLatencyBuckets).WillReturnRows(latencyBucketRows().AddRow("esp", 1, 2, 2).AddRow("fresh", 1, 1, 1))
 	mock.ExpectQuery(qSlowest).WillReturnRows(slowestRows().
 		AddRow("esp", true, true, 8, start, 1, 2, 5).AddRow("fresh", true, true, 4, start, 0, 1, 3))
 
-	ov, err := st.Overview(ctx, "", start, time.Hour, time.Minute)
+	ov, err := st.Overview(ctx, "", start, Span{Since: start.Add(-time.Hour), Until: start, Step: time.Minute})
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 	assert.Equal(t, start.Add(-time.Hour), ov.Since)
@@ -99,11 +115,12 @@ func TestOverviewOfOneSource(t *testing.T) {
 	since := start.Add(-24 * time.Hour)
 	mock.ExpectQuery(qCounts).WithArgs(start.Add(-time.Hour), since, "esp").WillReturnRows(sqlmock.NewRows(countCols()))
 	mock.ExpectQuery(qWindows).WithArgs("esp", start, since).WillReturnRows(sqlmock.NewRows(windowCols()))
-	mock.ExpectQuery(qVolume).WithArgs(since, 900, "esp").WillReturnRows(sqlmock.NewRows(volumeCols()))
-	mock.ExpectQuery(qRejections).WithArgs(maxOverviewRejections, since, "esp").WillReturnRows(sqlmock.NewRows(rejectionCols()))
+	mock.ExpectQuery(qVolume).WithArgs(since, 900, "esp", start).WillReturnRows(sqlmock.NewRows(volumeCols()))
+	mock.ExpectQuery(qRejections).WithArgs(maxOverviewRejections, since, "esp", start).WillReturnRows(sqlmock.NewRows(rejectionCols()))
+	expectTelemetry(mock)
 	mock.ExpectQuery(qLatencyBuckets).WithArgs(start.Add(-time.Hour), since, "esp").WillReturnRows(latencyBucketRows())
 	mock.ExpectQuery(qSlowest).WithArgs(start.Add(-time.Hour), since, "esp").WillReturnRows(slowestRows())
-	_, err := st.Overview(ctx, "esp", start, 24*time.Hour, 15*time.Minute)
+	_, err := st.Overview(ctx, "esp", start, Span{Since: start.Add(-24 * time.Hour), Until: start, Step: 15 * time.Minute})
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -112,12 +129,13 @@ func TestOverviewEmpty(t *testing.T) {
 	st, mock := newUnorderedMock(t)
 	mock.ExpectQuery(qCounts).WillReturnRows(sqlmock.NewRows(countCols()))
 	mock.ExpectQuery(qWindows).WillReturnRows(sqlmock.NewRows(windowCols()))
-	mock.ExpectQuery(qVolume).WithArgs(start.Add(-24*time.Hour), 900, "").WillReturnRows(sqlmock.NewRows(volumeCols()))
+	mock.ExpectQuery(qVolume).WithArgs(start.Add(-24*time.Hour), 900, "", start).WillReturnRows(sqlmock.NewRows(volumeCols()))
 	mock.ExpectQuery(qRejections).WillReturnRows(sqlmock.NewRows(rejectionCols()))
+	expectTelemetry(mock)
 	mock.ExpectQuery(qLatencyBuckets).WillReturnRows(latencyBucketRows())
 	mock.ExpectQuery(qSlowest).WillReturnRows(slowestRows())
 
-	ov, err := st.Overview(ctx, "", start, 24*time.Hour, 15*time.Minute)
+	ov, err := st.Overview(ctx, "", start, Span{Since: start.Add(-24 * time.Hour), Until: start, Step: 15 * time.Minute})
 	require.NoError(t, err)
 	assert.Empty(t, ov.Summaries)
 	assert.NotNil(t, ov.Volume, "no requests is an empty list, never nil")
@@ -190,7 +208,7 @@ func TestOverviewFailures(t *testing.T) {
 						e.WillReturnRows(f.rows())
 					}
 				}
-				_, err := st.Overview(ctx, "", start, time.Hour, time.Minute)
+				_, err := st.Overview(ctx, "", start, Span{Since: start.Add(-time.Hour), Until: start, Step: time.Minute})
 				assert.Error(t, err)
 			})
 		}

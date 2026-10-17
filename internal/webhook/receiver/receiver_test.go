@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -89,18 +90,25 @@ type fakeRecorder struct {
 	countErr   error
 	latencyErr error
 	spool      []whstore.SpoolState
+	// statuses counts by source and HTTP status; bytes is the segment bytes
+	// marked; minutes and minutesErr are the receiver minutes written.
+	statuses   map[string]int64
+	bytes      int64
+	minutes    []whstore.ReplicaMinute
+	minutesErr error
 }
 
 func newRecorder() *fakeRecorder {
-	return &fakeRecorder{marks: map[string]int{}, counts: map[string]int64{}}
+	return &fakeRecorder{marks: map[string]int{}, counts: map[string]int64{}, statuses: map[string]int64{}}
 }
 
-func (f *fakeRecorder) MarkSegment(_ context.Context, source string, start time.Time, length time.Duration) error {
+func (f *fakeRecorder) MarkSegment(_ context.Context, source string, start time.Time, length time.Duration, bytes int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.markErr != nil {
 		return f.markErr
 	}
+	f.bytes += bytes
 	f.marks[source+"@"+start.Format(time.RFC3339)+"/"+length.String()]++
 	return nil
 }
@@ -113,7 +121,18 @@ func (f *fakeRecorder) RecordCounts(_ context.Context, counts []whstore.Count) e
 	}
 	for _, c := range counts {
 		f.counts[c.Source+"/"+c.Outcome] += c.Count
+		f.statuses[c.Source+"/"+strconv.Itoa(c.Status)] += c.Count
 	}
+	return nil
+}
+
+func (f *fakeRecorder) RecordReplicaMinutes(_ context.Context, m []whstore.ReplicaMinute) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.minutesErr != nil {
+		return f.minutesErr
+	}
+	f.minutes = append(f.minutes, m...)
 	return nil
 }
 
@@ -158,6 +177,30 @@ type fakeMetrics struct {
 	drained   int
 	drainFail int
 	spoolSeen int
+	responses map[int]int
+	written   int
+	stages    int
+}
+
+func (m *fakeMetrics) WebhookResponse(_ context.Context, _ string, status int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.responses == nil {
+		m.responses = map[int]int{}
+	}
+	m.responses[status]++
+}
+
+func (m *fakeMetrics) WebhookWritten(_ context.Context, _ string, events, _ int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.written += events
+}
+
+func (m *fakeMetrics) WebhookAckStages(context.Context, string, time.Duration, time.Duration, time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stages++
 }
 
 func (m *fakeMetrics) WebhookRequest(_ context.Context, source, outcome string) {
@@ -1047,11 +1090,12 @@ func TestRefreshAndStats(t *testing.T) {
 	h.r.Reload()
 
 	h.recorder.countErr = errors.New("db down")
-	h.r.count("good", OutcomeAccepted)
+	h.r.count("good", OutcomeAccepted, http.StatusAccepted)
 	_ = h.r.flushStats(context.Background())
 	h.recorder.countErr = nil
 	_ = h.r.flushStats(context.Background())
 	assert.Equal(t, int64(1), h.recorder.counts["good/accepted"], "a failed write of counts keeps them for the next")
+	assert.Equal(t, int64(1), h.recorder.statuses["good/202"], "the status is kept through the retry")
 
 	for range maxPendingRejections + 5 {
 		h.r.reject(delivery{source: "good"}, OutcomeUnauthorized, "x")

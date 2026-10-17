@@ -25,13 +25,16 @@ type ObjectWriter interface {
 // Recorder is the control data the receiver writes. whstore.Store satisfies
 // it.
 type Recorder interface {
-	MarkSegment(ctx context.Context, source string, start time.Time, length time.Duration) error
+	MarkSegment(ctx context.Context, source string, start time.Time, length time.Duration, bytes int64) error
 	RecordCounts(ctx context.Context, counts []whstore.Count) error
 	RecordRejections(ctx context.Context, rejections []whstore.Rejection) error
 	RecordLatency(ctx context.Context, latencies []whstore.Latency) error
 	// RecordSpool writes the receiver's spool state; called only when the
 	// receiver has a spool.
 	RecordSpool(ctx context.Context, st whstore.SpoolState) error
+	// RecordReplicaMinutes adds the receiver's minutes: events accepted and
+	// written, and what its spool held (#2150).
+	RecordReplicaMinutes(ctx context.Context, minutes []whstore.ReplicaMinute) error
 }
 
 // RawWindows registers a new window's raw partition, so an event is queryable
@@ -60,4 +63,11 @@ type Metrics interface {
 	WebhookSpoolDrained(ctx context.Context, source string, events int)
 	// WebhookSpoolDrainFailed counts a drain of the spool that failed.
 	WebhookSpoolDrainFailed(ctx context.Context, source string)
+	// WebhookResponse counts a request by the status it was answered with,
+	// WebhookWritten a segment's events and bytes written to object
+	// storage, and WebhookAckStages an acknowledged delivery's wait in each
+	// stage (#2150).
+	WebhookResponse(ctx context.Context, source string, status int)
+	WebhookWritten(ctx context.Context, source string, events, bytes int)
+	WebhookAckStages(ctx context.Context, source string, buffer, mark, put time.Duration)
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mapwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/pdfhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/storagewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/listenbridge"
 	"github.com/txn2/mcp-data-platform/internal/ui"
@@ -222,6 +223,9 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 		return err
 	}
 	hooks.Mount(mux)
+	// The webhook receiver's alerts (#2149) post through the notification
+	// substrate; they start and stop with the receiver.
+	enableWebhookAlerts(hooks, p, notify)
 	hooks.MountAdmin(mux, p, buildAdminAuth, adminEmail)
 	mountDatabaseAdminAPIs(mux, p)
 	mountTableAdmin(mux, p) // table registrations and the scratch reconcile (#2136)
@@ -231,6 +235,11 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// and the fetch, which starts once the mux is complete.
 	streetMaps := mapwire.Build(p)
 	streetMaps.Mount(mux, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail)
+
+	// Storage capacity (#2148): the admin routes, and the sampling and alert
+	// loop, which starts once the mux is complete.
+	storage := storagewire.Build(p, notify)
+	storagewire.Mount(mux, p, storage, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })
 
 	catalogScan := catalogwire.Build(p) // the catalog scan (#1918)
 	catalogScan.MountAdmin(mux, buildAdminAuth, adminEmail)
@@ -287,6 +296,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 
 	streetMaps.Start(ctx)
 	defer streetMaps.Stop()
+	storage.Start(ctx)
+	defer storage.Stop()
 
 	hcfg.mcpServer = mcpServer
 	hcfg.observe.Mux = mux

@@ -84,8 +84,10 @@ func TestRecordLatency(t *testing.T) {
 	var l Latency
 	l.Source, l.Minute = "esp", start.Add(17*time.Second)
 	l.Observe(SlowAck{At: start, TotalMS: 40, BufferMS: 1, MarkMS: 2, PutMS: 30})
+	l.Observe(SlowAck{At: start, TotalMS: 10, BufferMS: 3, MarkMS: 1, PutMS: 5})
+	assert.Equal(t, [3]int64{4, 3, 35}, [3]int64{l.BufferMS, l.MarkMS, l.PutMS}, "each stage is summed over the minute (#2150)")
 	mock.ExpectExec(`INSERT INTO webhook_ack_latency`).
-		WithArgs("esp", start, sqlmock.AnyArg(), int64(40), start, int64(1), int64(2), int64(30)).
+		WithArgs("esp", start, sqlmock.AnyArg(), int64(40), start, int64(1), int64(2), int64(30), int64(4), int64(3), int64(35)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, st.RecordLatency(ctx, []Latency{l}))
 
@@ -159,10 +161,14 @@ func TestReadLatencyFailures(t *testing.T) {
 func TestPruneCountsPrunesLatency(t *testing.T) {
 	st, mock := newMock(t)
 	mock.ExpectExec(`DELETE FROM webhook_request_counts`).WithArgs(start).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM webhook_status_counts`).WithArgs(start).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`DELETE FROM webhook_ack_latency`).WithArgs(start).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM webhook_replica_minutes`).WithArgs(start).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM webhook_compactions`).WithArgs(start).WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, st.PruneCounts(ctx, start))
 
 	mock.ExpectExec(`DELETE FROM webhook_request_counts`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM webhook_status_counts`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`DELETE FROM webhook_ack_latency`).WillReturnError(errDown)
 	assert.Error(t, st.PruneCounts(ctx, start))
 	require.NoError(t, mock.ExpectationsWereMet())

@@ -345,6 +345,8 @@ type Metrics struct {
 
 	// Inbound webhook instruments (#1870), metrics_webhooks.go.
 	webhook webhookInstruments
+	// webhookTelemetry is the webhooks page's history as series (#2150).
+	webhookTelemetry webhookTelemetryInstruments
 
 	// Inbound HTTP and MCP method instruments (#1889), metrics_http.go.
 	http httpInstruments
@@ -660,6 +662,9 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 		return err
 	}
 	if err := m.registerWebhookInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerWebhookTelemetry(meter); err != nil {
 		return err
 	}
 	if err := m.registerHTTPInstruments(meter); err != nil {

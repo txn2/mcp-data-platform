@@ -60,6 +60,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/admin/catalog",
   "/admin/changelog",
   "/admin/settings",
+  "/admin/storage",
 ];
 
 // KNOWN_PATTERNS are the detail routes: an index above plus an identifier. The

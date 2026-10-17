@@ -23,11 +23,14 @@ const rejectionRunGap = time.Minute
 // errRecordingRejections wraps every failure of a rejection write.
 const errRecordingRejections = "recording webhook rejections: %w"
 
-// Count is a number of requests of one source with one outcome in one minute.
+// Count is a number of requests of one source with one outcome, answered
+// with one HTTP status, in one minute. Status 0 is a request whose sender went
+// away before it was answered.
 type Count struct {
 	Source  string
 	Minute  time.Time
 	Outcome string
+	Status  int
 	Count   int64
 }
 
@@ -55,11 +58,16 @@ type Rejection struct {
 // identified reports whether r names the events it refused.
 func (r Rejection) identified() bool { return len(r.EventIDs) > 0 }
 
-// RecordCounts adds counts to the per-minute totals. Counts naming the same
-// source, minute and outcome are summed before they are written, because one
-// upsert cannot touch a row twice. A count for a source that
-// no longer exists is dropped with the rest of that source's data rather than
-// failing the batch.
+// RecordCounts adds counts to the per-minute totals: by outcome in
+// webhook_request_counts, and by the HTTP status the sender was answered with
+// in webhook_status_counts (#2150), in one transaction so a retried batch is
+// never counted twice in one of them. Counts naming the same key are summed
+// before they are written, because one upsert cannot touch a row twice. A
+// count for a source that no longer exists is dropped with the rest of that
+// source's data rather than failing the batch.
+//
+// The status is a table of its own so webhook_request_counts keeps the key a
+// replica of the previous release writes it under during a rolling upgrade.
 func (s *Store) RecordCounts(ctx context.Context, counts []Count) error {
 	if len(counts) == 0 {
 		return nil
@@ -67,14 +75,21 @@ func (s *Store) RecordCounts(ctx context.Context, counts []Count) error {
 	sources := make([]string, 0, len(counts))
 	minutes := make([]time.Time, 0, len(counts))
 	outcomes := make([]string, 0, len(counts))
+	statuses := make([]int64, 0, len(counts))
 	values := make([]int64, 0, len(counts))
 	for _, c := range counts {
 		sources = append(sources, c.Source)
 		minutes = append(minutes, c.Minute.UTC().Truncate(time.Minute))
 		outcomes = append(outcomes, c.Outcome)
+		statuses = append(statuses, int64(c.Status))
 		values = append(values, c.Count)
 	}
-	_, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("recording webhook request counts: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO webhook_request_counts (source, minute, outcome, count)
 		 SELECT c.source, c.minute, c.outcome, SUM(c.count)
 		   FROM unnest($1::text[], $2::timestamptz[], $3::text[], $4::bigint[]) AS c(source, minute, outcome, count)
@@ -82,8 +97,21 @@ func (s *Store) RecordCounts(ctx context.Context, counts []Count) error {
 		  GROUP BY c.source, c.minute, c.outcome
 		 ON CONFLICT (source, minute, outcome) DO UPDATE
 		    SET count = webhook_request_counts.count + EXCLUDED.count`,
-		pq.Array(sources), pq.Array(minutes), pq.Array(outcomes), pq.Array(values))
-	if err != nil {
+		pq.Array(sources), pq.Array(minutes), pq.Array(outcomes), pq.Array(values)); err != nil {
+		return fmt.Errorf("recording webhook request counts: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO webhook_status_counts (source, minute, http_status, count)
+		 SELECT c.source, c.minute, c.status, SUM(c.count)
+		   FROM unnest($1::text[], $2::timestamptz[], $3::smallint[], $4::bigint[]) AS c(source, minute, status, count)
+		   JOIN webhook_sources ws ON ws.name = c.source
+		  GROUP BY c.source, c.minute, c.status
+		 ON CONFLICT (source, minute, http_status) DO UPDATE
+		    SET count = webhook_status_counts.count + EXCLUDED.count`,
+		pq.Array(sources), pq.Array(minutes), pq.Array(statuses), pq.Array(values)); err != nil {
+		return fmt.Errorf("recording webhook status counts: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("recording webhook request counts: %w", err)
 	}
 	return nil
@@ -247,16 +275,19 @@ func keepNewestIdentities(rejections []Rejection) []Rejection {
 	return out
 }
 
-// PruneCounts deletes per-minute counts and acknowledgement latency older
-// than before.
+// PruneCounts deletes the telemetry older than before: request counts,
+// acknowledgement latency, each receiver's minutes and the compaction runs.
 func (s *Store) PruneCounts(ctx context.Context, before time.Time) error {
-	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM webhook_request_counts WHERE minute < $1`, before.UTC()); err != nil {
-		return fmt.Errorf("pruning webhook request counts: %w", err)
-	}
-	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM webhook_ack_latency WHERE minute < $1`, before.UTC()); err != nil {
-		return fmt.Errorf("pruning webhook acknowledgement latency: %w", err)
+	for _, q := range []struct{ what, sql string }{
+		{"request counts", `DELETE FROM webhook_request_counts WHERE minute < $1`},
+		{"status counts", `DELETE FROM webhook_status_counts WHERE minute < $1`},
+		{"acknowledgement latency", `DELETE FROM webhook_ack_latency WHERE minute < $1`},
+		{"receiver minutes", `DELETE FROM webhook_replica_minutes WHERE minute < $1`},
+		{"compaction runs", `DELETE FROM webhook_compactions WHERE compacted_at < $1`},
+	} {
+		if _, err := s.db.ExecContext(ctx, q.sql, before.UTC()); err != nil {
+			return fmt.Errorf("pruning webhook %s: %w", q.what, err)
+		}
 	}
 	return nil
 }

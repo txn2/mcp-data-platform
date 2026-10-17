@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/platform/capacity"
+	"github.com/txn2/mcp-data-platform/internal/platform/storagecap"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/oidcdiscovery"
@@ -118,7 +119,11 @@ func capacitySources(src Sources) capacity.Sources {
 	if layout.ResourceBucket != "" {
 		endpoints[layout.ResourceBucket], _ = capacity.Endpoint(src.Capacity.Toolkits, src.Capacity.ResourceConnection)
 	}
-	return capacity.Sources{DB: src.DB, Layout: layout, Walkers: walkers, Endpoints: endpoints}
+	out := capacity.Sources{DB: src.DB, Layout: layout, Walkers: walkers, Endpoints: endpoints}
+	if src.DB != nil {
+		out.Budgets = storagecap.BudgetsFrom(storagecap.NewSettingsStore(src.DB))
+	}
+	return out
 }
 
 // methods is the configured methods as auth_attempts_total names them.

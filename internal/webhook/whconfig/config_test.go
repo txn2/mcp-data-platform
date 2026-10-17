@@ -41,6 +41,10 @@ func TestTuningAndValidate(t *testing.T) {
 
 	assert.Error(t, Config{Compactor: CompactorConfig{Grace: -1}}.Validate())
 	assert.Error(t, Config{Compactor: CompactorConfig{Batch: -1}}.Validate())
+
+	assert.Zero(t, Config{}.Tuning().TelemetryKept, "unset takes the compactor's 14 days")
+	assert.Equal(t, 30*24*time.Hour, Config{Compactor: CompactorConfig{TelemetryRetentionDays: 30}}.Tuning().TelemetryKept)
+	assert.Error(t, Config{Compactor: CompactorConfig{TelemetryRetentionDays: -1}}.Validate())
 }
 
 // The spool is off until a directory is set, and only where the replica

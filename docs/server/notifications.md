@@ -365,6 +365,24 @@ In the portal it is **Admin > Settings > Run failures**
 (`/portal/admin/settings/run-failures`). The post is authorized as the platform, as the email is:
 naming the channel here is the authorization, and no persona is consulted.
 
+### Leveled alerts: webhooks and storage
+
+Two alerts judge a condition at a warning and a critical level and post to
+channels only: the webhook receiver's conditions (#2149, **Admin > Settings >
+Webhooks**, `/api/v1/admin/settings/webhook-alert`, see
+[Inbound Webhooks](webhooks.md#alerts)) and storage filling up (#2148,
+**Admin > Settings > Storage**, `/api/v1/admin/settings/storage`, see
+[Storage Capacity](storage.md#alerts)). A condition is posted every evaluation
+under a key carrying its level and when that level began,
+`<condition key>:<warning|critical>:<unix time>`, so the channel's
+[repeat window](#repeating-alerts-key) holds back the repeats of one episode,
+while a move to critical, or a condition that clears and comes back, posts at
+once. A condition that was alerting and has cleared is posted once more under
+`<condition key>:resolved:<unix time>`. A store or replica a pass could not
+read keeps the condition it had rather than reading as resolved. What was
+alerting is kept in the database (`alert_conditions`), so a restart, or the
+next evaluation running on another replica, still sends the resolution.
+
 ## Notification channels
 
 ![Admin Settings: the notification channels section](../images/screenshots/light/admin-admin-settings-channels-light.webp#only-light)![Admin Settings: the notification channels section](../images/screenshots/dark/admin-admin-settings-channels-dark.webp#only-dark)
@@ -895,3 +913,7 @@ notifications:
 - A per-actor rate limit (burst of 30, 6 per minute sustained, per
   replica) bounds how much outbound email one account can generate;
   excess events are dropped with a log line, never a request failure.
+  An alert the platform raises is charged to no actor: its channel's
+  hourly cap and repeat window bound it, so the repeats a leveled alert
+  sends every pass can never use up a budget and drop the resolution
+  that follows them.

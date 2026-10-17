@@ -440,7 +440,11 @@ Retention runs in the compactor, per source.
   segment is older than `raw_retention_days`. A window owed a compaction is never
   touched, so retention never deletes an event that is not yet in a Parquet
   file. The window's raw partition is unregistered once its segments are
-  deleted.
+  deleted. Retention lists a window's segments after choosing it and deletes
+  them only when the listing is exactly the set its last compaction read
+  (#2151): a segment a spool drained into the window in between, after an
+  outage longer than raw retention, is in no Parquet file yet, so the window is
+  left for the compaction it is now owed and released by a later pass.
 - **Raw partitions** are kept by name from the window records (#2133): a pass
   registers the raw partition of every window a segment landed in during the
   last two retention intervals, which covers a window a
@@ -467,8 +471,9 @@ metastore still lists. An operator may add one as a backstop, set longer than
 (#1979):
 
 - **Requests**: request volume by outcome, stacked, for all sources or one,
-  over the last hour (one bar a minute) or the last 24 hours (one bar every
-  fifteen minutes), with the total of each outcome beneath.
+  over the last hour (one bar a minute), the last 24 hours (one bar every
+  fifteen minutes), the last 7 days (one bar an hour), or a custom range of up
+  to 31 days, with the total of each outcome beneath.
 - **Sources**: one row per source with its health, when it last received an
   event, the requests accepted and rejected in the last hour and the last day,
   how long accepted requests waited for their answer (Response time: the 99th
@@ -484,6 +489,21 @@ metastore still lists. An operator may add one as a backstop, set longer than
   since the replica started, and the newest drain error. A replica that has not
   reported for two minutes is marked Not reporting: it stopped, and drains what
   it holds when it starts again.
+- **History** (#2150), over the same range: **Responses by status** (the HTTP
+  status each request was answered with; No answer is a sender that went away
+  first), **Received vs written** (each receiver's events accepted against the
+  events it wrote to object storage: written below received is a burst the
+  spool is holding, above it the spool catching up), **Spool depth** (events
+  waiting and the oldest one's age), **Acknowledgement** (p50 and p99, and the
+  average time a delivery spent in each stage: buffer, mark, and put, which
+  with a spool is the sync to disk), **Compaction** (each window's lag behind
+  its end and its duration), **Window size** (the window that took the most
+  memory to compact against this replica's memory limit, warned about at half
+  of it, since the compactor holds a whole window), and **Storage by source**
+  (raw segment bytes and files not yet released, compacted bytes and windows).
+  The page says plainly what it cannot see: an answer a sender got from
+  something in front of the platform, such as a `502` or `504` from an ingress
+  while a replica restarts, never reached the platform and is not counted.
 - **Recent rejections**: the rejected requests across every source within the
   range, the newest 50 rows of each outcome, each with its source, time,
   outcome, reason, the events it refused (Events) and how many requests it
@@ -634,6 +654,7 @@ webhooks:
     batch: 4
     retry_backoff: 1m
     retention_every: 10m
+    telemetry_retention_days: 14  # the page's history (#2150); per minute for 48h, per hour after
 ```
 
 `compactor.rollup_check_every` and `compactor.rollup_delete_delay` paced the
@@ -732,6 +753,39 @@ directory that cannot be opened (not writable, or held by another process)
 stops the platform at start, naming it: an operator who asked for acknowledged
 events to be kept on disk is told then, not answered without it.
 
+## Alerts
+
+Every condition that ends in lost or late events is posted to notification
+channels at a warning and a critical level (#2149), configured under **Admin >
+Settings > Alerts > Webhooks** or `GET|PUT /api/v1/admin/settings/webhook-alert`.
+One replica evaluates them each minute (`MCP_PLATFORM_WEBHOOK_ALERT_INTERVAL`
+overrides it). A condition is posted under the key
+`webhook:<condition>:<source|replica>:<level>:<unix time the level began>`, so
+the channel's repeat window holds back the repeats of one episode while a move
+from warning to critical, or a condition that clears and returns, posts at
+once; a condition that clears is posted once more under
+`...:resolved:<unix time>`. A replica that stopped reporting for two minutes
+is judged only by whether it holds events, never by its last report. A post
+names the source or replica, the value, the threshold and the page, and never
+a payload.
+
+| Condition | Warning (default) | Critical (default) |
+|---|---|---|
+| Spool fill, any replica | 50% of `max_bytes` | 80% |
+| Oldest event waiting in a spool | 25% of `max_age` | 60% |
+| Drain failures in a row, any replica | 3 | 10, or failing for 5 minutes |
+| A replica holding events stopped reporting | | 120 seconds |
+| Refusals (`spool_full`, `write_failed`, `buffer_full`), per source | any in 5 minutes | one in every minute of 5 |
+| `unauthorized` share of a source's requests | 10% over 15 minutes | |
+| Acknowledgement p99, per source | 1 s | 5 s |
+| Compaction behind (past the window's end and the grace), per source | 1 minute, or a window failing | 30 minutes |
+| A source silent | per source, off unless set | |
+| Spool volume free space, any replica | 25% free | 10% free |
+
+The per-source rows have defaults and a source's own overrides. A zero
+threshold is off. The spool volume is also a store on the
+[Storage](storage.md) page.
+
 ## Metrics
 
 | Series | Labels |
@@ -747,6 +801,12 @@ events to be kept on disk is told then, not answered without it.
 | `webhook_spool_oldest_age_seconds` | none: age of the oldest event waiting; rising means the spool is not draining |
 | `webhook_spool_drained_events_total` | `source`: events drained to object storage |
 | `webhook_spool_drain_failures_total` | `source`: drains that failed and are retried |
+| `webhook_responses_total` | `source`, `http_status`: the status each request was answered with; `0` is a sender that left first (#2150) |
+| `webhook_written_events_total`, `webhook_written_bytes_total` | `source`: events and segment bytes this replica wrote to object storage, from its spool or its buffer |
+| `webhook_ack_stage_seconds` | `source`, `stage`: `buffer`, `mark`, `put` (with a spool, the sync) |
+| `webhook_compaction_duration_seconds`, `webhook_compaction_lag_seconds` | `source`: one window's compaction, and its finish behind the window's end |
+| `webhook_window_held_bytes` | `source`: a window's events as the compactor held them in memory |
+| `webhook_source_bytes` | `source`, `kind`: `raw` (segments not yet released) or `compacted`; every replica reports the same value |
 
 A request to a name that is not a source is counted with an empty `source`
 label, so a caller cannot create series by inventing names.

@@ -231,6 +231,12 @@ export DEV_S3_PORT=$((9000 + DEV_OFFSET))
 # own, so the two object stores stay in one addressable block.
 export DEV_S3_TLS_PORT=$((9443 + DEV_OFFSET))
 export DEV_OLLAMA_PORT=$((11434 + DEV_OFFSET))
+# SeaweedFS's master and its volume server, published so the platform reads the
+# cluster's disks for the Storage page (#2148). The master lists the volume
+# server at its container address, which the host cannot reach, so the dev
+# settings name the published volume port directly.
+export DEV_SEAWEEDFS_MASTER_PORT=$((9333 + DEV_OFFSET))
+export DEV_SEAWEEDFS_VOLUME_PORT=$((9380 + DEV_OFFSET))
 # The dev OpenTelemetry collector's OTLP/gRPC port (dev/otel-collector.yml),
 # and the directory it writes what it received to, where the acceptance suite
 # reads spans back (#1892). The directory is created writable by anyone
@@ -259,6 +265,8 @@ DEV_API_PORT=$DEV_API_PORT
 DEV_S3_PORT=$DEV_S3_PORT
 DEV_S3_TLS_PORT=$DEV_S3_TLS_PORT
 DEV_OLLAMA_PORT=$DEV_OLLAMA_PORT
+DEV_SEAWEEDFS_MASTER_PORT=$DEV_SEAWEEDFS_MASTER_PORT
+DEV_SEAWEEDFS_VOLUME_PORT=$DEV_SEAWEEDFS_VOLUME_PORT
 DEV_OTLP_PORT=$DEV_OTLP_PORT
 DEV_OTEL_DIR=$DEV_OTEL_DIR
 DEV_PLATFORM_TMPDIR=$DEV_PLATFORM_TMPDIR
@@ -281,7 +289,7 @@ REPLICA_PORTS=()
 if [ "$DEV_REPLICAS" = 2 ]; then
   REPLICA_PORTS=("$DEV_API_PORT_B" "$DEV_PROXY_PORT" 9465)
 fi
-for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9285 9286 9464 "$DEV_OLLAMA_PORT" "${REPLICA_PORTS[@]+"${REPLICA_PORTS[@]}"}"; do
+for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" "$DEV_SEAWEEDFS_MASTER_PORT" "$DEV_SEAWEEDFS_VOLUME_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9285 9286 9464 "$DEV_OLLAMA_PORT" "${REPLICA_PORTS[@]+"${REPLICA_PORTS[@]}"}"; do
   if [ "$port" = "$DEV_API_PORT" ] || [ "$port" = "$DEV_API_PORT_B" ]; then
     api_port_free "$port" && continue
   else
@@ -1344,6 +1352,21 @@ print(json.dumps({
   else
     echo -e "  ${YELLOW}⚠${NC} mattermost-dev connection register returned HTTP $MM_HTTP"
   fi
+fi
+
+# The Storage page reads the dev SeaweedFS cluster's disks (#2148): the master,
+# and the volume server at its published port, since the master lists it at an
+# address only the container network reaches. Only the seaweedfs field is
+# sent, so a budget or threshold set in the portal is kept across restarts.
+STORAGE_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+  -H "X-API-Key: acme-dev-key-2024" \
+  -H "Content-Type: application/json" \
+  -d "{\"seaweedfs\":{\"master_url\":\"http://localhost:$DEV_SEAWEEDFS_MASTER_PORT\",\"volume_urls\":[\"http://localhost:$DEV_SEAWEEDFS_VOLUME_PORT\"]}}" \
+  http://localhost:$DEV_API_PORT/api/v1/admin/settings/storage || echo "000")
+if [ "$STORAGE_HTTP" = "200" ]; then
+  ok "Storage settings name the dev SeaweedFS cluster"
+else
+  echo -e "  ${YELLOW}⚠${NC} storage settings returned HTTP $STORAGE_HTTP"
 fi
 
 # A Slack channel when the developer has put their own workspace's bot token

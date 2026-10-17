@@ -32,14 +32,17 @@ By participating in this project, you agree to maintain a respectful and inclusi
    `golangci-lint` and `gosec` must match the versions pinned in the
    [`Makefile`](Makefile) (`GOLANGCI_LINT_VERSION` and `GOSEC_VERSION`). The
    `tools-check` gate in `make verify` hard-fails on any mismatch, so installing
-   `@latest` will block your build. Install the pinned versions:
+   `@latest` will block your build. Install the pinned versions with
+   `GOTOOLCHAIN=local`, as CI does: `tools-check` also refuses a tool built with
+   a newer Go than the `go-version` CI sets up, because a pin that needs one
+   installs here and fails CI's install (#2147).
 
    ```bash
    # Versions must equal the pins in the Makefile (currently v2.11.4 / v2.28.0).
-   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-   go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
-   go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-   go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.5.1
+   GOTOOLCHAIN=local go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+   GOTOOLCHAIN=local go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+   GOTOOLCHAIN=local go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+   GOTOOLCHAIN=local go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.5.1
    ```
 
    The portal under `ui/` runs on the Node major in `ui/.nvmrc`, which CI's
@@ -577,7 +580,9 @@ test is the gate.
 - Run `gosec ./...` before submitting PRs
 - Two Semgrep configurations run, and they are scoped differently. `.semgrep/`
   runs over the whole tree (`make semgrep`), because a finding there is a defect
-  wherever it sits. `.semgrep-diff/` runs against the lines your branch changed
+  wherever it sits; `make semgrep-changed` runs it over the files your branch
+  changed in `make preverify`, so a finding fails in seconds rather than in
+  verify's static lane (#2145). `.semgrep-diff/` runs against the lines your branch changed
   (`make semgrep-diff`), because its rules refuse a syntactic shape that a
   diff-scoped CI check rejects with reasoning Semgrep does not have -- the
   allocation-size rule matches 55 places in this tree and CodeQL flags none of

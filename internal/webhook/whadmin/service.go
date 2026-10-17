@@ -55,6 +55,9 @@ type Deps struct {
 	NewID         func() (string, error)
 	Logger        *slog.Logger
 	Now           func() time.Time
+	// MemoryLimit is the memory this replica may use, which the webhooks
+	// page sets the largest window against (#2150). Nil reports none.
+	MemoryLimit func() int64
 }
 
 // Service manages sources.

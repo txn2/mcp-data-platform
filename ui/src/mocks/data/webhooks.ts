@@ -1,6 +1,7 @@
 import type {
   WebhookAckLatency,
   WebhookHealth,
+  WebhookHistory,
   WebhookSlowAck,
   WebhookReplicaSpool,
   WebhookSource,
@@ -229,8 +230,8 @@ function mockHealth(source: WebhookSource, status: WebhookStatus): WebhookHealth
 
 /** mockVolume spreads each source's counts for the range over its buckets,
  * so the series sums to the counts the table shows. */
-function mockVolume(sources: WebhookSource[], range: WebhookStatusRange, from: number, step: number): WebhookVolumePoint[] {
-  const buckets = Math.round((range === "hour" ? 3600_000 : 24 * 3600_000) / step);
+function mockVolume(sources: WebhookSource[], range: WebhookStatusRange, from: number, until: number, step: number): WebhookVolumePoint[] {
+  const buckets = Math.max(1, Math.round((until - from) / step));
   const first = Math.ceil(from / step) * step;
   const out: WebhookVolumePoint[] = [];
   for (const s of sources) {
@@ -252,16 +253,19 @@ export function mockWebhookOverview(
   all: WebhookSource[],
   range: WebhookStatusRange,
   source = "",
+  custom?: { from: number; to: number },
 ): WebhookStatusOverview {
-  const now = Date.now();
-  const step = range === "hour" ? 60_000 : 15 * 60_000;
-  const from = now - (range === "hour" ? 3600_000 : 24 * 3600_000);
+  const now = custom?.to ?? Date.now();
+  const span = custom ? custom.to - custom.from : RANGE_SPAN_MS[range];
+  const step = custom ? customStepMs(span) : RANGE_STEP_MS[range];
+  const from = now - span;
   const sources = source ? all.filter((s) => s.name === source) : all;
   const ordered = [...sources].sort((a, b) => a.name.localeCompare(b.name));
   return {
     generated_at: new Date(now).toISOString(),
     range,
     from: new Date(from).toISOString(),
+    until: new Date(now).toISOString(),
     bucket_seconds: step / 1000,
     silent_after_seconds: SILENT_AFTER_MS / 1000,
     sources: ordered.map((s) => {
@@ -285,13 +289,115 @@ export function mockWebhookOverview(
         ...(st.last_error ? { last_error: st.last_error } : {}),
       };
     }),
-    volume: mockVolume(ordered, range, from, step),
+    volume: mockVolume(ordered, range, from, now, step),
     rejections: ordered
       .flatMap((s) => (mockWebhookStatus[s.name]?.rejections ?? []).map((r) => ({ source: s.name, ...r })))
       .filter((r) => new Date(r.at).getTime() >= from)
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, 50),
     spools: mockSpools,
+    history: mockWebhookHistory(ordered.map((s) => s.name), from, now, step),
+  };
+}
+
+const RANGE_SPAN_MS: Record<WebhookStatusRange, number> = {
+  hour: 3600_000,
+  day: 24 * 3600_000,
+  week: 7 * 24 * 3600_000,
+  custom: 3600_000,
+};
+
+const RANGE_STEP_MS: Record<WebhookStatusRange, number> = {
+  hour: 60_000,
+  day: 15 * 60_000,
+  week: 3600_000,
+  custom: 60_000,
+};
+
+// customStepMs is the bucket a custom span is drawn in, as the server picks it.
+function customStepMs(span: number): number {
+  if (span <= 2 * 3600_000) return 60_000;
+  if (span <= 36 * 3600_000) return 15 * 60_000;
+  if (span <= 8 * 24 * 3600_000) return 3600_000;
+  return 6 * 3600_000;
+}
+
+/** mockWebhookHistory is the #2150 telemetry over a span: a burst a third of
+ * the way in that the second replica's spool absorbs while object storage is
+ * slow, then drains; a run of 401s from a rotated secret; and one window large
+ * enough to be warned about against a 2 GiB limit. */
+export function mockWebhookHistory(sources: string[], from: number, until: number, step: number): WebhookHistory {
+  const buckets: number[] = [];
+  for (let t = Math.floor(from / step) * step; t < until; t += step) buckets.push(t);
+  const n = buckets.length;
+  const burst = (i: number) => (i >= Math.floor(n / 3) && i < Math.floor(n / 3) + Math.max(2, Math.floor(n / 8)) ? 6 : 1);
+  const perStep = step / 60_000;
+  const statuses: WebhookHistory["statuses"] = [];
+  const replicas: WebhookHistory["replicas"] = [];
+  const ack: WebhookHistory["ack"] = [];
+  let backlog = 0;
+  buckets.forEach((t, i) => {
+    const at = new Date(t).toISOString();
+    for (const source of sources) {
+      const accepted = Math.round(30 * perStep * burst(i));
+      statuses.push({ at, source, http_status: 202, count: accepted });
+      if (i % 7 === 3) statuses.push({ at, source, http_status: 401, count: Math.round(2 * perStep) });
+      if (burst(i) > 1) statuses.push({ at, source, http_status: 503, count: Math.round(perStep) });
+      ack.push({
+        at, source, count: accepted, p50_ms: burst(i) > 1 ? 250 : 25, p99_ms: burst(i) > 1 ? 2500 : 100,
+        max_ms: burst(i) > 1 ? 5700 : 180, buffer_ms: 2, mark_ms: 4, put_ms: burst(i) > 1 ? 1400 : 12,
+      });
+    }
+    const received = Math.round(30 * perStep * burst(i) * Math.max(1, sources.length));
+    const drained = burst(i) > 1 ? Math.round(received / 3) : received + Math.min(backlog, received);
+    backlog = Math.max(0, backlog + received - drained);
+    replicas.push({
+      at, replica: "mcp-data-platform-0", received_events: received, drained_events: received,
+      drained_bytes: received * 640, spool_bytes: 2048, spool_events: 3, oldest_age_seconds: 1,
+    });
+    replicas.push({
+      at, replica: "mcp-data-platform-1", received_events: received, drained_events: drained,
+      drained_bytes: drained * 640, spool_bytes: backlog * 640, spool_events: backlog, oldest_age_seconds: backlog > 0 ? 900 : 1,
+    });
+  });
+  const compactions: WebhookHistory["compactions"] = sources.flatMap((source, si) =>
+    buckets
+      .filter((_, i) => i % Math.max(1, Math.round(3600_000 / step)) === 0)
+      .map((t, i) => ({
+        source,
+        window_start: new Date(t).toISOString(),
+        at: new Date(t + 3600_000 + 150_000).toISOString(),
+        duration_ms: 900 + i * 40,
+        lag_seconds: 150 + (i % 4) * 60,
+        segments: 120 + si * 40,
+        events: 40_000,
+        input_bytes: 9_600_000,
+        decoded_bytes: si === 0 && i === 1 ? 1_210_000_000 : 64_000_000,
+        output_bytes: 4_100_000,
+      })),
+  );
+  const largest = [...compactions].sort((a, b) => b.decoded_bytes - a.decoded_bytes)[0];
+  const limit = 2 * 1024 * 1024 * 1024;
+  return {
+    statuses,
+    replicas,
+    ack,
+    compactions,
+    storage: sources.map((source, i) => ({
+      source, raw_bytes: 210_000_000 + i * 30_000_000, raw_segments: 2_800 + i * 100,
+      compacted_bytes: 4_400_000_000 + i * 900_000_000, compacted_windows: 9_600,
+    })),
+    sizing: {
+      memory_limit_bytes: limit,
+      largest: largest
+        ? {
+            source: largest.source, window_start: largest.window_start, decoded_bytes: largest.decoded_bytes,
+            input_bytes: largest.input_bytes, events: largest.events, percent_of_limit: (100 * largest.decoded_bytes) / limit,
+          }
+        : null,
+      warn_at_percent: 50,
+      warning: !!largest && (100 * largest.decoded_bytes) / limit >= 50,
+    },
   };
 }
 

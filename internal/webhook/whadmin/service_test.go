@@ -195,8 +195,12 @@ type fakeWindows struct {
 	step     time.Duration
 }
 
-func (f *fakeWindows) Overview(_ context.Context, source string, _ time.Time, span, step time.Duration) (whstore.Overview, error) {
-	f.source, f.span, f.step = source, span, step
+func (f *fakeWindows) Overview(_ context.Context, source string, now time.Time, span whstore.Span) (whstore.Overview, error) {
+	until := span.Until
+	if until.IsZero() {
+		until = now
+	}
+	f.source, f.span, f.step = source, until.Sub(span.Since), span.Step
 	return f.overview, f.err["overview"]
 }
 

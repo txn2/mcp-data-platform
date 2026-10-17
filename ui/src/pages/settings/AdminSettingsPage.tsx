@@ -18,6 +18,8 @@ import { MapsCard } from "./MapsCard";
 import { NotificationChannelsCard } from "./NotificationChannelsCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
 import { ScriptRunAlertCard } from "./ScriptRunAlertCard";
+import { StorageSettingsCard } from "./StorageSettingsCard";
+import { WebhookAlertCard } from "./WebhookAlertCard";
 import { SettingsCard } from "./panels";
 import {
   ErrorBanner,
@@ -414,6 +416,8 @@ const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.Re
   ),
   "connection-revocations": (ro) => <ConnectionAlertCard isReadOnly={ro} />,
   "run-failures": (ro) => <ScriptRunAlertCard isReadOnly={ro} />,
+  webhooks: (ro) => <WebhookAlertCard isReadOnly={ro} />,
+  storage: (ro) => <StorageSettingsCard isReadOnly={ro} />,
   maps: () => <MapsCard />,
 };
 

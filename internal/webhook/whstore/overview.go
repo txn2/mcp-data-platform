@@ -67,14 +67,30 @@ type Overview struct {
 	// Since is the series' lower bound: a count is in the series when its
 	// minute is at or after it, the bound LastHour and LastDay are read with.
 	Since time.Time
+	// Until is its upper bound: a count is in the series when its minute is
+	// before it. Zero is no bound: the series runs to now.
+	Until time.Time
+	// Telemetry is the history the page charts over the same span (#2150).
+	Telemetry Telemetry
+}
+
+// Span is the stretch an overview's series covers: from Since until Until, in
+// buckets of Step. A zero Until is no bound: the series runs to now.
+type Span struct {
+	Since, Until time.Time
+	Step         time.Duration
 }
 
 // Overview reads the summary at now of every source, or of source alone when
-// it is not empty, the request series over the span before now in buckets of
-// step, and the newest rejections within that span. The five reads are
-// independent and run concurrently.
-func (s *Store) Overview(ctx context.Context, source string, now time.Time, span, step time.Duration) (Overview, error) {
-	ov := Overview{Since: now.Add(-span).UTC()}
+// it is not empty, the request series over span, the newest rejections within
+// it, and the telemetry over it. The reads are independent and run
+// concurrently.
+func (s *Store) Overview(ctx context.Context, source string, now time.Time, span Span) (Overview, error) {
+	step := span.Step
+	ov := Overview{Since: span.Since.UTC(), Until: span.Until}
+	if !span.Until.IsZero() {
+		ov.Until = span.Until.UTC()
+	}
 	counts := map[string]Summary{}
 	windows := map[string]Summary{}
 	var latency map[string]ackSpans
@@ -86,11 +102,15 @@ func (s *Store) Overview(ctx context.Context, source string, now time.Time, span
 		return err
 	})
 	g.Go(func() (err error) {
-		ov.Volume, err = s.volume(gctx, source, ov.Since, step)
+		ov.Volume, err = s.volume(gctx, source, ov.Since, ov.Until, step)
 		return err
 	})
 	g.Go(func() (err error) {
-		ov.Rejections, err = s.recentRejections(gctx, source, ov.Since)
+		ov.Rejections, err = s.recentRejections(gctx, source, ov.Since, ov.Until)
+		return err
+	})
+	g.Go(func() (err error) {
+		ov.Telemetry, err = s.Telemetry(gctx, source, ov.Since, ov.Until, step)
 		return err
 	})
 	if err := g.Wait(); err != nil {
@@ -98,6 +118,15 @@ func (s *Store) Overview(ctx context.Context, source string, now time.Time, span
 	}
 	ov.Summaries = mergeSummaries(counts, windows, latency)
 	return ov, nil
+}
+
+// bound is an upper bound as a query argument: nil, no bound, for the zero
+// time.
+func bound(until time.Time) any {
+	if until.IsZero() {
+		return nil
+	}
+	return until.UTC()
 }
 
 // emptySummary is a summary whose count maps are empty rather than nil.
@@ -212,17 +241,17 @@ func (s *Store) overviewWindows(ctx context.Context, source string, now time.Tim
 // volume reads the request counts at or after since, summed per source,
 // outcome and bucket of step. A bucket starts at a multiple of step since the
 // Unix epoch, so the buckets of two reads line up.
-func (s *Store) volume(ctx context.Context, source string, since time.Time, step time.Duration) ([]VolumePoint, error) {
+func (s *Store) volume(ctx context.Context, source string, since, until time.Time, step time.Duration) ([]VolumePoint, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT source,
 		        to_timestamp((floor(extract(epoch FROM minute) / $2::integer) * $2::integer)::double precision) AS bucket,
 		        outcome,
 		        SUM(count)
 		   FROM webhook_request_counts
-		  WHERE minute >= $1 AND ($3::text = '' OR source = $3::text)
+		  WHERE minute >= $1 AND ($4::timestamptz IS NULL OR minute < $4) AND ($3::text = '' OR source = $3::text)
 		  GROUP BY source, bucket, outcome
 		  ORDER BY bucket, source, outcome`,
-		since.UTC(), int(step.Seconds()), source)
+		since.UTC(), int(step.Seconds()), source, bound(until))
 	if err != nil {
 		return nil, fmt.Errorf("reading webhook request volume: %w", err)
 	}
@@ -246,14 +275,15 @@ func (s *Store) volume(ctx context.Context, source string, since time.Time, step
 // source alone when it is not empty, whose latest rejection is at or after
 // since: the newest maxOverviewRejections rows of each outcome, so one
 // outcome's volume never hides another's (#2001).
-func (s *Store) recentRejections(ctx context.Context, source string, since time.Time) ([]Rejection, error) {
+func (s *Store) recentRejections(ctx context.Context, source string, since, until time.Time) ([]Rejection, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT source, first_at, rejected_at, count, outcome, reason, request_hash, event_ids FROM (
 		     SELECT w.*, ROW_NUMBER() OVER (PARTITION BY outcome ORDER BY rejected_at DESC, id DESC) AS n
 		       FROM webhook_rejections w
-		      WHERE w.rejected_at >= $2 AND ($3::text = '' OR w.source = $3::text)) ranked
+		      WHERE w.rejected_at >= $2 AND ($4::timestamptz IS NULL OR w.rejected_at < $4)
+		        AND ($3::text = '' OR w.source = $3::text)) ranked
 		  WHERE n <= $1
-		  ORDER BY rejected_at DESC, id DESC`, maxOverviewRejections, since.UTC(), source)
+		  ORDER BY rejected_at DESC, id DESC`, maxOverviewRejections, since.UTC(), source, bound(until))
 	if err != nil {
 		return nil, fmt.Errorf("reading webhook rejections: %w", err)
 	}

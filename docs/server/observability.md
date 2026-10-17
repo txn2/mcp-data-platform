@@ -886,7 +886,8 @@ helper, so a new loop cannot ship without these signals.
 How full the platform's database and buckets are, and whether objects and rows
 still agree (#1899). Every replica reports the same values, since the database
 is shared and the bucket counts are kept in it: read them with `max`, never
-`sum`.
+`sum`. The same readings, with real free space, growth, a fill date and alerts,
+are the **Admin > Storage** page ([Storage Capacity](storage.md), #2148).
 
 | Metric | What it is |
 |---|---|
@@ -941,7 +942,8 @@ stores.
 | `MCP_PLATFORM_CAPACITY_INTERVAL` | `15m` | How often each replica samples the tables. |
 | `MCP_PLATFORM_STORAGE_SCAN_INTERVAL` | `6h` | How often the full listing and reconcile runs. |
 | `MCP_PLATFORM_STORAGE_ORPHAN_GRACE` | `15m` | How recently an object may have been written and not be counted an orphan. |
-| `MCP_PLATFORM_STORAGE_BUDGETS` | none | `bucket=size,...`, sizes in bytes or with KiB, MiB, GiB, TiB (KB, MB, GB, TB). |
+| `MCP_PLATFORM_STORAGE_BUDGETS` | none | `bucket=size,...`, sizes in bytes or with KiB, MiB, GiB, TiB (KB, MB, GB, TB). A budget set in the storage settings overrides it for its bucket. |
+| `MCP_PLATFORM_STORAGE_HISTORY_INTERVAL` | `15m` | How often one replica samples every store for the Storage page's history and evaluates the storage alerts. |
 | `MCP_PLATFORM_STORAGE_BACKEND` | asked | Names the store kind for every bucket instead of asking. |
 
 A malformed value is logged and its default used, keeping every variable that

@@ -21,10 +21,13 @@ type WindowStore interface {
 	RawDeletable(ctx context.Context, source string, cutoff time.Time) ([]whstore.Window, error)
 	RawRegistrable(ctx context.Context, source string, since time.Time) ([]whstore.Window, error)
 	Expirable(ctx context.Context, source string, cutoff time.Time) ([]whstore.Window, error)
+	CompactedDigest(ctx context.Context, h whstore.Window) (digest string, current bool, err error)
 	MarkRawDeleted(ctx context.Context, h whstore.Window) error
 	MarkUnregistered(ctx context.Context, h whstore.Window) error
 	MarkExpired(ctx context.Context, h whstore.Window) error
 	PruneCounts(ctx context.Context, before time.Time) error
+	RollupTelemetry(ctx context.Context, before time.Time) error
+	RecordCompactionRun(ctx context.Context, run whstore.CompactionRun) error
 	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
 }
 
