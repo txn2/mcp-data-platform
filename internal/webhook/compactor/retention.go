@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
@@ -45,8 +46,12 @@ func (w *Worker) Retention(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	if err := w.deps.Windows.PruneCounts(ctx, w.deps.Now().Add(-countsKept)); err != nil {
-		w.warn(ctx, "pruning request counts", "", err)
+	if err := w.deps.Windows.RollupTelemetry(ctx, w.deps.Now().Add(-minutesKept)); err != nil {
+		w.warn(ctx, "rolling up the webhook history", "", err)
+		errs = append(errs, err)
+	}
+	if err := w.deps.Windows.PruneCounts(ctx, w.deps.Now().Add(-w.tuning.TelemetryKept)); err != nil {
+		w.warn(ctx, "pruning the webhook history", "", err)
 		errs = append(errs, err)
 	}
 	// An expired window's record outlives everything it described, and
@@ -122,15 +127,20 @@ func (w *Worker) expireBefore(ctx context.Context, tg whtable.Target, src whsour
 }
 
 // releaseRawBefore deletes the raw segments of every compacted window of src
-// whose last segment was written before cutoff.
+// whose last segment was written before cutoff. A window whose segments are no
+// longer the set its compaction read is left for the compaction it is now owed.
 func (w *Worker) releaseRawBefore(ctx context.Context, tg whtable.Target, src whsource.Source, cutoff time.Time) error {
 	raw, err := w.deps.Windows.RawDeletable(ctx, src.Name, cutoff)
 	if err != nil {
 		return fmt.Errorf("reading the windows whose segments may go: %w", err)
 	}
 	for _, h := range raw {
-		if err := w.deleteRaw(ctx, src, h); err != nil {
+		released, err := w.releaseCompactedRaw(ctx, src, h)
+		if err != nil {
 			return err
+		}
+		if !released {
+			continue
 		}
 		if err := w.deps.Tables.UnregisterRawWindow(ctx, tg, src, h.Start); err != nil {
 			return fmt.Errorf("unregistering the raw window: %w", err)
@@ -140,6 +150,33 @@ func (w *Worker) releaseRawBefore(ctx context.Context, tg whtable.Target, src wh
 		}
 	}
 	return nil
+}
+
+// releaseCompactedRaw deletes a compacted window's raw segments when the
+// segments listed now are the ones its current compaction read, and reports
+// whether it did (#2151). The window was chosen before the listing, so a
+// segment written in between is in the listing and in no Parquet file: its
+// writer records it against the window after the put, which may not have
+// happened yet, so the window's generation cannot be relied on to show it.
+// The digest can: a listing holding any segment the compaction did not read
+// does not match, and the window is left until it is compacted again. A
+// segment written after the listing is not deleted; it records itself
+// against the window, which makes the window owed another compaction.
+func (w *Worker) releaseCompactedRaw(ctx context.Context, src whsource.Source, h whstore.Window) (bool, error) {
+	keys, err := w.deps.Objects.ListKeys(ctx, w.deps.Bucket, whlayout.WindowPrefix(src.Name, h.Start))
+	if err != nil {
+		return false, fmt.Errorf("listing the window's segments: %w", err)
+	}
+	read, current, err := w.deps.Windows.CompactedDigest(ctx, h)
+	if err != nil {
+		return false, fmt.Errorf("reading the window's compaction: %w", err)
+	}
+	if !current || read != digest(eventKeys(keys)) {
+		w.deps.Logger.InfoContext(ctx, "webhooks: raw segments kept, the window holds segments its compaction did not read",
+			"source", logsan.SanitizeForLog(src.Name), "window", h.Start)
+		return false, nil
+	}
+	return true, w.deleteKeys(ctx, keys)
 }
 
 // expire removes one window: its partition first, then its objects.
@@ -167,15 +204,18 @@ func (w *Worker) expire(ctx context.Context, tg whtable.Target, src whsource.Sou
 	return nil
 }
 
-// deleteRaw deletes the raw segments of one window that exist now. A segment
-// written after the listing is not deleted; it records itself against the
-// window, which makes the window owed another compaction before its raw segments
-// can be released again.
+// deleteRaw deletes the raw segments of one window that exist now: an expired
+// window's, every one of which goes whether or not it was compacted.
 func (w *Worker) deleteRaw(ctx context.Context, src whsource.Source, h whstore.Window) error {
 	keys, err := w.deps.Objects.ListKeys(ctx, w.deps.Bucket, whlayout.WindowPrefix(src.Name, h.Start))
 	if err != nil {
 		return fmt.Errorf("listing the window's segments: %w", err)
 	}
+	return w.deleteKeys(ctx, keys)
+}
+
+// deleteKeys deletes the listed objects.
+func (w *Worker) deleteKeys(ctx context.Context, keys []string) error {
 	for _, key := range keys {
 		if err := w.deps.Objects.DeleteObject(ctx, w.deps.Bucket, key); err != nil {
 			return fmt.Errorf("deleting segment %s: %w", key, err)

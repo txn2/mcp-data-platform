@@ -21,11 +21,18 @@ export const webhookHandlers = [
     const params = new URL(request.url).searchParams;
     const range = params.get("range") ?? "hour";
     const source = params.get("source") ?? "";
-    if (range !== "hour" && range !== "day") {
-      return HttpResponse.json(
-        { type: "about:blank", title: "Bad Request", status: 400, detail: "range must be hour or day" },
+    const badRange = () =>
+      HttpResponse.json(
+        { type: "about:blank", title: "Bad Request", status: 400, detail: "range must be hour, day, week or custom" },
         { status: 400 },
       );
+    if (!["hour", "day", "week", "custom"].includes(range)) return badRange();
+    let custom: { from: number; to: number } | undefined;
+    if (range === "custom") {
+      const from = Date.parse(params.get("from") ?? "");
+      const to = params.get("to") ? Date.parse(params.get("to") ?? "") : Date.now();
+      if (Number.isNaN(from) || Number.isNaN(to) || to <= from || to - from > 31 * 24 * 3600_000) return badRange();
+      custom = { from, to };
     }
     if (source && !sources.some((s) => s.name === source)) {
       return HttpResponse.json(
@@ -33,7 +40,7 @@ export const webhookHandlers = [
         { status: 404 },
       );
     }
-    return HttpResponse.json(mockWebhookOverview(sources, range as WebhookStatusRange, source));
+    return HttpResponse.json(mockWebhookOverview(sources, range as WebhookStatusRange, source, custom));
   }),
 
   http.get(`${ADMIN_BASE}/webhooks/sources`, () => HttpResponse.json({ sources })),

@@ -1792,6 +1792,7 @@ webhooks:
     retry_backoff: 1m
     retention_every: 10m
     expired_window_retention_days: 90
+    telemetry_retention_days: 14
 ```
 
 | Field | Type | Default | Description |
@@ -1811,6 +1812,7 @@ webhooks:
 | `compactor.retention_every` | duration | `10m` | How often retention runs. |
 | `compactor.rollup_check_every`, `compactor.rollup_delete_delay` | duration | none | Not read (#2140). They paced the v1.146.1 merge of the open window, which is gone; a configuration that sets them still starts and logs `deprecated_key`. See [Inbound Webhooks](webhooks.md#reading-the-open-window). |
 | `compactor.expired_window_retention_days` | int | `90` | How long the record of an expired window is kept once its partition, file and raw segments are gone. `0` uses the default; a negative value keeps them for as long as their source exists. |
+| `compactor.telemetry_retention_days` | int | `14` | How long the Webhooks page's history is kept (#2150): request counts by outcome and HTTP status, acknowledgement latency, each receiver's minutes and the compaction runs, per minute for 48 hours and per hour after. `0` uses the default. |
 
 A negative value for any of the durations, `batch` and `spool.max_bytes` is refused at startup, and so is a spool directory that cannot be opened. A source's table needs
 a scratch connection whose catalog meets the requirements on

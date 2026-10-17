@@ -17,6 +17,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
+	"github.com/txn2/mcp-data-platform/internal/platform/storagecap"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whalert"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
@@ -48,6 +50,12 @@ type Config struct {
 	// ScriptRunAlert persists the channels a failed scheduled run is posted
 	// to (#1724). nil disables the script-run-alert routes.
 	ScriptRunAlert scriptalert.SettingsStore
+	// Storage persists the storage capacity settings and the channels its
+	// alerts are posted to (#2148). nil disables the storage routes.
+	Storage storagecap.SettingsStore
+	// WebhookAlert persists the webhook receiver alerts' thresholds and
+	// channels (#2149). nil disables the webhook-alert routes.
+	WebhookAlert whalert.SettingsStore
 	// Channels persists the operator's notification channels (#1720). nil
 	// disables the channel routes.
 	Channels notification.ChannelStore
@@ -87,6 +95,8 @@ func Register(mux *http.ServeMux, cfg Config) {
 	registerReviewAlert(mux, h)
 	registerConnAlert(mux, h)
 	registerScriptRunAlert(mux, h)
+	registerStorage(mux, h)
+	registerWebhookAlert(mux, h)
 	registerChannels(mux, h)
 	if cfg.Settings == nil {
 		return

@@ -37,4 +37,7 @@ type WindowResources interface {
 type Metrics interface {
 	WebhookCompaction(ctx context.Context, source, result string)
 	WebhookDuplicatesDropped(ctx context.Context, source string, n int64)
+	// WebhookCompactionRun records a compaction's duration, its lag behind
+	// the window's end, and the bytes the window held in memory (#2150).
+	WebhookCompactionRun(ctx context.Context, source string, duration, lag time.Duration, heldBytes int64)
 }

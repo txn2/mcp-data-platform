@@ -89,7 +89,7 @@ export function FolderTree({
       role="tree"
       aria-label="Folders"
       data-testid="folder-tree"
-      className="min-h-0 overflow-auto px-1 pt-1.5 pb-3"
+      className="min-h-0 flex-1 overflow-auto px-1 pt-1.5 pb-3"
       onKeyDown={(e) => treeKey(e, ref.current, toggle, open)}
     >
       {roots.map((root) => (

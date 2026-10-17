@@ -56,11 +56,17 @@ type Latency struct {
 	Minute  time.Time
 	Buckets [ackBuckets]int64
 	Slowest SlowAck
+	// BufferMS, MarkMS and PutMS are each stage's time summed over the
+	// minute's deliveries, for the average each took (#2150).
+	BufferMS, MarkMS, PutMS int64
 }
 
 // Observe adds one acknowledged delivery to l.
 func (l *Latency) Observe(s SlowAck) {
 	l.Buckets[AckBucket(s.TotalMS)]++
+	l.BufferMS += s.BufferMS
+	l.MarkMS += s.MarkMS
+	l.PutMS += s.PutMS
 	if s.TotalMS >= l.Slowest.TotalMS {
 		l.Slowest = s
 	}
@@ -71,6 +77,9 @@ func (l *Latency) Merge(o Latency) {
 	for i, n := range o.Buckets {
 		l.Buckets[i] += n
 	}
+	l.BufferMS += o.BufferMS
+	l.MarkMS += o.MarkMS
+	l.PutMS += o.PutMS
 	if o.Slowest.TotalMS > l.Slowest.TotalMS {
 		l.Slowest = o.Slowest
 	}
@@ -133,8 +142,9 @@ func (s *Store) RecordLatency(ctx context.Context, latencies []Latency) error {
 	for _, l := range latencies {
 		if _, err := s.db.ExecContext(ctx,
 			`INSERT INTO webhook_ack_latency
-			        (source, minute, buckets, max_ms, slowest_at, slowest_buffer_ms, slowest_mark_ms, slowest_put_ms)
-			 SELECT ws.name, $2, $3::bigint[], $4, $5, $6, $7, $8 FROM webhook_sources ws WHERE ws.name = $1
+			        (source, minute, buckets, max_ms, slowest_at, slowest_buffer_ms, slowest_mark_ms, slowest_put_ms,
+			         buffer_ms_sum, mark_ms_sum, put_ms_sum)
+			 SELECT ws.name, $2, $3::bigint[], $4, $5, $6, $7, $8, $9, $10, $11 FROM webhook_sources ws WHERE ws.name = $1
 			 ON CONFLICT (source, minute) DO UPDATE SET
 			    buckets = ARRAY(SELECT COALESCE(t.a, 0) + COALESCE(t.b, 0)
 			                      FROM unnest(webhook_ack_latency.buckets, EXCLUDED.buckets) WITH ORDINALITY AS t(a, b, i)
@@ -147,9 +157,13 @@ func (s *Store) RecordLatency(ctx context.Context, latencies []Latency) error {
 			                      THEN EXCLUDED.slowest_mark_ms ELSE webhook_ack_latency.slowest_mark_ms END,
 			    slowest_put_ms = CASE WHEN EXCLUDED.max_ms > webhook_ack_latency.max_ms
 			                      THEN EXCLUDED.slowest_put_ms ELSE webhook_ack_latency.slowest_put_ms END,
-			    max_ms = GREATEST(webhook_ack_latency.max_ms, EXCLUDED.max_ms)`,
+			    max_ms = GREATEST(webhook_ack_latency.max_ms, EXCLUDED.max_ms),
+			    buffer_ms_sum = webhook_ack_latency.buffer_ms_sum + EXCLUDED.buffer_ms_sum,
+			    mark_ms_sum = webhook_ack_latency.mark_ms_sum + EXCLUDED.mark_ms_sum,
+			    put_ms_sum = webhook_ack_latency.put_ms_sum + EXCLUDED.put_ms_sum`,
 			l.Source, l.Minute.UTC().Truncate(time.Minute), pq.Array(l.Buckets[:]), l.Slowest.TotalMS,
-			l.Slowest.At.UTC(), l.Slowest.BufferMS, l.Slowest.MarkMS, l.Slowest.PutMS); err != nil {
+			l.Slowest.At.UTC(), l.Slowest.BufferMS, l.Slowest.MarkMS, l.Slowest.PutMS,
+			l.BufferMS, l.MarkMS, l.PutMS); err != nil {
 			return fmt.Errorf("recording webhook acknowledgement latency: %w", err)
 		}
 	}
@@ -267,4 +281,149 @@ func (s *Store) readSlowest(ctx context.Context, source string, hourFrom, dayFro
 		return nil, nil, fmt.Errorf("iterating webhook slowest acknowledgements: %w", err)
 	}
 	return hour, day, nil
+}
+
+// SourceReadings is what the webhook alerts (#2149) are evaluated from for one
+// source: its requests by minute and outcome, its acknowledgement latency over
+// the recent span, and how far its compaction has fallen behind.
+type SourceReadings struct {
+	Source string
+	// Outcomes holds each minute's count per outcome since the counts span
+	// began; a minute with no request has no entry.
+	Outcomes map[time.Time]map[string]int64
+	// Ack is the acknowledgement latency over the ack span.
+	Ack AckLatency
+	// OldestOwedEnd is when the oldest window owed a compaction ended, nil
+	// when none is owed.
+	OldestOwedEnd *time.Time
+	// FailingWindows counts owed windows whose last compaction failed, and
+	// LastError is one of their errors.
+	FailingWindows int
+	LastError      string
+	// LastSegmentAt is when the source's last segment was written.
+	LastSegmentAt *time.Time
+}
+
+// AlertReadings reads every source's readings: request counts from
+// countsSince, acknowledgement latency from ackSince.
+func (s *Store) AlertReadings(ctx context.Context, countsSince, ackSince time.Time) (map[string]*SourceReadings, error) {
+	out := map[string]*SourceReadings{}
+	get := func(source string) *SourceReadings {
+		r, ok := out[source]
+		if !ok {
+			r = &SourceReadings{Source: source, Outcomes: map[time.Time]map[string]int64{}}
+			out[source] = r
+		}
+		return r
+	}
+	if err := s.alertOutcomes(ctx, countsSince, get); err != nil {
+		return nil, err
+	}
+	if err := s.alertAck(ctx, ackSince, get); err != nil {
+		return nil, err
+	}
+	if err := s.alertWindows(ctx, get); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) alertOutcomes(ctx context.Context, since time.Time, get func(string) *SourceReadings) error {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT source, minute, outcome, SUM(count) FROM webhook_request_counts
+		  WHERE minute >= $1 GROUP BY source, minute, outcome`, since.UTC())
+	if err != nil {
+		return fmt.Errorf("reading webhook request counts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			source, outcome string
+			minute          time.Time
+			n               int64
+		)
+		if err := rows.Scan(&source, &minute, &outcome, &n); err != nil {
+			return fmt.Errorf("scanning webhook request counts: %w", err)
+		}
+		r := get(source)
+		minute = minute.UTC()
+		if r.Outcomes[minute] == nil {
+			r.Outcomes[minute] = map[string]int64{}
+		}
+		r.Outcomes[minute][outcome] += n
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("reading webhook request counts: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) alertAck(ctx context.Context, since time.Time, get func(string) *SourceReadings) error {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT l.source, b.i, SUM(b.n), MAX(l.max_ms)
+		   FROM webhook_ack_latency l, unnest(l.buckets) WITH ORDINALITY AS b(n, i)
+		  WHERE l.minute >= $1
+		  GROUP BY l.source, b.i`, since.UTC())
+	if err != nil {
+		return fmt.Errorf("reading webhook acknowledgement latency: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	buckets, most := map[string]*[ackBuckets]int64{}, map[string]int64{}
+	for rows.Next() {
+		var (
+			source     string
+			i          int
+			n, slowest int64
+		)
+		if err := rows.Scan(&source, &i, &n, &slowest); err != nil {
+			return fmt.Errorf("scanning webhook acknowledgement latency: %w", err)
+		}
+		if i < 1 || i > ackBuckets {
+			continue
+		}
+		if buckets[source] == nil {
+			buckets[source] = &[ackBuckets]int64{}
+		}
+		buckets[source][i-1] = n
+		most[source] = slowest
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("reading webhook acknowledgement latency: %w", err)
+	}
+	for source, b := range buckets {
+		get(source).Ack = summarize(*b, &SlowAck{TotalMS: most[source]})
+	}
+	return nil
+}
+
+func (s *Store) alertWindows(ctx context.Context, get func(string) *SourceReadings) error {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT source,
+		        MIN(window_start + make_interval(secs => window_seconds))
+		            FILTER (WHERE generation <> compacted_generation AND expired_at IS NULL),
+		        COUNT(*) FILTER (WHERE generation <> compacted_generation AND expired_at IS NULL AND last_error <> ''),
+		        COALESCE(MAX(last_error) FILTER (WHERE generation <> compacted_generation AND expired_at IS NULL), ''),
+		        MAX(last_segment_at)
+		   FROM webhook_windows GROUP BY source`)
+	if err != nil {
+		return fmt.Errorf("reading webhook windows: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			source      string
+			owed, last  sql.NullTime
+			failing     int
+			lastErrText string
+		)
+		if err := rows.Scan(&source, &owed, &failing, &lastErrText, &last); err != nil {
+			return fmt.Errorf("scanning webhook windows: %w", err)
+		}
+		r := get(source)
+		r.OldestOwedEnd, r.FailingWindows, r.LastError, r.LastSegmentAt = timePtr(owed), failing, lastErrText, timePtr(last)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("reading webhook windows: %w", err)
+	}
+	return nil
 }

@@ -29,10 +29,11 @@ type fakeService struct {
 	source   string
 	span     time.Duration
 	step     time.Duration
+	asked    whadmin.Span
 }
 
-func (f *fakeService) Overview(_ context.Context, source string, span, step time.Duration) (whadmin.Overview, error) {
-	f.source, f.span, f.step = source, span, step
+func (f *fakeService) Overview(_ context.Context, source string, span whadmin.Span) (whadmin.Overview, error) {
+	f.source, f.span, f.step, f.asked = source, span.Back, span.Step, span
 	return f.overview, f.err
 }
 

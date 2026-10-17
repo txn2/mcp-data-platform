@@ -34,7 +34,7 @@ export function FileManager(props: FileManagerProps) {
       <Bar fm={fm} />
       <aside
         aria-label="Folders"
-        className="max-h-[200px] min-h-0 overflow-hidden border-b min-[761px]:max-h-none min-[761px]:border-r min-[761px]:border-b-0"
+        className="flex max-h-[200px] min-h-0 flex-col overflow-hidden border-b min-[761px]:max-h-none min-[761px]:border-r min-[761px]:border-b-0"
       >
         <FolderTree
           roots={fm.roots}

@@ -41,16 +41,19 @@ type Window struct {
 // compaction, because its Parquet file no longer holds every event its
 // segments do. A window recorded with a shorter length is lengthened: a
 // source whose compact_every was raised can land a segment in a window the
-// old setting had already ended.
-func (s *Store) MarkSegment(ctx context.Context, source string, start time.Time, length time.Duration) error {
+// old setting had already ended. bytes is the segment's size, counted toward
+// the window's raw storage (#2150); zero records the window ahead of a write.
+func (s *Store) MarkSegment(ctx context.Context, source string, start time.Time, length time.Duration, bytes int64) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO webhook_windows (source, window_start, window_seconds, generation, last_segment_at)
-		 VALUES ($1, $2, $3, 1, NOW())
+		`INSERT INTO webhook_windows (source, window_start, window_seconds, generation, last_segment_at, raw_bytes, raw_segments)
+		 VALUES ($1, $2, $3, 1, NOW(), $4, CASE WHEN $4::bigint > 0 THEN 1 ELSE 0 END)
 		 ON CONFLICT (source, window_start) DO UPDATE
 		    SET generation = webhook_windows.generation + 1,
 		        window_seconds = GREATEST(webhook_windows.window_seconds, EXCLUDED.window_seconds),
-		        last_segment_at = NOW()`,
-		source, start.UTC(), int(length.Seconds()))
+		        last_segment_at = NOW(),
+		        raw_bytes = webhook_windows.raw_bytes + EXCLUDED.raw_bytes,
+		        raw_segments = webhook_windows.raw_segments + EXCLUDED.raw_segments`,
+		source, start.UTC(), int(length.Seconds()), bytes)
 	if err != nil {
 		return fmt.Errorf("recording webhook segment: %w", err)
 	}
@@ -114,6 +117,8 @@ type Compaction struct {
 	Digest     string
 	ResourceID string
 	Location   string
+	// Bytes is the size of the Parquet file written.
+	Bytes int64
 }
 
 // RecordCompacted records a compaction of w at the generation it was claimed
@@ -124,11 +129,11 @@ func (s *Store) RecordCompacted(ctx context.Context, w Window, c Compaction) err
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE webhook_windows
 		    SET compacted_generation = $3, compacted_at = NOW(), segments = $4, events = $5,
-		        duplicates = $6, digest = $7, resource_id = $8, location = $9,
+		        duplicates = $6, digest = $7, resource_id = $8, location = $9, compacted_bytes = $10,
 		        claimed_until = NULL, attempts = 0, last_error = ''
 		  WHERE source = $1 AND window_start = $2`,
 		w.Source, w.Start.UTC(), w.Generation, c.Segments, c.Events, c.Duplicates, c.Digest,
-		c.ResourceID, c.Location)
+		c.ResourceID, c.Location, c.Bytes)
 	if err != nil {
 		return fmt.Errorf("recording webhook compaction: %w", err)
 	}

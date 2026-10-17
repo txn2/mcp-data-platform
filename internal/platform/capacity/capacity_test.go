@@ -263,3 +263,38 @@ func TestService_ScanFailures(t *testing.T) {
 	_ = db.Close()
 	require.ErrorContains(t, s.scan(context.Background()), "acquiring a connection")
 }
+
+// TestService_AdministratorBudgetsOverrideTheEnvironment covers #2148: a
+// budget set in the admin settings replaces the environment's for that bucket
+// in the gauge, the environment's others stay, and a failed read keeps the
+// budgets last read.
+func TestService_AdministratorBudgetsOverrideTheEnvironment(t *testing.T) {
+	env := []observability.BucketBudget{{Bucket: "portal", Bytes: 1}, {Bucket: "resources", Bytes: 2}}
+	read := map[string]int64{"portal": 100, "maps": 300}
+	var readErr error
+	s := newService(Sources{Budgets: func(context.Context) (map[string]int64, error) { return read, readErr }}, Config{Budgets: env})
+	assert.Equal(t, env, s.Sample(context.Background()).Storage.Budgets, "before the first read, the environment's")
+
+	s.overrides = s.readOverrides(context.Background())
+	assert.Equal(t, []observability.BucketBudget{
+		{Bucket: "resources", Bytes: 2}, {Bucket: "maps", Bytes: 300}, {Bucket: "portal", Bytes: 100},
+	}, s.Sample(context.Background()).Storage.Budgets)
+
+	readErr = errors.New("down")
+	assert.Nil(t, s.readOverrides(context.Background()), "a failed read changes nothing")
+	read, readErr = nil, nil
+	assert.Equal(t, map[string]int64{}, s.readOverrides(context.Background()), "an empty read clears the overrides")
+	assert.Nil(t, newService(Sources{}, Config{}).readOverrides(context.Background()))
+}
+
+func TestService_SampleTablesReadsTheBudgets(t *testing.T) {
+	db, mock := newMock(t)
+	s := newService(Sources{DB: db, Budgets: func(context.Context) (map[string]int64, error) {
+		return map[string]int64{"portal": 7}, nil
+	}}, Config{})
+	mock.ExpectQuery("pg_partition_tree").WillReturnRows(sqlmock.NewRows([]string{"t", "b", "r"}))
+	mock.ExpectQuery("hnsw").WillReturnRows(sqlmock.NewRows([]string{"i", "b"}))
+	mock.ExpectQuery("datfrozenxid").WillReturnRows(sqlmock.NewRows([]string{"a"}).AddRow(int64(1)))
+	require.NoError(t, s.sampleTables(context.Background()))
+	assert.Equal(t, []observability.BucketBudget{{Bucket: "portal", Bytes: 7}}, s.Sample(context.Background()).Storage.Budgets)
+}

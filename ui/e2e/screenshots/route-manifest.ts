@@ -1,5 +1,6 @@
 import { assetViewerRoutes } from "./route-assets";
 import { channelRoutes } from "./route-channels";
+import { storageRoutes } from "./route-storage";
 import { adminResourceRoutes, userResourceRoutes } from "./route-resources";
 import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
@@ -506,6 +507,7 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/settings/connection-revocations",
     category: "admin",
   },
+  ...storageRoutes,
   {
     // The maps section (#2068): the mock carries a region in each state a
     // fetch moves through (fetching with progress, ready, failed while the

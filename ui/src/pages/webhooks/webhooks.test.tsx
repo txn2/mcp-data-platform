@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   one: { data: undefined as unknown, isLoading: false, isError: false },
   ranges: [] as string[],
   sources: [] as string[],
+  customs: [] as unknown[],
   detail: { data: undefined as unknown, isLoading: false, error: null as unknown },
   create: vi.fn(),
   update: vi.fn(),
@@ -19,8 +20,9 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/admin/hooks")>();
   return {
     ...actual,
-    useWebhookStatus: (range: string, source = "", enabled = true) => {
+    useWebhookStatus: (range: string, source = "", enabled = true, custom?: unknown) => {
       h.ranges.push(range);
+      if (custom) h.customs.push(custom);
       if (source && enabled) h.sources.push(source);
       return source ? h.one : h.status;
     },
@@ -56,6 +58,7 @@ beforeEach(() => {
   h.status = { data: mockWebhookOverview(mockWebhookSources, "hour"), isLoading: false, isError: false };
   h.ranges = [];
   h.sources = [];
+  h.customs = [];
   h.one = { data: undefined, isLoading: false, isError: false };
   h.detail = { data: { source: busy, status: mockWebhookStatus[busy.name] }, isLoading: false, error: null };
   h.create.mockReset();
@@ -89,7 +92,7 @@ describe("WebhooksPage", () => {
     expect(within(row("email-events")).getByText("52 rejected")).toBeInTheDocument();
     expect(within(row("crm-contacts")).getByText("Disabled")).toBeInTheDocument();
     expect(screen.getByText("webhook_email_events")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("crm-contacts"));
+    fireEvent.click(row("crm-contacts"));
     expect(onNavigate).toHaveBeenCalledWith("/admin/webhooks/crm-contacts");
     fireEvent.click(screen.getByRole("button", { name: /New source/ }));
     expect(onNavigate).toHaveBeenCalledWith("/admin/webhooks/new");
@@ -448,5 +451,33 @@ describe("AdminWebhookRoutes", () => {
     unmount();
     const { container } = routes("/admin/webhooks/a/b/c");
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("WebhooksPage ranges (#2150)", () => {
+  it("reads the last seven days", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Last 7 days" }));
+    expect(h.ranges[h.ranges.length - 1]).toBe("week");
+    expect(screen.getByText(/in the last 7 days/)).toBeInTheDocument();
+  });
+
+  it("reads a custom span once both ends are set and shown", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    expect(screen.getByTestId("custom-range")).toBeInTheDocument();
+    expect(h.customs).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-10-06T09:00" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-10-06T17:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    const last = h.customs[h.customs.length - 1] as { from: string; to: string };
+    expect(new Date(last.to).getTime() - new Date(last.from).getTime()).toBe(8 * 3600_000);
+
+    // A span that ends before it starts is not read.
+    const before = h.customs.length;
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-10-05T17:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect((h.customs[h.customs.length - 1] as { to: string }).to).toBe(last.to);
+    expect(h.customs.length).toBeGreaterThanOrEqual(before);
   });
 });

@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -202,6 +203,36 @@ func TestNotifyChannel_ChargesTheActorLimitOncePerSend(t *testing.T) {
 	}
 	if got := len(queue.enqueued); got != 2*MaxChannelRecipients {
 		t.Errorf("after two sends: %d rows, want %d", got, 2*MaxChannelRecipients)
+	}
+}
+
+func TestNotifyChannel_APlatformAlertIsChargedToNoActor(t *testing.T) {
+	// A leveled alert resends every condition each pass and leaves the
+	// repeat window to hold the repeats back. Charged to the channel's name,
+	// those repeats spent the budget and dropped the one resolution the
+	// channel was owed (#2149). A send with no actor that is not marked as
+	// the platform's stays limited: an API key with no email has no address.
+	e, queue := channelEnqueuer(t, nil)
+	ch := Channel{Name: "ops", Kind: ChannelKindMattermost, Enabled: true, Mode: ChannelModeImmediate, Connection: "chat-bot", Target: "C1"}
+	for i := range actorBurst + 5 {
+		res, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Platform: true, Document: Document{Title: fmt.Sprintf("a%d", i)}})
+		if err != nil || res.Queued != 1 {
+			t.Fatalf("platform send %d: queued %d, %v", i, res.Queued, err)
+		}
+	}
+	if got := len(queue.enqueued); got != actorBurst+5 {
+		t.Fatalf("wrote %d rows, want %d", got, actorBurst+5)
+	}
+	queued := 0
+	for i := range actorBurst + 5 {
+		res, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Document: Document{Title: fmt.Sprintf("u%d", i)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		queued += res.Queued
+	}
+	if queued >= actorBurst+5 {
+		t.Errorf("an unmarked send with no actor bypassed the limit: %d queued", queued)
 	}
 }
 

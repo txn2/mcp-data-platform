@@ -59,7 +59,7 @@ func (s *Sender) Send(ctx context.Context, names []string, key string, p notific
 			warn(ctx, "alert channel unavailable", name, err)
 			continue
 		}
-		res, err := s.enqueuer.NotifyChannel(ctx, notification.ChannelSend{Channel: *ch, Document: doc})
+		res, err := s.enqueuer.NotifyChannel(ctx, notification.ChannelSend{Channel: *ch, Document: doc, Platform: true})
 		if err != nil {
 			warn(ctx, "queueing an alert for a channel failed", name, err)
 			continue

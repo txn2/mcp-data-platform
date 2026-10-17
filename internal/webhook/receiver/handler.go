@@ -60,7 +60,7 @@ func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	name, token, ok := splitPath(req.URL.Path)
 	src, served := r.lookupFresh(req.Context(), name)
 	if !ok || !served || (token != "" && src.Auth.Mode != whsource.AuthPathToken) {
-		r.count(name, OutcomeUnknownSource)
+		r.count(name, OutcomeUnknownSource, http.StatusNotFound)
 		writeJSON(w, http.StatusNotFound, notFoundBody)
 		return
 	}
@@ -200,7 +200,7 @@ func (r *Receiver) refuse(w http.ResponseWriter, d delivery, why refusal, st *st
 	if why.detail != "" {
 		kept += ": " + why.detail
 	}
-	r.count(d.source, why.outcome)
+	r.count(d.source, why.outcome, why.status)
 	r.reject(d, why.outcome, kept)
 	r.logRefused(d, why.outcome, kept, st)
 	if why.retryAfter > 0 {

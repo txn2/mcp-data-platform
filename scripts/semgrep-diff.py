@@ -17,7 +17,13 @@ Semgrep's own --baseline-commit cannot be used: it aborts when the working tree
 has unstaged changes, and `make verify` is a PRE-commit gate that exists to be
 run on exactly that.
 
-Usage: semgrep-diff.py <config-path>
+`--whole-files` scans every changed Go file whole and reports every finding in
+it. That is the scope for .semgrep/, whose rules are defects wherever they sit:
+`make semgrep` already holds the whole tree to them, so a finding in a file the
+branch touched is the branch's, and reporting it here answers in seconds what
+verify's static lane answered fifteen minutes in (#2145).
+
+Usage: semgrep-diff.py [--whole-files] <config-path>
 """
 
 import json
@@ -87,6 +93,16 @@ def changed_lines(base: str) -> dict[str, set[int]]:
     return {p: lines for p, lines in added.items() if lines}
 
 
+def untracked_go_files() -> list[str]:
+    """New Go files git does not track yet, which `git diff` does not show.
+
+    `make verify` runs before the commit, often before `git add`, so a gate
+    that read only the diff would pass a new file it never looked at.
+    """
+    out = run("git", "ls-files", "--others", "--exclude-standard", "--", "*.go")
+    return [p for p in out.splitlines() if p]
+
+
 def findings(config: str, files: list[str]) -> list[dict]:
     """Scan the changed files and return Semgrep's results."""
     out = subprocess.run(
@@ -103,29 +119,36 @@ def findings(config: str, files: list[str]) -> list[dict]:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print("Usage: semgrep-diff.py <config-path>", file=sys.stderr)
+    args = sys.argv[1:]
+    whole = "--whole-files" in args
+    args = [a for a in args if a != "--whole-files"]
+    if len(args) != 1:
+        print("Usage: semgrep-diff.py [--whole-files] <config-path>", file=sys.stderr)
         sys.exit(1)
-    config = sys.argv[1]
+    config = args[0]
 
     base = merge_base()
     changed = changed_lines(base)
+    if whole:
+        for path in untracked_go_files():
+            changed.setdefault(path, set())
     # A path the diff added and the working tree has since removed is in the
     # map and not on disk; semgrep errors on a path it cannot open.
     files = sorted(p for p in changed if os.path.exists(p))
     if not files:
-        print(f"No changed Go lines vs merge-base {base[:12]}; nothing to scan.")
+        print(f"No changed Go files vs merge-base {base[:12]}; nothing to scan.")
         return
 
     hits = []
     for r in findings(config, files):
         path = r["path"]
         span = range(r["start"]["line"], r["end"]["line"] + 1)
-        if any(line in changed.get(path, ()) for line in span):
+        if whole or any(line in changed.get(path, ()) for line in span):
             hits.append(r)
 
+    scope = "in changed files" if whole else "on changed lines"
     if not hits:
-        print(f"Scanned {len(files)} changed Go file(s) against {config}: no findings.")
+        print(f"Scanned {len(files)} changed Go file(s) against {config}: no findings {scope}.")
         return
 
     for r in hits:
@@ -133,7 +156,7 @@ def main() -> None:
             f"{r['path']}:{r['start']['line']}: [{r['check_id'].split('.')[-1]}] "
             f"{' '.join(r['extra']['message'].split())}"
         )
-    print(f"\n{len(hits)} finding(s) on changed lines. See {config}.", file=sys.stderr)
+    print(f"\n{len(hits)} finding(s) {scope}. See {config}.", file=sys.stderr)
     sys.exit(1)
 
 

@@ -53,7 +53,7 @@ GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release alert-rules-test \
 	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui vet-tags \
-	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
+	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
 	frontend-e2e-public-viewer \
@@ -439,6 +439,17 @@ semgrep-diff:
 	@echo "Running diff-scoped Semgrep..."
 	@python3 scripts/semgrep-diff.py .semgrep-diff/
 
+## semgrep-changed: Run the .semgrep/ rules over the Go files this branch changed (#2145)
+##
+## `semgrep` holds the whole tree to .semgrep/ in verify-static, one of the
+## parallel lanes, so a finding there used to fail verify after the Go, Docker
+## and UI lanes had run. The tree passes them on main, so a finding in a file
+## the branch touched is the branch's: this reports it whole-file, in seconds,
+## in preverify-fast.
+semgrep-changed:
+	@echo "Running .semgrep/ rules on changed files..."
+	@python3 scripts/semgrep-diff.py --whole-files .semgrep/
+
 ## codeql: Run CodeQL analysis (requires codeql CLI)
 codeql:
 	@echo "Running CodeQL analysis..."
@@ -694,11 +705,17 @@ apidocs-openapi3-check:
 ## diff. Concrete incident on 2026-05-08: local gosec 2.26.1 silently dropped
 ## the G704 SSRF taint rule that CI's pinned v2.22.0 enforces, letting an
 ## actual SSRF bug ship to PR #377. See feedback_gate_metric.md.
+##
+## A matching version is not enough: CI installs with GOTOOLCHAIN=local, so a
+## pin whose module needs a newer Go than CI sets up fails CI's install while a
+## local GOTOOLCHAIN=auto install builds it. scripts/tools-go-check.sh refuses a
+## pinned tool built with a newer Go than ci.yml's go-version (#2147), and every
+## install command printed here sets GOTOOLCHAIN=local, as CI does.
 tools-check:
 	@echo "Checking required tools (presence AND pinned versions)..."
 	@missing=""; mismatch=""; \
 	if ! which golangci-lint > /dev/null 2>&1; then \
-		missing="$$missing  golangci-lint: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)\n"; \
+		missing="$$missing  golangci-lint: GOTOOLCHAIN=local go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)\n"; \
 	else \
 		v=$$(go version -m $$(which golangci-lint) 2>/dev/null | awk '$$1=="mod" && $$2 ~ /golangci-lint/ {print $$3}'); \
 		if [ -z "$$v" ] || [ "$$v" = "(devel)" ]; then \
@@ -706,11 +723,11 @@ tools-check:
 			case "$$v" in v*) ;; *) v="v$$v";; esac; \
 		fi; \
 		if [ "$$v" != "$(GOLANGCI_LINT_VERSION)" ]; then \
-			mismatch="$$mismatch  golangci-lint: have $$v, want $(GOLANGCI_LINT_VERSION) — go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)\n"; \
+			mismatch="$$mismatch  golangci-lint: have $$v, want $(GOLANGCI_LINT_VERSION) — GOTOOLCHAIN=local go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)\n"; \
 		fi; \
 	fi; \
 	if ! which gosec > /dev/null 2>&1; then \
-		missing="$$missing  gosec: go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
+		missing="$$missing  gosec: GOTOOLCHAIN=local go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
 	else \
 		v=$$(go version -m $$(which gosec) 2>/dev/null | awk '$$1=="mod" && $$2 ~ /gosec/ {print $$3}'); \
 		if [ -z "$$v" ] || [ "$$v" = "(devel)" ]; then \
@@ -718,30 +735,38 @@ tools-check:
 			case "$$v" in v*) ;; *) v="v$$v";; esac; \
 		fi; \
 		if [ "$$v" != "$(GOSEC_VERSION)" ]; then \
-			mismatch="$$mismatch  gosec: have $$v, want $(GOSEC_VERSION) — go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
+			mismatch="$$mismatch  gosec: have $$v, want $(GOSEC_VERSION) — GOTOOLCHAIN=local go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
 		fi; \
 	fi; \
 	if ! which govulncheck > /dev/null 2>&1; then \
-		missing="$$missing  govulncheck: go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)\n"; \
+		missing="$$missing  govulncheck: GOTOOLCHAIN=local go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)\n"; \
 	else \
 		v=$$(go version -m $$(which govulncheck) 2>/dev/null | awk '$$1=="mod" && $$2=="golang.org/x/vuln" {print $$3}'); \
 		if [ -n "$$v" ] && [ "$$v" != "$(GOVULNCHECK_VERSION)" ]; then \
-			mismatch="$$mismatch  govulncheck: have $$v, want $(GOVULNCHECK_VERSION) — go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)\n"; \
+			mismatch="$$mismatch  govulncheck: have $$v, want $(GOVULNCHECK_VERSION) — GOTOOLCHAIN=local go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)\n"; \
 		fi; \
 	fi; \
 	if ! which osv-scanner > /dev/null 2>&1; then \
-		missing="$$missing  osv-scanner: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@$(OSV_SCANNER_VERSION)\n"; \
+		missing="$$missing  osv-scanner: GOTOOLCHAIN=local go install github.com/google/osv-scanner/v2/cmd/osv-scanner@$(OSV_SCANNER_VERSION)\n"; \
 	else \
 		v=$$(osv-scanner --version 2>&1 | grep -oE 'version: v?[0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 		if [ "v$$v" != "$(OSV_SCANNER_VERSION)" ]; then \
-			mismatch="$$mismatch  osv-scanner: have v$$v at $$(which osv-scanner), want $(OSV_SCANNER_VERSION) — go install github.com/google/osv-scanner/v2/cmd/osv-scanner@$(OSV_SCANNER_VERSION), ahead of any other copy on PATH\n"; \
+			mismatch="$$mismatch  osv-scanner: have v$$v at $$(which osv-scanner), want $(OSV_SCANNER_VERSION) — GOTOOLCHAIN=local go install github.com/google/osv-scanner/v2/cmd/osv-scanner@$(OSV_SCANNER_VERSION), ahead of any other copy on PATH\n"; \
 		fi; \
+	fi; \
+	if ! newer=$$(sh scripts/tools-go-check.sh .github/workflows/ci.yml \
+		golangci-lint=github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) \
+		gosec=github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) \
+		govulncheck=golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) \
+		osv-scanner=github.com/google/osv-scanner/v2/cmd/osv-scanner@$(OSV_SCANNER_VERSION) \
+		gremlins=github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)); then \
+		mismatch="$$mismatch$$newer\n"; \
 	fi; \
 	which semgrep > /dev/null 2>&1       || missing="$$missing  semgrep: pip3 install semgrep\n"; \
 	which codeql > /dev/null 2>&1        || missing="$$missing  codeql: brew install codeql\n"; \
-	which deadcode > /dev/null 2>&1      || missing="$$missing  deadcode: go install golang.org/x/tools/cmd/deadcode@latest\n"; \
+	which deadcode > /dev/null 2>&1      || missing="$$missing  deadcode: GOTOOLCHAIN=local go install golang.org/x/tools/cmd/deadcode@latest\n"; \
 	if ! which gremlins > /dev/null 2>&1; then \
-		missing="$$missing  gremlins: go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)\n"; \
+		missing="$$missing  gremlins: GOTOOLCHAIN=local go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)\n"; \
 	else \
 		v=$$(go version -m $$(which gremlins) 2>/dev/null | awk '$$1=="mod" && $$2 ~ /gremlins/ {print $$3}'); \
 		if [ -z "$$v" ] || [ "$$v" = "(devel)" ]; then \
@@ -749,7 +774,7 @@ tools-check:
 			case "$$v" in v*) ;; *) v="v$$v";; esac; \
 		fi; \
 		if [ "$$v" != "$(GREMLINS_VERSION)" ]; then \
-			mismatch="$$mismatch  gremlins: have $$v, want $(GREMLINS_VERSION) — go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)\n"; \
+			mismatch="$$mismatch  gremlins: have $$v, want $(GREMLINS_VERSION) — GOTOOLCHAIN=local go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)\n"; \
 		fi; \
 	fi; \
 	which goreleaser > /dev/null 2>&1    || missing="$$missing  goreleaser: brew install goreleaser\n"; \
@@ -762,7 +787,7 @@ tools-check:
 			mismatch="$$mismatch  node: have major $$node_have, want $$node_want (the major in $(UI_DIR)/.nvmrc, which CI installs) — nvm install $$node_want && nvm use $$node_want\n"; \
 		fi; \
 	fi; \
-	which swag > /dev/null 2>&1          || missing="$$missing  swag: go install github.com/swaggo/swag/cmd/swag@latest\n"; \
+	which swag > /dev/null 2>&1          || missing="$$missing  swag: GOTOOLCHAIN=local go install github.com/swaggo/swag/cmd/swag@latest\n"; \
 	if [ -n "$$missing" ]; then \
 		echo ""; \
 		echo "FAIL: Missing required tools:"; \
@@ -942,7 +967,7 @@ verify-go:
 
 ## preverify-fast: the cheap gates verify runs before its lanes (#1856, #2030)
 ## swagger-check and apidocs-openapi3-check (the API description is current and
-## converts to OpenAPI 3), semgrep-diff, doc-check, acceptance-check,
+## converts to OpenAPI 3), semgrep-diff, semgrep-changed, doc-check, acceptance-check,
 ## state-readers-check, e2e-copy-check, route-manifest-check, dead-code and
 ## frontend-lint read the change and the tree, not a coverage profile, so they answer in under a
 ## minute. verify runs them in its serial preamble. swagger-check runs first
@@ -951,6 +976,7 @@ preverify-fast:
 	@$(MAKE) --no-print-directory swagger-check
 	@$(MAKE) --no-print-directory apidocs-openapi3-check
 	@$(MAKE) --no-print-directory semgrep-diff
+	@$(MAKE) --no-print-directory semgrep-changed
 	@$(MAKE) --no-print-directory doc-check
 	@$(MAKE) --no-print-directory docs-build
 	@$(MAKE) --no-print-directory acceptance-check

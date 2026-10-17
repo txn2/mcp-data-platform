@@ -1,5 +1,6 @@
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartSkeleton } from "@/components/charts/ChartSkeleton";
+import { bucketLabel } from "./historySeries";
 import { outcomeLabel, type VolumeBucket } from "./webhookOverview";
 
 // VolumeChart is the webhooks overview's request volume (#1979): one stacked
@@ -18,23 +19,23 @@ const COLORS: Record<string, string> = {
 };
 const OTHER = "hsl(215, 16%, 57%)";
 
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
 export function VolumeChart({
   buckets,
   outcomes,
   total,
   isLoading,
   height = 200,
+  bucketSeconds = 60,
 }: {
   buckets: VolumeBucket[];
   outcomes: string[];
   total: number;
   isLoading: boolean;
   height?: number;
+  /** bucketSeconds is the bucket length, which decides whether the axis names the day. */
+  bucketSeconds?: number;
 }) {
+  const fmtTime = (iso: string) => bucketLabel(iso, bucketSeconds);
   if (isLoading) return <ChartSkeleton height={height} />;
   if (total === 0) {
     return (

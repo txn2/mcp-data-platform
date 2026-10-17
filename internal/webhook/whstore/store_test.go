@@ -35,10 +35,12 @@ func windowRows() *sqlmock.Rows {
 
 func TestMarkSegment(t *testing.T) {
 	st, mock := newMock(t)
-	mock.ExpectExec(`INSERT INTO webhook_windows`).WithArgs("esp", start, 300).WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, st.MarkSegment(ctx, "esp", start, 5*time.Minute))
+	mock.ExpectExec(`INSERT INTO webhook_windows`).WithArgs("esp", start, 300, int64(0)).WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, st.MarkSegment(ctx, "esp", start, 5*time.Minute, 0))
+	mock.ExpectExec(`INSERT INTO webhook_windows`).WithArgs("esp", start, 300, int64(4096)).WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, st.MarkSegment(ctx, "esp", start, 5*time.Minute, 4096), "a written segment counts its bytes")
 	mock.ExpectExec(`INSERT INTO webhook_windows`).WillReturnError(errDown)
-	assert.Error(t, st.MarkSegment(ctx, "esp", start, 5*time.Minute))
+	assert.Error(t, st.MarkSegment(ctx, "esp", start, 5*time.Minute, 0))
 }
 
 func TestClaimOwed(t *testing.T) {
@@ -121,9 +123,26 @@ func TestRetentionReads(t *testing.T) {
 func TestStats(t *testing.T) {
 	st, mock := newMock(t)
 	require.NoError(t, st.RecordCounts(ctx, nil))
+	mock.ExpectBegin()
 	mock.ExpectExec(`INSERT INTO webhook_request_counts`).WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, st.RecordCounts(ctx, []Count{{Source: "esp", Minute: start, Outcome: "accepted", Count: 1}}))
+	mock.ExpectExec(`INSERT INTO webhook_status_counts`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, st.RecordCounts(ctx, []Count{{Source: "esp", Minute: start, Outcome: "accepted", Status: 202, Count: 1}}))
+	mock.ExpectBegin()
 	mock.ExpectExec(`INSERT INTO webhook_request_counts`).WillReturnError(errDown)
+	mock.ExpectRollback()
+	assert.Error(t, st.RecordCounts(ctx, []Count{{Source: "esp"}}))
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO webhook_request_counts`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO webhook_status_counts`).WillReturnError(errDown)
+	mock.ExpectRollback()
+	assert.Error(t, st.RecordCounts(ctx, []Count{{Source: "esp"}}), "a batch is recorded in both or neither")
+	mock.ExpectBegin().WillReturnError(errDown)
+	assert.Error(t, st.RecordCounts(ctx, []Count{{Source: "esp"}}))
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO webhook_request_counts`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO webhook_status_counts`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit().WillReturnError(errDown)
 	assert.Error(t, st.RecordCounts(ctx, []Count{{Source: "esp"}}))
 
 	rej := []Rejection{{Source: "esp", At: start, Outcome: "unauthorized"}}
@@ -169,7 +188,10 @@ func TestStats(t *testing.T) {
 	assert.Error(t, st.RecordRejections(ctx, rej))
 
 	mock.ExpectExec(`DELETE FROM webhook_request_counts`).WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec(`DELETE FROM webhook_status_counts`).WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectExec(`DELETE FROM webhook_ack_latency`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM webhook_replica_minutes`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM webhook_compactions`).WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, st.PruneCounts(ctx, start))
 	mock.ExpectExec(`DELETE FROM webhook_request_counts`).WillReturnError(errDown)
 	assert.Error(t, st.PruneCounts(ctx, start))
@@ -358,5 +380,22 @@ func TestRawRegistrable(t *testing.T) {
 	mock.ExpectQuery(`last_segment_at >=`).WillReturnError(errors.New("down"))
 	_, err = st.RawRegistrable(context.Background(), "esp", start)
 	require.Error(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCompactedDigest reads the digest of the window's last compaction and
+// whether it is still current (#2151).
+func TestCompactedDigest(t *testing.T) {
+	st, mock := newMock(t)
+	w := Window{Source: "esp", Start: start}
+	mock.ExpectQuery(`SELECT digest, compacted_at IS NOT NULL AND generation = compacted_generation`).
+		WithArgs("esp", start).WillReturnRows(sqlmock.NewRows([]string{"digest", "current"}).AddRow("d", true))
+	digest, current, err := st.CompactedDigest(ctx, w)
+	require.NoError(t, err)
+	assert.Equal(t, "d", digest)
+	assert.True(t, current)
+	mock.ExpectQuery(`SELECT digest`).WillReturnError(errDown)
+	_, _, err = st.CompactedDigest(ctx, w)
+	require.ErrorIs(t, err, errDown)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

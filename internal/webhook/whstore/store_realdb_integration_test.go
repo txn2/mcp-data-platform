@@ -26,9 +26,9 @@ func TestWebhookWindowsRealDB(t *testing.T) {
 
 	hour := time.Now().UTC().Truncate(time.Hour).Add(-2 * time.Hour)
 	current := time.Now().UTC().Truncate(time.Hour)
-	require.NoError(t, st.MarkSegment(ctx, "esp", hour, time.Hour))
-	require.NoError(t, st.MarkSegment(ctx, "esp", hour, time.Hour))
-	require.NoError(t, st.MarkSegment(ctx, "esp", current, time.Hour))
+	require.NoError(t, st.MarkSegment(ctx, "esp", hour, time.Hour, 0))
+	require.NoError(t, st.MarkSegment(ctx, "esp", hour, time.Hour, 0))
+	require.NoError(t, st.MarkSegment(ctx, "esp", current, time.Hour, 0))
 
 	claimed, err := st.ClaimOwed(ctx, time.Now(), time.Minute, 10)
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestWebhookWindowsRealDB(t *testing.T) {
 	assert.Empty(t, again, "a claimed window is not claimed twice")
 
 	// A segment lands while the compaction runs.
-	require.NoError(t, st.MarkSegment(ctx, "esp", hour, time.Hour))
+	require.NoError(t, st.MarkSegment(ctx, "esp", hour, time.Hour, 0))
 	require.NoError(t, st.RecordLocation(ctx, h, "res-1", "s3://b/resources/global/global/res-1/"))
 	require.NoError(t, st.RecordCompacted(ctx, h, Compaction{
 		Segments: 2, Events: 10, Duplicates: 1, Digest: "d", ResourceID: "res-1",
@@ -59,6 +59,10 @@ func TestWebhookWindowsRealDB(t *testing.T) {
 	none, err := st.RawDeletable(ctx, "esp", time.Now().Add(time.Hour))
 	require.NoError(t, err)
 	assert.Empty(t, none, "a dirty window's raw segments are never released")
+	read, fresh, err := st.CompactedDigest(ctx, h)
+	require.NoError(t, err)
+	assert.Equal(t, "d", read)
+	assert.False(t, fresh, "a segment recorded since the compaction leaves it stale (#2151)")
 
 	require.NoError(t, st.RecordFailure(ctx, dirty[0], "boom", time.Hour))
 	held, err := st.ClaimOwed(ctx, time.Now(), time.Minute, 10)
@@ -74,7 +78,13 @@ func TestWebhookWindowsRealDB(t *testing.T) {
 	assert.Equal(t, hour, *status.OldestWindow)
 	assert.Nil(t, status.LastCompactedWindow)
 
-	require.NoError(t, st.RecordCompacted(ctx, dirty[0], Compaction{Segments: 3, Events: 11, ResourceID: "res-1", Location: "loc"}))
+	require.NoError(t, st.RecordCompacted(ctx, dirty[0], Compaction{Segments: 3, Events: 11, Digest: "d3", ResourceID: "res-1", Location: "loc"}))
+	read, fresh, err = st.CompactedDigest(ctx, dirty[0])
+	require.NoError(t, err)
+	assert.Equal(t, "d3", read)
+	assert.True(t, fresh)
+	_, _, err = st.CompactedDigest(ctx, Window{Source: "esp", Start: hour.Add(-time.Hour)})
+	require.Error(t, err, "a window with no record has no compaction")
 	status, err = st.Status(ctx, "esp", time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, status.LastCompactedWindow)
@@ -108,7 +118,7 @@ func TestWebhookWindowsRealDB(t *testing.T) {
 
 	// A segment landing in an expired window makes it expirable again, so its
 	// raw objects are deleted rather than served by the view.
-	require.NoError(t, st.MarkSegment(ctx, "esp", hour, time.Hour))
+	require.NoError(t, st.MarkSegment(ctx, "esp", hour, time.Hour, 0))
 	exp, err = st.Expirable(ctx, "esp", time.Now())
 	require.NoError(t, err)
 	assert.Len(t, exp, 1)
@@ -135,8 +145,8 @@ func TestWebhookWindowLengthRealDB(t *testing.T) {
 	require.NoError(t, err)
 
 	start := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
-	require.NoError(t, st.MarkSegment(ctx, "esp", start, time.Minute))
-	require.NoError(t, st.MarkSegment(ctx, "esp", start.Add(time.Minute), time.Minute))
+	require.NoError(t, st.MarkSegment(ctx, "esp", start, time.Minute, 0))
+	require.NoError(t, st.MarkSegment(ctx, "esp", start.Add(time.Minute), time.Minute, 0))
 
 	got, err := st.ClaimOwed(ctx, start.Add(59*time.Second), time.Minute, 10)
 	require.NoError(t, err)
@@ -149,7 +159,7 @@ func TestWebhookWindowLengthRealDB(t *testing.T) {
 
 	// The setting is raised to an hour and a segment lands in the window that
 	// started at 10:01: it becomes an hour long and is held until 11:01.
-	require.NoError(t, st.MarkSegment(ctx, "esp", start.Add(time.Minute), time.Hour))
+	require.NoError(t, st.MarkSegment(ctx, "esp", start.Add(time.Minute), time.Hour, 0))
 	got, err = st.ClaimOwed(ctx, start.Add(30*time.Minute), time.Minute, 10)
 	require.NoError(t, err)
 	assert.Empty(t, got, "a lengthened window is not compacted while its new length runs")
@@ -159,8 +169,8 @@ func TestWebhookWindowLengthRealDB(t *testing.T) {
 	assert.Equal(t, time.Hour, got[0].Length)
 
 	// Lowering it never shortens a window already recorded.
-	require.NoError(t, st.MarkSegment(ctx, "esp", start.Add(2*time.Hour), time.Hour))
-	require.NoError(t, st.MarkSegment(ctx, "esp", start.Add(2*time.Hour), time.Minute))
+	require.NoError(t, st.MarkSegment(ctx, "esp", start.Add(2*time.Hour), time.Hour, 0))
+	require.NoError(t, st.MarkSegment(ctx, "esp", start.Add(2*time.Hour), time.Minute, 0))
 	exp, err := st.Expirable(ctx, "esp", start.Add(2*time.Hour+30*time.Minute))
 	require.NoError(t, err)
 	for _, w := range exp {
@@ -249,7 +259,7 @@ func TestWebhookOverviewRealDB(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	empty, err := st.Overview(ctx, "", now, time.Hour, time.Minute)
+	empty, err := st.Overview(ctx, "", now, Span{Since: now.Add(-time.Hour), Step: time.Minute})
 	require.NoError(t, err)
 	assert.Empty(t, empty.Summaries)
 	assert.NotNil(t, empty.Volume)
@@ -267,7 +277,7 @@ func TestWebhookOverviewRealDB(t *testing.T) {
 		{Source: "crm", Minute: now.Add(-10 * time.Minute), Outcome: "accepted", Count: 4},
 	}))
 	window := now.Truncate(time.Minute).Add(-10 * time.Minute)
-	require.NoError(t, st.MarkSegment(ctx, "esp", window, time.Minute))
+	require.NoError(t, st.MarkSegment(ctx, "esp", window, time.Minute, 0))
 	claimed, err := st.ClaimOwed(ctx, now, time.Minute, 10)
 	require.NoError(t, err)
 	require.Len(t, claimed, 1)
@@ -277,7 +287,7 @@ func TestWebhookOverviewRealDB(t *testing.T) {
 		{Source: "crm", At: now, Outcome: "too_large", Reason: "the body is over the limit"},
 	}))
 
-	ov, err := st.Overview(ctx, "", now, time.Hour, time.Minute)
+	ov, err := st.Overview(ctx, "", now, Span{Since: now.Add(-time.Hour), Step: time.Minute})
 	require.NoError(t, err)
 
 	esp := ov.Summaries["esp"]
@@ -306,7 +316,7 @@ func TestWebhookOverviewRealDB(t *testing.T) {
 	assert.Equal(t, int64(10), table)
 	assert.Equal(t, table, series, "the series over the hour sums to the counts table's rows for the same bound")
 
-	day, err := st.Overview(ctx, "", now, 24*time.Hour, 15*time.Minute)
+	day, err := st.Overview(ctx, "", now, Span{Since: now.Add(-24 * time.Hour), Step: 15 * time.Minute})
 	require.NoError(t, err)
 	series = 0
 	for _, p := range day.Volume {
@@ -379,7 +389,7 @@ func TestRejectionsSurviveABurstRealDB(t *testing.T) {
 	assert.Equal(t, now.Add(499*time.Millisecond), status.Rejections[0].At)
 	assert.Equal(t, want, unauthorized(status.Rejections))
 
-	ov, err := st.Overview(ctx, "", now, time.Hour, time.Minute)
+	ov, err := st.Overview(ctx, "", now, Span{Since: now.Add(-time.Hour), Step: time.Minute})
 	require.NoError(t, err)
 	assert.Equal(t, want, unauthorized(ov.Rejections))
 }
@@ -426,7 +436,7 @@ func TestAckLatencyRealDB(t *testing.T) {
 	assert.Equal(t, int64(2600), status.AckLastDay.MaxMS)
 	assert.Equal(t, int64(2500), status.AckLastDay.Slowest.MarkMS, "the day's slowest names the stage that was slow")
 
-	ov, err := st.Overview(ctx, "crm", now, time.Hour, time.Minute)
+	ov, err := st.Overview(ctx, "crm", now, Span{Since: now.Add(-time.Hour), Step: time.Minute})
 	require.NoError(t, err)
 	require.Len(t, ov.Summaries, 1, "a source filter reads that source alone")
 	assert.Equal(t, int64(1), ov.Summaries["crm"].AckLastDay.Count)
@@ -464,13 +474,13 @@ func TestIdentifiedRejectionsRealDB(t *testing.T) {
 	assert.Equal(t, "h1", status.Rejections[2].RequestHash)
 	assert.Equal(t, []string{"a", "b"}, status.Rejections[2].EventIDs)
 
-	ov, err := st.Overview(ctx, "esp", now, time.Hour, time.Minute)
+	ov, err := st.Overview(ctx, "esp", now, Span{Since: now.Add(-time.Hour), Step: time.Minute})
 	require.NoError(t, err)
 	assert.Len(t, ov.Rejections, 3, "the rejection older than the range is left out")
 	for _, r := range ov.Rejections {
 		assert.Equal(t, "esp", r.Source)
 	}
-	all, err := st.Overview(ctx, "", now, 24*time.Hour, 15*time.Minute)
+	all, err := st.Overview(ctx, "", now, Span{Since: now.Add(-24 * time.Hour), Step: 15 * time.Minute})
 	require.NoError(t, err)
 	assert.Len(t, all.Rejections, 5)
 }
@@ -514,8 +524,8 @@ func TestRawRegistrableRealDB(t *testing.T) {
 
 	current := time.Now().UTC().Truncate(time.Hour)
 	older := current.Add(-3 * time.Hour)
-	require.NoError(t, st.MarkSegment(ctx, "esp", current, time.Hour))
-	require.NoError(t, st.MarkSegment(ctx, "esp", older, time.Hour))
+	require.NoError(t, st.MarkSegment(ctx, "esp", current, time.Hour, 0))
+	require.NoError(t, st.MarkSegment(ctx, "esp", older, time.Hour, 0))
 	_, err = db.ExecContext(ctx, `UPDATE webhook_windows SET last_segment_at = NOW() - INTERVAL '3 hours' WHERE window_start = $1`, older)
 	require.NoError(t, err)
 
@@ -531,7 +541,7 @@ func TestRawRegistrableRealDB(t *testing.T) {
 	assert.Empty(t, got, "a window whose segments were released holds none")
 	_, err = db.ExecContext(ctx, `UPDATE webhook_windows SET raw_deleted_at = NOW() - INTERVAL '1 minute' WHERE window_start = $1`, current)
 	require.NoError(t, err)
-	require.NoError(t, st.MarkSegment(ctx, "esp", current, time.Hour))
+	require.NoError(t, st.MarkSegment(ctx, "esp", current, time.Hour, 0))
 	got, err = st.RawRegistrable(ctx, "esp", since)
 	require.NoError(t, err)
 	assert.Len(t, got, 1, "a segment landing after the release brings it back")

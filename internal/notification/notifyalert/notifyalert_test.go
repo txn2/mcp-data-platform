@@ -102,6 +102,23 @@ func TestSend_PostsTheAlertUnderItsKeyToEachChannel(t *testing.T) {
 	}
 }
 
+// TestSend_ManyPassesNeverRunOutOfBudget: an alert resent every pass is held
+// back by the channel's repeat window, never by a rate limit charged to the
+// channel, so the resolution that follows a run of repeats still goes out.
+func TestSend_ManyPassesNeverRunOutOfBudget(t *testing.T) {
+	s, q := fixture(t)
+	p := notification.Payload{Kind: notification.KindChannel, ItemTitle: "spool", Document: &notification.Document{Title: "spool"}}
+	for range 100 {
+		s.Send(context.Background(), []string{"ops"}, "webhook:spool_age:a:critical:1", p)
+	}
+	if n := s.Send(context.Background(), []string{"ops"}, "webhook:spool_age:a:resolved:1", p); n != 1 {
+		t.Fatalf("the resolution after 100 repeats queued for %d channels, want 1", n)
+	}
+	if len(q.rows) != 101 {
+		t.Errorf("wrote %d rows, want 101", len(q.rows))
+	}
+}
+
 func TestSend_NothingToDo(t *testing.T) {
 	var nilSender *Sender
 	if nilSender.Send(context.Background(), []string{"ops"}, "k", notification.Payload{}) != 0 {

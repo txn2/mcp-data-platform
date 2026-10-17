@@ -30,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whspool"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
@@ -105,6 +106,11 @@ type Receiver struct {
 	// gone since.
 	started time.Time
 	spool   spoolTally
+	// volumeOf reads the filesystem the spool is on (#2148).
+	volumeOf func(dir string) (whspool.Volume, error)
+	// minutes is this replica's events accepted and written per minute
+	// since the last stats flush, guarded by statsMu (#2150).
+	minutes map[time.Time]*whstore.ReplicaMinute
 
 	// missMu guards the re-reads requests for a name not served wait on:
 	// lastMiss is when the last of them started, and nextMiss the one not
@@ -158,6 +164,7 @@ type countKey struct {
 	source  string
 	minute  time.Time
 	outcome string
+	status  int
 }
 
 // New builds a receiver. Start begins serving.
@@ -192,6 +199,8 @@ func New(cfg Config) *Receiver {
 		drainers:   map[string]*drainer{},
 		limiters:   map[string]*limiter{},
 		started:    start,
+		volumeOf:   whspool.VolumeOf,
+		minutes:    map[time.Time]*whstore.ReplicaMinute{},
 		counts:     map[countKey]int64{},
 		latency:    map[latencyKey]*whstore.Latency{},
 		regPending: map[string]rawWindow{},
@@ -367,13 +376,16 @@ func (r *Receiver) allow(s whsource.Source) (allowed bool, retryAfter int) {
 // no source is reported under an empty source label and never stored: the
 // name came from the request, and a label per name a caller invents would be
 // a metric series per request.
-func (r *Receiver) count(source, outcome string) {
+func (r *Receiver) count(source, outcome string, status int) {
 	if outcome == OutcomeUnknownSource {
 		r.metricRequest("", outcome)
 		return
 	}
 	r.metricRequest(source, outcome)
-	k := countKey{source: source, minute: r.now().UTC().Truncate(time.Minute), outcome: outcome}
+	if r.cfg.Metrics != nil {
+		r.cfg.Metrics.WebhookResponse(context.Background(), source, status)
+	}
+	k := countKey{source: source, minute: r.now().UTC().Truncate(time.Minute), outcome: outcome, status: status}
 	r.statsMu.Lock()
 	r.counts[k]++
 	r.statsMu.Unlock()
@@ -402,7 +414,7 @@ func (r *Receiver) flushStats(ctx context.Context) error {
 	r.statsMu.Lock()
 	counts := make([]whstore.Count, 0, len(r.counts))
 	for k, v := range r.counts {
-		counts = append(counts, whstore.Count{Source: k.source, Minute: k.minute, Outcome: k.outcome, Count: v})
+		counts = append(counts, whstore.Count{Source: k.source, Minute: k.minute, Outcome: k.outcome, Status: k.status, Count: v})
 	}
 	rejections := r.rejections
 	latency := make([]whstore.Latency, 0, len(r.latency))
@@ -418,6 +430,9 @@ func (r *Receiver) flushStats(ctx context.Context) error {
 	if err := r.flushSpool(ctx); err != nil {
 		errs = append(errs, err)
 	}
+	if err := r.flushMinutes(ctx); err != nil {
+		errs = append(errs, err)
+	}
 	if err := r.cfg.Recorder.RecordLatency(ctx, latency); err != nil {
 		r.cfg.Logger.WarnContext(ctx, "webhooks: writing acknowledgement latency", logKeyError, logsan.SanitizeForLog(err.Error()))
 		r.restoreLatency(latency)
@@ -427,7 +442,7 @@ func (r *Receiver) flushStats(ctx context.Context) error {
 		r.cfg.Logger.WarnContext(ctx, "webhooks: writing request counts", logKeyError, logsan.SanitizeForLog(err.Error()))
 		r.statsMu.Lock()
 		for _, c := range counts {
-			r.counts[countKey{source: c.Source, minute: c.Minute, outcome: c.Outcome}] += c.Count
+			r.counts[countKey{source: c.Source, minute: c.Minute, outcome: c.Outcome, status: c.Status}] += c.Count
 		}
 		r.statsMu.Unlock()
 		errs = append(errs, err)

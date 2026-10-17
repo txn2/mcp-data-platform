@@ -106,6 +106,9 @@ const AdminWebhookRoutes = lazy(() =>
     default: m.AdminWebhookRoutes,
   })),
 );
+const StoragePage = lazy(() =>
+  import("@/pages/storage/StoragePage").then((m) => ({ default: m.StoragePage })),
+);
 const KeysPage = lazy(() =>
   import("@/pages/settings/KeysPage").then((m) => ({ default: m.KeysPage })),
 );
@@ -206,6 +209,10 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
     ["/admin/keys", () => <KeysPage />],
     ["/admin/users", () => <UsersPanel />],
     ["/admin/changelog", () => <ChangelogPage />],
+    [
+      "/admin/storage",
+      (p: PageContext) => <StoragePage onNavigate={p.navigate} />,
+    ],
   ],
 );
 

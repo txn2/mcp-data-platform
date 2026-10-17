@@ -135,6 +135,7 @@ nav:
       - Knowledge Admin API: knowledge/admin-api.md
       - Audit Logging: server/audit.md
       - Observability: server/observability.md
+      - Storage Capacity: server/storage.md
       - Email Notifications: server/notifications.md
       - Inbound Webhooks: server/webhooks.md
       - Scratch Catalog: server/scratch-catalog.md

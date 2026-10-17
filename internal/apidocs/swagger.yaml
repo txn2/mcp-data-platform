@@ -5372,6 +5372,13 @@ definitions:
         example: 2
         type: integer
     type: object
+  levelalert.Thresholds:
+    properties:
+      critical:
+        type: number
+      warning:
+        type: number
+    type: object
   libraryuse.Use:
     properties:
       display_name:
@@ -11384,6 +11391,280 @@ definitions:
         example: jane@example.com
         type: string
     type: object
+  storageapi.HistoryView:
+    properties:
+      days:
+        type: integer
+      points:
+        items:
+          $ref: '#/definitions/storagecap.Point'
+        type: array
+      store:
+        type: string
+    type: object
+  storagecap.BucketView:
+    properties:
+      bucket:
+        type: string
+      bytes:
+        type: integer
+      listed_at:
+        type: string
+      objects:
+        type: integer
+      purpose:
+        type: string
+    type: object
+  storagecap.ClusterCapacity:
+    properties:
+      free_bytes:
+        type: integer
+      servers:
+        description: |-
+          Servers is how many volume servers answered; Unreached lists the ones
+          that did not, so a partial reading is labeled as one.
+        type: integer
+      total_bytes:
+        type: integer
+      unreached:
+        items:
+          type: string
+        type: array
+      used_bytes:
+        type: integer
+    type: object
+  storagecap.ClusterView:
+    properties:
+      capacity:
+        $ref: '#/definitions/storagecap.ClusterCapacity'
+      error:
+        type: string
+      master_url:
+        type: string
+    type: object
+  storagecap.DatabaseView:
+    properties:
+      bytes:
+        type: integer
+      limit_bytes:
+        type: integer
+      tables:
+        items:
+          $ref: '#/definitions/storagecap.TableView'
+        type: array
+    type: object
+  storagecap.Input:
+    properties:
+      budgets:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      channels:
+        items:
+          type: string
+        type: array
+      database_limit_bytes:
+        type: integer
+      days_left:
+        $ref: '#/definitions/levelalert.Thresholds'
+      history_days:
+        type: integer
+      seaweedfs:
+        $ref: '#/definitions/storagecap.SeaweedFS'
+      used_percent:
+        $ref: '#/definitions/levelalert.Thresholds'
+    type: object
+  storagecap.Point:
+    properties:
+      at:
+        type: string
+      total_bytes:
+        type: integer
+      used_bytes:
+        type: integer
+    type: object
+  storagecap.ReconcileView:
+    properties:
+      dangling:
+        type: integer
+      orphaned:
+        type: integer
+      purpose:
+        type: string
+      reconciled_at:
+        type: string
+    type: object
+  storagecap.Report:
+    properties:
+      buckets:
+        items:
+          $ref: '#/definitions/storagecap.BucketView'
+        type: array
+      database:
+        $ref: '#/definitions/storagecap.DatabaseView'
+      generated_at:
+        type: string
+      history_days:
+        type: integer
+      last_scan:
+        $ref: '#/definitions/storagecap.ScanView'
+      reconciles:
+        items:
+          $ref: '#/definitions/storagecap.ReconcileView'
+        type: array
+      seaweedfs:
+        $ref: '#/definitions/storagecap.ClusterView'
+      spools:
+        items:
+          $ref: '#/definitions/storagecap.SpoolView'
+        type: array
+      stores:
+        items:
+          $ref: '#/definitions/storagecap.StoreView'
+        type: array
+    type: object
+  storagecap.ScanView:
+    properties:
+      duration_seconds:
+        type: number
+      finished_at:
+        type: string
+      objects:
+        type: integer
+    type: object
+  storagecap.SeaweedFS:
+    properties:
+      master_url:
+        description: MasterURL is the master's HTTP address, e.g. http://seaweedfs-master:9333.
+        type: string
+      volume_urls:
+        description: |-
+          VolumeURLs, when set, are the volume servers read instead of the ones
+          the master lists: a master inside a cluster lists addresses the
+          platform may not reach.
+        items:
+          type: string
+        type: array
+    type: object
+  storagecap.SpoolView:
+    properties:
+      bytes:
+        type: integer
+      dir:
+        type: string
+      fs_free_bytes:
+        type: integer
+      fs_total_bytes:
+        type: integer
+      max_bytes:
+        type: integer
+      replica:
+        type: string
+      reporting:
+        type: boolean
+      updated_at:
+        type: string
+    type: object
+  storagecap.StoreView:
+    properties:
+      capacity_from:
+        description: |-
+          CapacityFrom names where a bucket's capacity comes from: "budget", or
+          "seaweedfs" for a bucket on the cluster with no budget, whose capacity
+          is what it holds plus the cluster's free space. Empty for the rest.
+        type: string
+      days_left:
+        description: |-
+          DaysLeft and ExhaustionAt are when the store fills at RateUsed, nil
+          when it is not growing or has no known capacity.
+        type: number
+      exhaustion_at:
+        type: string
+      free_bytes:
+        type: integer
+      kind:
+        type: string
+      level:
+        description: |-
+          Level is the worse of the store's two alert levels under the current
+          thresholds, empty when neither is crossed.
+        type: string
+      name:
+        type: string
+      percent_used:
+        type: number
+      rate_7d_bytes_per_day:
+        description: |-
+          Rate7d and Rate30d are the growth in bytes per day fitted over the last
+          7 and 30 days, nil where the history is too short.
+        type: number
+      rate_30d_bytes_per_day:
+        type: number
+      rate_used:
+        description: |-
+          RateUsed names the rate the projection uses, "7d" or "30d": the slower
+          of the two that are growing, so a burst does not bring the date in.
+        type: string
+      store:
+        description: |-
+          Store is the key its history is kept under: database, seaweedfs,
+          bucket:<name>, spool:<replica>.
+        type: string
+      total_bytes:
+        type: integer
+      used_bytes:
+        description: |-
+          UsedBytes is what the store holds. TotalBytes is its capacity, nil
+          where the platform knows none: a database with no limit set, a bucket
+          with no budget.
+        type: integer
+    type: object
+  storagecap.TableView:
+    properties:
+      bytes:
+        type: integer
+      index:
+        type: boolean
+      name:
+        type: string
+      rows:
+        type: integer
+    type: object
+  storagecap.View:
+    properties:
+      budgets:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: |-
+          Budgets is the byte budget per bucket, for a store the platform cannot
+          read capacity from (cloud S3). It overrides MCP_PLATFORM_STORAGE_BUDGETS
+          for every bucket it names.
+        type: object
+      channels:
+        items:
+          type: string
+        type: array
+      database_limit_bytes:
+        description: |-
+          DatabaseLimitBytes is the size the database may reach: its volume, or
+          the plan's quota. The platform cannot read the database server's disk,
+          so it is the operator's. Zero is unknown.
+        type: integer
+      days_left:
+        $ref: '#/definitions/levelalert.Thresholds'
+      history_days:
+        type: integer
+      seaweedfs:
+        $ref: '#/definitions/storagecap.SeaweedFS'
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      used_percent:
+        $ref: '#/definitions/levelalert.Thresholds'
+    type: object
   tablehttp.ConnectionChoice:
     properties:
       catalog:
@@ -12161,6 +12442,24 @@ definitions:
       username:
         type: string
     type: object
+  webhookapi.LargestWindow:
+    properties:
+      decoded_bytes:
+        type: integer
+      events:
+        type: integer
+      input_bytes:
+        type: integer
+      percent_of_limit:
+        description: |-
+          PercentOfLimit is DecodedBytes as a percent of the memory limit, 0
+          when there is no limit.
+        type: number
+      source:
+        type: string
+      window_start:
+        type: string
+    type: object
   webhookapi.ReplicaSpool:
     properties:
       bytes:
@@ -12373,6 +12672,42 @@ definitions:
           type: string
         type: array
     type: object
+  webhookapi.StatusHistory:
+    properties:
+      ack:
+        description: |-
+          Ack is the acknowledgement latency per bucket with each stage's
+          average.
+        items:
+          $ref: '#/definitions/whstore.AckPoint'
+        type: array
+      compactions:
+        description: Compactions is each window's compaction in the range, newest
+          first.
+        items:
+          $ref: '#/definitions/whstore.CompactionRun'
+        type: array
+      replicas:
+        description: |-
+          Replicas is each receiver's events received and written to object
+          storage per bucket, and its spool's depth and oldest age.
+        items:
+          $ref: '#/definitions/whstore.ReplicaMinute'
+        type: array
+      sizing:
+        $ref: '#/definitions/webhookapi.WindowSizing'
+      statuses:
+        description: Statuses counts requests by the HTTP status they were answered
+          with.
+        items:
+          $ref: '#/definitions/whstore.StatusPoint'
+        type: array
+      storage:
+        description: Storage is each source's raw and compacted bytes now.
+        items:
+          $ref: '#/definitions/whstore.SourceStorage'
+        type: array
+    type: object
   webhookapi.StatusOverview:
     properties:
       bucket_seconds:
@@ -12382,15 +12717,21 @@ definitions:
       from:
         description: |-
           From is the series' lower bound: a minute's counts are in the series
-          when the minute is at or after it.
+          when the minute is at or after it. Until is its upper bound, exclusive.
         type: string
       generated_at:
         type: string
+      history:
+        allOf:
+        - $ref: '#/definitions/webhookapi.StatusHistory'
+        description: History is the telemetry over the range (#2150).
       range:
-        description: 'Range is the span the series covers: hour or day.'
+        description: 'Range is the span the series covers: hour, day, week or custom.'
         enum:
         - hour
         - day
+        - week
+        - custom
         example: hour
         type: string
       rejections:
@@ -12414,6 +12755,8 @@ definitions:
         items:
           $ref: '#/definitions/webhookapi.ReplicaSpool'
         type: array
+      until:
+        type: string
       volume:
         items:
           $ref: '#/definitions/webhookapi.VolumePoint'
@@ -12428,6 +12771,132 @@ definitions:
       outcome:
         type: string
       source:
+        type: string
+    type: object
+  webhookapi.WindowSizing:
+    properties:
+      largest:
+        allOf:
+        - $ref: '#/definitions/webhookapi.LargestWindow'
+        description: |-
+          Largest is the window that took the most memory, null when none was
+          compacted in the range.
+      memory_limit_bytes:
+        description: |-
+          MemoryLimitBytes is the memory this replica may use, 0 when it has no
+          limit.
+        type: integer
+      warn_at_percent:
+        description: WarnAtPercent is the share of the limit Warning is raised at.
+        type: integer
+      warning:
+        type: boolean
+    type: object
+  whalert.Input:
+    properties:
+      channels:
+        items:
+          type: string
+        type: array
+      defaults:
+        $ref: '#/definitions/whalert.SourceRules'
+      drain_failing_minutes:
+        type: number
+      drain_failures:
+        $ref: '#/definitions/levelalert.Thresholds'
+      not_reporting_seconds:
+        type: number
+      sources:
+        additionalProperties:
+          $ref: '#/definitions/whalert.SourceRules'
+        type: object
+      spool_age_percent:
+        $ref: '#/definitions/levelalert.Thresholds'
+      spool_fill_percent:
+        $ref: '#/definitions/levelalert.Thresholds'
+      spool_volume_free_percent:
+        $ref: '#/definitions/levelalert.Thresholds'
+    type: object
+  whalert.SourceRules:
+    properties:
+      ack_p99_ms:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          AckP99MS is the 99th percentile acknowledgement over the last five
+          minutes, in milliseconds.
+      compaction_overdue_minutes:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          CompactionOverdueMinutes is how long past its end and the compactor's
+          grace the oldest window owed a compaction has waited.
+      refusal_minutes:
+        description: |-
+          RefusalMinutes is the span refusals (spool_full, write_failed,
+          buffer_full) are judged over: any in it is a warning, one in every
+          minute of it is critical. Zero is off.
+        type: integer
+      silent_after_minutes:
+        description: |-
+          SilentAfterMinutes, when set, warns once the source has written no
+          segment for that long. Off unless a source opts in.
+        type: integer
+      unauthorized_percent:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          UnauthorizedPercent is the share of the source's requests over the
+          last 15 minutes that were refused as unauthorized.
+    type: object
+  whalert.View:
+    properties:
+      channels:
+        items:
+          type: string
+        type: array
+      defaults:
+        allOf:
+        - $ref: '#/definitions/whalert.SourceRules'
+        description: |-
+          Sources holds the per-source conditions: the defaults every source is
+          judged by, and any source's own.
+      drain_failing_minutes:
+        type: number
+      drain_failures:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          DrainFailures is how many drains in a row have failed; a streak
+          longer than DrainFailingMinutes is critical however many it counts.
+      not_reporting_seconds:
+        description: |-
+          NotReportingSeconds is how long a replica whose spool holds events
+          may go without reporting before it is critical.
+        type: number
+      sources:
+        additionalProperties:
+          $ref: '#/definitions/whalert.SourceRules'
+        type: object
+      spool_age_percent:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: SpoolAgePercent is the oldest event waiting as a percent of max_age.
+      spool_fill_percent:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          SpoolFillPercent is a replica's spool bytes as a percent of its
+          max_bytes.
+      spool_volume_free_percent:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          SpoolVolumeFreePercent is the free space left on the volume a spool
+          is on.
+      updated_at:
+        type: string
+      updated_by:
         type: string
     type: object
   whsource.Config:
@@ -12514,6 +12983,58 @@ definitions:
         description: Slowest is the slowest delivery of the span, null when there
           was none.
     type: object
+  whstore.AckPoint:
+    properties:
+      at:
+        type: string
+      buffer_ms:
+        description: |-
+          BufferMS, MarkMS and PutMS are the average delivery's wait in each
+          stage; with a spool, put is the spool's sync.
+        type: number
+      count:
+        type: integer
+      mark_ms:
+        type: number
+      max_ms:
+        type: integer
+      p50_ms:
+        type: integer
+      p99_ms:
+        type: integer
+      put_ms:
+        type: number
+      source:
+        type: string
+    type: object
+  whstore.CompactionRun:
+    properties:
+      at:
+        type: string
+      decoded_bytes:
+        type: integer
+      duration_ms:
+        type: integer
+      events:
+        type: integer
+      input_bytes:
+        description: |-
+          InputBytes is the gzipped segments read, DecodedBytes the events held
+          in memory, OutputBytes the Parquet file written.
+        type: integer
+      lag_seconds:
+        description: LagSeconds is how long after the window ended the compaction
+          finished.
+        type: integer
+      output_bytes:
+        type: integer
+      segments:
+        type: integer
+      source:
+        type: string
+      window_start:
+        type: string
+    type: object
   whstore.Rejection:
     properties:
       at:
@@ -12541,6 +13062,25 @@ definitions:
           never folded into a run.
         type: string
     type: object
+  whstore.ReplicaMinute:
+    properties:
+      at:
+        type: string
+      drained_bytes:
+        type: integer
+      drained_events:
+        type: integer
+      oldest_age_seconds:
+        type: integer
+      received_events:
+        type: integer
+      replica:
+        type: string
+      spool_bytes:
+        type: integer
+      spool_events:
+        type: integer
+    type: object
   whstore.SlowAck:
     properties:
       at:
@@ -12553,6 +13093,19 @@ definitions:
         type: integer
       total_ms:
         type: integer
+    type: object
+  whstore.SourceStorage:
+    properties:
+      compacted_bytes:
+        type: integer
+      compacted_windows:
+        type: integer
+      raw_bytes:
+        type: integer
+      raw_segments:
+        type: integer
+      source:
+        type: string
     type: object
   whstore.Status:
     properties:
@@ -12613,6 +13166,17 @@ definitions:
         type: integer
       segments_per_window_p95:
         type: integer
+    type: object
+  whstore.StatusPoint:
+    properties:
+      at:
+        type: string
+      count:
+        type: integer
+      http_status:
+        type: integer
+      source:
+        type: string
     type: object
 host: localhost:8080
 info:
@@ -19467,6 +20031,187 @@ paths:
       summary: Send a test email
       tags:
       - Settings
+  /admin/settings/storage:
+    get:
+      description: 'Returns the storage capacity settings: the database limit, the
+        byte budget of each bucket (which overrides MCP_PLATFORM_STORAGE_BUDGETS for
+        the buckets it names), the SeaweedFS cluster disk capacity is read from, how
+        many days of history are kept, the warning and critical thresholds on percent
+        used and on days until a store fills, and the notification channels the alerts
+        are posted to. The defaults before anything is written are 180 days, 75%/90%
+        and 30/7 days.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/storagecap.View'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get storage capacity settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Writes the storage capacity settings. A field left out keeps its
+        stored value. A budget is a positive number of bytes per bucket; the SeaweedFS
+        addresses are http or https; a used_percent threshold is 0-100 with the warning
+        below the critical; a days_left warning is more days than its critical; 0
+        turns a threshold off. A channel name no channel is stored under is refused.
+      parameters:
+      - description: Storage capacity settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/storagecap.Input'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/storagecap.View'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update storage capacity settings
+      tags:
+      - Settings
+  /admin/settings/webhook-alert:
+    get:
+      description: 'Returns the webhook receiver alerts: the notification channels
+        they are posted to and each condition''s warning and critical thresholds.
+        Per replica: spool fill and oldest event age as a percent of the spool''s
+        max_bytes and max_age, drain failures in a row (and minutes failing, which
+        is critical), seconds a replica holding events may go without reporting, and
+        the spool volume''s free percent. Per source, as defaults and per-source overrides:
+        the minutes refusals are judged over, the unauthorized percent over 15 minutes,
+        the acknowledgement p99 in milliseconds over 5 minutes, minutes the oldest
+        owed compaction is past its window and grace, and minutes of silence (off
+        unless set). A zero threshold is off.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/whalert.View'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get webhook alert settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Writes the webhook alert settings. A field left out keeps its stored
+        value; sources, when present, replaces every source's overrides. A threshold's
+        warning must be short of its critical, percentages are 0-100, and 0 turns
+        a threshold off. A channel name no channel is stored under is refused.
+      parameters:
+      - description: Webhook alert settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/whalert.Input'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/whalert.View'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update webhook alert settings
+      tags:
+      - Settings
+  /admin/storage:
+    get:
+      description: 'Reads every store the platform writes to now: the database against
+        its limit, the SeaweedFS cluster''s disks, each bucket against its budget,
+        and each replica''s webhook spool volume. Each store carries its percent used,
+        its growth fitted over 7 and 30 days, the rate the projection uses (the slower
+        growing one) and when it would fill, and its alert level. Beside them: each
+        bucket''s usage by purpose and when it was last listed, the last reconcile''s
+        orphaned objects and dangling references, the largest tables and indexes,
+        and each spool with its volume.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/storagecap.Report'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get storage capacity
+      tags:
+      - Storage
+  /admin/storage/history:
+    get:
+      description: 'Returns one store''s samples, oldest first: used bytes and capacity,
+        over the last days (default 30). The store is a key a storage report names:
+        database, seaweedfs, bucket:<name> or spool:<replica>.'
+      parameters:
+      - description: Store key, e.g. database or bucket:portal
+        in: query
+        name: store
+        required: true
+        type: string
+      - description: Days of history (default 30)
+        in: query
+        name: days
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/storageapi.HistoryView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a store's storage history
+      tags:
+      - Storage
   /admin/system/info:
     get:
       description: Returns platform identity, version, runtime feature availability,
@@ -20082,23 +20827,44 @@ paths:
         compaction failed, silent for an enabled source that received no event in
         the last 24 hours (including one that never received any), and receiving otherwise;
         when more than one applies the first in that order is reported. The volume
-        series reads the per-minute request counts at or after `from`, the same bound
-        as each source''s `last_hour` (range=hour) or `last_day` (range=day), so the
-        series sums to those counts. `spools` is every receiver''s local spool, by
-        replica, whatever `source` names: the events it acknowledged once they were
-        synced to its disk and has not yet drained to object storage, the bounds past
-        which it answers 503, and how its drain is going; a receiver that has not
-        reported for two minutes is `reporting: false`, and what it holds waits for
-        it to start again.'
+        series reads the request counts at or after `from` and before `until`. `spools`
+        is every receiver''s local spool, by replica, whatever `source` names: the
+        events it acknowledged once they were synced to its disk and has not yet drained
+        to object storage, the bounds past which it answers 503, and how its drain
+        is going; a receiver that has not reported for two minutes is `reporting:
+        false`, and what it holds waits for it to start again. The history over the
+        range (#2150): `statuses` counts requests by the HTTP status the sender was
+        answered with (0 is a sender that went away before its answer); `replicas`
+        is each receiver''s events received and written to object storage and its
+        spool''s depth and oldest age; `ack` is the acknowledgement p50/p99 and each
+        stage''s average (buffer, mark, put; with a spool, put is the sync); `compactions`
+        is each window''s compaction with its duration, lag behind the window''s end
+        and sizes; `storage` is each source''s raw and compacted bytes now; `sizing`
+        sets the largest window the compactor held in memory against this replica''s
+        memory limit and warns at half of it. The history is kept per minute for 48
+        hours and per hour after, for webhooks.compactor.telemetry_retention_days
+        (14). An answer the sender received from something in front of the platform
+        (a 502 or 504 from an ingress while a replica restarts) never reached the
+        platform and is in none of these counts.'
       parameters:
       - default: hour
-        description: 'Span of the volume series and the rejections: hour (one-minute
-          buckets) or day (fifteen-minute buckets)'
+        description: 'Span of the series and the rejections: hour (one-minute buckets),
+          day (fifteen-minute), week (hourly) or custom (from and to)'
         enum:
         - hour
         - day
+        - week
+        - custom
         in: query
         name: range
+        type: string
+      - description: Start of a custom range, RFC 3339
+        in: query
+        name: from
+        type: string
+      - description: End of a custom range, RFC 3339; now when absent
+        in: query
+        name: to
         type: string
       - description: Name of one source to report on; every source when absent
         in: query
@@ -29223,6 +29989,8 @@ tags:
     description: "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."
   - name: "Webhooks"
     description: "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."
+  - name: "Storage"
+    description: "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."
   - name: "System"
     description: "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."
   - name: "Tools"
@@ -29285,6 +30053,7 @@ x-tagGroups:
       - "Secrets"
       - "Sessions"
       - "Settings"
+      - "Storage"
       - "System"
       - "Tools"
       - "Users"

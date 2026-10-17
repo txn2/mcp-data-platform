@@ -30,6 +30,8 @@ var approvedLabelKeys = map[string]string{
 	"source":            "how a call arrived (mcp, admin, rest, script), or a webhook source the operator configured",
 	"connection":        "the operator's configured connections, plus unknown",
 	"http_status_class": "2xx, 3xx, 4xx, 5xx, other",
+	"stage":             "the webhook acknowledgement stages: buffer, mark, put (#2150)",
+	"http_status":       "the statuses the webhook receiver answers with (0, 200, 202, 400, 401, 404, 405, 413, 429, 503), #2150",
 	"operation_id":      "the OpenAPI catalog's operation ids, plus unknown",
 	"method":            "the supported HTTP methods, the MCP methods the SDK dispatches, or the AuthMethod* constants in internal/opsobs, plus unknown",
 	"route":             "the route templates registered on the HTTP mux (internal/httpobs), plus unmatched",

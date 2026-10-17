@@ -119,6 +119,12 @@ TAG_DESCRIPTIONS = {
         "read its status: request counts by outcome, when it last received an event, "
         "compaction progress, and its recently rejected requests. Secrets are write-only."
     ),
+    "Storage": (
+        "Storage capacity: every store the platform writes to (the database, the "
+        "SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and "
+        "free, its growth over 7 and 30 days and when it would fill, a store's history, "
+        "and the buckets, reconcile and tables behind them. Its settings are under Settings."
+    ),
     "System": (
         "Platform identity, version, runtime feature availability, registered tools, "
         "and toolkit connections."
@@ -214,6 +220,7 @@ TAG_GROUPS = [
             "Secrets",
             "Sessions",
             "Settings",
+            "Storage",
             "System",
             "Tools",
             "Users",
