@@ -28,7 +28,7 @@ GOVULNCHECK_VERSION := v1.1.4
 # Go vulnerability database govulncheck reads does not (the 15 excelize
 # advisories of #2143 were in one and not the other), and it reads the UI's npm
 # lockfile, which nothing else scans. .github/workflows/ci.yml installs this version.
-OSV_SCANNER_VERSION := v2.6.0
+OSV_SCANNER_VERSION := v2.5.1
 
 # Total-coverage floor. This is the single source of truth for the project
 # coverage gate: .github/workflows/ci.yml, codecov.yml (project target) and

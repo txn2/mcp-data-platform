@@ -280,7 +280,7 @@ jobs:
       # database does not carry (#2143) fails CI as it fails a local verify.
       - name: Run osv-scanner
         run: |
-          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.6.0  # OSV_SCANNER_VERSION in the Makefile
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.5.1  # OSV_SCANNER_VERSION in the Makefile
           make osv
 
       - name: Run Semgrep
