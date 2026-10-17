@@ -1,8 +1,6 @@
 module github.com/txn2/mcp-data-platform
 
-go 1.26.2
-
-toolchain go1.26.9
+go 1.27
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
@@ -30,7 +28,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/ollama v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
-	github.com/trinodb/trino-go-client v0.337.0
+	github.com/trinodb/trino-go-client v1.3.0
 	github.com/txn2/mcp-s3 v1.5.1
 	github.com/txn2/mcp-trino v1.7.1
 	github.com/vektah/gqlparser/v2 v2.5.62

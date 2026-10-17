@@ -339,8 +339,8 @@ github.com/tklauser/numcpus v0.12.0 h1:NR85qdvHA9pFse3x3weVZ0r0ST8R6l5RHbZrlRaqo
 github.com/tklauser/numcpus v0.12.0/go.mod h1:ABHeXzJnr/qqwguhClkZKT1/8VABcYrsyUiUGobwWJg=
 github.com/tmc/langchaingo v0.1.5 h1:PNPFu54wn5uVPRt9GS/quRwdFZW4omSab9/dcFAsGmU=
 github.com/tmc/langchaingo v0.1.5/go.mod h1:RLtnUED/hH2v765vdjS9Z6gonErZAXURuJHph0BttqM=
-github.com/trinodb/trino-go-client v0.337.0 h1:OvVnAcQZmsUTIyslZ9YnhT0iS5KCIr7omPSlyg8Wvas=
-github.com/trinodb/trino-go-client v0.337.0/go.mod h1:P2ifOGs+M0b5QyVmTdA4TMWvF73FZqAfg49YqyEQZ2k=
+github.com/trinodb/trino-go-client v1.3.0 h1:sESFQuAlQeBvBVEMK8rz8STE8i3V7Lk9Nu6N1PP/0VI=
+github.com/trinodb/trino-go-client v1.3.0/go.mod h1:ljQYjZb8AQIeP6TiTjtB7JrI3dCeXvU0uwUHwNXhb34=
 github.com/twpayne/go-geom v1.6.1 h1:iLE+Opv0Ihm/ABIcvQFGIiFBXd76oBIar9drAwHFhR4=
 github.com/twpayne/go-geom v1.6.1/go.mod h1:Kr+Nly6BswFsKM5sd31YaoWS5PeDDH2NftJTK7Gd028=
 github.com/txn2/mcp-s3 v1.5.1 h1:Kix4axZvt8p1WsvMBD8AU0CxHF6mbxLzjrrb4MTgW3o=
