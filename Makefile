@@ -16,14 +16,16 @@ UI_EMBED_DIR := ./internal/ui/dist
 CV_EMBED_DIR := ./internal/contentviewer/dist
 
 # Tool versions — keep in sync with .github/workflows/ci.yml
-GOLANGCI_LINT_VERSION := v2.11.4
-GOSEC_VERSION := v2.28.0
+GOLANGCI_LINT_VERSION := v2.14.0
+# gosec is pinned to a commit on master: v2.29.0, the latest release, cannot
+# load packages built by Go 1.27.2 (securego/gosec#1771, export data version 5).
+GOSEC_VERSION := v2.29.1-0.20261015133444-707f2271f665
 GREMLINS_VERSION := v0.6.0
 # govulncheck is pinned for the same reason the others are: its report is judged
 # by scripts/govulncheck-gate.py, which reads the -format json message stream, so
 # local and CI must run the same scanner against the same schema. .github/workflows/ci.yml
 # installs this version.
-GOVULNCHECK_VERSION := v1.1.4
+GOVULNCHECK_VERSION := v1.9.0
 # osv-scanner reads the GitHub advisory database, which carries advisories the
 # Go vulnerability database govulncheck reads does not (the 15 excelize
 # advisories of #2143 were in one and not the other), and it reads the UI's npm
@@ -372,7 +374,9 @@ security:
 	@# GOOS=linux reads the code with the types CI's Linux runner sees: a
 	@# field typed differently by platform (syscall.Statfs_t.Bsize is int64 on
 	@# Linux, uint32 on darwin) is otherwise judged locally on darwin's.
-	GOOS=linux gosec -quiet ./...
+	@# Not -quiet: with it, gosec exits 0 when it cannot load a package, so a
+	@# scan that analyzed nothing passes. CI runs it the same way.
+	GOOS=linux gosec ./...
 	@echo "Running govulncheck..."
 	@# govulncheck exits 3 when our code calls a vulnerable symbol, whether or
 	@# not a fixed version exists, and has no way to accept a finding. The gate
