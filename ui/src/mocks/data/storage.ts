@@ -93,6 +93,7 @@ export function mockStorageReport(): StorageReport {
       master_url: "http://seaweedfs-master:9333",
       capacity: { total_bytes: 2 * 1024 * GIB, used_bytes: 1.62 * 1024 * GIB, free_bytes: 0.38 * 1024 * GIB, servers: 3, unreached: [] },
     },
+    seaweedfs_buckets: ["acme-portal", "acme-resources"],
     spools: [
       {
         replica: "mcp-data-platform-0", dir: "/var/lib/mcp-data-platform/spool", bytes: 182_400, max_bytes: GIB,

@@ -11515,6 +11515,13 @@ definitions:
         type: array
       seaweedfs:
         $ref: '#/definitions/storagecap.ClusterView'
+      seaweedfs_buckets:
+        description: |-
+          SeaweedFSBuckets are the buckets whose endpoint answers as SeaweedFS:
+          the settings offer the cluster's address only where one does.
+        items:
+          type: string
+        type: array
       spools:
         items:
           $ref: '#/definitions/storagecap.SpoolView'

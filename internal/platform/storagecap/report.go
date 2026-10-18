@@ -21,7 +21,10 @@ type Report struct {
 	Reconciles  []ReconcileView `json:"reconciles"`
 	LastScan    *ScanView       `json:"last_scan"`
 	SeaweedFS   *ClusterView    `json:"seaweedfs"`
-	Spools      []SpoolView     `json:"spools"`
+	// SeaweedFSBuckets are the buckets whose endpoint answers as SeaweedFS:
+	// the settings offer the cluster's address only where one does.
+	SeaweedFSBuckets []string    `json:"seaweedfs_buckets"`
+	Spools           []SpoolView `json:"spools"`
 }
 
 // StoreView is one store: the database, the SeaweedFS cluster, a bucket, or a

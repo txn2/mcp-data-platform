@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { HardDrive, Plus, Trash2 } from "lucide-react";
-import { useSetStorageSettings, useStorageSettings } from "@/api/admin/hooks";
+import { useSetStorageSettings, useStorageReport, useStorageSettings } from "@/api/admin/hooks";
 import type { StorageSettings, Thresholds } from "@/api/admin/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,9 +11,10 @@ import { SaveButton, SaveFeedbackBanners, UpdatedByMeta } from "./settingsChrome
 import { useSettingsDraft } from "./useSettingsDraft";
 
 // StorageSettingsCard is the storage capacity settings (#2148): what each
-// store's capacity is where the platform cannot read it, the SeaweedFS
-// cluster it reads disks from, how long the history is kept, and the alert
-// thresholds and channels.
+// store's capacity is where the platform cannot read it, how long the history
+// is kept, and the alert thresholds and channels. The SeaweedFS cluster the
+// disks are read from is offered only where a bucket's endpoint answers as
+// SeaweedFS, or an address is already stored (#2181).
 
 const GIB = 1024 ** 3;
 
@@ -28,11 +29,26 @@ function bytesOf(v: string): number {
   return Number.isFinite(n) && n > 0 ? Math.round(n * GIB) : 0;
 }
 
+/**
+ * useOnSeaweedFS reports whether the SeaweedFS cluster is offered: a bucket's
+ * endpoint answers as SeaweedFS, or an address is already stored.
+ */
+function useOnSeaweedFS(settings: StorageSettings | undefined): boolean {
+  const report = useStorageReport();
+  return (report.data?.seaweedfs_buckets.length ?? 0) > 0 || !!settings?.seaweedfs.master_url;
+}
+
+/** clusterClause names the SeaweedFS cluster in the description where it is offered. */
+function clusterClause(onSeaweedFS: boolean): string {
+  return onSeaweedFS ? "the SeaweedFS cluster it reads disk space from, " : "";
+}
+
 export function StorageSettingsCard({ isReadOnly }: { isReadOnly: boolean }) {
   const { data, isLoading } = useStorageSettings();
   const save = useSetStorageSettings();
   const s = useSettingsDraft<StorageSettings>(data);
   const draft = s.draft;
+  const onSeaweedFS = useOnSeaweedFS(data);
 
   const handleSave = useCallback(() => {
     if (!draft) return;
@@ -45,7 +61,7 @@ export function StorageSettingsCard({ isReadOnly }: { isReadOnly: boolean }) {
     <SettingsCard
       icon={HardDrive}
       title="Storage"
-      description="Capacity the platform cannot read for itself, the SeaweedFS cluster it reads disk space from, how long each store's history is kept, and when a store filling up is posted to a channel."
+      description={`Capacity the platform cannot read for itself, ${clusterClause(onSeaweedFS)}how long each store's history is kept, and when a store filling up is posted to a channel.`}
       feedback={<SaveFeedbackBanners saveError={s.saveError} dirty={s.dirty} />}
       action={
         <>
@@ -69,32 +85,7 @@ export function StorageSettingsCard({ isReadOnly }: { isReadOnly: boolean }) {
             />
           </Field>
           <BudgetsEditor draft={draft} onChange={s.edit} disabled={isReadOnly} />
-          <Field
-            label="SeaweedFS master"
-            help="The master's address, such as http://seaweedfs-master:9333. Free space is read from the volume servers it lists."
-          >
-            <Input
-              aria-label="SeaweedFS master"
-              placeholder="http://seaweedfs-master:9333"
-              value={draft.seaweedfs.master_url}
-              disabled={isReadOnly}
-              onChange={(e) => s.edit({ ...draft, seaweedfs: { ...draft.seaweedfs, master_url: e.target.value } })}
-            />
-          </Field>
-          <Field
-            label="SeaweedFS volume servers"
-            help="Only when the master lists addresses the platform cannot reach: one address per line, read instead of the master's list."
-          >
-            <textarea
-              aria-label="SeaweedFS volume servers"
-              className="min-h-16 w-full rounded-md border bg-transparent px-3 py-2 font-mono text-xs"
-              value={draft.seaweedfs.volume_urls.join("\n")}
-              disabled={isReadOnly}
-              onChange={(e) =>
-                s.edit({ ...draft, seaweedfs: { ...draft.seaweedfs, volume_urls: e.target.value.split("\n") } })
-              }
-            />
-          </Field>
+          {onSeaweedFS && <SeaweedFSFields draft={draft} onChange={s.edit} disabled={isReadOnly} />}
           <Field label="History days" help="How long each store's samples are kept for its chart and growth rates.">
             <Input
               aria-label="History days"
@@ -127,6 +118,48 @@ export function StorageSettingsCard({ isReadOnly }: { isReadOnly: boolean }) {
         </div>
       )}
     </SettingsCard>
+  );
+}
+
+/** SeaweedFSFields is the cluster the disks are read from. */
+function SeaweedFSFields({
+  draft,
+  onChange,
+  disabled,
+}: {
+  draft: StorageSettings;
+  onChange: (next: StorageSettings) => void;
+  disabled: boolean;
+}) {
+  return (
+    <>
+      <Field
+        label="SeaweedFS master"
+        help="The master's address, such as http://seaweedfs-master:9333. Free space is read from the volume servers it lists."
+      >
+        <Input
+          aria-label="SeaweedFS master"
+          placeholder="http://seaweedfs-master:9333"
+          value={draft.seaweedfs.master_url}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...draft, seaweedfs: { ...draft.seaweedfs, master_url: e.target.value } })}
+        />
+      </Field>
+      <Field
+        label="SeaweedFS volume servers"
+        help="Only when the master lists addresses the platform cannot reach: one address per line, read instead of the master's list."
+      >
+        <textarea
+          aria-label="SeaweedFS volume servers"
+          className="min-h-16 w-full rounded-md border bg-transparent px-3 py-2 font-mono text-xs"
+          value={draft.seaweedfs.volume_urls.join("\n")}
+          disabled={disabled}
+          onChange={(e) =>
+            onChange({ ...draft, seaweedfs: { ...draft.seaweedfs, volume_urls: e.target.value.split("\n") } })
+          }
+        />
+      </Field>
+    </>
   );
 }
 

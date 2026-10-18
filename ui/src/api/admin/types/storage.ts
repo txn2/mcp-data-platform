@@ -73,6 +73,8 @@ export interface StorageReport {
     capacity: { total_bytes: number; used_bytes: number; free_bytes: number; servers: number; unreached: string[] };
     error?: string;
   } | null;
+  /** The buckets whose endpoint answers as SeaweedFS; empty when none does. */
+  seaweedfs_buckets: string[];
   spools: StorageSpool[];
 }
 
