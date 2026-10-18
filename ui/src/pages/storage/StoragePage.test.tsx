@@ -85,6 +85,28 @@ describe("StoragePage (#2148)", () => {
     expect(screen.getByText(/Storage could not be read/)).toBeInTheDocument();
   });
 
+  it("names only the capacity sources the report carries", () => {
+    render(<StoragePage onNavigate={vi.fn()} />);
+    expect(
+      screen.getByText(/Capacity is the database limit, bucket budgets, the disks the SeaweedFS cluster reports and each spool's volume\./),
+    ).toBeInTheDocument();
+    cleanup();
+    const report = mockStorageReport();
+    report.seaweedfs = null;
+    report.stores = report.stores.filter((s) => s.kind !== "seaweedfs").map((s) => ({ ...s, capacity_from: undefined }));
+    report.database.limit_bytes = null;
+    vi.mocked(useStorageReport).mockReturnValue({ data: report, isLoading: false, isError: false } as unknown as ReturnType<
+      typeof useStorageReport
+    >);
+    const { container } = render(<StoragePage onNavigate={vi.fn()} />);
+    expect(screen.getByText(/Capacity is each spool's volume\./)).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/SeaweedFS|cluster/);
+    cleanup();
+    report.spools = report.spools.map((s) => ({ ...s, fs_total_bytes: null }));
+    render(<StoragePage onNavigate={vi.fn()} />);
+    expect(screen.queryByText(/Capacity is/)).toBeNull();
+  });
+
   it("says a store has no samples yet", () => {
     vi.mocked(useStorageHistory).mockReturnValue({ data: { store: "database", days: 30, points: [] }, isLoading: false } as unknown as ReturnType<
       typeof useStorageHistory

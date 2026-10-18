@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { mockStorageSettings } from "@/mocks/data/storage";
+import { mockStorageReport, mockStorageSettings } from "@/mocks/data/storage";
 
 vi.mock("@/api/admin/hooks", () => ({
   useStorageSettings: vi.fn(),
   useSetStorageSettings: vi.fn(),
+  useStorageReport: vi.fn(),
   useNotificationChannels: vi.fn(),
 }));
 
-import { useNotificationChannels, useSetStorageSettings, useStorageSettings } from "@/api/admin/hooks";
+import { useNotificationChannels, useSetStorageSettings, useStorageReport, useStorageSettings } from "@/api/admin/hooks";
 import { StorageSettingsCard } from "./StorageSettingsCard";
 
 const mutate = vi.fn();
@@ -20,6 +21,9 @@ beforeEach(() => {
     data: structuredClone(mockStorageSettings),
     isLoading: false,
   } as unknown as ReturnType<typeof useStorageSettings>);
+  vi.mocked(useStorageReport).mockReturnValue({ data: mockStorageReport(), isLoading: false } as unknown as ReturnType<
+    typeof useStorageReport
+  >);
   vi.mocked(useSetStorageSettings).mockReturnValue({ mutate, isPending: false } as unknown as ReturnType<
     typeof useSetStorageSettings
   >);
@@ -65,6 +69,33 @@ describe("StorageSettingsCard (#2148)", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
     expect(mutate.mock.calls[0]![0].seaweedfs.volume_urls).toEqual(["http://v1:8080", "http://v2:8080"]);
+  });
+
+  it("offers the SeaweedFS fields only where a bucket is on SeaweedFS or an address is stored", () => {
+    const report = mockStorageReport();
+    report.seaweedfs = null;
+    report.seaweedfs_buckets = [];
+    vi.mocked(useStorageReport).mockReturnValue({ data: report, isLoading: false } as unknown as ReturnType<
+      typeof useStorageReport
+    >);
+    const settings = structuredClone(mockStorageSettings);
+    settings.seaweedfs = { master_url: "", volume_urls: [] };
+    vi.mocked(useStorageSettings).mockReturnValue({ data: settings, isLoading: false } as unknown as ReturnType<
+      typeof useStorageSettings
+    >);
+    const { container, rerender } = render(<StorageSettingsCard isReadOnly={false} />);
+    expect(screen.queryByLabelText("SeaweedFS master")).toBeNull();
+    expect(container.textContent).not.toMatch(/SeaweedFS/);
+
+    report.seaweedfs_buckets = ["acme-portal"];
+    rerender(<StorageSettingsCard isReadOnly={false} />);
+    expect(screen.getByLabelText("SeaweedFS master")).toHaveValue("");
+    expect(screen.getByLabelText("SeaweedFS volume servers")).toBeInTheDocument();
+
+    report.seaweedfs_buckets = [];
+    settings.seaweedfs.master_url = "http://seaweedfs-master:9333";
+    rerender(<StorageSettingsCard isReadOnly={false} />);
+    expect(screen.getByLabelText("SeaweedFS master")).toHaveValue("http://seaweedfs-master:9333");
   });
 
   it("offers no edit in file config mode", () => {

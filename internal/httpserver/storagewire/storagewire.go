@@ -104,6 +104,10 @@ func assemble(db *sql.DB, sender levelalert.Sender, base string, endpoints map[s
 	for _, b := range env.Budgets {
 		budgets[b.Bucket] = b.Bytes
 	}
+	buckets := make([]string, 0, len(endpoints))
+	for bucket := range endpoints {
+		buckets = append(buckets, bucket)
+	}
 	page := ""
 	if base = strings.TrimRight(base, "/"); base != "" {
 		page = base + pagePath
@@ -112,7 +116,7 @@ func assemble(db *sql.DB, sender levelalert.Sender, base string, endpoints map[s
 		DB: db, Settings: storagecap.NewSettingsStore(db), Spools: whstore.New(db).SpoolStates,
 		HTTP:       outbound.NewClient(outbound.Options{Kind: outbound.KindStorage, Timeout: clusterTimeout}),
 		EnvBudgets: budgets, Engine: levelalert.New(levelalert.NewPostgresStore(db), sender),
-		PageURL: page, Interval: interval(), OnSeaweedFS: onSeaweedFS(endpoints, time.Now),
+		PageURL: page, Interval: interval(), OnSeaweedFS: onSeaweedFS(endpoints, time.Now), Buckets: buckets,
 	})
 }
 

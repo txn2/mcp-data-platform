@@ -67,6 +67,10 @@ type Deps struct {
 	// a bucket with no budget can grow into the cluster's free space, which
 	// is then its free space. Nil names none.
 	OnSeaweedFS func(ctx context.Context, bucket string) bool
+	// Buckets are the buckets the configuration writes to, asked about
+	// beside those the usage rows name, so a bucket nothing was written to
+	// yet is still detected.
+	Buckets []string
 	// Engine routes the alerts; nil records nothing and sends nothing.
 	Engine *levelalert.Engine
 	// PageURL is the admin storage page an alert links to; empty omits it.
@@ -248,6 +252,7 @@ func (s *Service) buildReport(ctx context.Context, settings Settings) (Report, e
 	}
 	r.Buckets, r.Reconciles, r.LastScan = objects.buckets, objects.reconciles, objects.lastScan
 	buckets := bucketStores(r.Buckets, s.budgets(settings))
+	r.SeaweedFSBuckets = s.seaweedFSBuckets(ctx, buckets)
 	if settings.SeaweedFS.MasterURL != "" {
 		r.SeaweedFS = s.readCluster(ctx, settings.SeaweedFS)
 		if r.SeaweedFS.Error == "" {
@@ -255,7 +260,7 @@ func (s *Service) buildReport(ctx context.Context, settings Settings) (Report, e
 			r.Stores = append(r.Stores, StoreView{
 				Store: KindSeaweedFS, Kind: KindSeaweedFS, Name: "SeaweedFS cluster", UsedBytes: c.Total - c.Free, TotalBytes: positive(c.Total),
 			})
-			s.onCluster(ctx, buckets, c.Free)
+			onCluster(buckets, r.SeaweedFSBuckets, c.Free)
 		}
 	}
 	r.Stores = append(r.Stores, buckets...)
@@ -283,15 +288,32 @@ func (s *Service) budgets(settings Settings) map[string]int64 {
 	return out
 }
 
+// seaweedFSBuckets is every bucket, configured or holding usage rows, whose
+// endpoint answers as SeaweedFS, sorted; empty when none does.
+func (s *Service) seaweedFSBuckets(ctx context.Context, stores []StoreView) []string {
+	out := []string{}
+	if s.d.OnSeaweedFS == nil {
+		return out
+	}
+	names := slices.Clone(s.d.Buckets)
+	for _, b := range stores {
+		names = append(names, strings.TrimPrefix(b.Store, KindBucket+":"))
+	}
+	slices.Sort(names)
+	for _, name := range slices.Compact(names) {
+		if name != "" && s.d.OnSeaweedFS(ctx, name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // onCluster gives each bucket on the SeaweedFS cluster that has no budget the
 // cluster's free space: what it holds, and what it can still grow into.
-func (s *Service) onCluster(ctx context.Context, buckets []StoreView, free int64) {
-	if s.d.OnSeaweedFS == nil {
-		return
-	}
+func onCluster(buckets []StoreView, onSeaweedFS []string, free int64) {
 	for i := range buckets {
 		b := &buckets[i]
-		if b.TotalBytes != nil || !s.d.OnSeaweedFS(ctx, strings.TrimPrefix(b.Store, KindBucket+":")) {
+		if b.TotalBytes != nil || !slices.Contains(onSeaweedFS, strings.TrimPrefix(b.Store, KindBucket+":")) {
 			continue
 		}
 		b.TotalBytes = positive(b.UsedBytes + free)

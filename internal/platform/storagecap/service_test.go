@@ -346,4 +346,32 @@ func TestABucketOnTheClusterGrowsIntoItsFreeSpace(t *testing.T) {
 	assert.Equal(t, int64(400), *portal.FreeBytes)
 	assert.Equal(t, KindSeaweedFS, portal.CapacityFrom)
 	assert.Equal(t, "budget", stores["bucket:env-only"].CapacityFrom)
+	assert.Equal(t, []string{"portal"}, r.SeaweedFSBuckets)
+}
+
+// TestSeaweedFSBucketsNamesOnlyDetectedBuckets: the report names the buckets,
+// configured or holding usage, whose endpoint answers as SeaweedFS, once
+// each, and an empty list (never null) when none does or nothing detects.
+func TestSeaweedFSBucketsNamesOnlyDetectedBuckets(t *testing.T) {
+	stores := []StoreView{{Store: "bucket:portal"}, {Store: "bucket:resources"}}
+	asked := map[string]int{}
+	svc := &Service{d: Deps{
+		Buckets: []string{"fresh", "portal", ""},
+		OnSeaweedFS: func(_ context.Context, bucket string) bool {
+			asked[bucket]++
+			return bucket == "fresh" || bucket == "portal"
+		},
+	}}
+	assert.Equal(t, []string{"fresh", "portal"}, svc.seaweedFSBuckets(context.Background(), stores))
+	assert.Equal(t, map[string]int{"fresh": 1, "portal": 1, "resources": 1}, asked)
+
+	svc.d.OnSeaweedFS = func(context.Context, string) bool { return false }
+	got := svc.seaweedFSBuckets(context.Background(), stores)
+	require.NotNil(t, got)
+	assert.Empty(t, got)
+
+	svc.d.OnSeaweedFS = nil
+	got = svc.seaweedFSBuckets(context.Background(), stores)
+	require.NotNil(t, got)
+	assert.Empty(t, got)
 }

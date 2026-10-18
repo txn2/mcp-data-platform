@@ -39176,6 +39176,13 @@ const docTemplate = `{
                 "seaweedfs": {
                     "$ref": "#/definitions/storagecap.ClusterView"
                 },
+                "seaweedfs_buckets": {
+                    "description": "SeaweedFSBuckets are the buckets whose endpoint answers as SeaweedFS:\nthe settings offer the cluster's address only where one does.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "spools": {
                     "type": "array",
                     "items": {

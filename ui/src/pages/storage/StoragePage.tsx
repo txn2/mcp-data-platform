@@ -38,6 +38,22 @@ function fillsOn(s: StoreView): string {
   return "Not growing";
 }
 
+/**
+ * capacitySentence names where the report's capacities come from, only the
+ * sources it carries: a database limit, a bucket budget, the SeaweedFS cluster
+ * a master is configured for, a spool's volume. Empty when it carries none.
+ */
+function capacitySentence(r: StorageReport): string {
+  const sources: string[] = [];
+  if (r.database.limit_bytes != null) sources.push("the database limit");
+  if (r.stores.some((s) => s.capacity_from === "budget")) sources.push("bucket budgets");
+  if (r.seaweedfs) sources.push("the disks the SeaweedFS cluster reports");
+  if (r.spools.some((s) => s.fs_total_bytes != null)) sources.push("each spool's volume");
+  if (sources.length === 0) return "";
+  const list = sources.length === 1 ? sources[0] : `${sources.slice(0, -1).join(", ")} and ${sources[sources.length - 1]}`;
+  return ` Capacity is ${list}.`;
+}
+
 export function StoragePage({ onNavigate }: { onNavigate: (path: string) => void }) {
   const { data, isLoading, isError } = useStorageReport();
   const [open, setOpen] = useState("");
@@ -153,8 +169,7 @@ function StoresSection({
         </Table>
       )}
       <p className="mt-2 text-xs text-muted-foreground">
-        A store's fill date uses the slower of its 7-day and 30-day growth. Capacity is the database limit and bucket
-        budgets set in Storage settings, the disks the SeaweedFS cluster reports, and each spool's volume. Select a
+        A store's fill date uses the slower of its 7-day and 30-day growth.{data && capacitySentence(data)} Select a
         store for its history.
       </p>
     </SectionCard>
