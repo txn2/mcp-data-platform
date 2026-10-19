@@ -49,17 +49,47 @@ const referencePlaceholder = "{{REFERENCE_SCRIPT}}"
 // newline, for the fenced block the placeholder sits in.
 func referenceScript() string {
 	ex, _ := scriptexamples.Lookup(scriptexamples.ReferenceName)
-	return strings.TrimRight(ex.Source, "\n")
+	return strings.TrimRight(ex.Source, newline)
 }
+
+// indexPlaceholder marks where the index page receives its list of every
+// other shipped page, generated from pageMetas so it cannot leave one out.
+const indexPlaceholder = "{{PAGE_INDEX}}"
+
+// newline separates a page body's lines.
+const newline = "\n"
+
+// indexSlug is the slug of the page that lists every other built-in page.
+const indexSlug = "platform-index"
+
+// The slugs of the shipped pages, which pageMetas names them by and which
+// the pages' related lists cite.
+const (
+	slugWriting       = "platform-writing-managed-scripts"
+	slugDialect       = "platform-managed-script-dialect"
+	slugReference     = "platform-reference-script"
+	slugOutputs       = "platform-script-outputs-and-export-identity"
+	slugDashboards    = "platform-semi-dynamic-dashboards"
+	slugAssetRefs     = "platform-asset-references-and-the-refresh-loop"
+	slugProvenance    = "platform-provenance-and-the-capture-loop"
+	slugFitScreen     = "platform-documents-that-fit-any-screen"
+	slugPresentations = "platform-presentations"
+	slugMaps          = "platform-maps"
+	slugContentTypes  = knowledgepage.BuiltinSlugContentTypes
+)
 
 // pageMeta is the shipped metadata of one page. The title is the body file's
 // leading H1 (one source for it); slug, summary, and tags live here so they
-// are compile-checked against the file list.
+// are compile-checked against the file list. related names the pages a reader
+// of this one goes to next; each is cited at the foot of the page, beside the
+// index, so the built-in pages form a graph rather than eleven islands
+// (#2200).
 type pageMeta struct {
 	file    string
 	slug    string
 	summary string
 	tags    []string
+	related []string
 }
 
 // pageMetas is the shipped set. A slug is the page's reconcile key across
@@ -67,70 +97,87 @@ type pageMeta struct {
 // slug and prunes the old page, so treat slugs as stable identifiers.
 var pageMetas = []pageMeta{
 	{
+		file:    "index.md",
+		slug:    indexSlug,
+		summary: "Every page the platform ships about itself, each with a one-line summary: scripts, outputs, dashboards, references, provenance, layout, presentations, maps and content types.",
+		tags:    []string{"platform", "reference", "index"},
+	},
+	{
 		file:    "writing-managed-scripts.md",
-		slug:    "platform-writing-managed-scripts",
+		slug:    slugWriting,
 		summary: "How to build an automation, which the platform builds as a managed script: the Starlark dialect's deliberate absences, the tools a script can call and the persona that decides them, DECIMAL columns arriving as strings, the validate/dry-run loop, and what a save makes runnable.",
 		tags:    []string{"scripts", "automation", "starlark", "authoring"},
+		related: []string{slugDialect, slugReference, slugOutputs, slugDashboards},
 	},
 	{
 		file:    "managed-script-dialect.md",
-		slug:    "platform-managed-script-dialect",
+		slug:    slugDialect,
 		summary: "The managed-script dialect contract, the text manage_script help returns: every module, member and argument a script has, and every rule a save holds it to.",
 		tags:    []string{"scripts", "automation", "starlark", "reference"},
+		related: []string{slugWriting, slugReference},
 	},
 	{
 		file:    "reference-script.md",
-		slug:    "platform-reference-script",
+		slug:    slugReference,
 		summary: "A whole automation written as a saved one is: helpers with docstrings, the work in main(), a pinned date window, a watermark in state, bound SQL, a failure that says why, an export and a result, and the tests it is saved with, with how each test is recorded and written.",
 		tags:    []string{"scripts", "automation", "tests", "authoring", "example"},
+		related: []string{slugWriting, slugDialect, slugOutputs},
 	},
 	{
 		file:    "script-outputs-and-export-identity.md",
-		slug:    "platform-script-outputs-and-export-identity",
+		slug:    slugOutputs,
 		summary: "Where a script's output lands and what identity it keeps: one (script, output name) pair is one versioned asset, a stable name is a refresh, a dated name is an archive, and the zero-data guard.",
 		tags:    []string{"scripts", "exports", "assets"},
+		related: []string{slugWriting, slugDashboards, slugAssetRefs, slugProvenance},
 	},
 	{
 		file:    "semi-dynamic-dashboards.md",
-		slug:    "platform-semi-dynamic-dashboards",
+		slug:    slugDashboards,
 		summary: "Choosing between composing a whole document every run and publishing one document whose data region a scheduled script refreshes: what each costs, and how platform.publish_data splices the id=\"data\" region.",
 		tags:    []string{"scripts", "dashboards", "assets"},
+		related: []string{slugOutputs, slugAssetRefs, slugFitScreen},
 	},
 	{
 		file:    "asset-references-and-the-refresh-loop.md",
-		slug:    "platform-asset-references-and-the-refresh-loop",
+		slug:    slugAssetRefs,
 		summary: "Naming a file from an asset's content instead of carrying it: the two reference forms, the logo and load-the-data patterns an HTML or JSX document uses, refreshing the file without re-saving the document, why a referencing version is not an as-of snapshot, and who can load the file once it is declared.",
 		tags:    []string{"assets", "resources", "references", "dashboards"},
+		related: []string{slugDashboards, slugContentTypes, slugFitScreen, slugPresentations, slugMaps},
 	},
 	{
 		file:    "provenance-and-the-capture-loop.md",
-		slug:    "platform-provenance-and-the-capture-loop",
+		slug:    slugProvenance,
 		summary: "Naming sources with call references so an asset's provenance is exact, what a capture holds, and the loop that turns session knowledge into reviewed catalog knowledge.",
 		tags:    []string{"provenance", "knowledge", "memory"},
+		related: []string{slugOutputs, slugAssetRefs, slugWriting},
 	},
 	{
 		file:    "documents-that-fit-any-screen.md",
-		slug:    "platform-documents-that-fit-any-screen",
+		slug:    slugFitScreen,
 		summary: "Writing a stored document that reflows into the reader's screen rather than scrolling sideways: which content type is framed by what, the viewport declaration an HTML asset owes, rows that wrap, the three things allowed their own scroll box, and the five defects to look for before saving.",
 		tags:    []string{"assets", "authoring", "layout"},
+		related: []string{slugPresentations, slugMaps, slugAssetRefs, slugContentTypes},
 	},
 	{
 		file:    "presentations.md",
-		slug:    "platform-presentations",
+		slug:    slugPresentations,
 		summary: "Building a presentation as an HTML asset on the reveal.js runtime the platform serves: the paths a deck names and why they are same-origin, the document skeleton, one slide per section with vertical detail, Markdown slides, brand by reference, what the Present control and the thumbnail do with it, and what the portal frame does not allow.",
 		tags:    []string{"assets", "authoring", "presentations", "slides"},
+		related: []string{slugFitScreen, slugAssetRefs, slugContentTypes},
 	},
 	{
 		file:    "maps.md",
-		slug:    "platform-maps",
+		slug:    slugMaps,
 		summary: "Building a map as an HTML asset on the map runtime and basemap this deployment serves: which regions are ready and where each archive is, the document skeleton with light and dark styles, drawing points, a route and areas from GeoJSON, fitting the view, the attribution that stays on, what to do where no region covers the data, and state and county maps that need no basemap.",
 		tags:    []string{"assets", "authoring", "maps", "geospatial"},
+		related: []string{slugFitScreen, slugContentTypes, slugAssetRefs},
 	},
 	{
 		file:    "content-types-for-stored-files.md",
-		slug:    knowledgepage.BuiltinSlugContentTypes,
+		slug:    slugContentTypes,
 		summary: "The media type every stored file carries and why a write declares it: the families detection cannot name from bytes, the types to declare for text and for binary content, and what a replacement keeps.",
 		tags:    []string{"resources", "assets", "content-types"},
+		related: []string{slugAssetRefs, slugFitScreen},
 	},
 }
 
@@ -155,6 +202,8 @@ func PagesWith(state *maps.State) ([]knowledgepage.BuiltinPage, error) {
 		body = strings.ReplaceAll(body, textTypesPlaceholder, contentTypeTable(true))
 		body = strings.ReplaceAll(body, binaryTypesPlaceholder, contentTypeTable(false))
 		body = strings.ReplaceAll(body, mapRegionsPlaceholder, mapRegionsSection(state))
+		body = strings.ReplaceAll(body, indexPlaceholder, pageIndex())
+		body += relatedSection(m)
 		pages = append(pages, knowledgepage.BuiltinPage{
 			Slug: m.slug, Title: title, Summary: m.summary, Body: body, Tags: m.tags,
 		})
@@ -162,17 +211,46 @@ func PagesWith(state *maps.State) ([]knowledgepage.BuiltinPage, error) {
 	return pages, nil
 }
 
+// pageIndex is the index page's list: every other shipped page cited by its
+// reference, with its summary.
+func pageIndex() string {
+	lines := make([]string, 0, len(pageMetas))
+	for _, m := range pageMetas {
+		if m.slug == indexSlug {
+			continue
+		}
+		lines = append(lines, "- "+knowledgepage.BuiltinReference(m.slug)+": "+m.summary)
+	}
+	return strings.Join(lines, newline)
+}
+
+// relatedSection is the foot of a page: the pages its meta names as related,
+// then the index, each cited outside a code span so the body scan stores it
+// as a reference and the portal renders it as a link. The index itself has
+// none; its body already cites every page.
+func relatedSection(m pageMeta) string {
+	if m.slug == indexSlug {
+		return ""
+	}
+	lines := make([]string, 0, len(m.related))
+	for _, slug := range m.related {
+		lines = append(lines, "- "+knowledgepage.BuiltinReference(slug))
+	}
+	lines = append(lines, "- "+knowledgepage.BuiltinReference(indexSlug)+", every page the platform ships")
+	return "\n\n## Related pages\n\n" + strings.Join(lines, newline) + newline
+}
+
 // splitTitle takes the file's leading H1 as the page title and returns the
 // rest as the body, so the title is written once: the portal renders the
 // stored title as the page header, and an H1 left in the body would render it
 // twice.
 func splitTitle(raw string) (title, body string, err error) {
-	first, rest, _ := strings.Cut(raw, "\n")
+	first, rest, _ := strings.Cut(raw, newline)
 	title = strings.TrimSpace(strings.TrimPrefix(first, "# "))
 	if !strings.HasPrefix(first, "# ") || title == "" {
 		return "", "", fmt.Errorf("page must start with an H1 title line, got %q", first)
 	}
-	return title, strings.TrimLeft(rest, "\n"), nil
+	return title, strings.TrimLeft(rest, newline), nil
 }
 
 // Start runs Reconcile in the background, logging a failure instead of

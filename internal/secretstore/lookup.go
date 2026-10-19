@@ -135,3 +135,30 @@ func ConnectionAllowed(sec Secret, connection string) error {
 	}
 	return nil
 }
+
+// UseValue reads a secret the platform uses itself rather than sends, under
+// a reserved name its allow_connections must list (#2175): a script's token
+// key lists scripttoken.SecretUse. allow_personas, when it names any, must
+// name the persona the caller acts as; the administrator's persona is
+// unrestricted, as it is for a call's placeholder.
+func (s *Store) UseValue(ctx context.Context, name, use, persona string, admin bool) (string, error) {
+	sec, value, err := s.withValue(ctx, name)
+	if errors.Is(err, ErrNotFound) {
+		return "", fmt.Errorf("secret %q does not exist; an administrator stores secrets under Admin > Secrets", name)
+	}
+	if err != nil {
+		return "", err
+	}
+	if sec.Kind == KindTOTP {
+		return "", fmt.Errorf("secret %q is an authenticator seed; a key is a value secret", name)
+	}
+	if !slices.Contains(sec.AllowConnections, use) {
+		return "", fmt.Errorf("secret %q may not be used as a %s key; its allow_connections must list %q", name, use, use)
+	}
+	if !admin {
+		if err := Allowed(sec, use, persona); err != nil {
+			return "", err
+		}
+	}
+	return value, nil
+}

@@ -120,6 +120,10 @@ beforeEach(() => {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   }) as unknown as typeof window.matchMedia;
+  // A binary file is shown through an object URL. jsdom's createObjectURL
+  // takes only jsdom's own Blob, and the Response the stubbed fetch answers
+  // with makes Node's, so the URL is stubbed as useContentUrl's test does.
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x", revokeObjectURL: () => {} }));
   stubApi();
 });
 

@@ -179,6 +179,23 @@ func TestResolveKnowledgePageRefs(t *testing.T) {
 	assert.False(t, byURN["garbage"].Accessible)
 }
 
+// A built-in page is cited by its slug, the only handle shipped text has. The
+// chip resolves it by id, then by slug, so it is live and named, not struck
+// through (#2200).
+func TestResolveKnowledgePageRefs_BuiltinCitedBySlug(t *testing.T) {
+	store := &kpKeyedStore{held: &knowledgepage.Page{ID: "kp-7", Slug: "platform-maps", Title: "Maps"}}
+	h := newKnowledgePageHandler(store, kpViewer)
+	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve", `{"urns":["mcp:knowledge_page:platform-maps"]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp resolveResp
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Refs, 1)
+	assert.True(t, resp.Refs[0].Exists)
+	assert.Equal(t, "Maps", resp.Refs[0].Label)
+	assert.Equal(t, []string{"platform-maps"}, store.idReads, "the id is read first")
+	assert.Equal(t, []string{"platform-maps"}, store.slugReads)
+}
+
 func TestResolveKnowledgePageRefs_PageNotFound(t *testing.T) {
 	// A reference to a page that no longer exists resolves as non-existent.
 	h := newKnowledgePageHandler(&mockKnowledgePageStore{}, kpViewer) // nil page -> ErrNotFound

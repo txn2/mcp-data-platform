@@ -1,0 +1,17 @@
+# The source each built-in page describes (#2200). make builtin-pages-check
+# warns when a change touches a path listed for a page and leaves the page
+# alone, so the page is read again whenever what it describes changes. A path
+# ending in / covers everything under it; test files never count as a change.
+#
+# <page file> <path> [<path> ...]
+writing-managed-scripts.md internal/platform/scriptrun/ internal/platform/scriptlayer/ internal/platform/scriptdialect/ internal/platform/scriptlint/ internal/platform/scriptsave/ internal/platform/scriptdraft/ internal/platform/scriptexec/ internal/platform/scriptsql/ pkg/script/
+managed-script-dialect.md internal/platform/scriptcontract/ internal/platform/scriptdialect/
+reference-script.md internal/platform/scriptexamples/ internal/platform/scripttest/ internal/platform/scriptrec/ internal/platform/scriptbehavior/
+script-outputs-and-export-identity.md internal/platform/scriptout/ internal/scriptdest/ internal/platform/exportlibrary/ internal/platform/tooloutput/
+semi-dynamic-dashboards.md internal/platform/scriptrun/host.go internal/platform/scriptout/
+asset-references-and-the-refresh-loop.md internal/portal/assetrefs/ internal/portal/assetrefstore/ internal/portal/contentrefs/
+provenance-and-the-capture-loop.md internal/platform/callrecord/ pkg/toolkits/knowledge/ pkg/toolkits/memory/
+documents-that-fit-any-screen.md ui/src/components/renderers/HtmlRenderer.tsx internal/portal/publicviewer/
+presentations.md ui/vite.config.ts ui/src/components/renderers/HtmlRenderer.tsx internal/portal/publicviewer/
+maps.md internal/maps/ internal/httpserver/maphttp/ internal/pmtiles/
+content-types-for-stored-files.md pkg/contenttype/ pkg/toolkits/portal/ internal/platform/tableregister/

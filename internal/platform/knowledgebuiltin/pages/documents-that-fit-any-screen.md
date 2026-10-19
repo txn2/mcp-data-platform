@@ -138,6 +138,6 @@ Each of them is one line to fix while you are still composing, and each of them
 is a document the reader has to pan across once it is saved.
 
 A document that references a logo or a data file rather than embedding it is
-covered by `mcp:knowledge_page:platform-asset-references-and-the-refresh-loop`,
+covered by mcp:knowledge_page:platform-asset-references-and-the-refresh-loop,
 and which media type to declare for what you wrote by
-`mcp:knowledge_page:platform-content-types-for-stored-files`.
+mcp:knowledge_page:platform-content-types-for-stored-files.

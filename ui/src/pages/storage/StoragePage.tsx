@@ -31,11 +31,52 @@ function perDay(n: number | null): string {
   return `${sign}${formatBytes(Math.abs(n))}/day`;
 }
 
-/** fillsOn is when a store fills, or why there is no date. */
-function fillsOn(s: StoreView): string {
-  if (s.exhaustion_at) return new Date(s.exhaustion_at).toLocaleDateString();
-  if (s.total_bytes == null) return "No capacity known";
-  return "Not growing";
+/** span is a stretch of history in hours, as the table names it. */
+function span(hours: number): string {
+  if (hours < 24) return `${parseFloat(hours.toFixed(1))} h`;
+  return `${parseFloat((hours / 24).toFixed(1))} d`;
+}
+
+/**
+ * Growth is one rate cell. A rate the history is too short for says how much
+ * history there is and how much it needs, rather than a dash or a first-hour
+ * burst read as a daily rate (#2201).
+ */
+function Growth({ rate, history, needs }: { rate: number | null; history: number; needs: number }) {
+  if (rate != null) return <>{perDay(rate)}</>;
+  if (history >= needs) return <>—</>;
+  return (
+    <span className="text-muted-foreground">
+      Not enough history
+      <div className="text-xs">
+        {span(history)} of {span(needs)}
+      </div>
+    </span>
+  );
+}
+
+/** FillsOn is when a store fills, or why there is no date. */
+function FillsOn({ s, onNavigate }: { s: StoreView; onNavigate: (path: string) => void }) {
+  if (s.exhaustion_at) return <>{new Date(s.exhaustion_at).toLocaleDateString()}</>;
+  if (s.total_bytes == null) {
+    return (
+      <Button
+        type="button"
+        variant="link"
+        className="h-auto p-0"
+        onClick={(e) => {
+          e.stopPropagation();
+          onNavigate("/admin/settings/storage");
+        }}
+      >
+        No capacity known
+      </Button>
+    );
+  }
+  if (s.rate_7d_bytes_per_day == null && s.rate_30d_bytes_per_day == null && s.history_hours < s.rate_7d_min_history_hours) {
+    return <>Not enough history</>;
+  }
+  return <>Not growing</>;
 }
 
 /**
@@ -71,7 +112,13 @@ export function StoragePage({ onNavigate }: { onNavigate: (path: string) => void
           Storage settings
         </Button>
       </div>
-      <StoresSection data={data} isLoading={isLoading} open={open} onOpen={(s) => setOpen(open === s ? "" : s)} />
+      <StoresSection
+        data={data}
+        isLoading={isLoading}
+        open={open}
+        onOpen={(s) => setOpen(open === s ? "" : s)}
+        onNavigate={onNavigate}
+      />
       {open && <HistorySection store={open} report={data} />}
       {data?.seaweedfs?.error && (
         <Alert variant="destructive" className="py-2">
@@ -105,11 +152,13 @@ function StoresSection({
   isLoading,
   open,
   onOpen,
+  onNavigate,
 }: {
   data: StorageReport | undefined;
   isLoading: boolean;
   open: string;
   onOpen: (store: string) => void;
+  onNavigate: (path: string) => void;
 }) {
   return (
     <SectionCard title="Stores">
@@ -152,10 +201,14 @@ function StoresSection({
                 <TableCell className="text-right tabular-nums">
                   {s.percent_used == null ? "—" : `${s.percent_used.toFixed(1)}%`}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{perDay(s.rate_7d_bytes_per_day)}</TableCell>
-                <TableCell className="text-right tabular-nums">{perDay(s.rate_30d_bytes_per_day)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  <Growth rate={s.rate_7d_bytes_per_day} history={s.history_hours} needs={s.rate_7d_min_history_hours} />
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  <Growth rate={s.rate_30d_bytes_per_day} history={s.history_hours} needs={s.rate_30d_min_history_hours} />
+                </TableCell>
                 <TableCell>
-                  {fillsOn(s)}
+                  <FillsOn s={s} onNavigate={onNavigate} />
                   {s.rate_used && s.exhaustion_at && (
                     <span className="ml-1 text-xs text-muted-foreground">(at the {s.rate_used} rate)</span>
                   )}

@@ -46,6 +46,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -164,6 +165,9 @@ type Config struct {
 	// Lineage records what each run read and wrote as catalog lineage
 	// (#1922). Nil records none.
 	Lineage *sqllineage.Scripts
+	// Tokens answers the tokens a run mints and verifies, bound to the script
+	// (#2175); nil refuses them.
+	Tokens *scripttoken.Issuer
 
 	// Libraries is where the libraries a run's source loads are read from
 	// (#1941). Nil falls back to PostgreSQL over DB, and with no DB every

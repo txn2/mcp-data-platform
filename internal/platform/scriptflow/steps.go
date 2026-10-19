@@ -118,9 +118,19 @@ var memberCards = map[string]func(*card, *Node){
 	"save_state": func(_ *card, n *Node) {
 		n.Role, n.Kind, n.Title, n.Subtitle = RoleOutput, KindSaveState, "Save state", "run.state of the next run"
 	},
+	"mint_token":   func(c *card, n *Node) { c.token(n, "Mint token") },
+	"verify_token": func(c *card, n *Node) { c.token(n, "Verify token") },
 	"result": func(_ *card, n *Node) {
 		n.Role, n.Kind, n.Title, n.Subtitle = RoleOutput, KindResult, "Run result", "handed back to whoever ran it"
 	},
+}
+
+// token is platform.mint_token or platform.verify_token (#2175): what it does
+// with the key, and the stored secret the key is.
+func (c *card) token(n *Node, title string) {
+	n.Role, n.Kind, n.Title = RoleReads, KindToken, title
+	secret, full := c.value(c.kw["secret"])
+	n.Subtitle, n.Computed = "key "+secret, !full
 }
 
 // maxStandIn is the longest source text a {…} stand-in on a card carries.

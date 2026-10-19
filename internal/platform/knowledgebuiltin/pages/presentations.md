@@ -123,13 +123,13 @@ own with the evidence it rests on named beneath it.
 A brand mark or a figure the platform already holds is named by reference, not
 carried: `<img src="mcp://global/brand/logo.svg">` with the URI declared in
 `references` on `save_asset`, exactly as
-`mcp:knowledge_page:platform-asset-references-and-the-refresh-loop` describes
+mcp:knowledge_page:platform-asset-references-and-the-refresh-loop describes
 for any document. The reference is rewritten to a working URL wherever the deck
 is served, share links included.
 
 Images take `max-width: 100%` so a wide figure fits the slide rather than
 spilling past it. Nothing else from
-`mcp:knowledge_page:platform-documents-that-fit-any-screen` applies to the
+mcp:knowledge_page:platform-documents-that-fit-any-screen applies to the
 slide body, because the runtime owns the slide's size and scales the whole
 thing; what does apply is the viewport declaration, which is still yours.
 

@@ -39,6 +39,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -188,6 +189,8 @@ type Runner struct {
 	// timeout_seconds (scripts.sql.max_timeout_seconds, #2073); zero is the
 	// tools' own cap.
 	statementCeiling time.Duration
+	// tokens answers platform.mint_token and platform.verify_token (#2175).
+	tokens *scripttoken.Issuer
 	// recordings keeps what each draft's host calls were answered, for the
 	// script's tests to replay (#1939). Nil keeps nothing.
 	recordings scriptrec.Store
@@ -226,6 +229,15 @@ func (r *Runner) draftLibraries(ctx context.Context, req Request) scriptlib.Sour
 func (r *Runner) WithLibraries(src scriptlib.Source) *Runner {
 	if r != nil {
 		r.libraries = src
+	}
+	return r
+}
+
+// WithTokens returns the Runner answering the tokens a draft mints and
+// verifies (#2175); without it the two members refuse.
+func (r *Runner) WithTokens(tokens *scripttoken.Issuer) *Runner {
+	if r != nil {
+		r.tokens = tokens
 	}
 	return r
 }
@@ -364,6 +376,10 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 
 		MaxStatementTimeout: r.statementCeiling,
 		Timeout:             req.Long.Timeout, Live: req.Long.Live,
+		// A draft is not an endpoint request, even a draft of a handler: a
+		// token it mints is bound to the script, under the drafting person's
+		// persona.
+		Tokens: r.tokens.Bind(scripttoken.Binding{ScriptID: draftScriptID(req)}, req.Identity.Roles),
 	}
 	if req.Long.Timeout > scriptrun.DraftTimeout {
 		// A long draft is held to a platform run's step budget, which is what
@@ -384,6 +400,14 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		out.Recorded = rec.SaveTo(ctx, r.recordings, meta)
 	}
 	return out, nil
+}
+
+// draftScriptID is the script a draft runs as, empty for one not yet saved.
+func draftScriptID(req Request) string {
+	if req.Script == nil {
+		return ""
+	}
+	return req.Script.ID
 }
 
 // record starts the recording of the draft opts describe, or returns nil when

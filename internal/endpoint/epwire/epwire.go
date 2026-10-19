@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -34,6 +35,9 @@ type Endpoints struct {
 	Checker  *botcheck.Checker
 	Runner   *eprun.Runner
 	Commands *epcmd.Handler
+	// Tokens answers the tokens a script mints and verifies (#2175), in an
+	// endpoint request, a run and a draft alike.
+	Tokens *scripttoken.Issuer
 }
 
 // Deps is what the script wiring hands over.
@@ -57,6 +61,9 @@ type Deps struct {
 	Encryptor secretstore.Encryptor
 	// BaseURL is the deployment's public address.
 	BaseURL string
+	// Authority resolves a run's roles to the persona a token key's
+	// allow_personas is checked against.
+	Authority scripttoken.Authority
 }
 
 // Build assembles endpoints, or returns nil with no database: there is
@@ -71,10 +78,16 @@ func Build(deps Deps) *Endpoints {
 	checker := botcheck.New(deps.DB, deps.Key, func(ctx context.Context, name string) (string, error) {
 		return secrets.ConnectionValue(ctx, name, botcheck.SecretUse) //nolint:wrapcheck // the store's refusal names the secret and what allows it
 	})
+	tokens := &scripttoken.Issuer{
+		Keys: func(ctx context.Context, name, persona string, admin bool) (string, error) {
+			return secrets.UseValue(ctx, name, scripttoken.SecretUse, persona, admin) //nolint:wrapcheck // the store's refusal names the secret and what allows it
+		},
+		Uses: scripttoken.NewUses(deps.DB), Authority: deps.Authority,
+	}
 	runner := &eprun.Runner{
 		Bindings: bindings, Scripts: scripts, Server: deps.Server, Audit: deps.Audit, Metrics: deps.Metrics,
 		Subjects: deps.Subjects, Limits: deps.Limits, Destinations: deps.Destinations,
-		Libraries: libraries(scripts, deps.Sources),
+		Libraries: libraries(scripts, deps.Sources), Tokens: tokens,
 	}
 	commands := &epcmd.Handler{
 		Store: bindings, PublicAllowed: checker.PublicAllowed, BaseURL: deps.BaseURL,
@@ -85,7 +98,16 @@ func Build(deps Deps) *Endpoints {
 			return ""
 		},
 	}
-	return &Endpoints{Bindings: bindings, Checker: checker, Runner: runner, Commands: commands}
+	return &Endpoints{Bindings: bindings, Checker: checker, Runner: runner, Commands: commands, Tokens: tokens}
+}
+
+// TokenIssuer is the token issuer, nil on nil Endpoints: a deployment with no
+// database issues no tokens.
+func (e *Endpoints) TokenIssuer() *scripttoken.Issuer {
+	if e == nil {
+		return nil
+	}
+	return e.Tokens
 }
 
 // libraries is where a version's loads are read from: the library versions,

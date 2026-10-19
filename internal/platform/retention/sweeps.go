@@ -11,6 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/assetbucket"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalpurge"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 )
 
 // Config is what Assemble builds the sweeps from. Each *Days is already
@@ -46,6 +47,7 @@ func Assemble(cfg Config) *Loop {
 	sweeps = append(sweeps, ExpiredCallTasks(cfg.DB)...)
 	sweeps = append(sweeps, EndpointFailures(cfg.DB)...)
 	sweeps = append(sweeps, BotCheckAnswers(cfg.DB)...)
+	sweeps = append(sweeps, ScriptTokenUses(cfg.DB)...)
 	return New(cfg.DB, cfg.Every, sweeps...)
 }
 
@@ -60,6 +62,7 @@ const (
 	lockCallTasks         int64 = 4713210106
 	lockEndpointFailures  int64 = 4713210107
 	lockBotCheckAnswers   int64 = 4713210108
+	lockScriptTokenUses   int64 = 4713210109
 )
 
 // PortalDeleted is the sweep that purges portal items deleted more than days
@@ -172,6 +175,16 @@ func EndpointFailures(db *sql.DB) []Sweep {
 func BotCheckAnswers(db *sql.DB) []Sweep {
 	store := botcheck.NewAnswerStore(db)
 	return []Sweep{{Name: "bot_check_answers", LockKey: lockBotCheckAnswers, Run: func(ctx context.Context) (int64, error) {
+		return store.Sweep(ctx, time.Now()) //nolint:wrapcheck // the store names the delete
+	}}}
+}
+
+// ScriptTokenUses is the sweep that deletes the uses of single-use script
+// tokens (#2175) that have expired, so a second use is refused by the
+// token's expiry instead.
+func ScriptTokenUses(db *sql.DB) []Sweep {
+	store := scripttoken.NewUses(db)
+	return []Sweep{{Name: "script_token_uses", LockKey: lockScriptTokenUses, Run: func(ctx context.Context) (int64, error) {
 		return store.Sweep(ctx, time.Now()) //nolint:wrapcheck // the store names the delete
 	}}}
 }

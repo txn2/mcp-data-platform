@@ -12,11 +12,17 @@ function daysFromNow(n: number): string {
   return new Date(Date.now() + n * DAY).toISOString();
 }
 
-function store(s: Omit<StoreView, "free_bytes" | "percent_used"> & Partial<StoreView>): StoreView {
+function store(
+  s: Omit<StoreView, "free_bytes" | "percent_used" | "history_hours" | "rate_7d_min_history_hours" | "rate_30d_min_history_hours"> &
+    Partial<StoreView>,
+): StoreView {
   const total = s.total_bytes;
   return {
     free_bytes: total == null ? null : Math.max(0, total - s.used_bytes),
     percent_used: total == null ? null : (100 * s.used_bytes) / total,
+    history_hours: 180 * 24,
+    rate_7d_min_history_hours: 24,
+    rate_30d_min_history_hours: 168,
     ...s,
   };
 }
@@ -56,12 +62,12 @@ export function mockStorageReport(): StorageReport {
       store({
         store: "bucket:acme-resources", kind: "bucket", name: "Bucket acme-resources", used_bytes: 88 * GIB,
         total_bytes: null, rate_7d_bytes_per_day: 0.2 * GIB, rate_30d_bytes_per_day: null, rate_used: "7d",
-        days_left: null, exhaustion_at: null,
+        days_left: null, exhaustion_at: null, history_hours: 72,
       }),
       store({
         store: "spool:mcp-data-platform-0", kind: "spool", name: "Webhook spool on mcp-data-platform-0",
         used_bytes: 1.1 * GIB, total_bytes: 10 * GIB, rate_7d_bytes_per_day: null, rate_30d_bytes_per_day: null,
-        days_left: null, exhaustion_at: null,
+        days_left: null, exhaustion_at: null, history_hours: 1.7,
       }),
       store({
         store: "spool:mcp-data-platform-1", kind: "spool", name: "Webhook spool on mcp-data-platform-1",

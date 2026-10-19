@@ -492,6 +492,8 @@ The placeholder works in `body` (an object, or a string of JSON or form text, wi
 - **What comes back.** Every occurrence of the value in the upstream's response headers and body, as written or JSON-, query- or path-escaped, is replaced with `[REDACTED:<name>]` before the response reaches the caller, so reading the field back (`GET .../element/{id}/property/value`) does not hand it over. An error message that would carry it (a filled path in a transport error) is redacted the same way. An `api_export` is redacted as it streams.
 - **Storage.** The value is encrypted at rest with the same field encryption as connection credentials, must be at least 6 characters (it is redacted wherever it appears, and a shorter one would rewrite ordinary text), and is never returned by the API or shown in the portal. Changing a secret without a `value` keeps the stored one. A rotated value is used from the next call, with no reload.
 
+Two uses of a stored secret are the platform's own rather than a connection's, and each is named in `allow_connections` by a reserved name: `bot_check` for a bot check provider's secret key (see [Endpoints](../scripts/endpoints.md#bot-checks)), and `script_token` for the key a script signs tokens with (see [Signed tokens](../scripts/endpoints.md#signed-tokens)), whose `allow_personas` is checked against the persona the script's author roles resolve to.
+
 ### A secret in a connection's configuration
 
 A connection's own credential can name a stored secret too, so it is held in one place and rotated there. Write `{{secret:<name>}}` where the value goes, for example in a Tableau sign-in body:

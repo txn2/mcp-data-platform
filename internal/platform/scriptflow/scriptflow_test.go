@@ -750,3 +750,19 @@ def main():
 	assert.Equal(t, "", docSentence(&syntax.ExprStmt{X: &syntax.Ident{Name: "x"}}))
 	assert.Equal(t, "", docSentence(&syntax.ReturnStmt{}))
 }
+
+// A token minted or verified is a card naming the stored key (#2175); a key
+// named at run time is shown as computed.
+func TestDerive_TokenCards(t *testing.T) {
+	g := deriveGraph(`
+tok = platform.mint_token({"a": 1}, 600, secret = "credit-key")
+res = platform.verify_token(tok, secret = run.params["key"])
+`)
+	require.True(t, g.OK, "%+v", g.Findings)
+	m := nodeByTitle(t, g, "Mint token")
+	assert.Equal(t, KindToken, m.Kind)
+	assert.Equal(t, RoleReads, m.Role)
+	assert.Equal(t, "key credit-key", m.Subtitle)
+	assert.False(t, m.Computed)
+	assert.True(t, nodeByTitle(t, g, "Verify token").Computed)
+}

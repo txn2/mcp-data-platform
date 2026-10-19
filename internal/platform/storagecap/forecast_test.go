@@ -68,9 +68,10 @@ func TestProjectUsesTheSlowerRate(t *testing.T) {
 }
 
 func TestProjectEdges(t *testing.T) {
-	assert.Equal(t, Forecast{}, Project(nil, now))
+	empty := Forecast{Rate7dMinHistoryHours: 24, Rate30dMinHistoryHours: 168}
+	assert.Equal(t, empty, Project(nil, now))
 	single := []Point{{At: now, Used: 1, Total: new(int64(10))}}
-	assert.Equal(t, Forecast{}, Project(single, now), "one sample has no rate")
+	assert.Equal(t, empty, Project(single, now), "one sample has no rate")
 	short := []Point{{At: now.Add(-time.Minute), Used: 1}, {At: now, Used: 2}}
 	assert.Nil(t, Project(short, now).Rate7d, "a minute of history is too short to fit")
 
@@ -95,9 +96,55 @@ func TestProjectEdges(t *testing.T) {
 	assert.Zero(t, *f.DaysLeft, "a store past its capacity has no days left")
 
 	same := []Point{{At: now.Add(-2 * time.Hour), Used: 5}, {At: now.Add(-2 * time.Hour), Used: 5}, {At: now, Used: 5}}
-	assert.NotNil(t, rateOver(same, now.Add(-day)))
+	assert.NotNil(t, rateOver(same, now.Add(-day), time.Hour))
 	flat := []Point{{At: now, Used: 1}, {At: now, Used: 2}}
-	assert.Nil(t, rateOver(flat, now.Add(-day)))
+	assert.Nil(t, rateOver(flat, now.Add(-day), 0))
+}
+
+// TestProjectWaitsForEnoughHistory is #2201's first finding: a new install's
+// setup burst over its first hour and a half is no daily rate, and the 30-day
+// rate waits for a week so it never repeats the 7-day one.
+func TestProjectWaitsForEnoughHistory(t *testing.T) {
+	// The samples #2201 was reported from: 16 MB to 28 MB in 1h42m.
+	burst := make([]Point, 0, 16)
+	from := now.Add(-102 * time.Minute)
+	for i := range 16 {
+		at := from.Add(time.Duration(i) * 102 * time.Minute / 15)
+		burst = append(burst, Point{At: at, Used: 16_075_923 + int64(i)*(28_011_667-16_075_923)/15})
+	}
+	f := Project(burst, now)
+	assert.Nil(t, f.Rate7d, "an hour and a half is no weekly rate")
+	assert.Nil(t, f.Rate30d)
+	assert.Empty(t, f.RateUsed)
+	assert.InDelta(t, 1.7, f.HistoryHours, 0.01)
+	assert.Equal(t, 24.0, f.Rate7dMinHistoryHours)
+	assert.Equal(t, 168.0, f.Rate30dMinHistoryHours)
+
+	three := linear(3, time.Hour, 0, 1<<30, 1<<40)
+	f = Project(three, now)
+	require.NotNil(t, f.Rate7d, "three days is enough for the weekly rate")
+	assert.Nil(t, f.Rate30d, "and not for the monthly one")
+	assert.Equal(t, "7d", f.RateUsed)
+	assert.InDelta(t, 72.0, f.HistoryHours, 0.01)
+}
+
+// TestProjectFlatStoreIsZero is #2201's second finding: a store holding one
+// size at every sample grows at exactly zero, not at the rounding error of
+// sums near 1e18.
+func TestProjectFlatStoreIsZero(t *testing.T) {
+	flat := linear(10, 7*time.Minute, 16_801_792, 0, 1<<40)
+	f := Project(flat, now)
+	require.NotNil(t, f.Rate7d)
+	require.NotNil(t, f.Rate30d)
+	assert.Zero(t, *f.Rate7d)
+	assert.Zero(t, *f.Rate30d)
+	assert.Nil(t, f.ExhaustionAt)
+
+	// A big store gaining a little still reads its growth.
+	creep := linear(10, 7*time.Minute, 1<<40, 4096, 1<<41)
+	f = Project(creep, now)
+	require.NotNil(t, f.Rate7d)
+	assert.InDelta(t, 4096, *f.Rate7d, 64)
 }
 
 func TestSlower(t *testing.T) {

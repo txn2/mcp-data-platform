@@ -128,6 +128,7 @@ internal/endpoint/eprun -> internal/platform/scriptrun
 internal/endpoint/eprun -> internal/platform/scriptsession
 internal/endpoint/eprun -> internal/platform/starlarkconv
 internal/endpoint/eprun -> internal/producedby
+internal/endpoint/eprun -> internal/scripttoken
 internal/endpoint/eprun -> pkg/audit
 internal/endpoint/eprun -> pkg/middleware
 internal/endpoint/eprun -> pkg/observability
@@ -144,6 +145,7 @@ internal/endpoint/epwire -> internal/platform/scriptres
 internal/endpoint/epwire -> internal/platform/scriptrun
 internal/endpoint/epwire -> internal/platform/scriptsrc
 internal/endpoint/epwire -> internal/platform/scriptstore
+internal/endpoint/epwire -> internal/scripttoken
 internal/endpoint/epwire -> internal/secretstore
 internal/endpoint/epwire -> pkg/middleware
 internal/endpoint/epwire -> pkg/observability
@@ -941,6 +943,7 @@ internal/platform/retention -> internal/endpoint/epstore
 internal/platform/retention -> internal/logsan
 internal/platform/retention -> internal/platform/assetbucket
 internal/platform/retention -> internal/portal/portalpurge
+internal/platform/retention -> internal/scripttoken
 internal/platform/reviewalert -> internal/bgloop
 internal/platform/reviewalert -> internal/logsan
 internal/platform/reviewalert -> internal/notification/notifyalert
@@ -970,6 +973,7 @@ internal/platform/scriptdraft -> internal/platform/scriptres
 internal/platform/scriptdraft -> internal/platform/scriptrun
 internal/platform/scriptdraft -> internal/platform/scriptsession
 internal/platform/scriptdraft -> internal/platform/scriptsrc
+internal/platform/scriptdraft -> internal/scripttoken
 internal/platform/scriptdraft -> internal/toolwrite
 internal/platform/scriptdraft -> pkg/middleware
 internal/platform/scriptdraft -> pkg/registry
@@ -1000,6 +1004,7 @@ internal/platform/scriptexec -> internal/portal/portaldomain
 internal/platform/scriptexec -> internal/producedby
 internal/platform/scriptexec -> internal/runstate
 internal/platform/scriptexec -> internal/scriptcallsite
+internal/platform/scriptexec -> internal/scripttoken
 internal/platform/scriptexec -> pkg/audit
 internal/platform/scriptexec -> pkg/contenttype
 internal/platform/scriptexec -> pkg/middleware
@@ -1132,6 +1137,7 @@ internal/platform/scriptrun -> internal/scripthash
 internal/platform/scriptrun -> internal/scriptre
 internal/platform/scriptrun -> internal/scriptreserved
 internal/platform/scriptrun -> internal/scriptsum
+internal/platform/scriptrun -> internal/scripttoken
 internal/platform/scriptrun -> internal/scriptxml
 internal/platform/scriptrun -> internal/tablexlsx
 internal/platform/scriptrun -> internal/toolwrite
@@ -1191,6 +1197,7 @@ internal/platform/scriptwiring -> internal/platform/scriptrun
 internal/platform/scriptwiring -> internal/platform/scriptsrc
 internal/platform/scriptwiring -> internal/platform/scriptstmt
 internal/platform/scriptwiring -> internal/platform/sqllineage
+internal/platform/scriptwiring -> internal/scripttoken
 internal/platform/scriptwiring -> internal/secretstore
 internal/platform/scriptwiring -> pkg/middleware
 internal/platform/scriptwiring -> pkg/observability
@@ -1395,6 +1402,7 @@ internal/producedview -> pkg/resource
 internal/producedview -> pkg/script
 internal/scriptdate -> pkg/script
 internal/scriptdest -> pkg/script
+internal/scripttoken -> internal/platform/starlarkconv
 internal/scriptxml -> internal/xmltree
 internal/secretstore -> internal/secretref
 internal/secretstore -> internal/totp

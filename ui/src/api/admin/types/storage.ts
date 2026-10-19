@@ -20,6 +20,10 @@ export interface StoreView {
   /** Growth in bytes per day over the last 7 and 30 days; null when the history is too short. */
   rate_7d_bytes_per_day: number | null;
   rate_30d_bytes_per_day: number | null;
+  /** Hours of history the store has, and how many each rate needs before it is measured (#2201). */
+  history_hours: number;
+  rate_7d_min_history_hours: number;
+  rate_30d_min_history_hours: number;
   /** The rate the projection uses: the slower growing one. */
   rate_used?: "7d" | "30d";
   days_left: number | null;

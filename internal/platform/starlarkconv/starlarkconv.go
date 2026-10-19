@@ -219,6 +219,27 @@ func ColumnOrder(rows starlark.Value) []string {
 	return columns
 }
 
+// Arguments converts the argument dict a script passed into the plain Go map
+// a tool call takes. A missing dict is an empty argument set, which is what a
+// tool taking no arguments wants.
+func Arguments(args *starlark.Dict) (map[string]any, error) {
+	if args == nil {
+		return map[string]any{}, nil
+	}
+	converted, err := DictFromStarlark(args, 0)
+	if err != nil {
+		return nil, err
+	}
+	out, ok := converted.(map[string]any)
+	if !ok {
+		// DictFromStarlark returns a map[string]any or an error, so this is
+		// unreachable; it is here so a future change to that contract fails
+		// loudly rather than panicking inside a script.
+		return nil, fmt.Errorf("args converted to %T rather than to an argument set", converted)
+	}
+	return out, nil
+}
+
 // DictFromStarlark converts a Starlark dict, refusing non-string keys: the
 // result is destined for JSON, where an object key is a string.
 func DictFromStarlark(d *starlark.Dict, depth int) (any, error) {

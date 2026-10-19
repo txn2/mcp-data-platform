@@ -42,6 +42,29 @@ describe("StoragePage (#2148)", () => {
     expect(within(row("Database")).getAllByText(/\/day/)).toHaveLength(2);
   });
 
+  // #2201: a new store's first hours are no daily rate, and the monthly rate
+  // waits for a week instead of repeating the weekly one.
+  it("says how much history a rate still needs instead of projecting a burst", () => {
+    render(<StoragePage onNavigate={vi.fn()} />);
+    const spool = row("Webhook spool on mcp-data-platform-0");
+    expect(within(spool).getAllByText("Not enough history")).toHaveLength(3);
+    expect(within(spool).getByText("1.7 h of 1 d")).toBeInTheDocument();
+    expect(within(spool).getByText("1.7 h of 7 d")).toBeInTheDocument();
+    expect(within(spool).queryByText(/\/day/)).toBeNull();
+
+    const resources = row("Bucket acme-resources");
+    expect(within(resources).getByText("+204.8 MB/day")).toBeInTheDocument();
+    expect(within(resources).getByText("3 d of 7 d")).toBeInTheDocument();
+  });
+
+  it("links a store with no capacity to the setting that gives it one", () => {
+    const onNavigate = vi.fn();
+    render(<StoragePage onNavigate={onNavigate} />);
+    fireEvent.click(within(row("Bucket acme-resources")).getByRole("button", { name: "No capacity known" }));
+    expect(onNavigate).toHaveBeenCalledWith("/admin/settings/storage");
+    expect(asked).toEqual([]);
+  });
+
   it("opens a store's history on its row and changes the span", () => {
     render(<StoragePage onNavigate={vi.fn()} />);
     fireEvent.click(row("SeaweedFS cluster"));

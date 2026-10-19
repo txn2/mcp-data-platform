@@ -144,3 +144,82 @@ func TestBuiltins_RealDB_PruneRemovesADroppedPage(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, back.Builtin)
 }
+
+// pageRefIDs is the knowledge pages a page's stored references point at.
+func pageRefIDs(t *testing.T, store *postgresStore, pageID string) []string {
+	t.Helper()
+	refs, err := store.ListEntityRefs(context.Background(), pageID)
+	require.NoError(t, err)
+	ids := []string{}
+	for _, r := range refs {
+		if r.TargetType == RefTargetKnowledgePage {
+			ids = append(ids, r.RefPageID)
+		}
+	}
+	return ids
+}
+
+// #2200: built-in pages cite each other by slug, and a page can cite one
+// shipped after it in the same pass. On a fresh install every such citation
+// was dropped. Each now lands as a reference to the cited page's id on this
+// deployment, in both directions, and a deployment whose references an
+// earlier release dropped is repaired by the next start with no page changed.
+func TestBuiltins_RealDB_CitationsBySlugFormAGraph(t *testing.T) {
+	store := &postgresStore{db: testdb.New(t)}
+	ctx := context.Background()
+	shipped := []BuiltinPage{
+		{Slug: "platform-a", Title: "A", Summary: "a", Body: "Read mcp:knowledge_page:platform-b next.", Tags: []string{"x"}},
+		{Slug: "platform-b", Title: "B", Summary: "b", Body: "Back to mcp:knowledge_page:platform-a. `mcp:knowledge_page:platform-gone` is code.", Tags: []string{"x"}},
+	}
+	_, err := store.ReconcileBuiltins(ctx, shipped)
+	require.NoError(t, err)
+
+	a, err := store.GetBySlug(ctx, "platform-a")
+	require.NoError(t, err)
+	b, err := store.GetBySlug(ctx, "platform-b")
+	require.NoError(t, err)
+	assert.Equal(t, []string{b.ID}, pageRefIDs(t, store, a.ID), "A cites B, which was inserted after it")
+	assert.Equal(t, []string{a.ID}, pageRefIDs(t, store, b.ID))
+
+	backlinks, err := store.ListPagesReferencing(ctx, EntityRef{TargetType: RefTargetKnowledgePage, RefPageID: b.ID})
+	require.NoError(t, err)
+	require.Len(t, backlinks, 1)
+	assert.Equal(t, a.ID, backlinks[0].ID)
+
+	// A deployment an earlier release reconciled with no references: the
+	// next start writes no page and still derives them.
+	_, err = store.db.ExecContext(ctx, `DELETE FROM knowledge_page_entity_refs`)
+	require.NoError(t, err)
+	stats, err := store.ReconcileBuiltins(ctx, shipped)
+	require.NoError(t, err)
+	assert.Equal(t, BuiltinReconcileStats{Skipped: 2}, stats)
+	assert.Equal(t, []string{b.ID}, pageRefIDs(t, store, a.ID))
+	assert.Equal(t, []string{a.ID}, pageRefIDs(t, store, b.ID))
+}
+
+// An operator page citing a built-in page by slug used to fail its whole
+// inline-reference write on the foreign key, losing every other reference the
+// body made. The slug is stored as the page's id (#2200).
+func TestBuiltins_RealDB_OperatorPageCitesABuiltinBySlug(t *testing.T) {
+	store := &postgresStore{db: testdb.New(t)}
+	ctx := context.Background()
+	_, err := store.ReconcileBuiltins(ctx, []BuiltinPage{
+		{Slug: "platform-maps", Title: "Maps", Summary: "m", Body: "maps", Tags: []string{"x"}},
+	})
+	require.NoError(t, err)
+	maps, err := store.GetBySlug(ctx, "platform-maps")
+	require.NoError(t, err)
+
+	mine := Page{ID: NewID(), Title: "Our regions", Body: "See mcp:knowledge_page:platform-maps.", CreatedBy: "alice@example.com", UpdatedBy: "alice@example.com"}
+	require.NoError(t, store.Insert(ctx, mine))
+	refs := ScanBodyRefs(mine.Body)
+	require.NoError(t, store.ValidateRefTargets(ctx, refs), "a slug of a live page is a target that exists")
+	require.NoError(t, store.ReplaceEntityRefsBySource(ctx, mine.ID, RefSourceInline, refs))
+	assert.Equal(t, []string{maps.ID}, pageRefIDs(t, store, mine.ID))
+
+	missing := ScanBodyRefs("See mcp:knowledge_page:platform-nothing.")
+	require.ErrorIs(t, store.ValidateRefTargets(ctx, missing), ErrRefTargetNotFound)
+	kept, err := store.FilterExistingRefTargets(ctx, missing)
+	require.NoError(t, err)
+	assert.Empty(t, kept)
+}

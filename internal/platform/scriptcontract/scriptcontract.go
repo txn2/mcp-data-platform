@@ -472,6 +472,21 @@ WHAT IS AVAILABLE
       In a draft run both are refused unless the draft was started with
       allow_writes, like every other call that persists: a message in
       somebody else's chat client is not something a dry run may leave behind.
+  platform.mint_token(claims, ttl, secret, endpoints=None, single_use=False)
+      Mint a signed token and return it as a string: claims is a dict carried
+      in it, ttl the seconds it lives (at most 30 days), and secret the name
+      of a stored secret whose allow_connections lists "script_token" and, when
+      it names personas, the run's persona. The script never sees the
+      secret's value. In an endpoint request the token is bound to that
+      endpoint, or to the endpoint names endpoints lists; anywhere else, to
+      the script. single_use=True lets it verify once, on any replica.
+  platform.verify_token(token, secret)  Check a token minted with the same
+      secret: {"ok": True, "claims": {...}, "expires_at": "...",
+      "single_use": ...} when it holds, or {"ok": False, "reason": ...,
+      "message": ...} when it does not, the reason one of "expired",
+      "tampered", "other_endpoint", "used" or "malformed", so the script
+      answers a refusal itself. A single-use token is marked used by the
+      verify that accepts it.
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"], run.state  The frozen run
       record. run.state is the script's state as it stood when the run was
@@ -642,7 +657,9 @@ ENDPOINTS
   memory 503, a failure or a return that is not a response 500, and each
   is kept for the owner; a request body past the binding's limit is 413
   before the script runs. platform.export and platform.publish_data fail
-  in a handler: a request answers with what handle returns. A draft runs
+  in a handler: a request answers with what handle returns. A token one
+  request mints (platform.mint_token) is bound to the endpoint, so a page
+  can carry it to a later request that verifies it. A draft runs
   main(), so draft a handler with a main() that calls it with a request
   you build, platform.result(handle({"method": "GET", "params": {"id":
   "42"}, "caller": None})); its recording answers the calls handle makes

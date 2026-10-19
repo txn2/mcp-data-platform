@@ -15,7 +15,7 @@ page builds on (#1899); this is the page, its settings and its alerts.
 | **Bucket** *name* | The bytes the platform holds in the bucket, every purpose summed | The bucket's **budget**: set in the settings, or `MCP_PLATFORM_STORAGE_BUDGETS`, which a budget in the settings overrides bucket by bucket. For a store whose free space cannot be read, such as cloud S3. |
 | **Webhook spool on** *replica* | The filesystem the spool directory is on, as the receiver reads it (`statfs`) | The same filesystem. A spool refuses deliveries at its own `max_bytes`, but a volume shared with anything else can fill first. |
 
-A store with no capacity is listed with its usage and growth and no fill date.
+A store with no capacity is listed with its usage and growth and no fill date; its **No capacity known** opens the Storage settings, where a database limit and bucket budgets are set.
 
 ## Growth and when a store fills
 
@@ -23,9 +23,14 @@ One replica at a time samples every store every 15 minutes
 (`MCP_PLATFORM_STORAGE_HISTORY_INTERVAL` overrides it) and keeps each sample
 for the settings' **History days** (default 180). Growth is the least-squares
 slope of the samples over the last 7 and the last 30 days, in bytes per day.
-The fill date uses the slower of the two that are growing, so a burst does not
-bring the date in, and the page says which it used. A store that is not
-growing has no fill date.
+The 7-day rate waits for a day of history and the 30-day rate for a week: a
+new install's first hours are setup (migrations, the built-in knowledge pages
+and their embeddings, the first catalog scan), not growth, and a 30-day rate
+over the same few hours as the 7-day one would only repeat it. Until then the
+page says **Not enough history** with how much there is and how much the rate
+needs. A store holding one size grows at exactly zero. The fill date uses the
+slower of the two that are growing, so a burst does not bring the date in, and
+the page says which it used. A store that is not growing has no fill date.
 
 Selecting a store's row shows its history over 7, 30, 90 or 180 days, used
 against capacity.

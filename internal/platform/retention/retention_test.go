@@ -133,6 +133,11 @@ func TestSweepStatements(t *testing.T) {
 	n, err = BotCheckAnswers(db)[0].Run(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(6), n)
+	// A single-use script token's use is kept until the token expires (#2175).
+	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM script_token_uses")).WithArgs(sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 2))
+	n, err = ScriptTokenUses(db)[0].Run(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), n)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -161,7 +166,7 @@ func TestAssemble(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	all := Assemble(Config{DB: db, Portal: true, DeletedDays: 30, ArchivedDays: 90, ProducerDays: 90})
-	assert.Len(t, all.sweeps, 7, "no portal bucket: no bucket pass")
+	assert.Len(t, all.sweeps, 8, "no portal bucket: no bucket pass")
 	assert.Equal(t, DefaultInterval, all.interval)
 
 	withBucket := Assemble(Config{DB: db, Portal: true, Bucket: "portal", DeletedDays: 30, ArchivedDays: 90, ProducerDays: 90})
@@ -169,11 +174,11 @@ func TestAssemble(t *testing.T) {
 	for _, s := range withBucket.sweeps {
 		names = append(names, s.Name)
 	}
-	assert.Equal(t, []string{"asset_bucket", "portal_deleted", "memory_archived", "orphaned_producers", "graphql_superseded_embeddings", "call_tasks", "endpoint_failures", "bot_check_answers"}, names,
+	assert.Equal(t, []string{"asset_bucket", "portal_deleted", "memory_archived", "orphaned_producers", "graphql_superseded_embeddings", "call_tasks", "endpoint_failures", "bot_check_answers", "script_token_uses"}, names,
 		"the bucket pass runs ahead of the purge (#1931)")
 
 	portalOff := Assemble(Config{DB: db, ArchivedDays: 90, Every: time.Minute})
-	assert.Len(t, portalOff.sweeps, 5, "memory, GraphQL, call tasks, endpoint failures and bot check answers; the portal is off and producer retention is 0")
+	assert.Len(t, portalOff.sweeps, 6, "memory, GraphQL, call tasks, endpoint failures, bot check answers and token uses; the portal is off and producer retention is 0")
 	assert.Equal(t, time.Minute, portalOff.interval)
 }
 

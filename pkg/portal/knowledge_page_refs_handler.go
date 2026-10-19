@@ -639,7 +639,10 @@ func (h *Handler) resolveScriptRef(ctx context.Context, user *User, id string, o
 // reporting it as live would put a deleted page back in front of readers through
 // every surface that renders references.
 func (h *Handler) resolvePageRef(ctx context.Context, id string, out *resolvedRef) {
-	if p, err := h.deps.KnowledgePageStore.Get(ctx, id); err == nil && p.DeletedAt == nil {
+	// readKnowledgePage reads the id, then the slug: a body citing a built-in
+	// page by its slug, the only handle shipped text has, is a live chip, not
+	// a struck-through one (#2200).
+	if p, err := h.readKnowledgePage(ctx, id); err == nil {
 		out.Label = p.Title
 		return
 	}

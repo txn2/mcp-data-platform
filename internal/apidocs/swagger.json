@@ -39702,6 +39702,10 @@
                 "free_bytes": {
                     "type": "integer"
                 },
+                "history_hours": {
+                    "description": "HistoryHours is how much history the store has, first sample to last,\nand Rate7dMinHistoryHours and Rate30dMinHistoryHours how much each rate\nneeds, so a reader says how far a missing rate is from being measured.",
+                    "type": "number"
+                },
                 "kind": {
                     "type": "string"
                 },
@@ -39718,8 +39722,14 @@
                 "rate_30d_bytes_per_day": {
                     "type": "number"
                 },
+                "rate_30d_min_history_hours": {
+                    "type": "number"
+                },
                 "rate_7d_bytes_per_day": {
                     "description": "Rate7d and Rate30d are the growth in bytes per day fitted over the last\n7 and 30 days, nil where the history is too short.",
+                    "type": "number"
+                },
+                "rate_7d_min_history_hours": {
                     "type": "number"
                 },
                 "rate_used": {

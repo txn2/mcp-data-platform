@@ -8,7 +8,7 @@ async function enableMocking() {
   if (import.meta.env.DEV && import.meta.env.VITE_MSW === "true") {
     const { worker } = await import("./mocks/browser");
     return worker.start({
-      onUnhandledRequest: "bypass",
+      onUnhandledFrame: "bypass",
       serviceWorker: { url: "/mockServiceWorker.js" },
     });
   }

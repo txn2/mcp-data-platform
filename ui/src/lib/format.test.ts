@@ -28,4 +28,15 @@ describe("formatBytes", () => {
   it("renders a fractional value to one decimal place", () => {
     expect(formatBytes(1.5 * 1024 * 1024)).toBe("1.5 MB");
   });
+
+  // A rate of 0.149 B/day read as "152.2 undefined" (#2201): below one byte
+  // the unit index went to -1.
+  it("names a value under one byte without a unit it does not have", () => {
+    expect(formatBytes(0.149)).toBe("< 1 B");
+  });
+
+  it("keeps the sign of a negative value", () => {
+    expect(formatBytes(-2048)).toBe("-2 KB");
+    expect(formatBytes(-0.149)).toBe("< 1 B");
+  });
 });

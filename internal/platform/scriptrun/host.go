@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/internal/scriptdest"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -112,6 +113,7 @@ const (
 var Capabilities = []string{
 	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
 	CapabilityCheckpoint, CapabilityRemainingMS, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
+	scripttoken.CapabilityMint, scripttoken.CapabilityVerify,
 }
 
 // The formats platform.export accepts, split by what serializes them. A format
@@ -505,7 +507,7 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
 	}
-	payload, err := callArguments(toolArgs)
+	payload, err := starlarkconv.Arguments(toolArgs)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
@@ -682,27 +684,6 @@ func tableSentences(out map[string]any) []string {
 		}
 	}
 	return lines
-}
-
-// callArguments converts the argument dict a script passed into the plain Go
-// map a tool call takes. A missing dict is an empty argument set, which is what
-// a tool taking no arguments wants.
-func callArguments(args *starlark.Dict) (map[string]any, error) {
-	if args == nil {
-		return map[string]any{}, nil
-	}
-	converted, err := starlarkconv.DictFromStarlark(args, 0)
-	if err != nil {
-		return nil, err
-	}
-	out, ok := converted.(map[string]any)
-	if !ok {
-		// starlarkconv.DictFromStarlark returns a map[string]any or an error, so this is
-		// unreachable; it is here so a future change to that contract fails
-		// loudly rather than panicking inside a script.
-		return nil, fmt.Errorf("args converted to %T rather than to an argument set", converted)
-	}
-	return out, nil
 }
 
 // queryResult caps and converts one query tool result.
