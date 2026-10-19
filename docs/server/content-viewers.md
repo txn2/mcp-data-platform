@@ -500,7 +500,9 @@ A deployment whose `portal.public_base_url` names a different host than the one 
 The policy is enforced by the browser and by nothing else, so a change to it is
 verified by rendering each family under it rather than by reading the header.
 `make frontend-e2e-public-viewer` drives HTML, JSX, markdown, SVG and a
-collection item against a live stack and fails on any blocked resource. It is
+collection item against a live stack and fails on any blocked resource, and
+opens a portal asset page served by the binary. `make verify-release` runs it
+against the stack its acceptance step uses (#2206). It is
 not part of `make verify`: it needs the content-viewer bundle built
 (`make frontend-build`, which the binary embeds at compile time), a running
 server (`make dev`) and network egress to esm.sh, which the JSX family resolves

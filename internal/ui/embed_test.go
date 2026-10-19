@@ -148,3 +148,23 @@ func TestSPAHandler_IndexHTML_NoCache(t *testing.T) {
 		assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"), path)
 	}
 }
+
+// The asset viewer route shares Vite's build directory prefix: a share link
+// redirects to /portal/assets/{id}?share=..., and that page is the SPA, not a
+// missing build file (#2205).
+func TestSPAHandler_AssetViewerRoute_ServesIndexHTML(t *testing.T) {
+	h := newSPAHandler(testFS())
+
+	for _, path := range []string{
+		"/assets/490c49f53b801512ef219da0be06dac6?share=abc",
+		"/assets/2fbb2fbd-0184-4478-a003-fedb9001f31d",
+		"/assets/a1/provenance",
+	} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, http.NoBody)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code, path)
+		assert.Contains(t, rec.Body.String(), "<html>SPA</html>", path)
+	}
+}

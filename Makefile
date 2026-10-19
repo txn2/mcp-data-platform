@@ -1170,7 +1170,7 @@ frontend-e2e:
 	fi; \
 	cd $(UI_DIR) && npx playwright install chromium && E2E_PORT=$$port npm run test:e2e
 
-## frontend-e2e-public-viewer: Run the public share viewer suite against a live stack (needs `make dev`; not part of verify)
+## frontend-e2e-public-viewer: Run the public share viewer suite against a live stack (needs `make dev`; verify-release runs it, verify does not)
 frontend-e2e-public-viewer:
 	@echo "Public viewer suite needs a running stack (make dev) — the page, its"
 	@echo "content-viewer bundle and its CSP are served by the Go binary."
