@@ -59,9 +59,10 @@ go/sql-injection pkg/audit/postgres/store.go:201
 # shared strict-decode helper in #923 (one extra line above this sink), and
 # finally the whole file moved to internal/admin/connoauthapi/gateway_legacy.go
 # in #1078 when the admin OAuth surface was extracted out of pkg/admin, losing
-# one line (499 to 498) because the route registration shed its guard clause;
-# same sink, same exchange, unchanged.
-go/request-forgery internal/admin/connoauthapi/gateway_legacy.go:498
+# one line (499 to 498) because the route registration shed its guard clause,
+# then from 498 to 496 when #1895 built codeExchangeClient on the outbound
+# chain; same sink, same exchange, unchanged.
+go/request-forgery internal/admin/connoauthapi/gateway_legacy.go:496
 
 # weak-sensitive-data-hashing on the OAuth signing-key kid derivation
 # (#897). KeyID hashes the HMAC signing key with SHA-256 and truncates to

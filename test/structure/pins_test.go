@@ -75,8 +75,11 @@ func TestToolPinsAgree(t *testing.T) {
 	govulncheckPin := makefileVar(t, makefile, "GOVULNCHECK_VERSION")
 	osvPin := makefileVar(t, makefile, "OSV_SCANNER_VERSION")
 
-	golangciInstall := `golangci-lint/v2/cmd/golangci-lint@(v[0-9.]+)`
-	gosecInstall := `gosec/v2/cmd/gosec@(v[0-9.]+)`
+	// A version is a release (v2.14.0) or a Go pseudo-version naming a commit
+	// (v2.29.1-0.20261015133444-707f2271f665), as gosec is pinned for #2183.
+	const version = `(v[0-9.]+(?:-[0-9a-z.]+-[0-9a-f]{12})?)`
+	golangciInstall := `golangci-lint/v2/cmd/golangci-lint@` + version
+	gosecInstall := `gosec/v2/cmd/gosec@` + version
 	gremlinsInstall := `gremlins/cmd/gremlins@(v[0-9.]+)`
 	govulncheckInstall := `golang.org/x/vuln/cmd/govulncheck@(v[0-9.]+)`
 	osvInstall := `osv-scanner/v2/cmd/osv-scanner@(v[0-9.]+)`
@@ -114,7 +117,7 @@ func TestToolPinsAgree(t *testing.T) {
 	// The prose parenthetical above the install block names both versions; a
 	// contributor reads it before the commands.
 	parenthetical := firstSubmatch(t, contributing,
-		`currently (v[0-9.]+ / v[0-9.]+)`, "CONTRIBUTING.md tool-version parenthetical")
+		`currently (`+version[1:len(version)-1]+` / `+version[1:len(version)-1]+`)`, "CONTRIBUTING.md tool-version parenthetical")
 	if want := golangciPin + " / " + gosecPin; parenthetical != want {
 		t.Errorf("CONTRIBUTING.md says the pins are %q, Makefile pins %q", parenthetical, want)
 	}

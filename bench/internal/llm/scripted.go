@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -94,9 +95,9 @@ func (s *Scripted) Complete(_ context.Context, _ string, msgs []Message, _ []Too
 // lastToolResult returns the text of the most recent tool result in the
 // transcript flattened onto one line, or "" when none exists.
 func lastToolResult(msgs []Message) string {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if n := len(msgs[i].ToolResults); n > 0 {
-			return strings.Join(strings.Fields(msgs[i].ToolResults[n-1].Text), " ")
+	for _, m := range slices.Backward(msgs) {
+		if n := len(m.ToolResults); n > 0 {
+			return strings.Join(strings.Fields(m.ToolResults[n-1].Text), " ")
 		}
 	}
 	return ""

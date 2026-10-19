@@ -460,8 +460,7 @@ func (e *runEnv) gradeExecSQL(ctx context.Context, a *report.Attempt, t task.Tas
 	}
 	got, err := exec.Exec(ctx, sql)
 	if err != nil {
-		var te *TransportError
-		if errors.As(err, &te) {
+		if _, ok := errors.AsType[*TransportError](err); ok {
 			// A transport blip is a harness failure, not the agent's fault, and
 			// must not be scored as a wrong answer.
 			a.Error = fmt.Sprintf("exec grader candidate transport: %v", err)
