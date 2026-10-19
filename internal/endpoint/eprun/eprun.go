@@ -32,6 +32,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -86,6 +87,9 @@ type Runner struct {
 	// Libraries is where the libraries a version loads are read from, given
 	// the version; nil refuses every load.
 	Libraries func(ctx context.Context, v *script.Version) (scriptlib.Source, error)
+	// Tokens answers platform.mint_token and platform.verify_token, bound to
+	// the endpoint a request reached (#2175); nil refuses them.
+	Tokens *scripttoken.Issuer
 
 	mu    sync.Mutex
 	cache map[string]*Target
@@ -217,6 +221,7 @@ func (r *Runner) run(ctx context.Context, t *Target, req Request, sessionID stri
 	opts.ClampStatementTimeout = t.Version.PredatesStatementCap
 	opts.FireTime = time.Now().UTC()
 	opts.Caller, opts.Destinations, opts.Exporter = caller, r.Destinations, refuseExports{}
+	opts.Tokens = r.Tokens.Bind(scripttoken.Binding{Endpoint: t.Binding.Name}, t.Version.AuthorRoles)
 	if r.Libraries != nil {
 		if opts.Libraries, err = r.Libraries(ctx, t.Version); err != nil {
 			return errorResponse(http.StatusInternalServerError, "the endpoint could not start"), err

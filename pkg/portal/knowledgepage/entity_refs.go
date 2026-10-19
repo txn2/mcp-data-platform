@@ -277,7 +277,8 @@ func (s *postgresStore) refTargetExists(ctx context.Context, ref EntityRef) (boo
 	case RefTargetCollection:
 		query, args = `SELECT 1 FROM portal_collections WHERE id = $1`, []any{ref.CollectionID}
 	case RefTargetKnowledgePage:
-		query, args = `SELECT 1 FROM portal_knowledge_pages WHERE id = $1`, []any{ref.RefPageID}
+		_, ok, err := pageIDForKey(ctx, s.db, ref.RefPageID)
+		return ok, err
 	case RefTargetConnection:
 		query = `SELECT 1 FROM connection_instances WHERE kind = $1 AND name = $2`
 		// nosemgrep: semgrep.unbounded-make-slice-capacity -- fixed 2-element query-arg slice, not a make() with user-controlled capacity
@@ -394,6 +395,11 @@ func (s *postgresStore) replaceRefs(ctx context.Context, pageID, source string, 
 	}
 	seen := make(map[string]struct{}, len(refs))
 	for _, ref := range refs {
+		if ref.TargetType == RefTargetKnowledgePage {
+			if ref.RefPageID, err = resolvePageKey(ctx, tx, ref.RefPageID); err != nil {
+				return err
+			}
+		}
 		if _, dup := seen[ref.identity()]; dup {
 			continue
 		}
@@ -409,6 +415,42 @@ func (s *postgresStore) replaceRefs(ctx context.Context, pageID, source string, 
 		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
+}
+
+// rowQueryer is satisfied by both *sql.DB and *sql.Tx.
+type rowQueryer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// pageIDForKey resolves an mcp:knowledge_page: key to the page's row id: the
+// row with that id, else the live page with that slug, the order the portal
+// and fetch open a page in (#1696). A slug is the only handle shipped text can
+// cite a built-in page by, since a built-in page's id is generated per
+// deployment, so a citation by slug that was stored as written named no row
+// and was dropped, or failed the whole write on the foreign key (#2200).
+func pageIDForKey(ctx context.Context, q rowQueryer, key string) (id string, ok bool, err error) {
+	const query = `SELECT id FROM portal_knowledge_pages
+		WHERE id = $1 OR (slug = $1 AND deleted_at IS NULL)
+		ORDER BY id = $1 DESC LIMIT 1`
+	switch scanErr := q.QueryRowContext(ctx, query, key).Scan(&id); {
+	case errors.Is(scanErr, sql.ErrNoRows):
+		return "", false, nil
+	case scanErr != nil:
+		return "", false, fmt.Errorf("resolving knowledge page reference: %w", scanErr)
+	default:
+		return id, true, nil
+	}
+}
+
+// resolvePageKey is pageIDForKey for a write: the resolved id, or the key as
+// given when it names no page, so the foreign key reports the miss as it
+// does for every other target.
+func resolvePageKey(ctx context.Context, q rowQueryer, key string) (string, error) {
+	id, ok, err := pageIDForKey(ctx, q, key)
+	if err != nil || !ok {
+		return key, err
+	}
+	return id, nil
 }
 
 // execer is satisfied by both *sql.DB and *sql.Tx so insertEntityRef serves the

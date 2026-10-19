@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -437,4 +438,85 @@ func TestServe_PastTheConcurrencyCapIs503(t *testing.T) {
 	<-f.runner.slots
 	resp = f.runner.Serve(context.Background(), target, Request{Method: "GET", Params: map[string]string{"id": "1"}})
 	assert.Equal(t, http.StatusOK, resp.Status, "a freed slot is taken")
+}
+
+// tokenSource mints a token on a request with no ?token and verifies the one
+// it is given on a request with one (#2175).
+const tokenSource = `
+def handle(req):
+    """Mints a token, or verifies the one the request carries."""
+    tok = req["query"].get("token")
+    if tok == None:
+        return {"json": {"token": platform.mint_token({"applicant": "a-17"}, 600, secret = "credit-key", single_use = True)}}
+    return {"json": platform.verify_token(tok, secret = "credit-key")}
+`
+
+// tokenUses is the single-use record in memory.
+type tokenUses struct {
+	mu   sync.Mutex
+	seen map[string]bool
+}
+
+func (u *tokenUses) Use(_ context.Context, id string, _ time.Time) (bool, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	first := !u.seen[id]
+	u.seen[id] = true
+	return first, nil
+}
+
+func (*tokenUses) Sweep(context.Context, time.Time) (int64, error) { return 0, nil }
+
+// A token one request to an endpoint mints verifies on a later request to the
+// same endpoint with its claims intact, once; it is refused at another
+// endpoint; and the key is read for the persona the version's author roles
+// resolve to.
+func TestServe_ATokenMintedByOneRequestVerifiesOnALaterOne(t *testing.T) {
+	f := newFixture(t, tokenSource)
+	other := *f.bindings.byName["orders"]
+	other.ID, other.Name = "e2", "elsewhere"
+	f.bindings.byName["elsewhere"] = &other
+	f.bindings.stamps["elsewhere"] = f.bindings.stamps["orders"]
+	var personas []string
+	f.runner.Tokens = &scripttoken.Issuer{
+		Keys: func(_ context.Context, name, persona string, _ bool) (string, error) {
+			personas = append(personas, persona)
+			return "signing-" + name, nil
+		},
+		Uses:      &tokenUses{seen: map[string]bool{}},
+		Authority: func(roles []string) (string, bool) { return strings.Join(roles, "+"), false },
+	}
+	f.scripts.versions[1].AuthorRoles = []string{"sales"}
+
+	minted := decode(t, f.serve(t, Request{Method: "GET"}).Body)
+	tok, _ := minted["token"].(string)
+	require.NotEmpty(t, tok, "%v", minted)
+
+	verify := func(name string) map[string]any {
+		target, err := f.runner.Resolve(context.Background(), name)
+		require.NoError(t, err)
+		resp := f.runner.Serve(context.Background(), target, Request{Method: "GET", Query: map[string][]string{"token": {tok}}})
+		require.Equal(t, http.StatusOK, resp.Status, string(resp.Body))
+		return decode(t, resp.Body)
+	}
+	elsewhere := verify("elsewhere")
+	assert.Equal(t, false, elsewhere["ok"])
+	assert.Equal(t, scripttoken.ReasonOtherEndpoint, elsewhere["reason"])
+
+	first := verify("orders")
+	assert.Equal(t, true, first["ok"], "%v", first)
+	assert.Equal(t, map[string]any{"applicant": "a-17"}, first["claims"])
+	second := verify("orders")
+	assert.Equal(t, false, second["ok"])
+	assert.Equal(t, scripttoken.ReasonUsed, second["reason"])
+	assert.Equal(t, []string{"sales", "sales", "sales", "sales"}, personas)
+}
+
+// Without an issuer the members refuse and the request fails as a failed run.
+func TestServe_TokensWithoutAnIssuerFail(t *testing.T) {
+	f := newFixture(t, tokenSource)
+	resp := f.serve(t, Request{Method: "GET"})
+	assert.Equal(t, http.StatusInternalServerError, resp.Status)
+	require.Len(t, f.bindings.failures, 1)
+	assert.Contains(t, f.bindings.failures[0].Error, "issues no tokens")
 }

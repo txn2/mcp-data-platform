@@ -67,8 +67,12 @@ type BuiltinReconciler interface {
 	// is left alone; a soft-deleted builtin row means the operator hid the
 	// page and it is not resurrected; otherwise the page is inserted. A
 	// content update flows through the same invalidation an ordinary edit
-	// does, so the page is re-embedded and re-versioned. Page-level failures
-	// are joined, not short-circuited: one bad page does not block the rest.
+	// does, so the page is re-embedded and re-versioned. Once every page is
+	// written, each live builtin page's inline references are derived from its
+	// body, so a page citing one inserted later in the same pass, or one an
+	// older release could not resolve, joins the graph on this start (#2200).
+	// Page-level failures are joined, not short-circuited: one bad page does
+	// not block the rest.
 	ReconcileBuiltins(ctx context.Context, pages []BuiltinPage) (BuiltinReconcileStats, error)
 
 	// RestoreHidden un-hides every operator-hidden builtin page (a builtin
@@ -110,6 +114,7 @@ func (s *postgresStore) ReconcileBuiltins(ctx context.Context, pages []BuiltinPa
 		errs = append(errs, err)
 	}
 	stats.Pruned = pruned
+	errs = append(errs, s.reconcileBuiltinRefs(ctx, pages)...)
 	if joined := errors.Join(errs...); joined != nil {
 		return stats, fmt.Errorf("reconciling builtin knowledge pages: %w", joined)
 	}
@@ -156,18 +161,36 @@ func (s *postgresStore) reconcileBuiltinPage(ctx context.Context, p BuiltinPage)
 	if w.notify {
 		s.index.NotifyWrite(ctx, w.pageID)
 	}
-	// A written body owes the same inline-reference derivation every other
-	// body-write surface performs (the portal handler's reconcileInlineRefs,
-	// the promotion's writePageRefs), so a builtin page citing an entity in
-	// prose joins the reference graph like any operator page. Targets this
-	// deployment does not have are dropped, not fatal, matching the promotion
-	// path; the reconcile is per-boot, so a failure here retries next start.
-	if w.pageID != "" {
-		if err := s.replaceBuiltinInlineRefs(ctx, w.pageID, p.Body); err != nil {
-			return w.outcome, err
+	return w.outcome, nil
+}
+
+// reconcileBuiltinRefs derives the inline references of every shipped page
+// that is live as a builtin row, the same derivation every other body-write
+// surface performs, so a builtin page citing an entity in prose joins the
+// reference graph like any operator page. It runs after every page is
+// written, because built-in pages cite each other by slug and a page can cite
+// one the same pass inserts after it, and it runs for unchanged pages too, so
+// a deployment whose citations an earlier release dropped is repaired on its
+// next start. A page the operator hid or superseded is left alone. Targets
+// this deployment does not have are dropped, not fatal; the reconcile is
+// per-boot, so a failure retries next start.
+func (s *postgresStore) reconcileBuiltinRefs(ctx context.Context, pages []BuiltinPage) []error {
+	var errs []error
+	for _, p := range pages {
+		var id string
+		const q = `SELECT id FROM portal_knowledge_pages WHERE slug = $1 AND builtin AND deleted_at IS NULL`
+		switch err := s.db.QueryRowContext(ctx, q, p.Slug).Scan(&id); {
+		case errors.Is(err, sql.ErrNoRows):
+			continue
+		case err != nil:
+			errs = append(errs, fmt.Errorf("builtin page %q: reading its row: %w", p.Slug, err))
+			continue
+		}
+		if err := s.replaceBuiltinInlineRefs(ctx, id, p.Body); err != nil {
+			errs = append(errs, fmt.Errorf("builtin page %q: %w", p.Slug, err))
 		}
 	}
-	return w.outcome, nil
+	return errs
 }
 
 // replaceBuiltinInlineRefs derives a builtin page's source=inline references

@@ -64,7 +64,11 @@ export default tseslint.config(
       },
     },
     rules: {
-      ...reactHooks.configs.recommended.rules,
+      // The two rules react-hooks 5's recommended set held. From 7 the set also
+      // carries the React Compiler rules (set-state-in-effect, refs, purity
+      // and others), which this tree has not been brought under.
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
       // Allow underscore-prefixed args/vars/destructure to mark intentionally unused.
       "@typescript-eslint/no-unused-vars": [
         "error",

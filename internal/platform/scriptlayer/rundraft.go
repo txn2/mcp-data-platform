@@ -215,7 +215,8 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 		outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).
 			WithExports(h.draftExports).WithMemoryBudget(h.runLimits.MaxMemoryBytes).
 			WithStatementCeiling(h.runLimits.MaxStatementTimeout).
-			WithRecordings(h.recordings).WithLibraries(h.gate.Libraries).WithResources(h.sources).Run(ctx, scriptdraft.Request{
+			WithRecordings(h.recordings).WithLibraries(h.gate.Libraries).WithResources(h.sources).
+			WithTokens(h.endpoints.TokenIssuer()).Run(ctx, scriptdraft.Request{
 			Source: source, Name: sc.Name, Script: sc, Params: params,
 			// The live state, so the draft reads what a platform run created now
 			// would read. Nothing is written back: what the draft would have saved

@@ -240,5 +240,5 @@ hands over all of that at once.
 
 Every module, member and argument a script has, and every rule a save holds it
 to, is the dialect contract: `manage_script command=help` returns it, and so
-does `mcp:knowledge_page:platform-managed-script-dialect`, shipped with this
+does mcp:knowledge_page:platform-managed-script-dialect, shipped with this
 release.

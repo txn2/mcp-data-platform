@@ -32,10 +32,37 @@ var shipped = BuiltinPage{
 	Tags: []string{"scripts", "starlark"},
 }
 
-// expectPrune is the sweep every reconcile ends with; nothing pruned here.
+// expectPrune is the sweep every reconcile ends with, nothing pruned here,
+// followed by the reference pass finding no live builtin row for the page.
 func expectPrune(mock sqlmock.Sqlmock) {
+	expectPruneOnly(mock)
+	expectNoBuiltinRow(mock)
+}
+
+func expectPruneOnly(mock sqlmock.Sqlmock) {
 	mock.ExpectExec("UPDATE portal_knowledge_pages SET deleted_at").
 		WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
+// expectNoBuiltinRow is the reference pass finding the slug hidden, held by
+// an operator page, or not written.
+func expectNoBuiltinRow(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery("SELECT id FROM portal_knowledge_pages WHERE slug").WithArgs("platform-topic").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+}
+
+// expectPruneAndRefs is the sweep followed by the reference pass deriving the
+// live builtin page's inline references (none in this body, so the replace
+// clears the inline set and inserts nothing). It runs whether or not the pass
+// wrote the page (#2200).
+func expectPruneAndRefs(mock sqlmock.Sqlmock, id string) {
+	expectPruneOnly(mock)
+	mock.ExpectQuery("SELECT id FROM portal_knowledge_pages WHERE slug").WithArgs("platform-topic").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(id))
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM knowledge_page_entity_refs").WithArgs(id, RefSourceInline).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
 }
 
 func TestReconcileBuiltins_CreatesAMissingPage(t *testing.T) {
@@ -50,13 +77,7 @@ func TestReconcileBuiltins_CreatesAMissingPage(t *testing.T) {
 	mock.ExpectExec("INSERT INTO portal_knowledge_page_versions").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	// The written body owes the inline-ref derivation (no refs in this body,
-	// so the replace clears the inline set and inserts nothing).
-	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM knowledge_page_entity_refs").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectCommit()
-	expectPrune(mock)
+	expectPruneAndRefs(mock, "kp1")
 
 	stats, err := store.ReconcileBuiltins(context.Background(), []BuiltinPage{shipped})
 	require.NoError(t, err)
@@ -98,7 +119,7 @@ func TestReconcileBuiltins_LeavesAnOperatorPageAlone(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// An unchanged release touches nothing: no UPDATE, no version row, no
+// An unchanged release writes no page: no UPDATE, no version row, no
 // invalidation.
 func TestReconcileBuiltins_UnchangedContentTouchesNothing(t *testing.T) {
 	store, mock := builtinStore(t)
@@ -106,7 +127,9 @@ func TestReconcileBuiltins_UnchangedContentTouchesNothing(t *testing.T) {
 	mock.ExpectQuery("SELECT id, builtin, title").WithArgs("platform-topic").
 		WillReturnRows(lockRows().AddRow("kp1", true, "Topic", "sum", "body", []byte(`["scripts", "starlark"]`), 1))
 	mock.ExpectCommit()
-	expectPrune(mock)
+	// The references are derived anyway: an unchanged page whose citations an
+	// earlier release dropped is repaired (#2200).
+	expectPruneAndRefs(mock, "kp1")
 
 	stats, err := store.ReconcileBuiltins(context.Background(), []BuiltinPage{shipped})
 	require.NoError(t, err)
@@ -129,13 +152,7 @@ func TestReconcileBuiltins_UpdatesAChangedPage(t *testing.T) {
 	mock.ExpectExec("INSERT INTO portal_knowledge_page_versions").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	// The written body owes the inline-ref derivation (no refs in this body,
-	// so the replace clears the inline set and inserts nothing).
-	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM knowledge_page_entity_refs").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectCommit()
-	expectPrune(mock)
+	expectPruneAndRefs(mock, "kp1")
 
 	stats, err := store.ReconcileBuiltins(context.Background(), []BuiltinPage{shipped})
 	require.NoError(t, err)
@@ -155,7 +172,8 @@ func TestReconcileBuiltins_InsertRaceIsBenign(t *testing.T) {
 	mock.ExpectExec("INSERT INTO portal_knowledge_pages").
 		WillReturnResult(sqlmock.NewResult(0, 0)) // conflict: DO NOTHING
 	mock.ExpectCommit()
-	expectPrune(mock)
+	// The row the other replica inserted is the one the reference pass finds.
+	expectPruneAndRefs(mock, "kp-other-replica")
 
 	stats, err := store.ReconcileBuiltins(context.Background(), []BuiltinPage{shipped})
 	require.NoError(t, err)
@@ -173,6 +191,7 @@ func TestReconcileBuiltins_PrunesAndJoinsErrors(t *testing.T) {
 	mock.ExpectRollback()
 	mock.ExpectExec("UPDATE portal_knowledge_pages SET deleted_at").
 		WillReturnResult(sqlmock.NewResult(0, 2))
+	expectNoBuiltinRow(mock)
 
 	stats, err := store.ReconcileBuiltins(context.Background(), []BuiltinPage{shipped})
 	require.ErrorIs(t, err, errBoom)
@@ -292,8 +311,37 @@ func TestReconcileBuiltins_WriteFailuresSurface(t *testing.T) {
 			WillReturnRows(lockRows().AddRow("kp1", false, "Theirs", "", "b", []byte(`[]`), 1))
 		mock.ExpectCommit()
 		mock.ExpectExec("UPDATE portal_knowledge_pages SET deleted_at").WillReturnError(errBoom)
+		expectNoBuiltinRow(mock)
 		_, err := store.ReconcileBuiltins(context.Background(), []BuiltinPage{shipped})
 		require.ErrorIs(t, err, errBoom)
+	})
+
+	t.Run("reference pass fails", func(t *testing.T) {
+		store, mock := builtinStore(t)
+		mock.ExpectBegin()
+		mock.ExpectQuery("SELECT id, builtin, title").
+			WillReturnRows(lockRows().AddRow("kp1", false, "Theirs", "", "b", []byte(`[]`), 1))
+		mock.ExpectCommit()
+		expectPruneOnly(mock)
+		mock.ExpectQuery("SELECT id FROM portal_knowledge_pages WHERE slug").WillReturnError(errBoom)
+		_, err := store.ReconcileBuiltins(context.Background(), []BuiltinPage{shipped})
+		require.ErrorIs(t, err, errBoom)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("reference replace fails", func(t *testing.T) {
+		store, mock := builtinStore(t)
+		mock.ExpectBegin()
+		mock.ExpectQuery("SELECT id, builtin, title").
+			WillReturnRows(lockRows().AddRow("kp1", true, "Topic", "sum", "body", []byte(`["scripts", "starlark"]`), 1))
+		mock.ExpectCommit()
+		expectPruneOnly(mock)
+		mock.ExpectQuery("SELECT id FROM portal_knowledge_pages WHERE slug").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("kp1"))
+		mock.ExpectBegin().WillReturnError(errBoom)
+		_, err := store.ReconcileBuiltins(context.Background(), []BuiltinPage{shipped})
+		require.ErrorIs(t, err, errBoom)
+		require.NoError(t, mock.ExpectationsWereMet())
 	})
 }
 
@@ -311,11 +359,7 @@ func TestReconcileBuiltins_SummaryOnlyChangeSkipsReembed(t *testing.T) {
 	mock.ExpectExec("INSERT INTO portal_knowledge_page_versions").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM knowledge_page_entity_refs").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectCommit()
-	expectPrune(mock)
+	expectPruneAndRefs(mock, "kp1")
 
 	stats, err := store.ReconcileBuiltins(context.Background(), []BuiltinPage{shipped})
 	require.NoError(t, err)
@@ -358,22 +402,27 @@ func TestRestoreHidden(t *testing.T) {
 // A body that cites an entity in prose lands the citation in the reference
 // graph; a probe failure while filtering surfaces instead of half-writing.
 func TestReplaceBuiltinInlineRefs(t *testing.T) {
-	body := "See mcp:knowledge_page:kp2 for the definitions."
+	body := "See mcp:knowledge_page:platform-other for the definitions."
 
 	store, mock := builtinStore(t)
-	mock.ExpectQuery("SELECT 1 FROM portal_knowledge_pages").WithArgs("kp2").
-		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+	mock.ExpectQuery("SELECT id FROM portal_knowledge_pages WHERE id = \\$1 OR").WithArgs("platform-other").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("kp2"))
 	mock.ExpectBegin()
 	mock.ExpectExec("DELETE FROM knowledge_page_entity_refs").
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT id FROM portal_knowledge_pages WHERE id = \\$1 OR").WithArgs("platform-other").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("kp2"))
+	// The slug is stored as the page's id on this deployment (#2200).
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs").
+		WithArgs(sqlmock.AnyArg(), "kp1", RefTargetKnowledgePage, nil, nil, nil, "kp2",
+			nil, nil, nil, nil, RefSourceInline, builtinAuthor).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	require.NoError(t, store.replaceBuiltinInlineRefs(context.Background(), "kp1", body))
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	store2, mock2 := builtinStore(t)
-	mock2.ExpectQuery("SELECT 1 FROM portal_knowledge_pages").WillReturnError(errBoom)
+	mock2.ExpectQuery("SELECT id FROM portal_knowledge_pages").WillReturnError(errBoom)
 	require.ErrorIs(t, store2.replaceBuiltinInlineRefs(context.Background(), "kp1", body), errBoom)
 }
 

@@ -156,6 +156,7 @@ const (
 	PageFitAnyScreen          = "platform-documents-that-fit-any-screen"
 	PagePresentations         = "platform-presentations"
 	PageMaps                  = "platform-maps"
+	PageIndex                 = "platform-index"
 )
 
 // baselinePage is one entry of the page index: the tool whose capability the
@@ -237,7 +238,9 @@ func pageIndex(has map[string]bool) string {
 	// a tool the caller cannot reach would break the baseline's own rule, so a
 	// caller with neither way in is given no index rather than references it
 	// cannot follow.
-	const head = "What the platform documents about itself. These pages ship with the platform; "
+	// The index page is named in the head rather than as an entry, which would
+	// cost a line every session carries for a page that lists the others.
+	head := "What the platform documents about itself (mcp:knowledge_page:" + PageIndex + " lists every page). "
 	var reach string
 	switch {
 	case has[toolFetch]:

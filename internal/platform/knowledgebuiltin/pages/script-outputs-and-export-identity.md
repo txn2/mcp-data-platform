@@ -68,7 +68,7 @@ replacing the current version of a shared dashboard.
 Composing the whole document is one of three shapes a document output takes;
 the others leave the presentation where a person can edit it and move only the
 data. Which one fits is decided before the script is written; see
-`mcp:knowledge_page:platform-semi-dynamic-dashboards` for the discriminator.
+mcp:knowledge_page:platform-semi-dynamic-dashboards for the discriminator.
 
 ## An exported asset is something other documents can reference
 
@@ -83,7 +83,7 @@ A dated series is the wrong target for that: each run makes a NEW asset with a
 new id, so a reference to yesterday's stays pinned to yesterday's data. Point a
 reference at a stable name, and use the dated series for the archive.
 
-`mcp:knowledge_page:platform-asset-references-and-the-refresh-loop` covers
+mcp:knowledge_page:platform-asset-references-and-the-refresh-loop covers
 declaring the reference, and the same page covers the other direction: a script
 writing a managed resource with `manage_resource replace_content`, which keeps
 one file's id and URI across every refresh.

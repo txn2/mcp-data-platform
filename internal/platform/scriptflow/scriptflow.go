@@ -62,6 +62,9 @@ const (
 	KindPublish     = "publish"
 	KindResult      = "result"
 	KindState       = "state"
+	// KindToken is a signed token minted or verified with a stored key
+	// (#2175).
+	KindToken = "token"
 )
 
 // Edge kinds: a value passed from one step to the next, or this run saving

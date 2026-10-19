@@ -278,7 +278,8 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap f
 	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
 		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports()).
 		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).WithStatementCeiling(p.Config().Scripts.SQL.MaxTimeout()).
-		WithRecordings(deps.Gate.Recordings).WithLibraries(deps.Gate.Libraries).WithResources(deps.Gate.Resources)
+		WithRecordings(deps.Gate.Recordings).WithLibraries(deps.Gate.Libraries).WithResources(deps.Gate.Resources).
+		WithTokens(p.Endpoints().TokenIssuer())
 	wrap := scripthttp.GatedWrap(portalWrap, deps.PortalUser) // a persona hiding Automations is refused (#2109)
 	scripts := scripthttp.New(deps)
 	scripts.RegisterPortal(mux, wrap)

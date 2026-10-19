@@ -53,7 +53,7 @@ GOVET := $(GO) vet
 GOFMT := gofmt
 GOLINT := golangci-lint
 
-.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release alert-rules-test \
+.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release alert-rules-test builtin-pages-check \
 	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
@@ -565,6 +565,13 @@ alert-rules-test:
 state-readers-check:
 	@python3 scripts/state-readers-check.py
 
+## builtin-pages-check: Warn when a diff changes source a built-in knowledge page describes and not the page (#2200)
+## Each page's source is listed in internal/platform/knowledgebuiltin/covers.txt.
+## Every deployment serves the pages on its next start, and nothing compiles
+## their prose. A warning for a human, blocking for an AI agent.
+builtin-pages-check:
+	@python3 scripts/builtin-pages-check.py
+
 ## e2e-copy-check: Fail when an e2e spec asserts UI copy the diff removed from ui/src (#1977)
 ## The Playwright suite runs only inside verify, after the full unit run, so a
 ## string a diff changed under ui/src and a spec still asserts used to fail
@@ -975,7 +982,7 @@ verify-go:
 ## preverify-fast: the cheap gates verify runs before its lanes (#1856, #2030)
 ## swagger-check and apidocs-openapi3-check (the API description is current and
 ## converts to OpenAPI 3), semgrep-diff, semgrep-changed, doc-check, acceptance-check,
-## state-readers-check, e2e-copy-check, route-manifest-check, dead-code and
+## state-readers-check, builtin-pages-check, e2e-copy-check, route-manifest-check, dead-code and
 ## frontend-lint read the change and the tree, not a coverage profile, so they answer in under a
 ## minute. verify runs them in its serial preamble. swagger-check runs first
 ## because it rewrites internal/apidocs, which state-readers-check reads.
@@ -988,6 +995,7 @@ preverify-fast:
 	@$(MAKE) --no-print-directory docs-build
 	@$(MAKE) --no-print-directory acceptance-check
 	@$(MAKE) --no-print-directory state-readers-check
+	@$(MAKE) --no-print-directory builtin-pages-check
 	@$(MAKE) --no-print-directory e2e-copy-check
 	@$(MAKE) --no-print-directory route-manifest-check
 	@$(MAKE) --no-print-directory dead-code

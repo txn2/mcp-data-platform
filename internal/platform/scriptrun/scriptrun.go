@@ -65,6 +65,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/scripthash"
 	"github.com/txn2/mcp-data-platform/internal/scriptre"
 	"github.com/txn2/mcp-data-platform/internal/scriptsum"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/scriptxml"
 	"github.com/txn2/mcp-data-platform/internal/tablexlsx"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
@@ -296,6 +297,9 @@ type Options struct {
 	// Handler, when not nil, calls the function it names with its arguments
 	// in place of main(): a request to an endpoint (#2172).
 	Handler *scriptdialect.Handler
+	// Tokens answers platform.mint_token and platform.verify_token in a run
+	// (#2175); nil refuses them. A test answers them from its recording.
+	Tokens scripttoken.Caller
 }
 
 // TestHooks turn an execution into one of the script's tests (#1939, #1940).
@@ -731,6 +735,7 @@ const (
 // Its keys are PredeclaredNames, which TestPredeclaredMatchesNames pins.
 func predeclared(host *hostState) starlark.StringDict {
 	clock := host.clock()
+	tokens := scripttoken.Host{Ctx: host.ctx, Testing: host.opts.Test != nil, Replay: host.opts.Caller, Live: host.opts.Tokens, Record: host.opts.OnCall}
 	env := starlark.StringDict{
 		"platform": &starlarkstruct.Module{
 			Name: "platform",
@@ -746,6 +751,8 @@ func predeclared(host *hostState) starlark.StringDict {
 				"sleep":        starlark.NewBuiltin(scriptpace.SleepCapability, host.guarded(clock.Sleep)),
 				"notify":       starlark.NewBuiltin(CapabilityNotify, host.guarded(host.notify)),
 				"publish":      starlark.NewBuiltin(CapabilityPublish, host.guarded(host.publish)),
+				"mint_token":   starlark.NewBuiltin(scripttoken.CapabilityMint, host.guarded(tokens.Mint)),
+				"verify_token": starlark.NewBuiltin(scripttoken.CapabilityVerify, host.guarded(tokens.Verify)),
 				"progress":     host.log.Bindings()["progress"],
 				"result":       host.log.Bindings()["result"],
 			},

@@ -26,7 +26,8 @@ func TestStore_ValidateRefTargets(t *testing.T) {
 	mock.ExpectQuery("SELECT 1 FROM portal_assets WHERE id").WithArgs("a1").WillReturnRows(oneRow())
 	mock.ExpectQuery("SELECT 1 FROM prompts WHERE id").WithArgs("p1").WillReturnRows(oneRow())
 	mock.ExpectQuery("SELECT 1 FROM portal_collections WHERE id").WithArgs("c1").WillReturnRows(oneRow())
-	mock.ExpectQuery("SELECT 1 FROM portal_knowledge_pages WHERE id").WithArgs("kp1").WillReturnRows(oneRow())
+	mock.ExpectQuery("SELECT id FROM portal_knowledge_pages WHERE id = \\$1 OR").WithArgs("kp1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("kp1"))
 	mock.ExpectQuery("SELECT 1 FROM connection_instances WHERE kind").WithArgs("trino", "warehouse").WillReturnRows(oneRow())
 	mock.ExpectQuery("FROM catalog_entities").WillReturnRows(oneRow())
 
@@ -329,4 +330,21 @@ func TestStore_EntityRefs_ErrorPaths(t *testing.T) {
 // the promotion tests store.
 func catalogRefFixture(reference string) EntityRef {
 	return EntityRef{TargetType: RefTargetCatalog, EntityURN: reference, Source: RefSourcePromoted}
+}
+
+// A knowledge-page key the database cannot resolve fails the write rather
+// than storing the key as written (#2200).
+func TestReplaceEntityRefs_PageKeyReadFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := NewPostgresStore(db)
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM knowledge_page_entity_refs").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT id FROM portal_knowledge_pages").WillReturnError(assert.AnError)
+	mock.ExpectRollback()
+	err = store.ReplaceEntityRefsBySource(context.Background(), "kp1", RefSourceInline,
+		[]EntityRef{{TargetType: RefTargetKnowledgePage, RefPageID: "platform-maps"}})
+	require.ErrorIs(t, err, assert.AnError)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

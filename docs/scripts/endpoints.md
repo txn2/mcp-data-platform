@@ -229,6 +229,57 @@ into `container` and resolves with the token it produces. A provider token is
 recorded as used like a proof-of-work answer; it is not bound to one endpoint
 beyond what the provider itself checks.
 
+## Signed tokens
+
+A handler can hand a page a signed token and check it when the page comes
+back: a credit application token issued when the form opens and verified when
+it is submitted, for example. `platform.mint_token(claims, ttl, secret,
+endpoints=None, single_use=False)` returns the token as a string, and
+`platform.verify_token(token, secret)` returns what it found.
+
+```python
+def handle(req):
+    """Issues an application token, or checks the one a submission carries."""
+    if req["method"] == "GET":
+        token = platform.mint_token(
+            {"applicant": req["query"].get("applicant")},
+            900,
+            secret = "credit-token-key",
+            single_use = True,
+        )
+        return {"json": {"token": token}}
+    checked = platform.verify_token(req["json"]["token"], secret = "credit-token-key")
+    if not checked["ok"]:
+        return {"status": 403, "json": {"error": checked["reason"]}}
+    return {"json": {"accepted": checked["claims"]["applicant"]}}
+```
+
+- `claims` is a dict carried in the token, up to 4 KiB encoded, and `ttl` the
+  seconds it lives, at most 30 days.
+- `secret` names a stored secret (Admin > Secrets) whose `allow_connections`
+  lists `script_token`. When its `allow_personas` names personas, one of them
+  must be the persona the version's author roles resolve to; a script whose
+  persona is not listed cannot mint or verify with it. The administrator's
+  persona is not limited. The script never holds the key: the platform signs
+  with a key derived from the secret, HMAC-SHA256 over the token's JSON body.
+- A token minted in an endpoint request is bound to that endpoint, or to every
+  endpoint name `endpoints` lists. One minted in a scheduled run or a draft is
+  bound to the script.
+- `verify_token` answers `{"ok": True, "claims": {...}, "expires_at": "...",
+  "single_use": ...}` for a token that holds, and `{"ok": False, "reason":
+  ..., "message": ...}` for one that does not. The reason is `expired`,
+  `tampered` (another key signed it, or it was changed after signing),
+  `other_endpoint`, `used` or `malformed`, so the handler decides what to
+  answer.
+- With `single_use=True` the verify that accepts the token records its id in
+  Postgres (`script_token_uses`), and a second verify on any replica answers
+  `used`. A record is deleted once its token has expired.
+
+In a draft and in a run each mint and verify is recorded with the secret's
+name, never its value, and a test answers them from that recording, so a
+handler's tests need neither the key nor the database. The flow diagram shows
+each as a card naming the key.
+
 ## CORS
 
 An endpoint answers its own cross-origin requests from its `allowed_origins`;

@@ -7,6 +7,7 @@ import {
   Database,
   FileDown,
   History,
+  KeyRound,
   PencilLine,
   RefreshCw,
   Save,
@@ -49,6 +50,7 @@ export const KIND_ICON: Record<string, ComponentType<LucideProps>> = {
   publish: Send,
   result: CornerDownRight,
   state: History,
+  token: KeyRound,
 };
 
 // CardChips draws a card's chips along its bottom edge, as many as fit: the

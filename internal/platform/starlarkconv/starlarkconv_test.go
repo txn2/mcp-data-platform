@@ -106,3 +106,22 @@ func TestFromStarlark_Refusals(t *testing.T) {
 func TestSortedSet(t *testing.T) {
 	assert.Equal(t, []string{"a", "b", "c"}, SortedSet(map[string]bool{"c": true, "a": true, "b": true}))
 }
+
+// Arguments is a tool call's argument set from the dict a script passed: an
+// empty set for none, string keys only.
+func TestArguments(t *testing.T) {
+	got, err := Arguments(nil)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{}, got)
+
+	d := starlark.NewDict(1)
+	require.NoError(t, d.SetKey(starlark.String("n"), starlark.MakeInt(2)))
+	got, err = Arguments(d)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"n": int64(2)}, got)
+
+	bad := starlark.NewDict(1)
+	require.NoError(t, bad.SetKey(starlark.MakeInt(1), starlark.None))
+	_, err = Arguments(bad)
+	require.Error(t, err)
+}

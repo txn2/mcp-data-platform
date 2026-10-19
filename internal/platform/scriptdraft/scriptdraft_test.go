@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
@@ -318,4 +319,33 @@ func TestRun_RecordsTheDraft(t *testing.T) {
 	assert.False(t, outcome.Recorded, "a deployment keeping no recordings records nothing")
 	var none *Runner
 	assert.Nil(t, none.WithRecordings(st))
+}
+
+// A draft's tokens are bound to the script it runs as, under the drafting
+// person's roles (#2175), so a draft of a handler mints and verifies as its
+// tests will replay.
+func TestRun_TokensAreBoundToTheScriptUnderTheDrafter(t *testing.T) {
+	var personas []string
+	issuer := &scripttoken.Issuer{
+		Keys: func(_ context.Context, _, persona string, _ bool) (string, error) {
+			personas = append(personas, persona)
+			return "k", nil
+		},
+		Authority: func(roles []string) (string, bool) { return strings.Join(roles, "+"), false },
+	}
+	src := `def main():
+    """Mints and verifies."""
+    tok = platform.mint_token({"n": 1}, 60, secret = "s")
+    print(platform.verify_token(tok, secret = "s")["ok"])
+`
+	outcome, err := New(server(t), nil).WithTokens(issuer).Run(context.Background(), Request{
+		Source: src, Name: "tok", Script: &script.Script{ID: "s1", Name: "tok"}, Identity: jane,
+	})
+	require.NoError(t, err)
+	require.NoError(t, outcome.Err)
+	assert.Contains(t, outcome.Result.Log, "True")
+	assert.Equal(t, []string{strings.Join(jane.Roles, "+"), strings.Join(jane.Roles, "+")}, personas)
+
+	var none *Runner
+	assert.Nil(t, none.WithTokens(issuer))
 }

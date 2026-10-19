@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -53,6 +54,15 @@ import (
 // Wire builds both halves and registers the tool layer, returning the handle.
 func Wire(deps Deps) *scriptexec.Handle {
 	recordings := recordingsOver(deps.DB)
+	// Endpoints (#2170): a bound script answers HTTP requests, inline, under
+	// the same limits and the same identity a run has. Built first because
+	// its token issuer (#2175) answers runs and drafts as well.
+	endpoints := epwire.Build(epwire.Deps{
+		DB: deps.DB, Server: deps.Server, Audit: deps.Audit, Metrics: deps.Metrics, Subjects: deps.Subjects,
+		Limits: runLimits(deps.Worker, deps.SQL), Destinations: deps.Destinations, Sources: deps.Sources,
+		Key: deps.BotCheckKey, Encryptor: deps.Encryptor, BaseURL: deps.PortalURL,
+		Authority: scripttoken.Authority(deps.Authority),
+	})
 	scripts := scriptexec.New(scriptexec.Config{
 		DB:     deps.DB,
 		DSN:    deps.DSN,
@@ -86,19 +96,13 @@ func Wire(deps Deps) *scriptexec.Handle {
 		RunRetention:          deps.RunRetention,
 		Recordings:            recordings,
 		Lineage:               scriptLineage(deps),
+		Tokens:                endpoints.TokenIssuer(),
 		Limits:                runLimits(deps.Worker, deps.SQL),
 		Admission:             admission(deps.Worker),
 		MaxReclaims:           deps.Worker.MaxReclaims,
 		WorkerDisabled:        !deps.WorkerEnabled,
 		NotificationsDisabled: !deps.NotificationsEnabled,
 		DigestHourUTC:         deps.DigestHourUTC,
-	})
-	// Endpoints (#2170): a bound script answers HTTP requests, inline, under
-	// the same limits and the same identity a run has.
-	endpoints := epwire.Build(epwire.Deps{
-		DB: deps.DB, Server: deps.Server, Audit: deps.Audit, Metrics: deps.Metrics, Subjects: deps.Subjects,
-		Limits: runLimits(deps.Worker, deps.SQL), Destinations: deps.Destinations, Sources: deps.Sources,
-		Key: deps.BotCheckKey, Encryptor: deps.Encryptor, BaseURL: deps.PortalURL,
 	})
 	layer := scriptlayer.New(scriptlayer.Config{
 		DB:           deps.DB,

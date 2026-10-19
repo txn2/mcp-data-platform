@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -76,6 +77,8 @@ type runner struct {
 	// lineage records an edge from each table a run read to each file it
 	// wrote (#1922); nil records none.
 	lineage *sqllineage.Scripts
+	// tokens answers platform.mint_token and platform.verify_token (#2175).
+	tokens *scripttoken.Issuer
 }
 
 // newRunner builds the executor the worker drives.
@@ -85,7 +88,7 @@ func newRunner(runs script.RunStore, cfg Config) *runner {
 		audit: cfg.Audit, destinations: cfg.Destinations, subjects: cfg.Subjects,
 		portalURL: cfg.PortalURL, limits: cfg.Limits.WithDefaults(),
 		reportEvery: liveReportEvery, recordings: cfg.Recordings, libraries: cfg.libraries(), sources: cfg.Sources,
-		lineage: cfg.Lineage,
+		lineage: cfg.Lineage, tokens: cfg.Tokens,
 	}
 }
 
@@ -128,6 +131,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	// write instead of silently changing what it computed.
 	opts.State = run.StateRead
 	opts.Caller = caller
+	opts.Tokens = r.tokens.Bind(scripttoken.Binding{ScriptID: sc.ID}, v.AuthorRoles)
 	opts.Destinations = r.destinations
 	if opts.Libraries, err = r.librariesFor(ctx, v); err != nil {
 		return *retryable("reading the files the version loads failed: " + err.Error())

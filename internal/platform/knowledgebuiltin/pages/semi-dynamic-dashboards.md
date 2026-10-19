@@ -48,7 +48,7 @@ at render time; refreshing the file refreshes every document naming it, with
 no new version of the document at all. The cost is that a version of the
 document is no longer a record: opening last quarter's version shows this
 morning's numbers. See
-`mcp:knowledge_page:platform-asset-references-and-the-refresh-loop`.
+mcp:knowledge_page:platform-asset-references-and-the-refresh-loop.
 
 The three are not exclusive. The ordinary dashboard references its logo and
 splices its numbers.

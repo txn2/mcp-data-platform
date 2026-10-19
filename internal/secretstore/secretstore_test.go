@@ -275,3 +275,51 @@ func TestConnectionValue(t *testing.T) {
 	require.ErrorContains(t, err, `reading secret "down"`)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+// useRow is a secret allowed on "script_token" for personas, of kind.
+func useRow(now time.Time, kind, personas string) *sqlmock.Rows {
+	return sqlmock.NewRows(append(append([]string(nil), metaCols...), "value")).
+		AddRow("key", "", "{script_token}", personas, "", "", now, now, kind, "", 0, 0, "enc:signing")
+}
+
+// A key the platform uses itself (#2175): its allow_connections lists the
+// reserved use, its allow_personas, when set, names the caller's persona, and
+// the administrator's persona is unrestricted.
+func TestUseValue(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	s, mock := newMock(t, prefixEncryptor{})
+	q := `, value FROM gateway_secrets`
+
+	mock.ExpectQuery(q).WithArgs("key").WillReturnRows(useRow(now, "value", "{}"))
+	v, err := s.UseValue(ctx, "key", "script_token", "analyst", false)
+	require.NoError(t, err)
+	assert.Equal(t, "signing", v)
+
+	mock.ExpectQuery(q).WithArgs("key").WillReturnRows(useRow(now, "value", "{sales}"))
+	v, err = s.UseValue(ctx, "key", "script_token", "analyst", false)
+	require.ErrorContains(t, err, "may not be used by persona analyst")
+	assert.Empty(t, v, "a refused read hands back no value")
+
+	mock.ExpectQuery(q).WithArgs("key").WillReturnRows(useRow(now, "value", "{sales}"))
+	v, err = s.UseValue(ctx, "key", "script_token", "admin", true)
+	require.NoError(t, err)
+	assert.Equal(t, "signing", v)
+
+	mock.ExpectQuery(q).WithArgs("key").WillReturnRows(useRow(now, "value", "{}"))
+	_, err = s.UseValue(ctx, "key", "bot_check", "analyst", false)
+	require.ErrorContains(t, err, `its allow_connections must list "bot_check"`)
+
+	mock.ExpectQuery(q).WithArgs("key").WillReturnRows(useRow(now, "totp", "{}"))
+	_, err = s.UseValue(ctx, "key", "script_token", "analyst", false)
+	require.ErrorContains(t, err, "authenticator seed")
+
+	mock.ExpectQuery(q).WithArgs("nope").WillReturnError(sql.ErrNoRows)
+	_, err = s.UseValue(ctx, "nope", "script_token", "", false)
+	require.ErrorContains(t, err, `secret "nope" does not exist`)
+
+	mock.ExpectQuery(q).WithArgs("down").WillReturnError(errors.New("down"))
+	_, err = s.UseValue(ctx, "down", "script_token", "", false)
+	require.ErrorContains(t, err, `reading secret "down"`)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
