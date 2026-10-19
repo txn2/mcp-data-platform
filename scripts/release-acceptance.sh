@@ -8,6 +8,13 @@
 # it down the second failed. frontend-e2e now runs beside a stack; this covers
 # the other half.
 #
+# The live-stack Playwright suite (frontend-e2e-public-viewer) runs after it
+# against the same stack. It is the one browser suite served by the Go binary
+# rather than the Vite dev server, so it is the one that loads a portal page
+# through internal/ui. Nothing ran it, and v1.147.0 shipped every asset URL
+# answering 404 with its "renders a portal asset by range" failing (#2205,
+# #2206).
+#
 # A platform already answering is used as it is and left running: it is the
 # caller's stack. With none, dev/start.sh is started in the background, the
 # suite runs once it reports ready, and the stack it started is stopped on the
@@ -40,10 +47,21 @@ answers() {
 
 if answers; then
   echo "release-acceptance: a platform answers at $(platform_url); running the suite against it and leaving it up."
-  exec make --no-print-directory acceptance
+  make --no-print-directory acceptance
+  exec make --no-print-directory frontend-e2e-public-viewer
 fi
 
 mkdir -p "$LOG_DIR"
+# verify's embed-clean leaves the portal and content-viewer embed directories
+# empty, and the binary start.sh compiles serves what they hold, so the build
+# is embedded first: the portal criteria and the live-stack suite read pages
+# the binary serves.
+echo "release-acceptance: building the portal the binary embeds (log: $LOG_DIR/frontend-build.log)."
+make --no-print-directory frontend-build > "$LOG_DIR/frontend-build.log" 2>&1 || {
+  echo "FAIL release-acceptance: make frontend-build failed. Last lines of $LOG_DIR/frontend-build.log:" >&2
+  tail -n 30 "$LOG_DIR/frontend-build.log" >&2
+  exit 1
+}
 echo "release-acceptance: no platform answers at $(platform_url); starting the dev stack (log: $LOG)."
 bash dev/start.sh > "$LOG" 2>&1 &
 DEV_PID=$!
@@ -81,3 +99,4 @@ done
 
 echo "release-acceptance: dev stack ready at $(platform_url) after ${waited}s."
 make --no-print-directory acceptance
+make --no-print-directory frontend-e2e-public-viewer

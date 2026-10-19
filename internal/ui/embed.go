@@ -5,6 +5,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	pathpkg "path"
 	"strings"
 )
 
@@ -12,7 +13,8 @@ import (
 var distFS embed.FS
 
 // buildAssetsDir is where Vite writes the hashed files a build's index.html
-// names (its default build.assetsDir).
+// names (its default build.assetsDir). The portal's own client routes share
+// the prefix: the asset viewer is /portal/assets/{id} (#2205).
 const buildAssetsDir = "assets/"
 
 // Available returns true when the embedded dist directory contains frontend
@@ -73,7 +75,7 @@ func newSPAHandler(root fs.FS) http.Handler {
 		// a page from another build (a rolling update) asking for its hashed
 		// files must fail the request, not get HTML under a stylesheet's or a
 		// chunk's immutable URL (#2139).
-		if indexHTML == nil || strings.HasPrefix(path, buildAssetsDir) {
+		if indexHTML == nil || isBuildFile(path) {
 			http.NotFound(w, r)
 			return
 		}
@@ -84,4 +86,11 @@ func newSPAHandler(root fs.FS) http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(indexHTML)
 	})
+}
+
+// isBuildFile reports whether path names a file Vite writes under
+// buildAssetsDir rather than a client route sharing the prefix. Every file
+// Vite writes there has an extension; an asset id never does (#2205).
+func isBuildFile(path string) bool {
+	return strings.HasPrefix(path, buildAssetsDir) && pathpkg.Ext(path) != ""
 }
