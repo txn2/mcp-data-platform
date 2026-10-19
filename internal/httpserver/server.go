@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/endpointwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
@@ -241,7 +242,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	storage := storagewire.Build(p, notify)
 	storagewire.Mount(mux, p, storage, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })
 
-	catalogScan := catalogwire.Build(p) // the catalog scan (#1918)
+	endpointwire.Mount(mux, p, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail) // endpoints (#2170)
+	catalogScan := catalogwire.Build(p)                                                                         // the catalog scan (#1918)
 	catalogScan.MountAdmin(mux, buildAdminAuth, adminEmail)
 	// The built-in platform-admin self-connection (issue #543) that lets an
 	// admin drive /api/v1/admin/* through the api gateway is seeded by

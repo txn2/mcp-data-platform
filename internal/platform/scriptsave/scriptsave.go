@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbehavior"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
@@ -63,6 +64,10 @@ type Gate struct {
 	// connection, which the source is warned of for each one it names
 	// (#2086); nil warns of none.
 	CannotServe func(connection string) bool
+	// Endpoint names the endpoint a saved script is bound to, "" for none
+	// (#2171); a bound script's source must define handle(req). Nil checks
+	// nothing.
+	Endpoint func(ctx context.Context, scriptID string) string
 }
 
 // Caller is who is saving. A run of the version they save presents their
@@ -160,6 +165,9 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 		res.Lint.Findings = append(res.Lint.Findings, warn...)
 		res.Lint.Warnings = append(res.Lint.Warnings, warn...)
 	}
+	if res.Refusal = g.checkEndpoint(ctx, req, source); res.Refusal != "" {
+		return res
+	}
 	if res.Refusal = checkLibraryReach(req, source); res.Refusal != "" {
 		return res
 	}
@@ -182,6 +190,22 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 		res.ChangeSummary, res.ChangeAgreedBy = s, req.Caller.Email
 	}
 	return res
+}
+
+// checkEndpoint refuses a source a script bound to an endpoint could no
+// longer answer with: one that defines no handle(req).
+func (g *Gate) checkEndpoint(ctx context.Context, req Request, source string) string {
+	if g.Endpoint == nil || req.Existing == nil {
+		return ""
+	}
+	name := g.Endpoint(ctx, req.Existing.ID)
+	if name == "" {
+		return ""
+	}
+	if err := epbinding.Callable(source); err != nil {
+		return fmt.Sprintf("this script answers the endpoint %q: %s, so it was not saved", name, err)
+	}
+	return ""
 }
 
 // checkTests runs the new source's tests and returns why they refuse the

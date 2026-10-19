@@ -92,6 +92,7 @@ func TestCheck_EachRuleRefusesANewScript(t *testing.T) {
 		"library names platform":           {"\"\"\"Doc.\"\"\"\n\ndef rows():\n    \"\"\"Doc.\"\"\"\n    return platform.query(\"SELECT 1\")\n", RuleLibraryEffect, 5},
 		"library names run":                {"def day():\n    \"\"\"Doc.\"\"\"\n    return run.params[\"day\"]\n", RuleLibraryEffect, 3},
 		"main takes params":                {"def main(x):\n    \"\"\"Doc.\"\"\"\n    print(x)\n", RuleEntryPoint, 1},
+		"handle takes no request":          {"def handle():\n    \"\"\"Doc.\"\"\"\n    return {\"status\": 200}\n", RuleEntryPoint, 1},
 		"work at top level":                {clean + "\nprint(\"hi\")\n", RuleTopLevelWork, 20},
 		"top-level call value":             {"X = run.params[\"a\"]\n\n" + clean, RuleTopLevelWork, 1},
 		"cyclomatic":                       {branches, RuleCyclomatic, 1},
@@ -186,4 +187,13 @@ func TestCheck_FormatsBeforeLinting(t *testing.T) {
 func TestCheck_UnparseableSourceHasNoLintFindings(t *testing.T) {
 	assert.Empty(t, Check("def main(:\n").Findings)
 	assert.Empty(t, Check("   ").Findings)
+}
+
+// A script that defines handle(req) and no main() is an endpoint's script,
+// not a library: it may name platform, since a request runs it (#2172).
+func TestCheck_AHandlerWithoutMainIsNotALibrary(t *testing.T) {
+	src := "def handle(req):\n    \"\"\"Answers a lookup.\"\"\"\n    return {\"status\": 200, \"json\": platform.query(\"SELECT 1\")}\n"
+	res := Check(src)
+	assert.NotContains(t, rules(res), RuleLibraryEffect)
+	assert.NotContains(t, rules(res), RuleEntryPoint)
 }

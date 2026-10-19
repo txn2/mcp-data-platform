@@ -2,6 +2,7 @@ import {
   openScriptDelete,
   openScriptDocumentation,
   openScriptDryRun,
+  openScriptEndpoint,
   openScriptOwner,
   openScriptRunHistory,
   openScriptRunLog,
@@ -86,6 +87,15 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/automations/script-003",
     category: "user",
     beforeCapture: openScriptSchedule,
+  },
+  {
+    // A script bound to an endpoint (#2171): the address a request reaches,
+    // who may call it, the binding's limits, and a request that ran past its
+    // timeout, which only its owner and an administrator read.
+    slug: "script-endpoint",
+    path: "/portal/automations/script-002",
+    category: "user",
+    beforeCapture: openScriptEndpoint,
   },
   {
     // The state a script carries from one run to the next (#1537): the object

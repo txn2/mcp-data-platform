@@ -2101,7 +2101,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     },
@@ -2313,7 +2313,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2376,7 +2376,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2430,7 +2430,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2484,7 +2484,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2538,7 +2538,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2598,7 +2598,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2673,7 +2673,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     },
@@ -9517,6 +9517,86 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/bot-check": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the bot check a public endpoint requires: the provider (pow, the platform's own proof-of-work challenge and the default; turnstile; hcaptcha; or none), the provider's site key and the stored secret its secret key is in, the proof of work's difficulty in leading zero bits while an endpoint is quiet, the most a flood raises it to and the answers a minute past which it rises, how long a challenge may be answered, and whether a public endpoint may run with no check. key_available reports whether this deployment can sign a proof-of-work challenge, which needs the browser-session signing key, and public_allowed whether a public endpoint can be bound under these settings.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get the bot check settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/botcheckapi.View"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets the bot check. A field left out keeps its value. Turnstile and hCaptcha need a site_key and secret_name, a stored secret (Admin > Secrets) holding the provider's secret key, whose allow_connections names bot_check and which lists no personas; the key is read on the server when a request is verified and never appears in a response. Choosing none refuses every public endpoint until allow_public_without_check is set.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update the bot check settings",
+                "parameters": [
+                    {
+                        "description": "Bot check settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/botcheck.Input"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/botcheckapi.View"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -19979,6 +20059,234 @@
                 }
             }
         },
+        "/portal/scripts/{id}/endpoint": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, auth mode, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a script's endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req); a public endpoint needs the deployment's bot check (Admin > Settings > Bot check). Restricted to administrators: the script's owner is refused.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Bind a script to an endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The binding",
+                        "name": "binding",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/bindinghttp.bindingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/endpoint/disable": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Turns the endpoint off: it answers 404 until it is turned on, and its binding is kept. Restricted to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Turn a script's endpoint off",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/endpoint/enable": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Turns the endpoint on: it answers requests again. Restricted to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Turn a script's endpoint on",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/scripts/{id}/exclusive": {
             "put": {
                 "security": [
@@ -27978,7 +28286,8 @@
                 "prompt_serve",
                 "resource_read",
                 "resource_move",
-                "script_run"
+                "script_run",
+                "endpoint_request"
             ],
             "x-enum-varnames": [
                 "EventTypeAdmin",
@@ -27987,7 +28296,8 @@
                 "EventTypePromptServe",
                 "EventTypeResourceRead",
                 "EventTypeResourceMove",
-                "EventTypeScriptRun"
+                "EventTypeScriptRun",
+                "EventTypeEndpointRequest"
             ]
         },
         "audit.Overview": {
@@ -28119,7 +28429,8 @@
                         "prompt_serve",
                         "resource_read",
                         "resource_move",
-                        "script_run"
+                        "script_run",
+                        "endpoint_request"
                     ]
                 },
                 "sources": {
@@ -28258,6 +28569,130 @@
                 "TypeTokenDeletedRevoked",
                 "TypeTokenDeletedAdmin"
             ]
+        },
+        "bindinghttp.bindingRequest": {
+            "type": "object",
+            "properties": {
+                "allowed_origins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "auth_mode": {
+                    "type": "string"
+                },
+                "caller_rate_limit": {
+                    "type": "integer"
+                },
+                "endpoint": {
+                    "type": "string"
+                },
+                "max_body_bytes": {
+                    "type": "integer"
+                },
+                "max_memory_bytes": {
+                    "type": "integer"
+                },
+                "methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "open_reads": {
+                    "type": "boolean"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "rate_limit": {
+                    "type": "integer"
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "botcheck.Input": {
+            "type": "object",
+            "properties": {
+                "allow_public_without_check": {
+                    "type": "boolean"
+                },
+                "challenge_ttl_seconds": {
+                    "type": "integer"
+                },
+                "difficulty": {
+                    "type": "integer"
+                },
+                "max_difficulty": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "rate_threshold": {
+                    "type": "integer"
+                },
+                "secret_name": {
+                    "type": "string"
+                },
+                "site_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "botcheckapi.View": {
+            "type": "object",
+            "properties": {
+                "allow_public_without_check": {
+                    "description": "AllowPublicWithoutCheck lets a public endpoint be bound and answered\nwhile the provider is none.",
+                    "type": "boolean"
+                },
+                "challenge_ttl_seconds": {
+                    "description": "ChallengeTTLSeconds is how long a challenge may be answered.",
+                    "type": "integer"
+                },
+                "difficulty": {
+                    "description": "Difficulty is the proof-of-work's leading zero bits while an endpoint\nis quiet, and MaxDifficulty the most a flood raises it to.",
+                    "type": "integer"
+                },
+                "key_available": {
+                    "description": "KeyAvailable is whether a proof-of-work challenge can be signed: a\ndeployment with no browser-session signing key cannot.",
+                    "type": "boolean"
+                },
+                "max_difficulty": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "description": "Provider is pow, turnstile, hcaptcha or none.",
+                    "type": "string",
+                    "example": "pow"
+                },
+                "public_allowed": {
+                    "description": "PublicAllowed is whether a public endpoint can be bound and answered\nunder these settings.",
+                    "type": "boolean"
+                },
+                "rate_threshold": {
+                    "description": "RateThreshold is the answers a minute an endpoint takes before each\ndoubling of its rate adds a bit of difficulty.",
+                    "type": "integer"
+                },
+                "secret_name": {
+                    "description": "SecretName is the stored secret (Admin > Secrets) holding the\nprovider's secret key, whose allow_connections names SecretUse and\nwhich lists no personas. The key never leaves the server.",
+                    "type": "string"
+                },
+                "site_key": {
+                    "description": "SiteKey is the Turnstile or hCaptcha site key a page renders the\nwidget with. It is public.",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                }
+            }
         },
         "callrecord.Artifact": {
             "type": "object",

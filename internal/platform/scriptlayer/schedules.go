@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -254,4 +255,36 @@ func scheduleNote(sc *script.Script, sched *script.Schedule) string {
 	default:
 		return "The platform will run the latest saved version on this cadence, with these parameters, as the script's own principal presenting your captured roles."
 	}
+}
+
+// handleEndpoint answers the endpoint binding commands (#2171), which
+// internal/endpoint/epcmd carries out on the script resolved here by the rule
+// every command resolves by. Changing a binding is an administrator's.
+func (h *Handle) handleEndpoint(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	if h.endpoints == nil {
+		return errorResult("this deployment cannot bind scripts to endpoints"), nil, nil
+	}
+	req := epcmd.Request{
+		Command: input.Command, Input: input.Input, TimeoutSeconds: input.TimeoutSeconds,
+		Admin: h.isAdminPersona(ctx), Actor: resolveEmail(ctx),
+	}
+	if input.Name != "" || input.Command != epcmd.CmdList {
+		sc, errResult := h.owned(ctx, input)
+		if errResult != nil {
+			return errResult, nil, nil
+		}
+		req.Script = sc
+	} else if !req.Admin {
+		visible, err := h.visibleScripts(ctx, input.Limit)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to list scripts", logKeyError, err)
+			return errorResult("failed to list endpoints"), nil, nil
+		}
+		req.Visible = visible
+	}
+	out, err := h.endpoints.Commands.Run(ctx, req)
+	if err != nil {
+		return errorResult(err.Error()), nil, nil
+	}
+	return jsonResult(out)
 }

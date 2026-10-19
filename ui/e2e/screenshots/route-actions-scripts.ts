@@ -247,6 +247,17 @@ export async function openScriptState(page: Page): Promise<void> {
 }
 
 /**
+ * openScriptEndpoint opens the script's endpoint (#2171): its address, the
+ * binding's limits, and the requests that failed.
+ */
+export async function openScriptEndpoint(page: Page): Promise<void> {
+  const heading = page.getByRole("heading", { name: "Endpoint" });
+  await heading.click({ timeout: 3_000 }).catch(() => {});
+  await page.getByText("Failed requests").scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+/**
  * openScriptOwner scrolls to the owner section, the one control on a script's
  * page that belongs to an administrator rather than to its owner (#1404):
  * moving the script to another person, which hands over everything the owner

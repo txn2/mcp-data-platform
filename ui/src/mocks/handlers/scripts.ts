@@ -3,6 +3,7 @@ import { MOCK_CALLER_EMAIL } from "../data/audit";
 import { producedByScript, type MockProducedItem } from "../data/producers";
 import type { ScriptVersion } from "@/api/admin/types";
 import type { ScriptGrant, ScriptSchedule } from "@/api/portal/hooks/scripts";
+import type { ScriptEndpoint, ScriptEndpointInput } from "@/api/portal/hooks/scriptEndpoint";
 import { buildMockScheduleTimeline } from "../data/scheduleTimeline";
 import { mockRunFlows, mockScriptFlows } from "../data/scriptFlows";
 import { mockScriptTiles } from "../data/scriptTiles";
@@ -81,6 +82,41 @@ const schedules = JSON.parse(JSON.stringify(mockScriptSchedules)) as Record<
 // what the page reads back, at the revision the reset moved it to (#1537).
 // Run grants per script (#1846); none until a test or a person grants one.
 const grants: Record<string, ScriptGrant[]> = {};
+
+// endpoints is each script's endpoint binding (#2171), by script id: one bound
+// script, with a failed request, so the card shows both.
+const endpoints: Record<string, ScriptEndpoint> = {
+  "script-002": {
+    name: "dormant-accounts",
+    bound: true,
+    endpoint: "dormant-accounts",
+    url: "https://data.example.com/endpoints/dormant-accounts/{region}",
+    methods: ["GET"],
+    path: "/{region}",
+    auth_mode: "signed_in",
+    open_reads: false,
+    enabled: true,
+    timeout_seconds: 10,
+    max_memory_bytes: 64 << 20,
+    max_body_bytes: 1 << 20,
+    allowed_origins: ["https://crm.example.com"],
+    rate_limit: 600,
+    caller_rate_limit: 120,
+    updated_by: "admin@example.com",
+    updated_at: "2026-10-16T15:20:00Z",
+    failures: [
+      {
+        id: "epf-1",
+        version: 4,
+        method: "GET",
+        status: 504,
+        error: "halted: script exceeded its time limit: Traceback (most recent call last):\n  dormant-accounts:6:20: in handle\nError in platform.query: context deadline exceeded",
+        duration_ms: 10004,
+        created_at: "2026-10-17T09:41:00Z",
+      },
+    ],
+  },
+};
 
 const states = JSON.parse(
   JSON.stringify(mockScriptStates),
@@ -983,6 +1019,50 @@ export const scriptHandlers = [
       {},
       "State cleared. The next run starts from {}; a run already in flight that read the previous revision fails at its write.",
     ),
+  ),
+
+  // A script's endpoint (#2171), mirroring
+  // internal/httpserver/scripthttp/bindinghttp: the owner reads, an
+  // administrator binds and turns it on and off.
+  http.get(`${PORTAL_BASE}/scripts/:id/endpoint`, ({ params }) => {
+    const id = String(params.id);
+    const sc = mockScripts.find((x) => x.id === id);
+    return HttpResponse.json(endpoints[id] ?? { name: sc?.name ?? id, bound: false });
+  }),
+
+  http.put(`${PORTAL_BASE}/scripts/:id/endpoint`, async ({ params, request }) => {
+    const id = String(params.id);
+    const body = (await request.json()) as ScriptEndpointInput;
+    const name = (body.endpoint ?? endpoints[id]?.endpoint ?? "").trim();
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) {
+      return HttpResponse.json({ detail: `endpoint name "${name}" must be lowercase letters, digits, hyphens and underscores` }, { status: 400 });
+    }
+    const sc = mockScripts.find((x) => x.id === id);
+    const prev = endpoints[id];
+    endpoints[id] = {
+      name: sc?.name ?? id,
+      bound: true,
+      enabled: prev?.enabled ?? true,
+      failures: prev?.failures ?? [],
+      ...prev,
+      ...body,
+      endpoint: name,
+      url: `https://data.example.com/endpoints/${name}${body.path ?? prev?.path ?? ""}`,
+      updated_by: "admin@example.com",
+      updated_at: new Date().toISOString(),
+    };
+    return HttpResponse.json(endpoints[id]);
+  }),
+
+  ...(["enable", "disable"] as const).map((action) =>
+    http.post(`${PORTAL_BASE}/scripts/:id/endpoint/${action}`, ({ params }) => {
+      const e = endpoints[String(params.id)];
+      if (!e) {
+        return HttpResponse.json({ detail: "this script is not bound to an endpoint" }, { status: 400 });
+      }
+      e.enabled = action === "enable";
+      return HttpResponse.json({ name: e.name, enabled: e.enabled });
+    }),
   ),
 
   // Who other than the owner may run a script (#1846), mirroring

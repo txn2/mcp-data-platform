@@ -614,11 +614,46 @@ WHAT IS NOT, AND WHAT TO WRITE INSTEAD
                       load is the one an ETL script reaches for: def load(...)
                       does not parse. Name the step load_rows or write_rows.
 
+ENDPOINTS
+  An endpoint is a script bound to an HTTP route, /endpoints/{name}/...,
+  that answers each request by calling its handle(req), inline, under the
+  same identity and the same persona filter a run has. An administrator
+  binds it with endpoint_set; endpoint_list reads a binding and the
+  requests that failed. A bound script defines handle(req), taking the
+  request as its one parameter, and a save of one without it is refused:
+      def handle(req):
+          """Looks one order up."""
+          rows = platform.query(
+              "SELECT status FROM orders WHERE id = :id",
+              params = {"id": req["params"]["id"]},
+          )
+          if not rows["rows"]:
+              return {"status": 404, "json": {"error": "no such order"}}
+          return {"json": rows["rows"][0]}
+  req is a frozen dict: "method", "path", "params" (the path template's
+  values), "query" and "form" (each name's first value), "headers" (names
+  lower-cased, the caller's credentials left out), "body" (bytes), "json"
+  (the body parsed when it is JSON, else None) and "caller" ({"user_id",
+  "email", "auth_type"} of a signed_in endpoint's caller; None on a public
+  one). handle returns {"status": 200, "headers": {...}} with one
+  of "json" (any value) or "body" (a string or bytes); status is 200 to
+  599, and Set-Cookie, Content-Length and the Access-Control-* headers are
+  the platform's. A handler past its timeout is answered 504, past its
+  memory 503, a failure or a return that is not a response 500, and each
+  is kept for the owner; a request body past the binding's limit is 413
+  before the script runs. platform.export and platform.publish_data fail
+  in a handler: a request answers with what handle returns. A draft runs
+  main(), so draft a handler with a main() that calls it with a request
+  you build, platform.result(handle({"method": "GET", "params": {"id":
+  "42"}, "caller": None})); its recording answers the calls handle makes
+  in a test_* that replays it, calls main() or handle, and asserts on what
+  came back.
+
 LIBRARIES
-  A library is a script with no main(): pure code other scripts load, so the
+  A library is a script with neither main() nor handle(): pure code other scripts load, so the
   pagination, date windows and table shaping many scripts share are written
   once. Create it with manage_script create like any script; with no main()
-  it is saved as a library. It is held to the same gates (format, lint,
+  and no handle() it is saved as a library. It is held to the same gates (format, lint,
   tests, coverage) and its tests call its functions directly:
       def last_week(day):
           """The seven days before day, as {"from": ..., "to": ...}."""

@@ -39,6 +39,7 @@ var approvedLabelKeys = map[string]string{
 	"status_class":      "2xx, 3xx, 4xx, 5xx, other",
 	"identity":          "the operator's API key names, oidc, unknown",
 	"script":            "the deployment's managed scripts",
+	"endpoint":          "the endpoint bindings an administrator creates (#2172)",
 	"reason":            "the admission refusal reasons (ceiling, memory, cpu), the egress guard's refusal classes, the AuthReason* and Denial* constants in internal/opsobs, the archive extraction refusal classes, the object storage failure classes (access_denied, bucket_missing, quota_exceeded, not_found, other), the audit drop reasons (queue_full, write_failed, timeout), or the thumbnail failure classes (document, renderer, storage, undrawable)",
 	"purpose":           "what a platform-owned bucket is used for: portal_assets, resources, thumbnails, script_outputs, exports, webhooks, maps",
 	"table":             "the platform tables internal/platform/capacity lists, named by the migrations",

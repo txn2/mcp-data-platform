@@ -1,10 +1,12 @@
 import { http, HttpResponse } from "msw";
-import type { StorageSettings, WebhookAlertSettings } from "@/api/admin/types";
+import type { BotCheckSettings, BotCheckSettingsInput, StorageSettings, WebhookAlertSettings } from "@/api/admin/types";
 import { mockStorageHistory, mockStorageReport, mockStorageSettings } from "../data/storage";
 
-// Storage capacity (#2148) and the webhook alerts' settings (#2149):
+// Storage capacity (#2148), the webhook alerts' settings (#2149) and the
+// bot check a public endpoint requires (#2173):
 //   GET /storage, GET /storage/history
 //   GET|PUT /settings/storage, GET|PUT /settings/webhook-alert
+//   GET|PUT /settings/bot-check
 
 const ADMIN_BASE = "/api/v1/admin";
 
@@ -30,10 +32,41 @@ const webhookAlert: WebhookAlertSettings = {
   updated_at: "2026-10-12T10:00:00Z",
 };
 
+const botCheck: BotCheckSettings = {
+  provider: "pow",
+  site_key: "",
+  secret_name: "",
+  allow_public_without_check: false,
+  difficulty: 16,
+  max_difficulty: 22,
+  rate_threshold: 30,
+  challenge_ttl_seconds: 300,
+  updated_by: "sarah.chen@example.com",
+  updated_at: "2026-10-16T09:00:00Z",
+  key_available: true,
+  public_allowed: true,
+};
+
 const badRequest = (detail: string) =>
   HttpResponse.json({ type: "about:blank", title: "Bad Request", status: 400, detail }, { status: 400 });
 
 export const storageHandlers = [
+  http.get(`${ADMIN_BASE}/settings/bot-check`, () => HttpResponse.json(botCheck)),
+
+  http.put(`${ADMIN_BASE}/settings/bot-check`, async ({ request }) => {
+    const body = (await request.json()) as BotCheckSettingsInput;
+    const next = { ...botCheck, ...body };
+    if ((next.provider === "turnstile" || next.provider === "hcaptcha") && (!next.site_key || !next.secret_name)) {
+      return badRequest(`provider ${next.provider} needs a site_key and secret_name`);
+    }
+    Object.assign(botCheck, next, {
+      public_allowed: next.provider !== "none" || next.allow_public_without_check,
+      updated_by: "sarah.chen@example.com",
+      updated_at: new Date().toISOString(),
+    });
+    return HttpResponse.json(botCheck);
+  }),
+
   http.get(`${ADMIN_BASE}/storage`, () => HttpResponse.json(mockStorageReport())),
 
   http.get(`${ADMIN_BASE}/storage/history`, ({ request }) => {

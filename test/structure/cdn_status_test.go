@@ -34,6 +34,9 @@ var cdnReplacedStatusExempt = map[string]string{
 		"a connection's call with, to record whether the connection is reachable (#1898)",
 	"internal/upstreamretry/upstreamretry.go": "answers no request: it reads the status an UPSTREAM answered " +
 		"the platform with, to decide whether a read is worth asking again (#1935)",
+	"internal/endpoint/eprun/eprun.go": "an endpoint's handler past its timeout is answered 504, which #2172 " +
+		"specifies and docs/scripts/endpoints.md documents for the partner systems and pages that call it; " +
+		"the body is a fixed sentence that says nothing a CDN's own page does not",
 }
 
 // cdnReplacedStatusSelectors are the net/http names for the two statuses.

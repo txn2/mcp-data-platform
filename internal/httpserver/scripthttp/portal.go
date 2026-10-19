@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/bindinghttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/exclusivehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/granthttp"
@@ -189,6 +190,13 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// Who else may run it (#1846), which is the owner's to decide.
 	if h.deps.Grants != nil {
 		granthttp.New(granthttp.Deps{Grants: h.deps.Grants, Owned: h.ownedByCaller, Audit: h.auditGrantAct}).Register(mux, wrap)
+	}
+	// Its endpoint, which only an administrator binds (#2171).
+	if h.deps.Endpoints != nil {
+		bindinghttp.New(bindinghttp.Deps{
+			Commands: h.deps.Endpoints, Scripts: h.deps.Scripts, Owned: h.ownedByCaller,
+			Admin: func(r *http.Request) bool { u := h.deps.PortalUser(r); return u != nil && u.IsAdmin },
+		}).Register(mux, wrap)
 	}
 	// Everything the script has ever written (#1569), which no per-run listing
 	// can answer: a file a run modified is one line in that run's outputs, and

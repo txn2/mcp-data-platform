@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/botcheck"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/assetbucket"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalpurge"
 )
@@ -41,6 +44,8 @@ func Assemble(cfg Config) *Loop {
 	sweeps = append(sweeps, OrphanedProducers(cfg.DB, cfg.ProducerDays)...)
 	sweeps = append(sweeps, SupersededGraphQL(cfg.DB)...)
 	sweeps = append(sweeps, ExpiredCallTasks(cfg.DB)...)
+	sweeps = append(sweeps, EndpointFailures(cfg.DB)...)
+	sweeps = append(sweeps, BotCheckAnswers(cfg.DB)...)
 	return New(cfg.DB, cfg.Every, sweeps...)
 }
 
@@ -53,6 +58,8 @@ const (
 	lockGraphQLSuperseded int64 = 4713210104
 	lockAssetBucket       int64 = 4713210105
 	lockCallTasks         int64 = 4713210106
+	lockEndpointFailures  int64 = 4713210107
+	lockBotCheckAnswers   int64 = 4713210108
 )
 
 // PortalDeleted is the sweep that purges portal items deleted more than days
@@ -146,6 +153,26 @@ const expiredCallTasksQuery = `DELETE FROM call_tasks WHERE expires_at < now()`
 func ExpiredCallTasks(db *sql.DB) []Sweep {
 	return []Sweep{{Name: "call_tasks", LockKey: lockCallTasks, Run: func(ctx context.Context) (int64, error) {
 		return execQuery(ctx, db, expiredCallTasksQuery)
+	}}}
+}
+
+// EndpointFailures is the sweep that deletes the failed endpoint requests
+// kept for their script's owner (#2172) once they are older than
+// epbinding.FailureRetention.
+func EndpointFailures(db *sql.DB) []Sweep {
+	store := epstore.New(db)
+	return []Sweep{{Name: "endpoint_failures", LockKey: lockEndpointFailures, Run: func(ctx context.Context) (int64, error) {
+		return store.SweepFailures(ctx, time.Now().UTC().Add(-epbinding.FailureRetention)) //nolint:wrapcheck // the store names the delete
+	}}}
+}
+
+// BotCheckAnswers is the sweep that deletes answered bot check challenges
+// (#2173) whose challenge can no longer be answered, so a replay of one is
+// refused by its expiry instead.
+func BotCheckAnswers(db *sql.DB) []Sweep {
+	store := botcheck.NewAnswerStore(db)
+	return []Sweep{{Name: "bot_check_answers", LockKey: lockBotCheckAnswers, Run: func(ctx context.Context) (int64, error) {
+		return store.Sweep(ctx, time.Now()) //nolint:wrapcheck // the store names the delete
 	}}}
 }
 

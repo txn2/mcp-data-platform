@@ -16,14 +16,31 @@ var hostNames = []string{"platform", "run"}
 // no parameters, which the platform calls, and a top level of definitions,
 // constants, load() and docstrings. Work at the top level cannot be called in
 // isolation, which is what a test of the script needs.
+//
+// A script an endpoint calls defines handle(req) (#2172), which takes the
+// request as its one parameter; one that defines handle and no main() is a
+// script rather than a library, since a request runs it.
 func (l *linter) entryPoint() {
-	var main *syntax.DefStmt
+	var main, handle *syntax.DefStmt
 	for _, s := range l.file.Stmts {
-		if d, ok := s.(*syntax.DefStmt); ok && d.Name.Name == scriptdialect.EntryPointName {
-			main = d
+		if d, ok := s.(*syntax.DefStmt); ok {
+			switch d.Name.Name {
+			case scriptdialect.EntryPointName:
+				main = d
+			case scriptdialect.HandlerName:
+				handle = d
+			}
 		}
 	}
+	if handle != nil && len(handle.Params) != 1 {
+		l.add(finding{
+			rule: RuleEntryPoint, line: line(handle),
+			message: "handle() must take one parameter, the request",
+			hint:    "An endpoint calls handle(req) with the request: `def handle(req):`. Read the query, body and caller from req.",
+		})
+	}
 	switch {
+	case main == nil && handle != nil:
 	case main == nil:
 		l.library()
 	case len(main.Params) > 0:

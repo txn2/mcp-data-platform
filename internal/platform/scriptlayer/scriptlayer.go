@@ -21,6 +21,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbgdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
@@ -89,6 +90,11 @@ type Config struct {
 	// DraftLimit is scripts.draft (#2117): how long an administrator's draft
 	// may run, a long one kept in the background over DB.
 	DraftLimit scriptbgdraft.Config
+	// Endpoints is the assembled endpoint feature (#2170): its commands carry
+	// manage_script's endpoint commands out and name a script's endpoint to
+	// the save gate, and the rest is what Endpoints hands the HTTP surface.
+	// Nil answers the commands as unavailable.
+	Endpoints *epwire.Endpoints
 }
 
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
@@ -140,6 +146,7 @@ type Handle struct {
 	// save of a script's source crosses (#1939, #1940, #1942).
 	recordings scriptrec.Store
 	gate       *scriptsave.Gate
+	endpoints  *epwire.Endpoints
 }
 
 // New assembles the script layer.
@@ -167,6 +174,9 @@ func New(cfg Config) *Handle {
 		Recordings: h.recordings, Destinations: cfg.Destinations, MaxMemoryBytes: h.runLimits.MaxMemoryBytes,
 		Contracts:   toolanswer.Live{Kits: cfg.Toolkits, Extra: notifylayer.AnswerContracts()},
 		CannotServe: scriptsave.PassthroughConnections{Kits: cfg.Toolkits}.CannotServe, Resources: cfg.Sources,
+	}
+	if h.endpoints = cfg.Endpoints; h.endpoints != nil {
+		h.gate.Endpoint = h.endpoints.Commands.Bound
 	}
 	h.gate.Libraries, _ = h.store.(scriptlib.Source)
 	h.versions, _ = h.store.(script.VersionStore)
@@ -325,6 +335,15 @@ func refuseScriptAuthoring(ctx context.Context, what string) *mcp.CallToolResult
 func insideRun(ctx context.Context) bool {
 	pc := middleware.GetPlatformContext(ctx)
 	return pc != nil && pc.Source == middleware.SourceScript
+}
+
+// Endpoints is the assembled endpoint feature, nil on a nil Handle or a
+// deployment with no database.
+func (h *Handle) Endpoints() *epwire.Endpoints {
+	if h == nil {
+		return nil
+	}
+	return h.endpoints
 }
 
 // DraftExports is the writer a draft allowed to write persists its exports

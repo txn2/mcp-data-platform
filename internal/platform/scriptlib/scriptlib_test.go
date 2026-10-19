@@ -60,6 +60,7 @@ func TestLoadsAndRefs(t *testing.T) {
 	assert.False(t, SourceIsLibrary(src))
 	assert.True(t, SourceIsLibrary("def f():\n    return 1\n"))
 	assert.False(t, SourceIsLibrary("def ("))
+	assert.False(t, SourceIsLibrary("def handle(req):\n    return 1\n"), "an endpoint's handle makes a script (#2172)")
 }
 
 // run executes source's main with the loader over src.

@@ -28,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/userkeywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
@@ -148,7 +149,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 
 	notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p))
 
-	wirePortalUserKeys(&deps, p)
+	userkeywire.Wire(&deps, p)
 
 	// Signed content URLs (#1848) are keyed off the browser-session signing
 	// key, as the guest and unsubscribe links are; without it they are off.
@@ -328,6 +329,11 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 	}
 	if auditStore := p.Audit().Store(); auditStore != nil {
 		deps.Audit = auditStore
+	}
+	// A script's endpoint (#2171), and the save gate's refusal of a bound
+	// script's source that defines no handle(req), as manage_script's.
+	if e := p.Endpoints(); e != nil {
+		deps.Endpoints, deps.Gate.Endpoint = e.Commands, e.Commands.Bound
 	}
 	return deps, true
 }

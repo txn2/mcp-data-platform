@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -101,6 +102,9 @@ type Deps struct {
 	// Grants keeps who other than the owner may run each script (#1846). Nil
 	// leaves the grant routes unmounted and every run the owner's.
 	Grants scriptgrant.Store
+	// Endpoints carries a script's endpoint binding out (#2171); nil leaves
+	// the binding routes unmounted.
+	Endpoints *epcmd.Handler
 
 	// Produced lists everything a script has written across every run (#1569).
 	// Nil leaves that route unmounted, which is the shape of a deployment that

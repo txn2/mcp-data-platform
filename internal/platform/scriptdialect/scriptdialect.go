@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
@@ -91,6 +92,28 @@ func EntryPoint(file *syntax.File) *syntax.DefStmt {
 	return main
 }
 
+// HandlerName is the function an endpoint's request calls, with the request
+// as its one argument (#2172).
+const HandlerName = "handle"
+
+// HandlerOf returns file's top-level handle(req) taking exactly one
+// parameter, or nil when it defines none that a request can call.
+func HandlerOf(file *syntax.File) *syntax.DefStmt {
+	if file == nil {
+		return nil
+	}
+	var handler *syntax.DefStmt
+	for _, s := range file.Stmts {
+		if d, ok := s.(*syntax.DefStmt); ok && d.Name.Name == HandlerName {
+			handler = d
+		}
+	}
+	if handler == nil || len(handler.Params) != 1 {
+		return nil
+	}
+	return handler
+}
+
 // topLevelCalls reports whether a top-level statement calls the named
 // function. A def's body is not the top level, so a call inside one does not
 // count; a lambda's body runs only when it is called, so neither does a call
@@ -131,50 +154,124 @@ type Hooks struct {
 	// Cover, when not nil, is told each statement of the script as it is about
 	// to run (#1940); see Instrument.
 	Cover *Coverage
+	// Handler, when not nil, is the top-level function called in place of
+	// main() with arguments: an endpoint's handle(req) (#2172).
+	Handler *Handler
+}
+
+// Handler is a top-level function an execution calls with arguments in place
+// of main(), and what it returned (#2172). A request to an endpoint is one:
+// handle(req) is called with the request and answers with what it returns.
+type Handler struct {
+	// Name is the function called.
+	Name string
+	// Args are the positional arguments it is called with.
+	Args starlark.Tuple
+	// Returned, when not nil, is handed what the function returned while the
+	// execution is still live; an error from it fails the execution.
+	Returned func(starlark.Value) error
+	// Program, when not nil, is the module compiled once and reused by every
+	// execution that names it, so a request does not parse the script again.
+	Program *Program
+}
+
+// Program is a script's module compiled once and initialized per execution
+// (#2172). The zero value is ready to use. One Program holds one source: the
+// first execution that names it compiles it, and every later one reuses that
+// compilation whatever source it passes, so a caller keeps one Program per
+// script version. A compiled starlark program is immutable, which is what
+// lets concurrent executions initialize it at once.
+type Program struct {
+	once sync.Once
+	prog *starlark.Program
+	err  error
+}
+
+// compile parses and resolves source the first time it is called, the way
+// Exec does, against the names env predeclares.
+func (p *Program) compile(name, source string, env starlark.StringDict) (*starlark.Program, error) {
+	p.once.Do(func() {
+		file, err := Options.Parse(name, source, 0)
+		if err != nil {
+			p.err = err
+			return
+		}
+		scriptprintf.Rewrite(file)
+		rewriteMainEnd(file)
+		p.prog, p.err = starlark.FileProgram(file, env.Has)
+	})
+	return p.prog, p.err
 }
 
 // Exec loads a script's module and then calls its main() when the platform
-// owns that call (EntryPoint, #1944), or the function hooks.Entry names. What
-// the function returns is not the run's result; platform.result is the one way
-// a script reports one. The module's globals are returned whatever happened,
-// since a caller that measures the run walks them.
+// owns that call (EntryPoint, #1944), the function hooks.Entry names, or the
+// handler hooks.Handler names with its arguments. What main() or a test
+// returns is not the run's result; platform.result is the one way a script
+// reports one, and a handler's return is handed to Handler.Returned. The
+// module's globals are returned whatever happened, since a caller that
+// measures the run walks them.
 func Exec(thread *starlark.Thread, name, source string, env starlark.StringDict, hooks Hooks) (starlark.StringDict, error) {
+	if h := hooks.Handler; h != nil && h.Program != nil && hooks.Cover == nil {
+		env = bindMainEnd(scriptprintf.Bind(env), hooks.AtMainEnd)
+		prog, err := h.Program.compile(name, source, env)
+		if err != nil {
+			return nil, err //nolint:wrapcheck // the parser's or resolver's own message is what the author reads
+		}
+		return run(thread, prog, env, hooks, "")
+	}
 	file, err := Options.Parse(name, source, 0)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the parser's own message is what the author reads
 	}
 	file, env = Formatting(file, env)
-	// Instrumented first, so the statement withMainEnd appends to main is not
-	// counted as the author's.
+	// Instrumented first, so the statement rewriteMainEnd appends to main is
+	// not counted as the author's.
 	if hooks.Cover != nil {
 		env = hooks.Cover.instrument(file, env)
 	}
-	if hooks.AtMainEnd != nil {
-		env = withMainEnd(file, env, hooks.AtMainEnd)
+	if rewriteMainEnd(file) {
+		env = bindMainEnd(env, hooks.AtMainEnd)
 	}
 	prog, err := starlark.FileProgram(file, env.Has)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the resolver's own message is what the author reads
 	}
+	entry := ""
+	if EntryPoint(file) != nil {
+		entry = EntryPointName
+	}
+	return run(thread, prog, env, hooks, entry)
+}
+
+// run initializes prog's module and calls the function the execution names:
+// the handler or test hooks name, else main when the platform owns that call
+// (main is "" when it does not).
+func run(thread *starlark.Thread, prog *starlark.Program, env starlark.StringDict, hooks Hooks, main string) (starlark.StringDict, error) {
 	globals, err := prog.Init(thread, env)
 	if err != nil {
 		return globals, err //nolint:wrapcheck // the interpreter's failure, whose backtrace is the message
 	}
-	entry := hooks.Entry
+	entry, args := main, starlark.Tuple(nil)
+	switch {
+	case hooks.Handler != nil:
+		entry, args = hooks.Handler.Name, hooks.Handler.Args
+	case hooks.Entry != "":
+		entry = hooks.Entry
+	}
 	if entry == "" {
-		if EntryPoint(file) == nil {
-			return globals, nil
-		}
-		entry = EntryPointName
+		return globals, nil
 	}
 	fn, ok := globals[entry].(starlark.Callable)
 	if !ok {
-		if hooks.Entry != "" {
+		if entry != main {
 			return globals, fmt.Errorf("the script defines no function %s", entry)
 		}
 		return globals, nil
 	}
-	_, err = starlark.Call(thread, fn, nil, nil)
+	out, err := starlark.Call(thread, fn, args, nil)
+	if err == nil && hooks.Handler != nil && hooks.Handler.Returned != nil {
+		err = hooks.Handler.Returned(out)
+	}
 	return globals, err //nolint:wrapcheck // the interpreter's failure, whose backtrace is the message
 }
 
@@ -187,16 +284,16 @@ func Formatting(file *syntax.File, env starlark.StringDict) (*syntax.File, starl
 	return file, scriptprintf.Bind(env)
 }
 
-// mainEndName is the builtin withMainEnd routes main's ending through. A
+// mainEndName is the builtin rewriteMainEnd routes main's ending through. A
 // script cannot name it: it is bound only for the module it rewrites, and the
 // dunder spelling is one no script writes.
 const mainEndName = "__main_ends__"
 
-// withMainEnd rewrites the top-level main() taking no parameters so that it
-// ends through the mainEndName builtin, which calls hook and hands back the
-// value main was returning, and returns env with that builtin bound. A file
-// with no such main is left as it is.
-func withMainEnd(file *syntax.File, env starlark.StringDict, hook func(*starlark.Thread) error) starlark.StringDict {
+// rewriteMainEnd rewrites the top-level main() taking no parameters so that
+// it ends through the mainEndName builtin, and reports whether it found one to
+// rewrite. bindMainEnd binds that builtin; a file with no such main is left as
+// it is.
+func rewriteMainEnd(file *syntax.File) bool {
 	var main *syntax.DefStmt
 	for _, s := range file.Stmts {
 		if d, ok := s.(*syntax.DefStmt); ok && d.Name.Name == EntryPointName && len(d.Params) == 0 {
@@ -204,18 +301,26 @@ func withMainEnd(file *syntax.File, env starlark.StringDict, hook func(*starlark
 		}
 	}
 	if main == nil {
-		return env
+		return false
 	}
 	for _, r := range returnsOf(main.Body) {
 		r.Result = endCall(r.Return, r.Result)
 	}
 	_, end := main.Span()
 	main.Body = append(main.Body, &syntax.ExprStmt{X: endCall(end, nil)})
+	return true
+}
+
+// bindMainEnd returns env with the mainEndName builtin bound: it calls hook,
+// when there is one, and hands back the value main was returning.
+func bindMainEnd(env starlark.StringDict, hook func(*starlark.Thread) error) starlark.StringDict {
 	out := make(starlark.StringDict, len(env))
 	maps.Copy(out, env)
 	out[mainEndName] = starlark.NewBuiltin(mainEndName, func(th *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-		if err := hook(th); err != nil {
-			return nil, err
+		if hook != nil {
+			if err := hook(th); err != nil {
+				return nil, err
+			}
 		}
 		if len(args) == 1 {
 			return args[0], nil

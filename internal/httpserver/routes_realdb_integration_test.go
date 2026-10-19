@@ -47,7 +47,7 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`^(GET|POST|PUT|DELETE) /api/v1/admin/api-catalogs`), "catalogapi.Register: no API catalog store (no apigateway toolkit)"},
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/admin/auth/keys`), "registerAuthKeyRoutes: no API key manager (auth.api_keys is off)"},
 	{regexp.MustCompile(`^(GET|POST|PUT|DELETE) /api/v1/admin/webhooks/`), "mountWebhookAdminAPI: no object store for a webhook source"},
-	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/portal/api-keys`), "wirePortalUserKeys: no API key store with principals"},
+	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/portal/api-keys`), "userkeywire.Wire: no API key store with principals"},
 	{regexp.MustCompile(`^GET /api/v1/portal/scripts/\{id\}/thumbnail$`), "flowhttp.RegisterPortal: tiles need the renderer"},
 	{regexp.MustCompile(`^GET /api/v1/portal/(assets/\{id\}/content-url|content/\{token\})$`), "contentURLsReady: no content URL signing key"},
 	{regexp.MustCompile(`^(GET|POST) /portal/notifications/unsubscribe$`), "mountNotificationUnsubscribe: no browser-session signing key"},
@@ -55,6 +55,10 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`/calls/\{id\}/(promote|reject)$`), "callapi.Register: no call promoter"},
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/(tables|table-connections|(portal/assets|resources)/\{id\}/tables)`), "mountTableAPI: the table registrar needs a Trino connection and an object store; the test platform has neither"},
 	{regexp.MustCompile(`^(GET|POST) /api/v1/admin/tables/`), "mountTableAdmin: the table registrar needs a Trino connection and an object store; the test platform has neither"},
+	{regexp.MustCompile(`^/endpoints/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
+	{regexp.MustCompile(`^(GET|OPTIONS) /botcheck/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
+	{regexp.MustCompile(`^(GET|PUT) /api/v1/admin/settings/bot-check$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
+	{regexp.MustCompile(`^(GET|PUT|POST) /api/v1/portal/scripts/\{id\}/endpoint`), "bindinghttp: the script routes' endpoint deps come from Platform.Start, which this test does not run"},
 }
 
 // TestEveryRouteReportsItsTemplate_RealDB is the gate for #1889: every
