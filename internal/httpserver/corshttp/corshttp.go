@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/ephttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/maphttp"
 	whreceiver "github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 )
@@ -72,15 +73,27 @@ func Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// WithoutHooks routes the webhook receiver around cors. A webhook is posted by
-// a server, never a browser, and the receiver answers OPTIONS itself: the
-// CloudEvents handshake is an OPTIONS request, and a source without it must
-// refuse one rather than have it answered 200 here (#1870).
+// ownCORSPrefixes are the routes that answer their own cross-origin
+// requests, which this layer leaves alone.
+//
+// The webhook receiver: a webhook is posted by a server, never a browser,
+// and the receiver answers OPTIONS itself: the CloudEvents handshake is an
+// OPTIONS request, and a source without it must refuse one rather than have
+// it answered 200 here (#1870). Endpoints and their bot check (#2174): each
+// binding names the origins it answers, without credentials, and refuses the
+// preflight of any other, where this layer would reflect every origin with
+// credentials allowed.
+var ownCORSPrefixes = []string{whreceiver.PathPrefix, ephttp.PathPrefix, ephttp.BotCheckPrefix}
+
+// WithoutHooks routes the routes that answer their own cross-origin requests
+// (ownCORSPrefixes) around cors.
 func WithoutHooks(receiver, rest http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, whreceiver.PathPrefix) {
-			receiver.ServeHTTP(w, r)
-			return
+		for _, prefix := range ownCORSPrefixes {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				receiver.ServeHTTP(w, r)
+				return
+			}
 		}
 		rest.ServeHTTP(w, r)
 	})

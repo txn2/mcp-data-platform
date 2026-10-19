@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
@@ -28,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
+	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -91,6 +93,13 @@ func Wire(deps Deps) *scriptexec.Handle {
 		NotificationsDisabled: !deps.NotificationsEnabled,
 		DigestHourUTC:         deps.DigestHourUTC,
 	})
+	// Endpoints (#2170): a bound script answers HTTP requests, inline, under
+	// the same limits and the same identity a run has.
+	endpoints := epwire.Build(epwire.Deps{
+		DB: deps.DB, Server: deps.Server, Audit: deps.Audit, Metrics: deps.Metrics, Subjects: deps.Subjects,
+		Limits: runLimits(deps.Worker, deps.SQL), Destinations: deps.Destinations, Sources: deps.Sources,
+		Key: deps.BotCheckKey, Encryptor: deps.Encryptor, BaseURL: deps.PortalURL,
+	})
 	layer := scriptlayer.New(scriptlayer.Config{
 		DB:           deps.DB,
 		Runs:         scripts.Runs(),
@@ -110,6 +119,7 @@ func Wire(deps Deps) *scriptexec.Handle {
 		Recordings:   recordings,
 		Sources:      deps.Sources,
 		DraftLimit:   deps.Draft,
+		Endpoints:    endpoints,
 	})
 	layer.RegisterTool(deps.Server)
 	deps.Bind(layer)
@@ -182,6 +192,12 @@ type Deps struct {
 	PortalURL            string
 	AdminPersona         string
 	Toolkits             *registry.Registry
+
+	// BotCheckKey signs a public endpoint's proof-of-work challenges
+	// (botcheck.Key), and Encryptor decrypts the stored secret a bot check
+	// provider's key is kept in (#2173).
+	BotCheckKey []byte
+	Encryptor   secretstore.Encryptor
 
 	// Bind hands the assembled tool layer back to the facade, which keeps it
 	// because the index queue binds its write-path producer (#1370).

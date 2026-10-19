@@ -7,7 +7,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptshow"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
@@ -17,6 +19,10 @@ import (
 // ToolNameManageScript is the MCP tool name of the script-management tool,
 // exported for composition roots that bind UI apps to it.
 const ToolNameManageScript = "manage_script"
+
+// ToolNameShowScripts is show_scripts (internal/platform/scriptshow), which
+// RegisterTool registers beside manage_script.
+const ToolNameShowScripts = scriptshow.ToolName
 
 // Command names.
 const (
@@ -150,6 +156,9 @@ type manageScriptInput struct {
 	// Verbose restores what a response shortens (#2115, #2114): long changed
 	// lines in full, and a refused save's formatted source.
 	Verbose bool `json:"verbose,omitempty"`
+
+	// The endpoint binding commands' fields (#2171).
+	epcmd.Input
 }
 
 // RegisterTool registers manage_script; where the deployment can execute
@@ -175,7 +184,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 		return h.handleManageScript(ctx, input)
 	})
 	h.registerRunScript(server)
-	h.registerShowScripts(server)
+	scriptshow.Register(server, h.portalURL)
 }
 
 // commandHandler handles one manage_script command.
@@ -212,6 +221,9 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdScheduleList:    h.handleScheduleList,
 		cmdScheduleEnable:  h.handleScheduleEnable,
 		cmdScheduleDisable: h.handleScheduleDisable,
+
+		epcmd.CmdSet: h.handleEndpoint, epcmd.CmdList: h.handleEndpoint,
+		epcmd.CmdEnable: h.handleEndpoint, epcmd.CmdDisable: h.handleEndpoint,
 	}
 }
 
@@ -247,7 +259,7 @@ func (h *Handle) handleManageScript(ctx context.Context, input manageScriptInput
 	if !ok {
 		return errorResult(fmt.Sprintf("unknown command: %s", input.Command)), nil, nil
 	}
-	if scriptWritingCommands[input.Command] {
+	if scriptWritingCommands[input.Command] || epcmd.Writes(input.Command) {
 		if errResult := refuseScriptAuthoring(ctx, ToolNameManageScript+" "+input.Command); errResult != nil {
 			return errResult, nil, nil
 		}
@@ -302,12 +314,12 @@ func manageScriptSchema() any {
 	props := map[string]any{
 		"command": map[string]any{
 			keyType: valString,
-			keyEnum: []string{
+			keyEnum: append([]string{
 				cmdCreate, cmdUpdate, cmdDelete, cmdGet, cmdList, cmdValidate,
 				cmdRunDraft, cmdHelp, cmdPatch, cmdLocate, cmdGetContent,
 				cmdOutline, cmdStats, cmdDiff, cmdVersions, cmdRuns, cmdGetRun, cmdCancelRun, cmdState,
 				cmdTest, cmdRecording, cmdScheduleSet, cmdScheduleList, cmdScheduleEnable, cmdScheduleDisable,
-			},
+			}, epcmd.Commands...),
 			keyDescription: "The operation to perform. Call 'help' first if you have not written a " +
 				"script for this platform before: it states the dialect and what is available.",
 		},
@@ -436,9 +448,11 @@ func manageScriptSchema() any {
 		},
 	}
 	maps.Copy(props, textpatchProperties())
+	maps.Copy(props, epcmd.Properties())
 	props["timeout_seconds"] = map[string]any{keyType: "integer", keyDescription: "For run_draft: how long the draft may run. " +
 		"Up to 60 for anyone; an administrator may ask for up to scripts.draft.max_seconds, and a draft longer " +
-		"than 60 runs in the background: run_draft answers its run_id at once and get_run reads it."}
+		"than 60 runs in the background: run_draft answers its run_id at once and get_run reads it. " +
+		"For endpoint_set: how long one request may run."}
 	props["source_ref"] = map[string]any{keyType: valString, keyDescription: "For create and update: a managed " +
 		"resource whose text is the source, as mcp:resource:<id> or its mcp:// uri, instead of sending source. " +
 		"Write the file once with manage_resource and save from it; you must be able to read it."}

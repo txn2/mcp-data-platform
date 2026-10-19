@@ -14,3 +14,4 @@ export * from "./maps";
 export * from "./catalogScan";
 export * from "./tableReconcile";
 export * from "./storage";
+export * from "./botCheck";

@@ -293,6 +293,9 @@ type Options struct {
 	// Test, when not nil, makes the execution one of the script's tests
 	// (#1939) rather than a run.
 	Test *TestHooks
+	// Handler, when not nil, calls the function it names with its arguments
+	// in place of main(): a request to an endpoint (#2172).
+	Handler *scriptdialect.Handler
 }
 
 // TestHooks turn an execution into one of the script's tests (#1939, #1940).
@@ -316,7 +319,7 @@ type TestHooks struct {
 
 // hooks is what Exec is asked to do for this execution.
 func (o Options) hooks(atMainEnd func(*starlark.Thread) error) scriptdialect.Hooks {
-	h := scriptdialect.Hooks{AtMainEnd: atMainEnd}
+	h := scriptdialect.Hooks{AtMainEnd: atMainEnd, Handler: o.Handler}
 	if o.Test != nil {
 		h.Entry, h.Cover = o.Test.Entry, o.Test.Cover
 	}

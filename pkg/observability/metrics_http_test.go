@@ -20,6 +20,7 @@ func TestHTTPInstruments_Exposed(t *testing.T) {
 	m.RecordHTTPRateLimited(ctx, "oauth_token")
 	m.RecordMCPRequest(ctx, "tools/list", StatusOK, 3*time.Millisecond)
 	m.RecordMCPRequest(ctx, "resources/read", StatusClientErr, 2*time.Millisecond)
+	m.RecordEndpointRequest(ctx, "order-lookup", StatusClass5xx, 40*time.Millisecond)
 
 	body := scrapeMetrics(t, m.Handler())
 	for _, want := range []string{
@@ -29,6 +30,8 @@ func TestHTTPInstruments_Exposed(t *testing.T) {
 		`mcp_requests_total{method="tools/list",status="ok"} 1`,
 		`mcp_requests_total{method="resources/read",status="client_err"} 1`,
 		`mcp_request_duration_seconds_count{method="tools/list",status="ok"} 1`,
+		`endpoint_requests_total{endpoint="order-lookup",status_class="5xx"} 1`,
+		`endpoint_request_duration_seconds_count{endpoint="order-lookup"} 1`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scrape missing %q", want)
@@ -42,6 +45,7 @@ func TestHTTPInstruments_NilSafe(_ *testing.T) {
 	m.RecordHTTPServerRequest(ctx, "/", http.MethodGet, StatusClass2xx, time.Second)
 	m.RecordHTTPRateLimited(ctx, "pdf_export")
 	m.RecordMCPRequest(ctx, "ping", StatusOK, time.Millisecond)
+	m.RecordEndpointRequest(ctx, "x", StatusClass2xx, time.Millisecond)
 }
 
 func TestHTTPMethodLabel(t *testing.T) {

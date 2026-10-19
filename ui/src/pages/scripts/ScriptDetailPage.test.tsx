@@ -103,6 +103,13 @@ vi.mock("@/api/portal/hooks/producers", () => ({
   }),
 }));
 
+// The endpoint card (#2171) reads as "cannot bind" here; its own test covers it.
+vi.mock("@/api/portal/hooks/scriptEndpoint", () => ({
+  useScriptEndpoint: vi.fn(() => ({ data: null, isLoading: false, error: null })),
+  useSetScriptEndpoint: vi.fn(),
+  useSetScriptEndpointEnabled: vi.fn(),
+}));
+
 // The transfer control offers the known-users directory as type-ahead. It has
 // its own tests; here it only has to answer, so the page renders without a
 // query client.

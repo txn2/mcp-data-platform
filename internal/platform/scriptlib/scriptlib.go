@@ -131,11 +131,11 @@ func Refs(source string) []Ref {
 	return out
 }
 
-// IsLibrary reports whether file is a library: it defines no main() at its
-// top level.
+// IsLibrary reports whether file is a library: it defines neither main() nor
+// an endpoint's handle() at its top level (#2172).
 func IsLibrary(file *syntax.File) bool {
 	for _, s := range file.Stmts {
-		if d, ok := s.(*syntax.DefStmt); ok && d.Name.Name == scriptdialect.EntryPointName {
+		if d, ok := s.(*syntax.DefStmt); ok && (d.Name.Name == scriptdialect.EntryPointName || d.Name.Name == scriptdialect.HandlerName) {
 			return false
 		}
 	}

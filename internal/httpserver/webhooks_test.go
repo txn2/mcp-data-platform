@@ -31,6 +31,17 @@ func TestWithoutCORS_HooksAnswerTheirOwnOptions(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 	assert.Empty(t, rec.Header().Get("Access-Control-Allow-Origin"), "a webhook is never a browser request")
 
+	// Endpoints and their bot check answer their own preflights from each
+	// binding's origins (#2174).
+	for _, path := range []string{"/endpoints/orders", "/botcheck/challenge"} {
+		rec = httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, path, http.NoBody)
+		req.Header.Set("Origin", "https://elsewhere.example.com")
+		h.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusMethodNotAllowed, rec.Code, path)
+		assert.Empty(t, rec.Header().Get("Access-Control-Allow-Origin"), path)
+	}
+
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/v1/portal/assets", http.NoBody))
 	assert.Equal(t, http.StatusOK, rec.Code)

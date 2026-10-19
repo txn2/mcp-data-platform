@@ -4,7 +4,7 @@
 
 export const SETTINGS_ROUTE = "/admin/settings";
 
-export const SECTION_GROUPS = ["Delivery", "Alerts", "Content"] as const;
+export const SECTION_GROUPS = ["Delivery", "Alerts", "Content", "Endpoints"] as const;
 
 export const SETTINGS_SECTIONS = [
   { id: "email", label: "Email", group: "Delivery" },
@@ -15,6 +15,7 @@ export const SETTINGS_SECTIONS = [
   { id: "webhooks", label: "Webhooks", group: "Alerts" },
   { id: "storage", label: "Storage", group: "Alerts" },
   { id: "maps", label: "Maps", group: "Content" },
+  { id: "bot-check", label: "Bot check", group: "Endpoints" },
 ] as const satisfies readonly { id: string; label: string; group: (typeof SECTION_GROUPS)[number] }[];
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];

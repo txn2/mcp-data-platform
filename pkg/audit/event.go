@@ -69,6 +69,14 @@ const (
 	// executed it and how it ended — and both carry the run id as their session
 	// so a run and its calls join on one key (#1284).
 	EventTypeScriptRun EventType = "script_run"
+
+	// EventTypeEndpointRequest categorizes one request an endpoint answered
+	// (#2172): a script bound to /endpoints/{name} ran handle(req). It carries
+	// endpoint, script, script_id, version, method, status and the caller in its
+	// parameters, and the request's session id, which the tool-call rows the
+	// handler's platform calls produce under the script:<name> principal carry
+	// too, so a request and its calls join on one key.
+	EventTypeEndpointRequest EventType = "endpoint_request"
 )
 
 // toolkitKindAPIGateway is the toolkit-kind discriminator for the

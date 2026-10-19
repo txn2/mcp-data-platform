@@ -162,6 +162,8 @@ query them; the tab is the at-a-glance read.
 | `http_rate_limited_total` | counter | `limiter` |
 | `mcp_requests_total` | counter | `method`, `status` |
 | `mcp_request_duration_seconds` | histogram | `method`, `status` |
+| `endpoint_requests_total` | counter | `endpoint`, `status_class` |
+| `endpoint_request_duration_seconds` | histogram | `endpoint` |
 | `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category`, `persona` |
 | `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
 | `http_client_requests_total` | counter | `kind`, `connection`, `status_class` |
@@ -270,8 +272,15 @@ by `http_rate_limited_total{limiter}`: `oauth_token` and `oauth_register`
 (the OAuth server's `/token` and `/register`), `portal_viewer`,
 `portal_content` and `portal_refs` (the public share viewer, its content
 route and asset references), `observability_proxy` (the PromQL proxy's
-per-persona limit), `pdf_export` (the public PDF routes) and `webhook` (a
-source's rate limit, also in `webhook_requests_total{outcome="rate_limited"}`).
+per-persona limit), `pdf_export` (the public PDF routes), `webhook` (a
+source's rate limit, also in `webhook_requests_total{outcome="rate_limited"}`)
+and `endpoint` (an endpoint's limit or its caller's, #2174).
+
+Every request a script bound to an endpoint answered (#2172) is counted by
+`endpoint_requests_total{endpoint,status_class}` and timed by
+`endpoint_request_duration_seconds{endpoint}`, where `endpoint` is the
+binding's name, which an administrator sets; see
+[Endpoints](../scripts/endpoints.md).
 A 429 no limiter named is `limiter="unknown"`. Before #1889 the OAuth, portal
 viewer and proxy refusals left no metric and no log.
 
@@ -537,7 +546,7 @@ W3C `traceparent` to the upstream, and records the request under
 `http_client_requests_total{kind, connection, status_class}` and its
 duration histogram. `kind` is the closed set above (`api`, `graphql`, `mcp`,
 `util`, `oauth`, `oidc`, `embedding`, `notification`, `spec_fetch`,
-`promql`, `renderer`, `branding`, `maps`, `storage`); `connection` is the operator's
+`promql`, `renderer`, `branding`, `maps`, `storage`, `import`, `bot_check`); `connection` is the operator's
 connection name, empty for a kind that has none; a transport failure (DNS,
 dial, TLS, timeout) is `status_class="other"`. A Semgrep rule
 (`.semgrep/go-outbound-client.yml`) refuses an `http.Client` built anywhere
@@ -1073,8 +1082,9 @@ plus `unknown` (a pattern registered with a method takes that one method, so
 most routes hold a single series) and `status_class` is 5, so
 `http_server_request_duration_seconds` is bounded by 300 × 10 × 5 = 15,000
 series times its bucket count and in practice holds about one series per
-route per status class seen. `http_rate_limited_total{limiter}` is 9
-series. `mcp_requests_total` is the SDK's method table (about 14) times 3.
+route per status class seen. `http_rate_limited_total{limiter}` is 10
+series. `endpoint_requests_total` is the deployment's endpoint bindings times
+5 status classes. `mcp_requests_total` is the SDK's method table (about 14) times 3.
 
 Both are well under typical Prometheus limits and well within any
 managed observability backend's per-metric series budget. If you add

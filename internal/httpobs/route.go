@@ -38,6 +38,7 @@ const (
 	LimiterObservabilityProxy = "observability_proxy"
 	LimiterPDFExport          = "pdf_export"
 	LimiterWebhook            = "webhook"
+	LimiterEndpoint           = "endpoint"
 	LimiterUnknown            = "unknown"
 )
 

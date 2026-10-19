@@ -1,4 +1,7 @@
-package httpserver
+// Package userkeywire attaches the portal's self-scoped API key routes
+// (#1759) to the portal deps, from the platform's key store and its
+// authenticator. Extracted from internal/httpserver for its size budget.
+package userkeywire
 
 import (
 	"errors"
@@ -12,15 +15,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
-// wirePortalUserKeys attaches the self-scoped API key routes (#1759) to the
-// portal deps, so a person issues and revokes keys against their own account
+// Wire attaches the self-scoped API key routes (#1759) to the portal deps, so a person issues and revokes keys against their own account
 // from the settings page.
 //
 // It issues through the same core the admin route does, so a key somebody makes
 // for themselves is made by one set of rules. A deployment with no key store,
 // or none that can resolve an account, registers nothing rather than offering a
 // page whose every action fails.
-func wirePortalUserKeys(deps *portal.Deps, p *platform.Platform) {
+func Wire(deps *portal.Deps, p *platform.Platform) {
 	store := p.APIKeyStore()
 	manager := p.APIKeyAuthenticator()
 	if store == nil || manager == nil || manager.Principals() == nil {

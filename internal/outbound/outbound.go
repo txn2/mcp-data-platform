@@ -55,6 +55,7 @@ const (
 	KindMaps         Kind = "maps"         // a basemap region's extract from its source build
 	KindStorage      Kind = "storage"      // the object store asked which server it is (internal/platform/capacity)
 	KindImport       Kind = "import"       // the DataHub a catalog import reads (internal/platform/catalogimport)
+	KindBotCheck     Kind = "bot_check"    // a bot check provider's token verification (internal/botcheck)
 )
 
 // The span attribute keys a client span carries beside the HTTP semantic

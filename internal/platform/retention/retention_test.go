@@ -122,6 +122,17 @@ func TestSweepStatements(t *testing.T) {
 	n, err = ExpiredCallTasks(db)[0].Run(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), n)
+
+	// A failed endpoint request is kept seven days, and an answered bot check
+	// challenge until it expires (#2172, #2173).
+	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM script_endpoint_failures")).WithArgs(sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 4))
+	n, err = EndpointFailures(db)[0].Run(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), n)
+	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM bot_check_answers")).WithArgs(sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 6))
+	n, err = BotCheckAnswers(db)[0].Run(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(6), n)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -150,7 +161,7 @@ func TestAssemble(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	all := Assemble(Config{DB: db, Portal: true, DeletedDays: 30, ArchivedDays: 90, ProducerDays: 90})
-	assert.Len(t, all.sweeps, 5, "no portal bucket: no bucket pass")
+	assert.Len(t, all.sweeps, 7, "no portal bucket: no bucket pass")
 	assert.Equal(t, DefaultInterval, all.interval)
 
 	withBucket := Assemble(Config{DB: db, Portal: true, Bucket: "portal", DeletedDays: 30, ArchivedDays: 90, ProducerDays: 90})
@@ -158,11 +169,11 @@ func TestAssemble(t *testing.T) {
 	for _, s := range withBucket.sweeps {
 		names = append(names, s.Name)
 	}
-	assert.Equal(t, []string{"asset_bucket", "portal_deleted", "memory_archived", "orphaned_producers", "graphql_superseded_embeddings", "call_tasks"}, names,
+	assert.Equal(t, []string{"asset_bucket", "portal_deleted", "memory_archived", "orphaned_producers", "graphql_superseded_embeddings", "call_tasks", "endpoint_failures", "bot_check_answers"}, names,
 		"the bucket pass runs ahead of the purge (#1931)")
 
 	portalOff := Assemble(Config{DB: db, ArchivedDays: 90, Every: time.Minute})
-	assert.Len(t, portalOff.sweeps, 3, "memory, GraphQL and call tasks; the portal is off and producer retention is 0")
+	assert.Len(t, portalOff.sweeps, 5, "memory, GraphQL, call tasks, endpoint failures and bot check answers; the portal is off and producer retention is 0")
 	assert.Equal(t, time.Minute, portalOff.interval)
 }
 

@@ -21,6 +21,9 @@ import (
 //   - mcp_requests_total{method, status} and mcp_request_duration_seconds{method, status}
 //     every MCP method other than tools/call (initialize, tools/list,
 //     resources/read, ...), which has mcp_tool_calls_total
+//   - endpoint_requests_total{endpoint, status_class} and
+//     endpoint_request_duration_seconds{endpoint}  every request a script
+//     bound to /endpoints/{name} answered (#2172), by the endpoint's name
 //
 // Cardinality: route is the set of patterns registered on the mux, a closed
 // set in the code, plus "unmatched" for a request no pattern answers; a
@@ -31,9 +34,12 @@ const (
 	instHTTPRateLimited    = "http_rate_limited"
 	instMCPRequests        = "mcp_requests"
 	instMCPRequestDuration = "mcp_request_duration"
+	instEndpointRequests   = "endpoint_requests"
+	instEndpointDuration   = "endpoint_request_duration"
 
-	attrRoute   = "route"
-	attrLimiter = "limiter"
+	attrRoute    = "route"
+	attrLimiter  = "limiter"
+	attrEndpoint = "endpoint"
 )
 
 // httpInstruments are the inbound request series.
@@ -42,6 +48,8 @@ type httpInstruments struct {
 	rateLimited        metric.Int64Counter
 	mcpRequests        metric.Int64Counter
 	mcpRequestDuration metric.Float64Histogram
+	endpointRequests   metric.Int64Counter
+	endpointDuration   metric.Float64Histogram
 }
 
 // registerHTTPInstruments registers the inbound request series.
@@ -54,7 +62,7 @@ func (m *Metrics) registerHTTPInstruments(meter metric.Meter) error {
 		return wrapReg(instHTTPServerDuration, err)
 	}
 	if h.rateLimited, err = meter.Int64Counter(instHTTPRateLimited,
-		metric.WithDescription("Total HTTP requests answered 429 by a rate limiter, labeled by limiter (oauth_token, oauth_register, portal_viewer, portal_content, portal_refs, observability_proxy, pdf_export, webhook, unknown).")); err != nil {
+		metric.WithDescription("Total HTTP requests answered 429 by a rate limiter, labeled by limiter (oauth_token, oauth_register, portal_viewer, portal_content, portal_refs, observability_proxy, pdf_export, webhook, endpoint, unknown).")); err != nil {
 		return wrapReg(instHTTPRateLimited, err)
 	}
 	if h.mcpRequests, err = meter.Int64Counter(instMCPRequests,
@@ -66,7 +74,28 @@ func (m *Metrics) registerHTTPInstruments(meter metric.Meter) error {
 		metric.WithUnit(unitSeconds)); err != nil {
 		return wrapReg(instMCPRequestDuration, err)
 	}
+	if h.endpointRequests, err = meter.Int64Counter(instEndpointRequests,
+		metric.WithDescription("Total requests a script bound to an endpoint answered, labeled by endpoint (the binding's name) and status_class.")); err != nil {
+		return wrapReg(instEndpointRequests, err)
+	}
+	if h.endpointDuration, err = meter.Float64Histogram(instEndpointDuration,
+		metric.WithDescription("Seconds an endpoint took to answer a request, from its arrival to the response, labeled by endpoint."),
+		metric.WithUnit(unitSeconds)); err != nil {
+		return wrapReg(instEndpointDuration, err)
+	}
 	return nil
+}
+
+// RecordEndpointRequest records one request an endpoint answered. Nil-safe.
+// endpoint is a binding's name, which an administrator sets, never a path a
+// caller sent.
+func (m *Metrics) RecordEndpointRequest(ctx context.Context, endpoint, statusClass string, d time.Duration) {
+	if m == nil || m.http.endpointRequests == nil {
+		return
+	}
+	m.http.endpointRequests.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrEndpoint, endpoint), attribute.String(attrStatusClass, statusClass)))
+	m.http.endpointDuration.Record(ctx, d.Seconds(), metric.WithAttributes(attribute.String(attrEndpoint, endpoint)))
 }
 
 // RecordHTTPServerRequest records one answered inbound request under its route

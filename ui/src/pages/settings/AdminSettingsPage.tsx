@@ -18,6 +18,7 @@ import { MapsCard } from "./MapsCard";
 import { NotificationChannelsCard } from "./NotificationChannelsCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
 import { ScriptRunAlertCard } from "./ScriptRunAlertCard";
+import { BotCheckSettingsCard } from "./BotCheckSettingsCard";
 import { StorageSettingsCard } from "./StorageSettingsCard";
 import { WebhookAlertCard } from "./WebhookAlertCard";
 import { SettingsCard } from "./panels";
@@ -419,6 +420,7 @@ const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.Re
   webhooks: (ro) => <WebhookAlertCard isReadOnly={ro} />,
   storage: (ro) => <StorageSettingsCard isReadOnly={ro} />,
   maps: () => <MapsCard />,
+  "bot-check": (ro) => <BotCheckSettingsCard isReadOnly={ro} />,
 };
 
 // useSectionStatus is what the nav marks beside a section: an email server

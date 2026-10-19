@@ -112,6 +112,7 @@ nav:
       - Session-Start Notices: server/session-notices.md
       - Automations:
         - Managed Scripts: scripts/running.md
+        - Endpoints: scripts/endpoints.md
         - Reading XML in a Script: scripts/xml.md
         - Formatting, Patterns and Hashes: scripts/text.md
       - Knowledge Capture: knowledge/overview.md

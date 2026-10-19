@@ -22,7 +22,9 @@ import (
 
 	"github.com/txn2/mcp-data-platform/apps"
 	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
+	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/dbobs"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/apigwwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/auditwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
@@ -2820,8 +2822,10 @@ func (p *Platform) Start(ctx context.Context) error {
 		NotificationsEnabled: p.config.Notifications.IsEnabled(),
 		DigestHourUTC:        p.config.Notifications.DigestHour(),
 		PortalURL:            p.config.Portal.PublicBaseURL, AdminPersona: p.config.Admin.Persona,
-		Toolkits: p.toolkitRegistry,
-		Bind:     func(h *scriptlayer.Handle) { p.scripts = h },
+		Toolkits:    p.toolkitRegistry,
+		BotCheckKey: botcheck.Key(p.config.Auth.BrowserSession.Enabled, p.config.Auth.BrowserSession.SigningKey),
+		Encryptor:   p.restEncryptor,
+		Bind:        func(h *scriptlayer.Handle) { p.scripts = h },
 	})
 	p.lifecycle.OnComponent(scriptRuns.Start, scriptRuns.Stop)
 	p.lifecycle.OnDrain(scriptRuns.Drain)
@@ -3116,6 +3120,9 @@ func (p *Platform) PortalS3Client() portal.S3Client {
 // ScriptDraftExports returns the writer a script draft allowed to write
 // persists its exports through (#1822), nil where scripts cannot be kept.
 func (p *Platform) ScriptDraftExports() scriptdraft.Exports { return p.scripts.DraftExports() }
+
+// Endpoints is the assembled endpoint feature (#2170), nil with no database.
+func (p *Platform) Endpoints() *epwire.Endpoints { return p.scripts.Endpoints() }
 
 // KnowledgeRouter returns the unified search federation, or nil when no
 // searchable source is configured. The portal's GET /api/v1/portal/search REST

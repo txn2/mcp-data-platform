@@ -19,6 +19,8 @@ deployment sets nothing unless it wants a different age.
 | Call catalog records nothing came of | 90 days | `calls.retention_days` | |
 | Managed-script runs | 365 days | `scripts.run_retention_days` | |
 | Exports run as MCP tasks (`call_tasks`) | 7 days after the call | `tasks.retention_days` | The export's asset or file is kept; only the record a client reads the task's outcome from is removed |
+| Failed endpoint requests (`script_endpoint_failures`) | 7 days | (fixed) | What a script's owner reads of the requests its endpoint failed (#2172); the audit row of each request is kept for `audit.retention_days` |
+| Answered bot check challenges (`bot_check_answers`) | Until the challenge expires, then the next daily sweep | `challenge_ttl_seconds` in the bot check settings | Removed once the challenge could no longer be answered, so a replay is refused by its expiry (#2173) |
 
 For each setting, `0` or unset takes the default shown and a negative value
 keeps the rows forever.
