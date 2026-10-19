@@ -20,7 +20,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
+	"github.com/txn2/mcp-data-platform/internal/platform/storagecap"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whalert"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
@@ -285,6 +287,12 @@ type Deps struct {
 	// to (#1724). nil disables the /api/v1/admin/settings/script-run-alert
 	// routes.
 	ScriptRunAlert scriptalert.SettingsStore
+	// StorageSettings persists the storage capacity settings (#2148). nil
+	// disables the /api/v1/admin/settings/storage routes.
+	StorageSettings storagecap.SettingsStore
+	// WebhookAlert persists the webhook receiver alerts (#2149). nil
+	// disables the /api/v1/admin/settings/webhook-alert routes.
+	WebhookAlert whalert.SettingsStore
 	// NotificationChannels persists the destinations a document is
 	// delivered to (#1720). nil disables the
 	// /api/v1/admin/notification-channels routes.

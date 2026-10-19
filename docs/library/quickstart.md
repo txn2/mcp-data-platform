@@ -4,7 +4,7 @@ Build a custom MCP server using the mcp-data-platform library.
 
 ## Prerequisites
 
-- Go 1.26+
+- Go 1.27+
 - Access to Trino or S3, and a PostgreSQL database for the platform catalog
 
 ## Create a New Project

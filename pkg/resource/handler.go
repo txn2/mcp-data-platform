@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
@@ -343,7 +344,7 @@ func (h *Handler) openUpload(w http.ResponseWriter, r *http.Request, what string
 	r.Body = http.MaxBytesReader(w, r.Body, limit+multipartFramingBytes)
 	mr, err := r.MultipartReader()
 	if err != nil {
-		slog.Warn(what+": multipart form not readable", msgError, err) //nolint:gosec // structured slog, no injection
+		slog.Warn(what+": multipart form not readable", msgError, logsan.SanitizeForLog(err.Error()))
 		writeError(w, http.StatusBadRequest, "invalid multipart form")
 		return nil, 0, false
 	}
@@ -717,7 +718,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 
 	resources, total, err := h.deps.Store.List(r.Context(), filter)
 	if err != nil {
-		slog.Error("resource list failed", msgError, err)
+		slog.Error("resource list failed", msgError, logsan.SanitizeForLog(err.Error()))
 		writeError(w, http.StatusInternalServerError, "listing resources")
 		return
 	}
@@ -757,7 +758,7 @@ func (h *Handler) handleFacets(w http.ResponseWriter, r *http.Request) {
 
 	folders, err := h.deps.Store.Folders(r.Context(), filter)
 	if err != nil {
-		slog.Error("resource folder list failed", msgError, err)
+		slog.Error("resource folder list failed", msgError, logsan.SanitizeForLog(err.Error()))
 		writeError(w, http.StatusInternalServerError, "listing folders")
 		return
 	}
@@ -767,7 +768,7 @@ func (h *Handler) handleFacets(w http.ResponseWriter, r *http.Request) {
 
 	tags, err := h.deps.Store.Tags(r.Context(), filter)
 	if err != nil {
-		slog.Error("resource tag list failed", msgError, err)
+		slog.Error("resource tag list failed", msgError, logsan.SanitizeForLog(err.Error()))
 		writeError(w, http.StatusInternalServerError, "listing tags")
 		return
 	}
@@ -866,7 +867,7 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 
 	body, contentType, err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, res.S3Key)
 	if err != nil {
-		slog.Error("resource content: s3 get failed", msgError, err) //nolint:gosec // structured slog
+		slog.Error("resource content: s3 get failed", msgError, logsan.SanitizeForLog(err.Error()))
 		if IsObjectNotFound(err) {
 			writeError(w, http.StatusNotFound, msgContentMissing)
 			return
@@ -1044,7 +1045,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 // and drop the stored embedding for nothing.
 func (h *Handler) applyFields(w http.ResponseWriter, r *http.Request, claims *Claims, res *Resource, u Update) bool {
 	if err := UpdateFields(r.Context(), h.deps, claims, res, u); err != nil {
-		slog.Error("resource update failed", msgError, err)
+		slog.Error("resource update failed", msgError, logsan.SanitizeForLog(err.Error()))
 		writeError(w, http.StatusInternalServerError, "updating resource")
 		return false
 	}
@@ -1093,7 +1094,7 @@ func (h *Handler) applyMove(w http.ResponseWriter, r *http.Request, claims *Clai
 		writeError(w, http.StatusBadRequest, err.Error())
 		return "", false
 	default:
-		slog.Error("resource move failed", msgError, err)
+		slog.Error("resource move failed", msgError, logsan.SanitizeForLog(err.Error()))
 		writeError(w, http.StatusInternalServerError, "moving resource")
 		return "", false
 	}
@@ -1131,7 +1132,7 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	id := res.ID
 
 	if err := DeleteResource(r.Context(), h.deps, res); err != nil {
-		slog.Error("resource delete failed", msgError, err) //nolint:gosec // structured slog
+		slog.Error("resource delete failed", msgError, logsan.SanitizeForLog(err.Error()))
 		if errors.Is(err, ErrDeleteContent) {
 			writeError(w, http.StatusInternalServerError, "deleting resource blob")
 			return
@@ -1185,7 +1186,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set(headerContentType, "application/json")
 	w.WriteHeader(status)
 	if err := wirejson.Encode(w, v); err != nil {
-		slog.Error("failed to write JSON response", msgError, err)
+		slog.Error("failed to write JSON response", msgError, logsan.SanitizeForLog(err.Error()))
 	}
 }
 

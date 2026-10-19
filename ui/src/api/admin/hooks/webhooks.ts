@@ -1,6 +1,9 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "../client";
 import type {
+  WebhookAlertInput,
+  WebhookAlertSettings,
+  WebhookCustomSpan,
   WebhookSource,
   WebhookSourceDetail,
   WebhookSourceInput,
@@ -17,16 +20,28 @@ const KEY = ["webhook-sources"] as const;
  * or of one source when `source` names it (#2107), refreshed so a source that
  * goes quiet or starts failing shows without a reload. `enabled` false holds
  * the request. */
-export function useWebhookStatus(range: WebhookStatusRange, source = "", enabled = true) {
+export function useWebhookStatus(range: WebhookStatusRange, source = "", enabled = true, custom?: WebhookCustomSpan) {
   const params = new URLSearchParams({ range });
   if (source) params.set("source", source);
+  if (range === "custom" && custom) {
+    params.set("from", custom.from);
+    params.set("to", custom.to);
+  }
   return useQuery({
-    queryKey: [...KEY, "status", range, source],
+    queryKey: [...KEY, "status", range, source, range === "custom" ? custom : null],
     queryFn: () => apiFetch<WebhookStatusOverview>(`/webhooks/status?${params.toString()}`),
-    enabled,
+    enabled: enabled && (range !== "custom" || !!custom),
     refetchInterval: REFETCH_INTERVAL,
     // Switching the range keeps the table on screen while the series loads.
     placeholderData: keepPreviousData,
+  });
+}
+
+/** useWebhookSources lists every source, for a picker naming one. */
+export function useWebhookSources() {
+  return useQuery({
+    queryKey: [...KEY, "list"],
+    queryFn: () => apiFetch<{ sources: WebhookSource[] }>("/webhooks/sources"),
   });
 }
 
@@ -99,6 +114,28 @@ export function useSyncWebhookPartitions() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: KEY });
+    },
+  });
+}
+
+// --- Webhook alerts (#2149) ---
+
+const ALERT_KEY = ["settings", "webhook-alert"] as const;
+
+export function useWebhookAlertSettings() {
+  return useQuery({
+    queryKey: ALERT_KEY,
+    queryFn: () => apiFetch<WebhookAlertSettings>("/settings/webhook-alert"),
+  });
+}
+
+export function useSetWebhookAlertSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: WebhookAlertInput) =>
+      apiFetch<WebhookAlertSettings>("/settings/webhook-alert", { method: "PUT", body: JSON.stringify(input) }),
+    onSuccess: (data) => {
+      qc.setQueryData(ALERT_KEY, data);
     },
   });
 }

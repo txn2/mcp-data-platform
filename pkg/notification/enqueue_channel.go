@@ -21,6 +21,14 @@ type ChannelSend struct {
 	// Actor is who the send is charged to: the person or script sending.
 	// Empty for an alert the platform raised.
 	Actor string
+	// Platform marks an alert the platform raised. It is charged to no
+	// actor: the operator who named the channel authorized it, and the
+	// channel's hourly cap and repeat window bound it. A leveled alert
+	// resends each condition every pass for the window to hold back, so a
+	// per-actor charge would spend the budget on repeats and drop the one
+	// resolution the channel is owed. An empty Actor alone is not the
+	// platform: a caller with no email is still limited, by channel.
+	Platform bool
 	// RepeatAfter lengthens the channel's repeat window for the document's
 	// key. A value shorter than the channel's own window is ignored: a
 	// sender may make an alert quieter, never louder.
@@ -89,7 +97,7 @@ func (e *Enqueuer) NotifyChannel(ctx context.Context, s ChannelSend) (ChannelRes
 	if err := checkSend(s); err != nil {
 		return ChannelResult{}, err
 	}
-	if !e.allowActor(s.Actor, ch.Name) {
+	if !s.Platform && !e.allowActor(s.Actor, ch.Name) {
 		return ChannelResult{}, nil
 	}
 	rows, err := e.channelRows(ctx, s)

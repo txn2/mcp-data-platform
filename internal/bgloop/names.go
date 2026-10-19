@@ -29,6 +29,9 @@ const (
 	NameCapacityTables    = "capacity_tables"
 	NameStorageUsageFlush = "storage_usage_flush"
 	NameStorageScan       = "storage_scan"
+	// NameStorageHistory samples each store's usage and capacity, keeps the
+	// history and evaluates the storage alerts (internal/platform/storagecap).
+	NameStorageHistory = "storage_history"
 
 	// Queue workers and their sub-loops.
 	NameIndexJobWorker      = "indexjob_worker"
@@ -65,6 +68,7 @@ const (
 	NameConnOAuthRefresh   = "connection_oauth_refresh"
 	NameRevocationEscalate = "connection_revocation_escalator"
 	NameReviewQueueAlert   = "review_queue_alert"
+	NameWebhookAlert       = "webhook_alert"
 	NameMemoryStaleness    = "memory_staleness"
 	NameReloadBus          = "reload_bus"
 

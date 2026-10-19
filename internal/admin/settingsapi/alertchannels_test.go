@@ -81,6 +81,14 @@ func TestAlertChannels_EveryWireForm(t *testing.T) {
 			"scheduled run", scriptRunAlertPath, func() Config { return Config{ScriptRunAlert: &fakeScriptRunAlert{}} },
 			map[string]any{},
 		},
+		{
+			"storage", storagePath, func() Config { return Config{Storage: &fakeStorage{}} },
+			map[string]any{"history_days": 90},
+		},
+		{
+			"webhook", webhookAlertPath, func() Config { return Config{WebhookAlert: &fakeWebhookAlert{}} },
+			map[string]any{"not_reporting_seconds": 60},
+		},
 	}
 	for _, rt := range routes {
 		t.Run(rt.name, func(t *testing.T) {

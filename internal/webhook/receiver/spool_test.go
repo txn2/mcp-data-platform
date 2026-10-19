@@ -211,6 +211,16 @@ func TestSpool_StateIsRecorded(t *testing.T) {
 	assert.Equal(t, int64(1<<20), st.MaxBytes)
 	assert.Equal(t, time.Hour, st.MaxAge)
 	assert.Equal(t, 1, h.metrics.spoolSeen)
+	require.NotNil(t, st.FsTotal, "the spool's volume is reported (#2148)")
+	require.NotNil(t, st.FsFree)
+	assert.Positive(t, *st.FsTotal)
+	assert.LessOrEqual(t, *st.FsFree, *st.FsTotal)
+
+	// A volume that cannot be read is reported as unknown, not as empty.
+	h.r.volumeOf = func(string) (whspool.Volume, error) { return whspool.Volume{}, errors.New("statfs") }
+	st = h.r.spoolState()
+	assert.Nil(t, st.FsTotal)
+	assert.Nil(t, st.FsFree)
 	close(objects.stall)
 }
 
@@ -307,4 +317,29 @@ func TestSpool_ADeletedSourcesFileIsDiscarded(t *testing.T) {
 	h.sources.err = errors.New("database down")
 	h.sources.mu.Unlock()
 	assert.False(t, h.r.sourceDeleted(context.Background(), "unknown"), "a store that cannot be read is no proof")
+}
+
+// TestSpoolTallyStreak counts drains failing in a row from the first of them,
+// and a drain that succeeds ends the streak (#2149).
+func TestSpoolTallyStreak(t *testing.T) {
+	var tally spoolTally
+	at := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	tally.failed(at, "esp", errors.New("bucket gone"))
+	tally.failed(at.Add(time.Minute), "esp", errors.New("bucket gone"))
+	n, since := tally.streak()
+	assert.Equal(t, int64(2), n)
+	assert.Equal(t, at, since, "the streak dates from its first failure")
+
+	// Another source draining does not end this one's streak.
+	tally.drainedAt(at.Add(90*time.Second), "crm", 5)
+	tally.failed(at.Add(2*time.Minute), "esp", errors.New("bucket gone"))
+	n, since = tally.streak()
+	assert.Equal(t, int64(3), n)
+	assert.Equal(t, at, since)
+
+	tally.drainedAt(at.Add(3*time.Minute), "esp", 3)
+	n, since = tally.streak()
+	assert.Zero(t, n)
+	assert.True(t, since.IsZero())
+	assert.Equal(t, int64(3), tally.failures.Load(), "the total since start is kept")
 }

@@ -124,7 +124,7 @@ func (r *Receiver) logRefused(d delivery, outcome, reason string, st *stages) {
 func (r *Receiver) senderGone(d delivery, bt *batch) {
 	reason := fmt.Sprintf("the sender disconnected after %s, before its events were written",
 		r.now().Sub(d.started).Round(time.Millisecond))
-	r.count(d.source, OutcomeSenderGone)
+	r.count(d.source, OutcomeSenderGone, 0)
 	r.reject(d, OutcomeSenderGone, reason)
 	r.logRefused(d, OutcomeSenderGone, reason, nil)
 	go func() {

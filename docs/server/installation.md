@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.26+ (for building from source)
+- Go 1.27+ (for building from source)
 - An MCP-compatible client (Claude Desktop, Claude Code, or custom)
 - Access to the Trino and/or S3 services you want to connect
 - PostgreSQL for the platform catalog, audit, knowledge, memory and the portal (optional for a standalone stdio deployment, which then has no catalog)

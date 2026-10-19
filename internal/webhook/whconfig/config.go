@@ -82,6 +82,11 @@ type CompactorConfig struct {
 	// window is kept (#1904). 0 takes 90; a negative value keeps them for as
 	// long as their source exists.
 	ExpiredWindowRetentionDays int `yaml:"expired_window_retention_days"`
+	// TelemetryRetentionDays is how long the webhooks page's history is kept
+	// (#2150): request counts by outcome and status, acknowledgement
+	// latency, each receiver's minutes and the compaction runs, per minute
+	// for 48 hours and per hour after. 0 takes 14.
+	TelemetryRetentionDays int `yaml:"telemetry_retention_days"`
 	// RollupCheckEvery and RollupDeleteDelay paced the open window's rollup,
 	// which deleted files a running query had listed and is gone (#2140).
 	// They are accepted so a configuration that sets them still starts, and
@@ -117,7 +122,7 @@ func (c Config) CompactorEnabled() bool {
 const day = 24 * time.Hour
 
 // errNegative is a pacing value below zero.
-var errNegative = errors.New("webhooks: write_timeout, spool.max_bytes, spool.max_age, poll, grace, lease, batch, retry_backoff and retention_every cannot be negative")
+var errNegative = errors.New("webhooks: write_timeout, spool.max_bytes, spool.max_age, poll, grace, lease, batch, retry_backoff, retention_every and telemetry_retention_days cannot be negative")
 
 // Validate refuses a section that cannot pace anything.
 func (c Config) Validate() error {
@@ -129,7 +134,7 @@ func (c Config) Validate() error {
 			return errNegative
 		}
 	}
-	if c.Compactor.Batch < 0 || c.Receiver.Spool.MaxBytes < 0 {
+	if c.Compactor.Batch < 0 || c.Receiver.Spool.MaxBytes < 0 || c.Compactor.TelemetryRetentionDays < 0 {
 		return errNegative
 	}
 	return nil
@@ -142,6 +147,7 @@ func (c Config) Tuning() compactor.Tuning {
 		Grace: c.Compactor.Grace, RetryBackoff: c.Compactor.RetryBackoff,
 		RetentionEvery:     c.Compactor.RetentionEvery,
 		ExpiredWindowsKept: time.Duration(c.Compactor.ExpiredWindowRetentionDays) * day,
+		TelemetryKept:      time.Duration(c.Compactor.TelemetryRetentionDays) * day,
 	}
 }
 

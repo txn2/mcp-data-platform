@@ -13,11 +13,12 @@ import (
 // newest rejections of every source.
 type StatusOverview struct {
 	GeneratedAt time.Time `json:"generated_at"`
-	// Range is the span the series covers: hour or day.
-	Range string `json:"range" enums:"hour,day" example:"hour"`
+	// Range is the span the series covers: hour, day, week or custom.
+	Range string `json:"range" enums:"hour,day,week,custom" example:"hour"`
 	// From is the series' lower bound: a minute's counts are in the series
-	// when the minute is at or after it.
-	From time.Time `json:"from"`
+	// when the minute is at or after it. Until is its upper bound, exclusive.
+	From  time.Time `json:"from"`
+	Until time.Time `json:"until"`
 	// BucketSeconds is the length of one bucket of the series.
 	BucketSeconds int `json:"bucket_seconds" example:"60"`
 	// SilentAfterSeconds is how long an enabled source may go without an
@@ -29,6 +30,8 @@ type StatusOverview struct {
 	// Spools is every receiver's local spool, by replica: empty where no
 	// receiver spools (#2121).
 	Spools []ReplicaSpool `json:"spools"`
+	// History is the telemetry over the range (#2150).
+	History StatusHistory `json:"history"`
 }
 
 // ReplicaSpool is one receiver's local spool as it last reported it (#2121):

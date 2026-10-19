@@ -12,6 +12,11 @@ const base: WebhookStatusOverview = {
   volume: [],
   rejections: [],
   spools: [],
+  until: "2026-09-29T12:00:30Z",
+  history: {
+    statuses: [], replicas: [], ack: [], compactions: [], storage: [],
+    sizing: { memory_limit_bytes: 0, largest: null, warn_at_percent: 50, warning: false },
+  },
 };
 
 describe("volumeSeries", () => {

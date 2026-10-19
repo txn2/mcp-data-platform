@@ -71,6 +71,23 @@ func (s *Store) DeleteExpired(ctx context.Context, before time.Time) (int64, err
 	return n, nil
 }
 
+// CompactedDigest returns the digest of the segments the last compaction of w
+// read, and whether that compaction is still current: no segment has been
+// recorded against the window since. Retention reads it after listing a
+// window's segments and deletes them only when the listing is the set the
+// compaction read (#2151).
+func (s *Store) CompactedDigest(ctx context.Context, w Window) (digest string, current bool, err error) {
+	err = s.db.QueryRowContext(ctx,
+		`SELECT digest, compacted_at IS NOT NULL AND generation = compacted_generation
+		   FROM webhook_windows
+		  WHERE source = $1 AND window_start = $2`,
+		w.Source, w.Start.UTC()).Scan(&digest, &current)
+	if err != nil {
+		return "", false, fmt.Errorf("reading the webhook window's compaction: %w", err)
+	}
+	return digest, current, nil
+}
+
 // MarkRawDeleted records that a window's raw segments were deleted.
 func (s *Store) MarkRawDeleted(ctx context.Context, w Window) error {
 	return s.stamp(ctx, "raw_deleted_at", w)
@@ -95,7 +112,10 @@ func (s *Store) stamp(ctx context.Context, column string, w Window) error {
 	var q string
 	switch column {
 	case "raw_deleted_at":
-		q = `UPDATE webhook_windows SET raw_deleted_at = NOW() WHERE source = $1 AND window_start = $2`
+		// The raw tally is zeroed with the segments. A segment written
+		// after the listing that released them is not deleted and is not
+		// counted again until the next one lands.
+		q = `UPDATE webhook_windows SET raw_deleted_at = NOW(), raw_bytes = 0, raw_segments = 0 WHERE source = $1 AND window_start = $2`
 	case "unregistered_at":
 		q = `UPDATE webhook_windows SET unregistered_at = NOW() WHERE source = $1 AND window_start = $2`
 	default:

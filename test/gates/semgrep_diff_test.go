@@ -191,3 +191,92 @@ func TestSemgrepDiffRunsEveryRuleFile(t *testing.T) {
 		t.Error("make semgrep-diff does not run the whole .semgrep-diff/ directory")
 	}
 }
+
+// slogRule is the .semgrep/ rule #2145 was filed on: verify-static refused a
+// new slog.Warn in a function holding ctx after every pre-gate had passed.
+const slogRule = ".semgrep/go-slog-context.yml"
+
+// slogBase is a webhook file that logs with its context, as the rule asks.
+const slogBase = `package wh
+
+import (
+	"context"
+	"log/slog"
+)
+
+func drain(ctx context.Context) {
+	slog.InfoContext(ctx, "drained")
+}
+`
+
+// slogWarnInCtx adds the #2145 shape on line 11: a context-less slog.Warn in a
+// function that has a context.
+const slogWarnInCtx = `package wh
+
+import (
+	"context"
+	"log/slog"
+)
+
+func drain(ctx context.Context) {
+	slog.InfoContext(ctx, "drained")
+	_ = ctx
+	slog.Warn("drain slow")
+}
+`
+
+// TestSemgrepChangedRefusesTheBranchsFindings holds make semgrep-changed to
+// #2145: the .semgrep/ rules run over the files a branch changed, tracked or
+// not yet added, and name the rule and the line.
+func TestSemgrepChangedRefusesTheBranchsFindings(t *testing.T) {
+	requireSemgrep(t)
+	// #nosec G304 -- slogRule is this package's constant rule path.
+	rule, err := os.ReadFile(filepath.Join("..", "..", slogRule))
+	require(t, err)
+	const tracked, added = "internal/webhook/wh/wh.go", "internal/webhook/wh/new.go"
+
+	cases := []struct {
+		name   string
+		write  map[string]string
+		expect expect
+	}{
+		{
+			name:   "a slog.Warn added to a tracked file is refused",
+			write:  map[string]string{tracked: slogWarnInCtx},
+			expect: expect{want: []string{tracked + ":11:", "[slog-without-context-in-context-function]"}},
+		},
+		{
+			name:   "a new file git does not track yet is scanned",
+			write:  map[string]string{added: slogWarnInCtx},
+			expect: expect{want: []string{added + ":11:", "[slog-without-context-in-context-function]"}},
+		},
+		{
+			name:   "a change that logs with its context passes",
+			write:  map[string]string{tracked: slogBase + "\nfunc other(ctx context.Context) { slog.WarnContext(ctx, \"x\") }\n"},
+			expect: expect{pass: true, mustNot: []string{"[slog-without-context"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newGitRepo(t, semgrepDiffScript, map[string]string{
+				slogRule: string(rule),
+				tracked:  slogBase,
+			})
+			for rel, body := range tc.write {
+				writeFile(t, root, rel, body)
+			}
+			out, passed := runScript(t, root, []string{semgrepDiffScript, "--whole-files", ".semgrep/"}, nil)
+			assertOutput(t, out, passed, tc.expect)
+		})
+	}
+}
+
+// TestSemgrepChangedRunsEveryRuleFile pins that make semgrep-changed hands the
+// script the whole .semgrep/ directory, whole-file scoped.
+func TestSemgrepChangedRunsEveryRuleFile(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "Makefile"))
+	require(t, err)
+	if indexOf(recipe(t, string(raw), "semgrep-changed"), "scripts/semgrep-diff.py --whole-files .semgrep/") < 0 {
+		t.Error("make semgrep-changed does not run the whole .semgrep/ directory over the changed files")
+	}
+}

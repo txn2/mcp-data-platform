@@ -51,9 +51,13 @@ const (
 	// DefaultExpiredWindowsKept is how long the record of an expired window
 	// is kept once its partition, file and segments are gone (#1904).
 	DefaultExpiredWindowsKept = 90 * 24 * time.Hour
-	// countsKept is how long per-minute request counts are kept: the source's
-	// page reads the last day of them.
-	countsKept = 48 * time.Hour
+	// DefaultTelemetryKept is how long the webhooks page's history is kept:
+	// request counts, acknowledgement latency, the receivers' minutes and
+	// the compaction runs (#2150).
+	DefaultTelemetryKept = 14 * 24 * time.Hour
+	// minutesKept is how long the history is kept per minute before it is
+	// rolled up into hours.
+	minutesKept = 48 * time.Hour
 	// maxBackoff caps how long a failing window is held back.
 	maxBackoff = time.Hour
 )
@@ -69,6 +73,9 @@ type Tuning struct {
 	// ExpiredWindowsKept is how long an expired window's record is kept. A
 	// negative value keeps them for as long as their source exists.
 	ExpiredWindowsKept time.Duration
+	// TelemetryKept is how long the webhooks page's history is kept, per
+	// minute for its first 48 hours and per hour after.
+	TelemetryKept time.Duration
 }
 
 func (t Tuning) withDefaults() Tuning {
@@ -92,6 +99,9 @@ func (t Tuning) withDefaults() Tuning {
 	}
 	if t.ExpiredWindowsKept == 0 {
 		t.ExpiredWindowsKept = DefaultExpiredWindowsKept
+	}
+	if t.TelemetryKept <= 0 {
+		t.TelemetryKept = DefaultTelemetryKept
 	}
 	return t
 }
@@ -243,13 +253,9 @@ func (w *Worker) compact(ctx context.Context, src whsource.Source, h whstore.Win
 	if err != nil {
 		return fmt.Errorf("listing the window's segments: %w", err)
 	}
-	keys := make([]string, 0, len(listed))
-	for _, key := range listed {
-		if whlayout.HoldsEvents(key) {
-			keys = append(keys, key)
-		}
-	}
-	events, err := w.gather(ctx, h, keys)
+	keys := eventKeys(listed)
+	began := w.deps.Now()
+	events, inputBytes, err := w.gather(ctx, h, keys)
 	if err != nil {
 		return err
 	}
@@ -271,33 +277,68 @@ func (w *Worker) compact(ctx context.Context, src whsource.Source, h whstore.Win
 	}
 	if err := w.deps.Windows.RecordCompacted(ctx, h, whstore.Compaction{
 		Segments: len(keys), Events: int64(len(kept)), Duplicates: dropped,
-		Digest: digest(keys), ResourceID: stored.ResourceID, Location: location,
+		Digest: digest(keys), ResourceID: stored.ResourceID, Location: location, Bytes: int64(len(data)),
 	}); err != nil {
 		return fmt.Errorf("recording the compaction: %w", err)
 	}
 	w.metric(ctx, src.Name, ResultCompacted, dropped)
+	w.recordRun(ctx, whstore.CompactionRun{
+		Source: src.Name, WindowStart: h.Start, Segments: len(keys), Events: int64(len(kept)),
+		InputBytes: inputBytes, DecodedBytes: heldBytes(events), OutputBytes: int64(len(data)),
+	}, h.Start.Add(h.Length), began)
 	return nil
 }
 
+// recordRun keeps one compaction's figures for the webhooks page and reports
+// them as metrics (#2150). A failure to keep them is logged; the window was
+// compacted.
+func (w *Worker) recordRun(ctx context.Context, run whstore.CompactionRun, windowEnd, began time.Time) {
+	now := w.deps.Now()
+	run.CompactedAt = now
+	run.DurationMS = now.Sub(began).Milliseconds()
+	run.LagSeconds = int64(now.Sub(windowEnd).Seconds())
+	if w.deps.Metrics != nil {
+		w.deps.Metrics.WebhookCompactionRun(ctx, run.Source, now.Sub(began), now.Sub(windowEnd), run.DecodedBytes)
+	}
+	if err := w.deps.Windows.RecordCompactionRun(ctx, run); err != nil {
+		w.warn(ctx, "recording a compaction run", run.Source, err)
+	}
+}
+
+// heldBytes is about how much memory the window's events took while it was
+// compacted: each event's fields, and a fixed amount for the rest of it. The
+// compactor holds a whole window at once, so this is what a window is sized
+// against the memory limit by.
+func heldBytes(events []whevent.Stored) int64 {
+	const perEvent = 128
+	var n int64
+	for _, e := range events {
+		n += int64(len(e.Payload) + len(e.EventID) + len(e.EventType) + len(e.Key) + len(e.ContentHash) + len(e.Replica) + perEvent)
+	}
+	return n
+}
+
 // gather reads the window's previous Parquet file, when it has one, and every
-// raw segment.
-func (w *Worker) gather(ctx context.Context, h whstore.Window, keys []string) ([]whevent.Stored, error) {
+// raw segment, and the bytes of the segments read.
+func (w *Worker) gather(ctx context.Context, h whstore.Window, keys []string) ([]whevent.Stored, int64, error) {
 	events, err := w.previous(ctx, h)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	var read int64
 	for _, key := range keys {
 		data, err := w.deps.Objects.GetObject(ctx, w.deps.Bucket, key)
 		if err != nil {
-			return nil, fmt.Errorf("reading segment %s: %w", key, err)
+			return nil, 0, fmt.Errorf("reading segment %s: %w", key, err)
 		}
+		read += int64(len(data))
 		seg, err := whevent.DecodeSegment(data)
 		if err != nil {
-			return nil, fmt.Errorf("segment %s: %w", key, err)
+			return nil, 0, fmt.Errorf("segment %s: %w", key, err)
 		}
 		events = append(events, seg...)
 	}
-	return events, nil
+	return events, read, nil
 }
 
 // previous reads the events of the window's last compaction, which is what
@@ -341,6 +382,18 @@ func dedup(events []whevent.Stored) (kept []whevent.Stored, dropped int64) {
 		kept = append(kept, e)
 	}
 	return kept, dropped
+}
+
+// eventKeys is the listed keys that hold events: the segments a compaction
+// reads and its digest is computed over.
+func eventKeys(listed []string) []string {
+	keys := make([]string, 0, len(listed))
+	for _, key := range listed {
+		if whlayout.HoldsEvents(key) {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // digest identifies the set of segments a compaction read.

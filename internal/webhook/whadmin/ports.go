@@ -46,7 +46,7 @@ type Registrations interface {
 // resources a source's windows were written as.
 type Windows interface {
 	Status(ctx context.Context, source string, now time.Time) (whstore.Status, error)
-	Overview(ctx context.Context, source string, now time.Time, span, step time.Duration) (whstore.Overview, error)
+	Overview(ctx context.Context, source string, now time.Time, span whstore.Span) (whstore.Overview, error)
 	ResourceIDs(ctx context.Context, source string) ([]string, error)
 	// SpoolStates reads every receiver's spool state (#2121).
 	SpoolStates(ctx context.Context) ([]whstore.SpoolState, error)

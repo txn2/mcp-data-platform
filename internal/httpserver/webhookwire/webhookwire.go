@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/admin/webhookapi"
@@ -25,13 +27,17 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/levelalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister/regstore"
+	"github.com/txn2/mcp-data-platform/internal/procload"
 	"github.com/txn2/mcp-data-platform/internal/webhook/compactor"
 	"github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whalert"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whspool"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
@@ -67,6 +73,43 @@ type Webhooks struct {
 	// observe is the request observer's config for the receiver's own
 	// listener, which serves one handler and no mux (#1889).
 	observe httpobs.Config
+	// alertDeps is what the alert evaluation reads, kept until
+	// EnableAlerts names where it posts; alerts is the evaluation (#2149).
+	alertDeps whalert.Deps
+	alerts    *whalert.Service
+}
+
+// EnableAlerts builds the webhook alert evaluation (#2149), posting through
+// sender and linking to the portal under base. Called before Start; a nil
+// Webhooks does nothing.
+func (w *Webhooks) EnableAlerts(sender levelalert.Sender, base string) {
+	if w == nil {
+		return
+	}
+	d := w.alertDeps
+	d.Engine = levelalert.New(levelalert.NewPostgresStore(d.DB), sender)
+	d.BaseURL = strings.TrimRight(base, "/")
+	d.Interval = alertInterval()
+	w.alerts = whalert.New(d)
+}
+
+// EnvAlertInterval overrides how often the webhook alerts are evaluated
+// (default a minute), as a Go duration.
+const EnvAlertInterval = "MCP_PLATFORM_WEBHOOK_ALERT_INTERVAL"
+
+// alertInterval reads EnvAlertInterval, or zero (the default) when it is
+// unset or not a positive duration.
+func alertInterval() time.Duration {
+	raw := os.Getenv(EnvAlertInterval)
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		slog.Warn("ignoring "+EnvAlertInterval+"; it must be a positive duration such as 30s", "value", logsan.SanitizeForLog(raw))
+		return 0
+	}
+	return d
 }
 
 // Build assembles webhooks from the platform. address is the main listener's,
@@ -183,6 +226,7 @@ func assemble(pt parts) (*Webhooks, error) {
 	sources := whsource.NewStore(db, pt.encryptor)
 	windows := whstore.New(db)
 	registerCompactionGauge(bgloop.Metrics(), windows)
+	registerStorageGauge(bgloop.Metrics(), windows)
 	wcfg := pt.cfg.Webhooks
 	w := &Webhooks{address: wcfg.Receiver.Address, observe: httpobs.Config{Route: receiver.PathPrefix, Metrics: pt.observe}}
 	if wcfg.ReceiverEnabled() {
@@ -215,11 +259,18 @@ func assemble(pt parts) (*Webhooks, error) {
 	if registrations == nil {
 		registrations = regstore.NewPostgresStore(db)
 	}
+	grace := wcfg.Tuning().Grace
+	if grace <= 0 {
+		grace = compactor.DefaultGrace
+	}
+	w.alertDeps = whalert.Deps{
+		DB: db, Settings: whalert.NewSettingsStore(db), Reader: windows, Sources: sources, Grace: grace,
+	}
 	w.Service = whadmin.New(whadmin.Deps{
 		Sources: sources, Tables: pt.tables, Registrations: registrations,
 		Windows: windows, Objects: pt.objects, Resources: pt.resources, Bucket: pt.bucket,
 		Changed: w.receiver.Reload, NewID: newRegistrationID, Logger: slog.Default(),
-		PersonaExists: pt.personaExists,
+		PersonaExists: pt.personaExists, MemoryLimit: procload.MemoryLimit,
 	})
 	return w, nil
 }
@@ -285,6 +336,7 @@ func (w *Webhooks) Start(ctx context.Context) {
 	}
 	w.receiver.Start(ctx)
 	w.compactor.Start(ctx)
+	w.alerts.Start(ctx)
 	if w.receiver == nil || w.address == "" {
 		return
 	}
@@ -320,6 +372,7 @@ func (w *Webhooks) Stop() {
 		}
 	}
 	w.compactor.Stop()
+	w.alerts.Stop()
 }
 
 // MountAdmin registers the webhook source routes behind the admin API's

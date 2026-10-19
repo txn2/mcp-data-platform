@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Plus, Webhook } from "lucide-react";
 import { useWebhookStatus } from "@/api/admin/hooks";
 import type {
+  WebhookCustomSpan,
   WebhookReplicaSpool,
   WebhookSourceRejection,
   WebhookSourceStatus,
@@ -15,10 +16,12 @@ import { formatBytes } from "@/lib/format";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RejectionsTable } from "./RejectionsTable";
 import { VolumeChart } from "./VolumeChart";
+import { WebhookHistory } from "./WebhookHistory";
 import {
   HEALTH_HINTS,
   HEALTH_LABELS,
@@ -40,7 +43,34 @@ import {
 const RANGES: { value: WebhookStatusRange; label: string }[] = [
   { value: "hour", label: "Last hour" },
   { value: "day", label: "Last 24 hours" },
+  { value: "week", label: "Last 7 days" },
+  { value: "custom", label: "Custom" },
 ];
+
+/** localInput is a time as a datetime-local input holds it. */
+function localInput(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** useRange is the range picked and, for a custom one, the span applied. A
+ * custom span starts as the last day and is read once both ends are set. */
+function useRange() {
+  const [range, setRange] = useState<WebhookStatusRange>("hour");
+  const [draft, setDraft] = useState(() => ({
+    from: localInput(Date.now() - 24 * 3600_000),
+    to: localInput(Date.now()),
+  }));
+  const [applied, setApplied] = useState<WebhookCustomSpan | undefined>(undefined);
+  const apply = () => {
+    const from = new Date(draft.from);
+    const to = new Date(draft.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) return;
+    setApplied({ from: from.toISOString(), to: to.toISOString() });
+  };
+  return { range, setRange, draft, setDraft, custom: range === "custom" ? applied : undefined, apply };
+}
 
 // ALL is the source picker's value for every source; a Radix select item
 // cannot carry an empty value.
@@ -50,11 +80,15 @@ const ALL = "__all__";
  * (one deleted while picked falls back to every source), and the rejections
  * to list: every source's from the overview, or the picked source's read for
  * it alone. */
-function useChosenSource(range: WebhookStatusRange, data: WebhookStatusOverview | undefined) {
+function useChosenSource(
+  range: WebhookStatusRange,
+  data: WebhookStatusOverview | undefined,
+  custom: WebhookCustomSpan | undefined,
+) {
   const [source, setSource] = useState(ALL);
   const names = data?.sources.map((s) => s.name) ?? [];
   const chosen = source !== ALL && names.includes(source) ? source : "";
-  const one = useWebhookStatus(range, chosen, chosen !== "");
+  const one = useWebhookStatus(range, chosen, chosen !== "", custom);
   return {
     chosen,
     setSource,
@@ -64,11 +98,8 @@ function useChosenSource(range: WebhookStatusRange, data: WebhookStatusOverview 
 }
 
 export function WebhooksPage({ onNavigate }: { onNavigate: (path: string) => void }) {
-  const [range, setRange] = useState<WebhookStatusRange>("hour");
-  const { data, isLoading, isError } = useWebhookStatus(range);
-  const { chosen, setSource, rejections, loading } = useChosenSource(range, data);
-  const open = (name: string) => onNavigate(`/admin/webhooks/${encodeURIComponent(name)}`);
-
+  const r = useRange();
+  const { data, isLoading, isError } = useWebhookStatus(r.range, "", true, r.custom);
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
@@ -86,26 +117,88 @@ export function WebhooksPage({ onNavigate }: { onNavigate: (path: string) => voi
       ) : !isLoading && data?.sources.length === 0 ? (
         <NoSources />
       ) : (
-        <>
-          <VolumeSection
-            data={data}
-            isLoading={isLoading}
-            range={range}
-            onRange={setRange}
-            chosen={chosen}
-            onSource={setSource}
-          />
-          <SourcesTable sources={data?.sources} isLoading={isLoading} onOpen={open} />
-          <SpoolSection spools={data?.spools} />
-          <RejectionsSection
-            rejections={rejections}
-            isLoading={isLoading || loading}
-            range={range}
-            source={chosen}
-            onOpen={open}
-          />
-        </>
+        <Overview data={data} isLoading={isLoading} r={r} onNavigate={onNavigate} />
       )}
+    </div>
+  );
+}
+
+/** Overview is the page's sections once there are sources to show. */
+function Overview({
+  data,
+  isLoading,
+  r,
+  onNavigate,
+}: {
+  data: WebhookStatusOverview | undefined;
+  isLoading: boolean;
+  r: ReturnType<typeof useRange>;
+  onNavigate: (path: string) => void;
+}) {
+  const { range } = r;
+  const { chosen, setSource, rejections, loading } = useChosenSource(range, data, r.custom);
+  const open = (name: string) => onNavigate(`/admin/webhooks/${encodeURIComponent(name)}`);
+  const waiting = range === "custom" && !r.custom;
+  return (
+    <>
+      <VolumeSection
+        data={data}
+        isLoading={isLoading}
+        range={range}
+        onRange={r.setRange}
+        chosen={chosen}
+        onSource={setSource}
+      />
+      {range === "custom" && <CustomRange draft={r.draft} onDraft={r.setDraft} onApply={r.apply} />}
+      <SourcesTable sources={data?.sources} isLoading={isLoading} onOpen={open} />
+      <SpoolSection spools={data?.spools} />
+      <WebhookHistory data={data} source={chosen} isLoading={isLoading || waiting} />
+      <RejectionsSection
+        rejections={rejections}
+        isLoading={isLoading || loading}
+        range={range}
+        source={chosen}
+        onOpen={open}
+      />
+    </>
+  );
+}
+
+function CustomRange({
+  draft,
+  onDraft,
+  onApply,
+}: {
+  draft: { from: string; to: string };
+  onDraft: (d: { from: string; to: string }) => void;
+  onApply: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-end gap-2" data-testid="custom-range">
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        From
+        <Input
+          type="datetime-local"
+          className="h-8 w-52"
+          value={draft.from}
+          onChange={(e) => onDraft({ ...draft, from: e.target.value })}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        To
+        <Input
+          type="datetime-local"
+          className="h-8 w-52"
+          value={draft.to}
+          onChange={(e) => onDraft({ ...draft, to: e.target.value })}
+        />
+      </label>
+      <Button type="button" size="sm" onClick={onApply}>
+        Show
+      </Button>
+      <p className="text-xs text-muted-foreground">
+        Up to 31 days within the history kept: per minute for 48 hours, per hour after.
+      </p>
     </div>
   );
 }
@@ -165,7 +258,13 @@ function VolumeSection({
         </div>
       }
     >
-      <VolumeChart buckets={series.buckets} outcomes={series.outcomes} total={series.total} isLoading={isLoading} />
+      <VolumeChart
+        buckets={series.buckets}
+        outcomes={series.outcomes}
+        total={series.total}
+        isLoading={isLoading}
+        bucketSeconds={data?.bucket_seconds}
+      />
       {series.total > 0 && (
         <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Totals by outcome">
           {series.outcomes.map((o) => (
@@ -298,6 +397,13 @@ function ResponseTimeCell({ source }: { source: WebhookSourceStatus }) {
   );
 }
 
+const RANGE_PHRASES: Record<WebhookStatusRange, string> = {
+  hour: "in the last hour",
+  day: "in the last 24 hours",
+  week: "in the last 7 days",
+  custom: "in the range shown",
+};
+
 function RejectionsSection({
   rejections,
   isLoading,
@@ -312,7 +418,7 @@ function RejectionsSection({
   onOpen: (name: string) => void;
 }) {
   if (isLoading) return null;
-  const when = range === "hour" ? "in the last hour" : "in the last 24 hours";
+  const when = RANGE_PHRASES[range];
   return (
     <SectionCard title="Recent rejections">
       {!rejections || rejections.length === 0 ? (

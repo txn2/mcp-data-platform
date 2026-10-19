@@ -268,7 +268,7 @@ func (r *Receiver) writeWindow(ctx context.Context, seg segmentWrite, st *stages
 		return fmt.Errorf("encoding the segment: %w", err)
 	}
 	if r.needsMark(seg.source, seg.start) {
-		if err := r.mark(ctx, seg.source, seg.start, seg.length, st); err != nil {
+		if err := r.mark(ctx, seg, 0, st); err != nil {
 			return err
 		}
 		r.markedWindow(seg.source, seg.start)
@@ -280,18 +280,22 @@ func (r *Receiver) writeWindow(ctx context.Context, seg segmentWrite, st *stages
 		return fmt.Errorf("writing segment: %w", err)
 	}
 	r.metricSegment(seg.source)
-	if err := r.mark(ctx, seg.source, seg.start, seg.length, st); err != nil {
+	r.tallyWritten(len(seg.events), len(data))
+	if r.cfg.Metrics != nil {
+		r.cfg.Metrics.WebhookWritten(ctx, seg.source, len(seg.events), len(data))
+	}
+	if err := r.mark(ctx, seg, int64(len(data)), st); err != nil {
 		return err
 	}
 	r.queueRawWindow(seg.source, seg.start)
 	return nil
 }
 
-// mark records a segment against its window, adding how long that took to
-// st.
-func (r *Receiver) mark(ctx context.Context, source string, start time.Time, length time.Duration, st *stages) error {
+// mark records bytes written for seg against its window, adding how long that
+// took to st.
+func (r *Receiver) mark(ctx context.Context, seg segmentWrite, bytes int64, st *stages) error {
 	began := r.now()
-	err := r.cfg.Recorder.MarkSegment(ctx, source, start, length)
+	err := r.cfg.Recorder.MarkSegment(ctx, seg.source, seg.start, seg.length, bytes)
 	st.mark += r.now().Sub(began)
 	if err != nil {
 		return fmt.Errorf("recording segment: %w", err)

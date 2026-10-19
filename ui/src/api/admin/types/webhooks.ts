@@ -154,8 +154,14 @@ export interface WebhookSourceInput {
  * the first of disabled, failing, silent, receiving is reported. */
 export type WebhookHealth = "receiving" | "silent" | "failing" | "disabled";
 
-/** WebhookStatusRange is the span the volume series covers. */
-export type WebhookStatusRange = "hour" | "day";
+/** WebhookStatusRange is the span the series covers; custom takes a from and a to. */
+export type WebhookStatusRange = "hour" | "day" | "week" | "custom";
+
+/** WebhookCustomSpan is a custom range's bounds, RFC 3339. */
+export interface WebhookCustomSpan {
+  from: string;
+  to: string;
+}
 
 export interface WebhookSourceStatus {
   name: string;
@@ -197,6 +203,8 @@ export interface WebhookStatusOverview {
   range: WebhookStatusRange;
   /** The series' lower bound: a minute is counted when it is at or after it. */
   from: string;
+  /** Its upper bound, exclusive. */
+  until: string;
   bucket_seconds: number;
   silent_after_seconds: number;
   sources: WebhookSourceStatus[];
@@ -204,7 +212,120 @@ export interface WebhookStatusOverview {
   rejections: WebhookSourceRejection[];
   /** Every receiver's local spool, by replica; empty where none spools (#2121). */
   spools: WebhookReplicaSpool[];
+  /** The history over the range (#2150). */
+  history: WebhookHistory;
 }
+
+/** WebhookStatusPoint counts one source's requests answered with one HTTP
+ * status in one bucket; status 0 is a sender that left before its answer. */
+export interface WebhookStatusPoint {
+  at: string;
+  source: string;
+  http_status: number;
+  count: number;
+}
+
+/** WebhookReplicaMinute is one receiver's bucket: events received and written
+ * to object storage, and its spool's depth and oldest age. */
+export interface WebhookReplicaMinute {
+  at: string;
+  replica: string;
+  received_events: number;
+  drained_events: number;
+  drained_bytes: number;
+  spool_bytes: number;
+  spool_events: number;
+  oldest_age_seconds: number;
+}
+
+/** WebhookAckPoint is one source's acknowledgement latency in one bucket,
+ * with each stage's average; with a spool, put is the spool's sync. */
+export interface WebhookAckPoint {
+  at: string;
+  source: string;
+  count: number;
+  p50_ms: number;
+  p99_ms: number;
+  max_ms: number;
+  buffer_ms: number;
+  mark_ms: number;
+  put_ms: number;
+}
+
+/** WebhookCompactionRun is one compaction of one window. */
+export interface WebhookCompactionRun {
+  source: string;
+  window_start: string;
+  at: string;
+  duration_ms: number;
+  lag_seconds: number;
+  segments: number;
+  events: number;
+  input_bytes: number;
+  decoded_bytes: number;
+  output_bytes: number;
+}
+
+export interface WebhookSourceStorage {
+  source: string;
+  raw_bytes: number;
+  raw_segments: number;
+  compacted_bytes: number;
+  compacted_windows: number;
+}
+
+export interface WebhookHistory {
+  statuses: WebhookStatusPoint[];
+  replicas: WebhookReplicaMinute[];
+  ack: WebhookAckPoint[];
+  compactions: WebhookCompactionRun[];
+  storage: WebhookSourceStorage[];
+  sizing: {
+    memory_limit_bytes: number;
+    largest: {
+      source: string;
+      window_start: string;
+      decoded_bytes: number;
+      input_bytes: number;
+      events: number;
+      percent_of_limit: number;
+    } | null;
+    warn_at_percent: number;
+    warning: boolean;
+  };
+}
+
+/** WebhookThresholds are a warning and a critical value; 0 is off. */
+export interface WebhookThresholds {
+  warning: number;
+  critical: number;
+}
+
+/** WebhookSourceRules are the per-source conditions; an absent rule takes the default. */
+export interface WebhookSourceRules {
+  refusal_minutes?: number;
+  unauthorized_percent?: WebhookThresholds;
+  ack_p99_ms?: WebhookThresholds;
+  compaction_overdue_minutes?: WebhookThresholds;
+  silent_after_minutes?: number;
+}
+
+/** WebhookAlertSettings are the webhook receiver's alerts (#2149). */
+export interface WebhookAlertSettings {
+  channels: string[];
+  spool_fill_percent: WebhookThresholds;
+  spool_age_percent: WebhookThresholds;
+  drain_failures: WebhookThresholds;
+  drain_failing_minutes: number;
+  not_reporting_seconds: number;
+  spool_volume_free_percent: WebhookThresholds;
+  defaults: WebhookSourceRules;
+  sources: Record<string, WebhookSourceRules>;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export type WebhookAlertInput = Partial<Omit<WebhookAlertSettings, "updated_by" | "updated_at">>;
 
 /** One receiver's local spool as it last reported it (#2121). */
 export interface WebhookReplicaSpool {

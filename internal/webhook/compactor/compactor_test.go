@@ -43,6 +43,14 @@ type fakeWindows struct {
 	pruned   bool
 	// expiredBefore is the cutoff the last DeleteExpired was given.
 	expiredBefore time.Time
+	// afterRawDeletable runs once RawDeletable has chosen its windows, before
+	// retention lists any of them: the moment a writer can land a segment.
+	afterRawDeletable func()
+	// runs are the compaction runs recorded; rolledUp the last rollup's
+	// cutoff and prunedBefore the last prune's.
+	runs         []whstore.CompactionRun
+	rolledUp     time.Time
+	prunedBefore time.Time
 }
 
 type windowRow struct {
@@ -130,6 +138,11 @@ func (f *fakeWindows) RawDeletable(_ context.Context, source string, cutoff time
 			out = append(out, r.Window)
 		}
 	}
+	if f.afterRawDeletable != nil {
+		f.mu.Unlock()
+		f.afterRawDeletable()
+		f.mu.Lock()
+	}
 	return out, nil
 }
 
@@ -167,6 +180,16 @@ func (f *fakeWindows) RawRegistrable(_ context.Context, source string, since tim
 	return out, nil
 }
 
+func (f *fakeWindows) CompactedDigest(_ context.Context, h whstore.Window) (sum string, current bool, err error) {
+	if failed := f.err["digest"]; failed != nil {
+		return "", false, failed
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r := f.row(h)
+	return r.compaction.Digest, r.compacted && r.Generation == r.compactedGen, nil
+}
+
 func (f *fakeWindows) MarkRawDeleted(_ context.Context, h whstore.Window) error {
 	if err := f.err["rawdeleted"]; err != nil {
 		return err
@@ -189,9 +212,21 @@ func (f *fakeWindows) MarkExpired(_ context.Context, h whstore.Window) error {
 	return nil
 }
 
-func (f *fakeWindows) PruneCounts(context.Context, time.Time) error {
-	f.pruned = true
+func (f *fakeWindows) PruneCounts(_ context.Context, before time.Time) error {
+	f.pruned, f.prunedBefore = true, before
 	return f.err["prune"]
+}
+
+func (f *fakeWindows) RollupTelemetry(_ context.Context, before time.Time) error {
+	f.rolledUp = before
+	return f.err["rollup"]
+}
+
+func (f *fakeWindows) RecordCompactionRun(_ context.Context, run whstore.CompactionRun) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.runs = append(f.runs, run)
+	return f.err["run"]
 }
 
 func (f *fakeWindows) DeleteExpired(_ context.Context, before time.Time) (int64, error) {
@@ -381,11 +416,17 @@ func (f *fakeResources) Delete(_ context.Context, id string) error {
 }
 
 type fakeMetrics struct {
+	runs    int
 	results map[string]int
 	dropped int64
 }
 
 func (m *fakeMetrics) WebhookCompaction(_ context.Context, _, result string) { m.results[result]++ }
+
+func (m *fakeMetrics) WebhookCompactionRun(context.Context, string, time.Duration, time.Duration, int64) {
+	m.runs++
+}
+
 func (m *fakeMetrics) WebhookDuplicatesDropped(_ context.Context, _ string, n int64) {
 	m.dropped += n
 }
@@ -440,6 +481,14 @@ func (r *rig) segment(t *testing.T, h time.Time, at segAt, ids ...string) {
 	data, err := whevent.EncodeSegment(evs, h.Add(time.Duration(at.offset)*time.Second))
 	require.NoError(t, err)
 	r.objects.put(whlayout.SegmentKey("esp", h, at.writer, at.seq), data)
+}
+
+// compactedOver records row as compacted at generation 1 over the segments its
+// window holds now, as a compaction that read them would.
+func (r *rig) compactedOver(row *windowRow) {
+	keys, _ := r.objects.ListKeys(ctx, "", whlayout.WindowPrefix(row.Source, row.Start))
+	row.compacted, row.compactedGen = true, 1
+	row.compaction.Digest = digest(eventKeys(keys))
 }
 
 func (r *rig) parquetIDs(t *testing.T, id string) []string {
@@ -595,13 +644,13 @@ func TestRawRetention(t *testing.T) {
 	r := newRig(t)
 	old := window.Add(-10 * 24 * time.Hour)
 	compacted := r.windows.add("esp", old, 1)
-	compacted.compacted, compacted.compactedGen = true, 1
 	dirty := r.windows.add("esp", old.Add(time.Hour), 2)
-	dirty.compacted, dirty.compactedGen = true, 1
 	pending := r.windows.add("esp", old.Add(2*time.Hour), 1)
 	r.segment(t, old, segAt{"a", 1, 0}, "a")
 	r.segment(t, old.Add(time.Hour), segAt{"a", 2, 0}, "b")
 	r.segment(t, old.Add(2*time.Hour), segAt{"a", 3, 0}, "c")
+	r.compactedOver(compacted)
+	r.compactedOver(dirty)
 
 	_ = r.w.Retention(ctx)
 	assert.True(t, compacted.rawDeleted)
@@ -610,6 +659,52 @@ func TestRawRetention(t *testing.T) {
 	keys, _ := r.objects.ListKeys(ctx, "", "webhooks/esp/raw/")
 	assert.Len(t, keys, 2)
 	assert.True(t, r.windows.pruned)
+}
+
+// TestRawRetentionKeepsASegmentWrittenAfterTheWindowWasChosen covers #2151:
+// a drain backlog lands a segment in a window raw retention has just chosen.
+// Its events were acknowledged and are in no Parquet file, so retention keeps
+// the window's segments, and the compaction the window is then owed holds
+// them. Both orders of the writer's put and its record are covered: the
+// record lands after the listing, or before it.
+func TestRawRetentionKeepsASegmentWrittenAfterTheWindowWasChosen(t *testing.T) {
+	for _, markBeforeListing := range []bool{false, true} {
+		name := map[bool]string{false: "recorded after the listing", true: "recorded before the listing"}[markBeforeListing]
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t)
+			old := window.Add(-10 * 24 * time.Hour)
+			row := r.windows.add("esp", old, 1)
+			r.segment(t, old, segAt{"a", 1, 0}, "a", "b")
+			r.clock = old.Add(3 * time.Hour)
+			require.True(t, r.w.Pass(ctx))
+			require.True(t, row.compacted)
+			r.clock = now
+
+			r.windows.afterRawDeletable = func() {
+				r.windows.afterRawDeletable = nil
+				r.segment(t, old, segAt{"spool", 7, 40}, "late-1", "late-2")
+				if markBeforeListing {
+					row.Generation++
+				}
+			}
+			require.NoError(t, r.w.Retention(ctx))
+			assert.False(t, row.rawDeleted, "the window's segments are no longer the set its compaction read")
+			keys, _ := r.objects.ListKeys(ctx, "", whlayout.WindowPrefix("esp", old))
+			assert.Len(t, keys, 2, "no segment of the window is deleted")
+			if !markBeforeListing {
+				row.Generation++
+			}
+
+			require.True(t, r.w.Pass(ctx), "the window is owed a compaction")
+			assert.Equal(t, []string{"a", "b", "late-1", "late-2"}, r.parquetIDs(t, row.ResourceID))
+
+			// Once compacted over everything, the next pass releases it.
+			require.NoError(t, r.w.Retention(ctx))
+			assert.True(t, row.rawDeleted)
+			keys, _ = r.objects.ListKeys(ctx, "", whlayout.WindowPrefix("esp", old))
+			assert.Empty(t, keys)
+		})
+	}
 }
 
 // TestRetentionKeepsRawPartitionsByName covers #2133: a pass unregisters the
@@ -621,9 +716,9 @@ func TestRetentionKeepsRawPartitionsByName(t *testing.T) {
 	r := newRig(t)
 	old := window.Add(-10 * 24 * time.Hour)
 	released := r.windows.add("esp", old, 1)
-	released.compacted, released.compactedGen = true, 1
 	r.tables.raw["esp"+old.String()] = true
 	r.segment(t, old, segAt{"a", 1, 0}, "a")
+	r.compactedOver(released)
 
 	recent := now.Add(-30 * time.Minute).Truncate(time.Hour)
 	fresh := r.windows.add("esp", recent, 1)
@@ -651,10 +746,10 @@ func TestRetentionRawPartitionFailures(t *testing.T) {
 			r := newRig(t)
 			old := window.Add(-10 * 24 * time.Hour)
 			released := r.windows.add("esp", old, 1)
-			released.compacted, released.compactedGen = true, 1
 			fresh := r.windows.add("esp", now.Truncate(time.Hour), 1)
 			fresh.lastSegment = now
 			r.segment(t, old, segAt{"a", 1, 0}, "a")
+			r.compactedOver(released)
 			if key == "rawregistrable" {
 				r.windows.err[key] = errBoom
 			} else {
@@ -764,8 +859,10 @@ func TestRetentionFailures(t *testing.T) {
 		"delete":       func(r *rig) { r.objects.err["delete"] = errBoom },
 		"rawdeletable": func(r *rig) { r.windows.err["rawdeletable"] = errBoom },
 		"rawdeleted":   func(r *rig) { r.windows.err["rawdeleted"] = errBoom },
+		"digest":       func(r *rig) { r.windows.err["digest"] = errBoom },
 		"sync":         func(r *rig) { r.tables.err["sync"] = errBoom },
 		"prune":        func(r *rig) { r.windows.err["prune"] = errBoom },
+		"rollup":       func(r *rig) { r.windows.err["rollup"] = errBoom },
 	}
 	for name, breakIt := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -773,8 +870,8 @@ func TestRetentionFailures(t *testing.T) {
 			exp := r.windows.add("esp", old, 1)
 			exp.compacted, exp.compactedGen = true, 1
 			raw := r.windows.add("esp", window.Add(-10*24*time.Hour), 1)
-			raw.compacted, raw.compactedGen = true, 1
 			r.segment(t, raw.Start, segAt{"a", 1, 0}, "a")
+			r.compactedOver(raw)
 			breakIt(r)
 			_ = r.w.Retention(ctx)
 		})
@@ -868,4 +965,48 @@ func TestParquetRoundTripAcrossReadBatches(t *testing.T) {
 func (w *Worker) Pass(ctx context.Context) bool {
 	busy, _ := w.compactPass(ctx)
 	return busy
+}
+
+// TestCompactionRunIsRecorded covers #2150: each compaction keeps how long it
+// took, how far behind its window's end it ran, and its sizes read, held and
+// written, and reports them as metrics; a failure to keep them does not fail
+// the compaction.
+func TestCompactionRunIsRecorded(t *testing.T) {
+	r := newRig(t)
+	row := r.windows.add("esp", window, 1)
+	r.segment(t, window, segAt{"a", 1, 0}, "a", "b")
+	r.segment(t, window, segAt{"b", 1, 5}, "c")
+	r.windows.err["run"] = errBoom
+	require.True(t, r.w.Pass(ctx))
+	require.True(t, row.compacted, "a run that could not be kept leaves the window compacted")
+
+	require.Len(t, r.windows.runs, 1)
+	run := r.windows.runs[0]
+	assert.Equal(t, "esp", run.Source)
+	assert.Equal(t, window, run.WindowStart)
+	assert.Equal(t, 2, run.Segments)
+	assert.Equal(t, int64(3), run.Events)
+	assert.Positive(t, run.InputBytes)
+	assert.Positive(t, run.DecodedBytes)
+	assert.Positive(t, run.OutputBytes)
+	assert.Equal(t, run.OutputBytes, row.compaction.Bytes, "the window records its file's size")
+	assert.Equal(t, int64(r.clock.Sub(window.Add(time.Hour)).Seconds()), run.LagSeconds)
+	assert.Equal(t, 1, r.metrics.runs)
+}
+
+// TestRetentionRollsUpAndPrunesTheHistory: a pass folds the history older
+// than 48 hours into hours and drops what is older than the retention.
+func TestRetentionRollsUpAndPrunesTheHistory(t *testing.T) {
+	r := newRig(t)
+	require.NoError(t, r.w.Retention(ctx))
+	assert.Equal(t, r.clock.Add(-48*time.Hour), r.windows.rolledUp)
+	assert.Equal(t, r.clock.Add(-DefaultTelemetryKept), r.windows.prunedBefore)
+	assert.Equal(t, 14*24*time.Hour, Tuning{}.withDefaults().TelemetryKept)
+	assert.Equal(t, time.Hour, Tuning{TelemetryKept: time.Hour}.withDefaults().TelemetryKept)
+}
+
+func TestHeldBytes(t *testing.T) {
+	ev := whevent.Stored{Event: whevent.Event{EventID: "id", Payload: []byte(`{"a":1}`)}}
+	assert.Equal(t, int64(2+7+128), heldBytes([]whevent.Stored{ev}))
+	assert.Zero(t, heldBytes(nil))
 }

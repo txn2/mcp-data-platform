@@ -140,6 +140,14 @@ func (s *shredder) writeRow(p *plan, v any, r, d, depth int) error {
 	return nil
 }
 
+// positionalRow is a row whose fields are read by position: the trino.Row the
+// query driver decodes a ROW into, a top-level one and one inside an ARRAY,
+// MAP or ROW alike (#2183).
+type positionalRow interface {
+	Len() int
+	Value(i int) any
+}
+
 // fieldValue finds a row field's value. A query's row arrives positional; a
 // script's object and a map arrive keyed, and are matched without regard to
 // case, the way the reader matches a field.
@@ -148,6 +156,11 @@ func fieldValue(v any, i int, name string) (any, error) {
 	case []any:
 		if i < len(x) {
 			return x[i], nil
+		}
+		return nil, nil //nolint:nilnil // a field past the row's end is a null, which is a value
+	case positionalRow:
+		if i < x.Len() {
+			return x.Value(i), nil
 		}
 		return nil, nil //nolint:nilnil // a field past the row's end is a null, which is a value
 	case *tabletype.Object:

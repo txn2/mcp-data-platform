@@ -12,11 +12,13 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/admin/tablesapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/storagewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablesource"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/webhookwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
+	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/tablelookup"
 	"github.com/txn2/mcp-data-platform/internal/platform/tablereconcile"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
@@ -578,4 +580,14 @@ func adminTableCaller(r *http.Request) tableregister.Caller {
 		return tableregister.Caller{IsAdmin: true}
 	}
 	return tableregister.Caller{UserID: u.UserID, Email: u.Email, Roles: u.Roles, IsAdmin: true}
+}
+
+// enableWebhookAlerts builds the webhook receiver's alerts (#2149), posting
+// through the notification substrate and linking to the portal. Nothing
+// without webhooks.
+func enableWebhookAlerts(hooks *webhookwire.Webhooks, p *platform.Platform, notify *notifydelivery.Handle) {
+	if hooks == nil || p == nil {
+		return
+	}
+	hooks.EnableAlerts(storagewire.AlertSender(notify), p.Config().Portal.PublicBaseURL)
 }

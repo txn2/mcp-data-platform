@@ -128,6 +128,7 @@ const pageTitles: Record<string, string> = {
   "/admin/catalog": "Catalog",
   "/admin/changelog": "Change Log",
   "/admin/settings": "Settings",
+  "/admin/storage": "Storage",
 };
 
 // detailTitles names what a section's detail route is showing, keyed by the

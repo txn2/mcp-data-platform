@@ -61,7 +61,7 @@ const maxRecordBytes = 256 << 20
 // File and directory modes: the spool is the platform's own data.
 const (
 	dirMode  = 0o750
-	fileMode = 0o640
+	fileMode = 0o600
 )
 
 // seqWidth is the digits a file's sequence is written in, in base decimal,

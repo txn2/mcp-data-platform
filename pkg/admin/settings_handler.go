@@ -31,6 +31,8 @@ func (h *Handler) registerSettingsRoutes() {
 		ReviewAlert:      h.deps.ReviewQueueAlert,
 		ConnectionAlert:  h.deps.ConnectionAlert,
 		ScriptRunAlert:   h.deps.ScriptRunAlert,
+		Storage:          h.deps.StorageSettings,
+		WebhookAlert:     h.deps.WebhookAlert,
 		Channels:         h.deps.NotificationChannels,
 		SendChannelTest:  h.deps.SendChannelTest,
 		ChannelActivity:  h.deps.ChannelActivity,

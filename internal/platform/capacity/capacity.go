@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sort"
 	"sync"
 	"time"
 
@@ -63,6 +64,10 @@ type Sources struct {
 	// is unless Config.Backend names it (DetectBackend). The portal's and the
 	// managed resources' buckets may be on different stores.
 	Endpoints map[string]string
+	// Budgets, when set, reads the byte budgets an administrator set per
+	// bucket (#2148), which override Config.Budgets bucket by bucket. It is
+	// read with the table sampler.
+	Budgets func(ctx context.Context) (map[string]int64, error)
 }
 
 // Service runs the loops and holds the last readings.
@@ -77,6 +82,8 @@ type Service struct {
 	storage    observability.StorageCapacity
 	backends   map[string]string // by bucket
 	detectedAt time.Time
+	// overrides are the budgets Sources.Budgets last read.
+	overrides map[string]int64
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -131,7 +138,7 @@ func (s *Service) Sample(_ context.Context) observability.CapacitySample {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := observability.CapacitySample{Database: s.database, Storage: s.storage}
-	out.Storage.Budgets = s.cfg.Budgets
+	out.Storage.Budgets = mergeBudgets(s.cfg.Budgets, s.overrides)
 	out.Storage.Backends = distinctBackends(s.backends)
 	return out
 }
@@ -143,10 +150,53 @@ func (s *Service) sampleTables(ctx context.Context) error {
 		slog.WarnContext(ctx, "capacity: sampling tables failed", "error", logsan.SanitizeForLog(err.Error()))
 		return err
 	}
+	overrides := s.readOverrides(ctx)
 	s.mu.Lock()
 	s.database = d
+	if overrides != nil {
+		s.overrides = overrides
+	}
 	s.mu.Unlock()
 	return nil
+}
+
+// readOverrides reads the administrator's budgets, nil when there is no
+// reader or the read failed (the last ones read are kept).
+func (s *Service) readOverrides(ctx context.Context) map[string]int64 {
+	if s.src.Budgets == nil {
+		return nil
+	}
+	got, err := s.src.Budgets(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "capacity: reading bucket budgets failed", "error", logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	if got == nil {
+		got = map[string]int64{}
+	}
+	return got
+}
+
+// mergeBudgets is env with overrides written over it, by bucket name.
+func mergeBudgets(env []observability.BucketBudget, overrides map[string]int64) []observability.BucketBudget {
+	if len(overrides) == 0 {
+		return env
+	}
+	out := make([]observability.BucketBudget, 0, len(overrides))
+	for _, b := range env {
+		if _, ok := overrides[b.Bucket]; !ok {
+			out = append(out, b)
+		}
+	}
+	names := make([]string, 0, len(overrides))
+	for b := range overrides {
+		names = append(names, b)
+	}
+	sort.Strings(names)
+	for _, b := range names {
+		out = append(out, observability.BucketBudget{Bucket: b, Bytes: overrides[b]})
+	}
+	return out
 }
 
 // flush is one iteration of the usage flush: write this replica's deltas,

@@ -425,7 +425,22 @@ func TestFieldValue_ReadsEveryFormARowArrivesIn(t *testing.T) {
 	v, err = fieldValue(&tabletype.Object{Keys: []string{"a"}, Values: []any{1}}, 0, "missing")
 	require.NoError(t, err)
 	assert.Nil(t, v)
+	v, err = fieldValue(positional{"a", "b"}, 1, "ignored")
+	require.NoError(t, err)
+	assert.Equal(t, "b", v, "a row read by position is read by position")
+	v, err = fieldValue(positional{"a"}, 1, "ignored")
+	require.NoError(t, err)
+	assert.Nil(t, v, "a positional row shorter than the type has nulls after it")
+	_, err = fieldValue("text", 0, "name")
+	assert.ErrorContains(t, err, "expected a row")
 }
+
+// positional reads its fields by position, the way the query driver's
+// trino.Row does.
+type positional []any
+
+func (p positional) Len() int        { return len(p) }
+func (p positional) Value(i int) any { return p[i] }
 
 // TestWrite_RefusesANameNoTableCanDeclare: Columns refuses a column by its
 // name as readily as by its type, so the writer refuses the same names before

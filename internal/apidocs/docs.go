@@ -10207,6 +10207,255 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/settings/storage": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the storage capacity settings: the database limit, the byte budget of each bucket (which overrides MCP_PLATFORM_STORAGE_BUDGETS for the buckets it names), the SeaweedFS cluster disk capacity is read from, how many days of history are kept, the warning and critical thresholds on percent used and on days until a store fills, and the notification channels the alerts are posted to. The defaults before anything is written are 180 days, 75%/90% and 30/7 days.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get storage capacity settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/storagecap.View"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Writes the storage capacity settings. A field left out keeps its stored value. A budget is a positive number of bytes per bucket; the SeaweedFS addresses are http or https; a used_percent threshold is 0-100 with the warning below the critical; a days_left warning is more days than its critical; 0 turns a threshold off. A channel name no channel is stored under is refused.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update storage capacity settings",
+                "parameters": [
+                    {
+                        "description": "Storage capacity settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/storagecap.Input"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/storagecap.View"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/webhook-alert": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the webhook receiver alerts: the notification channels they are posted to and each condition's warning and critical thresholds. Per replica: spool fill and oldest event age as a percent of the spool's max_bytes and max_age, drain failures in a row (and minutes failing, which is critical), seconds a replica holding events may go without reporting, and the spool volume's free percent. Per source, as defaults and per-source overrides: the minutes refusals are judged over, the unauthorized percent over 15 minutes, the acknowledgement p99 in milliseconds over 5 minutes, minutes the oldest owed compaction is past its window and grace, and minutes of silence (off unless set). A zero threshold is off.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get webhook alert settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/whalert.View"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Writes the webhook alert settings. A field left out keeps its stored value; sources, when present, replaces every source's overrides. A threshold's warning must be short of its critical, percentages are 0-100, and 0 turns a threshold off. A channel name no channel is stored under is refused.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update webhook alert settings",
+                "parameters": [
+                    {
+                        "description": "Webhook alert settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/whalert.Input"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/whalert.View"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/storage": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reads every store the platform writes to now: the database against its limit, the SeaweedFS cluster's disks, each bucket against its budget, and each replica's webhook spool volume. Each store carries its percent used, its growth fitted over 7 and 30 days, the rate the projection uses (the slower growing one) and when it would fill, and its alert level. Beside them: each bucket's usage by purpose and when it was last listed, the last reconcile's orphaned objects and dangling references, the largest tables and indexes, and each spool with its volume.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Storage"
+                ],
+                "summary": "Get storage capacity",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/storagecap.Report"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/storage/history": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one store's samples, oldest first: used bytes and capacity, over the last days (default 30). The store is a key a storage report names: database, seaweedfs, bucket:\u003cname\u003e or spool:\u003creplica\u003e.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Storage"
+                ],
+                "summary": "Get a store's storage history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Store key, e.g. database or bucket:portal",
+                        "name": "store",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Days of history (default 30)",
+                        "name": "days",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/storageapi.HistoryView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/system/info": {
             "get": {
                 "security": [
@@ -11138,7 +11387,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every source's health, counts and acknowledgement latency in one response, the request volume by source and outcome over the range, and the newest 50 rejected requests of each outcome across all sources whose latest rejection falls within the range, each with its source (never a body). With ` + "`" + `source` + "`" + `, every part of the response is that one source's. A rejected request whose events were read names them: ` + "`" + `request_hash` + "`" + ` is the SHA-256 of its body and ` + "`" + `event_ids` + "`" + ` the ids of its first 20 events. Latency is how long a delivery answered 202 waited for that answer, over the last hour and the last day; ` + "`" + `p50_ms` + "`" + ` and ` + "`" + `p99_ms` + "`" + ` are the upper bound of the bucket the percentile falls in (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms), capped at ` + "`" + `max_ms` + "`" + `, and ` + "`" + `slowest` + "`" + ` is the slowest delivery with how long it spent in the buffer, recording its window and writing its segment. Health is disabled for a source turned off, failing for one with a window whose last compaction failed, silent for an enabled source that received no event in the last 24 hours (including one that never received any), and receiving otherwise; when more than one applies the first in that order is reported. The volume series reads the per-minute request counts at or after ` + "`" + `from` + "`" + `, the same bound as each source's ` + "`" + `last_hour` + "`" + ` (range=hour) or ` + "`" + `last_day` + "`" + ` (range=day), so the series sums to those counts. ` + "`" + `spools` + "`" + ` is every receiver's local spool, by replica, whatever ` + "`" + `source` + "`" + ` names: the events it acknowledged once they were synced to its disk and has not yet drained to object storage, the bounds past which it answers 503, and how its drain is going; a receiver that has not reported for two minutes is ` + "`" + `reporting: false` + "`" + `, and what it holds waits for it to start again.",
+                "description": "Returns every source's health, counts and acknowledgement latency in one response, the request volume by source and outcome over the range, and the newest 50 rejected requests of each outcome across all sources whose latest rejection falls within the range, each with its source (never a body). With ` + "`" + `source` + "`" + `, every part of the response is that one source's. A rejected request whose events were read names them: ` + "`" + `request_hash` + "`" + ` is the SHA-256 of its body and ` + "`" + `event_ids` + "`" + ` the ids of its first 20 events. Latency is how long a delivery answered 202 waited for that answer, over the last hour and the last day; ` + "`" + `p50_ms` + "`" + ` and ` + "`" + `p99_ms` + "`" + ` are the upper bound of the bucket the percentile falls in (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms), capped at ` + "`" + `max_ms` + "`" + `, and ` + "`" + `slowest` + "`" + ` is the slowest delivery with how long it spent in the buffer, recording its window and writing its segment. Health is disabled for a source turned off, failing for one with a window whose last compaction failed, silent for an enabled source that received no event in the last 24 hours (including one that never received any), and receiving otherwise; when more than one applies the first in that order is reported. The volume series reads the request counts at or after ` + "`" + `from` + "`" + ` and before ` + "`" + `until` + "`" + `. ` + "`" + `spools` + "`" + ` is every receiver's local spool, by replica, whatever ` + "`" + `source` + "`" + ` names: the events it acknowledged once they were synced to its disk and has not yet drained to object storage, the bounds past which it answers 503, and how its drain is going; a receiver that has not reported for two minutes is ` + "`" + `reporting: false` + "`" + `, and what it holds waits for it to start again. The history over the range (#2150): ` + "`" + `statuses` + "`" + ` counts requests by the HTTP status the sender was answered with (0 is a sender that went away before its answer); ` + "`" + `replicas` + "`" + ` is each receiver's events received and written to object storage and its spool's depth and oldest age; ` + "`" + `ack` + "`" + ` is the acknowledgement p50/p99 and each stage's average (buffer, mark, put; with a spool, put is the sync); ` + "`" + `compactions` + "`" + ` is each window's compaction with its duration, lag behind the window's end and sizes; ` + "`" + `storage` + "`" + ` is each source's raw and compacted bytes now; ` + "`" + `sizing` + "`" + ` sets the largest window the compactor held in memory against this replica's memory limit and warns at half of it. The history is kept per minute for 48 hours and per hour after, for webhooks.compactor.telemetry_retention_days (14). An answer the sender received from something in front of the platform (a 502 or 504 from an ingress while a replica restarts) never reached the platform and is in none of these counts.",
                 "produces": [
                     "application/json"
                 ],
@@ -11150,12 +11399,26 @@ const docTemplate = `{
                     {
                         "enum": [
                             "hour",
-                            "day"
+                            "day",
+                            "week",
+                            "custom"
                         ],
                         "type": "string",
                         "default": "hour",
-                        "description": "Span of the volume series and the rejections: hour (one-minute buckets) or day (fifteen-minute buckets)",
+                        "description": "Span of the series and the rejections: hour (one-minute buckets), day (fifteen-minute), week (hourly) or custom (from and to)",
                         "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start of a custom range, RFC 3339",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End of a custom range, RFC 3339; now when absent",
+                        "name": "to",
                         "in": "query"
                     },
                     {
@@ -31492,6 +31755,17 @@ const docTemplate = `{
                 }
             }
         },
+        "levelalert.Thresholds": {
+            "type": "object",
+            "properties": {
+                "critical": {
+                    "type": "number"
+                },
+                "warning": {
+                    "type": "number"
+                }
+            }
+        },
         "libraryuse.Use": {
             "type": "object",
             "properties": {
@@ -38716,6 +38990,384 @@ const docTemplate = `{
                 }
             }
         },
+        "storageapi.HistoryView": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/storagecap.Point"
+                    }
+                },
+                "store": {
+                    "type": "string"
+                }
+            }
+        },
+        "storagecap.BucketView": {
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "type": "string"
+                },
+                "bytes": {
+                    "type": "integer"
+                },
+                "listed_at": {
+                    "type": "string"
+                },
+                "objects": {
+                    "type": "integer"
+                },
+                "purpose": {
+                    "type": "string"
+                }
+            }
+        },
+        "storagecap.ClusterCapacity": {
+            "type": "object",
+            "properties": {
+                "free_bytes": {
+                    "type": "integer"
+                },
+                "servers": {
+                    "description": "Servers is how many volume servers answered; Unreached lists the ones\nthat did not, so a partial reading is labeled as one.",
+                    "type": "integer"
+                },
+                "total_bytes": {
+                    "type": "integer"
+                },
+                "unreached": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "used_bytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "storagecap.ClusterView": {
+            "type": "object",
+            "properties": {
+                "capacity": {
+                    "$ref": "#/definitions/storagecap.ClusterCapacity"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "master_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "storagecap.DatabaseView": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "limit_bytes": {
+                    "type": "integer"
+                },
+                "tables": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/storagecap.TableView"
+                    }
+                }
+            }
+        },
+        "storagecap.Input": {
+            "type": "object",
+            "properties": {
+                "budgets": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "database_limit_bytes": {
+                    "type": "integer"
+                },
+                "days_left": {
+                    "$ref": "#/definitions/levelalert.Thresholds"
+                },
+                "history_days": {
+                    "type": "integer"
+                },
+                "seaweedfs": {
+                    "$ref": "#/definitions/storagecap.SeaweedFS"
+                },
+                "used_percent": {
+                    "$ref": "#/definitions/levelalert.Thresholds"
+                }
+            }
+        },
+        "storagecap.Point": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "type": "integer"
+                },
+                "used_bytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "storagecap.ReconcileView": {
+            "type": "object",
+            "properties": {
+                "dangling": {
+                    "type": "integer"
+                },
+                "orphaned": {
+                    "type": "integer"
+                },
+                "purpose": {
+                    "type": "string"
+                },
+                "reconciled_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "storagecap.Report": {
+            "type": "object",
+            "properties": {
+                "buckets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/storagecap.BucketView"
+                    }
+                },
+                "database": {
+                    "$ref": "#/definitions/storagecap.DatabaseView"
+                },
+                "generated_at": {
+                    "type": "string"
+                },
+                "history_days": {
+                    "type": "integer"
+                },
+                "last_scan": {
+                    "$ref": "#/definitions/storagecap.ScanView"
+                },
+                "reconciles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/storagecap.ReconcileView"
+                    }
+                },
+                "seaweedfs": {
+                    "$ref": "#/definitions/storagecap.ClusterView"
+                },
+                "seaweedfs_buckets": {
+                    "description": "SeaweedFSBuckets are the buckets whose endpoint answers as SeaweedFS:\nthe settings offer the cluster's address only where one does.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "spools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/storagecap.SpoolView"
+                    }
+                },
+                "stores": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/storagecap.StoreView"
+                    }
+                }
+            }
+        },
+        "storagecap.ScanView": {
+            "type": "object",
+            "properties": {
+                "duration_seconds": {
+                    "type": "number"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "objects": {
+                    "type": "integer"
+                }
+            }
+        },
+        "storagecap.SeaweedFS": {
+            "type": "object",
+            "properties": {
+                "master_url": {
+                    "description": "MasterURL is the master's HTTP address, e.g. http://seaweedfs-master:9333.",
+                    "type": "string"
+                },
+                "volume_urls": {
+                    "description": "VolumeURLs, when set, are the volume servers read instead of the ones\nthe master lists: a master inside a cluster lists addresses the\nplatform may not reach.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "storagecap.SpoolView": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "dir": {
+                    "type": "string"
+                },
+                "fs_free_bytes": {
+                    "type": "integer"
+                },
+                "fs_total_bytes": {
+                    "type": "integer"
+                },
+                "max_bytes": {
+                    "type": "integer"
+                },
+                "replica": {
+                    "type": "string"
+                },
+                "reporting": {
+                    "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "storagecap.StoreView": {
+            "type": "object",
+            "properties": {
+                "capacity_from": {
+                    "description": "CapacityFrom names where a bucket's capacity comes from: \"budget\", or\n\"seaweedfs\" for a bucket on the cluster with no budget, whose capacity\nis what it holds plus the cluster's free space. Empty for the rest.",
+                    "type": "string"
+                },
+                "days_left": {
+                    "description": "DaysLeft and ExhaustionAt are when the store fills at RateUsed, nil\nwhen it is not growing or has no known capacity.",
+                    "type": "number"
+                },
+                "exhaustion_at": {
+                    "type": "string"
+                },
+                "free_bytes": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "level": {
+                    "description": "Level is the worse of the store's two alert levels under the current\nthresholds, empty when neither is crossed.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "percent_used": {
+                    "type": "number"
+                },
+                "rate_30d_bytes_per_day": {
+                    "type": "number"
+                },
+                "rate_7d_bytes_per_day": {
+                    "description": "Rate7d and Rate30d are the growth in bytes per day fitted over the last\n7 and 30 days, nil where the history is too short.",
+                    "type": "number"
+                },
+                "rate_used": {
+                    "description": "RateUsed names the rate the projection uses, \"7d\" or \"30d\": the slower\nof the two that are growing, so a burst does not bring the date in.",
+                    "type": "string"
+                },
+                "store": {
+                    "description": "Store is the key its history is kept under: database, seaweedfs,\nbucket:\u003cname\u003e, spool:\u003creplica\u003e.",
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "type": "integer"
+                },
+                "used_bytes": {
+                    "description": "UsedBytes is what the store holds. TotalBytes is its capacity, nil\nwhere the platform knows none: a database with no limit set, a bucket\nwith no budget.",
+                    "type": "integer"
+                }
+            }
+        },
+        "storagecap.TableView": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "index": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "rows": {
+                    "type": "integer"
+                }
+            }
+        },
+        "storagecap.View": {
+            "type": "object",
+            "properties": {
+                "budgets": {
+                    "description": "Budgets is the byte budget per bucket, for a store the platform cannot\nread capacity from (cloud S3). It overrides MCP_PLATFORM_STORAGE_BUDGETS\nfor every bucket it names.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "database_limit_bytes": {
+                    "description": "DatabaseLimitBytes is the size the database may reach: its volume, or\nthe plan's quota. The platform cannot read the database server's disk,\nso it is the operator's. Zero is unknown.",
+                    "type": "integer"
+                },
+                "days_left": {
+                    "$ref": "#/definitions/levelalert.Thresholds"
+                },
+                "history_days": {
+                    "type": "integer"
+                },
+                "seaweedfs": {
+                    "$ref": "#/definitions/storagecap.SeaweedFS"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "used_percent": {
+                    "$ref": "#/definitions/levelalert.Thresholds"
+                }
+            }
+        },
         "tablehttp.ConnectionChoice": {
             "type": "object",
             "properties": {
@@ -39653,6 +40305,30 @@ const docTemplate = `{
                 }
             }
         },
+        "webhookapi.LargestWindow": {
+            "type": "object",
+            "properties": {
+                "decoded_bytes": {
+                    "type": "integer"
+                },
+                "events": {
+                    "type": "integer"
+                },
+                "input_bytes": {
+                    "type": "integer"
+                },
+                "percent_of_limit": {
+                    "description": "PercentOfLimit is DecodedBytes as a percent of the memory limit, 0\nwhen there is no limit.",
+                    "type": "number"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "window_start": {
+                    "type": "string"
+                }
+            }
+        },
         "webhookapi.ReplicaSpool": {
             "type": "object",
             "properties": {
@@ -39916,6 +40592,49 @@ const docTemplate = `{
                 }
             }
         },
+        "webhookapi.StatusHistory": {
+            "type": "object",
+            "properties": {
+                "ack": {
+                    "description": "Ack is the acknowledgement latency per bucket with each stage's\naverage.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whstore.AckPoint"
+                    }
+                },
+                "compactions": {
+                    "description": "Compactions is each window's compaction in the range, newest first.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whstore.CompactionRun"
+                    }
+                },
+                "replicas": {
+                    "description": "Replicas is each receiver's events received and written to object\nstorage per bucket, and its spool's depth and oldest age.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whstore.ReplicaMinute"
+                    }
+                },
+                "sizing": {
+                    "$ref": "#/definitions/webhookapi.WindowSizing"
+                },
+                "statuses": {
+                    "description": "Statuses counts requests by the HTTP status they were answered with.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whstore.StatusPoint"
+                    }
+                },
+                "storage": {
+                    "description": "Storage is each source's raw and compacted bytes now.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whstore.SourceStorage"
+                    }
+                }
+            }
+        },
         "webhookapi.StatusOverview": {
             "type": "object",
             "properties": {
@@ -39925,18 +40644,28 @@ const docTemplate = `{
                     "example": 60
                 },
                 "from": {
-                    "description": "From is the series' lower bound: a minute's counts are in the series\nwhen the minute is at or after it.",
+                    "description": "From is the series' lower bound: a minute's counts are in the series\nwhen the minute is at or after it. Until is its upper bound, exclusive.",
                     "type": "string"
                 },
                 "generated_at": {
                     "type": "string"
                 },
+                "history": {
+                    "description": "History is the telemetry over the range (#2150).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/webhookapi.StatusHistory"
+                        }
+                    ]
+                },
                 "range": {
-                    "description": "Range is the span the series covers: hour or day.",
+                    "description": "Range is the span the series covers: hour, day, week or custom.",
                     "type": "string",
                     "enum": [
                         "hour",
-                        "day"
+                        "day",
+                        "week",
+                        "custom"
                     ],
                     "example": "hour"
                 },
@@ -39964,6 +40693,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/webhookapi.ReplicaSpool"
                     }
                 },
+                "until": {
+                    "type": "string"
+                },
                 "volume": {
                     "type": "array",
                     "items": {
@@ -39985,6 +40717,175 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "webhookapi.WindowSizing": {
+            "type": "object",
+            "properties": {
+                "largest": {
+                    "description": "Largest is the window that took the most memory, null when none was\ncompacted in the range.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/webhookapi.LargestWindow"
+                        }
+                    ]
+                },
+                "memory_limit_bytes": {
+                    "description": "MemoryLimitBytes is the memory this replica may use, 0 when it has no\nlimit.",
+                    "type": "integer"
+                },
+                "warn_at_percent": {
+                    "description": "WarnAtPercent is the share of the limit Warning is raised at.",
+                    "type": "integer"
+                },
+                "warning": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "whalert.Input": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "defaults": {
+                    "$ref": "#/definitions/whalert.SourceRules"
+                },
+                "drain_failing_minutes": {
+                    "type": "number"
+                },
+                "drain_failures": {
+                    "$ref": "#/definitions/levelalert.Thresholds"
+                },
+                "not_reporting_seconds": {
+                    "type": "number"
+                },
+                "sources": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/whalert.SourceRules"
+                    }
+                },
+                "spool_age_percent": {
+                    "$ref": "#/definitions/levelalert.Thresholds"
+                },
+                "spool_fill_percent": {
+                    "$ref": "#/definitions/levelalert.Thresholds"
+                },
+                "spool_volume_free_percent": {
+                    "$ref": "#/definitions/levelalert.Thresholds"
+                }
+            }
+        },
+        "whalert.SourceRules": {
+            "type": "object",
+            "properties": {
+                "ack_p99_ms": {
+                    "description": "AckP99MS is the 99th percentile acknowledgement over the last five\nminutes, in milliseconds.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/levelalert.Thresholds"
+                        }
+                    ]
+                },
+                "compaction_overdue_minutes": {
+                    "description": "CompactionOverdueMinutes is how long past its end and the compactor's\ngrace the oldest window owed a compaction has waited.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/levelalert.Thresholds"
+                        }
+                    ]
+                },
+                "refusal_minutes": {
+                    "description": "RefusalMinutes is the span refusals (spool_full, write_failed,\nbuffer_full) are judged over: any in it is a warning, one in every\nminute of it is critical. Zero is off.",
+                    "type": "integer"
+                },
+                "silent_after_minutes": {
+                    "description": "SilentAfterMinutes, when set, warns once the source has written no\nsegment for that long. Off unless a source opts in.",
+                    "type": "integer"
+                },
+                "unauthorized_percent": {
+                    "description": "UnauthorizedPercent is the share of the source's requests over the\nlast 15 minutes that were refused as unauthorized.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/levelalert.Thresholds"
+                        }
+                    ]
+                }
+            }
+        },
+        "whalert.View": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "defaults": {
+                    "description": "Sources holds the per-source conditions: the defaults every source is\njudged by, and any source's own.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/whalert.SourceRules"
+                        }
+                    ]
+                },
+                "drain_failing_minutes": {
+                    "type": "number"
+                },
+                "drain_failures": {
+                    "description": "DrainFailures is how many drains in a row have failed; a streak\nlonger than DrainFailingMinutes is critical however many it counts.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/levelalert.Thresholds"
+                        }
+                    ]
+                },
+                "not_reporting_seconds": {
+                    "description": "NotReportingSeconds is how long a replica whose spool holds events\nmay go without reporting before it is critical.",
+                    "type": "number"
+                },
+                "sources": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/whalert.SourceRules"
+                    }
+                },
+                "spool_age_percent": {
+                    "description": "SpoolAgePercent is the oldest event waiting as a percent of max_age.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/levelalert.Thresholds"
+                        }
+                    ]
+                },
+                "spool_fill_percent": {
+                    "description": "SpoolFillPercent is a replica's spool bytes as a percent of its\nmax_bytes.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/levelalert.Thresholds"
+                        }
+                    ]
+                },
+                "spool_volume_free_percent": {
+                    "description": "SpoolVolumeFreePercent is the free space left on the volume a spool\nis on.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/levelalert.Thresholds"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
                     "type": "string"
                 }
             }
@@ -40076,6 +40977,76 @@ const docTemplate = `{
                 }
             }
         },
+        "whstore.AckPoint": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "buffer_ms": {
+                    "description": "BufferMS, MarkMS and PutMS are the average delivery's wait in each\nstage; with a spool, put is the spool's sync.",
+                    "type": "number"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "mark_ms": {
+                    "type": "number"
+                },
+                "max_ms": {
+                    "type": "integer"
+                },
+                "p50_ms": {
+                    "type": "integer"
+                },
+                "p99_ms": {
+                    "type": "integer"
+                },
+                "put_ms": {
+                    "type": "number"
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "whstore.CompactionRun": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "decoded_bytes": {
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "events": {
+                    "type": "integer"
+                },
+                "input_bytes": {
+                    "description": "InputBytes is the gzipped segments read, DecodedBytes the events held\nin memory, OutputBytes the Parquet file written.",
+                    "type": "integer"
+                },
+                "lag_seconds": {
+                    "description": "LagSeconds is how long after the window ended the compaction finished.",
+                    "type": "integer"
+                },
+                "output_bytes": {
+                    "type": "integer"
+                },
+                "segments": {
+                    "type": "integer"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "window_start": {
+                    "type": "string"
+                }
+            }
+        },
         "whstore.Rejection": {
             "type": "object",
             "properties": {
@@ -40109,6 +41080,35 @@ const docTemplate = `{
                 }
             }
         },
+        "whstore.ReplicaMinute": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "drained_bytes": {
+                    "type": "integer"
+                },
+                "drained_events": {
+                    "type": "integer"
+                },
+                "oldest_age_seconds": {
+                    "type": "integer"
+                },
+                "received_events": {
+                    "type": "integer"
+                },
+                "replica": {
+                    "type": "string"
+                },
+                "spool_bytes": {
+                    "type": "integer"
+                },
+                "spool_events": {
+                    "type": "integer"
+                }
+            }
+        },
         "whstore.SlowAck": {
             "type": "object",
             "properties": {
@@ -40126,6 +41126,26 @@ const docTemplate = `{
                 },
                 "total_ms": {
                     "type": "integer"
+                }
+            }
+        },
+        "whstore.SourceStorage": {
+            "type": "object",
+            "properties": {
+                "compacted_bytes": {
+                    "type": "integer"
+                },
+                "compacted_windows": {
+                    "type": "integer"
+                },
+                "raw_bytes": {
+                    "type": "integer"
+                },
+                "raw_segments": {
+                    "type": "integer"
+                },
+                "source": {
+                    "type": "string"
                 }
             }
         },
@@ -40195,6 +41215,23 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "whstore.StatusPoint": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "http_status": {
+                    "type": "integer"
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
         }
     },
     "securityDefinitions": {
@@ -40209,7 +41246,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "System", "Tools", "Users", "Webhooks"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

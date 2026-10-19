@@ -276,6 +276,10 @@ services:
       # Loopback only, matching the other dev services (see postgres above).
       - "127.0.0.1:${DEV_S3_PORT:-9000}:8333"
       - "127.0.0.1:${DEV_SEAWEEDFS_METRICS_PORT:-9327}:9327"
+      # The master and the volume server, read for the cluster's disks on the
+      # Storage page (#2148).
+      - "127.0.0.1:${DEV_SEAWEEDFS_MASTER_PORT:-9333}:9333"
+      - "127.0.0.1:${DEV_SEAWEEDFS_VOLUME_PORT:-9380}:8080"
     volumes:
       - acme_seaweed_data:/data
       - ./seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro
