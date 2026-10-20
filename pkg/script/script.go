@@ -22,6 +22,8 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
+
 	"github.com/txn2/mcp-data-platform/internal/testreport"
 )
 
@@ -151,12 +153,14 @@ type Script struct {
 	Category string   `json:"category,omitempty" example:"reporting"`
 	Tags     []string `json:"tags" example:"sales,reporting"`
 	Enabled  bool     `json:"enabled" example:"true"`
-	// Exclusive is the owner's setting that the script has at most one open
-	// (pending or running) run, whatever started it (#1986): a scheduled fire
-	// while a run is open is skipped, and run_script or a portal run is
-	// refused naming the open run. Without it, runs of one script may overlap
-	// and the state check is the only guard.
-	Exclusive bool `json:"exclusive"`
+	// Exclusive is the owner's setting for runs of the script overlapping,
+	// whatever started them (#1986, #2209). Under refuse the script has at
+	// most one open (pending or running) run: a scheduled fire while a run is
+	// open is skipped, and run_script or a portal run is refused naming the
+	// open run. Under queue a second run is accepted and waits, pending, until
+	// no other run of the script is running. Under off runs may overlap and
+	// the state check is the only guard.
+	Exclusive runstate.ExclusiveMode `json:"exclusive"`
 
 	// Lifecycle.
 	Status       string     `json:"status" example:"active"`

@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
 	"github.com/txn2/mcp-data-platform/internal/pathtemplate"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
+	"github.com/txn2/mcp-data-platform/internal/timeoutcap"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
@@ -146,6 +147,9 @@ type InvokeOutput struct {
 	// and after how long (#1859): set on a 429, and on a 503 to a GET or
 	// HEAD. A managed script's host waits and retries on it.
 	upstreamretry.Advice
+	// TimeoutCap reports a timeout_seconds longer than the connection's
+	// call_timeout, and the timeout applied in its place (#2210).
+	timeoutcap.Cap
 	// ExportArguments is set when Body was cut, by a model client's
 	// context budget or by the read cap (issues #1587, #1878): the
 	// api_export arguments that stream this same call into a portal
@@ -229,8 +233,13 @@ type catalogView struct {
 // connection. The returned error is reserved for argument-validation
 // failures (which the model should fix); upstream failures populate
 // InvokeOutput.Error with Status==0.
+//
+// One request is bounded by the connection's call_timeout whatever the
+// caller asks, since the connection's client enforces it; a longer
+// timeout_seconds is reported as capped, and a request that runs out of
+// time says which limit stopped it (#2210).
 func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, error) {
-	timeout := resolveTimeout(in.TimeoutSeconds, inv.cfg.CallTimeout)
+	timeout, capped := timeoutcap.Apply(cmp.Or(inv.cfg.CallTimeout, DefaultCallTimeout), min(in.TimeoutSeconds, maxTimeoutSeconds), timeoutcap.CappedByCallTimeout)
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -239,7 +248,7 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 		return InvokeOutput{}, err
 	}
 
-	return executeRequest(execParams{
+	out, err := executeRequest(execParams{
 		client:        inv.client,
 		req:           req,
 		maxBytes:      readLimit(inv.cfg.MaxResponseBytes),
@@ -250,6 +259,11 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 		decoder:       newResponseDecoder(in, inv.specs),
 		google:        inv.cfg.Google.Set,
 	})
+	out.Cap = capped
+	if out.Status == 0 {
+		out.Error = timeoutcap.Explain(out.Error, timeout, in.TimeoutSeconds, capped)
+	}
+	return out, err
 }
 
 // callerLimits sets the size rules the caller is held to. A model over
@@ -888,7 +902,7 @@ const (
 func ClassifyInvokeOutcome(out InvokeOutput) string {
 	if out.Status == 0 {
 		switch {
-		case isTimeoutErrorMessage(out.Error):
+		case timeoutcap.IsTimeout(out.Error):
 			return observability.OutcomeUpstreamTimeout
 		case upstreamauth.IsSessionMessage(out.Error): // the credential or the call, not reachability (#2015)
 			return observability.OutcomeUpstream4xx
@@ -902,25 +916,6 @@ func ClassifyInvokeOutcome(out InvokeOutput) string {
 		return observability.OutcomeUpstream4xx
 	}
 	return observability.OutcomeOK
-}
-
-// isTimeoutErrorMessage reports whether the scrubbed transport-error
-// string carries a timeout signature. Strings checked are the stable
-// phrases Go's net/http, context, and net/url error types emit:
-//   - "context deadline exceeded" for context.DeadlineExceeded
-//   - "Client.Timeout exceeded" for http.Client when its own Timeout fires
-//   - "i/o timeout" for net.OpError on read/write timeouts
-//
-// All three are case-insensitive so the message can come from any
-// wrapper layer. A plain "timeout" substring is intentionally NOT
-// matched because that word can appear in legitimate body content
-// surfaced via scrubTransportError; the more specific phrases above
-// are unambiguous.
-func isTimeoutErrorMessage(msg string) bool {
-	lower := strings.ToLower(msg)
-	return strings.Contains(lower, "context deadline exceeded") ||
-		strings.Contains(lower, "client.timeout exceeded") ||
-		strings.Contains(lower, "i/o timeout")
 }
 
 // scrubTransportError rewrites a transport-level error so its message

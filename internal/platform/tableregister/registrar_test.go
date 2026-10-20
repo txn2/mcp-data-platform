@@ -55,6 +55,9 @@ type fakeTrino struct {
 	// readOnly makes the connection refuse write SQL, which is a fact about
 	// the connection rather than a failure of a statement.
 	readOnly bool
+	// noTarget names connections with no scratch target, beside the one
+	// hasTarget decides for every other (#2213).
+	noTarget map[string]bool
 }
 
 func (f *fakeTrino) Exec(ctx context.Context, _, sql string) error {
@@ -124,7 +127,10 @@ func (f *fakeTrino) TableLocation(_ context.Context, _, catalog, schema, table s
 	return f.locations[name], true, nil
 }
 
-func (f *fakeTrino) ScratchTarget(string) (trino.ScratchConfig, bool) {
+func (f *fakeTrino) ScratchTarget(connection string) (trino.ScratchConfig, bool) {
+	if f.noTarget[connection] {
+		return trino.ScratchConfig{}, false
+	}
 	return f.target, f.hasTarget
 }
 
@@ -210,6 +216,7 @@ type memStore struct {
 	insertErr   error
 	deleteErr   error
 	relocateErr error
+	byNameErr   error
 	// onInsert runs just before Insert answers, which is how a test arranges
 	// the request to be canceled by the time the row is written.
 	onInsert func()
@@ -263,6 +270,9 @@ func (m *memStore) Get(_ context.Context, id string) (*Registration, error) {
 }
 
 func (m *memStore) ByName(_ context.Context, connection, catalog, schema, table string) (*Registration, error) {
+	if m.byNameErr != nil {
+		return nil, m.byNameErr
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range m.rows {
@@ -534,6 +544,9 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 		Revisers: map[string]Reviser{KindAsset: h.reviser, KindResource: h.reviser},
 		Scope:    h.scope,
 		Audit:    h.audit,
+		Connections: func() []string {
+			return []string{"warehouse", "lake", "scratch"}
+		},
 		NewID: func() (string, error) {
 			n++
 			return "reg_" + strconv.Itoa(n), nil

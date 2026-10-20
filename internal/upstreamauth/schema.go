@@ -49,6 +49,12 @@ const ConfigSchemaPropertiesJSON = `{
     "type": ["string", "integer"],
     "description": "How long one call may take, as a duration string (\"30s\") or a number of seconds."
   },
+  "max_concurrent_calls": {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": 32,
+    "description": "How many calls the upstream takes at once, across every replica. A call over it waits for a slot, and the wait counts against its own timeout. 0 or unset is unlimited."
+  },
   "max_response_bytes": {
     "type": "integer",
     "description": "Ceiling on how much of a response is read."

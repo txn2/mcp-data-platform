@@ -31,6 +31,10 @@ import (
 //     MCP gateway forwarded (ok, tool_error, transport_error, timeout), and
 //     gateway_session_redials_total{connection, result}  the re-dials after
 //     a dropped upstream session (ok, failed)
+//   - upstream_calls_inflight{kind, connection} and
+//     upstream_slot_wait_seconds{kind, connection}  the calls this replica
+//     holds a slot for on a connection with max_concurrent_calls, and how
+//     long each waited for its slot (#2209)
 //
 // Cardinality: kind and the outcome sets are closed in the code; connection
 // and model are the operator's configuration.
@@ -46,6 +50,8 @@ const (
 	instGatewayCalls       = "gateway_upstream_calls"
 	instGatewayDuration    = "gateway_upstream_call_duration"
 	instGatewayRedials     = "gateway_session_redials"
+	instUpstreamInflight   = "upstream_calls_inflight"
+	instUpstreamSlotWait   = "upstream_slot_wait"
 
 	attrModel = "model"
 )
@@ -77,6 +83,8 @@ type outboundInstruments struct {
 	gatewayCalls    metric.Int64Counter
 	gatewayDuration metric.Float64Histogram
 	gatewayRedials  metric.Int64Counter
+	inflight        metric.Int64UpDownCounter
+	slotWait        metric.Float64Histogram
 }
 
 // registerOutboundInstruments registers the outbound series.
@@ -123,7 +131,34 @@ func (m *Metrics) registerOutboundInstruments(meter metric.Meter) error {
 		"Seconds a forwarded MCP gateway tool call took, labeled by connection.")
 	o.gatewayRedials = counter(instGatewayRedials,
 		"Total re-dials of an upstream MCP session after the upstream dropped it, labeled by connection and result (ok, failed).")
+	o.slotWait = histogram(instUpstreamSlotWait,
+		"Seconds a call to a connection with max_concurrent_calls waited for a slot before it was sent, labeled by kind and connection (#2209).")
+	if err == nil {
+		o.inflight, err = meter.Int64UpDownCounter(instUpstreamInflight, metric.WithDescription(
+			"Calls this replica holds a slot for on a connection with max_concurrent_calls, labeled by kind and connection (#2209)."))
+		err = wrapReg(instUpstreamInflight, err)
+	}
 	return err
+}
+
+// AddUpstreamInflight moves the count of calls this replica holds a slot for
+// on a limited connection (#2209). Nil-safe.
+func (m *Metrics) AddUpstreamInflight(ctx context.Context, kind, connection string, delta int64) {
+	if m == nil || m.outbound.inflight == nil {
+		return
+	}
+	m.outbound.inflight.Add(ctx, delta, metric.WithAttributes(
+		attribute.String(attrKind, kind), attribute.String(attrConnection, connection)))
+}
+
+// RecordUpstreamSlotWait records how long a call waited for a slot on a
+// limited connection (#2209). Nil-safe.
+func (m *Metrics) RecordUpstreamSlotWait(ctx context.Context, kind, connection string, d time.Duration) {
+	if m == nil || m.outbound.slotWait == nil {
+		return
+	}
+	m.outbound.slotWait.Record(ctx, d.Seconds(), metric.WithAttributes(
+		attribute.String(attrKind, kind), attribute.String(attrConnection, connection)))
 }
 
 // RecordHTTPClientRequest records one outbound HTTP request. Nil-safe.

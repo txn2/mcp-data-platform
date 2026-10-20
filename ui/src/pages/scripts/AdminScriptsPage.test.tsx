@@ -76,8 +76,8 @@ afterEach(cleanup);
 
 describe("AdminScriptsPage", () => {
   // #1891: a third tab, between the two that were there, and the page still
-  // opens on the listing. #1965 removed the fourth.
-  it("reads Automations, Schedules, Runs, and opens on Automations", () => {
+  // opens on the listing. #1965 removed the fourth; #2208 added Endpoints.
+  it("reads Automations, Schedules, Runs, Endpoints, and opens on Automations", () => {
     render(<AdminScriptsPage onNavigate={onNavigate} />);
     // The page's own strip is the first; the listing has a scope switch below it.
     const strip = screen.getAllByRole("tablist")[0]!;
@@ -85,6 +85,7 @@ describe("AdminScriptsPage", () => {
       "Automations",
       "Schedules",
       "Runs",
+      "Endpoints",
     ]);
     expect(screen.getByRole("tab", { name: "Automations" })).toHaveAttribute("aria-selected", "true");
   });

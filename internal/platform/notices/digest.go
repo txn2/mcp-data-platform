@@ -61,6 +61,11 @@ type Digest struct {
 	// FailingAutomationsTotal is how many there are, which exceeds the list
 	// when the cap cut it.
 	FailingAutomationsTotal int `json:"-"`
+	// BackgroundExports lists the caller's background exports that finished
+	// or failed since the watermark (#2212). Like FailingAutomations it is
+	// carried at platform_info's top level, outside the block an older
+	// release advertised closed.
+	BackgroundExports []ExportNotice `json:"-"`
 }
 
 // FeedbackNotice is one unresolved feedback thread on an asset the caller owns,
@@ -133,7 +138,8 @@ func (d *Digest) Failing() (list []AutomationNotice, total int) {
 // empty reports whether the digest has nothing to say, in which case it is not
 // delivered and the watermark does not move.
 func (d *Digest) empty() bool {
-	return len(d.Feedback) == 0 && len(d.NewShares) == 0 && len(d.FailingAutomations) == 0
+	return len(d.Feedback) == 0 && len(d.NewShares) == 0 && len(d.FailingAutomations) == 0 &&
+		len(d.BackgroundExports) == 0
 }
 
 // stamp formats a time for the digest's RFC3339 fields.

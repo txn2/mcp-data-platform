@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/exportasync"
 )
 
 // errNoPageData reports a page whose data object is absent or null: there
@@ -175,6 +177,9 @@ func (w *walk) page(ctx context.Context) (more bool, err error) {
 		return false, err
 	}
 	w.merged = append(w.merged, items...)
+	// A walk running as a background export reports how far it has come
+	// (#2212).
+	exportasync.Report(ctx, w.report.PagesFetched, len(w.merged))
 	cursor, hasNext := nextCursor(data, w.spec)
 	if !hasNext {
 		w.exhausted = true

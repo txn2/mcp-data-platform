@@ -1329,8 +1329,11 @@ the later run's side effects stand, it fails with `state_conflict`, its cursor
 is not saved, and the next run repeats its work.
 
 A script whose runs must not overlap sets `exclusive` (`manage_script update`
-with `exclusive=true`, shown by `get`; in the portal, **One run at a time** above
-the run history). While any run of it is pending or running:
+with `exclusive="refuse"`, shown by `get`; in the portal, **Overlapping runs:
+Refused** above the run history). `exclusive` is `off` (the default), `refuse`
+or `queue`; `true` and `false` are read as `refuse` and `off`, which is what the
+setting was before it had a third value. Under `refuse`, while any run of it is
+pending or running:
 
 - a scheduled fire is recorded as `skipped_overlap`, naming the open run;
 - `run_script` and a portal run are refused before anything is queued, naming
@@ -1342,6 +1345,17 @@ an exclusive script to one open run (migration `000176`), so two replicas
 inserting at the same instant cannot both succeed. A run reclaimed after its
 worker died is the same row, so it never counts twice. Turning the setting on
 while more than one run is open is refused until at most one is.
+
+Under `queue` (**Overlapping runs: Queued**) a second run is accepted rather
+than refused, and stays pending until no other run of the script is running,
+then runs; runs are taken in the order they were started (#2209). It is for an
+author starting several runs by hand against an upstream that takes one
+request at a time. A second partial unique index holds a queued script to one
+running run (migration `000205`), so two replicas claiming at once cannot both
+start one, and turning `queue` on while more than one run is running is
+refused. A connection that takes a limited number of calls is better served by
+its own `max_concurrent_calls`, which holds every caller to it, not only one
+script's runs ([GraphQL gateway](../server/graphql-gateway.md#upstreams-that-take-one-call-at-a-time)).
 
 **Misfire policy: fire once, for the latest.** After a gap the platform was not
 materializing through — a stopped worker deployment, a restored database — one
@@ -2159,6 +2173,14 @@ platform.execute(
   (defaults to true, so the next run's export moves the table onto its new
   version). It needs `jsonl`, `parquet` or `csv` and the `resources` or `portal`
   destination, and is refused before anything is written otherwise.
+- Before anything is written, the export asks `manage_table check` whether the
+  connection can take the table: granted, with a scratch catalog and schema,
+  accepting writes, and a `table_name` that is valid and nobody else's (#2213).
+  A connection that cannot fails the export with nothing written, naming the
+  connections that can, in a platform run and a draft alike; it used to write
+  the file first and fail the run after, and a rerun wrote it again. `validate`
+  flags a literal `register` connection that cannot hold a table, so the
+  mistake shows before a save.
 - It is `manage_table register` over the file the export just wrote, made over
   the run's own session, so it is authorized and audited as that call is and
   `validate` reports `manage_table` and the connection it names. The record the
@@ -2166,8 +2188,10 @@ platform.execute(
   `columns`, and each column's declared type in `column_types`, a list of
   `{"name": ..., "type": ...}` entries -- the same shape `manage_table`, a
   search hit and a fetched document carry under that key. A registration that
-  fails fails the run, naming the output, because the next step would query a
-  table that is not there.
+  fails after the file was written (a race, the query engine down) fails the
+  run, naming the output, because the next step would query a table that is not
+  there; the result lists the written output beside the failure, so the caller
+  knows the file exists.
 - In a draft without `allow_writes` nothing is written, so `table` reports the
   registration it would make, with `preview` true and no `query_table`.
 

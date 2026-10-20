@@ -79,9 +79,11 @@ func TestPostgresStoreGet(t *testing.T) {
 	cols := []string{
 		"id", "tool_name", "user_id", "status", "status_message", "result", "error",
 		"created_at", "updated_at", "heartbeat_at", "cancel_requested", "expires_at",
+		"idempotency_key", "background", "progress",
 	}
 	mock.ExpectQuery("FROM call_tasks").WithArgs("dpt_1").WillReturnRows(sqlmock.NewRows(cols).
-		AddRow("dpt_1", "trino_export", "jane", "completed", "done", []byte(`{"content":[]}`), nil, now, now, now, true, now.Add(time.Hour)))
+		AddRow("dpt_1", "trino_export", "jane", "completed", "done", []byte(`{"content":[]}`), nil, now, now, now, true, now.Add(time.Hour),
+			"", false, nil))
 	task, err := s.Get(ctx, "dpt_1")
 	require.NoError(t, err)
 	assert.Equal(t, "jane", task.UserID)

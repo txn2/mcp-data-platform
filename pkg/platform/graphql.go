@@ -113,6 +113,7 @@ func (p *Platform) graphQLExportDeps() *graphqlkit.ExportDeps {
 			DefaultTimeout: cfg.DefaultTimeout,
 			MaxTimeout:     cfg.MaxTimeout,
 		},
+		Background: p.backgroundExportRunner,
 		GetUserContext: func(ctx context.Context) *graphqlkit.ExportUserContext {
 			pc := middleware.GetPlatformContext(ctx)
 			if pc == nil {

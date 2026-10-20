@@ -14,7 +14,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/apigwwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogscan"
-	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/internal/platform/tableregister/regcatalog"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -216,7 +216,7 @@ func TestRegistrationStoreWrapsWithADatabase(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	got := RegistrationStore(dbPlatform{db: db}, nil)
-	_, ok := got.(*tableregister.CatalogingStore)
+	_, ok := got.(*regcatalog.Store)
 	assert.True(t, ok)
 }
 

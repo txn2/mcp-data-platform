@@ -760,6 +760,9 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	if err := h.admitOutput(b, req.Name, req.Destination.Name); err != nil {
 		return nil, err
 	}
+	if err := h.checkRegisterTarget(b, req.Register); err != nil {
+		return nil, err
+	}
 	record, err := h.persistOrPreview(b, req)
 	if err != nil {
 		return nil, err
@@ -769,11 +772,29 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	}
 	if req.Register != nil {
 		if record.Table, err = h.registerOutput(b, req.Register, record); err != nil {
+			// The file was written, so the result lists it beside the
+			// failure: a caller told only that the run failed would not
+			// know there is an output to clean up or register by hand.
+			h.exports = append(h.exports, record)
 			return nil, err
 		}
 	}
 	h.exports = append(h.exports, record)
 	return exportrecord.Value(record), nil
+}
+
+// checkRegisterTarget asks manage_table check, before an export writes
+// anything, whether its register= target would be accepted (#2213): a read
+// over the run's own session, so a draft asks too. A test's replay reaches no
+// connection and does not ask.
+func (h *hostState) checkRegisterTarget(b *starlark.Builtin, spec *exporttable.Spec) error {
+	if spec == nil || h.opts.Test != nil {
+		return nil
+	}
+	if _, err := h.callTool(exporttable.Tool, spec.CheckArgs()); err != nil {
+		return fmt.Errorf("in %s: register cannot use connection %q, so nothing was written: %w", b.Name(), spec.Connection, err)
+	}
+	return nil
 }
 
 // registerOutput makes the table an export's register= argument asked for,

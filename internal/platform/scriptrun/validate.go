@@ -54,6 +54,9 @@ type Report struct {
 	// Connections the connection names it names literally, across every call.
 	Capabilities []string `json:"capabilities"`
 	Connections  []string `json:"connections"`
+	// RegisterConnections are the connections a register= names literally,
+	// which a surface that knows the deployment checks (#2213).
+	RegisterConnections []string `json:"register_connections,omitempty"`
 	// Destinations is where this script's OUTPUTS go: the destination names
 	// platform.export writes to, plus the portal for an export that names none
 	// and for every platform.publish_data. It is a statement about the output
@@ -137,6 +140,9 @@ func Validate(source string) Report {
 		findings = append(findings, Finding{Severity: SeverityWarning, Line: lit.Line, Message: lit.Message(), Hint: lit.Hint()})
 	}
 	report.Capabilities, report.Connections = sortedNames(found.capabilities), sortedNames(found.connections)
+	if len(found.registerConnections) > 0 {
+		report.RegisterConnections = sortedNames(found.registerConnections)
+	}
 	report.Tools = sortedNames(found.tools)
 	report.Destinations = sortedNames(found.destinations)
 	report.RefreshTargets = sortedNames(found.refreshTargets)
@@ -323,6 +329,7 @@ func scanSource(source string) []Finding {
 type inspection struct {
 	capabilities          map[string]bool
 	connections           map[string]bool
+	registerConnections   map[string]bool
 	destinations          map[string]bool
 	refreshTargets        map[string]bool
 	tools                 map[string]bool
@@ -348,7 +355,7 @@ type inspection struct {
 // warehouse connection as plainly as the literal does (#1906).
 func inspect(file *syntax.File, consts scriptconst.Table) *inspection {
 	ins := &inspection{
-		capabilities: map[string]bool{}, connections: map[string]bool{},
+		capabilities: map[string]bool{}, connections: map[string]bool{}, registerConnections: map[string]bool{},
 		destinations: map[string]bool{}, refreshTargets: map[string]bool{},
 		tools: map[string]bool{}, libraries: map[ResourceLibrary]bool{}, consts: consts,
 	}
@@ -487,6 +494,8 @@ func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
 				ins.tools[exporttable.Tool] = true
 				if dict, ok := bin.Y.(*syntax.DictExpr); ok {
 					ins.collectDictEntry(dict, "connection", ins.connections, &ins.dynamicConnections)
+					var ignored bool // already recorded on dynamicConnections above
+					ins.collectDictEntry(dict, "connection", ins.registerConnections, &ignored)
 				} else {
 					ins.dynamicConnections = true
 				}

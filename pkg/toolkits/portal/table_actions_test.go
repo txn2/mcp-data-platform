@@ -47,6 +47,7 @@ type fakeTableRegistrar struct {
 	registerErr   error
 	unregisterErr error
 	listErr       error
+	checkErr      error
 }
 
 func (f *fakeTableRegistrar) Register(
@@ -92,6 +93,18 @@ func (f *fakeTableRegistrar) DropAssetTables(_ context.Context, assetID string) 
 
 func (f *fakeTableRegistrar) DropResourceTables(_ context.Context, resourceID string) {
 	f.droppedResources = append(f.droppedResources, resourceID)
+}
+
+func (f *fakeTableRegistrar) Check(_ context.Context, connection, tableName string) (*TableTarget, error) {
+	f.lastConn, f.lastName = connection, tableName
+	if f.checkErr != nil {
+		return nil, f.checkErr
+	}
+	target := &TableTarget{Connection: connection, Catalog: "scratch", Schema: "uploads"}
+	if tableName != "" {
+		target.QueryTable = "scratch.uploads.analyst_" + tableName
+	}
+	return target, nil
 }
 
 func (f *fakeTableRegistrar) FollowAssetTables(_ context.Context, assetID string, version int) []string {
@@ -489,4 +502,50 @@ func TestTypesNote(t *testing.T) {
 			t.Errorf("typesNote(%q) = %q; want it to say %q", format, got, want)
 		}
 	}
+}
+
+// TestCheckTable_AnswersWithoutRegistering is #2213's check: where a table
+// would go, or the refusal register would give, with no file and nothing
+// written.
+func TestCheckTable_AnswersWithoutRegistering(t *testing.T) {
+	reg := &fakeTableRegistrar{}
+	tk := tableToolkit(t, reg)
+
+	res := callTable(ownerCtx(), t, tk, manageTableInput{Action: tableActionCheck, Connection: "scratch", TableName: "vendor_keys"})
+	require.False(t, res.IsError, resultText(t, res))
+	body := decodeResult(t, res)
+	assert.Equal(t, "scratch.uploads.analyst_vendor_keys", body["query_table"])
+	assert.Contains(t, body["message"], "can be registered as scratch.uploads.analyst_vendor_keys")
+	assert.Empty(t, reg.registered, "a check registers nothing")
+
+	res = callTable(ownerCtx(), t, tk, manageTableInput{Action: tableActionCheck, Connection: "scratch"})
+	require.False(t, res.IsError, resultText(t, res))
+	body = decodeResult(t, res)
+	assert.NotContains(t, body, "query_table", "with no name asked about, only the connection is answered")
+	assert.Equal(t, "scratch", body["catalog"])
+
+	res = callTable(ownerCtx(), t, tk, manageTableInput{Action: tableActionCheck})
+	assert.True(t, res.IsError)
+	assert.Contains(t, resultText(t, res), "connection is required for check")
+
+	reg.checkErr = errors.New("this connection has no scratch catalog and schema configured. Connections you can register a table on: lake")
+	res = callTable(ownerCtx(), t, tk, manageTableInput{Action: tableActionCheck, Connection: "warehouse"})
+	assert.True(t, res.IsError)
+	assert.Contains(t, resultText(t, res), "Connections you can register a table on: lake")
+}
+
+// TestCheckTableTarget is the check validate asks of the asset toolkit.
+func TestCheckTableTarget(t *testing.T) {
+	reg := &fakeTableRegistrar{}
+	tk := tableToolkit(t, reg)
+	require.NoError(t, tk.CheckTableTarget(ownerCtx(), "scratch"))
+	assert.Equal(t, "scratch", reg.lastConn)
+	assert.Empty(t, reg.lastName, "the connection alone is asked about")
+
+	reg.checkErr = errors.New("no scratch target")
+	require.EqualError(t, tk.CheckTableTarget(ownerCtx(), "warehouse"), "no scratch target")
+
+	err := tableToolkit(t, nil).CheckTableTarget(ownerCtx(), "scratch")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot register tables")
 }

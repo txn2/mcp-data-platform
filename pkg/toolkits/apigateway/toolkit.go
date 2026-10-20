@@ -1086,11 +1086,12 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	for _, name := range names {
 		c := t.connections[name]
 		out = append(out, toolkit.ConnectionDetail{
-			Name:           name,
-			Description:    connectionDescription(c.cfg),
-			IsDefault:      name == t.defaultName,
-			CatalogID:      c.cfg.CatalogID,
-			OperationCount: len(c.operations),
+			Name:               name,
+			Description:        connectionDescription(c.cfg),
+			IsDefault:          name == t.defaultName,
+			CatalogID:          c.cfg.CatalogID,
+			OperationCount:     len(c.operations),
+			MaxConcurrentCalls: c.cfg.MaxConcurrentCalls,
 		})
 	}
 	return out

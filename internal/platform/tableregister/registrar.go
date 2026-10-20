@@ -96,9 +96,13 @@ type Deps struct {
 	// window of, so a resource that is part of a source's table reports that
 	// table the way a registered file reports its own. Nil when the
 	// deployment has no webhooks.
-	Holders  WindowHolders
-	NewID    func() (string, error)
-	MaxBytes int64
+	Holders WindowHolders
+	// Connections names the Trino connections the deployment serves, so a
+	// refusal of a connection that cannot hold a table can name the ones
+	// that can (#2213). Nil names none.
+	Connections func() []string
+	NewID       func() (string, error)
+	MaxBytes    int64
 }
 
 // DefaultMaxBytes bounds the object the registrar reads to find a header row
@@ -488,7 +492,19 @@ func RepairOf(err error) *RepairReport {
 
 // resolveTarget applies the connection boundary and finds where registrations
 // land on that connection.
+//
+// A refusal names the connections this caller can register on, so the fix is
+// in the message (#2213).
 func (r *Registrar) resolveTarget(caller Caller, connection string) (trino.ScratchConfig, error) {
+	target, err := r.targetOf(caller, connection)
+	if err != nil {
+		return trino.ScratchConfig{}, &refusedTargetError{err: err, choices: r.ScratchConnections(caller)}
+	}
+	return target, nil
+}
+
+// targetOf is resolveTarget without the choices on its refusal.
+func (r *Registrar) targetOf(caller Caller, connection string) (trino.ScratchConfig, error) {
 	if r.deps.Scope != nil && !r.deps.Scope.AllowConnection(caller.Persona, connection) {
 		return trino.ScratchConfig{}, ErrConnectionDenied
 	}

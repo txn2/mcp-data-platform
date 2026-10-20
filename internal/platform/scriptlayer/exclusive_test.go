@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -18,21 +20,26 @@ import (
 func TestExclusiveIsSetWithUpdateAndShownByGet(t *testing.T) {
 	h, _ := newHandle()
 	createDaily(t, h)
-	on := true
+	on := runstate.ExclusiveRefuse
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Exclusive: &on})
 	require.False(t, res.IsError, resultText(res))
-	assert.Equal(t, true, resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "daily"}))["exclusive"])
+	assert.Equal(t, "refuse", resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "daily"}))["exclusive"])
 
 	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", DisplayName: "Daily"})
 	require.False(t, res.IsError, resultText(res))
-	assert.Equal(t, true, resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "daily"}))["exclusive"],
+	assert.Equal(t, "refuse", resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "daily"}))["exclusive"],
 		"an update that does not send exclusive leaves it alone")
 
-	off := false
+	queue := runstate.ExclusiveQueue
+	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Exclusive: &queue})
+	require.False(t, res.IsError, resultText(res))
+	assert.Equal(t, "queue", resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "daily"}))["exclusive"])
+
+	off := runstate.ExclusiveOff
 	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Exclusive: &off})
 	require.False(t, res.IsError, resultText(res))
-	assert.Equal(t, false, resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "daily"}))["exclusive"])
+	assert.Equal(t, "off", resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "daily"}))["exclusive"])
 }
 
 // TestTurningExclusiveOnWithRunsOpenIsRefusedWithTheReason passes the store's
@@ -41,7 +48,7 @@ func TestTurningExclusiveOnWithRunsOpenIsRefusedWithTheReason(t *testing.T) {
 	h, store := newFailingHandle()
 	createDaily(t, h)
 	store.updateErr = fmt.Errorf("updating script: %w: %s", openrun.ErrOpen, openrun.BlockedMessage)
-	on := true
+	on := runstate.ExclusiveRefuse
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Exclusive: &on})
 	assert.True(t, res.IsError)

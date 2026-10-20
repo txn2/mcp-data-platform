@@ -256,10 +256,8 @@ export interface ScriptContract {
   tags?: string[];
   status: string;
   enabled: boolean;
-  // exclusive is the owner's setting that the script runs one at a time
-  // (#1986): no run starts while another is pending or running. Optional for
-  // a server that predates it.
-  exclusive?: boolean;
+  // exclusive is off, refuse or queue (#1986, #2209); absent from an older server.
+  exclusive?: ExclusiveMode;
   params: ScriptParam[];
   // version is the version a run executes: the latest saved one.
   version: number;
@@ -361,11 +359,13 @@ export {
   type ScriptMetadataOutcome,
 } from "./scriptMetadata";
 
-// Whether a script runs one at a time (#1986) lives in scriptExclusive.ts.
+// Whether a script's runs may overlap (#1986, #2209) lives in scriptExclusive.ts.
 export {
   useSetScriptExclusive,
+  type ExclusiveMode,
   type ScriptExclusiveOutcome,
 } from "./scriptExclusive";
+import type { ExclusiveMode } from "./scriptExclusive";
 
 export type {
   ScriptKind,

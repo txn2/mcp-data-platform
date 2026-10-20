@@ -1,6 +1,7 @@
 package scriptlint
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -84,3 +85,40 @@ func DraftRefusal(source string, destinations []script.Destination) string {
 
 // byLine orders findings top to bottom.
 func byLine(a, b scriptrun.Finding) int { return a.Line - b.Line }
+
+// RegisterCheck answers whether the caller could register a table on a
+// connection: nil when it could, the refusal register would give when not.
+type RegisterCheck func(connection string) error
+
+// WithRegisterCheck returns report with a finding for each connection an
+// export's register= names literally that check refuses, and OK recomputed
+// (#2213). Like the destination check it is a pass over the
+// deployment-independent report, applied by the surface that knows the
+// deployment and the caller; the run asks the same question before it writes,
+// so validate and the run refuse the same register= target. A nil check
+// leaves the report as it is.
+func WithRegisterCheck(report scriptrun.Report, check RegisterCheck) scriptrun.Report {
+	if check == nil || len(report.RegisterConnections) == 0 {
+		return report
+	}
+	merged := make([]scriptrun.Finding, 0, len(report.Findings))
+	merged = append(merged, report.Findings...)
+	added := false
+	for _, conn := range report.RegisterConnections {
+		if err := check(conn); err != nil {
+			added = true
+			merged = append(merged, scriptrun.Finding{
+				Severity: scriptrun.SeverityError,
+				Message:  fmt.Sprintf("register names connection %q, which cannot hold the table: %v", conn, err),
+				Hint:     "Name a connection a table can be registered on; the export checks this before it writes, and a run naming this one fails with nothing written.",
+			})
+		}
+	}
+	if !added {
+		return report
+	}
+	slices.SortStableFunc(merged, byLine)
+	report.Findings = merged
+	report.OK = !slices.ContainsFunc(merged, func(f scriptrun.Finding) bool { return f.Severity == scriptrun.SeverityError })
+	return report
+}

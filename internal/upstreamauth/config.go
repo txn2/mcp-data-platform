@@ -35,6 +35,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/txn2/mcp-data-platform/internal/cfgmap"
+	"github.com/txn2/mcp-data-platform/internal/connlimit"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
@@ -153,6 +154,9 @@ const (
 	cfgKeyPassword        = "password" // #nosec G101 -- map key, not a credential; encryption handled by platform FieldEncryptor sensitive-keys list
 	cfgKeyConnectTimeout  = "connect_timeout"
 	cfgKeyCallTimeout     = "call_timeout"
+	// cfgKeyMaxConcurrentCalls is how many calls the upstream takes at
+	// once, across every replica (#2209). Unset or zero is unlimited.
+	cfgKeyMaxConcurrentCalls = "max_concurrent_calls"
 
 	cfgKeyMaxResponseBytes = "max_response_bytes"
 
@@ -265,6 +269,10 @@ type Config struct {
 	ConnectTimeout time.Duration
 	// CallTimeout caps the total per-invocation time.
 	CallTimeout time.Duration
+	// MaxConcurrentCalls is how many calls the upstream takes at once,
+	// across every replica; a call over it waits for a slot under its own
+	// deadline (#2209). Zero is unlimited.
+	MaxConcurrentCalls int
 	// TracePropagation sends traceparent and tracestate with every request
 	// to the upstream, so its own telemetry joins the caller's trace. On by
 	// default; trace_propagation: false turns it off.
@@ -405,6 +413,11 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 	c.Password = cfgmap.String(cfg, cfgKeyPassword)
 	c.ConnectTimeout = cfgmap.Duration(cfg, cfgKeyConnectTimeout, c.ConnectTimeout)
 	c.CallTimeout = cfgmap.Duration(cfg, cfgKeyCallTimeout, c.CallTimeout)
+	limit, err := connlimit.Parse(cfg[cfgKeyMaxConcurrentCalls])
+	if err != nil {
+		return Config{}, errf(errPrefix, "%v", err)
+	}
+	c.MaxConcurrentCalls = limit
 	c.TracePropagation = cfgmap.BoolDefault(cfg, cfgKeyTracePropagation, true)
 	c.MaxResponseBytes = cfgmap.Int64(cfg, cfgKeyMaxResponseBytes, c.MaxResponseBytes)
 	if _, ok := cfg[cfgKeyRetiredMaxInlineBytes]; ok {
@@ -480,6 +493,9 @@ func (c Config) ValidateTransport() error {
 	}
 	if c.MaxResponseBytes <= 0 {
 		return c.err("max_response_bytes must be positive")
+	}
+	if c.MaxConcurrentCalls < 0 || c.MaxConcurrentCalls > connlimit.Ceiling {
+		return c.err(fmt.Sprintf("max_concurrent_calls must be between 0 (unlimited) and %d", connlimit.Ceiling))
 	}
 	return nil
 }

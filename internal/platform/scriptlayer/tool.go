@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
@@ -90,9 +92,9 @@ type manageScriptInput struct {
 	Enabled *bool `json:"enabled,omitempty"`
 	// Exclusive is a pointer for the same reason: an update that does not
 	// send it leaves the setting alone (#1986).
-	Exclusive    *bool  `json:"exclusive,omitempty"`
-	Status       string `json:"status,omitempty"`
-	SupersededBy string `json:"superseded_by,omitempty"`
+	Exclusive    *runstate.ExclusiveMode `json:"exclusive,omitempty"`
+	Status       string                  `json:"status,omitempty"`
+	SupersededBy string                  `json:"superseded_by,omitempty"`
 
 	// List filters.
 	Search string `json:"search,omitempty"`
@@ -371,9 +373,11 @@ func manageScriptSchema() any {
 			keyDescription: "Free-form tags. On list they narrow the result to the scripts carrying any of them.",
 		},
 		"enabled": map[string]any{keyType: valBoolean, keyDescription: "Whether the script is available."},
-		"exclusive": map[string]any{keyType: valBoolean, keyDescription: "Set with update: true makes the script run one at a time, whatever starts the run. " +
-			"While a run is pending or running, a scheduled fire is recorded as skipped_overlap naming that run, and run_script and a portal run are refused naming it, with nothing queued. " +
-			"Without it, runs of one script may overlap (a run_script run beside a scheduled one, or two run_script runs), and the state check at save time is the only guard: the later run fails with state_conflict after its side effects have happened."},
+		"exclusive": map[string]any{keyType: []string{valString, valBoolean}, keyEnum: []any{"off", "refuse", "queue", true, false}, keyDescription: "Set with update: whether the script's runs may overlap, whatever starts them. " +
+			"refuse: while a run is pending or running, a scheduled fire is recorded as skipped_overlap naming that run, and run_script and a portal run are refused naming it, with nothing queued. " +
+			"queue: another run is accepted and stays pending until no other run of the script is running, then runs; use it to start several runs by hand against an upstream that takes one request at a time. " +
+			"off (the default): runs of one script may overlap (a run_script run beside a scheduled one, or two run_script runs), and the state check at save time is the only guard: the later run fails with state_conflict after its side effects have happened. " +
+			"true and false are read as refuse and off."},
 		fieldStatus:     map[string]any{keyType: valString, keyEnum: []string{script.StatusActive, script.StatusDeprecated, script.StatusSuperseded}, keyDescription: "Lifecycle transition to apply."},
 		"superseded_by": map[string]any{keyType: valString, keyDescription: "Name of the replacing script when superseding."},
 		"search":        map[string]any{keyType: valString, keyDescription: "Substring filter for list."},

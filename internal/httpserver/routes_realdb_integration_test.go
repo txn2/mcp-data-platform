@@ -58,6 +58,7 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`^/endpoints/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^(GET|OPTIONS) /botcheck/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^(GET|PUT) /api/v1/admin/settings/bot-check$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
+	{regexp.MustCompile(`^GET /api/v1/admin/endpoints(/\{name\})?$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^(GET|PUT|POST) /api/v1/portal/scripts/\{id\}/endpoint`), "bindinghttp: the script routes' endpoint deps come from Platform.Start, which this test does not run"},
 }
 

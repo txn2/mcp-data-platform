@@ -91,6 +91,8 @@ type fixture struct {
 	mux     *http.ServeMux
 	runner  *runner
 	checker *checker
+	// refused records every refusal counted, as endpoint/reason.
+	refused []string
 }
 
 func newFixture() *fixture {
@@ -115,6 +117,7 @@ func newFixture() *fixture {
 		}
 		return nil, nil //nolint:nilnil // nobody: no credential and no refusal
 	}}
+	h.Refused = func(endpointID, reason string) { f.refused = append(f.refused, endpointID+"/"+reason) }
 	f.mux = http.NewServeMux()
 	h.Mount(f.mux)
 	return f
@@ -342,3 +345,43 @@ func TestWriteLeavesTheBodyOffA204(t *testing.T) {
 	assert.Empty(t, rec.Body.String())
 	assert.Equal(t, "max-age=60", rec.Header().Get("Cache-Control"), "the handler's own cache policy is kept")
 }
+
+// TestRefusalsAreCountedByEndpointAndReason is #2208: each request refused
+// before its handler ran is counted under its endpoint and why, and an
+// answered one is not.
+func TestRefusalsAreCountedByEndpointAndReason(t *testing.T) {
+	f := newFixture()
+	ann := http.Header{"Authorization": {"Bearer ann-key"}}
+
+	f.do("POST", "/endpoints/contact/1", nil, "")                                         // no bot check answer
+	f.do("POST", "/endpoints/contact/1", http.Header{HeaderBotCheck: {"good"}}, "")       // answered
+	f.do("GET", "/endpoints/orders/1", nil, "")                                           // no credential
+	f.do("GET", "/endpoints/orders/1", http.Header{"Authorization": {"Bearer csrf"}}, "") // refused credential
+	f.do("POST", "/endpoints/orders/1", ann, strings.Repeat("x", 65))                     // body limit
+	f.do("GET", "/endpoints/orders/1", ann, "")                                           // caller's second request
+	f.do("GET", "/endpoints/orders/1", ann, "")                                           // past the caller's limit
+	f.do("OPTIONS", "/endpoints/orders/1", http.Header{"Origin": {"https://elsewhere.example.com"}, "Access-Control-Request-Method": {"POST"}}, "")
+	f.runner.bindings["contact"].RateLimit, f.runner.bindings["contact"].OpenReads = 1, true
+	f.do("GET", "/endpoints/contact/1", nil, "")
+	f.do("GET", "/endpoints/contact/1", nil, "") // past the endpoint's limit
+
+	assert.Equal(t, []string{
+		"contact/bot_check", "orders/credential", "orders/credential", "orders/body_limit",
+		"orders/caller_rate_limit", "orders/origin", "contact/rate_limit",
+	}, f.refused)
+}
+
+// TestABodyThatCannotBeReadIsNotABodyLimitRefusal keeps the reason honest.
+func TestABodyThatCannotBeReadIsNotABodyLimitRefusal(t *testing.T) {
+	f := newFixture()
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/endpoints/orders/1", failingReader{})
+	req.Header.Set("Authorization", "Bearer ann-key")
+	rec := httptest.NewRecorder()
+	f.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, f.refused)
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }

@@ -36,6 +36,10 @@ type ConnectionDetail struct {
 	// is observable from list_connections instead of only when a downstream
 	// tool call fails). Nil for toolkits that do not track reachability.
 	Health *ConnectionHealth
+	// MaxConcurrentCalls is how many calls the upstream takes at once across
+	// the deployment, zero when unlimited (#2209). It is reported so a caller
+	// sees it before fanning out calls that would queue behind each other.
+	MaxConcurrentCalls int
 }
 
 // ConnectionHealth is the runtime reachability of a gateway upstream.

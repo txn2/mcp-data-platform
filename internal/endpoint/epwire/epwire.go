@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
@@ -38,6 +39,9 @@ type Endpoints struct {
 	// Tokens answers the tokens a script mints and verifies (#2175), in an
 	// endpoint request, a run and a draft alike.
 	Tokens *scripttoken.Issuer
+	// Refusals counts the requests refused before their handler ran
+	// (#2208); its flush loop runs with the platform's lifecycle.
+	Refusals *eprefusal.Counter
 }
 
 // Deps is what the script wiring hands over.
@@ -98,7 +102,10 @@ func Build(deps Deps) *Endpoints {
 			return ""
 		},
 	}
-	return &Endpoints{Bindings: bindings, Checker: checker, Runner: runner, Commands: commands, Tokens: tokens}
+	return &Endpoints{
+		Bindings: bindings, Checker: checker, Runner: runner, Commands: commands, Tokens: tokens,
+		Refusals: eprefusal.NewCounter(eprefusal.NewStore(deps.DB), 0),
+	}
 }
 
 // TokenIssuer is the token issuer, nil on nil Endpoints: a deployment with no
@@ -124,4 +131,21 @@ func libraries(scripts *scriptstore.Store, sources *scriptsrc.Reader) func(conte
 		}
 		return scriptres.With(scripts, sources, pins, nil), nil
 	}
+}
+
+// Start runs what runs in the background: the refusal counts' flush loop.
+// Nil-safe.
+func (e *Endpoints) Start(ctx context.Context) error {
+	if e == nil || e.Refusals == nil {
+		return nil
+	}
+	return e.Refusals.Start(ctx) //nolint:wrapcheck // never fails
+}
+
+// Stop ends it, adding what is still counted. Nil-safe.
+func (e *Endpoints) Stop(ctx context.Context) error {
+	if e == nil || e.Refusals == nil {
+		return nil
+	}
+	return e.Refusals.Stop(ctx) //nolint:wrapcheck // never fails
 }

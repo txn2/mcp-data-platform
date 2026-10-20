@@ -30,6 +30,11 @@ func (*stubTableRegistrar) Tables(context.Context, string) ([]portalkit.TableReg
 func (*stubTableRegistrar) DropAssetTables(context.Context, string) {}
 
 func (*stubTableRegistrar) DropResourceTables(context.Context, string) {}
+
+func (*stubTableRegistrar) Check(context.Context, string, string) (*portalkit.TableTarget, error) {
+	return nil, nil //nolint:nilnil // a stub the follow tests never ask
+}
+
 func (s *stubTableRegistrar) FollowAssetTables(_ context.Context, assetID string, version int) []string {
 	s.asked = append(s.asked, assetID+"@"+strconv.Itoa(version))
 	return []string{"scratch.uploads.t on scratch now reads version " + strconv.Itoa(version) + "."}

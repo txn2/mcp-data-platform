@@ -526,12 +526,13 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 		c.schemaMu.RUnlock()
 		readOnly := c.cfg.ReadOnly
 		out = append(out, toolkit.ConnectionDetail{
-			Name:           name,
-			Description:    connectionDescription(c.cfg),
-			IsDefault:      name == def,
-			CatalogID:      c.cfg.CatalogID,
-			OperationCount: count,
-			ReadOnly:       &readOnly,
+			Name:               name,
+			Description:        connectionDescription(c.cfg),
+			IsDefault:          name == def,
+			CatalogID:          c.cfg.CatalogID,
+			OperationCount:     count,
+			ReadOnly:           &readOnly,
+			MaxConcurrentCalls: c.cfg.MaxConcurrentCalls,
 		})
 	}
 	return out

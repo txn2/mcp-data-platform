@@ -190,6 +190,19 @@ export function GraphQLConfigForm({
         placeholder="10485760"
       />
 
+      <ConfigField
+        label="Max concurrent calls"
+        help="How many calls the upstream takes at once, across every replica. A call over it waits for a slot, and the wait counts against its own timeout. Empty or 0 is unlimited."
+        type="number"
+        value={String(config.max_concurrent_calls ?? "")}
+        onChange={(v) =>
+          onChange(
+            update(config, "max_concurrent_calls", v ? Number(v) : undefined),
+          )
+        }
+        placeholder="unlimited"
+      />
+
       <HelpDialog
         open={authHelpOpen}
         onOpenChange={setAuthHelpOpen}

@@ -91,3 +91,12 @@ func TestFromResultAndMap(t *testing.T) {
 		"connection": "w", "follow": true, "preview": true, "columns": []any{}, "column_types": []any{},
 	}, preview.Map(), "a preview names no table, because none was made")
 }
+
+// CheckArgs asks manage_table about the connection, and the table name when
+// the registration gives one, before the file is written (#2213).
+func TestSpec_CheckArgs(t *testing.T) {
+	assert.Equal(t, map[string]any{"action": CheckAction, "connection": "w", "table_name": "t"},
+		(&Spec{Connection: "w", TableName: "t"}).CheckArgs())
+	_, named := (&Spec{Connection: "w"}).CheckArgs()["table_name"]
+	assert.False(t, named)
+}

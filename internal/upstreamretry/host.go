@@ -27,7 +27,7 @@ const (
 type Seen struct {
 	Retryable bool
 	// Status is the upstream's HTTP status, read from upstream_status
-	// (api_export) or status (api_invoke_endpoint).
+	// (api_export) or status (api_invoke_endpoint, graphql_query).
 	Status int
 	// After is the interval the upstream asked for; zero when it named none.
 	After time.Duration

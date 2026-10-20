@@ -328,8 +328,8 @@ var manageTableSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["register", "list", "unregister"],
-      "description": "What to do: register the file as a table, list the registrations already over it, or unregister one. list answers with table_registrations, one row per registration; the same registrations appear as tables on a search hit and a fetched document, projected for querying rather than for maintenance."
+      "enum": ["register", "list", "unregister", "check"],
+      "description": "What to do: register the file as a table, list the registrations already over it, unregister one, or check whether a table could be registered on a connection without registering anything. list answers with table_registrations, one row per registration; the same registrations appear as tables on a search hit and a fetched document, projected for querying rather than for maintenance. check takes connection and, optionally, table_name, and answers with the catalog and schema the table would go in, or the refusal register would give, which names the connections you can register on."
     },
     "reference": {
       "type": "string",
@@ -337,11 +337,11 @@ var manageTableSchema = json.RawMessage(`{
     },
     "connection": {
       "type": "string",
-      "description": "Trino connection whose scratch schema the table is created in (required for register). Call list_connections to see the connections you can reach; only a connection an administrator has given a scratch catalog and schema can hold a table."
+      "description": "Trino connection whose scratch schema the table is created in (required for register and check). Call list_connections to see the connections you can reach; only a connection an administrator has given a scratch catalog and schema can hold a table."
     },
     "table_name": {
       "type": "string",
-      "description": "Name for the registered table (register). Optional: the default is a slug of the file's name. Either way the name is prefixed with your persona, because the scratch schema is shared by everyone granted the connection."
+      "description": "Name for the registered table (register, check). Optional: the default is a slug of the file's name. Either way the name is prefixed with your persona, because the scratch schema is shared by everyone granted the connection."
     },
     "registration_id": {
       "type": "string",

@@ -2,6 +2,7 @@ package connview
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -391,4 +392,29 @@ func TestBuild_AWithheldFallbackConnectionIsCountedOnce(t *testing.T) {
 
 	assert.Empty(t, out.Connections)
 	assert.Equal(t, 1, out.Withheld)
+}
+
+// TestBuild_CallLimits is #2209 in list_connections: a limited connection is
+// listed under call_limits, an unlimited one is not, and a hidden one's limit
+// is not reported either.
+func TestBuild_CallLimits(t *testing.T) {
+	tk := &listerTK{
+		kind: "graphql",
+		conns: []toolkit.ConnectionDetail{
+			{Name: "erp", MaxConcurrentCalls: 1},
+			{Name: "crm"},
+			{Name: "hidden", MaxConcurrentCalls: 2},
+		},
+	}
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{
+		Permit: func(_, name string) bool { return name != "hidden" },
+	})
+	assert.Equal(t, []CallLimit{{Kind: "graphql", Connection: "erp", MaxConcurrentCalls: 1}}, out.CallLimits)
+
+	raw, err := json.Marshal(out.Connections[0])
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "max_concurrent", "the entry an older release advertised closed gains no key")
+
+	none := Build(context.Background(), []registry.Toolkit{&listerTK{kind: "api", conns: []toolkit.ConnectionDetail{{Name: "a"}}}}, Deps{})
+	assert.Nil(t, none.CallLimits)
 }

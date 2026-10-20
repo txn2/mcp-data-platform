@@ -4941,6 +4941,123 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/endpoints": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every endpoint binding on the deployment, ordered by name: its script (id, name, owner), address, methods, path, access (public or signed_in), open_reads, whether it is on, its limits, and who last changed it and when. traffic is what it answered over the range: requests by status class, failures, p50 and p95 duration, distinct signed-in callers and the last request's time, read from each request's audit row. refused counts the requests it turned away before its handler ran, by reason: the bot check, the endpoint's or a caller's rate limit, the body limit, a missing or refused credential, an origin the binding does not list. A deployment with no bindings answers an empty list.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Endpoints"
+                ],
+                "summary": "List every endpoint with its traffic",
+                "parameters": [
+                    {
+                        "enum": [
+                            "day",
+                            "week"
+                        ],
+                        "type": "string",
+                        "description": "day (the default) or week",
+                        "name": "range",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/endpointapi.List"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/endpoints/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One endpoint binding as the list reports it, with its requests over the range in buckets (an hour for day, six hours for week) by status class beside the requests it refused, its ten busiest signed-in callers, and its most recent failed requests (kept 7 days).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Endpoints"
+                ],
+                "summary": "Get one endpoint with its traffic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Endpoint name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "day",
+                            "week"
+                        ],
+                        "type": "string",
+                        "description": "day (the default) or week",
+                        "name": "range",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/endpointapi.Detail"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/gateway/connections/{name}/enrichment-rules": {
             "get": {
                 "security": [
@@ -20303,7 +20420,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "With exclusive true, a script has at most one pending or running run, whatever started it: a scheduled fire while a run is open is recorded as skipped_overlap, and a run_script or portal run is refused with 409 naming the open run. Turning it on while more than one run is open is refused with 409. Restricted to the script's owner and to administrators.",
+                "description": "exclusive is off, refuse or queue (true and false are read as refuse and off). Under refuse a script has at most one pending or running run, whatever started it: a scheduled fire while a run is open is recorded as skipped_overlap, and a run_script or portal run is refused with 409 naming the open run. Under queue another run is accepted and stays pending until no other run of the script is running. Turning refuse on while more than one run is open, or queue on while more than one is running, is refused with 409. Restricted to the script's owner and to administrators.",
                 "consumes": [
                     "application/json"
                 ],
@@ -20313,7 +20430,7 @@ const docTemplate = `{
                 "tags": [
                     "Scripts"
                 ],
-                "summary": "Set whether a script runs one at a time",
+                "summary": "Set whether a script's runs may overlap",
                 "parameters": [
                     {
                         "type": "string",
@@ -27500,6 +27617,18 @@ const docTemplate = `{
                 "stopped_by": {
                     "type": "string"
                 },
+                "timeout_applied_seconds": {
+                    "description": "AppliedSeconds is the timeout the call ran under.",
+                    "type": "integer"
+                },
+                "timeout_capped_by": {
+                    "description": "CappedBy names the ceiling that replaced the caller's value.",
+                    "type": "string"
+                },
+                "timeout_requested_seconds": {
+                    "description": "RequestedSeconds is the caller's own value.",
+                    "type": "integer"
+                },
                 "upstream_retryable": {
                     "description": "Retryable is set on an answer the same request is expected to get past\nlater (see Retryable).",
                     "type": "boolean"
@@ -30723,6 +30852,290 @@ const docTemplate = `{
                 }
             }
         },
+        "endpointapi.Bucket": {
+            "type": "object",
+            "properties": {
+                "2xx": {
+                    "type": "integer"
+                },
+                "3xx": {
+                    "type": "integer"
+                },
+                "4xx": {
+                    "type": "integer"
+                },
+                "5xx": {
+                    "type": "integer"
+                },
+                "refused": {
+                    "type": "integer"
+                },
+                "start": {
+                    "type": "string"
+                }
+            }
+        },
+        "endpointapi.Caller": {
+            "type": "object",
+            "properties": {
+                "caller": {
+                    "type": "string"
+                },
+                "requests": {
+                    "type": "integer"
+                }
+            }
+        },
+        "endpointapi.Detail": {
+            "type": "object",
+            "properties": {
+                "auth_mode": {
+                    "type": "string"
+                },
+                "bucket_seconds": {
+                    "description": "BucketSeconds is how long each chart bucket is.",
+                    "type": "integer"
+                },
+                "caller_rate_limit": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "failures": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/epbinding.Failure"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "max_body_bytes": {
+                    "type": "integer"
+                },
+                "methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "open_reads": {
+                    "type": "boolean"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "range": {
+                    "type": "string"
+                },
+                "rate_limit": {
+                    "type": "integer"
+                },
+                "refused": {
+                    "description": "Refused is how many requests it refused before its handler ran, and\nRefusedByReason the same by reason (bot_check, rate_limit,\ncaller_rate_limit, body_limit, credential, origin).",
+                    "type": "integer"
+                },
+                "refused_by_reason": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "script": {
+                    "$ref": "#/definitions/endpointapi.Script"
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/endpointapi.Bucket"
+                    }
+                },
+                "since": {
+                    "type": "string"
+                },
+                "timeout_seconds": {
+                    "description": "Limits are the binding's per-request and per-minute limits.",
+                    "type": "integer"
+                },
+                "top_callers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/endpointapi.Caller"
+                    }
+                },
+                "traffic": {
+                    "$ref": "#/definitions/endpointapi.Traffic"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "endpointapi.Endpoint": {
+            "type": "object",
+            "properties": {
+                "auth_mode": {
+                    "type": "string"
+                },
+                "caller_rate_limit": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "max_body_bytes": {
+                    "type": "integer"
+                },
+                "methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "open_reads": {
+                    "type": "boolean"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "rate_limit": {
+                    "type": "integer"
+                },
+                "refused": {
+                    "description": "Refused is how many requests it refused before its handler ran, and\nRefusedByReason the same by reason (bot_check, rate_limit,\ncaller_rate_limit, body_limit, credential, origin).",
+                    "type": "integer"
+                },
+                "refused_by_reason": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "script": {
+                    "$ref": "#/definitions/endpointapi.Script"
+                },
+                "timeout_seconds": {
+                    "description": "Limits are the binding's per-request and per-minute limits.",
+                    "type": "integer"
+                },
+                "traffic": {
+                    "$ref": "#/definitions/endpointapi.Traffic"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "endpointapi.List": {
+            "type": "object",
+            "properties": {
+                "endpoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/endpointapi.Endpoint"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "since": {
+                    "type": "string"
+                }
+            }
+        },
+        "endpointapi.Script": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                }
+            }
+        },
+        "endpointapi.StatusClasses": {
+            "type": "object",
+            "properties": {
+                "2xx": {
+                    "type": "integer"
+                },
+                "3xx": {
+                    "type": "integer"
+                },
+                "4xx": {
+                    "type": "integer"
+                },
+                "5xx": {
+                    "type": "integer"
+                }
+            }
+        },
+        "endpointapi.Traffic": {
+            "type": "object",
+            "properties": {
+                "by_status_class": {
+                    "description": "ByStatusClass counts the requests by the class of status the handler\nanswered: 2xx, 3xx, 4xx, 5xx.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/endpointapi.StatusClasses"
+                        }
+                    ]
+                },
+                "callers": {
+                    "description": "Callers is how many distinct signed-in callers sent requests.",
+                    "type": "integer"
+                },
+                "failures": {
+                    "description": "Failures are the requests whose handler failed.",
+                    "type": "integer"
+                },
+                "last_request_at": {
+                    "description": "LastRequestAt is the newest request's time, nil when there was none.",
+                    "type": "string"
+                },
+                "p50_ms": {
+                    "description": "P50MS and P95MS are the requests' durations.",
+                    "type": "number"
+                },
+                "p95_ms": {
+                    "type": "number"
+                },
+                "requests": {
+                    "type": "integer"
+                }
+            }
+        },
         "enrichment.Action": {
             "type": "object",
             "properties": {
@@ -30824,12 +31237,46 @@ const docTemplate = `{
                 }
             }
         },
+        "epbinding.Failure": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "endpoint_id": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
         "exclusivehttp.exclusiveRequest": {
             "type": "object",
             "properties": {
                 "exclusive": {
-                    "description": "Exclusive true holds the script to one pending or running run, whatever\nstarted it.",
-                    "type": "boolean"
+                    "description": "Exclusive is off, refuse or queue; true and false are read as refuse\nand off.",
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "refuse",
+                        "queue"
+                    ]
                 }
             }
         },
@@ -30837,12 +31284,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "exclusive": {
-                    "type": "boolean",
-                    "example": true
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "refuse",
+                        "queue"
+                    ],
+                    "example": "queue"
                 },
                 "message": {
                     "type": "string",
-                    "example": "Saved. A run cannot start while another run of this script is pending or running."
+                    "example": "Saved. A run started while another run of this script is running waits its turn."
                 }
             }
         },
@@ -36177,6 +36629,19 @@ const docTemplate = `{
                 }
             }
         },
+        "runstate.ExclusiveMode": {
+            "type": "string",
+            "enum": [
+                "off",
+                "refuse",
+                "queue"
+            ],
+            "x-enum-varnames": [
+                "ExclusiveOff",
+                "ExclusiveRefuse",
+                "ExclusiveQueue"
+            ]
+        },
         "runstate.StatementTiming": {
             "type": "object",
             "properties": {
@@ -36233,8 +36698,12 @@ const docTemplate = `{
                     "example": true
                 },
                 "exclusive": {
-                    "description": "Exclusive is whether the script runs one at a time (#1986).",
-                    "type": "boolean"
+                    "description": "Exclusive is whether the script's runs may overlap: off, refuse or\nqueue (#1986, #2209).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/runstate.ExclusiveMode"
+                        }
+                    ]
                 },
                 "id": {
                     "type": "string",
@@ -36867,8 +37336,12 @@ const docTemplate = `{
                     "example": true
                 },
                 "exclusive": {
-                    "description": "Exclusive is the owner's setting that the script has at most one open\n(pending or running) run, whatever started it (#1986): a scheduled fire\nwhile a run is open is skipped, and run_script or a portal run is\nrefused naming the open run. Without it, runs of one script may overlap\nand the state check is the only guard.",
-                    "type": "boolean"
+                    "description": "Exclusive is the owner's setting for runs of the script overlapping,\nwhatever started them (#1986, #2209). Under refuse the script has at\nmost one open (pending or running) run: a scheduled fire while a run is\nopen is skipped, and run_script or a portal run is refused naming the\nopen run. Under queue a second run is accepted and waits, pending, until\nno other run of the script is running. Under off runs may overlap and\nthe state check is the only guard.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/runstate.ExclusiveMode"
+                        }
+                    ]
                 },
                 "id": {
                     "type": "string",
@@ -41691,7 +42164,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Endpoints", "description": "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Endpoints", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

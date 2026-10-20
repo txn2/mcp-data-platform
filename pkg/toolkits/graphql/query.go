@@ -1,16 +1,22 @@
 package graphql
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/gqlschema"
+	"github.com/txn2/mcp-data-platform/internal/timeoutcap"
+	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -82,8 +88,35 @@ type QueryOutput struct {
 	ExportArguments map[string]any `json:"export_arguments,omitempty"`
 	// Pagination reports a walk that ran.
 	Pagination *PaginationReport `json:"pagination,omitempty"`
+	// UpstreamBody is the start of the endpoint's answer, when it was not a
+	// 2xx or not a GraphQL response: a proxy's error page, a 503 with a
+	// sentence in it. Without it a failure carrying no errors array reads
+	// as errors: null and nothing else (#2211). Secrets the connection
+	// filled into the request are already redacted from it.
+	UpstreamBody string `json:"upstream_body,omitempty"`
+	// TransportError is the failure of a send the endpoint never answered:
+	// refused, reset, a TLS failure, or the deadline passing first.
+	TransportError string `json:"transport_error,omitempty"`
+	// Error is the platform's error envelope on a transport failure, so a
+	// caller branches on its code as on any other failed tool call.
+	Error *callError `json:"error,omitempty"`
+	// Advice says whether the same document is expected to get past the
+	// endpoint later: a 429, or a 502, 503 or 504 to a query (a mutation
+	// may have done part of its work before the failure), with the
+	// Retry-After the endpoint named. A managed script's host waits on it.
+	upstreamretry.Advice
+	// TimeoutCap reports a timeout_seconds longer than the connection's
+	// call_timeout, and the timeout applied in its place (#2210).
+	timeoutcap.Cap
 	// Note explains anything that changed the answer.
 	Note string `json:"note,omitempty"`
+}
+
+// callError is the platform's error envelope as a result carries it.
+type callError struct {
+	Code     string `json:"code"`
+	Category string `json:"category"`
+	Message  string `json:"message"`
 }
 
 // queryTool describes graphql_query to the model.
@@ -113,15 +146,42 @@ func (t *Toolkit) handleQuery(ctx context.Context, _ *mcp.CallToolRequest, in Qu
 	if errMsg != "" {
 		return toolkit.ErrorResult(errMsg), nil, nil
 	}
-	ctx, cancel := withCallTimeout(ctx, prepared.conn.cfg, in.TimeoutSeconds)
-	defer cancel()
+	ctx, limit, capped := withCallTimeout(ctx, prepared.conn.cfg, in.TimeoutSeconds)
+	defer limit.cancel()
 
 	out, err := t.runPrepared(ctx, prepared, in.Paginate)
+	if transport := (*TransportError)(nil); errors.As(err, &transport) {
+		return transportResult(prepared, transport, limit.timeout, capped, callTimeoutOwner(in.TimeoutSeconds, capped))
+	}
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
+	out.Cap = capped
 	result := toolkit.JSONResult(out)
 	stampAuditOutcome(result, classifyUpstream(out.Status, out.Errors, out.UpstreamError))
+	return result, out, nil
+}
+
+// transportResult is graphql_query's answer to a send the endpoint never
+// answered: a structured result naming the failure, marked failed, under the
+// error code a caller and a script's host read as the upstream being
+// unavailable (#2211). A send that ran out of time says how long it ran
+// under and whose limit that was (#2210).
+func transportResult(p prepared, failure *TransportError, timeout time.Duration, capped timeoutcap.Cap, owner string) (*mcp.CallToolResult, any, error) {
+	msg, outcome := transportMessage(failure, timeout, capped, owner)
+	out := &QueryOutput{
+		Connection:     p.conn.cfg.ConnectionName,
+		Kind:           string(p.doc.Kind()),
+		OperationName:  p.doc.Operation.Name,
+		Operations:     p.invoked,
+		UpstreamError:  true,
+		TransportError: msg,
+		Error:          &callError{Code: upstreamretry.CodeUnavailable, Category: upstreamretry.CategoryUnavailable, Message: msg},
+		Cap:            capped,
+	}
+	result := toolkit.JSONResult(out)
+	result.IsError = true
+	stampAuditOutcome(result, auditVerdict{outcome: outcome, message: msg})
 	return result, out, nil
 }
 
@@ -278,8 +338,12 @@ func applyExecution(out *QueryOutput, res *execution) {
 	out.Status = res.status
 	out.DataBytes = len(res.body)
 	out.UpstreamError = res.upstreamFailed()
+	out.Advice = upstreamretry.Advise(adviceMethod(out.Kind), res.status, res.header, time.Now())
+	if res.parsed == nil || !is2xx(res.status) {
+		out.UpstreamBody = upstreamBody(res.body)
+	}
 	if res.parsed == nil {
-		out.Note = strings.TrimSpace(out.Note + " The endpoint's answer was not a GraphQL response: " + snippet(string(res.body)))
+		out.Note = strings.TrimSpace(out.Note + " The endpoint's answer was not a GraphQL response; upstream_body holds the start of it.")
 		return
 	}
 	out.Data = res.parsed.Data
@@ -313,18 +377,77 @@ func decodeVariables(raw json.RawMessage) (vars map[string]any, err error) {
 	return asObject, nil
 }
 
+// transportMessage is the sentence a transport failure is reported with,
+// and the audit outcome it is recorded under. A failure on the deadline
+// says how long the call ran under and whose limit that was (owner); the
+// connection's call_timeout bounds every request on its own, so a send cut
+// by it names it whatever deadline the caller set.
+func transportMessage(failure *TransportError, timeout time.Duration, capped timeoutcap.Cap, owner string) (msg, outcome string) {
+	msg = failure.Error()
+	if !timeoutcap.IsTimeout(msg) {
+		return msg, observability.OutcomeTransportErr
+	}
+	if strings.Contains(strings.ToLower(msg), "client.timeout exceeded") {
+		owner = timeoutcap.CallTimeoutOwner
+	}
+	return fmt.Sprintf("graphql: calling %s %s", redactURL(failure.Endpoint), capped.TimedOut(timeout, owner)),
+		observability.OutcomeUpstreamTimeout
+}
+
+// callTimeoutOwner names the limit one graphql_query ran under: the
+// caller's timeout_seconds when it lowered the connection's, else the
+// connection's call_timeout.
+func callTimeoutOwner(requested int, capped timeoutcap.Cap) string {
+	if requested > 0 && !capped.Capped() {
+		return "the call's timeout_seconds"
+	}
+	return timeoutcap.CallTimeoutOwner
+}
+
+// adviceMethod is the HTTP method a document's retry advice is read as: a
+// document is always POSTed, and what decides whether repeating it can change
+// anything is its operation kind, so a query is read as the GET it behaves as
+// and a mutation as the POST it is (#2211).
+func adviceMethod(kind string) string {
+	if kind == string(gqlschema.OperationMutation) {
+		return http.MethodPost
+	}
+	return http.MethodGet
+}
+
+// boundedCall is the deadline one call runs under.
+type boundedCall struct {
+	timeout time.Duration
+	cancel  context.CancelFunc
+}
+
 // withCallTimeout bounds one call. The caller may ask for less than the
 // connection's call_timeout but never more: the connection's limit is
-// the operator's, and a tool argument does not raise it.
-func withCallTimeout(ctx context.Context, cfg Config, seconds int) (context.Context, context.CancelFunc) {
-	limit := cfg.CallTimeout
-	if limit <= 0 {
-		limit = DefaultCallTimeout
+// the operator's, and a tool argument does not raise it. A longer ask is
+// reported back as capped (#2210).
+func withCallTimeout(ctx context.Context, cfg Config, seconds int) (context.Context, boundedCall, timeoutcap.Cap) {
+	timeout, capped := timeoutcap.Apply(cmp.Or(cfg.CallTimeout, DefaultCallTimeout), min(seconds, maxTimeoutSeconds), timeoutcap.CappedByCallTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	return ctx, boundedCall{timeout: timeout, cancel: cancel}, capped
+}
+
+// maxUpstreamBody is the most of a failed answer's body a result quotes.
+const maxUpstreamBody = 2048
+
+// upstreamBody is the start of a body, cut at a rune boundary.
+func upstreamBody(body []byte) string {
+	s := strings.TrimSpace(string(body))
+	if len(s) <= maxUpstreamBody {
+		return s
 	}
-	if seconds > 0 && seconds <= maxTimeoutSeconds {
-		if asked := time.Duration(seconds) * time.Second; asked < limit {
-			limit = asked
-		}
+	cut := maxUpstreamBody
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
 	}
-	return context.WithTimeout(ctx, limit)
+	return s[:cut] + "..."
+}
+
+// is2xx reports a success status line.
+func is2xx(status int) bool {
+	return status >= http.StatusOK && status < http.StatusMultipleChoices
 }

@@ -5,6 +5,9 @@ import (
 	"errors"
 	"regexp"
 	"testing"
+	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
@@ -111,10 +114,10 @@ func TestUpdate_TurningExclusiveOnWithTwoRunsOpenIsRefused(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("UPDATE scripts")).
 		WillReturnRows(sqlmock.NewRows([]string{"changed"}).AddRow(false))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs SET exclusive")).
-		WithArgs("script_1", true).WillReturnError(errExclusiveConflict)
+		WithArgs("script_1", true, false).WillReturnError(errExclusiveConflict)
 	mock.ExpectRollback()
 
-	err := s.Update(context.Background(), &script.Script{ID: "script_1", Name: "x", Exclusive: true})
+	err := s.Update(context.Background(), &script.Script{ID: "script_1", Name: "x", Exclusive: runstate.ExclusiveRefuse})
 	require.ErrorIs(t, err, openrun.ErrOpen)
 	assert.Contains(t, err.Error(), openrun.BlockedMessage)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -134,4 +137,34 @@ func TestUpdate_ARestampFaultIsWrapped(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, openrun.ErrOpen)
 	assert.Contains(t, err.Error(), "stamping the script's open runs")
+}
+
+// TestUpdate_TurningQueueOnStampsTheOpenRunsQueued is #2209's save half: the
+// open runs carry queue as they carry refuse, and turning it on while two runs
+// are running is refused by the one-running-queued-run index.
+func TestUpdate_TurningQueueOnStampsTheOpenRunsQueued(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("UPDATE scripts")).
+		WillReturnRows(sqlmock.NewRows([]string{"changed"}).AddRow(false))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs SET exclusive = $2, queued = $3")).
+		WithArgs("script_1", false, true).WillReturnError(&pq.Error{Code: pgUniqueViolation, Constraint: queuedRunningIndex})
+	mock.ExpectRollback()
+
+	err := s.Update(context.Background(), &script.Script{ID: "script_1", Name: "x", Exclusive: runstate.ExclusiveQueue})
+	require.ErrorIs(t, err, openrun.ErrOpen)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestClaim_AQueuedRunBeatenToRunningIsNoWork: two replicas claiming two
+// queued runs of one script at once both see none running; the index refuses
+// the second claim, which is not a failure but no work yet (#2209).
+func TestClaim_AQueuedRunBeatenToRunningIsNoWork(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("WITH due AS")).
+		WillReturnError(&pq.Error{Code: pgUniqueViolation, Constraint: queuedRunningIndex})
+
+	_, err := s.Claim(context.Background(), "w1", time.Minute, 2)
+	require.ErrorIs(t, err, script.ErrNoWork)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

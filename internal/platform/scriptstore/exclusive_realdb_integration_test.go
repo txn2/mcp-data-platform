@@ -25,12 +25,12 @@ import (
 
 // setExclusive saves the script's exclusive setting through the store's
 // ordinary update, the path manage_script and the portal take.
-func setExclusive(ctx context.Context, s *Store, sc *script.Script, on bool) error {
+func setExclusive(ctx context.Context, s *Store, sc *script.Script, mode runstate.ExclusiveMode) error {
 	live, err := s.GetByID(ctx, sc.ID)
 	if err != nil {
 		return err
 	}
-	live.Exclusive = on
+	live.Exclusive = mode
 	return s.Update(ctx, live)
 }
 
@@ -61,7 +61,7 @@ func TestRealDB_AnExclusiveScriptSkipsAFireWhileAToolRunIsOpen(t *testing.T) {
 	ctx := context.Background()
 
 	sc, v := savedScript(ctx, t, s, "backfill")
-	require.NoError(t, setExclusive(ctx, s, sc, true))
+	require.NoError(t, setExclusive(ctx, s, sc, runstate.ExclusiveRefuse))
 	fire := pastFire()
 	sched := scheduledFor(ctx, t, s, sc, fire)
 
@@ -90,7 +90,7 @@ func TestRealDB_AnExclusiveScriptRefusesAToolRunWhileAScheduledRunIsOpen(t *test
 	ctx := context.Background()
 
 	sc, v := savedScript(ctx, t, s, "hourly")
-	require.NoError(t, setExclusive(ctx, s, sc, true))
+	require.NoError(t, setExclusive(ctx, s, sc, runstate.ExclusiveRefuse))
 	fire := pastFire()
 	sched := scheduledFor(ctx, t, s, sc, fire)
 	outcome, err := s.MaterializeRun(ctx, fireRun(sc, v, sched, "dpx_fire", fire))
@@ -144,7 +144,7 @@ func TestRealDB_RacingRunsOfAnExclusiveScriptLeaveExactlyOneOpen(t *testing.T) {
 	ctx := context.Background()
 
 	sc, v := savedScript(ctx, t, s, "racy")
-	require.NoError(t, setExclusive(ctx, s, sc, true))
+	require.NoError(t, setExclusive(ctx, s, sc, runstate.ExclusiveRefuse))
 	fire := pastFire()
 	sched := scheduledFor(ctx, t, s, sc, fire)
 
@@ -190,23 +190,23 @@ func TestRealDB_TurningExclusiveOnStampsTheOpenRun(t *testing.T) {
 	require.NoError(t, s.Enqueue(ctx, toolRun(sc, v, "dpx_a")))
 	require.NoError(t, s.Enqueue(ctx, toolRun(sc, v, "dpx_b")))
 
-	err := setExclusive(ctx, s, sc, true)
+	err := setExclusive(ctx, s, sc, runstate.ExclusiveRefuse)
 	require.ErrorIs(t, err, openrun.ErrOpen)
 	assert.Contains(t, err.Error(), openrun.BlockedMessage)
 	live, err := s.GetByID(ctx, sc.ID)
 	require.NoError(t, err)
-	assert.False(t, live.Exclusive, "a refused save changes nothing")
+	assert.Equal(t, runstate.ExclusiveOff, live.Exclusive.Or(), "a refused save changes nothing")
 
 	_, _, err = s.CancelRun(ctx, "dpx_b", "jane@example.com")
 	require.NoError(t, err)
-	require.NoError(t, setExclusive(ctx, s, sc, true))
+	require.NoError(t, setExclusive(ctx, s, sc, runstate.ExclusiveRefuse))
 
 	err = s.Enqueue(ctx, toolRun(sc, v, "dpx_c"))
 	var openErr *openrun.Error
 	require.ErrorAs(t, err, &openErr)
 	assert.Equal(t, "dpx_a", openErr.Open.ID, "the run open when the setting changed carries it")
 
-	require.NoError(t, setExclusive(ctx, s, sc, false))
+	require.NoError(t, setExclusive(ctx, s, sc, runstate.ExclusiveOff))
 	require.NoError(t, s.Enqueue(ctx, toolRun(sc, v, "dpx_c")), "turning it off lets runs overlap again")
 }
 
@@ -219,7 +219,7 @@ func TestRealDB_AReclaimedRunIsStillTheOneOpenRun(t *testing.T) {
 	ctx := context.Background()
 
 	sc, v := savedScript(ctx, t, s, "reclaim")
-	require.NoError(t, setExclusive(ctx, s, sc, true))
+	require.NoError(t, setExclusive(ctx, s, sc, runstate.ExclusiveRefuse))
 	require.NoError(t, s.Enqueue(ctx, toolRun(sc, v, "dpx_lost")))
 
 	crashed, err := s.Claim(ctx, "worker-a", 0, runstate.DefaultMaxReclaims)
@@ -242,7 +242,7 @@ func TestRealDB_AReclaimedRunIsStillTheOneOpenRun(t *testing.T) {
 // are each recorded as one skip, and the next run starts at the first fire
 // after the open run ends.
 func TestRealDB_AScheduleSlowerThanItsIntervalNeverOverlaps(t *testing.T) {
-	for _, exclusive := range []bool{false, true} {
+	for _, exclusive := range []runstate.ExclusiveMode{runstate.ExclusiveOff, runstate.ExclusiveRefuse} {
 		t.Run(fmt.Sprintf("exclusive=%v", exclusive), func(t *testing.T) {
 			db := testdb.New(t)
 			s := New(db)
@@ -304,4 +304,79 @@ func TestRealDB_AScheduleSlowerThanItsIntervalNeverOverlaps(t *testing.T) {
 			assert.Equal(t, 2, skips, "the skips are visible in the run history")
 		})
 	}
+}
+
+// TestRealDB_AQueuedRunWaitsForTheRunningOne is #2209's queue criterion: a
+// second run of a queue-mode script is accepted, stays pending while the
+// first is running, and is claimed once it ends; replicas claiming at once
+// never start two.
+func TestRealDB_AQueuedRunWaitsForTheRunningOne(t *testing.T) {
+	db := testdb.New(t)
+	s := New(db)
+	ctx := context.Background()
+
+	sc, v := savedScript(ctx, t, s, "batch")
+	require.NoError(t, setExclusive(ctx, s, sc, runstate.ExclusiveQueue))
+	for _, id := range []string{"dpx_1", "dpx_2", "dpx_3"} {
+		require.NoError(t, s.Enqueue(ctx, toolRun(sc, v, id)), "a queued script accepts every run")
+	}
+
+	// Several replicas claim at once: exactly one run starts.
+	const replicas = 6
+	claimed := make([]*script.Run, replicas)
+	var wg sync.WaitGroup
+	for r := range replicas {
+		wg.Go(func() {
+			run, err := s.Claim(ctx, fmt.Sprintf("worker-%d", r), time.Minute, runstate.DefaultMaxReclaims)
+			if err != nil {
+				require.ErrorIs(t, err, script.ErrNoWork)
+				return
+			}
+			claimed[r] = run
+		})
+	}
+	wg.Wait()
+	var running []*script.Run
+	for _, run := range claimed {
+		if run != nil {
+			running = append(running, run)
+		}
+	}
+	require.Len(t, running, 1, "one run of a queued script runs at a time")
+	assert.Equal(t, "dpx_1", running[0].ID, "the oldest run goes first")
+
+	_, err := s.Claim(ctx, "worker-x", time.Minute, runstate.DefaultMaxReclaims)
+	require.ErrorIs(t, err, script.ErrNoWork, "the next run waits while one is running")
+
+	require.NoError(t, s.Finish(ctx, running[0].Lease(), script.RunResult{Status: script.RunStatusSucceeded}))
+	next, err := s.Claim(ctx, "worker-x", time.Minute, runstate.DefaultMaxReclaims)
+	require.NoError(t, err)
+	assert.Equal(t, "dpx_2", next.ID, "once it ends the next is taken, in order")
+
+	// Turning queue off frees the third to run beside the second.
+	require.NoError(t, setExclusive(ctx, s, sc, runstate.ExclusiveOff))
+	third, err := s.Claim(ctx, "worker-y", time.Minute, runstate.DefaultMaxReclaims)
+	require.NoError(t, err)
+	assert.Equal(t, "dpx_3", third.ID)
+}
+
+// TestRealDB_TurningQueueOnWithTwoRunsRunningIsRefused: the setting cannot be
+// made to hold while it is already broken, as with refuse.
+func TestRealDB_TurningQueueOnWithTwoRunsRunningIsRefused(t *testing.T) {
+	db := testdb.New(t)
+	s := New(db)
+	ctx := context.Background()
+
+	sc, v := savedScript(ctx, t, s, "busy")
+	require.NoError(t, s.Enqueue(ctx, toolRun(sc, v, "dpx_a")))
+	require.NoError(t, s.Enqueue(ctx, toolRun(sc, v, "dpx_b")))
+	for range 2 {
+		_, err := s.Claim(ctx, "w", time.Minute, runstate.DefaultMaxReclaims)
+		require.NoError(t, err)
+	}
+	err := setExclusive(ctx, s, sc, runstate.ExclusiveQueue)
+	require.ErrorIs(t, err, openrun.ErrOpen)
+	live, err := s.GetByID(ctx, sc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, runstate.ExclusiveOff, live.Exclusive.Or())
 }

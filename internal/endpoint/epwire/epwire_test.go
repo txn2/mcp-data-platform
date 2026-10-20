@@ -36,7 +36,7 @@ func TestBuild_AssemblesOverOneDatabase(t *testing.T) {
 		"owner_email", "tags", "enabled", "status", "superseded_by", "deprecated_at", "version",
 		"created_at", "updated_at", "library", "library_loads", "exclusive",
 	}).AddRow("s1", "lookup", "", "", "", "def handle(req):\n    return {}\n", []byte("[]"),
-		"jane@example.com", "{}", true, "active", "", nil, 1, now, now, false, "{}", false))
+		"jane@example.com", "{}", true, "active", "", nil, 1, now, now, false, "{}", "off"))
 	assert.Equal(t, "lookup", e.Commands.ScriptName(context.Background(), "s1"))
 
 	mock.ExpectQuery("FROM gateway_secrets").WillReturnError(sqlmock.ErrCancelled)

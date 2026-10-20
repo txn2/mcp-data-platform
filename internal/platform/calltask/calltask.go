@@ -33,6 +33,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/exportasync"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/mcptask"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
@@ -110,6 +111,10 @@ type Runner struct {
 // execution is one call this replica runs.
 type execution struct {
 	cancel context.CancelCauseFunc
+	// cell is a background export's progress, nil for any other call; written
+	// is the progress the heartbeat last recorded.
+	cell    *exportasync.Cell
+	written exportasync.Progress
 }
 
 // Causes a running call's context is canceled with.
@@ -339,6 +344,7 @@ func (r *Runner) beat(ctx context.Context) error {
 	for _, id := range cancel {
 		r.cancelLocal(id)
 	}
+	r.writeProgress(ctx)
 	return nil
 }
 

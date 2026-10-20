@@ -29,6 +29,7 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 		return errResult, nil, nil
 	}
 	report := scriptlint.WithDestinationCheck(scriptrun.Validate(source), h.destinations)
+	report = scriptlint.WithRegisterCheck(report, h.registerCheck(ctx))
 	// The gate, as a save of this source would apply it (#1913): the script
 	// named when it exists and the caller could save into it, otherwise a new
 	// one. The findings' lines are formatted_source's, the stored form, and
@@ -426,4 +427,26 @@ func orEmptyExports(exports []scriptrun.ExportRecord) []scriptrun.ExportRecord {
 		return []scriptrun.ExportRecord{}
 	}
 	return exports
+}
+
+// tableTargetChecker is the half of the asset toolkit validate asks whether a
+// table could be registered on a connection (#2213); pkg/toolkits/portal
+// implements it.
+type tableTargetChecker interface {
+	CheckTableTarget(ctx context.Context, connection string) error
+}
+
+// registerCheck is the check validate folds into its report for an export's
+// register= connections, as the caller in ctx. Nil when no toolkit can
+// answer, which leaves the report as the source alone decides it.
+func (h *Handle) registerCheck(ctx context.Context) scriptlint.RegisterCheck {
+	if h.toolkits == nil {
+		return nil
+	}
+	for _, tk := range h.toolkits.All() {
+		if checker, ok := tk.(tableTargetChecker); ok {
+			return func(connection string) error { return checker.CheckTableTarget(ctx, connection) }
+		}
+	}
+	return nil
 }

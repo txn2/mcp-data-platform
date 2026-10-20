@@ -16,8 +16,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/exportasync"
 	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/timeoutcap"
+	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -160,6 +164,10 @@ type ExportDeps struct {
 	BaseURL        string
 	Config         ExportConfig
 	GetUserContext func(ctx context.Context) *ExportUserContext
+	// Background is the runner a long export runs in the background through
+	// (#2212), read when a call asks for it. Nil, or a nil answer, runs every
+	// export inline.
+	Background func() exportasync.Runner
 }
 
 // SetExportDeps wires the platform-side dependencies for
@@ -199,6 +207,9 @@ type exportInput struct {
 	Tags             []string        `json:"tags,omitempty"`
 	IdempotencyKey   string          `json:"idempotency_key,omitempty"`
 	CreatePublicLink bool            `json:"create_public_link,omitempty"`
+	// Async runs the export in the background (#2212). Nil runs a page walk
+	// from a model client in the background and anything else inline.
+	Async *bool `json:"async,omitempty"`
 	// Resource, when set, lands the result in the managed resource at that path
 	// instead of in a new portal asset (#1663).
 	Resource *toolkit.ResourceDestination `json:"resource,omitempty"`
@@ -230,6 +241,15 @@ type exportOutput struct {
 	UpstreamError bool              `json:"upstream_error"`
 	Errors        []Error           `json:"errors,omitempty"`
 	Pagination    *PaginationReport `json:"pagination,omitempty"`
+	// UpstreamBody, the retry advice and the transport failure are what
+	// graphql_query reports for the same answer (#2211).
+	UpstreamBody   string     `json:"upstream_body,omitempty"`
+	TransportError string     `json:"transport_error,omitempty"`
+	Error          *callError `json:"error,omitempty"`
+	upstreamretry.Advice
+	// TimeoutCap reports a timeout_seconds longer than the deployment's
+	// export max_timeout, and the timeout applied in its place (#2210).
+	timeoutcap.Cap
 	// Resource is where a resource destination landed the result (#1663): the
 	// reference and uri to hand to the next call, the version written, and what
 	// the write did to the tables registered over the file. Set instead of
@@ -292,6 +312,11 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	if uc == nil {
 		return toolkit.ErrorResult("authentication required for graphql_export"), nil, nil
 	}
+	runner := exportasync.RunnerOf(deps.Background)
+	read, prior, handled := exportasync.Resume(ctx, runner, ToolExport, in.IdempotencyKey, exportasync.HowToReadAgain(ToolExport, in.IdempotencyKey))
+	if handled {
+		return read, nil, nil
+	}
 	if in.Resource != nil {
 		if denial := checkResourceDestination(ctx, deps, in); denial != nil {
 			return denial, nil, nil
@@ -304,16 +329,62 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	if existing := checkExportIdempotency(ctx, deps, uc, in); existing != nil {
 		return toolkit.JSONResult(existing), existing, nil
 	}
-	exportCtx, cancel := context.WithTimeout(ctx, resolveExportTimeout(in.TimeoutSeconds, deps.Config))
+	job := exportJob{deps: deps, uc: uc, prepared: prepared, in: in}
+	if exportasync.Wanted(runner, in.Async, in.Paginate != nil, mcpcontext.ResultBudget(ctx) > 0) {
+		return t.exportInBackground(ctx, runner, job, prior), nil, nil
+	}
+	result, out := t.exportNow(ctx, job)
+	return result, out, nil
+}
+
+// exportJob is one prepared export: what exportNow runs, inline or in the
+// background.
+type exportJob struct {
+	deps     *ExportDeps
+	uc       *ExportUserContext
+	prepared prepared
+	in       exportInput
+}
+
+// exportNow runs one export to its end and answers with it.
+func (t *Toolkit) exportNow(ctx context.Context, job exportJob) (result *mcp.CallToolResult, out any) {
+	deps, uc, prepared, in := job.deps, job.uc, job.prepared, job.in
+	timeout, capped := resolveExportTimeout(in.TimeoutSeconds, deps.Config)
+	exportCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	out, err := t.runExport(exportCtx, deps, uc, prepared, in)
-	if err != nil {
-		return toolkit.ErrorResult(err.Error()), nil, nil
+	written, err := t.runExport(exportCtx, deps, uc, prepared, in)
+	if transport := (*TransportError)(nil); errors.As(err, &transport) {
+		return exportTransportResult(prepared, transport, timeout, capped)
 	}
-	result := toolkit.JSONResult(out)
-	stampAuditOutcome(result, classifyUpstream(out.Status, out.Errors, out.UpstreamError))
-	return result, out, nil
+	if err != nil {
+		return toolkit.ErrorResult(err.Error()), nil
+	}
+	written.Cap = capped
+	result = toolkit.JSONResult(written)
+	stampAuditOutcome(result, classifyUpstream(written.Status, written.Errors, written.UpstreamError))
+	return result, written
+}
+
+// exportInBackground starts the export as a background export (#2212),
+// answering at once with the run and the key it is read again by. Nothing
+// the caller is told to fix is left to the background: the document was
+// prepared and the destination checked before this.
+func (t *Toolkit) exportInBackground(ctx context.Context, runner exportasync.Runner, job exportJob, prior *exportasync.Run) *mcp.CallToolResult {
+	launch := exportasync.Launch{
+		Runner: runner, Tool: ToolExport, Prior: prior, Key: &job.in.IdempotencyKey,
+		Timeout: &job.in.TimeoutSeconds, MaxTimeout: job.deps.Config.MaxTimeout,
+	}
+	if job.in.Resource != nil {
+		// A resource destination keeps no key on what it writes: its repeat
+		// call is the file's next version, and the key reads the run alone.
+		key := job.in.IdempotencyKey
+		launch.Key, job.in.IdempotencyKey = &key, ""
+	}
+	return exportasync.Start(ctx, launch, func(ctx context.Context) (*mcp.CallToolResult, error) {
+		res, _ := t.exportNow(ctx, job)
+		return res, nil
+	})
 }
 
 // query projects an export's executing arguments onto the query input,
@@ -371,6 +442,8 @@ func (t *Toolkit) runExport(ctx context.Context, deps *ExportDeps, uc *ExportUse
 		UpstreamError: result.UpstreamError,
 		Errors:        result.Errors,
 		Pagination:    result.Pagination,
+		UpstreamBody:  result.UpstreamBody,
+		Advice:        result.Advice,
 		Message:       exporttrunc.Sentences(fmt.Sprintf("Exported %d bytes from connection %s.", size, in.Connection), noteOf(cut)),
 		Report:        reportOf(cut),
 	}, nil
@@ -561,16 +634,34 @@ func maybeCreateExportShare(ctx context.Context, deps *ExportDeps, in exportInpu
 }
 
 // resolveExportTimeout bounds one export. The platform's maximum wins
-// over a larger request.
-func resolveExportTimeout(seconds int, cfg ExportConfig) time.Duration {
+// over a larger request, and is reported back as the cap (#2210).
+func resolveExportTimeout(seconds int, cfg ExportConfig) (time.Duration, timeoutcap.Cap) {
 	if seconds <= 0 {
-		return cfg.DefaultTimeout
+		return cfg.DefaultTimeout, timeoutcap.Cap{}
 	}
-	requested := time.Duration(seconds) * time.Second
-	if requested > cfg.MaxTimeout {
-		return cfg.MaxTimeout
+	if cfg.MaxTimeout <= 0 {
+		return time.Duration(seconds) * time.Second, timeoutcap.Cap{}
 	}
-	return requested
+	return timeoutcap.Apply(cfg.MaxTimeout, seconds, timeoutcap.CappedByExportMaxTimeout)
+}
+
+// exportTransportResult is graphql_export's answer to a send the endpoint
+// never answered: nothing was written, and the result says why as
+// graphql_query's does (#2211).
+func exportTransportResult(p prepared, failure *TransportError, timeout time.Duration, capped timeoutcap.Cap) (result *mcp.CallToolResult, out any) {
+	msg, outcome := transportMessage(failure, timeout, capped, "the export's timeout")
+	output := &exportOutput{
+		Operations:     p.invoked,
+		UpstreamError:  true,
+		TransportError: msg,
+		Error:          &callError{Code: upstreamretry.CodeUnavailable, Category: upstreamretry.CategoryUnavailable, Message: msg},
+		Cap:            capped,
+		Message:        "Nothing was exported: " + msg,
+	}
+	result = toolkit.JSONResult(output)
+	result.IsError = true
+	stampAuditOutcome(result, auditVerdict{outcome: outcome, message: msg})
+	return result, output
 }
 
 // generateExportAssetID returns a 16-byte hex id, the same format every

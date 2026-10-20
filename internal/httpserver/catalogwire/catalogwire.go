@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogscan"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/internal/platform/tableregister/regcatalog"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
@@ -379,7 +380,7 @@ func RegistrationStore(p Platform, inner tableregister.Store) tableregister.Stor
 	if p == nil || p.DB() == nil {
 		return inner
 	}
-	return tableregister.NewCatalogingStore(inner, catalogstore.New(p.DB()), trinoInstance(p.ToolkitRegistry()))
+	return regcatalog.New(inner, catalogstore.New(p.DB()), trinoInstance(p.ToolkitRegistry()))
 }
 
 // trinoInstance maps the name a call binds a Trino connection by to its

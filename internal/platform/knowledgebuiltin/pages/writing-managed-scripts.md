@@ -26,7 +26,8 @@ flowchart LR
 1. `manage_script command=create` (or `update`) stores the source. It is parsed
    on save, so code that cannot run is refused at the keyboard.
 2. `command=validate` parses the source and reports the capabilities,
-   connections, and destinations it would reach. It executes nothing.
+   connections, and destinations it would reach, and flags a `register=`
+   connection a table cannot be registered on. It executes nothing.
 3. `command=run_draft` executes the draft for real under your own identity and
    persona, with tighter limits, persisting nothing: `platform.export` reports
    the shape and size of each output instead of writing it, and a
@@ -37,7 +38,9 @@ flowchart LR
 
    Send `allow_writes=true` when a later step needs what an earlier one
    creates. The run then writes for real, as you, and lists every write it made
-   under `writes`.
+   under `writes`. An export with `register=` asks first whether its connection
+   can take the table, in a draft as in a run, and writes nothing when it
+   cannot; the refusal names the connections that can.
 
 Steps 2 and 3 act on the `source` you send with the call, and on the saved
 version when you send none. That is what makes them a loop: a save is

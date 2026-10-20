@@ -12,15 +12,23 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// registeringCaller answers manage_table register the way the portal toolkit
-// does, and records what it was asked.
+// registeringCaller answers manage_table check and register the way the
+// portal toolkit does, and records what it was asked. err fails register;
+// checkErr fails check.
 type registeringCaller struct {
-	calls []recordedCall
-	err   error
+	calls    []recordedCall
+	err      error
+	checkErr error
 }
 
 func (c *registeringCaller) CallTool(_ context.Context, name string, args map[string]any) (map[string]any, error) {
 	c.calls = append(c.calls, recordedCall{name: name, args: args})
+	if args["action"] == exporttable.CheckAction {
+		if c.checkErr != nil {
+			return nil, c.checkErr
+		}
+		return map[string]any{"connection": args["connection"], "catalog": "scratch", "schema": "uploads"}, nil
+	}
 	if c.err != nil {
 		return nil, c.err
 	}
@@ -62,12 +70,15 @@ func TestExport_RegisterMakesTheTableOverTheWrittenFile(t *testing.T) {
 
 	require.Len(t, exporter.requests, 1)
 	assert.Equal(t, "jsonl", exporter.requests[0].Format)
-	require.Len(t, caller.calls, 1)
+	require.Len(t, caller.calls, 2)
 	assert.Equal(t, "manage_table", caller.calls[0].name)
+	assert.Equal(t, map[string]any{"action": "check", "connection": "warehouse", "table_name": "orders"}, caller.calls[0].args,
+		"the target is asked about before the file is written (#2213)")
+	assert.Equal(t, "manage_table", caller.calls[1].name)
 	assert.Equal(t, map[string]any{
 		"action": "register", "reference": "mcp:resource:res-1", "connection": "warehouse",
 		"table_name": "orders", "follow": true,
-	}, caller.calls[0].args)
+	}, caller.calls[1].args)
 
 	require.Len(t, result.Exports, 1)
 	table := result.Exports[0].Table
@@ -87,7 +98,8 @@ func TestExport_RegisterInAWriteReportingDraftIsListed(t *testing.T) {
 }
 
 // TestExport_RegisterInAPreviewReportsTheTableItWouldMake: with no exporter
-// nothing was written, so there is no file to register and no call is made.
+// nothing was written, so there is no file to register and no registration is
+// made; the target is still checked, so a draft shows a bad one (#2213).
 func TestExport_RegisterInAPreviewReportsTheTableItWouldMake(t *testing.T) {
 	caller := &registeringCaller{}
 	source := `out = platform.export(name="orders", rows=[{"id": 1}], format="jsonl",
@@ -96,7 +108,8 @@ print(out["table"]["preview"], out["table"].get("query_table", "none"))
 `
 	result, err := registerRun(t, source, caller, nil, WritesRefused)
 	require.NoError(t, err)
-	assert.Empty(t, caller.calls)
+	require.Len(t, caller.calls, 1)
+	assert.Equal(t, map[string]any{"action": "check", "connection": "warehouse"}, caller.calls[0].args)
 	require.Len(t, result.Exports, 1)
 	assert.Equal(t, &exporttable.Table{Connection: "warehouse", Follow: true, Preview: true}, result.Exports[0].Table)
 	assert.Contains(t, result.Log, "True none", "a preview names no table, because none was made")
@@ -107,10 +120,40 @@ print(out["table"]["preview"], out["table"].get("query_table", "none"))
 // that is not there, so the run stops here.
 func TestExport_RegisterFailureFailsTheRunNamingTheOutput(t *testing.T) {
 	caller := &registeringCaller{err: errors.New("line 2: the value of \"x\" is a nested object or list")}
-	_, err := registerRun(t, registerSource, caller, newLandingExporter(), WritesMade)
+	result, err := registerRun(t, registerSource, caller, newLandingExporter(), WritesMade)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `output "orders" was written, and registering it as a table failed`)
 	assert.Contains(t, err.Error(), "nested object")
+	require.NotNil(t, result)
+	require.Len(t, result.Exports, 1, "the written output is reported beside the failure (#2213)")
+	assert.Equal(t, "res-1", result.Exports[0].ResourceID)
+	assert.Nil(t, result.Exports[0].Table)
+}
+
+// TestExport_ARefusedTargetWritesNothing is #2213: a register= connection
+// with no scratch target used to be found out after the file was written,
+// failing a run whose output stood, which a rerun wrote again. The check now
+// precedes the write, in a platform run and in a draft alike.
+func TestExport_ARefusedTargetWritesNothing(t *testing.T) {
+	refusal := errors.New("this connection has no scratch catalog and schema configured, so a table cannot be registered on it. Connections you can register a table on: lake")
+	for _, exporter := range []*landingExporter{newLandingExporter(), nil} {
+		caller := &registeringCaller{checkErr: refusal}
+		var exp Exporter
+		if exporter != nil {
+			exp = exporter
+		}
+		result, err := registerRun(t, registerSource, caller, exp, WritesMade)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `register cannot use connection "warehouse", so nothing was written`)
+		assert.Contains(t, err.Error(), "Connections you can register a table on: lake")
+		require.Len(t, caller.calls, 1, "no registration is attempted")
+		if exporter != nil {
+			assert.Empty(t, exporter.requests, "nothing is written")
+		}
+		if result != nil {
+			assert.Empty(t, result.Exports)
+		}
+	}
 }
 
 // TestExport_RegisterRefusalsPrecedeTheWrite: what register= cannot do is
@@ -174,10 +217,12 @@ func TestExport_RegisterOverAPortalOutputNamesTheAsset(t *testing.T) {
 		`platform.export(name="o", rows=[{"a": 1}], format="csv", register={"connection": "w", "follow": False})`,
 		caller, &recordingExporter{}, WritesMade)
 	require.NoError(t, err)
-	require.Len(t, caller.calls, 1)
-	assert.Equal(t, "mcp:asset:asset_1", caller.calls[0].args["reference"])
-	assert.Equal(t, false, caller.calls[0].args["follow"])
+	require.Len(t, caller.calls, 2)
 	_, named := caller.calls[0].args["table_name"]
+	assert.False(t, named, "with no table_name the check asks about the connection alone")
+	assert.Equal(t, "mcp:asset:asset_1", caller.calls[1].args["reference"])
+	assert.Equal(t, false, caller.calls[1].args["follow"])
+	_, named = caller.calls[1].args["table_name"]
 	assert.False(t, named, "no table_name takes manage_table's default")
 }
 

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/txn2/mcp-data-platform/internal/timeoutcap"
 )
 
 // exportToolkit builds a toolkit with export wired to in-memory stores
@@ -267,14 +269,21 @@ func TestExportDefaultsAndTimeoutResolution(t *testing.T) {
 	if cfg.MaxBytes != defaultExportMaxBytes || cfg.DefaultTimeout != defaultExportTimeout || cfg.MaxTimeout != defaultMaxExportTimeout {
 		t.Errorf("defaults = %+v", cfg)
 	}
-	if got := resolveExportTimeout(0, cfg); got != cfg.DefaultTimeout {
-		t.Errorf("no request = %v", got)
+	if got, capped := resolveExportTimeout(0, cfg); got != cfg.DefaultTimeout || capped.Capped() {
+		t.Errorf("no request = %v, %+v", got, capped)
 	}
-	if got := resolveExportTimeout(99999, cfg); got != cfg.MaxTimeout {
+	got, capped := resolveExportTimeout(99999, cfg)
+	if got != cfg.MaxTimeout {
 		t.Errorf("an over-large request = %v", got)
 	}
-	if got := resolveExportTimeout(30, cfg); got.Seconds() != 30 {
-		t.Errorf("a request under the ceiling = %v", got)
+	if capped.CappedBy != timeoutcap.CappedByExportMaxTimeout || capped.RequestedSeconds != 99999 || capped.AppliedSeconds != int(cfg.MaxTimeout.Seconds()) {
+		t.Errorf("an over-large request is reported as capped by the export max_timeout; got %+v", capped)
+	}
+	if got, capped := resolveExportTimeout(30, cfg); got.Seconds() != 30 || capped.Capped() {
+		t.Errorf("a request under the ceiling = %v, %+v", got, capped)
+	}
+	if got, capped := resolveExportTimeout(30, ExportConfig{}); got.Seconds() != 30 || capped.Capped() {
+		t.Errorf("with no ceiling configured the request stands; got %v, %+v", got, capped)
 	}
 }
 

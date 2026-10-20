@@ -46,6 +46,11 @@ internal/admin/connoauthapi -> pkg/pkcestore
 internal/admin/connoauthapi -> pkg/platform
 internal/admin/connoauthapi -> pkg/toolkits/apigateway
 internal/admin/connoauthapi -> pkg/toolkits/gateway
+internal/admin/endpointapi -> internal/endpoint/epbinding
+internal/admin/endpointapi -> internal/endpoint/eprefusal
+internal/admin/endpointapi -> internal/httpjson
+internal/admin/endpointapi -> internal/logsan
+internal/admin/endpointapi -> pkg/script
 internal/admin/graphqlapi -> internal/httpjson
 internal/admin/graphqlapi -> pkg/registry
 internal/admin/graphqlapi -> pkg/toolkits/graphql
@@ -101,6 +106,7 @@ internal/botcheck -> internal/platform/settingsjson
 internal/botcheck -> pkg/portal/shareguest
 internal/catalogfake -> pkg/catalog
 internal/conncatchup -> internal/logsan
+internal/connlimit -> pkg/observability
 internal/connsecretref -> internal/secretref
 internal/connsecretref -> internal/secretstore
 internal/connsecretref -> internal/upstreamauth/sessionlogin
@@ -114,11 +120,14 @@ internal/endpoint/epcmd -> internal/endpoint/epbinding
 internal/endpoint/epcmd -> pkg/script
 internal/endpoint/ephttp -> internal/botcheck
 internal/endpoint/ephttp -> internal/endpoint/epbinding
+internal/endpoint/ephttp -> internal/endpoint/eprefusal
 internal/endpoint/ephttp -> internal/endpoint/eprun
 internal/endpoint/ephttp -> internal/httpjson
 internal/endpoint/ephttp -> internal/httpobs
 internal/endpoint/ephttp -> internal/logsan
 internal/endpoint/ephttp -> pkg/ratelimit
+internal/endpoint/eprefusal -> internal/bgloop
+internal/endpoint/eprefusal -> internal/logsan
 internal/endpoint/eprun -> internal/endpoint/epbinding
 internal/endpoint/eprun -> internal/logsan
 internal/endpoint/eprun -> internal/platform/scriptdialect
@@ -138,6 +147,7 @@ internal/endpoint/epstore -> internal/endpoint/epbinding
 internal/endpoint/epwire -> internal/botcheck
 internal/endpoint/epwire -> internal/endpoint/epbinding
 internal/endpoint/epwire -> internal/endpoint/epcmd
+internal/endpoint/epwire -> internal/endpoint/eprefusal
 internal/endpoint/epwire -> internal/endpoint/eprun
 internal/endpoint/epwire -> internal/endpoint/epstore
 internal/endpoint/epwire -> internal/platform/scriptlib
@@ -150,6 +160,7 @@ internal/endpoint/epwire -> internal/secretstore
 internal/endpoint/epwire -> pkg/middleware
 internal/endpoint/epwire -> pkg/observability
 internal/endpoint/epwire -> pkg/script
+internal/exportasync -> internal/wirejson
 internal/formdata -> internal/pagewalk
 internal/headless -> internal/egressguard
 internal/headless -> internal/outbound
@@ -302,6 +313,7 @@ internal/httpserver/catalogwire -> internal/platform/catalogimport
 internal/httpserver/catalogwire -> internal/platform/catalogscan
 internal/httpserver/catalogwire -> internal/platform/catalogstore
 internal/httpserver/catalogwire -> internal/platform/tableregister
+internal/httpserver/catalogwire -> internal/platform/tableregister/regcatalog
 internal/httpserver/catalogwire -> pkg/audit
 internal/httpserver/catalogwire -> pkg/catalog
 internal/httpserver/catalogwire -> pkg/connid
@@ -322,9 +334,11 @@ internal/httpserver/corshttp -> internal/endpoint/ephttp
 internal/httpserver/corshttp -> internal/httpserver/maphttp
 internal/httpserver/corshttp -> internal/webhook/receiver
 internal/httpserver/endpointwire -> internal/admin/botcheckapi
+internal/httpserver/endpointwire -> internal/admin/endpointapi
 internal/httpserver/endpointwire -> internal/endpoint/ephttp
 internal/httpserver/endpointwire -> internal/endpoint/eprun
 internal/httpserver/endpointwire -> internal/endpoint/epwire
+internal/httpserver/endpointwire -> internal/platform/scriptstore
 internal/httpserver/endpointwire -> pkg/platform
 internal/httpserver/endpointwire -> pkg/portal
 internal/httpserver/gatewayhttp -> internal/inprocess
@@ -433,6 +447,7 @@ internal/httpserver/scripthttp/draftview -> internal/platform/scriptrun
 internal/httpserver/scripthttp/draftview -> internal/runstate
 internal/httpserver/scripthttp/draftview -> pkg/script
 internal/httpserver/scripthttp/exclusivehttp -> internal/httpjson
+internal/httpserver/scripthttp/exclusivehttp -> internal/runstate
 internal/httpserver/scripthttp/exclusivehttp -> pkg/script
 internal/httpserver/scripthttp/fireshttp -> internal/httpjson
 internal/httpserver/scripthttp/fireshttp -> internal/httpserver/scripthttp/scriptlist
@@ -579,6 +594,7 @@ internal/outbound -> internal/egressguard
 internal/outbound -> internal/logsan
 internal/outbound -> internal/useragent
 internal/outbound -> pkg/observability
+internal/pagewalk -> internal/exportasync
 internal/pagewalk -> internal/outbound
 internal/pagewalk -> internal/upstreamretry
 internal/pglisten -> internal/bgloop
@@ -623,6 +639,7 @@ internal/platform/callrecord -> pkg/mcpcontext
 internal/platform/callrecord -> pkg/portal/knowledgepage
 internal/platform/callrecord -> pkg/script
 internal/platform/calltask -> internal/bgloop
+internal/platform/calltask -> internal/exportasync
 internal/platform/calltask -> internal/logsan
 internal/platform/calltask -> internal/mcptask
 internal/platform/calltask -> pkg/mcpcontext
@@ -775,6 +792,7 @@ internal/platform/memorylayer -> pkg/semantic
 internal/platform/memorylayer -> pkg/toolkits/knowledge
 internal/platform/memorylayer -> pkg/toolkits/memory
 internal/platform/notices -> internal/logsan
+internal/platform/notices -> internal/platform/calltask
 internal/platform/notices -> internal/portal/portaldomain
 internal/platform/notices -> internal/runstate
 internal/platform/notices -> pkg/middleware
@@ -939,6 +957,7 @@ internal/platform/resultbudget -> pkg/toolkit
 internal/platform/retention -> internal/bgloop
 internal/platform/retention -> internal/botcheck
 internal/platform/retention -> internal/endpoint/epbinding
+internal/platform/retention -> internal/endpoint/eprefusal
 internal/platform/retention -> internal/endpoint/epstore
 internal/platform/retention -> internal/logsan
 internal/platform/retention -> internal/platform/assetbucket
@@ -1276,13 +1295,16 @@ internal/platform/tableregister -> internal/platform/tableregister/srcdir
 internal/platform/tableregister -> internal/tableparquet
 internal/platform/tableregister -> internal/tabletype
 internal/platform/tableregister -> pkg/audit
-internal/platform/tableregister -> pkg/catalog
 internal/platform/tableregister -> pkg/contenttype
 internal/platform/tableregister -> pkg/middleware
 internal/platform/tableregister -> pkg/portal/knowledgepage
 internal/platform/tableregister -> pkg/toolkits/portal
 internal/platform/tableregister -> pkg/toolkits/trino
+internal/platform/tableregister/regcatalog -> internal/logsan
+internal/platform/tableregister/regcatalog -> internal/platform/tableregister
+internal/platform/tableregister/regcatalog -> pkg/catalog
 internal/platform/tableregister/regstore -> internal/platform/tableregister
+internal/platform/taskwiring -> internal/exportasync
 internal/platform/taskwiring -> internal/mcptask
 internal/platform/taskwiring -> internal/platform/calltask
 internal/platform/taskwiring -> internal/platform/iam
@@ -1421,6 +1443,7 @@ internal/toolanswer -> pkg/toolkit
 internal/toolwrite -> internal/gqlschema
 internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap
+internal/upstreamauth -> internal/connlimit
 internal/upstreamauth -> internal/hmacsig
 internal/upstreamauth -> internal/membudget
 internal/upstreamauth -> internal/outbound
@@ -1671,11 +1694,14 @@ pkg/platform -> internal/agentinstructions
 pkg/platform -> internal/apidocs
 pkg/platform -> internal/botcheck
 pkg/platform -> internal/cfgmap
+pkg/platform -> internal/connlimit
 pkg/platform -> internal/dbobs
 pkg/platform -> internal/endpoint/epwire
+pkg/platform -> internal/exportasync
 pkg/platform -> internal/indexpolicy
 pkg/platform -> internal/inprocess
 pkg/platform -> internal/mcpobs
+pkg/platform -> internal/outbound
 pkg/platform -> internal/pagewalk
 pkg/platform -> internal/platform/apigwwiring
 pkg/platform -> internal/platform/apikeystore
@@ -1908,9 +1934,11 @@ pkg/toolkits/apigateway -> internal/apigwmetrics
 pkg/toolkits/apigateway -> internal/cfgmap
 pkg/toolkits/apigateway -> internal/conncatchup
 pkg/toolkits/apigateway -> internal/connprobe
+pkg/toolkits/apigateway -> internal/exportasync
 pkg/toolkits/apigateway -> internal/exportstream
 pkg/toolkits/apigateway -> internal/exporttrunc
 pkg/toolkits/apigateway -> internal/formdata
+pkg/toolkits/apigateway -> internal/handlertransport
 pkg/toolkits/apigateway -> internal/inlinefit
 pkg/toolkits/apigateway -> internal/listcut
 pkg/toolkits/apigateway -> internal/logsan
@@ -1924,6 +1952,7 @@ pkg/toolkits/apigateway -> internal/secretref
 pkg/toolkits/apigateway -> internal/secretstore
 pkg/toolkits/apigateway -> internal/selfcall
 pkg/toolkits/apigateway -> internal/soap
+pkg/toolkits/apigateway -> internal/timeoutcap
 pkg/toolkits/apigateway -> internal/upstreamauth
 pkg/toolkits/apigateway -> internal/upstreamauth/googlekey
 pkg/toolkits/apigateway -> internal/upstreamcall
@@ -1964,6 +1993,7 @@ pkg/toolkits/graphql -> internal/apigwmetrics
 pkg/toolkits/graphql -> internal/cfgmap
 pkg/toolkits/graphql -> internal/conncatchup
 pkg/toolkits/graphql -> internal/connprobe
+pkg/toolkits/graphql -> internal/exportasync
 pkg/toolkits/graphql -> internal/exporttrunc
 pkg/toolkits/graphql -> internal/gqlschema
 pkg/toolkits/graphql -> internal/inlinefit
@@ -1972,11 +2002,14 @@ pkg/toolkits/graphql -> internal/logsan
 pkg/toolkits/graphql -> internal/membudget
 pkg/toolkits/graphql -> internal/opranking
 pkg/toolkits/graphql -> internal/secretref
+pkg/toolkits/graphql -> internal/timeoutcap
 pkg/toolkits/graphql -> internal/upstreamauth
+pkg/toolkits/graphql -> internal/upstreamretry
 pkg/toolkits/graphql -> internal/useragent
 pkg/toolkits/graphql -> pkg/authevents
 pkg/toolkits/graphql -> pkg/connoauth
 pkg/toolkits/graphql -> pkg/embedding
+pkg/toolkits/graphql -> pkg/mcpcontext
 pkg/toolkits/graphql -> pkg/observability
 pkg/toolkits/graphql -> pkg/query
 pkg/toolkits/graphql -> pkg/semantic

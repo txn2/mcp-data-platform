@@ -324,3 +324,34 @@ route template. A 429 is counted in
 `http_rate_limited_total{limiter="endpoint"}`. The routes report their template
 (`/endpoints/{name}/{rest...}`) to `http_server_request_duration_seconds`,
 never the path a caller sent.
+
+## Every endpoint on one page
+
+An administrator sees every binding on the deployment under **Admin >
+Automations > Endpoints** (`/portal/admin/automations/endpoints`, #2208),
+without opening automations one at a time: each endpoint's automation and
+owner, its methods and path, its access (a public endpoint is marked apart from
+a signed-in one), whether it is on, and over the last 24 hours or 7 days its
+requests, failures, refusals, p95 duration and last request. The list filters
+by access and by on or off, and a row opens the endpoint.
+
+An endpoint's page charts its requests by status class (an hour a bar over a
+day, six hours over a week) beside the requests it refused before its handler
+ran, names the reasons it refused them, its busiest signed-in callers and its
+failed requests, and turns it on and off. It is edited on its automation's
+page, in the Endpoint section, which is also where **Bind an automation** on
+the list leads: the automation is picked there, and the binding refuses one
+that defines no `handle(req)`.
+
+The answered requests are read from each request's audit row. A request
+refused before its handler ran writes no audit row, so the refusals are
+counted on their own (`script_endpoint_refusals`, migration `000207`) by
+reason: `bot_check`, `rate_limit`, `caller_rate_limit`, `body_limit`,
+`credential` (none, or one refused) and `origin` (a cross-origin preflight
+from an origin the binding does not list). Each replica counts in memory and
+adds its counts every ten seconds, and once more as it stops, one row per
+endpoint, hour and reason, so a flood refused at the bot check moves a counter
+rather than writing a row per request. The counts are kept 30 days.
+
+The page reads `GET /api/v1/admin/endpoints?range=day|week` and
+`GET /api/v1/admin/endpoints/{name}?range=day|week`, admin only.

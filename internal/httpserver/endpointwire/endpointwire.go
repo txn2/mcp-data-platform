@@ -11,9 +11,11 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/admin/botcheckapi"
+	"github.com/txn2/mcp-data-platform/internal/admin/endpointapi"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/ephttp"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -38,12 +40,22 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 		settings = adminAuth()
 	}
 	mountOver(mux, e, portal.NewAuthenticator(p.Authenticator(), opts...), settings, author)
+	if settings != nil && p.DB() != nil {
+		scripts := scriptstore.New(p.DB())
+		endpointapi.Register(mux, settings, endpointapi.Config{
+			DB: p.DB(), Bindings: e.Bindings, Script: scripts.GetByID, BaseURL: p.Config().Portal.PublicBaseURL,
+		})
+		slog.Info("Endpoints admin API on /api/v1/admin/endpoints enabled")
+	}
 }
 
 // mountOver registers the routes over the assembled feature; the settings
 // routes only when settings, the admin API's authentication, is not nil.
 func mountOver(mux *http.ServeMux, e *epwire.Endpoints, auth portalAuth, settings func(http.Handler) http.Handler, author func(*http.Request) string) {
 	h := &ephttp.Handler{Runner: e.Runner, Checker: e.Checker, Authenticate: Authenticator(auth)}
+	if e.Refusals != nil {
+		h.Refused = e.Refusals.Refused
+	}
 	h.Mount(mux)
 	if settings == nil {
 		return

@@ -45,6 +45,9 @@ type Handle struct {
 	marks   WatermarkStore
 	// scripts is where failing automations are read from; nil briefs none.
 	scripts AutomationSource
+	// exports is where ended background exports are read from; nil briefs
+	// none.
+	exports ExportSource
 }
 
 // New builds the digest assembler over db and the portal stores. It returns nil
@@ -63,6 +66,7 @@ func New(db *sql.DB, assets portaldomain.AssetStore, shares portaldomain.ShareSt
 		threads: ts,
 		marks:   NewPostgresWatermarkStore(db),
 		scripts: scripts,
+		exports: newExportSource(db),
 	}
 }
 
@@ -174,6 +178,14 @@ func (h *Handle) collect(ctx context.Context, c caller, since time.Time) (*Diges
 		complete = false
 	} else {
 		digest.FailingAutomations, digest.FailingAutomationsTotal = failing, failingTotal
+	}
+
+	exports, err := h.endedExports(ctx, c, since)
+	if err != nil {
+		slog.WarnContext(ctx, "platform_info: background export notices unavailable", logKeyError, err)
+		complete = false
+	} else {
+		digest.BackgroundExports = exports
 	}
 	return digest, complete
 }

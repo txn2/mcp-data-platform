@@ -49,8 +49,11 @@ type Info struct {
 	// output schema (v1.102.0).
 	FailingAutomations      []notices.AutomationNotice `json:"failing_automations,omitempty"`
 	FailingAutomationsTotal int                        `json:"failing_automations_total,omitempty"`
-	Features                Features                   `json:"features"`
-	ConfigVersion           ConfigVersionInfo          `json:"config_version"`
+	// BackgroundExports finished or failed since the caller was last briefed
+	// (#2212), each with the key its tool reads it again by.
+	BackgroundExports []notices.ExportNotice `json:"background_exports,omitempty"`
+	Features          Features               `json:"features"`
+	ConfigVersion     ConfigVersionInfo      `json:"config_version"`
 	// Limits is the ceilings this deployment puts on what the caller's tools
 	// return or write, with the key that sets each (#2057). Absent when the
 	// caller reaches no bounded tool.
@@ -283,6 +286,7 @@ func (p *Platform) handleInfo(ctx context.Context, req *mcp.CallToolRequest) (*m
 		Notices:                 digest.Notices(),
 		FailingAutomations:      failing,
 		FailingAutomationsTotal: failingTotal,
+		BackgroundExports:       digest.Exports(),
 		Features:                p.buildFeatures(ctx, accessibleTools),
 		Limits:                  p.buildLimits(accessibleTools),
 		ConfigVersion: ConfigVersionInfo{

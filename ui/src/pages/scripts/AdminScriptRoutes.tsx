@@ -1,5 +1,7 @@
 import type { ProducedTargetKind } from "@/api/portal/hooks/producers";
 import { AdminScriptsPage } from "./AdminScriptsPage";
+import { EndpointDetailPage } from "./endpoints/EndpointDetailPage";
+import { ENDPOINTS_PATH } from "./endpoints/endpointLabels";
 import { ScriptDetailPage } from "./ScriptDetailPage";
 import { sectionOf } from "./producedPaths";
 
@@ -17,6 +19,9 @@ import { sectionOf } from "./producedPaths";
 // page with the run it named already open.
 const RUN_ROUTE = /^\/admin\/automations\/([^/]+)\/runs\/([^/]+)$/;
 
+// ENDPOINT_ROUTE is one endpoint's page (#2208).
+const ENDPOINT_ROUTE = /^\/admin\/automations\/endpoints\/([^/]+)$/;
+
 export function AdminScriptRoutes({
   route,
   onNavigate,
@@ -24,7 +29,14 @@ export function AdminScriptRoutes({
   route: string;
   onNavigate: (path: string) => void;
 }) {
-  if (route === "/admin/automations") return <AdminScriptsPage onNavigate={onNavigate} />;
+  // Keyed by address, so Back from the Endpoints tab lands on the tab the
+  // address names rather than the one last shown.
+  if (route === "/admin/automations") return <AdminScriptsPage key="automations" onNavigate={onNavigate} />;
+  // The Endpoints tab and one endpoint (#2208), matched before an
+  // automation's own address, which "endpoints" would otherwise read as.
+  if (route === ENDPOINTS_PATH) return <AdminScriptsPage key="endpoints" onNavigate={onNavigate} tab="endpoints" />;
+  const endpoint = route.match(ENDPOINT_ROUTE);
+  if (endpoint) return <EndpointDetailPage name={decodeURIComponent(endpoint[1]!)} onNavigate={onNavigate} />;
 
   const run = route.match(RUN_ROUTE);
   if (run) {

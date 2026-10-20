@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/exportasync"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
@@ -143,6 +144,9 @@ func (w *Walk) step(ctx context.Context, pageNo int) (stop bool, err error) {
 	}
 	w.Stats.PagesFetched++
 	w.Stats.ItemsMerged += len(items)
+	// A walk running as a background export reports how far it has come
+	// (#2212); one answered inline records nothing.
+	exportasync.Report(ctx, w.Stats.PagesFetched, w.Stats.ItemsMerged)
 	if len(items) == 0 {
 		w.Stats.StoppedBy = StoppedByEnd
 		return true, nil

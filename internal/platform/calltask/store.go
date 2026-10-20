@@ -27,6 +27,12 @@ type Task struct {
 	HeartbeatAt     time.Time
 	CancelRequested bool
 	ExpiresAt       time.Time
+	// IdempotencyKey, Background and Progress are a background export's
+	// (#2212): the key its caller reads it again by, the mark that it is one,
+	// and how far its walk has come.
+	IdempotencyKey string
+	Background     bool
+	Progress       json.RawMessage
 }
 
 // Ending is how a call ended: its terminal status, the message the task
@@ -58,6 +64,17 @@ type Store interface {
 	// FailStale fails a working task whose heartbeat is older than before,
 	// reporting whether it did.
 	FailStale(ctx context.Context, id string, before time.Time, message string, rpcErr json.RawMessage) (bool, error)
+	// CreateBackground inserts a working background export, or returns the
+	// one already working for its caller, tool and key with created false.
+	CreateBackground(ctx context.Context, t Task) (existing *Task, created bool, err error)
+	// FindByKey reads the caller's latest task of tool under key, or
+	// errTaskNotFound.
+	FindByKey(ctx context.Context, userID, tool, key string) (*Task, error)
+	// SetProgress records how far a working task has come.
+	SetProgress(ctx context.Context, id string, progress json.RawMessage) error
+	// EndedBackground reads the caller's background exports that ended after
+	// since, newest first, at most limit.
+	EndedBackground(ctx context.Context, userID string, since time.Time, limit int) ([]Task, error)
 }
 
 // PostgresStore is the Store over the call_tasks table.
@@ -84,22 +101,32 @@ func (s *PostgresStore) Create(ctx context.Context, t Task) error {
 
 // Get reads one task.
 func (s *PostgresStore) Get(ctx context.Context, id string) (*Task, error) {
+	return scanTask(s.db.QueryRowContext(ctx, `SELECT `+taskColumns+` FROM call_tasks WHERE id = $1`, id))
+}
+
+// taskColumns are the columns scanTask reads, in its order.
+const taskColumns = `id, tool_name, user_id, status, status_message, result, error,
+		       created_at, updated_at, heartbeat_at, cancel_requested_at IS NOT NULL, expires_at,
+		       COALESCE(idempotency_key, ''), background, progress`
+
+// rowScanner is a *sql.Row or *sql.Rows.
+type rowScanner interface{ Scan(dest ...any) error }
+
+// scanTask reads one row of taskColumns.
+func scanTask(row rowScanner) (*Task, error) {
 	var t Task
-	var result, rpcErr []byte
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, tool_name, user_id, status, status_message, result, error,
-		       created_at, updated_at, heartbeat_at, cancel_requested_at IS NOT NULL, expires_at
-		  FROM call_tasks
-		 WHERE id = $1`, id).Scan(
+	var result, rpcErr, progress []byte
+	err := row.Scan(
 		&t.ID, &t.ToolName, &t.UserID, &t.Status, &t.StatusMessage, &result, &rpcErr,
-		&t.CreatedAt, &t.UpdatedAt, &t.HeartbeatAt, &t.CancelRequested, &t.ExpiresAt)
+		&t.CreatedAt, &t.UpdatedAt, &t.HeartbeatAt, &t.CancelRequested, &t.ExpiresAt,
+		&t.IdempotencyKey, &t.Background, &progress)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errTaskNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading call task: %w", err)
 	}
-	t.Result, t.Error = result, rpcErr
+	t.Result, t.Error, t.Progress = result, rpcErr, progress
 	return &t, nil
 }
 
@@ -179,4 +206,78 @@ func nullJSON(raw json.RawMessage) any {
 		return nil
 	}
 	return []byte(raw)
+}
+
+// workingKeyIndex holds one working run per caller, tool and key (000206).
+const workingKeyIndex = "idx_call_tasks_working_key"
+
+// CreateBackground inserts a working background export, or returns the one
+// already working under its caller, tool and key.
+func (s *PostgresStore) CreateBackground(ctx context.Context, t Task) (*Task, bool, error) {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO call_tasks (id, tool_name, user_id, status, status_message, created_at, updated_at,
+		                        heartbeat_at, expires_at, idempotency_key, background)
+		VALUES ($1, $2, $3, 'working', $4, $5, $5, $5, $6, $7, TRUE)`,
+		t.ID, t.ToolName, t.UserID, t.StatusMessage, t.CreatedAt, t.ExpiresAt, t.IdempotencyKey)
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && string(pqErr.Code) == pgUniqueViolation && pqErr.Constraint == workingKeyIndex {
+		existing, findErr := s.FindByKey(ctx, t.UserID, t.ToolName, t.IdempotencyKey)
+		if findErr != nil {
+			return nil, false, findErr
+		}
+		return existing, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("inserting background export: %w", err)
+	}
+	return &t, true, nil
+}
+
+// pgUniqueViolation is PostgreSQL's unique_violation code.
+const pgUniqueViolation = "23505"
+
+// FindByKey reads the caller's latest task of tool under key.
+func (s *PostgresStore) FindByKey(ctx context.Context, userID, tool, key string) (*Task, error) {
+	return scanTask(s.db.QueryRowContext(ctx, `
+		SELECT `+taskColumns+` FROM call_tasks
+		 WHERE user_id = $1 AND tool_name = $2 AND idempotency_key = $3
+		 ORDER BY created_at DESC
+		 LIMIT 1`, userID, tool, key))
+}
+
+// SetProgress records how far a working task has come.
+func (s *PostgresStore) SetProgress(ctx context.Context, id string, progress json.RawMessage) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE call_tasks SET progress = $2, updated_at = now()
+		 WHERE id = $1 AND status = 'working'`, id, nullJSON(progress))
+	if err != nil {
+		return fmt.Errorf("recording a call task's progress: %w", err)
+	}
+	return nil
+}
+
+// EndedBackground reads the caller's background exports that ended after
+// since.
+func (s *PostgresStore) EndedBackground(ctx context.Context, userID string, since time.Time, limit int) ([]Task, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+taskColumns+` FROM call_tasks
+		 WHERE user_id = $1 AND background AND status <> 'working' AND updated_at > $2
+		 ORDER BY updated_at DESC
+		 LIMIT $3`, userID, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("reading ended background exports: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // read-only cursor; rows.Err below reports a failed read
+	out := make([]Task, 0)
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading ended background exports: %w", err)
+	}
+	return out, nil
 }

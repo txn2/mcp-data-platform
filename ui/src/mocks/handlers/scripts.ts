@@ -391,24 +391,25 @@ export const scriptHandlers = [
     });
   }),
 
-  // Whether the script runs one at a time (#1986). The contract moves, which
-  // is what the page reads the checkbox from.
+  // Whether the script's runs may overlap (#1986, #2209). The contract moves,
+  // which is what the page reads the setting from.
   http.put(
     `${PORTAL_BASE}/scripts/:id/exclusive`,
     async ({ params, request }) => {
       const id = String(params.id);
-      const body = (await request.json()) as { exclusive?: boolean };
+      const body = (await request.json()) as { exclusive?: "off" | "refuse" | "queue" | boolean };
       const contract = contracts[id];
       if (!contract) {
         return HttpResponse.json({ detail: "script not found" }, { status: 404 });
       }
-      contract.exclusive = Boolean(body.exclusive);
-      return HttpResponse.json({
-        exclusive: contract.exclusive,
-        message: contract.exclusive
-          ? "Saved. A run cannot start while another run of this script is pending or running."
-          : "Saved. Runs of this script may overlap.",
-      });
+      const mode = body.exclusive === true ? "refuse" : body.exclusive === false || body.exclusive === undefined ? "off" : body.exclusive;
+      contract.exclusive = mode;
+      const messages = {
+        off: "Saved. Runs of this script may overlap.",
+        refuse: "Saved. A run cannot start while another run of this script is pending or running.",
+        queue: "Saved. A run started while another run of this script is running waits its turn.",
+      };
+      return HttpResponse.json({ exclusive: mode, message: messages[mode] });
     },
   ),
 

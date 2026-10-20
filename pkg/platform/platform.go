@@ -23,8 +23,11 @@ import (
 	"github.com/txn2/mcp-data-platform/apps"
 	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
+	"github.com/txn2/mcp-data-platform/internal/connlimit"
 	"github.com/txn2/mcp-data-platform/internal/dbobs"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
+	"github.com/txn2/mcp-data-platform/internal/exportasync"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/platform/apigwwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/auditwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
@@ -322,6 +325,9 @@ type Platform struct {
 	// accounting is truly process-wide, not per-instance. nil-safe:
 	// unset means unlimited.
 	apiMemBudget *apigatewaykit.MemBudget
+	// backgroundExports runs long exports in the background (#2212); set
+	// once while the platform is assembled, before any call is served.
+	backgroundExports exportasync.Runner
 }
 
 // New creates a new platform instance.
@@ -516,6 +522,8 @@ func (p *Platform) initDatabase() error {
 	// stores (connections, audit, OAuth, sessions) share this single handle.
 	p.obs.Metrics().RegisterDBPool(p.db, "platform")
 	slog.Info("database connected", "max_open_conns", p.config.Database.MaxOpenConns)
+	// max_concurrent_calls holds across replicas through the database (#2209).
+	connlimit.Install(connlimit.New(db, outbound.Metrics))
 
 	// Run database migrations
 	if err := migrate.Run(db); err != nil {
@@ -2552,14 +2560,20 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 
 // addTasks installs the MCP Tasks extension (#2009), which taskwiring owns.
 func (p *Platform) addTasks() {
-	if mw := taskwiring.Install(taskwiring.Deps{
+	mw, exports := taskwiring.Install(taskwiring.Deps{
 		DB: p.db, Config: p.config.Tasks, Server: p.mcpServer, Lifecycle: p.lifecycle,
 		Authenticator: p.authenticator, Personas: p.personaRegistry, AdminPersona: p.config.Admin.Persona,
 		Runs: func() *scriptlayer.RunTasks { return p.scripts.RunTasks(p.config.Scripts.RunRetention()) },
-	}); mw != nil {
+	})
+	p.backgroundExports = exports
+	if mw != nil {
 		p.mcpServer.AddReceivingMiddleware(mw)
 	}
 }
+
+// backgroundExportRunner is read when a call asks for it: the toolkits are
+// wired before the task layer.
+func (p *Platform) backgroundExportRunner() exportasync.Runner { return p.backgroundExports }
 
 // addEnrichmentMiddleware adds the semantic enrichment middleware if any injection is configured.
 func (p *Platform) addEnrichmentMiddleware() {
@@ -2829,6 +2843,10 @@ func (p *Platform) Start(ctx context.Context) error {
 	})
 	p.lifecycle.OnComponent(scriptRuns.Start, scriptRuns.Stop)
 	p.lifecycle.OnDrain(scriptRuns.Drain)
+	// Endpoint refusal counts are flushed on a loop, and at stop (#2208).
+	if e := p.Endpoints(); e != nil {
+		p.lifecycle.OnComponent(e.Start, e.Stop)
+	}
 
 	// The notify tool: the one route a session, a script and the portal all
 	// reach an operator's channels through (#1723).
@@ -3574,6 +3592,7 @@ func (p *Platform) wireAPIGatewayExport() {
 			S3Prefix:       p.config.Portal.S3Prefix,
 			BaseURL:        p.config.Portal.PublicBaseURL,
 			Config:         exportCfg,
+			Background:     p.backgroundExportRunner,
 			GetUserContext: func(ctx context.Context) *apigatewaykit.ExportUserContext {
 				pc := middleware.GetPlatformContext(ctx)
 				if pc == nil {

@@ -23,10 +23,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
-// Tool and Action are the call a registration becomes.
+// Tool and Action are the call a registration becomes; CheckAction is the
+// call that asks whether it would be accepted, writing nothing (#2213).
 const (
-	Tool   = "manage_table"
-	Action = "register"
+	Tool        = "manage_table"
+	Action      = "register"
+	CheckAction = "check"
 )
 
 // The keys a register= argument, and the table it reports, are written with.
@@ -130,6 +132,17 @@ func (s *Spec) Args(reference string) map[string]any {
 		keyConnection: s.Connection,
 		keyFollow:     s.Follow,
 	}
+	if s.TableName != "" {
+		args[keyTableName] = s.TableName
+	}
+	return args
+}
+
+// CheckArgs renders the manage_table call that asks whether this
+// registration's connection, and its table_name when it gives one, would be
+// accepted, before the file it registers is written (#2213).
+func (s *Spec) CheckArgs() map[string]any {
+	args := map[string]any{"action": CheckAction, keyConnection: s.Connection}
 	if s.TableName != "" {
 		args[keyTableName] = s.TableName
 	}
