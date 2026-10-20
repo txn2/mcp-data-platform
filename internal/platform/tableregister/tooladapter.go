@@ -91,6 +91,18 @@ func (a *ToolAdapter) Register(
 	return &view, nil
 }
 
+// Check answers whether the caller could register a table named tableName on
+// connection, writing nothing (#2213).
+func (a *ToolAdapter) Check(ctx context.Context, connection, tableName string) (*portaltoolkit.TableTarget, error) {
+	target, err := a.reg.Check(ctx, a.callerFrom(ctx), connection, tableName)
+	if err != nil {
+		return nil, err
+	}
+	return &portaltoolkit.TableTarget{
+		Connection: target.Connection, Catalog: target.Catalog, Schema: target.Schema, QueryTable: target.QueryTable(),
+	}, nil
+}
+
 // Unregister drops a registered table.
 func (a *ToolAdapter) Unregister(ctx context.Context, registrationID string) error {
 	return a.reg.Unregister(ctx, a.callerFrom(ctx), registrationID, "mcp")

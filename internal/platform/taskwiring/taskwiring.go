@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/exportasync"
 	"github.com/txn2/mcp-data-platform/internal/mcptask"
 	"github.com/txn2/mcp-data-platform/internal/platform/calltask"
 	"github.com/txn2/mcp-data-platform/internal/platform/iam"
@@ -91,11 +92,14 @@ type Deps struct {
 
 // Install assembles the extension where it is offered: it registers the
 // tasks/* methods on the server and the runner on the lifecycle, and returns
-// the receiving middleware, nil where the extension is not offered.
-func Install(d Deps) mcp.Middleware {
+// the receiving middleware, nil where the extension is not offered. It also
+// returns the background exports (#2212), which every deployment with a
+// database has, the extension offered or not: they are the same work for a
+// client that does not declare it.
+func Install(d Deps) (mcp.Middleware, exportasync.Runner) {
 	h := New(d)
 	if h == nil {
-		return nil
+		return nil, background(d)
 	}
 	if err := h.Register(d.Server); err != nil {
 		// Only a method name the SDK already defines refuses: a programming
@@ -104,7 +108,20 @@ func Install(d Deps) mcp.Middleware {
 	}
 	d.Lifecycle.OnComponent(h.Start, h.Stop)
 	d.Lifecycle.OnDrain(h.Drain)
-	return h.Middleware()
+	return h.Middleware(), h.runner.Exports()
+}
+
+// background builds the runner for background exports alone, where the
+// extension is off but there is a database to keep them in; nil, as an
+// interface, without one.
+func background(d Deps) exportasync.Runner {
+	if d.DB == nil {
+		return nil
+	}
+	h := &Handle{runner: calltask.New(calltask.Options{Store: calltask.NewPostgresStore(d.DB), Retention: d.Config.Retention()})}
+	d.Lifecycle.OnComponent(h.Start, h.Stop)
+	d.Lifecycle.OnDrain(h.Drain)
+	return h.runner.Exports()
 }
 
 // Handle is the assembled extension. A nil Handle offers nothing.

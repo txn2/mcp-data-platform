@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,11 +23,12 @@ const exclusivePath = "/api/v1/portal/scripts/script_2/exclusive"
 func TestPortalSetExclusive_SavesTheSetting(t *testing.T) {
 	for _, tc := range []struct {
 		body string
-		want bool
+		want runstate.ExclusiveMode
 		msg  string
 	}{
-		{`{"exclusive":true}`, true, "A run cannot start while another run of this script is pending or running."},
-		{`{"exclusive":false}`, false, "Runs of this script may overlap."},
+		{`{"exclusive":true}`, runstate.ExclusiveRefuse, "A run cannot start while another run of this script is pending or running."},
+		{`{"exclusive":false}`, runstate.ExclusiveOff, "Runs of this script may overlap."},
+		{`{"exclusive":"queue"}`, runstate.ExclusiveQueue, "waits its turn"},
 	} {
 		store := newEditStore()
 		rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, exclusivePath, tc.body)
@@ -33,8 +36,8 @@ func TestPortalSetExclusive_SavesTheSetting(t *testing.T) {
 		require.NotNil(t, store.updated)
 		assert.Equal(t, tc.want, store.updated.Exclusive)
 		var body struct {
-			Exclusive bool   `json:"exclusive"`
-			Message   string `json:"message"`
+			Exclusive runstate.ExclusiveMode `json:"exclusive"`
+			Message   string                 `json:"message"`
 		}
 		decodeInto(t, rec, &body)
 		assert.Equal(t, tc.want, body.Exclusive)

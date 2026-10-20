@@ -108,6 +108,8 @@ Each page is read under the connection's `max_response_bytes`, the upstream read
 - `api_export` streams: the merged array is opened, each page's items are written to storage as they arrive, copied byte for byte from the page, and the array is closed, so memory holds one page whatever the page count. The asset is one `application/json` document whose content is the merged array. Its provenance records the `paginate` block, `pages_fetched`, `items_merged`, `stopped_by`, and the cursor or link that addressed the last page. A walk whose merged output would pass `portal.export.max_bytes` fails all-or-nothing, as a single oversize response does. A walk stopped at `max_pages` with another page still to fetch is a cut file: with `max_pages` unset (the default bound of 100) it is refused and nothing is written, and with `max_pages` set it is written and flagged with `truncated`, `limit_applied`, `limit_source` and `limit_unit`, and the asset is tagged `_sys-truncated`. `on_truncation`, `expect_rows` and `expect_min_rows` change that; see [Exports cut at a limit](export-truncation.md). The idempotency key covers the whole walk.
 - `api_invoke_endpoint` called by a model merges inline under the platform's context budget (`tools.result_budget`). A REST gateway client or a managed script carries no context budget, and its walk merges under the connection's `max_response_bytes` instead, stopping there the same way with whole pages and the signal to resume from. The merge measures the array as the result renders it and keeps headroom under the budget for the envelope around it, so a page that would take the rendered result past the budget is not merged: the call returns the pages that fit with `stopped_by: "max_bytes"`, `body_truncated: true`, `body_bytes` holding the merged size, a hint steering to `api_export`, `export_arguments` carrying the same call and `paginate` block for it, and `pagination` holding the signal for the unmerged page. `status` and `headers` are the last page's.
 
+A walk from a model client runs in the background (#2212): `api_export` answers at once with `run_id`, `status: running` and an `idempotency_key`, and the walk finishes on the replica that took the call, under the deployment's export maximum when the call named no `timeout_seconds`. `async: true` sends any export to the background and `async: false` keeps a walk inline; a script's and a REST caller's exports run inline unless they ask. Calling `api_export` again with the key reads the run, `pages_fetched` and `items_merged` while it runs and the export's own answer once it is done; a key whose export is still running is joined rather than walked twice, and a failed one is reported and started again. A finished or failed one is listed under `background_exports` in its caller's next `platform_info`. See [Long exports run in the background](graphql-gateway.md#long-exports-run-in-the-background).
+
 One tool call is one rate-limit token, one audit row, and, from a managed script, one `platform.call`. The audit row for the call records the walk under `parameters.result` (`pages_fetched`, `items_merged`, `stopped_by`) beside the `paginate` block it was called with, which is the observability the per-call loop was keeping.
 
 On the built-in `util` connection, a `POST /util/fetch` walk pages the document named by the `url` in the request body: a next link (the fetched response's `Link` header is relayed, as are body signals) is pinned to that document's scheme and host, since the page is requested at the link itself, and a cursor or page parameter is added to that URL's query. The REST shim's raw passthrough route streams one body and refuses `paginate`.
@@ -253,6 +255,24 @@ An upstream the gateway could not reach, or that did not answer within the
 call's timeout, is a tool error whose structured `error.code` is
 `upstream_unavailable` and category `upstream`, which tells a caller the same
 call made later is expected to succeed.
+
+One request is bounded by the connection's `call_timeout` whatever the caller
+asks: the connection's client enforces it. A `timeout_seconds` above it is
+reported on the result as capped (`timeout_applied_seconds`,
+`timeout_capped_by: "connection call_timeout"`, `timeout_requested_seconds`),
+and a request that runs out of time says which limit stopped it:
+`timed out after 120s (the connection's call_timeout; timeout_seconds 240 was capped)`.
+`api_export` reports a `timeout_seconds` above `portal.export.max_timeout` the
+same way, capped by `export max_timeout` (#2210).
+
+## Upstreams that take one call at a time
+
+`max_concurrent_calls` holds a connection to that many calls in flight at once,
+across every replica, for every path that reaches it: `api_invoke_endpoint`,
+`api_export`, a page walk, and a script's `platform.call`. A call over it waits
+for a slot under its own timeout instead of failing (#2209). It is the same key,
+with the same rules, as on a GraphQL connection; see
+[Upstreams that take one call at a time](graphql-gateway.md#upstreams-that-take-one-call-at-a-time).
 
 ## Response bodies
 

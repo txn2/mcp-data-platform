@@ -88,6 +88,10 @@ type Entry struct {
 	// ReadOnly is true when this connection refuses write-class calls, and is
 	// omitted entirely on a kind with no such notion (#1805).
 	ReadOnly *bool `json:"read_only,omitempty"`
+	// maxConcurrentCalls is the connection's call limit, reported under the
+	// output's call_limits rather than on the entry: an older release
+	// advertised the entry closed (#2209).
+	maxConcurrentCalls int
 	// KnowledgePageCount is the total number of knowledge pages that reference this
 	// connection; KnowledgePages carries a bounded sample of them (#634).
 	KnowledgePageCount int             `json:"knowledge_page_count,omitempty"`
@@ -103,6 +107,30 @@ type Output struct {
 	Count       int     `json:"count"`
 	Withheld    int     `json:"withheld,omitempty"`
 	Notice      string  `json:"notice,omitempty"`
+	// CallLimits are the listed connections that take a limited number of
+	// calls at once across the deployment (#2209), so a caller sees the limit
+	// before fanning out calls that would queue behind each other. Omitted
+	// when none is limited.
+	CallLimits []CallLimit `json:"call_limits,omitempty"`
+}
+
+// CallLimit is one connection's max_concurrent_calls: a call over it waits
+// for a slot, and the wait counts against the call's own timeout.
+type CallLimit struct {
+	Kind               string `json:"kind"`
+	Connection         string `json:"connection"`
+	MaxConcurrentCalls int    `json:"max_concurrent_calls"`
+}
+
+// callLimits lists the limited connections among entries.
+func callLimits(entries []Entry) []CallLimit {
+	var out []CallLimit
+	for _, e := range entries {
+		if e.maxConcurrentCalls > 0 {
+			out = append(out, CallLimit{Kind: e.Kind, Connection: e.Name, MaxConcurrentCalls: e.maxConcurrentCalls})
+		}
+	}
+	return out
 }
 
 // Permit reports whether the caller may see a connection. Build applies it
@@ -194,7 +222,7 @@ func Build(ctx context.Context, toolkits []registry.Toolkit, deps Deps) Output {
 	entries, n := appendStored(ctx, entries, seen, deps)
 	withheld += n
 	enrichWithKnowledge(ctx, deps.Pages, entries)
-	return Output{Connections: entries, Count: len(entries), Withheld: withheld}
+	return Output{Connections: entries, Count: len(entries), Withheld: withheld, CallLimits: callLimits(entries)}
 }
 
 // withheldEntry marks a connection this process serves that the permit hid, so
@@ -271,16 +299,17 @@ func appendFromLister(
 		}
 		seen[seenKey(tk.Kind(), conn.Name)] = len(entries)
 		e := Entry{
-			Kind:           tk.Kind(),
-			Name:           conn.Name,
-			Connection:     conn.Name,
-			Reference:      knowledgepage.ConnectionRef(tk.Kind(), conn.Name),
-			Description:    conn.Description,
-			IsDefault:      conn.IsDefault,
-			CatalogID:      conn.CatalogID,
-			OperationCount: conn.OperationCount,
-			Health:         conn.Health.Wire(),
-			ReadOnly:       conn.ReadOnly,
+			Kind:               tk.Kind(),
+			Name:               conn.Name,
+			Connection:         conn.Name,
+			Reference:          knowledgepage.ConnectionRef(tk.Kind(), conn.Name),
+			Description:        conn.Description,
+			IsDefault:          conn.IsDefault,
+			CatalogID:          conn.CatalogID,
+			OperationCount:     conn.OperationCount,
+			Health:             conn.Health.Wire(),
+			ReadOnly:           conn.ReadOnly,
+			maxConcurrentCalls: conn.MaxConcurrentCalls,
 		}
 		entries = append(entries, e)
 	}

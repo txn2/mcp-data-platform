@@ -34,14 +34,21 @@ func applying(_ http.ResponseWriter, _ *http.Request, mutate func(*script.Script
 // TestSetExclusive_SavesAndStatesTheMeaning sends both values and reads the
 // sentence each answers with.
 func TestSetExclusive_SavesAndStatesTheMeaning(t *testing.T) {
-	rec := serve(t, `{"exclusive":true}`, applying)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Contains(t, rec.Body.String(), `"exclusive":true`)
-	assert.Contains(t, rec.Body.String(), "A run cannot start while another run of this script is pending or running.")
-
-	rec = serve(t, `{"exclusive":false}`, applying)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Runs of this script may overlap.")
+	for _, tc := range []struct{ body, mode, msg string }{
+		{`{"exclusive":"refuse"}`, "refuse", "A run cannot start while another run of this script is pending or running."},
+		{`{"exclusive":"queue"}`, "queue", "A run started while another run of this script is running waits its turn."},
+		{`{"exclusive":"off"}`, "off", "Runs of this script may overlap."},
+		// Every form the body admits: the setting was a boolean (#2209).
+		{`{"exclusive":true}`, "refuse", "A run cannot start"},
+		{`{"exclusive":false}`, "off", "Runs of this script may overlap."},
+	} {
+		rec := serve(t, tc.body, applying)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), `"exclusive":"`+tc.mode+`"`, tc.body)
+		assert.Contains(t, rec.Body.String(), tc.msg, tc.body)
+	}
+	rec := serve(t, `{"exclusive":"sometimes"}`, applying)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestSetExclusive_RefusesABodyWithoutTheSetting keeps a missing or malformed

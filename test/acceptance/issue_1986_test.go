@@ -23,7 +23,8 @@ import (
 // then materializes it on its own pass, within its 30-second interval.
 //
 // Wire forms: manage_script's command, name, description, source, run_id,
-// cron and timezone are typed strings, exclusive is a typed boolean, and args
+// cron and timezone are typed strings, exclusive is sent as a typed boolean
+// (read back as a mode since #2209), and args
 // is a typed object; run_script's name is a typed string, args a typed object
 // and wait_seconds a typed integer (negative: queue and return at once). Each admits exactly one JSON form and each
 // is sent below as a literal tools/call parameter of that form. The portal's
@@ -180,19 +181,21 @@ func awaitRun1986(t *testing.T, c *client, name, what string, match func(map[str
 
 // TestIssue1986_TheSettingIsSetByUpdateAndShownByGet is the setting itself on
 // both surfaces that change it: manage_script update and the portal route.
+// The setting became a mode (#2209): true and false are still taken, and read
+// back as "refuse" and "off".
 func TestIssue1986_TheSettingIsSetByUpdateAndShownByGet(t *testing.T) {
 	c := connect(t)
 	name, id := issue1986Script(t, c, "setting")
-	if got := c.call("manage_script", map[string]any{"command": "get", "name": name}); got["exclusive"] != false {
-		t.Fatalf("a new script reads exclusive=%v, want false", got["exclusive"])
+	if got := c.call("manage_script", map[string]any{"command": "get", "name": name}); got["exclusive"] != "off" {
+		t.Fatalf("a new script reads exclusive=%v, want off", got["exclusive"])
 	}
 	setExclusive1986(t, c, name, true)
-	if got := c.call("manage_script", map[string]any{"command": "get", "name": name}); got["exclusive"] != true {
+	if got := c.call("manage_script", map[string]any{"command": "get", "name": name}); got["exclusive"] != "refuse" {
 		t.Errorf("get reads exclusive=%v after update exclusive=true", got["exclusive"])
 	}
 
 	status, out := c.rest(http.MethodPut, "/api/v1/portal/scripts/"+id+"/exclusive", jsonBody(t, map[string]any{"exclusive": false}))
-	if status != http.StatusOK || out["exclusive"] != false {
+	if status != http.StatusOK || out["exclusive"] != "off" {
 		t.Fatalf("the portal route answered %d %v", status, out)
 	}
 	status, contract := c.rest(http.MethodGet, "/api/v1/portal/scripts/"+id, nil)
@@ -203,7 +206,7 @@ func TestIssue1986_TheSettingIsSetByUpdateAndShownByGet(t *testing.T) {
 	if inner == nil {
 		inner = contract
 	}
-	if inner["exclusive"] != false {
+	if inner["exclusive"] != "off" {
 		t.Errorf("the portal contract reads exclusive=%v after the route set it false", inner["exclusive"])
 	}
 }
@@ -329,7 +332,7 @@ func TestIssue1986_HelpDescribesTheSetting(t *testing.T) {
 	c := connect(t)
 	help := c.call("manage_script", map[string]any{"command": "help"})
 	overlap, _ := help["overlap"].(string)
-	for _, want := range []string{"exclusive=true", "may overlap", "state check", "skipped_overlap"} {
+	for _, want := range []string{`exclusive="refuse"`, `exclusive="queue"`, "may overlap", "state check", "skipped_overlap"} {
 		if !strings.Contains(overlap, want) {
 			t.Errorf("help's overlap note does not say %q: %q", want, overlap)
 		}

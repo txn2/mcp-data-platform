@@ -248,7 +248,7 @@ var actionTools = map[string]actionRule{
 		"create_collection", "update_collection", "delete_collection", "set_sections",
 	)},
 	// manage_table: the tables registered over a managed file.
-	"manage_table": {arg: "action", reads: set("list"), writes: set("register", "unregister")},
+	"manage_table": {arg: "action", reads: set("list", "check"), writes: set("register", "unregister")},
 	// manage_resource: get reads what is filed at an address and list reports
 	// a folder. extract writes a file per archive member.
 	"manage_resource": {arg: "action", reads: set("get", "list"), writes: set(

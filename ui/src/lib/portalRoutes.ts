@@ -106,6 +106,9 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   // blank one.
   /^\/admin\/automations\/[^/]+$/,
   /^\/admin\/automations\/[^/]+\/runs\/[^/]+$/,
+  // One endpoint under the Endpoints tab (#2208); the tab itself is the
+  // one-segment shape above.
+  /^\/admin\/automations\/endpoints\/[^/]+$/,
   // One secret's editor; /admin/secrets/new is the same shape (#2051).
   /^\/admin\/secrets\/[^/]+$/,
   // One webhook source, and its editor; /admin/webhooks/new is the first

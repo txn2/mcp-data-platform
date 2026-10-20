@@ -1,6 +1,7 @@
-// Package exclusivehttp serves the owner's setting that a managed script runs
-// one at a time (#1986): no run starts while another run of it is pending or
-// running, whatever started it.
+// Package exclusivehttp serves the owner's setting for whether a managed
+// script's runs may overlap (#1986, #2209): off, refuse (no run starts while
+// another is pending or running, whatever started it) or queue (another run
+// waits until none is running).
 //
 // It is mounted by scripthttp, which resolves the caller and the script,
 // refuses everybody but the script's owner and an administrator, and lands
@@ -11,11 +12,13 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
+
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// maxBodyBytes bounds the one-boolean body of a change.
+// maxBodyBytes bounds the one-field body of a change.
 const maxBodyBytes = 1 << 10
 
 // Deps carries the edit the route makes.
@@ -39,23 +42,30 @@ func (h *Handler) Register(mux *http.ServeMux, wrap func(http.Handler) http.Hand
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/exclusive", wrap(http.HandlerFunc(h.setExclusive)))
 }
 
-// exclusiveRequest sets whether a script runs one at a time.
+// exclusiveRequest sets whether a script's runs may overlap.
 type exclusiveRequest struct {
-	// Exclusive true holds the script to one pending or running run, whatever
-	// started it.
-	Exclusive *bool `json:"exclusive"`
+	// Exclusive is off, refuse or queue; true and false are read as refuse
+	// and off.
+	Exclusive *runstate.ExclusiveMode `json:"exclusive" swaggertype:"string" enums:"off,refuse,queue"`
 }
 
 // exclusiveResponse reports the saved setting.
 type exclusiveResponse struct {
-	Exclusive bool   `json:"exclusive" example:"true"`
-	Message   string `json:"message" example:"Saved. A run cannot start while another run of this script is pending or running."`
+	Exclusive runstate.ExclusiveMode `json:"exclusive" swaggertype:"string" enums:"off,refuse,queue" example:"queue"`
+	Message   string                 `json:"message" example:"Saved. A run started while another run of this script is running waits its turn."`
 }
 
-// setExclusive sets whether a script runs one at a time.
+// savedMessages say what each mode does, as the route reports it saved.
+var savedMessages = map[runstate.ExclusiveMode]string{
+	runstate.ExclusiveOff:    "Saved. Runs of this script may overlap.",
+	runstate.ExclusiveRefuse: "Saved. A run cannot start while another run of this script is pending or running.",
+	runstate.ExclusiveQueue:  "Saved. A run started while another run of this script is running waits its turn.",
+}
+
+// setExclusive sets whether a script's runs may overlap.
 //
-// @Summary      Set whether a script runs one at a time
-// @Description  With exclusive true, a script has at most one pending or running run, whatever started it: a scheduled fire while a run is open is recorded as skipped_overlap, and a run_script or portal run is refused with 409 naming the open run. Turning it on while more than one run is open is refused with 409. Restricted to the script's owner and to administrators.
+// @Summary      Set whether a script's runs may overlap
+// @Description  exclusive is off, refuse or queue (true and false are read as refuse and off). Under refuse a script has at most one pending or running run, whatever started it: a scheduled fire while a run is open is recorded as skipped_overlap, and a run_script or portal run is refused with 409 naming the open run. Under queue another run is accepted and stays pending until no other run of the script is running. Turning refuse on while more than one run is open, or queue on while more than one is running, is refused with 409. Restricted to the script's owner and to administrators.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -73,16 +83,13 @@ type exclusiveResponse struct {
 func (h *Handler) setExclusive(w http.ResponseWriter, r *http.Request) {
 	var req exclusiveRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes)).Decode(&req); err != nil || req.Exclusive == nil {
-		httpjson.WriteError(w, http.StatusBadRequest, `the body must be {"exclusive": true} or {"exclusive": false}`)
+		httpjson.WriteError(w, http.StatusBadRequest, `the body must be {"exclusive": "off"}, {"exclusive": "refuse"} or {"exclusive": "queue"}`)
 		return
 	}
 	saved, ok := h.deps.Edit(w, r, func(sc *script.Script) { sc.Exclusive = *req.Exclusive })
 	if !ok {
 		return
 	}
-	msg := "Saved. Runs of this script may overlap."
-	if saved.Exclusive {
-		msg = "Saved. A run cannot start while another run of this script is pending or running."
-	}
-	httpjson.WriteJSON(w, http.StatusOK, exclusiveResponse{Exclusive: saved.Exclusive, Message: msg})
+	mode := saved.Exclusive.Or()
+	httpjson.WriteJSON(w, http.StatusOK, exclusiveResponse{Exclusive: mode, Message: savedMessages[mode]})
 }

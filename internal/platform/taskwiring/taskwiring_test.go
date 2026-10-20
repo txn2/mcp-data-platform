@@ -45,7 +45,9 @@ func TestConfig(t *testing.T) {
 // middleware; a nil Handle is a no-op.
 func TestInstallWhereNotOffered(t *testing.T) {
 	life := &recordingLifecycle{}
-	assert.Nil(t, Install(Deps{Lifecycle: life}))
+	mw, exports := Install(Deps{Lifecycle: life})
+	assert.Nil(t, mw)
+	assert.Nil(t, exports, "without a database there is nowhere to keep a background export")
 	assert.Zero(t, life.components)
 
 	var h *Handle
@@ -64,8 +66,9 @@ func TestInstallWhereOffered(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	life := &recordingLifecycle{}
 	server := mcp.NewServer(&mcp.Implementation{Name: "s", Version: "1"}, nil)
-	mw := Install(Deps{DB: db, Server: server, Lifecycle: life, Runs: func() *scriptlayer.RunTasks { return nil }})
+	mw, exports := Install(Deps{DB: db, Server: server, Lifecycle: life, Runs: func() *scriptlayer.RunTasks { return nil }})
 	require.NotNil(t, mw)
+	require.NotNil(t, exports, "the extension's runner runs background exports too")
 	assert.Equal(t, 1, life.components)
 	assert.Equal(t, 1, life.drains)
 
@@ -115,4 +118,20 @@ func TestTools(t *testing.T) {
 		"run_script": mcptask.Native, "trino_export": mcptask.Detached,
 		"api_export": mcptask.Detached, "graphql_export": mcptask.Detached,
 	}, Tools())
+}
+
+// TestInstallBackgroundExportsWithTheExtensionOff (#2212): background exports
+// are for a client that does not declare the extension, so a deployment that
+// turns the extension off still has them wherever it has a database.
+func TestInstallBackgroundExportsWithTheExtensionOff(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	life := &recordingLifecycle{}
+	off := false
+	mw, exports := Install(Deps{DB: db, Config: Config{Enabled: &off}, Lifecycle: life})
+	assert.Nil(t, mw, "the extension is not offered")
+	require.NotNil(t, exports)
+	assert.Equal(t, 1, life.components, "the runner's heartbeat is started and stopped with the platform")
+	assert.Equal(t, 1, life.drains)
 }

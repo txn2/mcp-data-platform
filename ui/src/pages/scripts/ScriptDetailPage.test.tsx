@@ -711,7 +711,8 @@ describe("ScriptDetailPage: the run history", () => {
 
     expect(screen.getByText("120 of 500 · entities")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("row", { name: /running/ }));
-    expect(screen.getByText(/started/)).toBeInTheDocument();
+    // The run's log: the line it printed, read as the whole of the log block.
+    expect(screen.getByText("started", { selector: "pre" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Stop run" }));
     expect(mutate).toHaveBeenCalledWith("run-live");
   });

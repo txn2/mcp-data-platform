@@ -174,6 +174,9 @@ type Config struct {
 	ConnectTimeout time.Duration
 	// CallTimeout caps the total per-invocation time.
 	CallTimeout time.Duration
+	// MaxConcurrentCalls is how many calls the upstream takes at once,
+	// across every replica (#2209). Zero is unlimited.
+	MaxConcurrentCalls int
 	// TrustLevel is "untrusted" (default) or "trusted".
 	TrustLevel string
 	// MaxResponseBytes is the upstream read cap: the most the gateway

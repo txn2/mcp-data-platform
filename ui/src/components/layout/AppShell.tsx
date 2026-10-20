@@ -119,6 +119,7 @@ const pageTitles: Record<string, string> = {
   "/admin/prompts": "Prompts",
   "/admin/resources": "Resources",
   "/admin/automations": "Automations",
+  "/admin/automations/endpoints": "Endpoints",
   "/admin/sessions": "Sessions",
   "/admin/calls": "Calls",
   "/admin/keys": "Keys",
@@ -138,6 +139,7 @@ const pageTitles: Record<string, string> = {
 const detailTitles: readonly { prefix: string; title: string }[] = [
   // An automation's page, named as the section is (#1912, #1933).
   { prefix: "/automations/", title: "Automation" },
+  { prefix: "/admin/automations/endpoints/", title: "Endpoint" },
   { prefix: "/admin/automations/", title: "Automation" },
   { prefix: "/admin/collections/", title: "Collection" },
   { prefix: "/admin/sessions/", title: "Session" },
@@ -162,6 +164,9 @@ const detailTitles: readonly { prefix: string; title: string }[] = [
 // heading it "Resource" would name one file (#1530).
 function pageTitleFor(route: string): string {
   if (isResourceLibraryRoute(route)) return "Resources";
+  // A route with a title of its own answers before a detail prefix it falls
+  // under: /admin/automations/endpoints is a tab, not an automation (#2208).
+  if (pageTitles[route]) return pageTitles[route];
   const detail = detailTitles.find((d) => route.startsWith(d.prefix));
   if (detail) return detail.title;
   return pageTitles[route] ?? "Assets";

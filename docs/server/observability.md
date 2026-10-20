@@ -177,6 +177,8 @@ query them; the tab is the at-a-glance read.
 | `gateway_upstream_calls_total` | counter | `connection`, `outcome` |
 | `gateway_upstream_call_duration_seconds` | histogram | `connection` |
 | `gateway_session_redials_total` | counter | `connection`, `result` |
+| `upstream_calls_inflight` | up-down counter | `kind`, `connection` |
+| `upstream_slot_wait_seconds` | histogram | `kind`, `connection` |
 | `apigateway_inbound_requests_total` | counter | `connection`, `operation_id`, `method`, `status_class`, `identity` |
 | `apigateway_inbound_duration_seconds` | histogram | `connection`, `operation_id`, `method`, `status_class` |
 | `trino_queries_total` | counter | `status`, `query_kind` |
@@ -593,6 +595,13 @@ connection's `call_timeout` passed). `gateway_session_redials_total{connection, 
 counts the re-dials after the upstream dropped the session (`ok`, `failed`).
 Before #1895 the gateway kept the last error in memory for
 `list_connections` and nothing else.
+
+**Call limits.** On an api or graphql connection with `max_concurrent_calls`
+(#2209), `upstream_calls_inflight{kind, connection}` is how many calls this
+replica holds a slot for, and `upstream_slot_wait_seconds{kind, connection}`
+how long each call waited for its slot. A wait that keeps climbing is calls
+queuing behind the limit; a call whose own timeout ran out while it waited
+fails naming the limit.
 
 ### Authentication, configuration and platform state
 

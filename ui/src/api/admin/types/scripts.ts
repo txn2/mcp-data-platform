@@ -25,9 +25,9 @@ export interface Script {
   // are optional here because an older server sends neither.
   library?: boolean;
   loads?: string[];
-  // exclusive is the owner's setting that the script runs one at a time
-  // (#1986). Optional for a server that predates it.
-  exclusive?: boolean;
+  // exclusive is the owner's setting for overlapping runs: off, refuse or
+  // queue (#1986, #2209). Optional for a server that predates it.
+  exclusive?: "off" | "refuse" | "queue";
   updated_at: string;
 }
 

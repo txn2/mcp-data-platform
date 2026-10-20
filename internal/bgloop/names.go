@@ -63,6 +63,7 @@ const (
 	NameMapFetchRegion      = "map_fetch_region"
 	NameCatalogScan         = "catalog_scan"
 	NameCallTaskHeartbeat   = "call_task_heartbeat"
+	NameEndpointRefusals    = "endpoint_refusals_flush"
 
 	// Alerts, keepalives and watchers.
 	NameConnOAuthRefresh   = "connection_oauth_refresh"

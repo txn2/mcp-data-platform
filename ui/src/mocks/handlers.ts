@@ -36,6 +36,7 @@ import { assetRefHandlers, rewriteRefs } from "./handlers/assetRefs";
 import { producerHandlers } from "./handlers/producers";
 import { secretHandlers } from "./handlers/secrets";
 import { webhookHandlers } from "./handlers/webhooks";
+import { endpointHandlers } from "./handlers/endpoints";
 import { storageHandlers } from "./handlers/storage";
 import { tableReconcileHandlers } from "./handlers/tableReconcile";
 import { catalogScanHandlers } from "./handlers/catalogScan";
@@ -4481,6 +4482,7 @@ export const handlers = [
   ...producerHandlers,
   ...secretHandlers,
   ...webhookHandlers,
+  ...endpointHandlers,
   ...storageHandlers,
   ...tableReconcileHandlers,
   ...catalogScanHandlers,

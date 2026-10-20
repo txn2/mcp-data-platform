@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/apigwmetrics"
@@ -73,6 +74,9 @@ type execution struct {
 	// JSON (an upstream answering an HTML error page, a proxy in the
 	// way).
 	parsed *graphQLResponse
+	// header is the response's header, read for the Retry-After an
+	// upstream that refused for its load names (#2211).
+	header http.Header
 	// userAgent is the User-Agent the request was sent with: the
 	// connection's static header when it pins one, else the platform's
 	// product string. A refusal that names it tells the operator which
@@ -90,6 +94,47 @@ func (e *execution) upstreamFailed() bool {
 		return true
 	}
 	return e.parsed != nil && len(e.parsed.Errors) > 0
+}
+
+// TransportError is a send that got no answer from the endpoint: the
+// connection was refused or reset, TLS failed, or the deadline passed before
+// a response arrived (#2211). It is reported as a structured result with
+// transport_error rather than as a bare message, so a caller can tell it from
+// an answer the endpoint gave.
+type TransportError struct {
+	// Endpoint is the URL the document was sent to.
+	Endpoint string
+	// Err is the transport's own failure.
+	Err error
+}
+
+// Error names the endpoint and the failure, without the URL's query or
+// userinfo, which a credential may be carried in.
+func (e *TransportError) Error() string {
+	return fmt.Sprintf("graphql: calling %s: %s", redactURL(e.Endpoint), transportCause(e.Err))
+}
+
+// Unwrap returns the transport's failure.
+func (e *TransportError) Unwrap() error { return e.Err }
+
+// transportCause is the failure under the *url.Error the client wraps every
+// send failure in, whose own text repeats the full URL.
+func transportCause(err error) string {
+	if ue, ok := errors.AsType[*url.Error](err); ok {
+		return ue.Err.Error()
+	}
+	return err.Error()
+}
+
+// redactURL is raw without its query and userinfo; an unparseable URL is
+// not quoted at all.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "the configured endpoint"
+	}
+	u.RawQuery, u.User = "", nil
+	return u.String()
 }
 
 // execute posts one document to a connection's endpoint and reads the
@@ -118,7 +163,7 @@ func (t *Toolkit) execute(ctx context.Context, c *conn, body graphQLRequest) (*e
 	resp, err := c.client.Do(req)
 	if err != nil {
 		apigwmetrics.Record(ctx, metrics, c.cfg.ConnectionName, apigwmetrics.Observation{Failed: true, Duration: time.Since(start)})
-		return nil, fmt.Errorf("graphql: calling %s: %w", c.cfg.EndpointURL, err)
+		return nil, &TransportError{Endpoint: c.cfg.EndpointURL, Err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -145,7 +190,7 @@ func (*Toolkit) readExecution(resp *http.Response, sent http.Header, budget *mem
 	if err != nil {
 		return nil, err
 	}
-	out := &execution{status: resp.StatusCode, body: raw, truncated: truncated, userAgent: useragent.Effective(sent)}
+	out := &execution{status: resp.StatusCode, body: raw, truncated: truncated, header: resp.Header, userAgent: useragent.Effective(sent)}
 	// A body cut at the read cap is not parseable JSON, and reporting a
 	// decode failure for it would blame the payload for the cap.
 	if !truncated {

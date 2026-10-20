@@ -225,6 +225,22 @@ export const userScriptRoutes: ScreenshotRoute[] = [
 
 export const adminScriptRoutes: ScreenshotRoute[] = [
   {
+    // Every endpoint binding with its traffic (#2208): what the deployment
+    // answers over HTTP, under whose automation, and who is calling it, with
+    // a public endpoint marked apart from a signed-in one.
+    slug: "admin-endpoints",
+    path: "/portal/admin/automations/endpoints",
+    category: "admin",
+  },
+  {
+    // One endpoint's page: its requests by status class beside the ones its
+    // bot check refused, its figures, its refusals by reason and its failed
+    // requests.
+    slug: "admin-endpoint-detail",
+    path: "/portal/admin/automations/endpoints/contact",
+    category: "admin",
+  },
+  {
     // The administrator's listing: every script on the platform and what it is
     // executing (#1307). A row opens the same detail page its owner opens.
     slug: "admin-scripts",

@@ -162,6 +162,9 @@ type Config struct {
 	ConnectTimeout time.Duration
 	// CallTimeout caps the total per-call time.
 	CallTimeout time.Duration
+	// MaxConcurrentCalls is how many calls the upstream takes at once,
+	// across every replica (#2209). Zero is unlimited.
+	MaxConcurrentCalls int
 	// MaxResponseBytes is the upstream read cap.
 	MaxResponseBytes int64
 	// StaticHeaders are operator-configured headers attached to every

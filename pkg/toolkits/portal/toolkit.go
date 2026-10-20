@@ -96,6 +96,7 @@ const (
 	tableActionRegister   = "register"
 	tableActionUnregister = "unregister"
 	tableActionList       = "list"
+	tableActionCheck      = "check"
 
 	// manage_resource action names (#1487). Creating a managed resource is
 	// scope authority, and replacing one's content is the authority to change

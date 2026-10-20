@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/timeoutcap"
 )
 
 // fakeExportAssetStore captures InsertExportAsset / idempotency
@@ -707,15 +709,23 @@ func contains(haystack []string, needle string) bool {
 func TestResolveExportTimeout_CapsAtMax(t *testing.T) {
 	cfg := applyExportDefaults(ExportConfig{})
 	// Zero input falls back to the default.
-	if got := resolveExportTimeout(0, cfg); got != cfg.DefaultTimeout {
-		t.Errorf("zero input should fall back to default; got %v", got)
+	if got, capped := resolveExportTimeout(0, cfg); got != cfg.DefaultTimeout || capped.Capped() {
+		t.Errorf("zero input should fall back to default; got %v, %+v", got, capped)
 	}
 	// 30s — under MaxTimeout, passes through.
-	if got := resolveExportTimeout(30, cfg); got.Seconds() != 30 {
-		t.Errorf("30s input should pass through; got %v", got)
+	if got, capped := resolveExportTimeout(30, cfg); got.Seconds() != 30 || capped.Capped() {
+		t.Errorf("30s input should pass through; got %v, %+v", got, capped)
 	}
-	// Way over MaxTimeout caps to MaxTimeout.
-	if got := resolveExportTimeout(int(cfg.MaxTimeout.Seconds())+10000, cfg); got != cfg.MaxTimeout {
+	// Way over MaxTimeout caps to MaxTimeout, and says so (#2210).
+	asked := int(cfg.MaxTimeout.Seconds()) + 10000
+	got, capped := resolveExportTimeout(asked, cfg)
+	if got != cfg.MaxTimeout {
 		t.Errorf("oversized input should cap at MaxTimeout; got %v", got)
+	}
+	if capped.CappedBy != timeoutcap.CappedByExportMaxTimeout || capped.RequestedSeconds != asked || capped.AppliedSeconds != int(cfg.MaxTimeout.Seconds()) {
+		t.Errorf("the cap is reported; got %+v", capped)
+	}
+	if got, capped := resolveExportTimeout(30, ExportConfig{}); got.Seconds() != 30 || capped.Capped() {
+		t.Errorf("with no ceiling configured the request stands; got %v, %+v", got, capped)
 	}
 }

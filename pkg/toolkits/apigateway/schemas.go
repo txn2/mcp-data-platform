@@ -164,7 +164,11 @@ var apiExportInputSchema = json.RawMessage(`{
     },
     "idempotency_key": {
       "type": "string",
-      "description": "Optional idempotency key. When supplied, a prior export by this user with the same key returns the existing asset's metadata without re-running the upstream call."
+      "description": "Optional idempotency key. When supplied, a prior export by this user with the same key returns the existing asset's metadata, and one naming the key of a background export (async) reads that run without re-running the upstream call."
+    },
+    "async": {
+      "type": "boolean",
+      "description": "Run the export in the background and answer at once with run_id and idempotency_key; call this tool again with that idempotency_key to read how far it has come (pages_fetched, items_merged) and, once done, its answer. A page walk from a model client runs in the background unless this is false: a long walk outlasts the client's own tool-call timeout. In the background, timeout_seconds defaults to the deployment's export maximum. A call naming the key of an export still running joins it rather than starting a second walk."
     },
     "create_public_link": {
       "type": "boolean",

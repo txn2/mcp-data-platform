@@ -57,7 +57,9 @@ func TestOutboundMetricsClassifyOnTheBody(t *testing.T) {
 	u.respond = func(graphQLRequest, int) (int, string) { return http.StatusBadGateway, "<html/>" }
 	callQuery(t, tk, QueryInput{Connection: "gql", Query: datasetDocument})
 	u.server.Close()
-	refuseQuery(t, tk, QueryInput{Connection: "gql", Query: datasetDocument})
+	if res, _, _ := tk.handleQuery(context.Background(), nil, QueryInput{Connection: "gql", Query: datasetDocument}); !res.IsError {
+		t.Fatal("a send nobody answered is a failed call")
+	}
 
 	body := scrapeMetrics(t, m)
 	for _, want := range []string{

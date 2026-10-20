@@ -8,6 +8,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/assetbucket"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalpurge"
@@ -46,6 +47,7 @@ func Assemble(cfg Config) *Loop {
 	sweeps = append(sweeps, SupersededGraphQL(cfg.DB)...)
 	sweeps = append(sweeps, ExpiredCallTasks(cfg.DB)...)
 	sweeps = append(sweeps, EndpointFailures(cfg.DB)...)
+	sweeps = append(sweeps, EndpointRefusals(cfg.DB)...)
 	sweeps = append(sweeps, BotCheckAnswers(cfg.DB)...)
 	sweeps = append(sweeps, ScriptTokenUses(cfg.DB)...)
 	return New(cfg.DB, cfg.Every, sweeps...)
@@ -63,6 +65,7 @@ const (
 	lockEndpointFailures  int64 = 4713210107
 	lockBotCheckAnswers   int64 = 4713210108
 	lockScriptTokenUses   int64 = 4713210109
+	lockEndpointRefusals  int64 = 4713210110
 )
 
 // PortalDeleted is the sweep that purges portal items deleted more than days
@@ -166,6 +169,16 @@ func EndpointFailures(db *sql.DB) []Sweep {
 	store := epstore.New(db)
 	return []Sweep{{Name: "endpoint_failures", LockKey: lockEndpointFailures, Run: func(ctx context.Context) (int64, error) {
 		return store.SweepFailures(ctx, time.Now().UTC().Add(-epbinding.FailureRetention)) //nolint:wrapcheck // the store names the delete
+	}}}
+}
+
+// EndpointRefusals is the sweep that deletes the counts of requests an
+// endpoint refused (#2208) once their hour is older than
+// eprefusal.Retention.
+func EndpointRefusals(db *sql.DB) []Sweep {
+	store := eprefusal.NewStore(db)
+	return []Sweep{{Name: "endpoint_refusals", LockKey: lockEndpointRefusals, Run: func(ctx context.Context) (int64, error) {
+		return store.Sweep(ctx, time.Now().UTC().Add(-eprefusal.Retention)) //nolint:wrapcheck // the store names the delete
 	}}}
 }
 

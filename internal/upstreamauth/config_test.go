@@ -50,9 +50,11 @@ func TestParse_ReadsEveryKey(t *testing.T) {
 		"tls_ca_bundle_pem":    "bundle",
 		"identity_passthrough": true,
 		"trace_propagation":    false,
+		"max_concurrent_calls": float64(2),
 	})
 	require.NoError(t, err)
 	assert.False(t, c.TracePropagation, "trace_propagation: false is read (#1895)")
+	assert.Equal(t, 2, c.MaxConcurrentCalls, "max_concurrent_calls is read (#2209)")
 	assert.Equal(t, AuthModeAPIKey, c.AuthMode)
 	assert.Equal(t, "k3y", c.Credential)
 	assert.Equal(t, CredentialPlacementQuery, c.CredentialPlacement)
@@ -329,6 +331,8 @@ func TestValidateTransport(t *testing.T) {
 		{"connect timeout", func(c Config) Config { c.ConnectTimeout = 0; return c }, "connect_timeout must be positive"},
 		{"call timeout", func(c Config) Config { c.CallTimeout = -time.Second; return c }, "call_timeout must be positive"},
 		{"read cap", func(c Config) Config { c.MaxResponseBytes = 0; return c }, "max_response_bytes must be positive"},
+		{"negative limit", func(c Config) Config { c.MaxConcurrentCalls = -1; return c }, "max_concurrent_calls must be between 0 (unlimited) and 32"},
+		{"limit past the ceiling", func(c Config) Config { c.MaxConcurrentCalls = 33; return c }, "max_concurrent_calls must be between"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -583,4 +587,22 @@ func TestParse_TheRetiredInlineBudgetIsIgnored(t *testing.T) {
 		_, err := Parse(connoauth.KindAPI, "apigateway", "https://upstream.example", map[string]any{"max_inline_bytes": v})
 		require.NoError(t, err)
 	}
+}
+
+// TestParse_MaxConcurrentCallsIsAWholeNumberOrRefused (#2209): a limit the
+// platform cannot read is refused rather than read as unlimited.
+func TestParse_MaxConcurrentCallsIsAWholeNumberOrRefused(t *testing.T) {
+	for _, v := range []any{float64(3), 3, int64(3)} {
+		c, err := Parse(connoauth.KindAPI, "apigateway", "https://upstream.example", map[string]any{"max_concurrent_calls": v})
+		require.NoError(t, err)
+		assert.Equal(t, 3, c.MaxConcurrentCalls)
+	}
+	for _, v := range []any{"1", 1.5, true} {
+		_, err := Parse(connoauth.KindAPI, "apigateway", "https://upstream.example", map[string]any{"max_concurrent_calls": v})
+		require.Error(t, err, "%v", v)
+		assert.Contains(t, err.Error(), "max_concurrent_calls must be a whole number")
+	}
+	c, err := Parse(connoauth.KindAPI, "apigateway", "https://upstream.example", map[string]any{"max_concurrent_calls": nil})
+	require.NoError(t, err)
+	assert.Zero(t, c.MaxConcurrentCalls)
 }

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
+
 	"github.com/txn2/mcp-data-platform/internal/libraryuse"
 )
 
@@ -37,8 +39,9 @@ type Contract struct {
 	Tags        []string `json:"tags,omitempty" example:"sales,reporting"`
 	Status      string   `json:"status" example:"active"`
 	Enabled     bool     `json:"enabled" example:"true"`
-	// Exclusive is whether the script runs one at a time (#1986).
-	Exclusive bool `json:"exclusive"`
+	// Exclusive is whether the script's runs may overlap: off, refuse or
+	// queue (#1986, #2209).
+	Exclusive runstate.ExclusiveMode `json:"exclusive"`
 
 	// Params is the typed parameter contract a run binds against: the live
 	// record's, which is the latest saved version's.

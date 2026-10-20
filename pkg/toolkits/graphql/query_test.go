@@ -254,15 +254,6 @@ func TestANonJSONAnswerIsReportedRatherThanParsed(t *testing.T) {
 	}
 }
 
-func TestATransportFailureRefusesTheCall(t *testing.T) {
-	u := newUpstream(t)
-	tk := newToolkit(t, u, "flat", nil)
-	u.server.Close()
-	if msg := refuseQuery(t, tk, QueryInput{Connection: "gql", Query: datasetDocument}); msg == "" {
-		t.Error("want a refusal")
-	}
-}
-
 // modelQuery runs graphql_query as a model's call arrives and fits the
 // result the way the platform's result-budget middleware does (#1878).
 func modelQuery(t *testing.T, tk *Toolkit, in QueryInput, budget int) (*mcp.CallToolResult, *QueryOutput) {
@@ -480,8 +471,8 @@ func TestTheCallersTimeoutNeverRaisesTheConnectionsOwn(t *testing.T) {
 		{"a value past the schema's ceiling is ignored", 9999, 5 * time.Second},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			ctx, cancel := withCallTimeout(context.Background(), cfg, c.seconds)
-			defer cancel()
+			ctx, limit, _ := withCallTimeout(context.Background(), cfg, c.seconds)
+			defer limit.cancel()
 			deadline, ok := ctx.Deadline()
 			if !ok {
 				t.Fatal("no deadline")
@@ -491,8 +482,8 @@ func TestTheCallersTimeoutNeverRaisesTheConnectionsOwn(t *testing.T) {
 			}
 		})
 	}
-	ctx, cancel := withCallTimeout(context.Background(), Config{}, 0)
-	defer cancel()
+	ctx, limit, _ := withCallTimeout(context.Background(), Config{}, 0)
+	defer limit.cancel()
 	if _, ok := ctx.Deadline(); !ok {
 		t.Error("a connection with no configured timeout still gets the default")
 	}

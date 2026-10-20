@@ -104,6 +104,63 @@ func (m *memStore) FailStale(_ context.Context, id string, before time.Time, mes
 	return true, nil
 }
 
+// CreateBackground models the working-key index: one working run per
+// caller, tool and key.
+func (m *memStore) CreateBackground(_ context.Context, t Task) (*Task, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.createErr != nil {
+		return nil, false, m.createErr
+	}
+	for _, other := range m.tasks {
+		if other.Status == mcptask.StatusWorking && other.UserID == t.UserID &&
+			other.ToolName == t.ToolName && other.IdempotencyKey == t.IdempotencyKey {
+			cp := *other
+			return &cp, false, nil
+		}
+	}
+	m.tasks[t.ID] = &t
+	return &t, true, nil
+}
+
+func (m *memStore) FindByKey(_ context.Context, userID, tool, key string) (*Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var latest *Task
+	for _, t := range m.tasks {
+		if t.UserID == userID && t.ToolName == tool && t.IdempotencyKey == key &&
+			(latest == nil || t.CreatedAt.After(latest.CreatedAt)) {
+			latest = t
+		}
+	}
+	if latest == nil {
+		return nil, errTaskNotFound
+	}
+	cp := *latest
+	return &cp, nil
+}
+
+func (m *memStore) SetProgress(_ context.Context, id string, progress json.RawMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.tasks[id]; ok && t.Status == mcptask.StatusWorking {
+		t.Progress = progress
+	}
+	return nil
+}
+
+func (m *memStore) EndedBackground(_ context.Context, userID string, _ time.Time, _ int) ([]Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []Task{}
+	for _, t := range m.tasks {
+		if t.UserID == userID && t.Background && t.Status != mcptask.StatusWorking {
+			out = append(out, *t)
+		}
+	}
+	return out, nil
+}
+
 func (m *memStore) task(id string) Task {
 	m.mu.Lock()
 	defer m.mu.Unlock()

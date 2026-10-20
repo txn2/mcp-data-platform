@@ -1,6 +1,7 @@
 package scriptlint
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -85,4 +86,33 @@ func TestDraftRefusal(t *testing.T) {
 	assert.Contains(t, DraftRefusal("def f(:\n", nil), "the source does not pass validation, so it was not run: ")
 	assert.Contains(t, DraftRefusal(`platform.export("x", [], "csv", destination = "drop", key = "x.csv")`+"\n", nil),
 		`destination "drop" is not configured`)
+}
+
+// TestWithRegisterCheck is #2213's pass: each literal register= connection
+// the check refuses is an error finding; one it accepts, a computed one and a
+// nil check add nothing.
+func TestWithRegisterCheck(t *testing.T) {
+	report := scriptrun.Validate(`platform.export("a", [], "jsonl", destination = "resources", key = "a.jsonl", register = {"connection": "warehouse"})
+platform.export("b", [], "jsonl", destination = "resources", key = "b.jsonl", register = {"connection": "lake"})
+c = {"connection": "x"}
+platform.export("c", [], "jsonl", destination = "resources", key = "c.jsonl", register = c)
+`)
+	require.True(t, report.OK, report.Findings)
+	require.Equal(t, []string{"lake", "warehouse"}, report.RegisterConnections)
+
+	checked := WithRegisterCheck(report, func(conn string) error {
+		if conn == "warehouse" {
+			return errors.New("no scratch target")
+		}
+		return nil
+	})
+	assert.False(t, checked.OK)
+	require.Len(t, checked.Findings, 1)
+	assert.Equal(t, scriptrun.SeverityError, checked.Findings[0].Severity)
+	assert.Contains(t, checked.Findings[0].Message, `register names connection "warehouse", which cannot hold the table: no scratch target`)
+
+	assert.Equal(t, report, WithRegisterCheck(report, nil))
+	assert.Equal(t, report, WithRegisterCheck(report, func(string) error { return nil }))
+	none := scriptrun.Validate(`platform.export("a", [], "csv")` + "\n")
+	assert.Empty(t, none.RegisterConnections)
 }

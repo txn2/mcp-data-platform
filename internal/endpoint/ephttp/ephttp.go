@@ -28,6 +28,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
@@ -91,6 +92,9 @@ type Handler struct {
 	// Authenticate is who sent the request: a browser session or an API key.
 	// Nil caller and nil error is nobody.
 	Authenticate func(r *http.Request) (*eprun.Caller, error)
+	// Refused counts a request refused before its handler ran, by endpoint
+	// and reason (#2208). Nil counts nothing.
+	Refused func(endpointID, reason string)
 
 	endpointLimits limiters
 	callerLimits   limiters
@@ -113,6 +117,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	b := t.Binding
 	if !cors(w, r, b) {
+		h.refused(b, eprefusal.ReasonOrigin)
 		return
 	}
 	if r.Method == http.MethodOptions {
@@ -135,6 +140,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.endpointLimits.allow(b.Name, b.RateLimit, "") {
+		h.refused(b, eprefusal.ReasonRateLimit)
 		tooMany(w, r, b.RateLimit)
 		return
 	}
@@ -142,8 +148,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	body, ok := readBody(w, r, b.MaxBodyBytes)
-	if !ok {
+	body, status := readBody(w, r, b.MaxBodyBytes)
+	if status == http.StatusRequestEntityTooLarge {
+		h.refused(b, eprefusal.ReasonBodyLimit)
+	}
+	if status != 0 {
 		return
 	}
 	resp := h.Runner.Serve(r.Context(), t, eprun.Request{
@@ -191,6 +200,7 @@ func (h *Handler) admit(w http.ResponseWriter, r *http.Request, b *epbinding.Bin
 	err = h.Checker.Verify(r.Context(), b.Name, r.Header.Get(HeaderBotCheck))
 	switch {
 	case botcheck.Refusal(err):
+		h.refused(b, eprefusal.ReasonBotCheck)
 		httpjson.WriteError(w, http.StatusForbidden, err.Error())
 		return nil, false
 	case err != nil:
@@ -205,9 +215,11 @@ func (h *Handler) signedIn(w http.ResponseWriter, r *http.Request, b *epbinding.
 	caller, err := h.Authenticate(r)
 	switch {
 	case errors.Is(err, ErrForbidden):
+		h.refused(b, eprefusal.ReasonCredential)
 		httpjson.WriteError(w, http.StatusForbidden, "the request's credential was refused")
 		return nil, false
 	case err != nil || caller == nil:
+		h.refused(b, eprefusal.ReasonCredential)
 		w.Header().Set("WWW-Authenticate", `Bearer realm="endpoints"`)
 		httpjson.WriteError(w, http.StatusUnauthorized, "this endpoint answers a signed-in caller: a browser session or an API key")
 		return nil, false
@@ -217,29 +229,38 @@ func (h *Handler) signedIn(w http.ResponseWriter, r *http.Request, b *epbinding.
 		key = caller.Email
 	}
 	if !h.callerLimits.allow(b.Name, b.CallerRateLimit, key) {
+		h.refused(b, eprefusal.ReasonCallerRateLimit)
 		tooMany(w, r, b.CallerRateLimit)
 		return nil, false
 	}
 	return caller, true
 }
 
-// readBody reads the request body up to limit, answering 413 past it.
-func readBody(w http.ResponseWriter, r *http.Request, limit int) ([]byte, bool) {
+// refused counts a refusal of a request to b.
+func (h *Handler) refused(b *epbinding.Binding, reason string) {
+	if h.Refused != nil {
+		h.Refused(b.ID, reason)
+	}
+}
+
+// readBody reads the request body up to limit, answering 413 past it. The
+// status is the error it answered, zero when it read the body.
+func readBody(w http.ResponseWriter, r *http.Request, limit int) (body []byte, status int) {
 	if r.ContentLength > int64(limit) {
 		httpjson.WriteError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the request body is larger than the %d bytes this endpoint takes", limit))
-		return nil, false
+		return nil, http.StatusRequestEntityTooLarge
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(limit)))
 	var tooLarge *http.MaxBytesError
 	switch {
 	case errors.As(err, &tooLarge):
 		httpjson.WriteError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the request body is larger than the %d bytes this endpoint takes", limit))
-		return nil, false
+		return nil, http.StatusRequestEntityTooLarge
 	case err != nil:
 		httpjson.WriteError(w, http.StatusBadRequest, "the request body could not be read")
-		return nil, false
+		return nil, http.StatusBadRequest
 	}
-	return body, true
+	return body, 0
 }
 
 // write sends the endpoint's response under the policy every endpoint answer

@@ -2,6 +2,7 @@ package portal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -102,6 +103,20 @@ type TableRegistrar interface {
 	// happened to the tables over it.
 	FollowAssetTables(ctx context.Context, assetID string, version int) []string
 	FollowResourceTables(ctx context.Context, resourceID string, version int) []string
+	// Check answers whether a table named tableName could be registered on
+	// connection, writing nothing (#2213). An empty tableName checks the
+	// connection alone.
+	Check(ctx context.Context, connection, tableName string) (*TableTarget, error)
+}
+
+// TableTarget is where a registration would land, as check reports it.
+type TableTarget struct {
+	Connection string `json:"connection"`
+	Catalog    string `json:"catalog"`
+	Schema     string `json:"schema"`
+	// QueryTable is the name the table would be queried by; empty when no
+	// table_name was asked about.
+	QueryTable string `json:"query_table,omitempty"`
 }
 
 // RegisterOptions are the choices a registration is made with.
@@ -193,10 +208,55 @@ func (t *Toolkit) handleManageTable(
 		return t.handleUnregisterTable(ctx, input)
 	case tableActionList:
 		return t.handleListTables(ctx, input)
+	case tableActionCheck:
+		return t.handleCheckTable(ctx, input)
 	default:
 		return toolkit.ErrorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: register, list, unregister", input.Action)), nil, nil
+			"invalid action %q: must be one of: register, list, unregister, check", input.Action)), nil, nil
 	}
+}
+
+// CheckTableTarget answers whether the caller in ctx could register a table
+// on connection, as manage_table check does (#2213): nil when it could, the
+// refusal register would give when not. It is what a script's validate asks
+// of each connection an export's register= names.
+func (t *Toolkit) CheckTableTarget(ctx context.Context, connection string) error {
+	if t.tables == nil {
+		return errTableRegistrationUnavailable
+	}
+	_, err := t.tables.Check(ctx, connection, "")
+	return err //nolint:wrapcheck // the registrar's refusal, as written
+}
+
+// tableCheckOutput is the result of the check action.
+type tableCheckOutput struct {
+	TableTarget
+	Message string `json:"message"`
+}
+
+// handleCheckTable answers whether a registration on a connection would be
+// accepted, writing nothing (#2213): the connection is granted, holds tables,
+// accepts writes, and table_name, when given, is valid and not somebody
+// else's. A refusal is the one register would give, naming the connections
+// the caller can register on. A script's export asks it before writing the
+// file it was told to register.
+func (t *Toolkit) handleCheckTable(
+	ctx context.Context, input manageTableInput,
+) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.Connection) == "" {
+		return toolkit.ErrorResult(
+			"connection is required for check: name the Trino connection whose scratch schema the table would go in. " +
+				"Call list_connections to see the connections you can reach."), nil, nil
+	}
+	target, err := t.tables.Check(ctx, input.Connection, input.TableName)
+	if err != nil {
+		return toolkit.ErrorResult(err.Error()), nil, nil
+	}
+	message := "A table can be registered on connection " + target.Connection + ", in " + target.Catalog + "." + target.Schema + "."
+	if target.QueryTable != "" {
+		message = "A table can be registered as " + target.QueryTable + " on connection " + target.Connection + "."
+	}
+	return toolkit.JSONResultTyped(tableCheckOutput{TableTarget: *target, Message: message})
 }
 
 // handleRegisterTable makes the referenced file's stored CSV queryable.
@@ -358,6 +418,11 @@ func (t *Toolkit) FollowResourceTables(ctx context.Context, resourceID string, v
 // generic failure, because the reader can do something about it.
 const tableRegistrationUnavailable = "This deployment cannot register tables: it needs a Trino connection with a " +
 	"scratch catalog and schema configured. Ask an administrator to configure one."
+
+// errTableRegistrationUnavailable is tableRegistrationUnavailable as the
+// error validate reports.
+var errTableRegistrationUnavailable = errors.New("this deployment cannot register tables: it needs a Trino " +
+	"connection with a scratch catalog and schema configured; ask an administrator to configure one")
 
 // tableIdentityRequired is what an unauthenticated call is told. A
 // registration records who made it and decides replacement on that, so there

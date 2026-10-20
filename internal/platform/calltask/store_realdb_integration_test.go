@@ -84,3 +84,55 @@ func TestCallTaskStoreFailStale_RealDB(t *testing.T) {
 	assert.Equal(t, mcptask.StatusFailed, task.Status)
 	assert.JSONEq(t, `{"code":-32603,"message":"gone"}`, string(task.Error))
 }
+
+// TestBackgroundExportStore_RealDB is #2212's store: one working run per
+// caller, tool and key, a second start joins it, progress is written while it
+// works, the latest run is found by key, and an ended one is reported to its
+// caller after the watermark it is read from.
+func TestBackgroundExportStore_RealDB(t *testing.T) {
+	ctx := context.Background()
+	s := NewPostgresStore(testdb.New(t))
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	bg := func(id string) Task {
+		return Task{ID: id, ToolName: "api_export", UserID: "jane", StatusMessage: msgWorking,
+			CreatedAt: now, ExpiresAt: now.Add(time.Hour), IdempotencyKey: "k1"}
+	}
+
+	first, created, err := s.CreateBackground(ctx, bg("dpt_1"))
+	require.NoError(t, err)
+	require.True(t, created)
+	assert.Equal(t, "dpt_1", first.ID)
+
+	joined, created, err := s.CreateBackground(ctx, bg("dpt_2"))
+	require.NoError(t, err)
+	assert.False(t, created, "a key already working is joined")
+	assert.Equal(t, "dpt_1", joined.ID)
+	assert.True(t, joined.Background)
+
+	require.NoError(t, s.SetProgress(ctx, "dpt_1", json.RawMessage(`{"pages_fetched":3,"items_merged":30}`)))
+	found, err := s.FindByKey(ctx, "jane", "api_export", "k1")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"pages_fetched":3,"items_merged":30}`, string(found.Progress))
+
+	_, err = s.FindByKey(ctx, "bob", "api_export", "k1")
+	require.ErrorIs(t, err, errTaskNotFound, "another caller's key is not found")
+
+	ended, err := s.EndedBackground(ctx, "jane", now.Add(-time.Minute), 10)
+	require.NoError(t, err)
+	assert.Empty(t, ended, "a working run has not ended")
+
+	require.NoError(t, s.Finish(ctx, "dpt_1", Ending{Status: mcptask.StatusFailed, Message: "boom"}))
+	ended, err = s.EndedBackground(ctx, "jane", now.Add(-time.Minute), 10)
+	require.NoError(t, err)
+	require.Len(t, ended, 1)
+	assert.Equal(t, "k1", ended[0].IdempotencyKey)
+
+	// Once it ended, the key starts a new run, which is the one found.
+	second, created, err := s.CreateBackground(ctx, Task{ID: "dpt_3", ToolName: "api_export", UserID: "jane",
+		StatusMessage: msgWorking, CreatedAt: now.Add(time.Second), ExpiresAt: now.Add(time.Hour), IdempotencyKey: "k1"})
+	require.NoError(t, err)
+	require.True(t, created)
+	found, err = s.FindByKey(ctx, "jane", "api_export", "k1")
+	require.NoError(t, err)
+	assert.Equal(t, second.ID, found.ID)
+}

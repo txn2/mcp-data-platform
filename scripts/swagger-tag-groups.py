@@ -95,6 +95,14 @@ TAG_DESCRIPTIONS = {
         "audit retention. One session opens onto the assets and insights it produced "
         "and the ordered record of its calls, each with the purpose the agent stated."
     ),
+    "Endpoints": (
+        "Every endpoint binding on the deployment, a managed script answering HTTP "
+        "under /endpoints/{name}, with its script and owner, its access and limits, "
+        "and over a day or a week the requests it answered by status class, their "
+        "duration, its failures and callers, and the requests it refused before its "
+        "handler ran. An endpoint is turned on, off and edited through its script's "
+        "endpoint routes."
+    ),
     "Scripts": (
         "Managed-script review and approval. Browse scripts and their version history, "
         "read a version alongside the capabilities and connections its source reaches "
@@ -214,6 +222,7 @@ TAG_GROUPS = [
             "Catalog",
             "Config",
             "Connections",
+            "Endpoints",
             "Notifications",
             "Personas",
             "Scripts",

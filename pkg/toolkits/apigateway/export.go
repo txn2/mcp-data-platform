@@ -16,12 +16,15 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/exportasync"
 	"github.com/txn2/mcp-data-platform/internal/exportstream"
 	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
+	"github.com/txn2/mcp-data-platform/internal/timeoutcap"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -206,6 +209,10 @@ type ExportDeps struct {
 	BaseURL        string
 	Config         ExportConfig
 	GetUserContext func(ctx context.Context) *ExportUserContext
+	// Background is the runner a long export runs in the background through
+	// (#2212), read when a call asks for it. Nil, or a nil answer, runs every
+	// export inline.
+	Background func() exportasync.Runner
 }
 
 // SetExportDeps wires platform-side dependencies for api_export.
@@ -239,6 +246,9 @@ type exportInput struct {
 	Tags             []string          `json:"tags"`
 	IdempotencyKey   string            `json:"idempotency_key"`
 	CreatePublicLink bool              `json:"create_public_link"`
+	// Async runs the export in the background (#2212). Nil runs a page walk
+	// from a model client in the background and anything else inline.
+	Async *bool `json:"async,omitempty"`
 	// Paginate, when set, makes the export a page walk (issue #1535): the
 	// merged array is streamed into the one asset as pages arrive.
 	Paginate *PaginateInput `json:"paginate,omitempty"`
@@ -273,6 +283,9 @@ type exportOutput struct {
 	ResourceUnchanged bool                `json:"resource_unchanged,omitempty"`
 	UpstreamHeaders   map[string][]string `json:"upstream_headers,omitempty"`
 	upstreamretry.Advice
+	// TimeoutCap reports a timeout_seconds longer than the deployment's
+	// export max_timeout, and the timeout applied in its place (#2210).
+	timeoutcap.Cap
 	Message string `json:"message"`
 	// WalkStats is set on a page walk; nil on a single-page export.
 	*WalkStats
@@ -345,6 +358,11 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	if err := in.ValidateWalk(in.Paginate != nil); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
+	runner := exportasync.RunnerOf(deps.Background)
+	read, prior, handled := exportasync.Resume(ctx, runner, exportToolName, in.IdempotencyKey, exportasync.HowToReadAgain(exportToolName, in.IdempotencyKey))
+	if handled {
+		return read, nil, nil
+	}
 	if in.Resource != nil {
 		if denial := checkResourceDestination(ctx, deps, in); denial != nil {
 			return denial, nil, nil
@@ -392,20 +410,57 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 		t.mu.RLock()
 		args.budget = t.memBudget
 		t.mu.RUnlock()
-		args.authorize = pageAuthorizer(ctx, policy, c)
-		out, runErr := t.runExportWalk(ctx, args)
-		if runErr != nil {
-			return budgetOrErrorResult(runErr), nil, nil
+		args.authorizeOn = func(ctx context.Context) func(InvokeInput) error { return pageAuthorizer(ctx, policy, c) }
+	}
+	if exportasync.Wanted(runner, in.Async, in.Paginate != nil, mcpcontext.ResultBudget(ctx) > 0) {
+		return t.exportInBackground(ctx, runner, args, prior), nil, nil
+	}
+	res, out := t.exportNow(ctx, args)
+	return res, out, nil
+}
+
+// exportNow runs one export to its end and answers with it.
+func (t *Toolkit) exportNow(ctx context.Context, args runExportArgs) (result *mcp.CallToolResult, out any) {
+	_, capped := resolveExportTimeout(args.in.TimeoutSeconds, args.deps.Config)
+	if args.in.Paginate != nil {
+		if args.authorizeOn != nil {
+			args.authorize = args.authorizeOn(ctx)
 		}
-		res := toolkit.JSONResult(out)
-		stampWalkMeta(res, out.WalkStats)
-		return res, out, nil
+		walked, runErr := t.runExportWalk(ctx, args)
+		if runErr != nil {
+			return budgetOrErrorResult(runErr), nil
+		}
+		walked.Cap = capped
+		result = toolkit.JSONResult(walked)
+		stampWalkMeta(result, walked.WalkStats)
+		return result, walked
 	}
-	out, runErr := t.runExport(ctx, args)
+	written, runErr := t.runExport(ctx, args)
 	if runErr != nil {
-		return budgetOrErrorResult(runErr), nil, nil
+		return budgetOrErrorResult(runErr), nil
 	}
-	return toolkit.JSONResult(out), out, nil
+	written.Cap = capped
+	return toolkit.JSONResult(written), written
+}
+
+// exportInBackground starts the export as a background export (#2212),
+// answering at once with the run and the key it is read again by. The
+// addressing, route policy and destination were settled before this.
+func (t *Toolkit) exportInBackground(ctx context.Context, runner exportasync.Runner, args runExportArgs, prior *exportasync.Run) *mcp.CallToolResult {
+	launch := exportasync.Launch{
+		Runner: runner, Tool: exportToolName, Prior: prior, Key: &args.in.IdempotencyKey,
+		Timeout: &args.in.TimeoutSeconds, MaxTimeout: args.deps.Config.MaxTimeout,
+	}
+	if args.in.Resource != nil {
+		// A resource destination keeps no key on what it writes: its repeat
+		// call is the file's next version, and the key reads the run alone.
+		key := args.in.IdempotencyKey
+		launch.Key, args.in.IdempotencyKey = &key, ""
+	}
+	return exportasync.Start(ctx, launch, func(ctx context.Context) (*mcp.CallToolResult, error) {
+		res, _ := t.exportNow(ctx, args)
+		return res, nil
+	})
 }
 
 // resolveExportUser fetches the platform-injected user context. nil
@@ -464,13 +519,16 @@ type runExportArgs struct {
 	// on every page's address (nil when no policy is installed).
 	budget    *MemBudget
 	authorize func(InvokeInput) error
+	// authorizeOn builds authorize over the context the walk runs on, which
+	// for a background export (#2212) is not the request's.
+	authorizeOn func(ctx context.Context) func(InvokeInput) error
 }
 
 // runExport executes the upstream call, uploads the response to
 // S3, and inserts the asset + version rows.
 func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, error) {
 	deps, cfg, auth, client, specs, uc, in := a.deps, a.cfg, a.auth, a.client, a.specs, a.uc, a.in
-	timeout := resolveExportTimeout(in.TimeoutSeconds, deps.Config)
+	timeout, _ := resolveExportTimeout(in.TimeoutSeconds, deps.Config)
 	exportCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -779,7 +837,7 @@ func runOutputKey(uc *ExportUserContext, in exportInput) string {
 // which is api_export's all-or-nothing contract.
 func (*Toolkit) runExportWalk(ctx context.Context, a runExportArgs) (*exportOutput, error) {
 	deps, uc, in := a.deps, a.uc, a.in
-	timeout := resolveExportTimeout(in.TimeoutSeconds, deps.Config)
+	timeout, _ := resolveExportTimeout(in.TimeoutSeconds, deps.Config)
 	exportCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -923,16 +981,16 @@ func exportInvokeInput(in exportInput) InvokeInput {
 
 // resolveExportTimeout picks the timeout for a single api_export
 // call. The model's timeout_seconds wins when supplied, capped at
-// MaxTimeout; absent input falls back to DefaultTimeout.
-func resolveExportTimeout(timeoutSeconds int, cfg ExportConfig) time.Duration {
+// MaxTimeout, which is reported back as the cap (#2210); absent input
+// falls back to DefaultTimeout.
+func resolveExportTimeout(timeoutSeconds int, cfg ExportConfig) (time.Duration, timeoutcap.Cap) {
 	if timeoutSeconds <= 0 {
-		return cfg.DefaultTimeout
+		return cfg.DefaultTimeout, timeoutcap.Cap{}
 	}
-	requested := time.Duration(timeoutSeconds) * time.Second
-	if requested > cfg.MaxTimeout {
-		return cfg.MaxTimeout
+	if cfg.MaxTimeout <= 0 {
+		return time.Duration(timeoutSeconds) * time.Second, timeoutcap.Cap{}
 	}
-	return requested
+	return timeoutcap.Apply(cfg.MaxTimeout, timeoutSeconds, timeoutcap.CappedByExportMaxTimeout)
 }
 
 // generateExportAssetID returns a 16-byte hex id. Same format as

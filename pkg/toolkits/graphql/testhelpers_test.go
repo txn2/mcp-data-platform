@@ -36,6 +36,9 @@ type upstream struct {
 	// respond answers every other document. Nil answers an empty data
 	// object.
 	respond func(req graphQLRequest, callNo int) (status int, body string)
+	// retryAfter, when set, is sent as the Retry-After header of every
+	// answer to a document.
+	retryAfter string
 }
 
 // newUpstream starts a fake endpoint and stops it when the test ends.
@@ -79,6 +82,9 @@ func (u *upstream) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status, body := respond(req, callNo)
+	if u.retryAfter != "" {
+		w.Header().Set("Retry-After", u.retryAfter)
+	}
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(body))
 }

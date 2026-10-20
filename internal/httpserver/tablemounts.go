@@ -76,10 +76,29 @@ func buildTableRegistrar(p *platform.Platform) *tableregister.Registrar {
 		Audit:    auditLogger,
 		// A managed resource that is a compacted window of a webhook source
 		// reports that source's table (#1870).
-		Holders:  whstore.New(p.DB()),
-		NewID:    newRegistrationID,
-		MaxBytes: registrationMaxBytes(p.Config()),
+		Holders:     whstore.New(p.DB()),
+		Connections: trinoConnectionNames(p),
+		NewID:       newRegistrationID,
+		MaxBytes:    registrationMaxBytes(p.Config()),
 	})
+}
+
+// trinoConnectionNames lists the Trino connections a refused registration
+// target names its alternatives from (#2213), read at the moment of the
+// refusal so a connection added at run time is offered.
+func trinoConnectionNames(p *platform.Platform) func() []string {
+	return func() []string {
+		tt, ok := trinoExecutor(p).(*trinotoolkit.Toolkit)
+		if !ok {
+			return nil
+		}
+		conns := tt.ListConnections()
+		names := make([]string, 0, len(conns))
+		for _, c := range conns {
+			names = append(names, c.Name)
+		}
+		return names
+	}
 }
 
 // registrationMaxBytes is the object size a registration will read: the

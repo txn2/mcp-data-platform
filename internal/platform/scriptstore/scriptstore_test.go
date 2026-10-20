@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
+
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +47,7 @@ type rowSpec struct {
 	paramsJSON []byte
 	source     string
 	category   string
-	exclusive  bool
+	exclusive  runstate.ExclusiveMode
 }
 
 // scriptRow returns one full result row in scriptColumns order.
@@ -58,7 +60,7 @@ func scriptRow(spec rowSpec) []driver.Value {
 		spec.id, spec.name, "Daily", "A daily report", spec.category, source, spec.paramsJSON,
 		spec.owner, pq.Array([]string{}), true, "active",
 		"", nil, 1, rowTime, rowTime,
-		false, pq.Array([]string{}), spec.exclusive,
+		false, pq.Array([]string{}), string(spec.exclusive.Or()),
 	}
 }
 

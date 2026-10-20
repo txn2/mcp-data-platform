@@ -33,6 +33,7 @@ toolkits:
 | `auth_mode` and its credentials | The shared upstream authentication modes: `none`, `bearer`, `api_key`, `basic`, `signed_jwt`, `oauth`, `mtls`. Same keys, same behavior and same at-rest encryption as the API gateway's. `signed_jwt` is what a Sage X3 connected application needs; see [Signed JWT upstreams](signed-jwt-auth.md). `oauth` takes the `client_credentials`, `authorization_code` and `jwt_bearer` grants; see [OAuth JWT bearer grant](api-gateway.md#oauth-jwt-bearer-grant-rfc-7523) |
 | `static_headers` | Headers attached to every outbound request. This is where an upstream's tenant or folder routing goes, and where a `User-Agent` other than the platform's default `mcp-data-platform/<version>` is pinned. Operator-owned; the model never sets or overrides them |
 | `connect_timeout`, `call_timeout` | Dial and per-call bounds. Default 10s and 60s |
+| `max_concurrent_calls` | How many calls the endpoint takes at once, across every replica; a call over it waits for a slot. Unset or 0 is unlimited, at most 32. See [Upstreams that take one call at a time](#upstreams-that-take-one-call-at-a-time) |
 | `max_response_bytes` | Upstream read cap: the most the platform reads of one response. An answer past it is refused, naming the cap and `graphql_export`. Default 10 MiB |
 | `mtls_client_cert_pem`, `mtls_client_key_pem`, `tls_ca_bundle_pem` | The connection's TLS material, as on an `api` connection |
 | `identity_passthrough` | Forwards the acting caller's inbound bearer token instead of this connection's credential |
@@ -149,6 +150,12 @@ Before anything is sent, the document is parsed, the operation to run is resolve
 
 A GraphQL endpoint reports almost every failure as an HTTP 200 carrying an `errors` array. The result reports `upstream_error: true` for a non-2xx *or* a 200 with errors, and that is what the platform's audit, call catalog and outbound metrics classify the call on. The `errors` array is passed through unchanged — its messages, paths and `extensions` are the upstream's own words and the only diagnosis a caller gets — and any partial `data` is preserved beside it.
 
+A failure that carries no `errors` array (a `429`, `502` or `503`, a proxy's error page, an answer that is not GraphQL at all) used to read as `errors` absent and nothing else, so every such failure looked the same. The result now carries the start of the endpoint's answer in `upstream_body` (at most 2 KiB, with the stored secrets the connection filled into the request redacted), beside `status`, whenever the status is not 2xx or the answer is not a GraphQL response. It also says whether the same document is expected to get past the endpoint later, by the rules `api_invoke_endpoint` uses with the operation kind standing in for the method: `upstream_retryable: true` on a `429` to any document and on a `502`, `503` or `504` to a query, never on such a failure of a mutation, which may have done part of its work, with `retry_after_seconds` from the endpoint's `Retry-After`. A managed script's host waits on it and sends the document again, as it does for `api_invoke_endpoint`.
+
+A send the endpoint never answered (the connection refused or reset, a TLS failure, the deadline passing first) is a failed call whose result is structured rather than a bare message: `transport_error` names the failure, `upstream_error` is true, and `error.code` is `upstream_unavailable` with category `upstream`, which a caller and a script's host read as the upstream being unavailable.
+
+`timeout_seconds` may lower the connection's `call_timeout` but never raise it. A value above it is replaced by it, and the result now says so on success and failure alike: `timeout_applied_seconds`, `timeout_capped_by: "connection call_timeout"` and `timeout_requested_seconds`. A send that runs out of time names its limit: `timed out after 120s (the connection's call_timeout; timeout_seconds 240 was capped)`. `graphql_export` reports its own cap the same way, `timeout_capped_by: "export max_timeout"`, when its `timeout_seconds` is above `portal.export.max_timeout`.
+
 A call whose result says `upstream_error: true` is a failed call everywhere the platform records it, as an `api_invoke_endpoint` whose upstream answered a 4xx is. Its audit row and its call record carry `success: false` and an `error_message` naming the first upstream error (and how many followed it), so the record's outcome is `failed` and `fetch mcp:call:<id>` says so. The outbound metric records the same verdict, `status_category="upstream_err"` under `http_status_class="2xx"`, because for this kind the status line is not where the answer is. `graphql_export` is held to the same rule: the export lands, carrying the errors as sent, and reports `status` and `upstream_error` beside the asset.
 
 ### Results too large to read
@@ -194,6 +201,22 @@ The walk stops when the upstream reports no next page, when a cursor comes back 
 `graphql_export` runs the same document under the same gates and writes the result into a portal asset instead of returning it through the model context. It takes `graphql_query`'s arguments plus the asset metadata (`name`, `description`, `tags`, `idempotency_key`, `create_public_link`) and returns the asset's id, URL, size and share link — not the data. `paginate` works there too: the merged pages go into the one asset.
 
 The export is all or nothing: a result past the platform's `portal.export.max_bytes` cap is refused rather than written partly, because a partial asset reads as a complete answer to whoever opens it later.
+
+### Long exports run in the background
+
+A page walk long enough to outlast a model client's own tool-call timeout failed on the client's side, with no asset written and no handle to reconnect to, and a client does not let the platform raise that timeout. A page walk from a model client now runs in the background: the call answers at once with `run_id`, `status: running` and an `idempotency_key` (the caller's own, or one minted for it), and the walk finishes on the replica that took the call. `async: true` sends any export to the background; `async: false` keeps a walk inline. A script's call and a REST caller's are answered inline unless they ask, since they wait for their own answer. In the background, `timeout_seconds` defaults to the deployment's export maximum, since nobody is waiting on the call.
+
+Calling `graphql_export` again with the `idempotency_key` reads the run: `pages_fetched` and `items_merged` while it runs, and once it is done the export's own answer, the asset included. A key whose export is still running answers with that run, so a retry never starts a second walk against the endpoint. A run that failed is reported, and the call starts the walk again. A finished or failed background export is listed under `background_exports` in the next `platform_info` its caller reads, with the key that reads it.
+
+A background export is a call task, the record a client declaring the MCP Tasks extension follows with `tasks/get`; it is kept as long as `tasks.retention_days` says, and its replica stopping is read as a failure that can be started again.
+
+## Upstreams that take one call at a time
+
+Some endpoints cannot serve parallel requests: started together, the calls fail with timeouts, `system-error`s and answers with no `errors` at all, where the same calls made one after another succeed. `max_concurrent_calls` on the connection holds it to that many calls in flight at once, across every replica of the deployment, whatever sends them: `graphql_query`, `graphql_export`, a page walk, and a managed script's `platform.call`. A call over the limit waits for a slot instead of failing, and the wait counts against its own timeout; a call whose time runs out while it waits fails naming the limit and how long it waited. Unset or `0` is unlimited. An `api` connection takes the same key.
+
+`list_connections` names the limited connections under `call_limits`, so a caller sees the limit before fanning out calls that would queue behind each other, and the connection's admin form shows it. `upstream_calls_inflight{kind,connection}` counts the calls a replica holds a slot for, and `upstream_slot_wait_seconds{kind,connection}` how long each waited. A slot is a PostgreSQL advisory lock held for the length of the call, so each call in flight holds one database connection; the limit is capped at 32.
+
+A managed script whose runs are started by hand in a batch against such an endpoint can also set `exclusive: queue`, which holds a second run pending until the first ends instead of refusing it ([Running a script](../scripts/running.md)).
 
 ## Authorizing an operation
 

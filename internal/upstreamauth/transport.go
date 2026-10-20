@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/connlimit"
 	"github.com/txn2/mcp-data-platform/internal/membudget"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
@@ -70,13 +71,18 @@ func NewHTTPClient(cfg Config) *http.Client {
 		rt = sessionlogin.NewTransport(session, prefixOr(cfg.ErrPrefix), rt, base)
 	}
 	rt = newSecretHeaderTransport(cfg, rt)
-	return outbound.NewClient(outbound.Options{
+	client := outbound.NewClient(outbound.Options{
 		Kind:          outbound.Kind(cfg.Kind),
 		Connection:    cfg.ConnectionName,
 		Base:          rt,
 		Timeout:       cfg.CallTimeout,
 		NoPropagation: !cfg.TracePropagation,
 	})
+	// The slot is taken outermost, so a call's wait is not counted as the
+	// request's own duration, and the client's timeout still covers both
+	// (#2209).
+	client.Transport = connlimit.Transport(client.Transport, cfg.Kind, cfg.ConnectionName, cfg.MaxConcurrentCalls)
+	return client
 }
 
 // NewHTTPTransport builds the per-connection http.Transport. The

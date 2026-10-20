@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import type { ScriptContract } from "@/api/portal/hooks/scripts";
+import type { ExclusiveMode, ScriptContract } from "@/api/portal/hooks/scripts";
 import { ScriptExclusiveSetting } from "./ScriptExclusiveSetting";
 
-// The owner's choice that a script runs one at a time (#1986): the checkbox
-// reads the contract, sends the new value, and shows a refusal in the
-// server's words.
+// The owner's choice for overlapping runs (#1986, #2209): the radios read the
+// contract, send the chosen mode, and show a refusal in the server's words.
 
 vi.mock("@/api/portal/hooks/scripts", () => ({
   useSetScriptExclusive: vi.fn(),
@@ -15,7 +14,7 @@ import { useSetScriptExclusive } from "@/api/portal/hooks/scripts";
 
 const mutate = vi.fn();
 
-const contract = (exclusive?: boolean): ScriptContract => ({
+const contract = (exclusive?: ExclusiveMode): ScriptContract => ({
   id: "script-001",
   name: "nightly-sync",
   status: "active",
@@ -35,41 +34,47 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-const box = () => screen.getByRole("checkbox", { name: /One run at a time/ });
+const radio = (name: RegExp) => screen.getByRole("radio", { name });
 
 describe("ScriptExclusiveSetting", () => {
-  it("states the setting and reflects the contract", () => {
+  it("states each choice and reflects the contract", () => {
     render(
       <ScriptExclusiveSetting
         scriptId="script-001"
-        contract={contract(true)}
+        contract={contract("refuse")}
       />,
     );
-    expect(box()).toBeChecked();
-    expect(box()).toHaveAccessibleDescription(
+    expect(
+      screen.getByRole("group", { name: "Overlapping runs" }),
+    ).toBeInTheDocument();
+    expect(radio(/Refused/)).toBeChecked();
+    expect(radio(/Refused/)).toHaveAccessibleDescription(
       "A run cannot start while another run of this script is pending or running.",
+    );
+    expect(radio(/Queued/)).toHaveAccessibleDescription(
+      "A run started while another run of this script is running waits its turn.",
     );
   });
 
-  it("is unchecked for a script that predates the setting", () => {
+  it("reads a script that predates the setting as allowed", () => {
     render(
       <ScriptExclusiveSetting
         scriptId="script-001"
         contract={contract(undefined)}
       />,
     );
-    expect(box()).not.toBeChecked();
+    expect(radio(/Allowed/)).toBeChecked();
   });
 
-  it("sends the new value", () => {
+  it("sends the chosen mode", () => {
     render(
       <ScriptExclusiveSetting
         scriptId="script-001"
-        contract={contract(false)}
+        contract={contract("off")}
       />,
     );
-    fireEvent.click(box());
-    expect(mutate).toHaveBeenCalledWith(true, expect.anything());
+    fireEvent.click(radio(/Queued/));
+    expect(mutate).toHaveBeenCalledWith("queue", expect.anything());
   });
 
   it("is held while a save is in flight", () => {
@@ -80,24 +85,24 @@ describe("ScriptExclusiveSetting", () => {
     render(
       <ScriptExclusiveSetting
         scriptId="script-001"
-        contract={contract(false)}
+        contract={contract("off")}
       />,
     );
-    expect(box()).toBeDisabled();
+    expect(radio(/Queued/)).toBeDisabled();
   });
 
   it("shows the server's refusal", () => {
     mutate.mockImplementation(
-      (_value: boolean, opts: { onError: (e: unknown) => void }) =>
+      (_value: ExclusiveMode, opts: { onError: (e: unknown) => void }) =>
         opts.onError(new Error("more than one run of this script is open")),
     );
     render(
       <ScriptExclusiveSetting
         scriptId="script-001"
-        contract={contract(false)}
+        contract={contract("off")}
       />,
     );
-    fireEvent.click(box());
+    fireEvent.click(radio(/Refused/));
     expect(screen.getByRole("alert")).toHaveTextContent(
       "more than one run of this script is open",
     );

@@ -57,7 +57,9 @@ const runSelect = "SELECT " + runColumns + " FROM script_runs"
 // election; the cap is what keeps a run that kills its worker from killing
 // every worker in turn (#1860). A row past the cap is never claimed, and
 // FailAbandoned ends it.
-const dueClause = `((status = 'pending' AND scheduled_for <= NOW())
+const dueClause = `((status = 'pending' AND scheduled_for <= NOW() AND NOT (queued AND EXISTS (
+	    SELECT 1 FROM script_runs other
+	     WHERE other.script_id = script_runs.script_id AND other.status = 'running')))
 	OR (status = 'running' AND locked_until < NOW() AND reclaims < $3))`
 
 // attemptOpen begins the JSONB array of one history entry for the attempt the
@@ -201,9 +203,9 @@ func (s *Store) insertPending(ctx context.Context, r *script.Run) error {
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO script_runs (id, script_id, script_version_id, version, trigger_kind,
 		                         status, params, requested_by, fire_time, scheduled_for,
-		                         state_revision, state_read, exclusive)
+		                         state_revision, state_read, exclusive, queued)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, NOW()), COALESCE($10, NOW()),
-		        `+stateAtCreation+`, `+exclusiveAtCreation+`)
+		        `+stateAtCreation+`, `+exclusiveAtCreation+`, `+queuedAtCreation+`)
 		RETURNING fire_time, scheduled_for, state_revision, state_read, created_at, updated_at`,
 		r.ID, r.ScriptID, r.VersionID, r.Version, r.Trigger, script.RunStatusPending,
 		params, r.RequestedBy, orNilTime(r.FireTime), orNilTime(r.ScheduledFor))
@@ -409,7 +411,9 @@ func (s *Store) Claim(ctx context.Context, worker string, lease time.Duration, m
 		 RETURNING `+runColumns+`, due.prior_status = 'running'`, worker, int(lease.Seconds()), maxReclaims),
 		flag: &reclaimed,
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	// A queued run another replica's claim beat to running is not work yet;
+	// the next claim takes it once that run ends.
+	if errors.Is(err, sql.ErrNoRows) || isQueuedClaimConflict(err) {
 		return nil, script.ErrNoWork
 	}
 	if err != nil {
@@ -1020,7 +1024,25 @@ const exclusiveOpenIndex = "idx_script_runs_exclusive_open"
 // changing the setting holds the script row until it commits, so an insert
 // racing it waits and reads the new value, and a save that comes second waits
 // for the insert and re-stamps the run it wrote.
-const exclusiveAtCreation = `COALESCE((SELECT exclusive FROM scripts WHERE id = $2 FOR SHARE), FALSE)`
+const exclusiveAtCreation = `COALESCE((SELECT exclusive_mode = 'refuse' FROM scripts WHERE id = $2 FOR SHARE), FALSE)`
+
+// queuedAtCreation stamps a new run as queued when its script's mode is queue
+// (#2209): the claim holds it pending while another run of the script is
+// running.
+const queuedAtCreation = `COALESCE((SELECT exclusive_mode = 'queue' FROM scripts WHERE id = $2 FOR SHARE), FALSE)`
+
+// queuedRunningIndex is the index that holds a queue-mode script to one
+// running run (000205, #2209). Two replicas claiming two of its queued runs
+// at once both see none running; the second claim is refused by it.
+const queuedRunningIndex = "idx_script_runs_queued_running"
+
+// isQueuedClaimConflict reports a claim refused because another run of the
+// same queue-mode script started running first.
+func isQueuedClaimConflict(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && string(pqErr.Code) == pgUniqueViolation &&
+		pqErr.Constraint == queuedRunningIndex
+}
 
 // isExclusiveConflict reports whether err is the one-open-run index refusing
 // a second open run of an exclusive script.

@@ -1734,6 +1734,15 @@ definitions:
         type: integer
       stopped_by:
         type: string
+      timeout_applied_seconds:
+        description: AppliedSeconds is the timeout the call ran under.
+        type: integer
+      timeout_capped_by:
+        description: CappedBy names the ceiling that replaced the caller's value.
+        type: string
+      timeout_requested_seconds:
+        description: RequestedSeconds is the caller's own value.
+        type: integer
       upstream_retryable:
         description: |-
           Retryable is set on an answer the same request is expected to get past
@@ -4359,6 +4368,204 @@ definitions:
           $ref: '#/definitions/scriptrun.WriteRecord'
         type: array
     type: object
+  endpointapi.Bucket:
+    properties:
+      2xx:
+        type: integer
+      3xx:
+        type: integer
+      4xx:
+        type: integer
+      5xx:
+        type: integer
+      refused:
+        type: integer
+      start:
+        type: string
+    type: object
+  endpointapi.Caller:
+    properties:
+      caller:
+        type: string
+      requests:
+        type: integer
+    type: object
+  endpointapi.Detail:
+    properties:
+      auth_mode:
+        type: string
+      bucket_seconds:
+        description: BucketSeconds is how long each chart bucket is.
+        type: integer
+      caller_rate_limit:
+        type: integer
+      enabled:
+        type: boolean
+      failures:
+        items:
+          $ref: '#/definitions/epbinding.Failure'
+        type: array
+      id:
+        type: string
+      max_body_bytes:
+        type: integer
+      methods:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      open_reads:
+        type: boolean
+      path:
+        type: string
+      range:
+        type: string
+      rate_limit:
+        type: integer
+      refused:
+        description: |-
+          Refused is how many requests it refused before its handler ran, and
+          RefusedByReason the same by reason (bot_check, rate_limit,
+          caller_rate_limit, body_limit, credential, origin).
+        type: integer
+      refused_by_reason:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      script:
+        $ref: '#/definitions/endpointapi.Script'
+      series:
+        items:
+          $ref: '#/definitions/endpointapi.Bucket'
+        type: array
+      since:
+        type: string
+      timeout_seconds:
+        description: Limits are the binding's per-request and per-minute limits.
+        type: integer
+      top_callers:
+        items:
+          $ref: '#/definitions/endpointapi.Caller'
+        type: array
+      traffic:
+        $ref: '#/definitions/endpointapi.Traffic'
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      url:
+        type: string
+    type: object
+  endpointapi.Endpoint:
+    properties:
+      auth_mode:
+        type: string
+      caller_rate_limit:
+        type: integer
+      enabled:
+        type: boolean
+      id:
+        type: string
+      max_body_bytes:
+        type: integer
+      methods:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      open_reads:
+        type: boolean
+      path:
+        type: string
+      rate_limit:
+        type: integer
+      refused:
+        description: |-
+          Refused is how many requests it refused before its handler ran, and
+          RefusedByReason the same by reason (bot_check, rate_limit,
+          caller_rate_limit, body_limit, credential, origin).
+        type: integer
+      refused_by_reason:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      script:
+        $ref: '#/definitions/endpointapi.Script'
+      timeout_seconds:
+        description: Limits are the binding's per-request and per-minute limits.
+        type: integer
+      traffic:
+        $ref: '#/definitions/endpointapi.Traffic'
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      url:
+        type: string
+    type: object
+  endpointapi.List:
+    properties:
+      endpoints:
+        items:
+          $ref: '#/definitions/endpointapi.Endpoint'
+        type: array
+      range:
+        type: string
+      since:
+        type: string
+    type: object
+  endpointapi.Script:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      owner:
+        type: string
+    type: object
+  endpointapi.StatusClasses:
+    properties:
+      2xx:
+        type: integer
+      3xx:
+        type: integer
+      4xx:
+        type: integer
+      5xx:
+        type: integer
+    type: object
+  endpointapi.Traffic:
+    properties:
+      by_status_class:
+        allOf:
+        - $ref: '#/definitions/endpointapi.StatusClasses'
+        description: |-
+          ByStatusClass counts the requests by the class of status the handler
+          answered: 2xx, 3xx, 4xx, 5xx.
+      callers:
+        description: Callers is how many distinct signed-in callers sent requests.
+        type: integer
+      failures:
+        description: Failures are the requests whose handler failed.
+        type: integer
+      last_request_at:
+        description: LastRequestAt is the newest request's time, nil when there was
+          none.
+        type: string
+      p50_ms:
+        description: P50MS and P95MS are the requests' durations.
+        type: number
+      p95_ms:
+        type: number
+      requests:
+        type: integer
+    type: object
   enrichment.Action:
     properties:
       operation:
@@ -4425,22 +4632,49 @@ definitions:
       when_predicate:
         $ref: '#/definitions/enrichment.Predicate'
     type: object
+  epbinding.Failure:
+    properties:
+      created_at:
+        type: string
+      duration_ms:
+        type: integer
+      endpoint_id:
+        type: string
+      error:
+        type: string
+      id:
+        type: string
+      method:
+        type: string
+      status:
+        type: integer
+      version:
+        type: integer
+    type: object
   exclusivehttp.exclusiveRequest:
     properties:
       exclusive:
         description: |-
-          Exclusive true holds the script to one pending or running run, whatever
-          started it.
-        type: boolean
+          Exclusive is off, refuse or queue; true and false are read as refuse
+          and off.
+        enum:
+        - "off"
+        - refuse
+        - queue
+        type: string
     type: object
   exclusivehttp.exclusiveResponse:
     properties:
       exclusive:
-        example: true
-        type: boolean
+        enum:
+        - "off"
+        - refuse
+        - queue
+        example: queue
+        type: string
       message:
-        example: Saved. A run cannot start while another run of this script is pending
-          or running.
+        example: Saved. A run started while another run of this script is running
+          waits its turn.
         type: string
     type: object
   feedbackapi.appendEventRequest:
@@ -8708,6 +8942,16 @@ definitions:
       worker:
         type: string
     type: object
+  runstate.ExclusiveMode:
+    enum:
+    - "off"
+    - refuse
+    - queue
+    type: string
+    x-enum-varnames:
+    - ExclusiveOff
+    - ExclusiveRefuse
+    - ExclusiveQueue
   runstate.StatementTiming:
     properties:
       call_site:
@@ -8755,8 +8999,11 @@ definitions:
         example: true
         type: boolean
       exclusive:
-        description: Exclusive is whether the script runs one at a time (#1986).
-        type: boolean
+        allOf:
+        - $ref: '#/definitions/runstate.ExclusiveMode'
+        description: |-
+          Exclusive is whether the script's runs may overlap: off, refuse or
+          queue (#1986, #2209).
       id:
         example: script_a1b2c3d4
         type: string
@@ -9349,13 +9596,16 @@ definitions:
         example: true
         type: boolean
       exclusive:
+        allOf:
+        - $ref: '#/definitions/runstate.ExclusiveMode'
         description: |-
-          Exclusive is the owner's setting that the script has at most one open
-          (pending or running) run, whatever started it (#1986): a scheduled fire
-          while a run is open is skipped, and run_script or a portal run is
-          refused naming the open run. Without it, runs of one script may overlap
-          and the state check is the only guard.
-        type: boolean
+          Exclusive is the owner's setting for runs of the script overlapping,
+          whatever started them (#1986, #2209). Under refuse the script has at
+          most one open (pending or running) run: a scheduled fire while a run is
+          open is skipped, and run_script or a portal run is refused naming the
+          open run. Under queue a second run is accepted and waits, pending, until
+          no other run of the script is running. Under off runs may overlap and
+          the state check is the only guard.
       id:
         example: script_a1b2c3d4
         type: string
@@ -16705,6 +16955,91 @@ paths:
       summary: Get embedding provider status
       tags:
       - System
+  /admin/endpoints:
+    get:
+      description: 'Every endpoint binding on the deployment, ordered by name: its
+        script (id, name, owner), address, methods, path, access (public or signed_in),
+        open_reads, whether it is on, its limits, and who last changed it and when.
+        traffic is what it answered over the range: requests by status class, failures,
+        p50 and p95 duration, distinct signed-in callers and the last request''s time,
+        read from each request''s audit row. refused counts the requests it turned
+        away before its handler ran, by reason: the bot check, the endpoint''s or
+        a caller''s rate limit, the body limit, a missing or refused credential, an
+        origin the binding does not list. A deployment with no bindings answers an
+        empty list.'
+      parameters:
+      - description: day (the default) or week
+        enum:
+        - day
+        - week
+        in: query
+        name: range
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/endpointapi.List'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List every endpoint with its traffic
+      tags:
+      - Endpoints
+  /admin/endpoints/{name}:
+    get:
+      description: One endpoint binding as the list reports it, with its requests
+        over the range in buckets (an hour for day, six hours for week) by status
+        class beside the requests it refused, its ten busiest signed-in callers, and
+        its most recent failed requests (kept 7 days).
+      parameters:
+      - description: Endpoint name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: day (the default) or week
+        enum:
+        - day
+        - week
+        in: query
+        name: range
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/endpointapi.Detail'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one endpoint with its traffic
+      tags:
+      - Endpoints
   /admin/gateway/connections/{name}/enrichment-rules:
     get:
       parameters:
@@ -26759,11 +27094,14 @@ paths:
     put:
       consumes:
       - application/json
-      description: 'With exclusive true, a script has at most one pending or running
+      description: 'exclusive is off, refuse or queue (true and false are read as
+        refuse and off). Under refuse a script has at most one pending or running
         run, whatever started it: a scheduled fire while a run is open is recorded
         as skipped_overlap, and a run_script or portal run is refused with 409 naming
-        the open run. Turning it on while more than one run is open is refused with
-        409. Restricted to the script''s owner and to administrators.'
+        the open run. Under queue another run is accepted and stays pending until
+        no other run of the script is running. Turning refuse on while more than one
+        run is open, or queue on while more than one is running, is refused with 409.
+        Restricted to the script''s owner and to administrators.'
       parameters:
       - description: Script ID
         in: path
@@ -26806,7 +27144,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Set whether a script runs one at a time
+      summary: Set whether a script's runs may overlap
       tags:
       - Scripts
   /portal/scripts/{id}/grants:
@@ -30315,6 +30653,8 @@ tags:
     description: "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."
   - name: "Sessions"
     description: "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."
+  - name: "Endpoints"
+    description: "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."
   - name: "Scripts"
     description: "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version — which binds the capability grant it executes under and is the only thing that makes a script executable."
   - name: "Secrets"
@@ -30381,6 +30721,7 @@ x-tagGroups:
       - "Catalog"
       - "Config"
       - "Connections"
+      - "Endpoints"
       - "Notifications"
       - "Personas"
       - "Scripts"
