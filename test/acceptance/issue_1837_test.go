@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -310,15 +311,37 @@ func promQuery1837(t *testing.T, c *client, query string) map[string]float64 {
 // the Throughput and Embed latency panels send answer with it through the
 // proxy, whatever the job table's newest page holds.
 func TestIssue1837_ThroughputAndLatencyComeFromTheMetrics(t *testing.T) {
-	c := connect(t)
+	// The client outlives the four-minute poll below; connect's two-minute
+	// bound ended its requests first on a loaded stack.
+	c := connectFor(t, 6*time.Minute)
 	seedBacklog1837(t, "acceptance-1837-"+unique1837()+"-")
 
-	// A real pass: re-index the tools kind, which the worker claims and
-	// completes through the embedder the stack runs.
+	// A real pass: re-index one unit of the tools kind, which the worker
+	// claims and completes through the embedder the stack runs. A unit is
+	// named because a re-index of the whole kind enqueues only units out of
+	// step, and a stack whose tools are indexed has none, so the pass the
+	// metrics were read for was whatever unrelated job happened to run.
+	// The unit is a real one, from a job that succeeded: the backlog seeded
+	// above is units of this kind that nothing indexes.
+	_, listed := c.rest(http.MethodGet, "/api/v1/admin/index-jobs/jobs?kind="+kind1837+"&status=succeeded&limit=100", nil)
+	jobs, _ := listed["jobs"].([]any)
+	unit := ""
+	for _, j := range jobs {
+		if id, _ := j.(map[string]any)["source_id"].(string); id != "" && !strings.HasPrefix(id, "acceptance-1837-") {
+			unit = id
+			break
+		}
+	}
+	if unit == "" {
+		t.Fatalf("the stack has no succeeded %s index job to name a unit by: %v", kind1837, listed)
+	}
 	status, body := c.rest(http.MethodPost, "/api/v1/admin/index-jobs/reindex",
-		jsonBody(t, map[string]any{"kind": kind1837}))
+		jsonBody(t, map[string]any{"kind": kind1837, "source_id": unit}))
 	if status != http.StatusOK && status != http.StatusAccepted {
 		t.Fatalf("POST /api/v1/admin/index-jobs/reindex: status %d: %v", status, body)
+	}
+	if n, _ := body["count"].(float64); n != 1 {
+		t.Fatalf("re-indexing %s/%s enqueued %v jobs, want 1: %v", kind1837, unit, body["count"], body)
 	}
 
 	const (

@@ -55,13 +55,6 @@ func metricSeries(body, name string, labels map[string]string) float64 {
 	return total
 }
 
-// routeCount is http_server_request_duration_seconds_count for one route
-// template across the replicas.
-func routeCount(t *testing.T, route string) float64 {
-	t.Helper()
-	return metricSeries(scrapeRaw(t), "http_server_request_duration_seconds_count", map[string]string{"route": route})
-}
-
 // TestIssue1889_RESTRoutesReportTheirTemplate: GET /api/v1/resources through
 // the running platform produces a sample under route="GET /api/v1/resources",
 // never the path; an admin route and a portal route each report their own
@@ -73,9 +66,15 @@ func TestIssue1889_RESTRoutesReportTheirTemplate(t *testing.T) {
 		{"/api/v1/admin/personas", "GET /api/v1/admin/personas"},
 		{"/api/v1/portal/me", "GET /api/v1/portal/me"},
 	}
+	// before and after count the same series: a 4xx another criterion drew
+	// on the route is in the route's count and never in its 2xx GET one.
+	ok2xx := func(body, template string) float64 {
+		return metricSeries(body, "http_server_request_duration_seconds_count", map[string]string{"route": template, "method": "GET", "status_class": "2xx"})
+	}
 	before := map[string]float64{}
+	scraped := scrapeRaw(t)
 	for _, r := range routes {
-		before[r.template] = routeCount(t, r.template)
+		before[r.template] = ok2xx(scraped, r.template)
 	}
 	for _, r := range routes {
 		status, _ := c.rest(http.MethodGet, r.path, http.NoBody)
@@ -85,7 +84,7 @@ func TestIssue1889_RESTRoutesReportTheirTemplate(t *testing.T) {
 	}
 	body := scrapeRaw(t)
 	for _, r := range routes {
-		after := metricSeries(body, "http_server_request_duration_seconds_count", map[string]string{"route": r.template, "method": "GET", "status_class": "2xx"})
+		after := ok2xx(body, r.template)
 		if after <= before[r.template] {
 			t.Errorf("%s: no new sample under route=%q (before %v, after %v)", r.path, r.template, before[r.template], after)
 		}

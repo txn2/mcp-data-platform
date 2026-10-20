@@ -39,6 +39,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/tokenexpiry"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
@@ -375,6 +376,12 @@ type OAuth2Config struct {
 	// often reject unknown parameters with invalid_request, so
 	// leave empty for those.
 	Prompt string
+	// UnstatedTokenLifetime is how long an access token whose response
+	// carries no expires_in is reused before another is obtained, from
+	// oauth_token_lifetime; tokenexpiry.DefaultLifetime when the
+	// connection sets none (#1737, #2218). An upstream's own expires_in
+	// always wins.
+	UnstatedTokenLifetime time.Duration
 }
 
 // Parse reads the authentication and transport keys out of a
@@ -437,6 +444,7 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 		}
 		c.AuthMode = AuthModeOAuth
 		c.OAuth2 = oauth2ConfigFromConnoauth(parsed)
+		c.OAuth2.UnstatedTokenLifetime = cfgmap.Duration(cfg, cfgKeyOAuthTokenLifetime, tokenexpiry.DefaultLifetime)
 	}
 	switch {
 	case c.AuthMode == AuthModeSignedJWT:
@@ -543,6 +551,9 @@ func (c Config) ValidateAuth() error {
 // decides — including when it contradicts the grant field, which is how
 // the mode-per-grant validation behaved before the two collapsed.
 func (c Config) validateOAuthAuth() error {
+	if c.OAuth2.UnstatedTokenLifetime < 0 {
+		return c.errf("%s must not be negative", cfgKeyOAuthTokenLifetime)
+	}
 	switch c.AuthMode {
 	case AuthModeOAuth2ClientCredentials:
 		return c.validateOAuth2()
@@ -805,6 +816,9 @@ const (
 	// oauth_scope: a form parameter (param), a claim in the signed assertion
 	// (claim), or both.
 	cfgKeyOAuthScopePlacement = "oauth_scope_placement"
+	// cfgKeyOAuthTokenLifetime is how long a token whose response states no
+	// expires_in is reused (#2218).
+	cfgKeyOAuthTokenLifetime = "oauth_token_lifetime" // #nosec G101 -- map key, not a credential
 )
 
 // The scope placements a jwt_bearer connection may name.

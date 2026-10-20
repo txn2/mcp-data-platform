@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -359,5 +360,41 @@ func TestOneTimeCodesAreFilledEverywhereAPlaceholderSits(t *testing.T) {
 	_, refusal := invokeOut(ctx, t, tk, InvokeInput{Connection: "grid", Method: "GET", Path: "/q", Query: map[string]any{"pw": "{{secret:mfa}}"}})
 	if !strings.Contains(refusal, "never sent") {
 		t.Errorf("a seed named as a value was not refused: %q", refusal)
+	}
+}
+
+// slowSecrets answers every lookup after wait, the way a {{totp:<name>}} fill
+// waits for its next period once this period's code is issued.
+type slowSecrets struct{ wait time.Duration }
+
+func (s slowSecrets) Lookup(context.Context, string, string) secretref.Lookup {
+	return func(string) (string, error) {
+		time.Sleep(s.wait)
+		return "287082", nil
+	}
+}
+
+// TestAFillsWaitIsNotTheUpstreamsTime: the connection's call_timeout bounds
+// the upstream request, and starts once the request is built. A fill that
+// waited longer than the whole limit used to leave the request no time, and
+// the call failed as if the upstream had not answered (#2218).
+func TestAFillsWaitIsNotTheUpstreamsTime(t *testing.T) {
+	up := &echoUpstream{}
+	srv := httptest.NewServer(http.HandlerFunc(up.serve))
+	t.Cleanup(srv.Close)
+	tk := NewMulti(MultiConfig{})
+	tk.SetSecrets(slowSecrets{wait: 300 * time.Millisecond})
+	if err := tk.AddConnection("grid", map[string]any{"base_url": srv.URL, "call_timeout": "200ms"}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, refusal := invokeOut(context.Background(), t, tk, InvokeInput{
+		Connection: "grid", Method: "POST", Path: "/login", Body: map[string]any{"code": "{{secret:code}}"},
+	})
+	if refusal != "" || out.Status != http.StatusOK {
+		t.Fatalf("a fill slower than call_timeout failed the call: status %d %q %v", out.Status, refusal, out.Error)
+	}
+	if got := up.requests(); len(got) != 1 || !strings.Contains(got[0], "287082") {
+		t.Errorf("the upstream received %v", got)
 	}
 }

@@ -134,7 +134,8 @@ func TestIssue1701_ThePagesItPointsOnToResolveHere(t *testing.T) {
 }
 
 // issue1701PageRefs extracts the `mcp:knowledge_page:<slug>` references a body
-// names, excluding the page's own reference (the fetch result echoes it).
+// names, excluding the page's own reference (the fetch result echoes it). A
+// page is also named by its id, `kp_<uuid>`, since the page graph (#2200).
 func issue1701PageRefs(text string) []string {
 	const marker = "mcp:knowledge_page:"
 	seen := map[string]bool{issue1701Ref: true}
@@ -146,7 +147,7 @@ func issue1701PageRefs(text string) []string {
 		}
 		rest = rest[i+len(marker):]
 		end := strings.IndexFunc(rest, func(r rune) bool {
-			return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-'
+			return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' && r != '_'
 		})
 		if end < 0 {
 			end = len(rest)

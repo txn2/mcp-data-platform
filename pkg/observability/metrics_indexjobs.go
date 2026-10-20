@@ -306,6 +306,25 @@ func (m *Metrics) IndexJobFinished(ctx context.Context, kind, trigger, outcome s
 	m.index.duration.Record(ctx, d.Seconds(), metric.WithAttributes(k, out))
 }
 
+// IndexJobSeries starts every indexjob_jobs_total series the registered kinds
+// can report at zero. A counter series appears at its first increment, and a
+// rate or increase over a series that appears at one reads zero, so without
+// this the first job of a kind, trigger and outcome on each replica after a
+// start was invisible to every dashboard (#2218). Nil-safe.
+func (m *Metrics) IndexJobSeries(ctx context.Context, kinds, triggers, outcomes []string) {
+	if m == nil {
+		return
+	}
+	for _, kind := range kinds {
+		for _, trigger := range triggers {
+			for _, outcome := range outcomes {
+				m.index.jobs.Add(ctx, 0, metric.WithAttributes(attribute.String(attrKind, kind),
+					attribute.String(attrTrigger, trigger), attribute.String(attrOutcome, outcome)))
+			}
+		}
+	}
+}
+
 // IndexJobItems records one pass's plan. Nil-safe.
 func (m *Metrics) IndexJobItems(ctx context.Context, kind string, embedded, reused int) {
 	if m == nil {

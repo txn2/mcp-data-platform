@@ -14,6 +14,7 @@ import (
 	"github.com/txn2/mcp-trino/pkg/multiserver"
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 
+	"github.com/txn2/mcp-data-platform/internal/conncatchup"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -201,6 +202,13 @@ type Toolkit struct {
 
 	// telemetry is the recorder every call to Trino reports to (telemetry.go).
 	telemetry queryTelemetry
+
+	// connStore, changes and catchUp serve a connection another replica
+	// saved before its announcement reaches this one (catchup.go). connStore
+	// is guarded by connMu.
+	connStore ConnectionStore
+	changes   conncatchup.Locks
+	catchUp   *conncatchup.Resolver
 }
 
 // NewMulti creates a multi-connection Trino toolkit that routes requests
@@ -253,6 +261,7 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 		readOnly:               buildReadOnlyInterceptor(defaultName, cfg.Instances),
 		scratch:                buildScratchTargets(cfg.Instances),
 	}
+	t.catchUp = conncatchup.New(&t.changes, kindTrino, ErrConnectionNotFound)
 
 	// Every connection's settings are held whether or not they enable a
 	// prompt, so a connection added later with one turned on is prompted

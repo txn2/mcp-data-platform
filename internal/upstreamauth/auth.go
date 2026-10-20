@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/tokenexpiry"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
@@ -291,7 +292,7 @@ func (b basicAuth) Apply(req *http.Request) error {
 // refresh-on-expiry are delegated to golang.org/x/oauth2: the
 // token source fetches once, caches in memory, and fetches again
 // transparently when the token expires. An upstream that answers
-// without expires_in is held to DefaultUpstreamAccessTokenLifetime,
+// without expires_in is held to oauth_token_lifetime (15 minutes),
 // since the library would otherwise treat such a token as valid
 // for the life of the process (#1737). No DB state is required
 // because the authoritative inputs (client_id + client_secret)
@@ -382,15 +383,15 @@ func newOAuth2ClientCredentialsAuth(c Config, now func() time.Time) oauth2Client
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, newTokenExchangeClient(c))
 	// One cache, over a bounded token: oauth2.ReuseTokenSource holds the
 	// token across Apply calls and re-fetches when it expires, and
-	// withBoundedExpiry inside it gives a response with no expires_in an
+	// tokenexpiry.Bounded inside it gives a response with no expires_in an
 	// expiry to be held against (#1737). clientcredentials.Config.TokenSource
 	// is deliberately not used here: it is its own ReuseTokenSource, and
 	// caching the unstamped token inside this one would hold the first token
 	// for the life of the process however the token above it was stamped.
 	// cfg.Token is the uncached fetch, which is what jwt_bearer exchanges
 	// through as well.
-	src := oauth2.ReuseTokenSource(nil, withBoundedExpiry(
-		tokenFunc(func() (*oauth2.Token, error) { return exchangeClientCredentials(ctx, c, cfg) }), now))
+	src := oauth2.ReuseTokenSource(nil, tokenexpiry.Bounded(
+		tokenexpiry.Func(func() (*oauth2.Token, error) { return exchangeClientCredentials(ctx, c, cfg) }), now, c.OAuth2.UnstatedTokenLifetime))
 	return oauth2ClientCredentialsAuth{cfg: c, src: src}
 }
 

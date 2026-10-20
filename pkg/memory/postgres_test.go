@@ -223,6 +223,24 @@ func TestPostgresStore_Update_Success(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// A write about the record rather than to it leaves updated_at alone: the
+// statement sets the field and nothing else (#2218).
+func TestPostgresStore_Update_KeepsUpdatedAt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	mock.ExpectExec(`^UPDATE memory_records SET metadata = metadata \|\| \$1::jsonb WHERE id = \$2$`).
+		WithArgs(sqlmock.AnyArg(), "mem-001").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = NewPostgresStore(db).Update(context.Background(), "mem-001", RecordUpdate{
+		Metadata: map[string]any{"recall_check": "done"}, KeepUpdatedAt: true,
+	})
+	assert.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestPostgresStore_Update_NoFields(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)

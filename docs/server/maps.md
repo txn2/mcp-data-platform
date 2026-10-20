@@ -88,13 +88,16 @@ disk.
 - **The source is fixed for the fetch.** The newest daily build is resolved
   from `https://build-metadata.protomaps.dev/builds.json` when the fetch
   starts, since Protomaps keeps a week of daily builds and does not promise
-  their URLs. Every read after the first asks for the same version of the
+  their URLs. Each region is fetched with the settings as they stand when it
+  is claimed, so a refresh after the source changed uses the new source even
+  while another region's fetch is still running. Every read after the first asks for the same version of the
   file (`If-Match`); a source replaced mid-fetch fails the fetch rather than
   mixing two builds.
 - **Stopping the platform mid-fetch** cancels the fetch, removes what it
   wrote, and leaves the region queued for the next pass on any replica.
 - **A read that fails is retried** three times, after 1, 4 and 9 seconds,
-  when it timed out, was refused with 429, or got a 5xx.
+  when it timed out, its connection dropped, was refused with 429, or got a
+  5xx. The read of the build index is retried the same way.
 - **Planning holds the region's directory in memory.** For the contiguous
   United States the fetch peaked at about 350 MB at zoom 14 and about 950 MB
   at zoom 15, measured with `GOMEMLIMIT` set; give the platform's container

@@ -240,6 +240,14 @@ func TestIssue1551_DiscoveryReturnsAScriptOutputToItsOwner(t *testing.T) {
 	})
 
 	reference := "mcp:asset:" + assetID
+	// An asset not yet embedded ranks below assets whose names only look
+	// alike (#2230), which a stack holding many acceptance assets has; the
+	// search is made once the asset's index job has finished.
+	db := issue1904DB(t)
+	issue1904Await(t, "the asset's index job finished", func() bool {
+		return issue1904Count(t, db, `SELECT COUNT(*) FROM index_jobs WHERE source_kind = 'portal-assets' AND source_id = $1 AND status IN ('succeeded', 'failed')`, assetID) > 0 &&
+			issue1904Count(t, db, `SELECT COUNT(*) FROM index_jobs WHERE source_kind = 'portal-assets' AND source_id = $1 AND status IN ('pending', 'running')`, assetID) == 0
+	})
 	found := false
 	for attempt := 0; attempt < 10 && !found; attempt++ {
 		out := owner.call("search", map[string]any{

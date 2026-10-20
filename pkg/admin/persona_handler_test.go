@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -1318,4 +1319,40 @@ func TestPersonaSavesWhetherThePortalShowsAutomations(t *testing.T) {
 			assert.Equal(t, c.wantHide, detail["hide_automations"], "the choice is in the response")
 		})
 	}
+}
+
+// A persona saved through another replica is read from the store, so the read
+// straight after a save answers with what was saved even while this replica's
+// registry still holds the persona as it was (#2218).
+func TestGetPersona_ReadsTheStoreBeforeTheRegistry(t *testing.T) {
+	stale := &persona.Persona{Name: "analyst", DisplayName: "Analyst", Roles: []string{"analyst"}}
+	saved := &personastore.Definition{Name: "analyst", DisplayName: "Analyst", Roles: []string{"analyst"}, HideAutomations: true}
+	get := func(deps Deps) personaDetail {
+		t.Helper()
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas/analyst", http.NoBody)
+		req.SetPathValue("name", "analyst")
+		w := httptest.NewRecorder()
+		NewHandler(deps, nil).ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var body personaDetail
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		return body
+	}
+	registry := &mockPersonaRegistry{allResult: []*persona.Persona{stale}}
+
+	body := get(Deps{PersonaRegistry: registry, PersonaStore: &mockPersonaStore{getResult: map[string]*personastore.Definition{"analyst": saved}}})
+	assert.True(t, body.HideAutomations, "the saved value, not the registry's")
+	assert.Equal(t, platform.SourceDatabase, body.Source)
+
+	body = get(Deps{
+		PersonaRegistry: registry, FilePersonaNames: map[string]bool{"analyst": true},
+		PersonaStore: &mockPersonaStore{getResult: map[string]*personastore.Definition{"analyst": saved}},
+	})
+	assert.Equal(t, platform.SourceBoth, body.Source, "a file persona saved over is both")
+
+	body = get(Deps{PersonaRegistry: registry, PersonaStore: &mockPersonaStore{getErr: errors.New("database down")}})
+	assert.False(t, body.HideAutomations, "a store that cannot answer leaves the registry to")
+
+	body = get(Deps{PersonaRegistry: registry, PersonaStore: &mockPersonaStore{}})
+	assert.Equal(t, "analyst", body.Name, "a persona only in the file is read from the registry")
 }

@@ -225,11 +225,12 @@ func execute(ctx context.Context, req Request, e execution) (*produced, *scriptr
 		Live: live, MaxSteps: scriptrun.RunMaxSteps, Timeout: scriptrun.DraftTimeout,
 		MaxRows: h.MaxRows, MaxMemoryBytes: req.MaxMemoryBytes, Libraries: req.Libraries,
 		Test: &scriptrun.TestHooks{
-			Entry:   entry,
-			Env:     starlark.StringDict{scriptrun.TestingName: testingModule(recording, out, inputs), scriptrun.AssertName: assertModule(&out.asserts, &out.failures)},
-			Observe: out.observe,
-			Cover:   cover,
-			Inputs:  inputs,
+			Entry:       entry,
+			HoldsAnswer: replay.Holds,
+			Env:         starlark.StringDict{scriptrun.TestingName: testingModule(recording, out, inputs), scriptrun.AssertName: assertModule(&out.asserts, &out.failures)},
+			Observe:     out.observe,
+			Cover:       cover,
+			Inputs:      inputs,
 		},
 	}
 	result, err := scriptrun.Run(ctx, opts)

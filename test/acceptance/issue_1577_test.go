@@ -41,8 +41,10 @@ func torn1577(units ...string) string {
 }
 
 // ragged1577 carries a defect the platform will not correct: a torn cell, and
-// a record that does not have the header's fields.
-const ragged1577 = "store_id,address,units\n101,\"12 Mill Rd\nSuite 4\",10\n9\n"
+// a record longer than the header. A short record is corrected since #1779,
+// with the empty fields every other reader supplies; a long one cannot be
+// corrected without losing a field.
+const ragged1577 = "store_id,address,units\n101,\"12 Mill Rd\nSuite 4\",10\n9,8,7,6\n"
 
 // utf16LE1577 is a spreadsheet's Unicode Text export: a wide encoding, refused
 // outright because reading it as a code page would write mojibake back as the
@@ -302,7 +304,7 @@ func TestIssue1577_AnUncorrectableVersionIsStillRefused(t *testing.T) {
 		{
 			name:    "records that do not match the header",
 			content: map[string]any{"content": ragged1577},
-			reason:  "its records do not all have the header's 3 fields",
+			reason:  "its records carry more than the header's 3 fields",
 		},
 	}
 	for _, tc := range cases {

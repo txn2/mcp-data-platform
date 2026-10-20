@@ -637,28 +637,43 @@ schedule-lane-ui:
 ## wait on a background index -- so the default kills the run
 ## partway through and reports the tests that were still on the clock as
 ## failures. A run that was cut short is not a suite that failed (#1632).
+## The whole suite runs for well over two hours (#2218): #2111 alone writes
+## four 1,500-file backfills at the tool-call limiter's pace of 4 a second.
+ifeq ($(ISSUE),)
+ACCEPTANCE_TIMEOUT ?= 240m
+else
 ACCEPTANCE_TIMEOUT ?= 40m
+endif
 ## ISSUE=<n> runs one ticket's criteria (-run TestIssue<n>_) instead of the
 ## whole suite. Either way the run is recorded as a go test -json stream at
 ## build/<n>/acceptance.jsonl per ticket, which is the evidence make
 ## acceptance-check and make verify-release read: a criterion that did not run
 ## leaves no pass event, and no prose can supply one (#1680).
+## Criteria that need a stack `make dev` does not make are named in
+## test/acceptance/environments.txt (#2219): the whole suite leaves them out
+## and says which, and ACCEPTANCE_ENV=<name> runs one environment's criteria
+## instead (scripts/release-acceptance.sh starts the stack it needs).
+## ACCEPTANCE_SHARD=i/N runs group i of N of the plain stack's criteria, split
+## by ticket number, which is how the E2E Nightly runs the suite in N jobs at
+## once (#2218).
 acceptance:
 	@# dev/start.sh relocates the stack when the default ports are busy and
 	@# records where it went; the suite follows it unless MCP_BASE_URL is set.
 	@set -a; [ -f dev/.dev-ports.env ] && . ./dev/.dev-ports.env; set +a; \
 	echo "Running acceptance suite against $${MCP_BASE_URL:-http://localhost:$${DEV_PROXY_PORT:-$${DEV_API_PORT:-8080}}}..."; \
-	run_flag=""; \
-	if [ -n "$(ISSUE)" ]; then run_flag="-run TestIssue$(ISSUE)_"; echo "  limited to #$(ISSUE)"; fi; \
+	if [ -n "$(ISSUE)" ]; then run_flag="-run TestIssue$(ISSUE)_"; echo "  limited to #$(ISSUE)"; \
+	elif [ -n "$(ACCEPTANCE_SHARD)" ]; then run_flag=$$(python3 scripts/acceptance-env.py flags "$(ACCEPTANCE_ENV)" --shard "$(ACCEPTANCE_SHARD)") || exit 1; echo "  group $(ACCEPTANCE_SHARD)"; \
+	else run_flag=$$(python3 scripts/acceptance-env.py flags "$(ACCEPTANCE_ENV)") || exit 1; fi; \
 	set -o pipefail; \
-	$(GOTEST) -count=1 -timeout $(ACCEPTANCE_TIMEOUT) -tags=integration ./test/acceptance/ -v -json $$run_flag \
+	eval "$(GOTEST) -count=1 -timeout $(ACCEPTANCE_TIMEOUT) -tags=integration ./test/acceptance/ -v -json $$run_flag" \
 		| python3 scripts/acceptance-evidence.py split
 
-## acceptance-release: The acceptance suite for verify-release, against the dev stack whether or not one is up (#1969)
-## verify needs port 5173 for its MSW server and the acceptance suite needs a
-## running stack, so verify-release could not pass as one command. A stack
-## already answering is used as it is and left running; with none, one is
-## started, the suite runs, and the stack it started is stopped (data kept).
+## acceptance-release: The whole acceptance suite against the dev stack, whether or not one is up (#1969)
+## The E2E Nightly runs it (in groups, ACCEPTANCE_SHARD) and a tag requires
+## that nightly green; verify-release does not run it, because the suite runs
+## for well over an hour and a release waits on nothing that long (#2218). A
+## stack already answering is used as it is and left running; with none, one
+## is started, the suite runs, and the stack it started is stopped (data kept).
 acceptance-release:
 	@bash scripts/release-acceptance.sh
 
@@ -834,9 +849,12 @@ embed-clean:
 
 ## verify-release: Full verify PLUS CodeQL and mutation testing — run only before cutting a release
 ## Both are expensive and must NOT run per-revision; CI runs each on the PR.
-verify-release: verify codeql mutate acceptance-release acceptance-release-check
+## The release's own tickets must have a passing acceptance run
+## (acceptance-release-check); the whole suite is the E2E Nightly's, which the
+## tag check requires green (#2218).
+verify-release: verify codeql mutate acceptance-release-check
 	@echo ""
-	@echo "=== Release verification complete (incl. CodeQL, mutation testing and the acceptance suite) ==="
+	@echo "=== Release verification complete (incl. CodeQL, mutation testing and the release's acceptance runs) ==="
 
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
 ## NOTE: mutation testing and CodeQL are intentionally excluded — both live in
@@ -1153,8 +1171,8 @@ frontend-e2e:
 	@#
 	@# A non-MSW server on the default port is a dev stack, and the suite runs
 	@# beside it on the next free port rather than refusing (#1969):
-	@# verify-release runs this and then the acceptance suite against that same
-	@# stack. An E2E_PORT set by hand is the caller's choice and is refused.
+	@# the acceptance suite runs against that same stack. An E2E_PORT set by
+	@# hand is the caller's choice and is refused.
 	@port=$${E2E_PORT:-5173}; \
 	is_msw() { curl -sf -m 3 "http://localhost:$$1/portal/src/main.tsx" 2>/dev/null | grep -q '"VITE_MSW": *"true"'; }; \
 	busy() { curl -s -o /dev/null -m 3 "http://localhost:$$1/" 2>/dev/null || lsof -nP -iTCP:$$1 -sTCP:LISTEN > /dev/null 2>&1; }; \
@@ -1170,7 +1188,7 @@ frontend-e2e:
 	fi; \
 	cd $(UI_DIR) && npx playwright install chromium && E2E_PORT=$$port npm run test:e2e
 
-## frontend-e2e-public-viewer: Run the public share viewer suite against a live stack (needs `make dev`; verify-release runs it, verify does not)
+## frontend-e2e-public-viewer: Run the public share viewer suite against a live stack (needs `make dev`; the E2E Nightly runs it, verify does not)
 frontend-e2e-public-viewer:
 	@echo "Public viewer suite needs a running stack (make dev) — the page, its"
 	@echo "content-viewer bundle and its CSP are served by the Go binary."

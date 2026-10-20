@@ -1,0 +1,18 @@
+# The environments acceptance criteria need that the `make dev` stack does not
+# make (#2219). Every other criterion runs on that stack, as `make acceptance`.
+#
+# One line per environment: its name, the go test -run pattern of the criteria
+# that need it, then the variables the dev stack is started with for it.
+# A token starting with + names a service the run starts beside the stack
+# (scripts/release-acceptance.sh knows each one).
+#
+# `make acceptance` leaves these criteria out of a run on the plain stack and
+# says so; ACCEPTANCE_ENV=<name> runs only one environment's criteria. Each
+# criterion fails, naming what it needs, when it runs anywhere else.
+#
+# An environment marked manual has no nightly job: its criteria run by hand.
+# The E2E Nightly runs every other one (.github/workflows/e2e-nightly.yml, held
+# to this file by TestEveryAcceptanceEnvironmentRunsNightly).
+
+worker-off  ^TestIssue1897_AStoppedSchedulerShowsItsDueSchedulesAging$  DEV_SCRIPT_WORKER_ENABLED=false
+clickstack  ^TestIssue(1900|1901)_  DEV_OTLP_ENDPOINT=localhost:14317 DEV_DEPLOYMENT_ID_B=acme-dev-b  +clickstack

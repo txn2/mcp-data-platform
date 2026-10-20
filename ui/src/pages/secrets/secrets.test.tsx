@@ -107,10 +107,10 @@ describe("Secrets list", () => {
       expect(cell!.className).toContain("whitespace-normal");
       expect(cell!.className).not.toContain("whitespace-nowrap");
     };
-    wraps(screen.getByText(/reports-reader@acme-marketing/));
-    wraps(screen.getByText("marketing_service_account"));
-    wraps(screen.getByText("dv360-reports"));
-    wraps(screen.getByText("marketing-analyst"));
+    wraps(screen.getByText(/reports-reader@acme-reporting/));
+    wraps(screen.getByText("reporting_service_account"));
+    wraps(screen.getByText("google-drive-exports"));
+    wraps(screen.getByText("reporting-analyst"));
   });
 
   it("says when there is none, and when the list cannot be read", () => {

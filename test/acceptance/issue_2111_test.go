@@ -224,13 +224,19 @@ func TestIssue2111_AScriptSayingNoneIndexesNothing(t *testing.T) {
 
 // TestIssue2111_ARuleMappingAFolderToNoneDoesTheSame: the same script with no
 // index argument, writing under pipelines/** which the rules map to none,
-// leaves the same rows.
+// leaves the same rows. The folder it writes is the one the search criterion
+// is about, so that criterion runs on it as a subtest rather than writing
+// another 1,500 files at the tool-call limiter's pace (#2218).
 func TestIssue2111_ARuleMappingAFolderToNoneDoesTheSame(t *testing.T) {
-	c := connectFor(t, issue2111Run+5*time.Minute)
+	c := connectFor(t, issue2111Run+issue2111SearchWait+5*time.Minute)
 	db := issue2111DB(t)
-	folder := "pipelines/acc-2111-" + issue2111Stamp()
+	stamp := issue2111Stamp()
+	folder := "pipelines/acc-2111-folder-" + stamp
 	issue2111RunBackfill(t, c, "", folder)
-	issue2111AssertNothingIndexed(t, db, folder, false)
+	f := issue2111AssertNothingIndexed(t, db, folder, false)
+	t.Run("TheFolderOfUnindexedFilesIsOneSearchResult", func(t *testing.T) {
+		issue2111FolderIsOneSearchResult(t, c, db, folder, stamp, f)
+	})
 }
 
 // issue2111Search runs one search an agent would and returns its answer as
@@ -269,17 +275,15 @@ func issue2111AwaitSearchWithin(t *testing.T, c *client, intent string, wait tim
 	}
 }
 
-// TestIssue2111_TheFolderOfUnindexedFilesIsOneSearchResult: a folder holding
+// issue2111SearchWait is how long the search criterion waits for the folder:
+// one reconciler sweep and one index job.
+const issue2111SearchWait = indexjobs.ReconcilerInterval + issue2111Indexed
+
+// issue2111FolderIsOneSearchResult is the criterion that a folder holding
 // files that are not indexed one by one is found by search as one entry, by
 // the description written for it, and none of its files is.
-func TestIssue2111_TheFolderOfUnindexedFilesIsOneSearchResult(t *testing.T) {
-	c := connectFor(t, issue2111Run+5*time.Minute)
-	db := issue2111DB(t)
-	stamp := issue2111Stamp()
-	folder := "pipelines/acc-2111-folder-" + stamp
-	issue2111RunBackfill(t, c, "", folder)
-	f := issue2111AssertNothingIndexed(t, db, folder, false)
-
+func issue2111FolderIsOneSearchResult(t *testing.T, c *client, db *sql.DB, folder, stamp string, f issue2111Folder) {
+	t.Helper()
 	token := "nltvbackfill" + stamp
 	described := c.call("manage_resource", map[string]any{
 		"action": "update", "path": folder,
@@ -292,7 +296,7 @@ func TestIssue2111_TheFolderOfUnindexedFilesIsOneSearchResult(t *testing.T) {
 	// A folder job may be running from the backfill's last write when the
 	// description lands; the queue keeps no second job while one runs, and the
 	// reconciler re-embeds the entry on its next sweep.
-	got := issue2111AwaitSearchWithin(t, c, token, indexjobs.ReconcilerInterval+issue2111Indexed,
+	got := issue2111AwaitSearchWithin(t, c, token, issue2111SearchWait,
 		func(s string) bool { return strings.Contains(s, folder) })
 	if n := strings.Count(got, `:`+folder+`"`); n != 1 {
 		t.Errorf("search returned the folder %d times; want one entry: %s", n, got)

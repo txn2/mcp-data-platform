@@ -140,7 +140,10 @@ func (c *client) producedDigest(name, base, recording string, ran map[string]any
 	_, digest, found := strings.Cut(log, "digest:")
 	n, err := strconv.Atoi(strings.TrimSpace(digest))
 	if !found || err != nil {
-		c.t.Fatalf("the probe of %v's outputs printed no digest: %v", name, first)
+		// The draft beside the probe says what the recording holds: a probe
+		// whose replay did not fail as the draft did is about that draft.
+		c.t.Fatalf("the probe of %v's outputs printed no digest: %v\nthe draft it replays: status %v, error %v",
+			name, first, ran["status"], ran["error"])
 	}
 	return n
 }

@@ -785,10 +785,10 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 
 // checkRegisterTarget asks manage_table check, before an export writes
 // anything, whether its register= target would be accepted (#2213): a read
-// over the run's own session, so a draft asks too. A test's replay reaches no
-// connection and does not ask.
+// over the run's own session, so a draft asks too, and a test whose replay
+// holds the draft's answer asks it (#2218).
 func (h *hostState) checkRegisterTarget(b *starlark.Builtin, spec *exporttable.Spec) error {
-	if spec == nil || h.opts.Test != nil {
+	if spec == nil || h.opts.Test != nil && (h.opts.Test.HoldsAnswer == nil || !h.opts.Test.HoldsAnswer(exporttable.Tool, spec.CheckArgs())) {
 		return nil
 	}
 	if _, err := h.callTool(exporttable.Tool, spec.CheckArgs()); err != nil {

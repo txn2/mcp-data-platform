@@ -231,8 +231,20 @@ func objects1627(t *testing.T, raw []any) []map[string]any {
 func hitTable1627(t *testing.T, c *client, reference, name string) map[string]any {
 	t.Helper()
 	intent := strings.ReplaceAll(name, "-", " ")
+	// A file is ranked by its embedding beside its words, and one not yet
+	// embedded is outranked by files whose names merely look alike: a stack
+	// holding hundreds of acceptance files buried it below the limit. What
+	// this criterion reads is the hit's table, so it searches once the file's
+	// index job has finished.
+	db := issue1904DB(t)
+	id := strings.TrimPrefix(reference, "mcp:resource:")
+	issue1904Await(t, "the file's index job finished", func() bool {
+		return issue1904Count(t, db, `SELECT COUNT(*) FROM index_jobs WHERE source_kind = 'resources' AND source_id = $1 AND status IN ('succeeded', 'failed')`, id) > 0 &&
+			issue1904Count(t, db, `SELECT COUNT(*) FROM index_jobs WHERE source_kind = 'resources' AND source_id = $1 AND status IN ('pending', 'running')`, id) == 0
+	})
+	var out map[string]any
 	for attempt := range 10 {
-		out := c.call("search", map[string]any{
+		out = c.call("search", map[string]any{
 			"intent": intent, "sources": []any{"resources"}, "limit": 25,
 			"purpose": "Acceptance for #1627: what a search hit says about a registered file.",
 		})
@@ -244,7 +256,10 @@ func hitTable1627(t *testing.T, c *client, reference, name string) map[string]an
 			time.Sleep(2 * time.Second)
 		}
 	}
-	t.Fatalf("the file %s is not among the search results for %q", reference, intent)
+	// The answer and the file's row say whether search ranked it out, cut
+	// it at a boundary, or never saw it, which a bare miss does not.
+	_, row := c.rest(http.MethodGet, "/api/v1/resources/"+strings.TrimPrefix(reference, "mcp:resource:"), http.NoBody)
+	t.Fatalf("the file %s is not among the search results for %q.\nlast answer: %v\nthe file: %v", reference, intent, out, row)
 	return nil
 }
 

@@ -2,7 +2,6 @@ package upstreamauth
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,69 +11,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/tokenexpiry"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
-
-// staticSource is a token source that answers with what the test set,
-// recording how often it was asked.
-type staticSource struct {
-	tok   *oauth2.Token
-	err   error
-	calls int
-}
-
-func (s *staticSource) Token() (*oauth2.Token, error) {
-	s.calls++
-	return s.tok, s.err
-}
-
-// TestBoundedExpiry_StampsATokenWithNoExpiry is the core of #1737: a token
-// endpoint that omits expires_in leaves Expiry zero, which oauth2 treats as
-// valid forever. The wrapper gives it the bounded window instead.
-func TestBoundedExpiry_StampsATokenWithNoExpiry(t *testing.T) {
-	now := time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC)
-	src := &staticSource{tok: &oauth2.Token{AccessToken: "at-forever", TokenType: "Bearer"}}
-
-	tok, err := withBoundedExpiry(src, func() time.Time { return now }).Token()
-
-	require.NoError(t, err)
-	assert.Equal(t, now.Add(DefaultUpstreamAccessTokenLifetime), tok.Expiry)
-	assert.Equal(t, "at-forever", tok.AccessToken)
-	assert.True(t, src.tok.Expiry.IsZero(), "the source's own token must not be mutated")
-}
-
-// TestBoundedExpiry_LeavesAnUpstreamExpiryAlone covers the other half of the
-// rule: the upstream's own lifetime always wins, including one far shorter
-// and one far longer than the fallback window.
-func TestBoundedExpiry_LeavesAnUpstreamExpiryAlone(t *testing.T) {
-	now := time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC)
-	for name, expiry := range map[string]time.Time{
-		"shorter than the window": now.Add(30 * time.Second),
-		"longer than the window":  now.Add(24 * time.Hour),
-	} {
-		t.Run(name, func(t *testing.T) {
-			src := &staticSource{tok: &oauth2.Token{AccessToken: "at-1", Expiry: expiry}}
-			tok, err := withBoundedExpiry(src, func() time.Time { return now }).Token()
-			require.NoError(t, err)
-			assert.Equal(t, expiry, tok.Expiry)
-		})
-	}
-}
-
-// TestBoundedExpiry_PassesAFetchFailureThrough keeps the wrapper out of the
-// error path: Apply's scrubbing classifies the library's error, so the
-// wrapper must not replace or wrap it.
-func TestBoundedExpiry_PassesAFetchFailureThrough(t *testing.T) {
-	sentinel := errors.New("token endpoint refused")
-	src := &staticSource{err: sentinel}
-
-	tok, err := withBoundedExpiry(src, time.Now).Token()
-
-	assert.Nil(t, tok)
-	assert.ErrorIs(t, err, sentinel)
-}
 
 // issue1737IDP is a client_credentials token endpoint that answers without
 // expires_in, handing out a new access token on every request.
@@ -134,7 +74,7 @@ func TestOAuth2ClientCredentials_ATokenWithNoExpiresInIsStillCached(t *testing.T
 // which is what the cache compares against.
 func TestOAuth2ClientCredentials_ATokenWithNoExpiresInIsRefetched(t *testing.T) {
 	idp, fetches := issue1737IDP(t)
-	elapsed := func() time.Time { return time.Now().Add(-DefaultUpstreamAccessTokenLifetime) }
+	elapsed := func() time.Time { return time.Now().Add(-tokenexpiry.DefaultLifetime) }
 	auth := newOAuth2ClientCredentialsAuth(issue1737Config(idp.URL), elapsed)
 
 	first := issue1737Apply(t, auth)
@@ -143,4 +83,38 @@ func TestOAuth2ClientCredentials_ATokenWithNoExpiresInIsRefetched(t *testing.T) 
 	assert.Equal(t, "Bearer cc-token-1", first)
 	assert.Equal(t, "Bearer cc-token-2", second, "the call after the window must carry a new token")
 	assert.Equal(t, int32(2), fetches.Load())
+}
+
+// TestParse_OAuthTokenLifetime reads oauth_token_lifetime in both forms it
+// admits, defaults it, and refuses a negative one at validation.
+func TestParse_OAuthTokenLifetime(t *testing.T) {
+	base := func(v any) map[string]any {
+		cfg := map[string]any{
+			"auth_mode": "oauth", "oauth_grant": "client_credentials",
+			"oauth_token_url": "https://idp.example/token", "oauth_client_id": "id", "oauth_client_secret": "secret",
+		}
+		if v != nil {
+			cfg["oauth_token_lifetime"] = v
+		}
+		return cfg
+	}
+	for name, tc := range map[string]struct {
+		value any
+		want  time.Duration
+	}{
+		"unset":           {nil, tokenexpiry.DefaultLifetime},
+		"duration string": {"30s", 30 * time.Second},
+		"seconds":         {45, 45 * time.Second},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, err := Parse(connoauth.KindAPI, "apigateway", "https://upstream.example", base(tc.value))
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, c.OAuth2.UnstatedTokenLifetime)
+			assert.NoError(t, c.ValidateAuth())
+		})
+	}
+
+	c, err := Parse(connoauth.KindAPI, "apigateway", "https://upstream.example", base("-1m"))
+	require.NoError(t, err)
+	assert.EqualError(t, c.ValidateAuth(), "apigateway: oauth_token_lifetime must not be negative")
 }

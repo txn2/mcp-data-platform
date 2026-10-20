@@ -37,43 +37,82 @@ type sourceRef struct {
 	build string
 }
 
+// buildIndex is where the newest daily build is looked up: the index listing
+// the builds, where a build is fetched from, and the wait before each attempt
+// after the first to read the index.
+type buildIndex struct {
+	indexURL string
+	buildURL string
+	pause    func(attempt int) time.Duration
+}
+
 // resolveSource returns the archive the settings name: the configured URL, or
-// the newest daily build in the Protomaps index.
-func resolveSource(ctx context.Context, client *http.Client, s Settings, indexURL, buildURL string) (sourceRef, error) {
+// the newest daily build in the Protomaps index. The index is read with the
+// retries a range read gets, since a build host that drops one connection is
+// as ordinary before the extract as during it.
+func resolveSource(ctx context.Context, client *http.Client, s Settings, idx buildIndex) (sourceRef, error) {
 	if s.SourceURL != "" {
 		name := s.SourceURL[strings.LastIndex(s.SourceURL, "/")+1:]
 		return sourceRef{url: s.SourceURL, build: strings.TrimSuffix(name, ".pmtiles")}, nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, indexURL, http.NoBody)
-	if err != nil {
-		return sourceRef{}, fmt.Errorf("building the build index request: %w", err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return sourceRef{}, fmt.Errorf("reading the Protomaps build index: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return sourceRef{}, fmt.Errorf("reading the Protomaps build index: HTTP %d", resp.StatusCode)
-	}
-	var builds []struct {
-		Key string `json:"key"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxIndexBytes)).Decode(&builds); err != nil {
-		return sourceRef{}, fmt.Errorf("decoding the Protomaps build index: %w", err)
-	}
-	keys := make([]string, 0, len(builds))
-	for _, b := range builds {
-		if dailyBuild.MatchString(b.Key) {
-			keys = append(keys, b.Key)
+	var (
+		keys    []string
+		lastErr error
+	)
+	for attempt := range rangeAttempts {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return sourceRef{}, ctx.Err() //nolint:wrapcheck // the caller's own cancellation
+			case <-time.After(idx.pause(attempt)):
+			}
 		}
+		var retry bool
+		keys, retry, lastErr = readIndex(ctx, client, idx.indexURL)
+		if lastErr == nil || !retry {
+			break
+		}
+	}
+	if lastErr != nil {
+		return sourceRef{}, lastErr
 	}
 	if len(keys) == 0 {
 		return sourceRef{}, errors.New("the Protomaps build index lists no daily build")
 	}
 	sort.Strings(keys)
 	latest := keys[len(keys)-1]
-	return sourceRef{url: buildURL + latest, build: dailyBuild.ReplaceAllString(latest, "$1-$2-$3")}, nil
+	return sourceRef{url: idx.buildURL + latest, build: dailyBuild.ReplaceAllString(latest, "$1-$2-$3")}, nil
+}
+
+// readIndex reads the daily build names the Protomaps index lists, or why it
+// could not and whether asking again could help.
+func readIndex(ctx context.Context, client *http.Client, indexURL string) (keys []string, retry bool, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, indexURL, http.NoBody)
+	if err != nil {
+		return nil, false, fmt.Errorf("building the build index request: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, ctx.Err() == nil, fmt.Errorf("reading the Protomaps build index: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError,
+			fmt.Errorf("reading the Protomaps build index: HTTP %d", resp.StatusCode)
+	}
+	var builds []struct {
+		Key string `json:"key"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxIndexBytes)).Decode(&builds); err != nil {
+		return nil, true, fmt.Errorf("decoding the Protomaps build index: %w", err)
+	}
+	keys = make([]string, 0, len(builds))
+	for _, b := range builds {
+		if dailyBuild.MatchString(b.Key) {
+			keys = append(keys, b.Key)
+		}
+	}
+	return keys, false, nil
 }
 
 // buildDate names the data an archive was built from: the OpenStreetMap

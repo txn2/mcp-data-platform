@@ -14,6 +14,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/tokenexpiry"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
@@ -376,7 +377,7 @@ func TestJWTBearerReusesTheAccessToken(t *testing.T) {
 
 // TestJWTBearerBoundsATokenWithNoExpiry covers an upstream whose response has
 // no expires_in: the exchange composed as newJWTBearerAuth composes it gives
-// the token DefaultUpstreamAccessTokenLifetime rather than the unbounded
+// the token tokenexpiry.DefaultLifetime rather than the unbounded
 // lifetime the library would infer, and any refresh token in the response is
 // not held.
 func TestJWTBearerBoundsATokenWithNoExpiry(t *testing.T) {
@@ -396,11 +397,11 @@ func TestJWTBearerBoundsATokenWithNoExpiry(t *testing.T) {
 		now:      func() time.Time { return now },
 		accepted: func(context.Context) { accepted++ },
 	}
-	tok, err := withBoundedExpiry(exchange, exchange.now).Token()
+	tok, err := tokenexpiry.Bounded(exchange, exchange.now, 0).Token()
 	if err != nil {
 		t.Fatalf("Token: %v", err)
 	}
-	if want := now.Add(DefaultUpstreamAccessTokenLifetime); !tok.Expiry.Equal(want) {
+	if want := now.Add(tokenexpiry.DefaultLifetime); !tok.Expiry.Equal(want) {
 		t.Errorf("expiry = %s, want %s", tok.Expiry, want)
 	}
 	if tok.RefreshToken != "" {

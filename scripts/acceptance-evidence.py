@@ -107,9 +107,13 @@ def cmd_split(_args: argparse.Namespace) -> int:
             ev = json.loads(line)
         except json.JSONDecodeError:
             sys.stdout.write(line)
+            sys.stdout.flush()
             continue
         if ev.get("Action") == "output":
+            # Flushed as it arrives: a run written to a file or a CI log is
+            # read while it runs, and a block-buffered one lags by minutes.
             sys.stdout.write(ev.get("Output", ""))
+            sys.stdout.flush()
         name = ev.get("Test") or ""
         m = re.match(r"^TestIssue(\d+)_", name)
         if m:

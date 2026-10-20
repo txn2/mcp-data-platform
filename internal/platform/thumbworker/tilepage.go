@@ -172,10 +172,16 @@ func servedInProcess(p string) bool {
 
 // serveInProcess calls routes for one GET and returns the answer when it is
 // 200, or 206 for a ranged read, through the same in-process call the PDF
-// export makes.
+// export makes. A file the platform failed to serve -- a 5xx, or no answer
+// in time -- is answered with that status, which fails the render to be
+// tried again rather than drawn without it (#2218); one that is not there is
+// the page's 404.
 func serveInProcess(routes http.Handler, p string, header http.Header) (headless.File, bool) {
 	res, ok := inproc.Read(routes, p, header, storageTimeout)
 	if !ok {
+		if res.Status >= http.StatusInternalServerError {
+			return headless.File{Status: res.Status, ContentType: "text/plain; charset=utf-8", Body: []byte("not served")}, true
+		}
 		return headless.File{}, false
 	}
 	return headless.RouteFile(res.Status, res.Header, res.Body), true

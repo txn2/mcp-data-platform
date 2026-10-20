@@ -175,6 +175,9 @@ func runSeedJob(t *testing.T, envFile string) string {
 	}
 	cmd := exec.CommandContext(t.Context(), "docker", "compose", "-p", project, "--env-file", envFile, //nolint:gosec // the test's own stack
 		"-f", filepath.Join(issue1901Bundle, "compose.yaml"), "run", "--rm", "--no-deps", "seed")
+	// The host's native platform, as dev/start.sh chooses it: an exported
+	// DOCKER_DEFAULT_PLATFORM would ask for the seed image's other variant.
+	cmd.Env = append(os.Environ(), "DOCKER_DEFAULT_PLATFORM=")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("the seed job: %v\n%s", err, out)

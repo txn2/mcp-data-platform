@@ -294,7 +294,7 @@ func TestIssue1741_BothBodyWireFormsReachTheUpstream(t *testing.T) {
 			if got := number(t, out, "status"); got != 200 {
 				t.Fatalf("upstream status = %v; want 200 (%v)", got, out["body"])
 			}
-			raw, err := json.Marshal(out["body"])
+			raw, err := json.Marshal(withoutTrace1741(out["body"]))
 			if err != nil {
 				t.Fatalf("re-encoding the echoed body: %v", err)
 			}
@@ -308,5 +308,30 @@ func TestIssue1741_BothBodyWireFormsReachTheUpstream(t *testing.T) {
 	if len(echoed) == 2 && echoed["object"] != echoed["string of JSON"] {
 		t.Errorf("the two body wire forms reached the upstream differently:\n object: %s\n string: %s",
 			echoed["object"], echoed["string of JSON"])
+	}
+}
+
+// withoutTrace1741 drops the W3C trace headers from an echoed request. Every
+// outbound call carries its own traceparent since #1895, so they differ
+// between any two requests and say nothing about the body.
+func withoutTrace1741(v any) any {
+	switch n := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(n))
+		for k, child := range n {
+			if lk := strings.ToLower(k); lk == "traceparent" || lk == "tracestate" {
+				continue
+			}
+			out[k] = withoutTrace1741(child)
+		}
+		return out
+	case []any:
+		out := make([]any, len(n))
+		for i, child := range n {
+			out[i] = withoutTrace1741(child)
+		}
+		return out
+	default:
+		return v
 	}
 }

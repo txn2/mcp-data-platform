@@ -228,26 +228,27 @@ func TestIssue1568_EveryDrawableFamilyGetsATile(t *testing.T) {
 		t.Fatalf("the .jsx fixture stored as %q, want text/jsx", jsxMIME)
 	}
 	// A family nothing draws, which must never be tried: a file the renderer
-	// cannot draw would be recorded as a failure it did nothing to earn.
-	pdfID, _ := createResource1568(t, c, "report-"+unique1568()+".pdf", "application/pdf",
-		"%PDF-1.7\nnot really a PDF, but declared as one\n")
+	// cannot draw would be recorded as a failure it did nothing to earn. A PDF
+	// was this family until #1794 drew page one; an archive still is.
+	zipID, _ := createResource1568(t, c, "export-"+unique1568()+".zip", "application/zip",
+		"PK\x03\x04 not really an archive\n")
 
 	// Plain text is laid out on the portal's own surface, so it gets a tile in
 	// each scheme; JSX carries its own colors and gets one.
 	awaitResourceTile1787(t, c, textID, true)
 	awaitResourceTile1787(t, c, jsxID, false)
 
-	// Both were drawn after the PDF was filed, so the renderer has passed over
-	// it by now.
-	status, row := c.rest(http.MethodGet, "/api/v1/resources/"+pdfID, http.NoBody)
+	// Both were drawn after the archive was filed, so the renderer has passed
+	// over it by now.
+	status, row := c.rest(http.MethodGet, "/api/v1/resources/"+zipID, http.NoBody)
 	if status != http.StatusOK {
-		t.Fatalf("GET the PDF: status %d: %v", status, row)
+		t.Fatalf("GET the archive: status %d: %v", status, row)
 	}
 	if key, _ := row["thumbnail_s3_key"].(string); key != "" {
-		t.Errorf("a PDF was given a tile, which nothing draws: %q", key)
+		t.Errorf("an archive was given a tile, which nothing draws: %q", key)
 	}
 	if failure, _ := row["thumbnail_failure"].(string); failure != "" {
-		t.Errorf("a PDF was tried and recorded as a failure: %q", failure)
+		t.Errorf("an archive was tried and recorded as a failure: %q", failure)
 	}
 }
 

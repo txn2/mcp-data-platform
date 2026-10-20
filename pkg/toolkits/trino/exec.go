@@ -16,6 +16,7 @@ import (
 // on a connection, and whether that connection has one. An empty name resolves
 // to the default connection, matching multiserver.Manager.Client("").
 func (t *Toolkit) ScratchTarget(connection string) (ScratchConfig, bool) {
+	t.catchUpUnbound(connection)
 	t.connMu.RLock()
 	defer t.connMu.RUnlock()
 
@@ -40,6 +41,7 @@ func (t *Toolkit) ScratchTarget(connection string) (ScratchConfig, bool) {
 // then refuses is the same defect as a registration refusing a connection the
 // form offered.
 func (t *Toolkit) AcceptsWrites(connection string) bool {
+	t.catchUpUnbound(connection)
 	t.connMu.RLock()
 	defer t.connMu.RUnlock()
 
@@ -65,6 +67,7 @@ func (t *Toolkit) AcceptsWrites(connection string) bool {
 // Authorization above this line is the caller's: Exec asks whether the
 // connection accepts writes, never whether this person may use it.
 func (t *Toolkit) Exec(ctx context.Context, connection, sql string) error {
+	t.ServesConnection(ctx, connection)
 	client, err := t.execClient(connection)
 	if err != nil {
 		return err

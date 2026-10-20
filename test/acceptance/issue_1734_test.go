@@ -548,8 +548,9 @@ func TestIssue1734_TheSaveRefusesAnUnusableConfig(t *testing.T) {
 		want   string
 	}{
 		{"no private key", "api", nil, []string{"jwt_private_key_pem"}, "jwt_private_key_pem"},
-		{"no issuer", "api", nil, []string{"jwt_issuer"}, "jwt_issuer"},
-		{"no subject", "api", nil, []string{"jwt_subject"}, "jwt_subject"},
+		// Since #2064 either one identifies the client, so only a config
+		// with neither is refused.
+		{"neither an issuer nor a subject", "api", nil, []string{"jwt_issuer", "jwt_subject"}, "one of jwt_issuer or jwt_subject is required"},
 		{"no token URL", "api", nil, []string{"oauth_token_url"}, "oauth_token_url"},
 		{"a client secret with no client id", "api", map[string]any{"oauth_client_secret": "s3cret"}, nil, "oauth_client_id"},
 		{"a shared secret under RS256", "api", map[string]any{"jwt_client_secret": "shared"}, nil, "jwt_client_secret"},

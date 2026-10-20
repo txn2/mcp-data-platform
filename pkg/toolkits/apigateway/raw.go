@@ -104,13 +104,15 @@ var rawForwardedHeaders = map[string]bool{
 //     status and headers are already flushed and cannot be rewritten.
 func (*Toolkit) handleInvokeRaw(ctx context.Context, c *conn, in InvokeInput, raw *RawPassthrough) (*mcp.CallToolResult, any, error) {
 	timeout := resolveTimeout(in.TimeoutSeconds, c.cfg.CallTimeout)
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	req, err := buildUpstreamRequest(callCtx, c.cfg, c.auth, catalogView{specs: c.specs, webdavRoutes: c.webdavRoutes()}, in)
+	req, err := buildUpstreamRequest(ctx, c.cfg, c.auth, catalogView{specs: c.specs, webdavRoutes: c.webdavRoutes()}, in)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
+	// Started once the request is built, as invoke does: a one-time code's
+	// wait for its period is not the upstream's time.
+	callCtx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	req = req.WithContext(callCtx)
 
 	// #nosec G107 G704 -- req.URL is host-pinned by buildURL + validatePath,
 	// identical to executeRequest; the credential is injected by c.auth.Apply

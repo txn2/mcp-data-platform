@@ -329,6 +329,9 @@ type OAuth2Config struct {
 	// often reject unknown parameters with invalid_request, so
 	// leave empty for those.
 	Prompt string
+	// UnstatedTokenLifetime is how long a token whose response states no
+	// expires_in is reused (oauth_token_lifetime, #2218).
+	UnstatedTokenLifetime time.Duration
 }
 
 // EndpointAuthStyle values, owned by internal/upstreamauth and aliased

@@ -107,6 +107,27 @@ func callsTotal(t *testing.T, admin *client, query string) int {
 	return int(number(t, out, "total"))
 }
 
+// callsSnapshot reads the calls index total and the count of the records it
+// covers -- those that succeeded and carry text, counted in the database --
+// together: the index total is read on both sides of the count and the pair
+// is taken once the readings agree, so a record cataloged in between does not
+// land in one and not the other. The admin list's outcome filter answers this
+// too, but takes tens of seconds over a large catalog.
+func callsSnapshot(t *testing.T, admin *client) (expected, covered int) {
+	t.Helper()
+	db := issue1904DB(t)
+	const q = `SELECT COUNT(*) FROM call_records WHERE success AND (purpose <> '' OR statement <> '' OR path <> '' OR operation_id <> '')`
+	for range 10 {
+		before := callsIndexExpected(t, admin)
+		covered = issue1904Count(t, db, q)
+		if expected = callsIndexExpected(t, admin); expected == before && issue1904Count(t, db, q) == covered {
+			return expected, covered
+		}
+	}
+	t.Fatalf("the calls index total did not hold still across ten readings")
+	return 0, 0
+}
+
 // issue1980IndexExpected is the calls kind's expected vector count on the admin
 // Indexing page, or -1 when the deployment has no calls index.
 func callsIndexExpected(t *testing.T, admin *client) int {
@@ -233,7 +254,7 @@ func TestIssue1980_MarkingACallerRemovesItsRecordsVectorsAndUnits(t *testing.T) 
 			t.Fatalf("record %s has no index unit to remove", id)
 		}
 	}
-	expectedBefore := callsIndexExpected(t, admin)
+	expectedBefore, totalBefore := callsSnapshot(t, admin)
 
 	setServiceAccount(t, admin, caller, true)
 
@@ -248,9 +269,15 @@ func TestIssue1980_MarkingACallerRemovesItsRecordsVectorsAndUnits(t *testing.T) 
 			t.Errorf("GET /api/v1/admin/calls/%s = %d, want 404: the record and its vector are one row", id, status)
 		}
 	}
+	// Other criteria's calls keep being cataloged while this one runs, so the
+	// index total is held to the catalog's own count over the same interval:
+	// the swept records leave both, and a vector left behind would leave the
+	// index total that many above the records.
 	if expectedBefore >= 0 {
-		if after := callsIndexExpected(t, admin); expectedBefore-after != calls {
-			t.Errorf("the calls index total fell from %d to %d, want a fall of exactly %d", expectedBefore, after, calls)
+		expectedAfter, totalAfter := callsSnapshot(t, admin)
+		if expectedBefore-expectedAfter != totalBefore-totalAfter {
+			t.Errorf("the calls index total moved %d -> %d while the catalog moved %d -> %d; the swept records' vectors were not removed with them",
+				expectedBefore, expectedAfter, totalBefore, totalAfter)
 		}
 	}
 

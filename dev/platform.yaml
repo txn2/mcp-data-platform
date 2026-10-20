@@ -560,6 +560,11 @@ thumbnails:
   # half (#1868); test/acceptance/issue_1868_test.go is stated against these.
   max_attempts: 2
   retry_backoff: 5s
+  # Three documents at a time per replica rather than the production default
+  # of one: the whole acceptance suite uploads files faster than one at a time
+  # draws them, and a criterion waiting on its tile was outpaced by the files
+  # uploaded after it (#2218).
+  concurrency: 3
   # The one private address a document's stylesheet or script may be fetched
   # from on the dev stack (#2122): the acceptance suite serves a stylesheet
   # there that fails and then answers, to show a tile drawn without it is

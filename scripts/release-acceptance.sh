@@ -22,8 +22,15 @@
 # also stops what that trap misses (Vite under its subshell, the second
 # replica's containers). The volumes are kept.
 #
-# Environment: MCP_BASE_URL (as `make acceptance` reads it), ISSUE (passed
-# through), RELEASE_DEV_TIMEOUT seconds to wait for the stack (default 900).
+# ACCEPTANCE_ENV names an environment in test/acceptance/environments.txt
+# (#2219): the stack it starts is given that environment's variables, the
+# services the environment lists are started beside it once it is ready
+# (scripts/acceptance-services.sh), and the run is that environment's criteria
+# alone. The live-stack Playwright suite runs with the plain stack only.
+#
+# Environment: MCP_BASE_URL (as `make acceptance` reads it), ISSUE,
+# ACCEPTANCE_ENV and ACCEPTANCE_SHARD (passed through), RELEASE_DEV_TIMEOUT seconds to wait for the
+# stack (default 900).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -32,6 +39,27 @@ LOG_DIR="build/release"
 LOG="$LOG_DIR/dev-stack.log"
 READY="Press Ctrl-C to stop all services."
 TIMEOUT="${RELEASE_DEV_TIMEOUT:-900}"
+ACCEPTANCE_ENV="${ACCEPTANCE_ENV:-}"
+export ACCEPTANCE_ENV
+
+# The environment's variables reach the stack start.sh starts; an unknown
+# environment stops here, naming the known ones.
+env_vars="$(python3 scripts/acceptance-env.py vars "$ACCEPTANCE_ENV")"
+services="$(python3 scripts/acceptance-env.py services "$ACCEPTANCE_ENV")"
+for assignment in $env_vars; do
+  export "${assignment?}"
+done
+
+# run_suite runs the environment's criteria (one group of them under
+# ACCEPTANCE_SHARD), and with the plain stack the live-stack browser suite
+# after them, in the first group only.
+run_suite() {
+  make --no-print-directory acceptance
+  case "${ACCEPTANCE_SHARD:-1/}" in 1/*) ;; *) return 0 ;; esac
+  if [ -z "$ACCEPTANCE_ENV" ] || [ "$ACCEPTANCE_ENV" = dev ]; then
+    make --no-print-directory frontend-e2e-public-viewer
+  fi
+}
 
 platform_url() {
   set -a
@@ -47,8 +75,8 @@ answers() {
 
 if answers; then
   echo "release-acceptance: a platform answers at $(platform_url); running the suite against it and leaving it up."
-  make --no-print-directory acceptance
-  exec make --no-print-directory frontend-e2e-public-viewer
+  run_suite
+  exit 0
 fi
 
 mkdir -p "$LOG_DIR"
@@ -67,6 +95,9 @@ bash dev/start.sh > "$LOG" 2>&1 &
 DEV_PID=$!
 
 stop_stack() {
+  for service in $services; do
+    bash scripts/acceptance-services.sh down "$service" > "$LOG_DIR/$service-down.log" 2>&1 || true
+  done
   echo "release-acceptance: stopping the dev stack it started (data kept)."
   kill -TERM "$DEV_PID" 2> /dev/null || true
   wait "$DEV_PID" 2> /dev/null || true
@@ -98,5 +129,15 @@ until ready; do
 done
 
 echo "release-acceptance: dev stack ready at $(platform_url) after ${waited}s."
-make --no-print-directory acceptance
-make --no-print-directory frontend-e2e-public-viewer
+for service in $services; do
+  echo "release-acceptance: starting $service beside the stack (log: $LOG_DIR/$service.log)."
+  bash scripts/acceptance-services.sh up "$service" > "$LOG_DIR/$service.log" 2>&1 || {
+    echo "FAIL release-acceptance: $service did not start. Last lines of $LOG_DIR/$service.log:" >&2
+    tail -n 30 "$LOG_DIR/$service.log" >&2
+    exit 1
+  }
+  for assignment in $(bash scripts/acceptance-services.sh env "$service"); do
+    export "${assignment?}"
+  done
+done
+run_suite

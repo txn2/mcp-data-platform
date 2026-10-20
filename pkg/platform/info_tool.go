@@ -78,9 +78,13 @@ type PersonaInfo struct {
 	Description string `json:"description,omitempty"`
 }
 
-// Features describes enabled platform features.
+// Features describes enabled platform features. QueryEnrichment and
+// StorageEnrichment are always false: releases up to v1.145.0 advertised both
+// as required, and cached tool lists still hold them (#2216).
 type Features struct {
 	SemanticEnrichment bool                `json:"semantic_enrichment"`
+	QueryEnrichment    bool                `json:"query_enrichment"`
+	StorageEnrichment  bool                `json:"storage_enrichment"`
 	AuditLogging       bool                `json:"audit_logging"`
 	KnowledgeCapture   bool                `json:"knowledge_capture"`
 	KnowledgeApply     *KnowledgeApplyInfo `json:"knowledge_apply,omitempty"`

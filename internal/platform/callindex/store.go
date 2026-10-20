@@ -90,7 +90,8 @@ func (s *Store) ListVectors(ctx context.Context, id string) (map[string]indexjob
 
 // UpsertVectors writes the embedding back onto the record. A call record holds
 // exactly one item, so there are no sibling rows to delete and Upsert and
-// UpsertBatch are the same write.
+// UpsertBatch are the same write. It leaves updated_at alone: a re-embed
+// edits nothing about the record (#2217).
 func (s *Store) UpsertVectors(ctx context.Context, id string, rows []indexjobs.Vector) error {
 	if len(rows) == 0 {
 		return nil
@@ -100,8 +101,7 @@ func (s *Store) UpsertVectors(ctx context.Context, id string, rows []indexjobs.V
 		UPDATE call_records
 		   SET embedding           = $2,
 		       embedding_model     = $3,
-		       embedding_text_hash = $4,
-		       updated_at          = NOW()
+		       embedding_text_hash = $4
 		 WHERE id = $1`
 	if _, err := s.db.ExecContext(ctx, q,
 		id, pgvector.NewVector(r.Embedding), r.Model, r.TextHash); err != nil {

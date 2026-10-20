@@ -796,6 +796,15 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 		return toolkit.ErrorResult("failed to save asset metadata: " + err.Error()), nil, nil
 	}
 
+	// The references are recorded before the first version, because the
+	// version is what makes the asset owed a tile: recorded after it, the tile
+	// worker could draw the page before its referenced files were granted, and
+	// store a tile drawn without them (#2218). The content is already stored.
+	refCount, refResult := t.applyRefs(ctx, assetID, declaredRefs, hasRefs)
+	if refResult != nil {
+		return refResult, nil, nil
+	}
+
 	// Create initial v1 version record.
 	versionID, err := generateID()
 	if err != nil {
@@ -813,11 +822,6 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 	}
 	if _, err := t.versionStore.CreateVersion(ctx, v1); err != nil {
 		return toolkit.ErrorResult("failed to create initial version record: " + err.Error()), nil, nil
-	}
-
-	refCount, refResult := t.applyRefs(ctx, assetID, declaredRefs, hasRefs)
-	if refResult != nil {
-		return refResult, nil, nil
 	}
 
 	out := t.buildSaveOutput(assetID, prov, len(input.Sources))

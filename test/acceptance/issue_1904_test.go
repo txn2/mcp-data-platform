@@ -126,6 +126,14 @@ func TestIssue1904_AForgottenMemoryIsRemovedAfterItsRetention(t *testing.T) {
 	for _, id := range []string{expired, recent} {
 		c.call("memory_manage", map[string]any{"command": "forget", "id": id})
 	}
+	// The record's index job, claimed before the forget, can write its
+	// embedding after it, and that write once moved updated_at, the time the
+	// sweep reads as the archive (#2217). The archive is backdated only once
+	// the job has finished.
+	issue1904Await(t, "the expired memory record's index job finished", func() bool {
+		return issue1904Count(t, db, `SELECT COUNT(*) FROM index_jobs WHERE source_kind = 'memory' AND source_id = $1 AND status IN ('succeeded', 'failed')`, expired) > 0 &&
+			issue1904Count(t, db, `SELECT COUNT(*) FROM index_jobs WHERE source_kind = 'memory' AND source_id = $1 AND status IN ('pending', 'running')`, expired) == 0
+	})
 	issue1904Exec(t, db, `UPDATE memory_records SET updated_at = NOW() - interval '91 days' WHERE id = $1 AND status = 'archived'`, expired)
 
 	issue1904Await(t, "the expired memory record removed", func() bool {

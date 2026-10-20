@@ -100,6 +100,17 @@ func issue2057HasTag(tags []string) bool {
 	return false
 }
 
+// assetID2057 is the asset an export wrote, failing the criterion, rather
+// than the whole suite, when the answer names none.
+func assetID2057(t *testing.T, out map[string]any) string {
+	t.Helper()
+	id, ok := out["asset_id"].(string)
+	if !ok || id == "" {
+		t.Fatalf("the export's answer names no asset: %v", out)
+	}
+	return id
+}
+
 func issue2057Delete(t *testing.T, c *client, id string) {
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_asset", map[string]any{"action": "delete", "asset_id": id}) })
 }
@@ -188,7 +199,7 @@ func TestIssue2057_TheCallersOwnLimitIsWrittenAndFlagged(t *testing.T) {
 	if refused {
 		t.Fatalf("an export cut by the caller's limit was refused: %s", text)
 	}
-	issue2057Delete(t, c, out["asset_id"].(string))
+	issue2057Delete(t, c, assetID2057(t, out))
 	if out["truncated"] != true || out["limit_source"] != "request" || number(t, out, "limit_applied") != 3 ||
 		number(t, out, "row_count") != 3 {
 		t.Errorf("the response does not flag the requested cut: %v", out)
@@ -203,7 +214,7 @@ func TestIssue2057_TheCallersOwnLimitIsWrittenAndFlagged(t *testing.T) {
 	if refused {
 		t.Fatalf("an export exactly at its limit was refused: %s", text)
 	}
-	issue2057Delete(t, c, out["asset_id"].(string))
+	issue2057Delete(t, c, assetID2057(t, out))
 	if out["truncated"] != false || number(t, out, "row_count") != 5 {
 		t.Errorf("an export exactly at its limit is not cut: %v", out)
 	}
@@ -237,7 +248,7 @@ func TestIssue2057_ACountExpectationGuardsTheExport(t *testing.T) {
 	if refused {
 		t.Fatalf("a missed count under warn was refused: %s", text)
 	}
-	issue2057Delete(t, c, out["asset_id"].(string))
+	issue2057Delete(t, c, assetID2057(t, out))
 	if out["expect_mismatch"] != "expected exactly 4 rows, got 5" {
 		t.Errorf("expect_mismatch = %v", out["expect_mismatch"])
 	}
@@ -278,7 +289,10 @@ func TestIssue2057_AnAPIWalkStoppedByItsBoundIsACutFile(t *testing.T) {
 		call := map[string]any{
 			"connection": apiTestConnection, "method": "GET", "path": "/v1/pagination/cursor",
 			"paginate": map[string]any{"items": "items", "cursor_param": "cursor", "max_pages": 3},
-			"name":     name, "purpose": issue2057Purpose,
+			// A walk a model client starts runs in the background since #2212;
+			// the cut this criterion reads is the answer an inline walk gives.
+			"async": false,
+			"name":  name, "purpose": issue2057Purpose,
 		}
 		for k, v := range extra {
 			call[k] = v
@@ -331,16 +345,19 @@ func TestIssue2057_AGraphQLWalkStoppedByItsBoundIsACutFile(t *testing.T) {
 			"max_pages": 2,
 		},
 		"on_truncation": "warn", "purpose": issue2057Purpose,
+		// Inline, as the API walk above: a background walk answers with a
+		// key to read it by, not with the cut (#2212).
+		"async": false,
 	})
 	if err != nil || res.IsError {
 		t.Fatalf("graphql_export: %v %s", err, text)
 	}
 	out := issue2057Decode(t, text)
-	issue2057Delete(t, c, out["asset_id"].(string))
+	issue2057Delete(t, c, assetID2057(t, out))
 	if out["truncated"] != true || out["limit_unit"] != "pages" || number(t, out, "limit_applied") != 2 {
 		t.Errorf("the graphql walk does not flag the cut: %v", out)
 	}
-	if tags, _ := issue2057Asset(t, c, out["asset_id"].(string)); !issue2057HasTag(tags) {
+	if tags, _ := issue2057Asset(t, c, assetID2057(t, out)); !issue2057HasTag(tags) {
 		t.Errorf("the graphql walk's asset is not tagged: %v", tags)
 	}
 }
@@ -391,7 +408,7 @@ def main():
 	if output == nil {
 		t.Fatalf("the warn run lists no trino_export output: %v", warned["outputs"])
 	}
-	issue2057Delete(t, c, output["asset_id"].(string))
+	issue2057Delete(t, c, assetID2057(t, output))
 	if output["truncated"] != true || output["limit_applied"] != float64(issue2057Cap) || output["limit_unit"] != "rows" {
 		t.Errorf("the run's output does not record the cut: %v", output)
 	}

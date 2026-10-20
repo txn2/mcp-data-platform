@@ -63,6 +63,8 @@ func (c Config) upstream() upstreamauth.Config {
 			EndpointAuthStyle: c.OAuth2.EndpointAuthStyle,
 			AuthorizationURL:  c.OAuth2.AuthorizationURL,
 			Prompt:            c.OAuth2.Prompt,
+
+			UnstatedTokenLifetime: c.OAuth2.UnstatedTokenLifetime,
 		},
 		SignedJWT:           c.SignedJWT,
 		Google:              c.Google,
@@ -106,6 +108,8 @@ func configFromUpstream(up upstreamauth.Config) Config {
 			EndpointAuthStyle: up.OAuth2.EndpointAuthStyle,
 			AuthorizationURL:  up.OAuth2.AuthorizationURL,
 			Prompt:            up.OAuth2.Prompt,
+
+			UnstatedTokenLifetime: up.OAuth2.UnstatedTokenLifetime,
 		},
 		SignedJWT:           up.SignedJWT,
 		Google:              up.Google,

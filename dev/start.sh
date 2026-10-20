@@ -716,6 +716,9 @@ export OTEL_LOGS_EXPORTER=otlp
 export MCP_PLATFORM_CAPACITY_INTERVAL="${DEV_CAPACITY_INTERVAL:-30s}"
 export MCP_PLATFORM_STORAGE_SCAN_INTERVAL="${DEV_STORAGE_SCAN_INTERVAL:-30s}"
 export MCP_PLATFORM_STORAGE_ORPHAN_GRACE="${DEV_STORAGE_ORPHAN_GRACE:-0s}"
+# The review queue is checked every five seconds rather than hourly, so the
+# review-queue alert's criterion (#1724) runs on this stack (#2219).
+export MCP_PLATFORM_REVIEW_ALERT_INTERVAL="${MCP_PLATFORM_REVIEW_ALERT_INTERVAL:-5s}"
 air -c dev/.air.toml > "$AIR_LOG" 2>&1 &
 PIDS+=($!)
 

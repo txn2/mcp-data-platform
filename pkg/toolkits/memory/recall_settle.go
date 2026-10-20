@@ -55,7 +55,9 @@ func (t *Toolkit) SettleRecall(ctx context.Context, id string, emb []float32) {
 	if len(similar) > 0 {
 		meta[memstore.MetaKeySimilarExisting] = similar
 	}
-	if err := t.store.Update(ctx, id, memstore.RecordUpdate{Metadata: meta}); err != nil {
+	// The check's result is a note about the record, not an edit of it, so
+	// its last-updated time stays where the capture put it.
+	if err := t.store.Update(ctx, id, memstore.RecordUpdate{Metadata: meta, KeepUpdatedAt: true}); err != nil {
 		slog.Warn("memory recall: failed to record the check", "id", id, logKeyError, err)
 	}
 }

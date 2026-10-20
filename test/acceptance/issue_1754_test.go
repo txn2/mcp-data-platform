@@ -164,8 +164,8 @@ func TestIssue1754_AnAssetOfEveryFamilyGetsATileInEachScheme(t *testing.T) {
 func TestIssue1754_TheFamiliesNothingDrawsAreNeverTried(t *testing.T) {
 	c := connectFor(t, 3*tileWait1787)
 
+	// A PDF was among them until #1794 drew page one.
 	undrawn := []struct{ name, ext, contentType, body string }{
-		{"pdf", ".pdf", "application/pdf", "%PDF-1.7\nnot really a PDF, but declared as one\n"},
 		{"zip", ".zip", "application/zip", "PK\x03\x04 not really an archive\n"},
 	}
 	ids := map[string]string{}
@@ -173,8 +173,8 @@ func TestIssue1754_TheFamiliesNothingDrawsAreNeverTried(t *testing.T) {
 		ids[f.name] = createResource1754(t, c, f.ext, f.contentType, f.body)
 	}
 	// A file filed after them that the renderer does draw: once it has its
-	// tile, the renderer has passed over the two before it.
-	drawn := createResource1754(t, c, ".txt", "text/plain", "drawn after the two it must skip\n")
+	// tile, the renderer has passed over the one before it.
+	drawn := createResource1754(t, c, ".txt", "text/plain", "drawn after the one it must skip\n")
 	awaitResourceTile1787(t, c, drawn, false)
 
 	for _, f := range undrawn {

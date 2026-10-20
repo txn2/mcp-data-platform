@@ -198,11 +198,12 @@ func prerequisites(makefile, target string) []string {
 	return nil
 }
 
-// TestVerifyReleaseRunsInOneInvocation pins #1969: verify-release runs verify,
-// whose frontend-e2e wants port 5173, and the acceptance suite, which wants a
-// running dev stack. It passes as one command only because frontend-e2e moves
-// beside a dev server it finds there instead of refusing, and the acceptance
-// step starts a stack when none answers.
+// TestVerifyReleaseRunsInOneInvocation pins #1969 and #2218: verify-release
+// runs verify, whose frontend-e2e wants port 5173 and moves beside a dev
+// server it finds there instead of refusing, and requires the release's own
+// tickets' recorded acceptance runs. It never runs the whole suite, which runs
+// for well over an hour: that is the E2E Nightly's, through acceptance-release,
+// which starts a stack when none answers.
 func TestVerifyReleaseRunsInOneInvocation(t *testing.T) {
 	raw, err := os.ReadFile("../../Makefile")
 	require(t, err)
@@ -214,8 +215,9 @@ func TestVerifyReleaseRunsInOneInvocation(t *testing.T) {
 			prereqs = " " + rest + " "
 		}
 	}
-	if !strings.Contains(prereqs, " acceptance-release ") || strings.Contains(prereqs, " acceptance ") {
-		t.Errorf("verify-release prerequisites are %q; it must run acceptance-release, not acceptance", strings.TrimSpace(prereqs))
+	if strings.Contains(prereqs, " acceptance-release ") || strings.Contains(prereqs, " acceptance ") ||
+		!strings.Contains(prereqs, " acceptance-release-check ") {
+		t.Errorf("verify-release prerequisites are %q; it must require acceptance-release-check and run no whole suite", strings.TrimSpace(prereqs))
 	}
 	if !strings.Contains(strings.Join(recipe(t, makefile, "acceptance-release"), "\n"), "scripts/release-acceptance.sh") {
 		t.Error("acceptance-release does not run scripts/release-acceptance.sh")

@@ -101,7 +101,25 @@ func failed(msg string) func(*audit.Event) {
 func newTestCapturer(reader EventReader, flush Flusher) *Capturer {
 	c := New(reader, flush)
 	c.now = func() time.Time { return testNow.Add(time.Hour) }
+	c.pause = func(context.Context, time.Duration) bool { return true }
 	return c
+}
+
+// lateReader is a store another replica writes to: the event in late appears
+// only from the read numbered at.
+type lateReader struct {
+	fakeReader
+	late  audit.Event
+	at    int
+	reads int
+}
+
+func (l *lateReader) Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error) {
+	l.reads++
+	if l.reads == l.at {
+		l.events = append(l.events, l.late)
+	}
+	return l.fakeReader.Query(ctx, filter)
 }
 
 func saveRequest() portal.ProvenanceRequest {
@@ -270,6 +288,57 @@ func TestCaptureExplicitSourceUnresolved(t *testing.T) {
 
 	assert.Equal(t, []string{"e1"}, capture.EventIDs)
 	assert.True(t, capture.Truncated)
+}
+
+// A cited call another replica served is written by that replica's audit
+// writer, which this one's flush does not drain; the capture reads again
+// until it is there (#2218).
+func TestCaptureWaitsForACitedCallAnotherReplicaWrites(t *testing.T) {
+	reader := &lateReader{
+		events: []audit.Event{event("e1", "trino_query", "trino", 0)},
+		late:   event("e2", "api_invoke_endpoint", "api", 1),
+		at:     3,
+	}
+	c := newTestCapturer(reader, nil)
+	var pauses []time.Duration
+	c.pause = func(_ context.Context, d time.Duration) bool { pauses = append(pauses, d); return true }
+	req := saveRequest()
+	req.Sources = []string{"e1", "e2"}
+
+	capture := c.Capture(context.Background(), req)
+
+	assert.Equal(t, []string{"e1", "e2"}, capture.EventIDs)
+	assert.False(t, capture.Truncated)
+	assert.Equal(t, 3, reader.reads)
+	assert.Equal(t, []time.Duration{citedPoll, citedPoll}, pauses)
+}
+
+// A citation that never resolves costs a bounded number of reads, and a
+// request that ends stops the reading at once.
+func TestCaptureStopsReadingForAnUnresolvedCitation(t *testing.T) {
+	reader := &lateReader{events: []audit.Event{event("e1", "trino_query", "trino", 0)}}
+	req := saveRequest()
+	req.Sources = []string{"e1", "never"}
+
+	capture := newTestCapturer(reader, nil).Capture(context.Background(), req)
+	assert.Equal(t, []string{"e1"}, capture.EventIDs)
+	assert.True(t, capture.Truncated)
+	assert.Equal(t, citedReads, reader.reads)
+
+	ended := &lateReader{events: []audit.Event{event("e1", "trino_query", "trino", 0)}}
+	c := newTestCapturer(ended, nil)
+	c.pause = func(context.Context, time.Duration) bool { return false }
+	capture = c.Capture(context.Background(), req)
+	assert.Equal(t, []string{"e1"}, capture.EventIDs)
+	assert.Equal(t, 1, ended.reads, "a request that ended reads once")
+}
+
+// pause waits its duration, and returns early and false when the request ends.
+func TestPause(t *testing.T) {
+	assert.True(t, pause(context.Background(), 0))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.False(t, pause(ctx, time.Hour))
 }
 
 // The scoping is the boundary that stops one person's query becoming another

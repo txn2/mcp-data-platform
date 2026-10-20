@@ -222,8 +222,14 @@ services:
   # auth.oidc.audience checks. A criterion about a key resolving to the same
   # identity as its owner's signed-in session has to be executed by an actual
   # signed-in session. Dev only: this realm is never a deployment's.
+  #
+  # 26.7 accepts the RFC 7523 JWT bearer grant a Google service account key
+  # signs (#2061), so the Google connection's criteria exchange a real
+  # assertion here: they register the issuer, its key, a client and a linked
+  # user through the admin API on each run, which also reaches a realm
+  # imported before they existed.
   keycloak:
-    image: quay.io/keycloak/keycloak:25.0.6@sha256:82c5b7a110456dbd42b86ea572e728878549954cc8bd03cd65410d75328095d2
+    image: quay.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
     container_name: acme-dev-keycloak
     command: ["start-dev", "--import-realm", "--http-port=8080"]
     environment:
@@ -234,8 +240,8 @@ services:
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME: localhost
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
     ports:
       - "127.0.0.1:9090:8080"
     volumes:

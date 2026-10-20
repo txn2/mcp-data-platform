@@ -328,8 +328,10 @@ func TestIssue1794_AReferencedPDFShowsItsTile(t *testing.T) {
 	}
 
 	saved := c.call("save_asset", map[string]any{
-		"name":         "acceptance-1794-refs-" + unique1794(),
-		"content":      "# Report\n\nThe source document is [attached](" + uri + ").\n",
+		"name": "acceptance-1794-refs-" + unique1794(),
+		// The PDF is named, not linked: a link to another file is refused
+		// since #1875, and the References panel reads the declaration.
+		"content":      "# Report\n\nThe source document is " + uri + ".\n",
 		"content_type": "text/markdown",
 		"description":  "Acceptance #1794: an asset that references a PDF.",
 		"references":   []any{uri},

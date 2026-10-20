@@ -39,9 +39,10 @@ const (
 	// the large table; issue2052Reader is the read-only one queries go to.
 	issue2052Writer = "acme-scratch"
 	issue2052Reader = "acme"
-	// issue2052PII is a table the catalog the dev stack reads tags PII on the
-	// dataset rather than on any column.
-	issue2052PII = "SELECT email FROM warehouse.public.customers"
+	// issue2052PII reads a table dev/seed-catalog.sql tags PII on the dataset
+	// rather than on any column. The table is in Trino's memory catalog, which
+	// starts empty, so issue2052Customers makes it.
+	issue2052PII = "SELECT email FROM memory.default.customers"
 )
 
 // issue2052Client is a session whose client declares elicitation and answers
@@ -130,6 +131,21 @@ func issue2052Large(t *testing.T, c *client) string {
 	return table
 }
 
+// issue2052Customers makes the table issue2052PII reads when the dev Trino
+// does not hold it. It stays: the catalog's tag is on its reference, and
+// every run reads the same table.
+func issue2052Customers(t *testing.T) {
+	t.Helper()
+	c := connect(t)
+	res, text, err := c.callRaw("trino_execute", map[string]any{
+		"connection": issue2052Writer, "purpose": issue2052Purpose,
+		"sql": "CREATE TABLE IF NOT EXISTS memory.default.customers AS SELECT 'pat@example.com' AS email",
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("creating memory.default.customers: %v %s", err, text)
+	}
+}
+
 // issue2052ExplainCount reads trino_queries_total{query_kind="explain",status="ok"}
 // summed over every replica's metrics endpoint.
 func issue2052ExplainCount(t *testing.T) float64 {
@@ -180,6 +196,7 @@ func TestIssue2052_AQueryOverTheThresholdIsAskedAbout(t *testing.T) {
 // PII, the client is asked for consent, and declining stops the query before
 // anything is sent to Trino.
 func TestIssue2052_ATableTaggedPIIAsksForConsent(t *testing.T) {
+	issue2052Customers(t)
 	ec := connect2052(t, "")
 	res, text := ec.query(t, issue2052PII)
 	asked := ec.prompts()
@@ -191,6 +208,21 @@ func TestIssue2052_ATableTaggedPIIAsksForConsent(t *testing.T) {
 	}
 }
 
+// TestIssue2052_AcceptingThePIIPromptRunsTheQuery: the client that consents
+// gets the table's rows.
+func TestIssue2052_AcceptingThePIIPromptRunsTheQuery(t *testing.T) {
+	issue2052Customers(t)
+	ec := connect2052(t, "")
+	ec.setAnswer("accept")
+	res, text := ec.query(t, issue2052PII)
+	if asked := ec.prompts(); len(asked) != 1 || !strings.Contains(asked[0], "tagged PII") {
+		t.Fatalf("the client was asked %q; want one PII consent prompt", asked)
+	}
+	if res.IsError || !strings.Contains(text, "pat@example.com") {
+		t.Fatalf("an accepted consent did not run the query: %s", text)
+	}
+}
+
 // TestIssue2052_AnOlderClientOnAStatelessDeploymentIsNotBlocked: the dev
 // stack keeps sessions in the database, which runs the SDK stateless, and a
 // stateless server rejects every server-to-client request. A client on
@@ -199,6 +231,7 @@ func TestIssue2052_ATableTaggedPIIAsksForConsent(t *testing.T) {
 // deployment that keeps sessions in process asks such a client in band, which
 // pkg/toolkits/trino's TestNewMulti_AnOlderClientIsAskedInBand holds.)
 func TestIssue2052_AnOlderClientOnAStatelessDeploymentIsNotBlocked(t *testing.T) {
+	issue2052Customers(t)
 	ec := connect2052(t, "2025-11-25")
 	if got := ec.session.InitializeResult().ProtocolVersion; got != "2025-11-25" {
 		t.Fatalf("negotiated %s; the criterion needs a 2025-11-25 session", got)

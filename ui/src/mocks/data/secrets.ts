@@ -44,12 +44,12 @@ export const mockSecrets: Secret[] = [
   {
     // A long description and many connections, the row the table must wrap
     // rather than draw over its neighbours (#2070).
-    name: "marketing_service_account",
+    name: "reporting_service_account",
     description:
-      "Service account reports-reader@acme-marketing.iam.gserviceaccount.com, key id 3f9a1c0be27d4a6f, backing the campaign manager, display and video, and display and video reports connections.",
+      "Service account reports-reader@acme-reporting.iam.gserviceaccount.com, key id 3f9a1c0be27d4a6f, backing the sheets, drive, drive exports and bigquery connections.",
     kind: "value",
-    allow_connections: ["cm360", "dv360", "dv360-reports", "ga4-export", "search-ads-360"],
-    allow_personas: ["admin", "marketing-analyst"],
+    allow_connections: ["google-sheets", "google-drive", "google-drive-exports", "bigquery-export", "search-console"],
+    allow_personas: ["admin", "reporting-analyst"],
     created_by: "admin@example.com",
     updated_by: "ops@example.com",
     created_at: "2026-10-08T11:05:00Z",

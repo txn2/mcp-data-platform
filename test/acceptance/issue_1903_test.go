@@ -241,8 +241,9 @@ func TestIssue1903_EveryAssetWriterUsesTheConfiguredPrefix(t *testing.T) {
 		_, _, _ = c.callRaw("manage_asset", map[string]any{"action": "delete_collection", "collection_id": coll})
 	})
 	deadline := time.Now().Add(tileWait1787)
+	var row map[string]any
 	for {
-		_, row := c.rest(http.MethodGet, "/api/v1/portal/collections/"+coll, http.NoBody)
+		_, row = c.rest(http.MethodGet, "/api/v1/portal/collections/"+coll, http.NoBody)
 		if key, _ := row["thumbnail_s3_key"].(string); key != "" {
 			under(t, "the collection mosaic", key)
 			if want := issue1903Prefix + "collections/" + coll + "/"; !strings.HasPrefix(key, want) {
@@ -251,7 +252,9 @@ func TestIssue1903_EveryAssetWriterUsesTheConfiguredPrefix(t *testing.T) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("no mosaic for collection %s after %s", coll, tileWait1787)
+			// The row's tile fields say whether it was tried and failed or
+			// never reached, which a bare timeout does not.
+			t.Fatalf("no mosaic for collection %s after %s: %v", coll, tileWait1787, row)
 		}
 		time.Sleep(time.Second)
 	}

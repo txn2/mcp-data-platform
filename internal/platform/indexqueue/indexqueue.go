@@ -232,6 +232,7 @@ func New(cfg Config) *Handle {
 	h.reaper = indexjobs.NewReaper(store, 0)
 	h.reconciler = indexjobs.NewReconciler(store, reg, cfg.ReconcileInterval, indexjobs.WithReconcilerObserver(obs))
 	cfg.Metrics.RegisterIndexQueue(newQueueSampler(store, indexjobs.NewReporter(store, reg)).Sample)
+	cfg.Metrics.IndexJobSeries(context.Background(), reg.Kinds(), indexjobs.Triggers(), indexjobs.Outcomes())
 
 	// Retention sweep: bound finished history so the reconciler's per-unit
 	// success rows do not accumulate unbounded (#523). A non-positive window

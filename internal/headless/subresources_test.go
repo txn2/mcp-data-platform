@@ -150,3 +150,42 @@ func TestPublicCache_KeepsOnlyWhatMayBeReused(t *testing.T) {
 		t.Error("the newest answer was dropped")
 	}
 }
+
+// A file of the page's own origin the platform could not serve fails a page
+// that requires its subresources, whatever its type, so the tile is tried
+// again; one that is not there, or that arrived, does not (#2218).
+func TestRequireSubresources_AnOwnFileThePlatformCouldNotServe(t *testing.T) {
+	for _, tc := range []struct {
+		name, path string
+		require    bool
+		missing    bool
+	}{
+		{"a font storage did not serve in time", "/assets/font.woff2", true, true},
+		{"a file that is not there", "/gone.woff2", true, false},
+		{"a file that arrived", "/theme.css", true, false},
+		{"a page that does not require them", "/assets/font.woff2", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rs, fb := harness(t, nil, nil)
+			rs.page.RequireSubresources = tc.require
+			rs.page.Files = func(path string, _ http.Header) (File, bool) {
+				switch path {
+				case "/assets/font.woff2":
+					return File{Status: http.StatusServiceUnavailable, Body: []byte("not served")}, true
+				case "/theme.css":
+					return File{Body: []byte("css"), ContentType: "text/css"}, true
+				}
+				return File{}, false
+			}
+			rs.answer(pausedAs("r", "Font", "https://"+rs.host+tc.path, nil))
+			fb.waitFor(func(c []call) bool { return has(c, "Fetch.fulfillRequest") })
+			err := rs.missingFiles()
+			if got := err != nil; got != tc.missing {
+				t.Fatalf("missing = %v (%v), want %v", got, err, tc.missing)
+			}
+			if tc.missing && (!errors.Is(err, ErrIncomplete) || !strings.Contains(err.Error(), "the platform answered 503")) {
+				t.Errorf("err = %v, want ErrIncomplete naming the status", err)
+			}
+		})
+	}
+}

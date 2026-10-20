@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 vi.mock("@/api/admin/hooks", () => ({
   useStartConnectionOAuth: () => ({ mutate: vi.fn(), isPending: false }),
   useSecrets: () => ({
-    data: { secrets: [{ name: "dv360-key" }, { name: "ga-key" }] },
+    data: { secrets: [{ name: "google-sa-key" }, { name: "ga-key" }] },
   }),
 }));
 
@@ -63,7 +63,7 @@ describe("ApiGatewayAuthFields — Google service account", () => {
         config={config}
         onChange={onChange}
         kind="api"
-        connectionName="dv360"
+        connectionName="google-sheets"
         isCreate
         onOpenHelp={vi.fn()}
       />,
@@ -80,7 +80,7 @@ describe("ApiGatewayAuthFields — Google service account", () => {
         project_id: "acme-analytics",
         private_key_id: "3f2a9c",
       },
-      oauth_scope: "https://www.googleapis.com/auth/display-video",
+      oauth_scope: "https://www.googleapis.com/auth/spreadsheets.readonly",
     });
     expect(
       screen.getByText("Google service account", {
@@ -92,14 +92,14 @@ describe("ApiGatewayAuthFields — Google service account", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("3f2a9c")).toBeInTheDocument();
     expect(
-      screen.getByText("https://www.googleapis.com/auth/display-video"),
+      screen.getByText("https://www.googleapis.com/auth/spreadsheets.readonly"),
     ).toBeInTheDocument();
     expect(screen.queryByText("PRIVATE KEY")).not.toBeInTheDocument();
   });
 
   it("drops the values another mode left behind when switched to a Google service account", () => {
     const { onChange } = renderAuth({
-      base_url: "https://displayvideo.googleapis.com",
+      base_url: "https://sheets.googleapis.com",
       auth_mode: "oauth",
       oauth_grant: "client_credentials",
       oauth_client_id: "abc",
@@ -111,7 +111,7 @@ describe("ApiGatewayAuthFields — Google service account", () => {
       screen.getByRole("option", { name: "Google service account" }),
     );
     expect(onChange).toHaveBeenLastCalledWith({
-      base_url: "https://displayvideo.googleapis.com",
+      base_url: "https://sheets.googleapis.com",
     });
   });
 });
@@ -156,9 +156,9 @@ describe("GoogleServiceAccountFields", () => {
     );
     fireEvent.click(screen.getByRole("radio", { name: "Stored secret" }));
     fireEvent.click(screen.getByRole("combobox", { name: /Stored secret/i }));
-    fireEvent.click(screen.getByRole("option", { name: "dv360-key" }));
+    fireEvent.click(screen.getByRole("option", { name: "google-sa-key" }));
     expect(onChange).toHaveBeenLastCalledWith({
-      google_service_account_secret: "dv360-key",
+      google_service_account_secret: "google-sa-key",
     });
   });
 
@@ -167,32 +167,32 @@ describe("GoogleServiceAccountFields", () => {
     const { rerender } = render(
       <GoogleServiceAccountFields
         config={{
-          oauth_scope: "https://www.googleapis.com/auth/display-video",
+          oauth_scope: "https://www.googleapis.com/auth/spreadsheets.readonly",
         }}
         onChange={onChange}
       />,
     );
     fireEvent.change(screen.getByLabelText("Scopes"), {
       target: {
-        value: "https://www.googleapis.com/auth/doubleclickbidmanager",
+        value: "https://www.googleapis.com/auth/drive.readonly",
       },
     });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     expect(onChange).toHaveBeenLastCalledWith({
       oauth_scope:
-        "https://www.googleapis.com/auth/display-video https://www.googleapis.com/auth/doubleclickbidmanager",
+        "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly",
     });
     rerender(
       <GoogleServiceAccountFields
         config={{
-          oauth_scope: "https://www.googleapis.com/auth/display-video",
+          oauth_scope: "https://www.googleapis.com/auth/spreadsheets.readonly",
         }}
         onChange={onChange}
       />,
     );
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Remove https://www.googleapis.com/auth/display-video",
+        name: "Remove https://www.googleapis.com/auth/spreadsheets.readonly",
       }),
     );
     expect(onChange).toHaveBeenLastCalledWith({});

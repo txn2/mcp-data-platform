@@ -50,6 +50,12 @@ const (
 	OutcomeStoreError = "store_error" // the write that settles the job failed
 )
 
+// Outcomes is every outcome a finished job reports, the closed set a series
+// keyed on it can be started at zero with.
+func Outcomes() []string {
+	return []string{OutcomeSucceeded, OutcomeRetried, OutcomeFailed, OutcomeSourceGone, OutcomeLeaseLost, OutcomeStoreError}
+}
+
 // Embed-call statuses.
 const (
 	EmbedStatusOK      = "ok"

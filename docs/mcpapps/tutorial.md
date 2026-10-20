@@ -181,8 +181,8 @@ The `platform_info` tool returns:
   "toolkits": ["trino", "search", "s3"],
   "features": {
     "semantic_enrichment": true,
-    "query_enrichment": true,
-    "storage_enrichment": true,
+    "query_enrichment": false,
+    "storage_enrichment": false,
     "audit_logging": true
   }
 }
@@ -504,8 +504,8 @@ Replace the default JSON with your tool's output format:
   "toolkits": ["trino", "search", "s3"],
   "features": {
     "semantic_enrichment": true,
-    "query_enrichment": true,
-    "storage_enrichment": true,
+    "query_enrichment": false,
+    "storage_enrichment": false,
     "audit_logging": true
   }
 }
@@ -551,7 +551,7 @@ Test with variations to ensure robustness:
   "features": {
     "semantic_enrichment": true,
     "query_enrichment": false,
-    "storage_enrichment": true,
+    "storage_enrichment": false,
     "audit_logging": false,
     "rate_limiting": true
   }

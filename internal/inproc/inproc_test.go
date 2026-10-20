@@ -41,6 +41,24 @@ func TestRead(t *testing.T) {
 	}
 }
 
+// A refused read keeps the status the route answered, so a caller tells a
+// file that is not there from one the platform could not serve; a route still
+// working when the time is up reads as a 503 (#2218).
+func TestRead_KeepsTheStatusOfARefusal(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /busy", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
+	mux.HandleFunc("GET /slow", func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	for path, want := range map[string]int{"/busy": http.StatusServiceUnavailable, "/missing": http.StatusNotFound, "/slow": http.StatusServiceUnavailable} {
+		res, ok := Read(mux, path, nil, 20*time.Millisecond)
+		if ok || res.Status != want {
+			t.Errorf("Read(%s) = %v %d, want refused with %d", path, ok, res.Status, want)
+		}
+	}
+}
+
 // TestRead_PassesARangedReadThrough: a map's basemap is read by range, so an
 // in-process read forwards the Range and Origin a page sent and answers the
 // route's 206 with its headers (#2068).

@@ -41,6 +41,14 @@ const (
 	// flushTimeout bounds the wait for queued audit events to reach the
 	// store. Exceeding it costs accuracy on the newest call, never the write.
 	flushTimeout = 2 * time.Second
+
+	// citedReads bounds how many times a capture reads for a cited call it
+	// does not find, citedPoll apart: about two seconds. The flush drains
+	// only this replica's writer; a call another replica served is written
+	// by that replica's, a moment after its answer reached the caller, which
+	// can be after the caller cites it here (#2218).
+	citedReads = 20
+	citedPoll  = 100 * time.Millisecond
 )
 
 // sourceKinds maps a toolkit kind to the kind of call it produces. A toolkit
@@ -92,6 +100,8 @@ type Capturer struct {
 	flush    Flusher
 	now      func() time.Time
 	toolkits ToolkitLister
+	// pause waits d, reporting false when ctx ended first. Tests replace it.
+	pause func(ctx context.Context, d time.Duration) bool
 }
 
 // New builds a Capturer over the audit log. A nil reader yields a Capturer
@@ -100,7 +110,7 @@ type Capturer struct {
 // audit writer has nothing to wait for. WithToolkits supplies the registry an
 // api call's operation id is resolved against.
 func New(events EventReader, flush Flusher, opts ...Option) *Capturer {
-	c := &Capturer{events: events, flush: flush, now: time.Now}
+	c := &Capturer{events: events, flush: flush, now: time.Now, pause: pause}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -257,18 +267,39 @@ func (c *Capturer) resolveCited(ctx context.Context, req portal.ProvenanceReques
 	} else {
 		filter.SessionID = req.SessionID
 	}
-	rows, err := c.events.Query(ctx, filter)
-	if err != nil {
-		slog.WarnContext(ctx, "provenance: cited sources could not be read", "error", err, "tool", req.Tool)
-		return nil, false
-	}
-	for _, ev := range rows {
-		if !ownedByCaller(ev, req) {
-			continue
+	// A cited call missing from the first read may be one another replica
+	// served and has not written yet, so the read is repeated until every
+	// cited call is found or citedReads reads are spent. A citation of a call
+	// that does not exist, or is not the caller's, costs that wait and no
+	// more.
+	for read := 1; ; read++ {
+		rows, err := c.events.Query(ctx, filter)
+		if err != nil {
+			slog.WarnContext(ctx, "provenance: cited sources could not be read", "error", err, "tool", req.Tool)
+			return nil, false
 		}
-		events = append(events, ev)
+		if len(rows) >= len(ids) || read >= citedReads || !c.pause(ctx, citedPoll) {
+			events = events[:0]
+			for _, ev := range rows {
+				if ownedByCaller(ev, req) {
+					events = append(events, ev)
+				}
+			}
+			return events, len(ids) > len(events)
+		}
 	}
-	return events, len(ids) > len(events)
+}
+
+// pause waits d or until ctx ends, reporting whether the wait completed.
+func pause(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // resolveWindow returns the session's data-access calls since its previous

@@ -321,10 +321,19 @@ func TestIssue2027_ActingStaysTheOwners(t *testing.T) {
 			t.Errorf("manage_script %v on another person's script was not refused in those words: %v %s", args["command"], err, text)
 		}
 	}
-	for _, path := range []string{"/runs", "/produced"} {
-		status, _ := peer.rest(http.MethodGet, "/api/v1/portal/scripts/"+f.id+path, http.NoBody)
-		if status != http.StatusNotFound {
-			t.Errorf("GET %s of another person's script: HTTP %d; want 404", path, status)
+	// A script's runs are everyone's to read since #1994, as how it went and
+	// not who asked for it; what they produced stays the owner's.
+	if status, _ := peer.rest(http.MethodGet, "/api/v1/portal/scripts/"+f.id+"/produced", http.NoBody); status != http.StatusNotFound {
+		t.Errorf("GET /produced of another person's script: HTTP %d; want 404", status)
+	}
+	status, runs := peer.rest(http.MethodGet, "/api/v1/portal/scripts/"+f.id+"/runs", http.NoBody)
+	if status != http.StatusOK {
+		t.Fatalf("GET /runs of another person's script: HTTP %d; want 200", status)
+	}
+	rows, _ := runs["data"].([]any)
+	for _, r := range rows {
+		if row, _ := r.(map[string]any); row["requested_by"] != nil && row["requested_by"] != "" {
+			t.Errorf("another person's run listing names who requested a run: %v", row)
 		}
 	}
 }

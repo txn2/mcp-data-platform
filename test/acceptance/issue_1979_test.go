@@ -136,7 +136,7 @@ func TestIssue1979_WithNoSourcesEveryListIsEmpty(t *testing.T) {
 	if len(day.Volume) != 0 || len(day.Rejections) != 0 {
 		t.Errorf("the day's series or rejections are not empty with no sources: %+v", day)
 	}
-	if status, _ := c.restText("/api/v1/admin/webhooks/status?range=week"); status != http.StatusBadRequest {
+	if status, _ := c.restText("/api/v1/admin/webhooks/status?range=fortnight"); status != http.StatusBadRequest {
 		t.Errorf("an unknown range answers %d, want 400", status)
 	}
 }

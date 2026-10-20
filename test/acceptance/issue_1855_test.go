@@ -137,7 +137,10 @@ func TestIssue1855_AReaderWhoDoesNotOwnTheScriptReadsTheCitation(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	peer := connectAs(t, devPeerAPIKey)
 	ref := "mcp:script:" + script1855(t, owner)
-	const dataset = "urn:li:dataset:(urn:li:dataPlatform:trino,acceptance.orders.daily,PROD)"
+	// A catalog dataset is cited by its catalog reference, here one the dev
+	// catalog seeds (dev/seed-catalog.sql); the urn:li form was retired with
+	// DataHub (#1925).
+	const dataset = "mcp:dataset:(trino,acme,iceberg.retail.daily_sales)"
 
 	pageID := promote1855(t, admin, "The orders table is kept in sync daily.", []any{ref, dataset})
 

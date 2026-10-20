@@ -136,5 +136,29 @@ func TestIndexJobRecorders_NilSafe(_ *testing.T) {
 	m.IndexEmbedCall(ctx, "k", 1, "ok", time.Second)
 	m.IndexLeasesReleased(ctx, 1)
 	m.IndexUnitsDeferred(ctx, "k", 1)
+	m.IndexJobSeries(ctx, []string{"k"}, []string{"write"}, []string{"succeeded"})
 	m.RegisterIndexQueue(nil)
+}
+
+// TestIndexJobSeries_StartAtZero: every kind, trigger and outcome is scraped
+// at zero before any job, so the first job's increment is one an increase()
+// over the series sees, and a later job counts from there (#2218).
+func TestIndexJobSeries_StartAtZero(t *testing.T) {
+	m := newEnabledMetrics(t)
+	ctx := context.Background()
+	m.IndexJobSeries(ctx, []string{"tools", "calls"}, []string{"write", "manual_retry"}, []string{"succeeded", "failed"})
+
+	body := scrapeMetrics(t, m.Handler())
+	for _, want := range []string{
+		`indexjob_jobs_total{kind="tools",outcome="succeeded",trigger="manual_retry"} 0`,
+		`indexjob_jobs_total{kind="calls",outcome="failed",trigger="write"} 0`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape missing %q", want)
+		}
+	}
+	m.IndexJobFinished(ctx, "tools", "manual_retry", "succeeded", time.Second)
+	if body := scrapeMetrics(t, m.Handler()); !strings.Contains(body, `indexjob_jobs_total{kind="tools",outcome="succeeded",trigger="manual_retry"} 1`) {
+		t.Error("the first job did not count from zero")
+	}
 }

@@ -144,7 +144,9 @@ type Page struct {
 	// stylesheet or script the document named could not be fetched -- the
 	// network failed, or its server answered 429 or 5xx -- instead of
 	// capturing a page drawn without it (#2122). A file its server says does
-	// not exist is the document's own, and is drawn without.
+	// not exist is the document's own, and is drawn without. A file of the
+	// page's own origin that Files answers with a 5xx fails it the same way,
+	// whatever its type (#2218).
 	RequireSubresources bool
 }
 

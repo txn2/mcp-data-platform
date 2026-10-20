@@ -88,14 +88,11 @@ func keysGained(schemas map[string]any, record []closedObject) (gained map[strin
 	return gained, checked
 }
 
-// TestNoKeyIsAddedWhereAnOlderReleaseAdvertisedAClosedObject is #1971's gate.
-// Releases up to v1.137.1 advertised nested objects closed, and a client that
-// cached one of those tool lists validates every later result against it, so a
-// key added to such an object refuses the whole call: platform_info, and with
-// it the session, failed for every owner of a failing automation when
-// notices gained failing_automations. What a release adds goes at the top
-// level, which every release has advertised open, or in a new object.
-func TestNoKeyIsAddedWhereAnOlderReleaseAdvertisedAClosedObject(t *testing.T) {
+// pastReleaseClient connects a client to the platform the past releases'
+// schemas were recorded from: no database, noop providers, one persona
+// allowed every tool.
+func pastReleaseClient(ctx context.Context, t *testing.T) *mcp.ClientSession {
+	t.Helper()
 	cfg := &Config{
 		Server:   ServerConfig{Name: "test-platform"},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
@@ -108,17 +105,29 @@ func TestNoKeyIsAddedWhereAnOlderReleaseAdvertisedAClosedObject(t *testing.T) {
 	}
 	p, err := New(WithConfig(cfg))
 	require.NoError(t, err)
-	ctx := context.Background()
 	require.NoError(t, p.Start(ctx))
-	defer func() { _ = p.Stop(ctx) }()
+	t.Cleanup(func() { _ = p.Stop(ctx) })
 
 	t1, t2 := mcp.NewInMemoryTransports()
 	ss, err := p.MCPServer().Connect(ctx, t1, nil)
 	require.NoError(t, err)
-	defer func() { _ = ss.Close() }()
+	t.Cleanup(func() { _ = ss.Close() })
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil).Connect(ctx, t2, nil)
 	require.NoError(t, err)
-	defer func() { _ = cs.Close() }()
+	t.Cleanup(func() { _ = cs.Close() })
+	return cs
+}
+
+// TestNoKeyIsAddedWhereAnOlderReleaseAdvertisedAClosedObject is #1971's gate.
+// Releases up to v1.137.1 advertised nested objects closed, and a client that
+// cached one of those tool lists validates every later result against it, so a
+// key added to such an object refuses the whole call: platform_info, and with
+// it the session, failed for every owner of a failing automation when
+// notices gained failing_automations. What a release adds goes at the top
+// level, which every release has advertised open, or in a new object.
+func TestNoKeyIsAddedWhereAnOlderReleaseAdvertisedAClosedObject(t *testing.T) {
+	ctx := context.Background()
+	cs := pastReleaseClient(ctx, t)
 
 	schemas := rawAdvertisedSchemas(ctx, t, cs)
 	require.Contains(t, schemas, "platform_info")

@@ -2178,7 +2178,10 @@ platform.execute(
   accepting writes, and a `table_name` that is valid and nobody else's (#2213).
   A connection that cannot fails the export with nothing written, naming the
   connections that can, in a platform run and a draft alike; it used to write
-  the file first and fail the run after, and a rerun wrote it again. `validate`
+  the file first and fail the run after, and a rerun wrote it again. A test
+  replays the check from the recording, so a refusal the draft met fails the
+  test the same way; a recording made before the check holds none, and its
+  test goes on as that run did. `validate`
   flags a literal `register` connection that cannot hold a table, so the
   mistake shows before a save.
 - It is `manage_table register` over the file the export just wrote, made over

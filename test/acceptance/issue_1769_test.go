@@ -37,12 +37,14 @@ const issue1769Purpose = "Acceptance for #1769: proving the presentations page a
 func TestIssue1769_ThePageNamesOverviewAndExportPDF(t *testing.T) {
 	c := connect(t)
 	body := issue1767Page(t, c)
-	for _, want := range []string{"**Overview**", "**Export PDF**", "one slide per page", "Save as PDF"} {
+	// Since #1983 the platform prints the PDF itself, so the page describes a
+	// download of one page per slide rather than the browser's Save as PDF.
+	for _, want := range []string{"**Overview**", "**Export PDF**", "one page per slide"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page does not say %q", want)
 		}
 	}
-	for _, stale := range []string{"print-to-PDF", "query string", "no PDF"} {
+	for _, stale := range []string{"print-to-PDF", "query string", "no PDF", "Save as PDF"} {
 		if strings.Contains(body, stale) {
 			t.Errorf("the page still says %q, which the export makes false", stale)
 		}

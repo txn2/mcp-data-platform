@@ -242,3 +242,31 @@ platform.export(name="o", rows=[], format="jsonl", destination="resources", key=
 	assert.Equal(t, []string{"manage_table"}, report.Tools)
 	assert.True(t, report.DynamicConnections, "a computed register= hides its connection, and the report says so")
 }
+
+// A test replays the register check a run recorded, so a refusal the run met
+// fails the test as it failed the run; a recording made before the check
+// holds none, and its test goes on as that run did (#2218).
+func TestExport_ATestReplaysTheRecordedRegisterCheck(t *testing.T) {
+	refusal := errors.New("this connection has no scratch catalog and schema configured, so a table cannot be registered on it")
+	run := func(caller *registeringCaller, holds bool) error {
+		_, err := Run(context.Background(), Options{
+			Source: registerSource, Name: "test", RunID: "dpx_1", FireTime: fireTime,
+			Caller: caller, Exporter: newLandingExporter(), Writes: WritesMade,
+			Destinations: []script.Destination{acmeDrop()},
+			Test: &TestHooks{HoldsAnswer: func(tool string, args map[string]any) bool {
+				return holds && tool == exporttable.Tool && args["action"] == exporttable.CheckAction
+			}},
+		})
+		return err
+	}
+
+	err := run(&registeringCaller{checkErr: refusal}, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `register cannot use connection "warehouse", so nothing was written`)
+
+	older := &registeringCaller{checkErr: refusal}
+	require.NoError(t, run(older, false))
+	for _, c := range older.calls {
+		assert.NotEqual(t, exporttable.CheckAction, c.args["action"], "a check the recording does not hold is not asked")
+	}
+}

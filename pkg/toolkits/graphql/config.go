@@ -270,6 +270,9 @@ type OAuth2Config struct {
 	AuthorizationURL string
 	// Prompt is an optional OIDC prompt parameter.
 	Prompt string
+	// UnstatedTokenLifetime is how long a token whose response states no
+	// expires_in is reused (oauth_token_lifetime, #2218).
+	UnstatedTokenLifetime time.Duration
 }
 
 // MultiConfig holds parsed per-connection configs plus the aggregate

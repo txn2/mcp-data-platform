@@ -94,6 +94,57 @@ func TestPass_AFailedFetchKeepsTheArchiveServing(t *testing.T) {
 	assert.NotNil(t, objects)
 }
 
+// A region claimed later in a pass is fetched with the settings as they are
+// when it is claimed: a source changed while the pass was busy with another
+// region is the one the next region is fetched from (#2218). A bucket change
+// ends the pass instead, leaving the region for the next one.
+func TestPass_EachRegionIsFetchedWithTheSettingsOfItsClaim(t *testing.T) {
+	src := newSourceServer(t, map[string][]byte{"20261008.pmtiles": testArchive(t, 3)})
+	ts := newTestService(t, src)
+	addSF(t, ts)
+	la := pmtiles.Bounds{MinLon: -118.67, MinLat: 33.70, MaxLon: -118.15, MaxLat: 34.34}
+	_, err := ts.AddRegion(context.Background(), RegionInput{ID: "la", Name: "Los Angeles", Bounds: &la}, "admin@example.com")
+	require.NoError(t, err)
+
+	// Read 1 is the pass's own, read 2 the first claim's; the source moves
+	// before read 3, the second claim's.
+	ts.settings.gets = 0
+	ts.settings.onGet = func(n int, s *Settings) {
+		if n == 3 {
+			s.SourceURL = "http://127.0.0.1:1/planet.pmtiles"
+		}
+	}
+	require.NoError(t, ts.Pass(context.Background()))
+	states := map[string]string{}
+	for _, id := range []string{"sf", "la"} {
+		r, _ := ts.regions.Get(context.Background(), id)
+		states[id] = r.State
+	}
+	assert.ElementsMatch(t, []string{StateReady, StateFailed}, []string{states["sf"], states["la"]},
+		"one region was fetched before the change and one after it: %v", states)
+
+	ts.settings.onGet = nil
+	ts.settings.s.SourceURL = ""
+	for _, id := range []string{"sf", "la"} {
+		_, err := ts.RefreshRegion(context.Background(), id)
+		require.NoError(t, err)
+	}
+	ts.settings.gets = 0
+	ts.settings.onGet = func(n int, s *Settings) {
+		if n == 3 {
+			s.Bucket = "another"
+		}
+	}
+	require.NoError(t, ts.Pass(context.Background()))
+	queued := 0
+	for _, id := range []string{"sf", "la"} {
+		if r, _ := ts.regions.Get(context.Background(), id); r.State == StateQueued {
+			queued++
+		}
+	}
+	assert.Equal(t, 1, queued, "a bucket change ends the pass with the next region still queued")
+}
+
 func TestPass_AFailedUploadRemovesWhatItWrote(t *testing.T) {
 	src := newSourceServer(t, map[string][]byte{"20261008.pmtiles": testArchive(t, 3)})
 	ts := newTestService(t, src)

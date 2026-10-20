@@ -16,6 +16,7 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/tokenexpiry"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
@@ -154,7 +155,7 @@ func newJWTBearerAuth(c Config) (*jwtBearerAuth, error) {
 		now:      time.Now,
 		accepted: a.accepted,
 	}
-	a.src = oauth2.ReuseTokenSource(nil, withBoundedExpiry(exchange, exchange.now))
+	a.src = oauth2.ReuseTokenSource(nil, tokenexpiry.Bounded(exchange, exchange.now, c.OAuth2.UnstatedTokenLifetime))
 	return a, nil
 }
 

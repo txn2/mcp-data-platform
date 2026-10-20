@@ -16,7 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/memoryindex"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/memory"
 )
 
 func mustExec(t *testing.T, db *sql.DB, q string, args ...any) {
@@ -51,6 +54,45 @@ func TestMemoryArchived_RealDB_RemovesOnlyOldArchivedRecords(t *testing.T) {
 	New(db, time.Hour, MemoryArchived(db, 90)...).RunOnce(context.Background())
 
 	assert.ElementsMatch(t, []string{"archived_recent", "active_old"}, ids(t, db, `SELECT id FROM memory_records`))
+}
+
+// An archived memory's embedding written after its archive leaves its
+// retention where it was (#2217): the index job lands a second after a
+// capture, and a reindex or a model change re-embeds archived records too.
+func TestMemoryArchived_RealDB_AnEmbeddingDoesNotRestartRetention(t *testing.T) {
+	db := testdb.New(t)
+	old := time.Now().UTC().AddDate(0, 0, -100)
+	mustExec(t, db, `INSERT INTO memory_records (id, content, status, updated_at) VALUES ('archived_old', 'x', 'archived', $1)`, old)
+
+	embedding := make([]float32, 768)
+	embedding[0] = 1
+	require.NoError(t, memoryindex.NewStore(db).UpsertVectors(context.Background(), "archived_old",
+		[]indexjobs.Vector{{ItemID: "archived_old", Embedding: embedding, Model: "nomic-embed-text", TextHash: []byte("h"), Dim: 768}}))
+
+	var updated time.Time
+	require.NoError(t, db.QueryRowContext(context.Background(), `SELECT updated_at FROM memory_records WHERE id = 'archived_old'`).Scan(&updated))
+	assert.WithinDuration(t, old, updated, time.Second, "the embedding moved updated_at")
+
+	New(db, time.Hour, MemoryArchived(db, 90)...).RunOnce(context.Background())
+	assert.Empty(t, ids(t, db, `SELECT id FROM memory_records`))
+}
+
+// The recall check's result, written once the embedding lands, is a note
+// about the record and leaves its retention where it was too (#2218).
+func TestMemoryArchived_RealDB_TheRecallCheckDoesNotRestartRetention(t *testing.T) {
+	db := testdb.New(t)
+	old := time.Now().UTC().AddDate(0, 0, -100)
+	mustExec(t, db, `INSERT INTO memory_records (id, content, status, updated_at) VALUES ('archived_old', 'x', 'archived', $1)`, old)
+
+	require.NoError(t, memory.NewPostgresStore(db).Update(context.Background(), "archived_old",
+		memory.RecordUpdate{Metadata: map[string]any{"recall_check": "done"}, KeepUpdatedAt: true}))
+
+	var updated time.Time
+	require.NoError(t, db.QueryRowContext(context.Background(), `SELECT updated_at FROM memory_records WHERE id = 'archived_old'`).Scan(&updated))
+	assert.WithinDuration(t, old, updated, time.Second, "the recall check's write moved updated_at")
+
+	New(db, time.Hour, MemoryArchived(db, 90)...).RunOnce(context.Background())
+	assert.Empty(t, ids(t, db, `SELECT id FROM memory_records`))
 }
 
 func TestOrphanedProducers_RealDB_RemovesOnlyOldRowsWhoseFileIsGone(t *testing.T) {

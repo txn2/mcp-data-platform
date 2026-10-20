@@ -77,6 +77,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/storeresync"
 	"github.com/txn2/mcp-data-platform/internal/platform/taskwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
+	"github.com/txn2/mcp-data-platform/internal/platform/trinowiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
@@ -657,6 +658,7 @@ func (p *Platform) WireGatewayIntegrations() {
 	p.WireGatewayBroadcaster()
 	p.WireAPIGatewayRoutePolicy()
 	p.WireAPIGatewayConnectionStore()
+	trinowiring.ConnectionStore(p.toolkitRegistry, p.savedConnections("trino", trinokit.ErrConnectionNotFound))
 	p.WireAPIGatewayTokenStore()
 	p.WireAPIGatewayEmbeddingProvider()
 	p.WireAPIGatewayCatalogStoreFromDB()
@@ -800,9 +802,13 @@ func (p *Platform) APIGatewayCatalogStore() apigatewaycatalog.Store {
 // a connection saved on another replica is served here from the moment
 // that save returns rather than when its announcement arrives (#1746).
 func (p *Platform) WireAPIGatewayConnectionStore() {
-	apigwwiring.ConnectionStore(p.toolkitRegistry, connrecords.Saved[*ConnectionInstance](
-		p.connectionStore, apigatewaykit.Kind, ErrConnectionNotFound, apigatewaykit.ErrConnectionNotFound,
-		func(inst *ConnectionInstance) map[string]any { return inst.Config }))
+	apigwwiring.ConnectionStore(p.toolkitRegistry, p.savedConnections(apigatewaykit.Kind, apigatewaykit.ErrConnectionNotFound))
+}
+
+// savedConnections reads one kind's saved connections, a toolkit's catch-up store.
+func (p *Platform) savedConnections(kind string, kindNotFound error) connrecords.Reader {
+	return connrecords.Saved[*ConnectionInstance](p.connectionStore, kind, ErrConnectionNotFound, kindNotFound,
+		func(inst *ConnectionInstance) map[string]any { return inst.Config })
 }
 
 // WireAPIGatewayCatalogStore attaches the catalog.Store the toolkit
@@ -1825,7 +1831,7 @@ func (p *Platform) wireTrinoExport() {
 		return
 	}
 
-	trinoToolkits := p.toolkitRegistry.GetByKind("trino")
+	trinoToolkits := trinowiring.Toolkits(p.toolkitRegistry)
 	if len(trinoToolkits) == 0 {
 		slog.Debug("trino_export: no trino toolkits registered, skipping")
 		return
@@ -1838,11 +1844,7 @@ func (p *Platform) wireTrinoExport() {
 		p.config.Portal.PublicBaseURL, p.captureProvenance,
 	)
 
-	for _, tk := range trinoToolkits {
-		trinoTk, ok := tk.(*trinokit.Toolkit)
-		if !ok {
-			continue
-		}
+	for _, trinoTk := range trinoToolkits {
 		trinoTk.SetExportDeps(trinokit.ExportDeps{
 			AssetStore:     trinoExporter,
 			VersionStore:   trinoExporter,

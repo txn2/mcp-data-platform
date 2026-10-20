@@ -116,7 +116,7 @@ func TestAPIHint(t *testing.T) {
 		}
 		return v
 	}
-	disabled := decode(`{"error":{"code":403,"message":"Display & Video 360 API has not been used in project 1234567890 before or it is disabled.","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"SERVICE_DISABLED"}]}}`)
+	disabled := decode(`{"error":{"code":403,"message":"Google Sheets API has not been used in project 1234567890 before or it is disabled.","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"SERVICE_DISABLED"}]}}`)
 	denied := decode(`{"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}`)
 	profile := decode(`{"error":{"code":401,"message":"Cannot get profile for this user.","status":"UNAUTHENTICATED"}}`)
 	for name, tc := range map[string]struct {
@@ -124,13 +124,13 @@ func TestAPIHint(t *testing.T) {
 		body   any
 		want   string
 	}{
-		"an API not enabled":     {http.StatusForbidden, disabled, "not enabled in the service account's Google Cloud project"},
-		"no access in product":   {http.StatusForbidden, denied, "grant the service account's email access"},
-		"no Bid Manager profile": {http.StatusUnauthorized, profile, "grant the service account's email access"},
-		"a success":              {http.StatusOK, denied, ""},
-		"not Google's shape":     {http.StatusForbidden, decode(`{"message":"forbidden"}`), ""},
-		"a body that is text":    {http.StatusForbidden, "forbidden", ""},
-		"an unmarshalable body":  {http.StatusForbidden, func() {}, ""},
+		"an API not enabled":        {http.StatusForbidden, disabled, "not enabled in the service account's Google Cloud project"},
+		"no access in product":      {http.StatusForbidden, denied, "grant the service account's email access"},
+		"no profile in the product": {http.StatusUnauthorized, profile, "grant the service account's email access"},
+		"a success":                 {http.StatusOK, denied, ""},
+		"not Google's shape":        {http.StatusForbidden, decode(`{"message":"forbidden"}`), ""},
+		"a body that is text":       {http.StatusForbidden, "forbidden", ""},
+		"an unmarshalable body":     {http.StatusForbidden, func() {}, ""},
 	} {
 		if got := APIHint(tc.status, tc.body); (tc.want == "" && got != "") || !strings.Contains(got, tc.want) {
 			t.Errorf("%s: hint = %q, want %q", name, got, tc.want)
