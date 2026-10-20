@@ -92,6 +92,26 @@ INSERT INTO catalog_aspects (entity_id, aspect, value, version, written_by) VALU
     ('cc269bbf-b655-576e-a172-22f18b327f17', 'custom_properties', '{"upstream":"iceberg.analytics.customer_segments"}'::jsonb, 1, 'seed')
 ON CONFLICT (entity_id, aspect) DO NOTHING;
 
+-- A table tagged PII that the dev Trino holds, so a query against it runs:
+-- the Trino toolkit asks for consent before reading a table the catalog tags
+-- PII (#2052). Its rows live in Trino's memory catalog, which starts empty, so
+-- the criterion that reads it creates them; the tag is the catalog's.
+INSERT INTO catalog_entities
+    (id, kind, reference, connection_kind, connection_name, path, column_name, parent_id, name, dataset_type, data_type, ordinal, nullable)
+VALUES
+    ('44768b24-8270-590a-85ad-bd0fadecaa6b', 'dataset', 'mcp:dataset:(trino,acme,memory.default.customers)', 'trino', 'acme', 'memory.default.customers', '', NULL, 'customers', 'table', '', 0, TRUE)
+ON CONFLICT (reference) DO NOTHING;
+
+INSERT INTO catalog_entities
+    (id, kind, reference, connection_kind, connection_name, path, column_name, parent_id, name, dataset_type, data_type, ordinal, nullable)
+SELECT 'e458dbf5-217e-550e-b66f-5a4a96c95236', 'column', 'mcp:column:(trino,acme,memory.default.customers,email)', 'trino', 'acme', 'memory.default.customers', 'email', id, 'email', '', 'varchar', 0, TRUE
+FROM catalog_entities WHERE reference = 'mcp:dataset:(trino,acme,memory.default.customers)'
+ON CONFLICT (reference) DO NOTHING;
+
+INSERT INTO catalog_aspects (entity_id, aspect, value, version, written_by)
+SELECT id, 'tags', '["PII"]'::jsonb, 1, 'seed' FROM catalog_entities WHERE reference = 'mcp:dataset:(trino,acme,memory.default.customers)'
+ON CONFLICT (entity_id, aspect) DO NOTHING;
+
 INSERT INTO catalog_aspect_history (entity_id, aspect, version, value, written_by)
 SELECT a.entity_id, a.aspect, a.version, a.value, a.written_by FROM catalog_aspects a
 WHERE a.written_by = 'seed'

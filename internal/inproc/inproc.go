@@ -55,7 +55,13 @@ func Read(routes http.Handler, path string, header http.Header, timeout time.Dur
 	rec := NewRecorder()
 	routes.ServeHTTP(rec, req)
 	if rec.Code() != http.StatusOK && rec.Code() != http.StatusPartialContent {
-		return Response{}, false
+		// The status is kept so a caller can tell a file that is not there
+		// from one the platform could not serve in time (#2218).
+		status := rec.Code()
+		if status == 0 || ctx.Err() != nil {
+			status = http.StatusServiceUnavailable
+		}
+		return Response{Status: status}, false
 	}
 	return Response{Status: rec.Code(), Header: rec.Header(), Body: rec.Body.Bytes()}, true
 }

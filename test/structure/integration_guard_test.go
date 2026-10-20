@@ -30,7 +30,7 @@ import (
 var allowlistedIntegrationDirs = map[string]string{
 	"test/e2e":        "manual e2e suite against an assembled server and its upstreams; a nightly is #880 finding 3.4",
 	"test/smoke":      "manual post-deploy smoke against a running MCP server (requires MCP_API_KEY)",
-	"test/acceptance": "per-ticket acceptance suite against a running platform (make dev): run by `make acceptance`, required by `make verify-release`; a test here fails, never skips, when no server answers",
+	"test/acceptance": "per-ticket acceptance suite against a running platform (make dev): run by `make acceptance` and nightly through `make acceptance-release`, each changed ticket's run required by `make verify-release`; a test here fails, never skips, when no server answers",
 }
 
 // allowlistedIntegrationFuncs maps "relpath::FuncName" to a justification for a

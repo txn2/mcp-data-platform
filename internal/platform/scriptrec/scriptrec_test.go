@@ -351,3 +351,28 @@ func TestToolKeyLeavesAStatementsTimeoutOut(t *testing.T) {
 	assert.Equal(t, 55, args["timeout_seconds"], "the call's own arguments are not changed")
 	assert.NotEqual(t, ToolKey("api_invoke_endpoint", map[string]any{"sql": "SELECT 1"}), ToolKey("api_invoke_endpoint", args))
 }
+
+// declaredCheck answers one call the way testing.answer declares one.
+type declaredCheck struct{}
+
+func (declaredCheck) Answer(tool string, _ map[string]any) (Answered, bool) {
+	return Answered{Out: map[string]any{"ok": true}}, tool == "declared"
+}
+
+// Holds says whether a call would be answered, without making it: a
+// recorded call until it is used, a declared answer always, and nothing else
+// (#2218).
+func TestHoldsReportsAnAnswerWithoutUsingIt(t *testing.T) {
+	r := NewRecorder(Header{})
+	r.OnCall("manage_table", map[string]any{"action": "check"}, nil, errors.New("no scratch catalog"))
+	replay := NewReplay(finish(t, r)).WithAnswers(declaredCheck{})
+
+	assert.True(t, replay.Holds("manage_table", map[string]any{"action": "check"}))
+	assert.True(t, replay.Holds("manage_table", map[string]any{"action": "check"}), "asking uses nothing")
+	assert.False(t, replay.Holds("manage_table", map[string]any{"action": "register"}))
+	assert.True(t, replay.Holds("declared", nil))
+
+	_, err := replay.CallTool(context.Background(), "manage_table", map[string]any{"action": "check"})
+	require.ErrorContains(t, err, "no scratch catalog")
+	assert.False(t, replay.Holds("manage_table", map[string]any{"action": "check"}), "the one answer is used")
+}

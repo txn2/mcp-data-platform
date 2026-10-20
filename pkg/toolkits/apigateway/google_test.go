@@ -19,7 +19,7 @@ import (
 
 const (
 	googleTestEmail = "reporting@acme-analytics.iam.gserviceaccount.com"
-	googleTestScope = "https://www.googleapis.com/auth/display-video"
+	googleTestScope = "https://www.googleapis.com/auth/spreadsheets.readonly"
 )
 
 // googleUpstream is Google's token endpoint and one Google API behind it: the
@@ -62,7 +62,7 @@ func newGoogleUpstream(t *testing.T) *googleUpstream {
 			return
 		}
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":{"code":403,"message":"Display & Video 360 API has not been used in project 1234567890 before or it is disabled.",` +
+		_, _ = w.Write([]byte(`{"error":{"code":403,"message":"Google Sheets API has not been used in project 1234567890 before or it is disabled.",` +
 			`"status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"SERVICE_DISABLED"}]}}`))
 	}))
 	t.Cleanup(g.token.Close)
@@ -99,7 +99,7 @@ func TestGoogleServiceAccount_ThroughTheConnection(t *testing.T) {
 	g := newGoogleUpstream(t)
 	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
-	if err := tk.AddConnection("dv360", map[string]any{
+	if err := tk.AddConnection("google-sheets", map[string]any{
 		"base_url":                    g.api.URL,
 		"google_service_account_json": googleTestKeyFile(t, g.token.URL),
 		"oauth_scope":                 googleTestScope,
@@ -107,12 +107,12 @@ func TestGoogleServiceAccount_ThroughTheConnection(t *testing.T) {
 		t.Fatalf("AddConnection: %v", err)
 	}
 
-	res := tk.ProbeConnection(context.Background(), "dv360")
+	res := tk.ProbeConnection(context.Background(), "google-sheets")
 	if !res.OK || !strings.Contains(res.Detail, "issued a token for "+googleTestEmail+" with scopes "+googleTestScope) {
 		t.Fatalf("connection test = %+v", res)
 	}
 
-	_, out := modelCall(t, tk, InvokeInput{Connection: "dv360", Method: http.MethodGet, Path: "/v4/advertisers"}, 1<<20)
+	_, out := modelCall(t, tk, InvokeInput{Connection: "google-sheets", Method: http.MethodGet, Path: "/v4/advertisers"}, 1<<20)
 	if out.Status != http.StatusForbidden || !strings.Contains(out.Hint, "not enabled in the service account's Google Cloud project") {
 		t.Fatalf("status %d hint %q", out.Status, out.Hint)
 	}
@@ -134,8 +134,8 @@ type keySecrets struct {
 }
 
 func (k keySecrets) ConnectionValue(_ context.Context, name, connection string) (string, error) {
-	if name != "dv360-key" || connection != k.connection {
-		return "", errors.New(`secret "dv360-key" may not be used by connection "` + connection + `"`)
+	if name != "google-sa-key" || connection != k.connection {
+		return "", errors.New(`secret "google-sa-key" may not be used by connection "` + connection + `"`)
 	}
 	return k.value, nil
 }
@@ -154,18 +154,18 @@ func TestGoogleServiceAccount_KeyFromAStoredSecret(t *testing.T) {
 	cfg := func() map[string]any {
 		return map[string]any{
 			"base_url": g.api.URL, "oauth_scope": googleTestScope,
-			"google_service_account_secret": "dv360-key", "oauth_token_url": g.token.URL,
+			"google_service_account_secret": "google-sa-key", "oauth_token_url": g.token.URL,
 		}
 	}
-	if err := tk.AddConnection("dv360", cfg()); err != nil {
+	if err := tk.AddConnection("google-sheets", cfg()); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	if res := tk.ProbeConnection(context.Background(), "dv360"); res.OK || !strings.Contains(res.Error, "stored secrets are not available here") {
+	if res := tk.ProbeConnection(context.Background(), "google-sheets"); res.OK || !strings.Contains(res.Error, "stored secrets are not available here") {
 		t.Fatalf("a key secret with no store wired = %+v", res)
 	}
 
-	tk.SetSecrets(keySecrets{value: googleTestKeyFile(t, g.token.URL), connection: "dv360"})
-	if res := tk.ProbeConnection(context.Background(), "dv360"); !res.OK || !strings.Contains(res.Detail, googleTestEmail) {
+	tk.SetSecrets(keySecrets{value: googleTestKeyFile(t, g.token.URL), connection: "google-sheets"})
+	if res := tk.ProbeConnection(context.Background(), "google-sheets"); !res.OK || !strings.Contains(res.Detail, googleTestEmail) {
 		t.Fatalf("connection test after the store was wired = %+v", res)
 	}
 

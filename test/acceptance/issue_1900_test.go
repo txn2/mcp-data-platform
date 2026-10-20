@@ -72,6 +72,24 @@ func clickhouseNumber(t *testing.T, query string) float64 {
 	return v
 }
 
+// substrateWait covers two of the edge collector's 60-second substrate
+// scrapes: the first lands up to a full interval after the collector starts,
+// and a run may start the bundle a moment before this criterion reads it.
+const substrateWait = 150 * time.Second
+
+// substrateNumber polls a single-number query until it reads above zero or
+// substrateWait passes, and returns the last reading.
+func substrateNumber(t *testing.T, query string) float64 {
+	t.Helper()
+	deadline := time.Now().Add(substrateWait)
+	for {
+		if v := clickhouseNumber(t, query); v > 0 || time.Now().After(deadline) {
+			return v
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
 // waitForRows polls a query until it returns a row, and returns its rows.
 func waitForRows(t *testing.T, query string, within time.Duration) []string {
 	t.Helper()
@@ -161,12 +179,12 @@ func TestIssue1900_EverySignalReachesClickHouseWithTheResource(t *testing.T) {
 // platform's own scrape.
 func TestIssue1900_TheSubstrateArrives(t *testing.T) {
 	recent := "TimeUnix > now() - INTERVAL 5 MINUTE"
-	if v := clickhouseNumber(t, "SELECT max(Value) FROM otel_metrics_gauge WHERE MetricName = 'SeaweedFS_volumeServer_resource' AND Attributes['type'] = 'all' AND "+recent); v <= 0 {
+	if v := substrateNumber(t, "SELECT max(Value) FROM otel_metrics_gauge WHERE MetricName = 'SeaweedFS_volumeServer_resource' AND Attributes['type'] = 'all' AND "+recent); v <= 0 {
 		t.Errorf("SeaweedFS_volumeServer_resource{type=\"all\"} = %v, want the volume's capacity", v)
 	}
 	for _, purpose := range []string{"portal_assets", "resources", "thumbnails"} {
 		q := fmt.Sprintf("SELECT max(Value) FROM otel_metrics_gauge WHERE MetricName = 'storage_bucket' AND Attributes['purpose'] = '%s' AND %s", purpose, recent)
-		if v := clickhouseNumber(t, q); v <= 0 {
+		if v := substrateNumber(t, q); v <= 0 {
 			t.Errorf("storage_bucket_bytes{purpose=%q} did not arrive", purpose)
 		}
 	}
@@ -175,7 +193,7 @@ func TestIssue1900_TheSubstrateArrives(t *testing.T) {
 		{"gauge", "postgresql.xid.age"}, {"gauge", "postgresql.transaction.longest"},
 	} {
 		q := fmt.Sprintf("SELECT count() FROM otel_metrics_%s WHERE MetricName = '%s' AND %s", m.table, m.name, recent)
-		if clickhouseNumber(t, q) == 0 {
+		if substrateNumber(t, q) == 0 {
 			t.Errorf("%s did not arrive", m.name)
 		}
 	}

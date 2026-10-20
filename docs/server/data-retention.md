@@ -10,7 +10,7 @@ deployment sets nothing unless it wants a different age.
 | What | Kept for | Setting | Removed with it |
 |---|---|---|---|
 | Deleted assets, collections, feedback threads and knowledge pages | 30 days after the delete | `portal.deleted_retention_days` | Every version object, tile and collection mosaic the item names; its shares, its places in collections and its feedback threads |
-| Archived (deleted) memory records | 90 days after the delete | `memory.archived_retention_days` | |
+| Archived (deleted) memory records | 90 days after the delete | `memory.archived_retention_days` | The delete is the record's last edit. The platform's own writes about a record (its embedding, and the check of a new record against the ones like it) do not move it, so an archived record is not kept longer for having been indexed late (#2217) |
 | Records of what produced an asset or managed resource whose file is gone | 90 days after the last write | `portal.orphaned_producer_retention_days` | |
 | Failed indexing jobs nobody resolved | 90 days after they finished | `apigateway.embed_jobs.failed_retention_days` | |
 | Finished indexing jobs | 14 days | `apigateway.embed_jobs.retention_days` | |

@@ -1256,10 +1256,10 @@ func TestRedactConnectionConfig_GoogleKeyIdentity(t *testing.T) {
 func TestSetConnectionInstance_GoogleKeyFileForms(t *testing.T) {
 	put := func(t *testing.T, store *mockConnectionStore, key string) *httptest.ResponseRecorder {
 		t.Helper()
-		body := strings.NewReader(`{"config": {"base_url": "https://displayvideo.googleapis.com", "oauth_scope": "https://www.googleapis.com/auth/display-video", "google_service_account_json": ` + key + `}}`)
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/connection-instances/api/dv360", body)
+		body := strings.NewReader(`{"config": {"base_url": "https://sheets.googleapis.com", "oauth_scope": "https://www.googleapis.com/auth/spreadsheets.readonly", "google_service_account_json": ` + key + `}}`)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/connection-instances/api/google-sheets", body)
 		req.SetPathValue("kind", "api")
-		req.SetPathValue("name", "dv360")
+		req.SetPathValue("name", "google-sheets")
 		rr := httptest.NewRecorder()
 		connTestHandler(store, true).setConnectionInstance(rr, req)
 		return rr

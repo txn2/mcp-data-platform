@@ -1340,6 +1340,8 @@ internal/platform/toolratelimit -> internal/logsan
 internal/platform/toolratelimit -> pkg/middleware
 internal/platform/toolratelimit -> pkg/observability
 internal/platform/toolratelimit -> pkg/ratelimit
+internal/platform/trinowiring -> pkg/registry
+internal/platform/trinowiring -> pkg/toolkits/trino
 internal/platform/userdir -> internal/platform/subjects
 internal/platform/userdir -> internal/platform/subjects/postgres
 internal/platform/userdir -> pkg/auth
@@ -1451,6 +1453,7 @@ internal/upstreamauth -> internal/secretref
 internal/upstreamauth -> internal/selfcall
 internal/upstreamauth -> internal/upstreamauth/googlekey
 internal/upstreamauth -> internal/upstreamauth/sessionlogin
+internal/upstreamauth -> internal/upstreamauth/tokenexpiry
 internal/upstreamauth -> pkg/authevents
 internal/upstreamauth -> pkg/connoauth
 internal/upstreamauth -> pkg/mcpcontext
@@ -1773,6 +1776,7 @@ pkg/platform -> internal/platform/toolargs
 pkg/platform -> internal/platform/toolinventory
 pkg/platform -> internal/platform/toolkitcfg
 pkg/platform -> internal/platform/toolratelimit
+pkg/platform -> internal/platform/trinowiring
 pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
 pkg/platform -> internal/portal/assetrefs
@@ -2078,6 +2082,7 @@ pkg/toolkits/search -> pkg/query
 pkg/toolkits/search -> pkg/semantic
 pkg/toolkits/search -> pkg/toolkit
 pkg/toolkits/tools/toolsindex -> pkg/indexjobs
+pkg/toolkits/trino -> internal/conncatchup
 pkg/toolkits/trino -> internal/connprobe
 pkg/toolkits/trino -> internal/connstate
 pkg/toolkits/trino -> internal/exporttrunc

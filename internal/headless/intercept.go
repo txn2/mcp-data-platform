@@ -88,6 +88,9 @@ func (rs *render) serveOwn(ctx context.Context, session, requestID, path string,
 	}
 	if rs.page.Files != nil {
 		if f, ok := rs.page.Files(path, header); ok {
+			if f.Status >= http.StatusInternalServerError {
+				rs.noteOwnFailure(path, f.Status)
+			}
 			rs.fulfill(ctx, session, requestID, ownReply(f))
 			return
 		}
@@ -213,6 +216,19 @@ func (rs *render) noteMissing(p pausedRequest, why string) {
 	}
 	rs.mu.Lock()
 	rs.missing = append(rs.missing, strings.ToLower(p.ResourceType)+" "+p.Request.URL+" ("+why+")")
+	rs.mu.Unlock()
+}
+
+// noteOwnFailure records a file the page declared that the platform could not
+// serve, for a page that asked to fail on one: a font, an image or a script
+// the document references drawn without because storage was slow is not the
+// document as it stands, whatever its type (#2218).
+func (rs *render) noteOwnFailure(path string, status int) {
+	if !rs.page.RequireSubresources {
+		return
+	}
+	rs.mu.Lock()
+	rs.missing = append(rs.missing, fmt.Sprintf("%s (the platform answered %d)", path, status))
 	rs.mu.Unlock()
 }
 

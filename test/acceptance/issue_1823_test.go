@@ -49,7 +49,10 @@ func TestIssue1823_ASaveNamesTheReservedWord(t *testing.T) {
 	if !strings.Contains(text, `"status":"invalid"`) {
 		t.Fatalf("a script that does not parse was not reported invalid: %s", text)
 	}
-	if _, got, _ := c.callRaw("manage_script", map[string]any{"command": "get", "name": name}); strings.Contains(got, "def load") {
+	// Since #2114 a refused create keeps its source as a pending draft to
+	// patch, which get reports as not saved; no version exists.
+	if _, got, _ := c.callRaw("manage_script", map[string]any{"command": "get", "name": name}); strings.Contains(got, "def load") &&
+		(!strings.Contains(got, `"pending":true`) || !strings.Contains(got, "Not saved")) {
 		t.Errorf("the invalid script was saved: %s", got)
 	}
 	for _, want := range []string{"`load` is a reserved word in Starlark", "load_rows"} {

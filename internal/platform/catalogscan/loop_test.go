@@ -51,8 +51,11 @@ func expectUnlock(mock sqlmock.Sqlmock) {
 	mock.ExpectExec("pg_advisory_unlock").WithArgs(LockKey).WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
+// expectStart expects a scan's start and, once it has run, the check for a
+// request made during it, which finds none.
 func expectStart(mock sqlmock.Sqlmock) {
 	mock.ExpectExec("INSERT INTO catalog_scan_state \\(id, started_at").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("FROM catalog_scan_state").WillReturnRows(dueRows(time.Now(), nil))
 }
 
 func dueRows(last, requested any) *sqlmock.Rows {
@@ -122,7 +125,7 @@ func TestLockedScanFailures(t *testing.T) {
 
 	expectLock(mock, true)
 	mock.ExpectQuery("FROM catalog_scan_state").WillReturnRows(sqlmock.NewRows([]string{"started_at", "requested_at"}))
-	expectStart(mock)
+	mock.ExpectExec("INSERT INTO catalog_scan_state \\(id, started_at").WillReturnResult(sqlmock.NewResult(0, 1))
 	expectUnlock(mock)
 	l.scanner.settings = fakeSettings{err: errBoom}
 	assert.ErrorIs(t, l.runOnce(ctx), errBoom, "a failed scan fails the iteration")
@@ -208,4 +211,41 @@ func TestAfterScanRunsAfterAFinishedScan(t *testing.T) {
 
 	var none *Loop
 	none.AfterScan(func(context.Context) {})
+}
+
+// A request made while this replica scans is served before the lock is
+// released, rather than at the next poll (#2218).
+func TestLockedScanServesARequestMadeDuringTheScan(t *testing.T) {
+	l, mock := newLoopMock(t, Defaults(), nil)
+	now := time.Now()
+	expectLock(mock, true)
+	mock.ExpectQuery("FROM catalog_scan_state").WillReturnRows(dueRows(nil, nil))
+	mock.ExpectExec("INSERT INTO catalog_scan_state \\(id, started_at").WillReturnResult(sqlmock.NewResult(0, 1))
+	// The request arrived after the first pass started.
+	mock.ExpectQuery("FROM catalog_scan_state").WillReturnRows(dueRows(now.Add(-time.Minute), now))
+	expectStart(mock)
+	expectUnlock(mock)
+
+	ran, err := l.lockedScan(context.Background())
+	require.NoError(t, err)
+	assert.True(t, ran)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A failure on a later pass is returned and the scans already run still
+// count.
+func TestLockedScanReportsALaterPassFailing(t *testing.T) {
+	l, mock := newLoopMock(t, Defaults(), nil)
+	now := time.Now()
+	expectLock(mock, true)
+	mock.ExpectQuery("FROM catalog_scan_state").WillReturnRows(dueRows(nil, nil))
+	mock.ExpectExec("INSERT INTO catalog_scan_state \\(id, started_at").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("FROM catalog_scan_state").WillReturnRows(dueRows(now.Add(-time.Minute), now))
+	mock.ExpectExec("INSERT INTO catalog_scan_state \\(id, started_at").WillReturnError(errBoom)
+	expectUnlock(mock)
+
+	ran, err := l.lockedScan(context.Background())
+	require.ErrorIs(t, err, errBoom)
+	assert.True(t, ran)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

@@ -16,7 +16,7 @@ import (
 
 const (
 	testGoogleEmail = "reporting@acme-analytics.iam.gserviceaccount.com"
-	testGoogleScope = "https://www.googleapis.com/auth/display-video"
+	testGoogleScope = "https://www.googleapis.com/auth/spreadsheets.readonly"
 )
 
 // googleKeyFile is a service account key file as Google issues it, signing
@@ -48,11 +48,11 @@ func assertionOf(t *testing.T, req tokenRequest) (claims jwt.MapClaims, header m
 
 func parseGoogle(t *testing.T, cfg map[string]any) Config {
 	t.Helper()
-	c, err := Parse("api", "apigateway", "https://displayvideo.googleapis.com", cfg)
+	c, err := Parse("api", "apigateway", "https://sheets.googleapis.com", cfg)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	c.ConnectionName = "dv360"
+	c.ConnectionName = "google-sheets"
 	return c
 }
 
@@ -129,14 +129,14 @@ func TestParseGoogleServiceAccount_FillsTheGrant(t *testing.T) {
 	}
 
 	_, err := Parse("api", "apigateway", "", map[string]any{
-		googlekey.ConfigKey: file, cfgKeyGoogleServiceAccountSecret: "dv360-key",
+		googlekey.ConfigKey: file, cfgKeyGoogleServiceAccountSecret: "google-sa-key",
 	})
 	if err == nil || !strings.Contains(err.Error(), "set one of") {
 		t.Fatalf("both forms of the key were accepted: %v", err)
 	}
 
-	secret := parseGoogle(t, map[string]any{cfgKeyGoogleServiceAccountSecret: " dv360-key ", connoauth.ConfigKeyScope: testGoogleScope})
-	if secret.Google.Secret != "dv360-key" || secret.OAuth2.TokenURL != googlekey.TokenURL {
+	secret := parseGoogle(t, map[string]any{cfgKeyGoogleServiceAccountSecret: " google-sa-key ", connoauth.ConfigKeyScope: testGoogleScope})
+	if secret.Google.Secret != "google-sa-key" || secret.OAuth2.TokenURL != googlekey.TokenURL {
 		t.Fatalf("secret form = %+v, token url %q", secret.Google, secret.OAuth2.TokenURL)
 	}
 	if err := secret.ValidateAuth(); err != nil {
@@ -234,14 +234,14 @@ func TestGoogleExchange_KeyFromAStoredSecret(t *testing.T) {
 	e := newTokenEndpoint(t)
 	e.answer(http.StatusOK, `{"access_token":"ya29.a","token_type":"Bearer","expires_in":1}`)
 	c := parseGoogle(t, map[string]any{
-		cfgKeyGoogleServiceAccountSecret: "dv360-key", connoauth.ConfigKeyScope: testGoogleScope,
+		cfgKeyGoogleServiceAccountSecret: "google-sa-key", connoauth.ConfigKeyScope: testGoogleScope,
 		connoauth.ConfigKeyTokenURL: e.url(),
 	})
 	a, err := NewAuthenticator(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyTo(t, a); err == nil || !strings.Contains(err.Error(), `the stored secret "dv360-key"`) {
+	if _, err := applyTo(t, a); err == nil || !strings.Contains(err.Error(), `the stored secret "google-sa-key"`) {
 		t.Fatalf("an unwired secret read was not refused naming it: %v", err)
 	}
 
@@ -261,7 +261,7 @@ func TestGoogleExchange_KeyFromAStoredSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	sent := e.seen()
-	if len(sent) != 2 || len(asked) != 2 || asked[0] != "dv360-key" {
+	if len(sent) != 2 || len(asked) != 2 || asked[0] != "google-sa-key" {
 		t.Fatalf("%d exchanges, secret read %v", len(sent), asked)
 	}
 	first, h1 := assertionOf(t, sent[0])
@@ -271,7 +271,7 @@ func TestGoogleExchange_KeyFromAStoredSecret(t *testing.T) {
 	}
 
 	SetKeySecrets(a, func(context.Context, string) (string, error) {
-		return "", errors.New(`secret "dv360-key" may not be sent through connection "dv360"`)
+		return "", errors.New(`secret "google-sa-key" may not be sent through connection "google-sheets"`)
 	})
 	if _, err := applyTo(t, a); err == nil || !strings.Contains(err.Error(), "may not be sent through connection") {
 		t.Fatalf("a refused secret read = %v", err)
@@ -395,26 +395,26 @@ func TestGrantDetailAndBindKeySecrets(t *testing.T) {
 	}
 	e := newTokenEndpoint(t)
 	c := parseGoogle(t, map[string]any{
-		cfgKeyGoogleServiceAccountSecret: "dv360-key", connoauth.ConfigKeyScope: testGoogleScope, connoauth.ConfigKeyTokenURL: e.url(),
+		cfgKeyGoogleServiceAccountSecret: "google-sa-key", connoauth.ConfigKeyScope: testGoogleScope, connoauth.ConfigKeyTokenURL: e.url(),
 	})
 	a, err := NewAuthenticator(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if BindKeySecrets(a, nil, "dv360") {
+	if BindKeySecrets(a, nil, "google-sheets") {
 		t.Fatal("a nil read was bound")
 	}
 	var bound string
 	if !BindKeySecrets(a, func(_ context.Context, name, connection string) (string, error) {
 		bound = name + "@" + connection
 		return googleKeyFile(t, e.url(), "k1"), nil
-	}, "dv360") {
+	}, "google-sheets") {
 		t.Fatal("the read was not bound")
 	}
 	if _, err := applyTo(t, a); err != nil {
 		t.Fatal(err)
 	}
-	if bound != "dv360-key@dv360" {
+	if bound != "google-sa-key@google-sheets" {
 		t.Fatalf("the read was asked for %q", bound)
 	}
 	// The endpoint reported no scope, so the requested ones are shown.

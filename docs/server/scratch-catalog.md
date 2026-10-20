@@ -222,7 +222,10 @@ must hold:
 ## The platform connections
 
 A table can only be created on a Trino connection that names a **scratch
-target**: the catalog and schema the platform writes into.
+target**: the catalog and schema the platform writes into. A connection saved
+through the admin API has its target on every replica as soon as the save
+returns: a replica that has not yet heard of the save reads the connection
+from the connection store, as the api and graphql kinds do.
 
 ```yaml
 toolkits:

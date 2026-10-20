@@ -25,11 +25,19 @@ type memSettings struct {
 	mu  sync.Mutex
 	s   Settings
 	err error
+	// onGet, when set, is called with each read's number before it answers,
+	// and may change what that read returns.
+	onGet func(n int, s *Settings)
+	gets  int
 }
 
 func (m *memSettings) Get(context.Context) (Settings, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.gets++
+	if m.onGet != nil {
+		m.onGet(m.gets, &m.s)
+	}
 	return m.s, m.err
 }
 

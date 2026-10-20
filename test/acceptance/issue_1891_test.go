@@ -234,12 +234,25 @@ func TestIssue1891_EmptyListsAreArraysAndTheCapHolds(t *testing.T) {
 	}
 }
 
+// Since #1994 a schedule's cadence is everyone's to read, so another person
+// sees the owner's schedule too, and scope=mine narrows the tab to their own.
 func TestIssue1891_AnOwnerSeesTheirOwnAndAnAdministratorSeesAll(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	id := schedule1891(t, owner, "vis", "0 9 * * *", "UTC")
+	peer := connectAs(t, devPeerAPIKey)
 
-	if _, row := row1891(t, fires1891(t, connectAs(t, devPeerAPIKey), "UTC"), id); row != nil {
-		t.Error("another person sees the owner's schedule on their Schedules tab")
+	if _, row := row1891(t, fires1891(t, peer, "UTC"), id); row == nil {
+		t.Error("another person does not see the owner's schedule on the Schedules tab")
+	}
+	status, mine := peer.rest(http.MethodGet, "/api/v1/portal/scripts/fires?tz=UTC&scope=mine", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET /portal/scripts/fires?scope=mine: status %d: %v", status, mine)
+	}
+	if _, row := row1891(t, mine, id); row != nil {
+		t.Error("scope=mine lists another person's schedule")
+	}
+	if _, row := row1891(t, fires1891(t, owner, "UTC"), id); row == nil {
+		t.Error("the owner does not see their own schedule")
 	}
 	if _, row := row1891(t, fires1891(t, connect(t), "UTC"), id); row == nil {
 		t.Error("an administrator does not see the owner's schedule")

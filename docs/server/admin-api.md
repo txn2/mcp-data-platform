@@ -750,7 +750,7 @@ Returns all configured personas with tool counts.
 GET /api/v1/admin/personas/{name}
 ```
 
-Returns a single persona with resolved tool list.
+Returns a single persona with resolved tool list. A persona saved through the admin API is read from the database, so a read through any replica straight after the save returns what was saved; a persona defined only in the configuration file is read from the running registry (#2218).
 
 **Response:**
 

@@ -306,6 +306,8 @@ type Options struct {
 type TestHooks struct {
 	// Entry is the test function called in place of main().
 	Entry string
+	// HoldsAnswer reports whether the replay answers a call, without making it.
+	HoldsAnswer func(tool string, args map[string]any) bool
 	// Env binds testing and assert in place of the stubs a run sees.
 	Env starlark.StringDict
 	// Observe is shown every output the execution produces, an ExportRequest

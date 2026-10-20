@@ -393,7 +393,7 @@ The OAuth config keys (`oauth_grant`, `oauth_token_url`, `oauth_authorization_ur
 
 The OAuth 2.1 authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint, the same path the MCP gateway uses. Register that exact callback URL with the upstream IdP.
 
-An access token from `client_credentials` or `jwt_bearer` is cached in memory per replica and obtained again when it expires. `expires_in` is RECOMMENDED rather than required by RFC 6749 section 5.1, and a token with no expiry would otherwise be presented for the life of the process, so a response that omits it is treated as valid for 15 minutes: an upstream that ends the session behind the token costs at most that long, and a connection nobody calls costs no token requests at all. An `expires_in` the upstream does send is always honored, however long or short.
+An access token from `client_credentials` or `jwt_bearer` is cached in memory per replica and obtained again when it expires. `expires_in` is RECOMMENDED rather than required by RFC 6749 section 5.1, and a token with no expiry would otherwise be presented for the life of the process, so a response that omits it is treated as valid for `oauth_token_lifetime` (a duration string or seconds, default 15 minutes, #2218): an upstream that ends the session behind the token costs at most that long, and a connection nobody calls costs no token requests at all. An `expires_in` the upstream does send is always honored, however long or short.
 
 The `signed_jwt` config keys (`jwt_algorithm`, `jwt_client_secret`, `jwt_private_key_pem`, `jwt_key_id`, `jwt_issuer`, `jwt_subject`, `jwt_audience`, `jwt_token_lifetime`, `jwt_issued_at_skew`) are likewise shared with every HTTP-based kind. The secret and the private key are encrypted at rest and returned as `[REDACTED]`. [Signed JWT upstreams](signed-jwt-auth.md) documents them with worked examples.
 
@@ -551,7 +551,7 @@ It is filled where `{{secret:<name>}}` is (`body`, `query_params`, `path_params`
 
 - **Parameters.** Algorithm (SHA1, SHA256, SHA512), digits (6 or 8) and period (default 30 seconds) come from the URI; a bare seed takes SHA1, 6 digits, 30 seconds. HOTP (counter-based) URIs are refused.
 - **Kinds do not cross.** `{{secret:<name>}}` naming a totp secret is refused, so the seed itself is never sent, and `{{totp:<name>}}` naming a value secret is refused. Scope is checked as for any secret.
-- **One code per period.** Providers refuse a code they already accepted in its period, so the period a code was issued for is recorded in the secret's row, which every replica shares. A second request in the same period waits for the next period and is sent its code; a third in that period is refused, naming when to try again.
+- **One code per period.** Providers refuse a code they already accepted in its period, so the period a code was issued for is recorded in the secret's row, which every replica shares. A second request in the same period waits for the next period and is sent its code; a third in that period is refused, naming when to try again. The wait is not taken from the connection's `call_timeout`, which starts once the request is ready to send.
 - **Redaction.** The seed is redacted from responses. The code is not: 6 to 8 digits would rewrite ordinary numbers, and it is useless once its period passes.
 - **Checking the setup.** The secret's page under **Admin > Secrets** has **Current code**, which shows the code for this moment and the seconds left in its period (`GET /api/v1/admin/secrets/{name}/code`), to compare with the phone app. Showing it does not use the code up.
 
@@ -587,13 +587,13 @@ When the token endpoint refuses the assertion with `invalid_grant`, `invalid_cli
 
 ### Google service accounts
 
-A Google service account is how a server reaches Google APIs unattended: Display & Video 360, Bid Manager, Campaign Manager 360, the Google Analytics Data API, BigQuery, Sheets, Drive, Search Console, Cloud Storage and most other Google Cloud and Marketing Platform APIs. No person signs in and no consent screen is involved, so Google's OAuth app verification does not apply, which for Google's sensitive and restricted scopes is often why a service account is the only practical option. The platform takes the JSON key file Google issues as one value and fills the `jwt_bearer` grant from it.
+A Google service account is how a server reaches Google APIs unattended: BigQuery, Sheets, Drive, Search Console, Cloud Storage and most other Google Cloud and Workspace APIs. No person signs in and no consent screen is involved, so Google's OAuth app verification does not apply, which for Google's sensitive and restricted scopes is often why a service account is the only practical option. The platform takes the JSON key file Google issues as one value and fills the `jwt_bearer` grant from it.
 
 ```json
 "config": {
-  "base_url": "https://displayvideo.googleapis.com",
+  "base_url": "https://sheets.googleapis.com",
   "google_service_account_json": "{\"type\": \"service_account\", \"project_id\": \"acme-analytics\", ...}",
-  "oauth_scope": "https://www.googleapis.com/auth/display-video"
+  "oauth_scope": "https://www.googleapis.com/auth/spreadsheets.readonly"
 }
 ```
 
@@ -609,7 +609,7 @@ The save is refused, naming the field and never a value, when the file is not JS
 
 1. In Google Cloud, create the service account and a JSON key for it (IAM & Admin > Service Accounts > Keys > Add key).
 2. Enable each API the connections call in the account's Cloud project (APIs & Services > Library). A call to an API that is not enabled is refused with `SERVICE_DISABLED`, naming the project and the API.
-3. Grant the account's `client_email` access inside each product, as you would a person: a Display & Video 360 or Campaign Manager 360 user, a Google Analytics property user, a Search Console user, a BigQuery or Cloud Storage IAM role.
+3. Grant the account's `client_email` access inside each product, as you would a person: a share on a spreadsheet or Drive folder, a Search Console user, a BigQuery or Cloud Storage IAM role.
 4. Create the connection with the key file (or the stored secret's name) and the scopes, then run the connection test (`POST /api/v1/admin/connection-instances/{kind}/{name}/test`, or **Test connection** in the portal). It performs a real token exchange and reports the account the token was issued for and the scopes Google granted, or Google's refusal.
 
 **When Google refuses.** Most of these are fixed outside the platform, so the error carries the step:

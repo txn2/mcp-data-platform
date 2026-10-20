@@ -181,10 +181,15 @@ func TestIssue1866_ThePortalScriptPageReadsTheDefinition(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/runs", "/produced", "/state"} {
+	// How a script is going is everyone's to read since #1994; what its runs
+	// produced and its state stay the owner's.
+	for _, path := range []string{"/produced", "/state"} {
 		if status, body := peer.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+path, http.NoBody); status != http.StatusNotFound {
 			t.Errorf("GET %s as a reader who does not own the script: status %d, %v; want 404", path, status, body)
 		}
+	}
+	if status, body := peer.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/runs", http.NoBody); status != http.StatusOK {
+		t.Errorf("GET /runs as a reader who does not own the script: status %d, %v; want 200", status, body)
 	}
 	if status, _ := owner.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/runs", http.NoBody); status != http.StatusOK {
 		t.Errorf("the owner's run history: status %d", status)

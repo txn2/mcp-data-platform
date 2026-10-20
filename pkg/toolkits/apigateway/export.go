@@ -529,13 +529,15 @@ type runExportArgs struct {
 func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, error) {
 	deps, cfg, auth, client, specs, uc, in := a.deps, a.cfg, a.auth, a.client, a.specs, a.uc, a.in
 	timeout, _ := resolveExportTimeout(in.TimeoutSeconds, deps.Config)
-	exportCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	req, err := buildExportRequest(exportCtx, exportRequestParams{cfg: cfg, auth: auth, specs: specs, webdavRoutes: a.webdavRoutes, in: in})
+	req, err := buildExportRequest(ctx, exportRequestParams{cfg: cfg, auth: auth, specs: specs, webdavRoutes: a.webdavRoutes, in: in})
 	if err != nil {
 		return nil, err
 	}
+	// Started once the request is built, as invoke does: a one-time code's
+	// wait for its period is not the upstream's time.
+	exportCtx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	req = req.WithContext(exportCtx)
 
 	// #nosec G107 G704 -- req.URL is constructed via buildURL which
 	// parses the operator-configured base_url independently and

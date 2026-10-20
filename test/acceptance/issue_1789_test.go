@@ -174,8 +174,10 @@ func TestIssue1789_AnAssetNamesTheRendererThatDrewIt(t *testing.T) {
 	c := connectFor(t, 3*tileWait1787)
 	id := saveAsset1789(t, c, "text/markdown", "# Renderer\n\nDrawn by the current generation.\n")
 	row := awaitAssetTile1787(t, c, id, true)
-	if got := intField1787(row, "thumbnail_renderer"); got != 2 {
-		t.Errorf("thumbnail_renderer = %d, want 2, the generation that draws at 800x600 with HTML in both schemes", got)
+	// The generation moves on as the renderer changes (3 since #1993), so the
+	// criterion holds it to the one this ticket introduced or a later one.
+	if got := intField1787(row, "thumbnail_renderer"); got < 2 {
+		t.Errorf("thumbnail_renderer = %d, want 2 or later, the generation that draws at 800x600 with HTML in both schemes", got)
 	}
 }
 

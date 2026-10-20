@@ -145,6 +145,7 @@ graph LR
 - The proxy replaces the body of any origin 502 or 504 with `error code: <status>` as `text/plain`, which is what the CDN in front of a deployment does. A route that explains a failure in a 502 or 504 body loses that explanation behind a CDN, and it loses it locally too.
 - `make acceptance` connects to the proxy by default; `MCP_BASE_URL` overrides it. A criterion about every replica discovers them from the `X-Platform-Instance` values the proxy answers with and opens a session on each directly (`forEachReplica` and `connectReplicaPair` in `test/acceptance/acceptance_test.go`).
 - `DEV_REPLICAS=1 make dev` runs a single process with no proxy, for a machine that cannot afford two. The acceptance suite then connects to that process, and a criterion about two replicas fails, as it would against any single-process deployment.
+- A criterion that needs a stack this lane does not make, such as one with the script worker off or the ClickStack bundle beside it, is named with its environment in `test/acceptance/environments.txt`. `make acceptance` leaves it out and says so; `ACCEPTANCE_ENV=<name> bash scripts/release-acceptance.sh` starts that environment's stack and runs its criteria, and the E2E Nightly runs every environment each night.
 
 ## Relationship to operating modes
 

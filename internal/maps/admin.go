@@ -199,7 +199,7 @@ func (s *Service) Estimate(ctx context.Context, in EstimateInput) (Estimate, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, estimateTimeout)
 	defer cancel()
-	ref, err := resolveSource(ctx, s.d.Client, settings, s.d.IndexURL, s.d.BuildURL)
+	ref, err := resolveSource(ctx, s.d.Client, settings, buildIndex{indexURL: s.d.IndexURL, buildURL: s.d.BuildURL, pause: s.d.RetryPause})
 	if err != nil {
 		return Estimate{}, err
 	}

@@ -43,25 +43,27 @@ import (
 // (TestIssue1737_AcrossWireForms). The connection config this ticket touches
 // (`auth_mode`, `oauth_grant`, `oauth_token_url`, `oauth_client_id`,
 // `oauth_client_secret`) is written through the admin route as strings, the
-// one form each admits.
+// one form each admits, and `oauth_token_lifetime` (#2218) as a duration
+// string and as seconds, the two it admits (TestIssue1737_ATokenWithNoExpiresInIsRefetched).
 
 const (
 	issue1737Purpose  = "Acceptance for #1737: a client_credentials token with no expires_in is not reused forever."
 	issue1737ClientID = "acc-1737-client"
 	issue1737Secret   = "acc-1737-secret"
 
-	// issue1737Window is the platform's fallback lifetime for a token with no
-	// expires_in (internal/upstreamauth.DefaultUpstreamAccessTokenLifetime).
-	// The acceptance suite is a client of the running platform and does not
-	// import it, so the value is repeated here and asserted by waiting it out.
-	issue1737Window = 15 * time.Minute
+	// issue1737Window is the lifetime the refetch criterion's connection
+	// gives a token with no expires_in through oauth_token_lifetime (#2218),
+	// in place of the 15-minute default the reuse criterion is held to. It
+	// is longer than the oauth2 library's 10-second early refresh, so the
+	// token is held between the criterion's calls.
+	issue1737Window = 30 * time.Second
 	// issue1737PastTheWindow is how long the refetch criterion waits before
-	// its second call: the window, plus room for the oauth2 library's own
-	// early-refresh delta and for a call landing either side of a second.
-	issue1737PastTheWindow = issue1737Window + 45*time.Second
+	// its second call: the window, plus room for a call landing either side
+	// of a second.
+	issue1737PastTheWindow = issue1737Window + 5*time.Second
 	// issue1737Session sizes the refetch criterion's session to that wait
 	// plus the calls around it (#1738).
-	issue1737Session = issue1737PastTheWindow + 3*time.Minute
+	issue1737Session = issue1737PastTheWindow + 2*time.Minute
 )
 
 // issue1737Fixture is a client_credentials token endpoint and the resource it
@@ -193,23 +195,28 @@ func issue1737Error(w http.ResponseWriter, status int, code, description string)
 }
 
 // issue1737Connect saves a client_credentials api connection against the
-// label's token endpoint and returns its name.
-func issue1737Connect(t *testing.T, c *client, label, base, tokenURL string) string {
+// label's token endpoint and returns its name. A non-nil lifetime is sent as
+// oauth_token_lifetime, in the form given.
+func issue1737Connect(t *testing.T, c *client, label, base, tokenURL string, lifetime any) string {
 	t.Helper()
 	name := fmt.Sprintf("acc-1737-%s-%d", label, time.Now().UnixNano())
 	path := "/api/v1/admin/connection-instances/api/" + name
+	config := map[string]any{
+		"connection_name":     name,
+		"base_url":            base,
+		"connect_timeout":     "5s",
+		"call_timeout":        "10s",
+		"auth_mode":           "oauth",
+		"oauth_grant":         "client_credentials",
+		"oauth_token_url":     tokenURL,
+		"oauth_client_id":     issue1737ClientID,
+		"oauth_client_secret": issue1737Secret,
+	}
+	if lifetime != nil {
+		config["oauth_token_lifetime"] = lifetime
+	}
 	status, body := c.rest(http.MethodPut, path, jsonBody(t, map[string]any{
-		"config": map[string]any{
-			"connection_name":     name,
-			"base_url":            base,
-			"connect_timeout":     "5s",
-			"call_timeout":        "10s",
-			"auth_mode":           "oauth",
-			"oauth_grant":         "client_credentials",
-			"oauth_token_url":     tokenURL,
-			"oauth_client_id":     issue1737ClientID,
-			"oauth_client_secret": issue1737Secret,
-		},
+		"config":      config,
 		"description": "Acceptance 1737: " + label,
 	}))
 	if status != http.StatusCreated && status != http.StatusOK {
@@ -269,7 +276,8 @@ func issue1737OneReplica(t *testing.T, timeout time.Duration) *client {
 // once the fallback window has passed, instead of presenting the first one for
 // the life of the process. It waits the window out, which is the only way the
 // running platform shows it: nothing on any surface reports a cached token's
-// expiry, and the window is deliberately not an operator key.
+// expiry. The connection sets the window with oauth_token_lifetime (#2218) so
+// the wait is seconds rather than the 15-minute default.
 //
 // The cache under test is the replica process's, so a restart inside the wait
 // empties it and the second token request proves nothing. Nothing the platform
@@ -278,24 +286,30 @@ func issue1737OneReplica(t *testing.T, timeout time.Duration) *client {
 // binary's modification time either side of the run. `make dev` rebuilds on
 // every Go file saved, which includes saving this one.
 func TestIssue1737_ATokenWithNoExpiresInIsRefetched(t *testing.T) {
-	c := issue1737OneReplica(t, issue1737Session)
 	f := issue1737StartFixture(t)
-	base, tokenURL := f.register("refetched", 0)
-	conn := issue1737Connect(t, c, "refetched", base, tokenURL)
+	for form, lifetime := range map[string]any{"duration-string": issue1737Window.String(), "seconds": int(issue1737Window / time.Second)} {
+		t.Run(form, func(t *testing.T) {
+			t.Parallel()
+			c := issue1737OneReplica(t, issue1737Session)
+			label := "refetched-" + form
+			base, tokenURL := f.register(label, 0)
+			conn := issue1737Connect(t, c, label, base, tokenURL, lifetime)
 
-	first := issue1737Reached(t, c, conn, nil)
-	if got := f.tokenRequests("refetched"); got != 1 {
-		t.Fatalf("the first call made %d token requests, want 1", got)
-	}
+			first := issue1737Reached(t, c, conn, nil)
+			if got := f.tokenRequests(label); got != 1 {
+				t.Fatalf("the first call made %d token requests, want 1", got)
+			}
 
-	time.Sleep(issue1737PastTheWindow)
+			time.Sleep(issue1737PastTheWindow)
 
-	second := issue1737Reached(t, c, conn, nil)
-	if got := f.tokenRequests("refetched"); got != 2 {
-		t.Fatalf("token requests = %d after the window, want 2: the token with no expires_in was reused past it", got)
-	}
-	if second == first {
-		t.Errorf("the call after the window carried %q again, the token the upstream issued before it", first)
+			second := issue1737Reached(t, c, conn, nil)
+			if got := f.tokenRequests(label); got != 2 {
+				t.Fatalf("token requests = %d after the window, want 2: the token with no expires_in was reused past it", got)
+			}
+			if second == first {
+				t.Errorf("the call after the window carried %q again, the token the upstream issued before it", first)
+			}
+		})
 	}
 }
 
@@ -306,7 +320,7 @@ func TestIssue1737_ATokenWithNoExpiresInIsReusedInsideTheWindow(t *testing.T) {
 	c := issue1737OneReplica(t, sessionTimeout)
 	f := issue1737StartFixture(t)
 	base, tokenURL := f.register("reused", 0)
-	conn := issue1737Connect(t, c, "reused", base, tokenURL)
+	conn := issue1737Connect(t, c, "reused", base, tokenURL, nil)
 
 	first := issue1737Reached(t, c, conn, nil)
 	for range 3 {
@@ -327,7 +341,7 @@ func TestIssue1737_AnUpstreamExpiryStillWins(t *testing.T) {
 	c := issue1737OneReplica(t, sessionTimeout)
 	f := issue1737StartFixture(t)
 	base, tokenURL := f.register("short", 2)
-	conn := issue1737Connect(t, c, "short", base, tokenURL)
+	conn := issue1737Connect(t, c, "short", base, tokenURL, nil)
 
 	first := issue1737Reached(t, c, conn, nil)
 	time.Sleep(15 * time.Second)
@@ -349,7 +363,7 @@ func TestIssue1737_AcrossWireForms(t *testing.T) {
 	c := issue1737OneReplica(t, sessionTimeout)
 	f := issue1737StartFixture(t)
 	base, tokenURL := f.register("wire-forms", 0)
-	conn := issue1737Connect(t, c, "wire-forms", base, tokenURL)
+	conn := issue1737Connect(t, c, "wire-forms", base, tokenURL, nil)
 
 	for _, form := range []struct {
 		name string

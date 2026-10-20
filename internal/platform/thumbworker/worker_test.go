@@ -1025,6 +1025,21 @@ func TestPass_AClaimThatFailsIsSurvived(t *testing.T) {
 	}
 }
 
+// A file the platform failed to serve is answered with its status, which
+// fails a render that requires its files; one that is not there is not
+// answered, and the page gets its 404 (#2218).
+func TestServeInProcess_AFailureToServeIsPassedOn(t *testing.T) {
+	f, ok := serveInProcess(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}), "/portal/refs/a/b", nil)
+	if !ok || f.Status != http.StatusServiceUnavailable {
+		t.Fatalf("a 503 = %v %d, want it passed on", ok, f.Status)
+	}
+	if _, ok := serveInProcess(http.NotFoundHandler(), "/portal/refs/a/b", nil); ok {
+		t.Error("a 404 was answered as a file")
+	}
+}
+
 func TestServeInProcess_ARouteThatWritesNothingIsA200(t *testing.T) {
 	f, ok := serveInProcess(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "/portal/refs/a/b", nil)
 	if !ok || len(f.Body) != 0 {

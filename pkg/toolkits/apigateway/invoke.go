@@ -240,13 +240,16 @@ type catalogView struct {
 // time says which limit stopped it (#2210).
 func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, error) {
 	timeout, capped := timeoutcap.Apply(cmp.Or(inv.cfg.CallTimeout, DefaultCallTimeout), min(in.TimeoutSeconds, maxTimeoutSeconds), timeoutcap.CappedByCallTimeout)
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	req, err := buildUpstreamRequest(callCtx, inv.cfg, inv.auth, catalogView{specs: inv.specs, webdavRoutes: inv.webdavRoutes}, in)
+	req, err := buildUpstreamRequest(ctx, inv.cfg, inv.auth, catalogView{specs: inv.specs, webdavRoutes: inv.webdavRoutes}, in)
 	if err != nil {
 		return InvokeOutput{}, err
 	}
+	// The time limit starts once the request is built: filling a one-time
+	// code can wait for its next period, and that wait is the platform's,
+	// never the upstream's (#2218).
+	callCtx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	req = req.WithContext(callCtx)
 
 	out, err := executeRequest(execParams{
 		client:        inv.client,

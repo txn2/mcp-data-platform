@@ -79,7 +79,9 @@ func (s *Store) ListVectors(ctx context.Context, id string) (map[string]indexjob
 // unit holds exactly one item (the record itself); a missing or empty
 // row set is a no-op. The id predicate plus the single-row contract make
 // Upsert and UpsertBatch identical for memory (there are no sibling rows
-// to delete), so both delegate here.
+// to delete), so both delegate here. It leaves updated_at alone: the
+// retention sweep reads it as the time an archived record was archived, and
+// a re-embed edits nothing about the record (#2217).
 func (s *Store) UpsertVectors(ctx context.Context, id string, rows []indexjobs.Vector) error {
 	if len(rows) == 0 {
 		return nil
@@ -89,8 +91,7 @@ func (s *Store) UpsertVectors(ctx context.Context, id string, rows []indexjobs.V
 		UPDATE memory_records
 		   SET embedding           = $2,
 		       embedding_model     = $3,
-		       embedding_text_hash = $4,
-		       updated_at          = NOW()
+		       embedding_text_hash = $4
 		 WHERE id = $1`
 	if _, err := s.db.ExecContext(ctx, q,
 		id, pgvector.NewVector(r.Embedding), r.Model, r.TextHash); err != nil {

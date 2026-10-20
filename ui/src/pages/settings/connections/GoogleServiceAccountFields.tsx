@@ -272,7 +272,7 @@ function Scopes({ config, onChange }: ConfigFormProps) {
       </div>
       <p className="text-xs text-muted-foreground">
         Each scope is a full URL, such as
-        https://www.googleapis.com/auth/display-video. A connection asks for
+        https://www.googleapis.com/auth/spreadsheets.readonly. A connection asks for
         only the scopes it needs; what the account can reach is still decided
         inside each Google product.
       </p>

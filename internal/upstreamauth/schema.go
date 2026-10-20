@@ -116,6 +116,10 @@ const ConfigSchemaPropertiesJSON = `{
     "type": "string",
     "description": "The name of a stored secret holding a Google service account's key file, in place of google_service_account_json, so the key never travels in the connection's config. The secret's allow_connections must list this connection and it must set no allow_personas. It is read at every token exchange, so a key rotated in the secret is used from the next token on. The token endpoint defaults to https://oauth2.googleapis.com/token."
   },
+  "oauth_token_lifetime": {
+    "type": ["string", "integer"],
+    "description": "How long an access token is reused when the token endpoint's response states no expires_in, as a duration string or seconds. Default 15m. An expires_in the endpoint states always wins."
+  },
   "oauth_scope_placement": {
     "type": "string",
     "enum": ["param", "claim", "both"],

@@ -759,7 +759,9 @@ job table holds the same history, but a page of it is its newest rows, and
 during a backlog those are all pending.
 
 - `indexjob_jobs_total` counts every claimed job once, by the `outcome` its
-  settling write recorded: `succeeded`, `retried` (a retryable error,
+  settling write recorded. Every registered kind's series start at zero for
+  each trigger and outcome when the queue starts, so `increase()` sees a
+  replica's first job of each: `succeeded`, `retried` (a retryable error,
   rescheduled with backoff), `failed` (attempts exhausted or not retryable),
   `source_gone` (the unit was deleted and resolved), `lease_lost` (another
   worker owned the lease by the time the result was written), or
@@ -785,7 +787,10 @@ statement over the open rows plus each kind's coverage, cached for 30 seconds:
 `indexjob_queue_jobs{state}` (`pending`, `running`, `retrying`, where
 `retrying` is the pending jobs waiting out a backoff), `indexjob_failed_units`,
 `indexjob_oldest_runnable_wait_seconds` (how long the longest-waiting runnable
-job has waited for a worker; a job in backoff is not waiting), and
+job has waited for a worker; a job in backoff is not waiting, and since a
+worker takes the jobs a write or an operator asked for ahead of the
+reconciler's backfill, a large figure on a kind the reconciler is filling is
+the backfill waiting, not a person's save; kinds take turns, so one kind's backlog holds another kind's job behind one job, not behind the whole backlog, #2218), and
 `indexjob_vectors_indexed` / `indexjob_vectors_expected`. Every replica reports
 them with the same value, so read them with `max by (kind)`, never `sum`.
 

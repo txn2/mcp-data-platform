@@ -115,6 +115,12 @@ const (
 	TriggerManualRetry Trigger = "manual_retry"
 )
 
+// Triggers is every trigger a job is enqueued with, as the strings a series
+// keyed on it carries.
+func Triggers() []string {
+	return []string{string(TriggerWrite), string(TriggerReconciler), string(TriggerManualRetry)}
+}
+
 // MaxAttempts caps retries before a job moves to StatusFailed.
 // Set at the package level (not configurable) so the worker and
 // the reconciler share one source of truth. Five attempts with

@@ -43,8 +43,10 @@ import (
 // it (middleware.defaultPurposeTools). Criterion 4 is that tools/list advertises
 // the argument on exactly the first group.
 var (
-	gatedPurposeTools1640   = []string{"search", "fetch", "trino_query", "trino_describe_table", "s3_object", "s3_list"}
-	ungatedPurposeTools1640 = []string{"manage_table", "platform_info", "list_connections", "manage_resource", "save_asset"}
+	// save_asset joined the gated set in #1695: an asset write states why it
+	// was written.
+	gatedPurposeTools1640   = []string{"search", "fetch", "trino_query", "trino_describe_table", "s3_object", "s3_list", "save_asset"}
+	ungatedPurposeTools1640 = []string{"manage_table", "platform_info", "list_connections", "manage_resource"}
 )
 
 // registeredTableReference1640 files one CSV into the caller's own resource

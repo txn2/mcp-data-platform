@@ -143,6 +143,23 @@ func toolOf(key string) string {
 	return tool
 }
 
+// Holds reports whether the replay has an answer for a tool call: one the
+// test declared, or an unused one the recording holds. It makes no call.
+func (r *Replay) Holds(name string, args map[string]any) bool {
+	if r.answers != nil {
+		if _, ok := r.answers.Answer(name, args); ok {
+			return true
+		}
+	}
+	key := ToolKey(name, args)
+	for _, i := range r.byID[key] {
+		if !r.usedAt[i] {
+			return true
+		}
+	}
+	return false
+}
+
 // CallTool answers one tool call from the recording.
 func (r *Replay) CallTool(_ context.Context, name string, args map[string]any) (map[string]any, error) {
 	if r.answers != nil {

@@ -74,7 +74,10 @@ object storage, and upstream MCP gateways.
 The sources are resolved by reading the audit log, not by accumulating state in
 the serving process. That is what makes a capture correct in a multi-replica
 deployment: the calls a session made against one replica are recorded by an
-asset saved through another.
+asset saved through another. A call another replica served is written to the
+audit log by that replica a moment after its answer reaches the caller, so a
+save that names it and finds it missing reads again, for up to about two
+seconds, before recording the capture without it.
 
 ### Naming the sources exactly
 

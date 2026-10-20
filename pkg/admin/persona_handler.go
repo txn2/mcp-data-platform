@@ -180,13 +180,38 @@ func (h *Handler) listPersonas(w http.ResponseWriter, _ *http.Request) {
 // @Router       /admin/personas/{name} [get]
 func (h *Handler) getPersona(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	p, ok := h.deps.PersonaRegistry.Get(name)
+	p, ok := h.storedPersona(r, name)
+	if !ok {
+		p, ok = h.deps.PersonaRegistry.Get(name)
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, "persona not found")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, toPersonaDetail(p, h.resolveTools(p)))
+}
+
+// storedPersona reads a persona from the store when there is one. A save
+// writes the store before it returns and reaches other replicas' registries
+// a moment later, so a read through another replica straight after a save
+// answered with the persona as it was (#2218). A store that cannot answer, or
+// holds no such persona (one defined only in the file), leaves the registry
+// to answer.
+func (h *Handler) storedPersona(r *http.Request, name string) (*persona.Persona, bool) {
+	if h.deps.PersonaStore == nil {
+		return nil, false
+	}
+	def, err := h.deps.PersonaStore.Get(r.Context(), name)
+	if err != nil || def == nil {
+		return nil, false
+	}
+	p := def.ToPersona()
+	p.Source = platform.SourceDatabase
+	if h.deps.FilePersonaNames[name] {
+		p.Source = platform.SourceBoth
+	}
+	return p, true
 }
 
 // createPersona handles POST /api/v1/admin/personas.

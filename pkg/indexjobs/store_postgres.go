@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,6 +42,11 @@ type PostgresStore struct {
 	db            *sql.DB
 	leaseDuration time.Duration
 	obs           observe
+
+	// mu guards lastKind, the kind of the job this process claimed last,
+	// which the next claim takes its turn after.
+	mu       sync.Mutex
+	lastKind string
 }
 
 // PostgresStoreOption configures a PostgresStore at construction
@@ -153,16 +159,28 @@ func (s *PostgresStore) Claim(ctx context.Context, workerID string) (*Job, error
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// A job a write or an operator asked for is claimed ahead of the
+	// reconciler's backfill: a sweep that enqueued hundreds of gaps held every
+	// write made after it until the last gap was embedded, so what a person
+	// had just saved stayed unsearchable for as long as the backfill ran.
+	// Within each, kinds take turns: the claim goes to the first kind by name
+	// after the one this process claimed last, wrapping round, so one kind's
+	// backlog (thousands of calls) holds another kind's job (a changed
+	// dataset description) behind one job rather than the whole backlog
+	// (#2218). Within a kind the longest-waiting job goes first.
 	const sel = `
 		SELECT id
 		  FROM index_jobs
 		 WHERE status = 'pending' AND next_run_at <= NOW()
-		 ORDER BY next_run_at, id
+		 ORDER BY (trigger_kind = 'reconciler'), (source_kind <= $1), source_kind, next_run_at, id
 		 LIMIT 1
 		 FOR UPDATE SKIP LOCKED
 	`
+	s.mu.Lock()
+	last := s.lastKind
+	s.mu.Unlock()
 	var id int64
-	if err := tx.QueryRowContext(ctx, sel).Scan(&id); err != nil {
+	if err := tx.QueryRowContext(ctx, sel, last).Scan(&id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNoJob
 		}
@@ -186,6 +204,9 @@ func (s *PostgresStore) Claim(ctx context.Context, workerID string) (*Job, error
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("indexjobs: claim commit: %w", err)
 	}
+	s.mu.Lock()
+	s.lastKind = job.SourceKind
+	s.mu.Unlock()
 	return job, nil
 }
 

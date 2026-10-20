@@ -15,9 +15,9 @@ import (
 // a connection whose credential was revoked, and a review queue past its
 // threshold. Each is read back from the Mattermost fixture.
 //
-// The review-queue check runs hourly; the dev stack must be started with
-// MCP_PLATFORM_REVIEW_ALERT_INTERVAL=5s for its criterion, which fails rather
-// than skips without it.
+// The review-queue check runs hourly; the dev stack checks it every five
+// seconds (MCP_PLATFORM_REVIEW_ALERT_INTERVAL, set by dev/start.sh), and the
+// criterion fails rather than skips on a stack that does not.
 //
 // Wire forms. Each alert route's channels field is a list of strings: sent
 // present (["acc-1724-mattermost"]), empty ([]) and absent, the last of which

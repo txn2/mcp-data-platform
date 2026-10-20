@@ -16,7 +16,7 @@ import (
 
 func TestResolveSource(t *testing.T) {
 	ctx := context.Background()
-	got, err := resolveSource(ctx, http.DefaultClient, Settings{SourceURL: "https://mirror.example.com/osm/planet-v4.pmtiles"}, "", "")
+	got, err := resolveSource(ctx, http.DefaultClient, Settings{SourceURL: "https://mirror.example.com/osm/planet-v4.pmtiles"}, buildIndex{pause: noPause})
 	require.NoError(t, err)
 	assert.Equal(t, sourceRef{url: "https://mirror.example.com/osm/planet-v4.pmtiles", build: "planet-v4"}, got,
 		"a mirror is read as given, and its file name names the build")
@@ -30,8 +30,10 @@ func TestResolveSource(t *testing.T) {
 		return srv.URL
 	}
 	got, err = resolveSource(ctx, http.DefaultClient, Settings{},
-		index(`[{"key":"20261006.pmtiles"},{"key":"20261008.pmtiles"},{"key":"v4.15.2.pmtiles"},{"key":"20261007.pmtiles"}]`, 200),
-		"https://build.example.com/")
+		buildIndex{
+			indexURL: index(`[{"key":"20261006.pmtiles"},{"key":"20261008.pmtiles"},{"key":"v4.15.2.pmtiles"},{"key":"20261007.pmtiles"}]`, 200),
+			buildURL: "https://build.example.com/", pause: noPause,
+		})
 	require.NoError(t, err)
 	assert.Equal(t, sourceRef{url: "https://build.example.com/20261008.pmtiles", build: "2026-10-08"}, got,
 		"the newest daily build, not a versioned one")
@@ -41,12 +43,55 @@ func TestResolveSource(t *testing.T) {
 		`not json`:               200,
 		`[]`:                     503,
 	} {
-		_, err := resolveSource(ctx, http.DefaultClient, Settings{}, index(body, status), "x")
+		_, err := resolveSource(ctx, http.DefaultClient, Settings{}, buildIndex{indexURL: index(body, status), buildURL: "x", pause: noPause})
 		require.Error(t, err, body)
 	}
-	_, err = resolveSource(ctx, http.DefaultClient, Settings{}, "http://127.0.0.1:1/builds.json", "x")
+	_, err = resolveSource(ctx, http.DefaultClient, Settings{}, buildIndex{indexURL: "http://127.0.0.1:1/builds.json", buildURL: "x", pause: noPause})
 	require.Error(t, err)
-	_, err = resolveSource(ctx, http.DefaultClient, Settings{}, "::", "x")
+	_, err = resolveSource(ctx, http.DefaultClient, Settings{}, buildIndex{indexURL: "::", buildURL: "x", pause: noPause})
+	require.Error(t, err)
+}
+
+// The build index is read with a range read's retries: a dropped connection
+// or a 5xx is tried again, and a 404 is not (#2218).
+func TestResolveSourceRetriesTheIndex(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		switch calls.Add(1) {
+		case 1:
+			hj, ok := w.(http.Hijacker)
+			require.True(t, ok)
+			conn, _, err := hj.Hijack()
+			require.NoError(t, err)
+			_ = conn.Close()
+		case 2:
+			w.WriteHeader(http.StatusBadGateway)
+		default:
+			_, _ = io.WriteString(w, `[{"key":"20261008.pmtiles"}]`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	var pauses []int
+	pause := func(attempt int) time.Duration { pauses = append(pauses, attempt); return 0 }
+	got, err := resolveSource(context.Background(), srv.Client(), Settings{}, buildIndex{indexURL: srv.URL, buildURL: "https://build.example.com/", pause: pause})
+	require.NoError(t, err)
+	assert.Equal(t, "2026-10-08", got.build)
+	assert.Equal(t, int32(3), calls.Load())
+	assert.Equal(t, []int{1, 2}, pauses)
+
+	var notFound atomic.Int32
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		notFound.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(gone.Close)
+	_, err = resolveSource(context.Background(), gone.Client(), Settings{}, buildIndex{indexURL: gone.URL, buildURL: "x", pause: noPause})
+	require.ErrorContains(t, err, "HTTP 404")
+	assert.Equal(t, int32(1), notFound.Load(), "a 404 is not asked again")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = resolveSource(ctx, gone.Client(), Settings{}, buildIndex{indexURL: "http://127.0.0.1:1/builds.json", buildURL: "x", pause: noPause})
 	require.Error(t, err)
 }
 

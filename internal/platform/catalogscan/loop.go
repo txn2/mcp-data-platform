@@ -145,6 +145,10 @@ const scanDue = `SELECT started_at, requested_at FROM catalog_scan_state WHERE i
 // belongs to the session that took it, and scans when due. It returns
 // bgloop.ErrSkipped when another replica holds the lock, and ran is false
 // when no scan was due.
+//
+// A request made during the scan is served before the lock is released: the
+// replica that asked was refused the lock, and would otherwise wait for its
+// next poll to look again (#2218).
 func (l *Loop) lockedScan(ctx context.Context) (ran bool, err error) {
 	conn, err := l.db.Conn(ctx)
 	if err != nil {
@@ -165,15 +169,19 @@ func (l *Loop) lockedScan(ctx context.Context) (ran bool, err error) {
 			slog.WarnContext(ctx, "catalog scan: advisory unlock failed", "error", logsan.SanitizeForLog(uerr.Error()))
 		}
 	}()
-	due, err := l.due(ctx, conn)
-	if err != nil || !due {
-		return false, err
+	for {
+		due, err := l.due(ctx, conn)
+		if err != nil || !due {
+			return ran, err
+		}
+		if _, err := conn.ExecContext(ctx, recordStart); err != nil {
+			return ran, fmt.Errorf("recording the scan's start: %w", err)
+		}
+		if _, err := l.scanner.Scan(ctx); err != nil {
+			return ran, err
+		}
+		ran = true
 	}
-	if _, err := conn.ExecContext(ctx, recordStart); err != nil {
-		return false, fmt.Errorf("recording the scan's start: %w", err)
-	}
-	_, err = l.scanner.Scan(ctx)
-	return err == nil, err
 }
 
 // due reports whether a scan is owed: none has run, the interval has passed

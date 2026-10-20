@@ -865,10 +865,15 @@ ON CONFLICT (id) DO UPDATE SET
 -- Connection Instances (sample toolkit connections for the admin UI)
 -- ============================================================================
 
+-- acme-warehouse is a sample that has no Trino behind it. It points at
+-- dev-mcp-mock's HTTP port, which answers the Trino client's first request
+-- with a 404 the client does not retry, so it fails at once; a host that
+-- does not resolve is retried for the client's two-minute budget, and every
+-- catalog scan waited that long for it (#2218).
 INSERT INTO connection_instances (kind, name, config, description, created_by, updated_at) VALUES
 (
   'trino', 'acme-warehouse',
-  '{"host": "trino.acme.internal", "port": 443, "user": "platform_svc", "catalog": "iceberg", "ssl": true}'::jsonb,
+  '{"host": "localhost", "port": 9180, "user": "platform_svc", "catalog": "iceberg", "ssl": false}'::jsonb,
   'Production Iceberg warehouse — retail, inventory, and finance data',
   'apikey:admin', NOW() - interval '30 days'
 ),

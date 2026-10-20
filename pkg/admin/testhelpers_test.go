@@ -425,6 +425,8 @@ var _ ConfigStore = (*mockConfigStore)(nil)
 // --- Mock PersonaStore ---
 
 type mockPersonaStore struct {
+	getResult   map[string]*personastore.Definition
+	getErr      error
 	listResult  []personastore.Definition
 	listErr     error
 	setErr      error
@@ -437,7 +439,13 @@ func (m *mockPersonaStore) List(_ context.Context) ([]personastore.Definition, e
 	return m.listResult, m.listErr
 }
 
-func (*mockPersonaStore) Get(_ context.Context, _ string) (*personastore.Definition, error) {
+func (m *mockPersonaStore) Get(_ context.Context, name string) (*personastore.Definition, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	if def, ok := m.getResult[name]; ok {
+		return def, nil
+	}
 	return nil, personastore.ErrNotFound
 }
 

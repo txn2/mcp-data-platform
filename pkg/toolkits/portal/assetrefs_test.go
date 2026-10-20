@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
@@ -566,4 +567,41 @@ func TestAssetToolsAdvertiseTheConfiguredCap(t *testing.T) {
 func TestWithRefCapPanicsOnASchemaWithNoReferences(t *testing.T) {
 	assert.Panics(t, func() { withRefCap(json.RawMessage(`{"properties":{}}`), 5) })
 	assert.Panics(t, func() { withRefCap(json.RawMessage(`not json`), 5) })
+}
+
+// refsAtVersionStore is a version store that notes, when a version is
+// created, how many references its asset already had.
+type refsAtVersionStore struct {
+	*inMemoryVersionStore
+	refs  *refStoreStub
+	atNew map[string]int
+}
+
+func (s *refsAtVersionStore) CreateVersion(ctx context.Context, v portal.AssetVersion) (int, error) {
+	s.atNew[v.AssetID] = len(s.refs.byAsset[v.AssetID])
+	return s.inMemoryVersionStore.CreateVersion(ctx, v)
+}
+
+// TestSaveRecordsReferencesBeforeTheFirstVersion: the first version is what
+// makes a new asset owed a tile, so its references are already recorded when
+// it is created, and the tile worker never draws the page before its files
+// are granted (#2218).
+func TestSaveRecordsReferencesBeforeTheFirstVersion(t *testing.T) {
+	assets := newInMemoryAssetStore()
+	refs := newRefStoreStub()
+	versions := &refsAtVersionStore{inMemoryVersionStore: newInMemoryVersionStore(), refs: refs, atNew: map[string]int{}}
+	tk := New(Config{
+		Name: "test", AssetStore: assets, VersionStore: versions,
+		S3Client: &mockS3Client{}, S3Bucket: "bucket", BaseURL: "http://example.com",
+	})
+	tk.SetContentRefs(newDeclarer(refs, assets))
+
+	result, _, err := tk.handleSaveAsset(refCtx(""), nil, saveAssetInput{
+		Name: "Report", Content: `<img src="` + refLogoURI + `">`, ContentType: "text/html",
+		References: []string{refLogoURI},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	out := decodeSave(t, result)
+	assert.Equal(t, 1, versions.atNew[out.AssetID], "the reference was not recorded when the first version was created")
 }

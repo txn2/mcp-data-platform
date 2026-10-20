@@ -364,6 +364,11 @@ type RecordUpdate struct {
 	// stay consistent with the embedding the indexjobs consumer dedups on.
 	EmbeddingModel    string
 	EmbeddingTextHash []byte
+	// KeepUpdatedAt leaves updated_at as it was: a write the platform makes
+	// about the record, such as the recall check's result, rather than an edit
+	// of it. updated_at is the record's last edit, and the retention sweep
+	// reads it as an archived record's archive time (#2217, #2218).
+	KeepUpdatedAt bool
 }
 
 // ValidateDimension checks whether a dimension value is valid.

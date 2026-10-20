@@ -50,6 +50,7 @@ func TestSettleRecall_NewerCaptureSupersedesEveryOlderRestatement(t *testing.T) 
 	assert.Equal(t, recallSuggestThreshold, rc.gotMinScore)
 	assert.Equal(t, [][2]string{{"dup-a", "new-mem"}, {"dup-b", "new-mem"}}, store.supersedeCalls)
 	assert.Equal(t, "new-mem", store.updatedID)
+	assert.True(t, store.updatedFields.KeepUpdatedAt, "the check's result is not an edit of the record (#2218)")
 	meta := store.updatedFields.Metadata
 	assert.Equal(t, memstore.RecallCheckDone, meta[memstore.MetaKeyRecallCheck])
 	similar, ok := meta[memstore.MetaKeySimilarExisting].([]RecallMatch)

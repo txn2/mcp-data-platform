@@ -212,14 +212,26 @@ func (s *Service) passLocked(ctx context.Context, settings Settings) error {
 
 // fetchQueued fetches queued regions, longest-waiting first, until none is
 // left. A failed fetch is recorded on its region and the next is claimed.
+//
+// The settings are read again before each claim: a region refreshed after its
+// source was changed was fetched from the source the pass started with when
+// the pass was still busy with another (#2218). A change of bucket, or maps
+// turned off, ends the pass, and the next opens what the settings name.
 func (s *Service) fetchQueued(ctx context.Context, settings Settings, bucket Bucket) error {
 	for {
+		current, err := s.d.Settings.Get(ctx)
+		if err != nil {
+			return err //nolint:wrapcheck // the store's error names what it was reading
+		}
+		if !current.Enabled || current.S3Connection != settings.S3Connection || current.Bucket != settings.Bucket {
+			return nil
+		}
 		region, err := s.d.Regions.ClaimNext(ctx)
 		if err != nil || region == nil {
 			return err //nolint:wrapcheck // the store's error names what it was doing
 		}
 		err = bgloop.Unit(ctx, bgloop.NameMapFetchRegion, func(ctx context.Context) error {
-			return s.fetch(ctx, settings, bucket, *region)
+			return s.fetch(ctx, current, bucket, *region)
 		})
 		if err != nil && ctx.Err() != nil {
 			return ctx.Err() //nolint:wrapcheck // the loop's own cancellation
@@ -276,7 +288,7 @@ func (s *Service) recordFailure(ctx context.Context, r Region, err error) error 
 // extract plans and writes one region's archive, returning the key written
 // (set once the upload started, so a failure can remove it) and the archive.
 func (s *Service) extract(ctx context.Context, settings Settings, bucket Bucket, r Region) (string, Archive, error) {
-	ref, err := resolveSource(ctx, s.d.Client, settings, s.d.IndexURL, s.d.BuildURL)
+	ref, err := resolveSource(ctx, s.d.Client, settings, buildIndex{indexURL: s.d.IndexURL, buildURL: s.d.BuildURL, pause: s.d.RetryPause})
 	if err != nil {
 		return "", Archive{}, err
 	}
