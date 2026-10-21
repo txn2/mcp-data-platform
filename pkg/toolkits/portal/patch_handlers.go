@@ -155,6 +155,10 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 		return toolkit.JSONResultTyped(result)
 	}
 
+	undo, widenResult := t.widenRefs(ctx, asset.ID, declaredRefs, hasRefs)
+	if widenResult != nil {
+		return widenResult, nil, nil
+	}
 	version, tables, err := t.uploadContentUpdate(ctx, asset, contentEdit{
 		content:      res.Body,
 		declaredType: asset.ContentType,
@@ -162,6 +166,7 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 		sources:      input.Sources,
 	})
 	if err != nil {
+		undo()
 		return toolkit.ErrorResult("failed to write patched content: " + err.Error()), nil, nil
 	}
 	refCount, applyResult := t.applyRefs(ctx, asset.ID, declaredRefs, hasRefs)

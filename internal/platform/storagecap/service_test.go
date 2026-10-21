@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/platform/levelalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
@@ -66,6 +67,18 @@ func expectReadings(mock sqlmock.Sqlmock, dbBytes int64) {
 		WillReturnRows(sqlmock.NewRows([]string{"store", "at", "used", "total"}).
 			AddRow("database", now.Add(-10*day), int64(500), int64(1000)).
 			AddRow("database", now.Add(-5*day), int64(700), nil))
+	mock.ExpectQuery(`SELECT store, min\(sampled_at\) FROM storage_samples GROUP BY store`).
+		WithArgs(now.Add(-DefaultHistoryDays*day + day)).
+		WillReturnRows(sqlmock.NewRows([]string{"store", "first"}).AddRow("database", now.Add(-10*day)))
+}
+
+// recentQ is the check a pass makes for a sample another replica took.
+const recentQ = `SELECT EXISTS \(SELECT 1 FROM storage_samples WHERE sampled_at > \$1\)`
+
+// expectNotSampled queues the check finding no recent sample.
+func expectNotSampled(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(recentQ).WithArgs(now.Add(-DefaultInterval * 9 / 10)).
+		WillReturnRows(sqlmock.NewRows([]string{"recent"}).AddRow(false))
 }
 
 // svcRig is a Service over sqlmock with the sender and alert store it routes
@@ -109,6 +122,7 @@ func TestPassSamplesAndAlerts(t *testing.T) {
 	}
 	rig := newSvc(t, settings, spools)
 	svc, mock, sender, alerts := rig.svc, rig.mock, rig.sender, rig.alerts
+	expectNotSampled(mock)
 	expectReadings(mock, 950)
 	for range 5 {
 		mock.ExpectExec(`INSERT INTO storage_samples`).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -127,6 +141,7 @@ func TestPassSamplesAndAlerts(t *testing.T) {
 	// The next pass finds the database back under its thresholds: resolved.
 	sender.keys = nil
 	settings.stored.Value.DatabaseLimitBytes = 100000
+	expectNotSampled(mock)
 	expectReadings(mock, 950)
 	for range 5 {
 		mock.ExpectExec(`INSERT INTO storage_samples`).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -192,7 +207,7 @@ func TestReportClusterFailureIsShownNotFatal(t *testing.T) {
 func TestReportFailures(t *testing.T) {
 	ctx := context.Background()
 	boom := errors.New("down")
-	steps := []string{"size", "tables", "usage", "reconcile", "scan", "spools", "history"}
+	steps := []string{"size", "tables", "usage", "reconcile", "scan", "spools", "history", "births"}
 	for i, step := range steps {
 		t.Run(step, func(t *testing.T) {
 			spools := func(context.Context) ([]whstore.SpoolState, error) {
@@ -205,6 +220,7 @@ func TestReportFailures(t *testing.T) {
 			svc, mock := rig.svc, rig.mock
 			queries := []string{
 				`pg_database_size`, `FROM pg_class`, `FROM storage_usage`, `FROM storage_reconciles`, `FROM storage_scans`, "", `FROM storage_samples`,
+				`min\(sampled_at\)`,
 			}
 			for j := range i {
 				if queries[j] == "" {
@@ -239,6 +255,8 @@ func expectStep(mock sqlmock.Sqlmock, j int) {
 		mock.ExpectQuery(`FROM storage_reconciles`).WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c", "d"}))
 	case 4:
 		mock.ExpectQuery(`FROM storage_scans`).WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c"}))
+	case 6:
+		mock.ExpectQuery(`FROM storage_samples`).WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c", "d"}))
 	}
 }
 
@@ -246,12 +264,19 @@ func TestPassFailures(t *testing.T) {
 	ctx := context.Background()
 	boom := errors.New("down")
 	t.Run("settings", func(t *testing.T) {
-		svc := newSvc(t, &fakeSettings{err: boom}, nil).svc
-		require.Error(t, svc.Pass(ctx))
+		rig := newSvc(t, &fakeSettings{err: boom}, nil)
+		expectNotSampled(rig.mock)
+		require.Error(t, rig.svc.Pass(ctx))
+	})
+	t.Run("recent", func(t *testing.T) {
+		rig := newSvc(t, &fakeSettings{}, nil)
+		rig.mock.ExpectQuery(recentQ).WillReturnError(boom)
+		require.ErrorContains(t, rig.svc.Pass(ctx), "reading storage history")
 	})
 	t.Run("record", func(t *testing.T) {
 		rig := newSvc(t, &fakeSettings{}, nil)
 		svc, mock := rig.svc, rig.mock
+		expectNotSampled(mock)
 		expectReadings(mock, 1)
 		mock.ExpectExec(`INSERT INTO storage_samples`).WillReturnError(boom)
 		require.ErrorContains(t, svc.Pass(ctx), "recording a storage sample")
@@ -259,6 +284,7 @@ func TestPassFailures(t *testing.T) {
 	t.Run("prune", func(t *testing.T) {
 		rig := newSvc(t, &fakeSettings{}, nil)
 		svc, mock := rig.svc, rig.mock
+		expectNotSampled(mock)
 		expectReadings(mock, 1)
 		for range 3 {
 			mock.ExpectExec(`INSERT INTO storage_samples`).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -269,9 +295,39 @@ func TestPassFailures(t *testing.T) {
 	t.Run("report", func(t *testing.T) {
 		rig := newSvc(t, &fakeSettings{}, nil)
 		svc, mock := rig.svc, rig.mock
+		expectNotSampled(mock)
 		mock.ExpectQuery(`pg_database_size`).WillReturnError(boom)
 		require.Error(t, svc.Pass(ctx))
 	})
+}
+
+// TestPassSkipsATickAnotherReplicaSampled is #2203: the lock is held only for
+// a pass, so a replica whose turn comes just after another's finds that
+// replica's sample and takes none of its own, and evaluates no alert.
+func TestPassSkipsATickAnotherReplicaSampled(t *testing.T) {
+	rig := newSvc(t, &fakeSettings{}, nil)
+	rig.mock.ExpectQuery(recentQ).WithArgs(now.Add(-DefaultInterval * 9 / 10)).
+		WillReturnRows(sqlmock.NewRows([]string{"recent"}).AddRow(true))
+	require.ErrorIs(t, rig.svc.Pass(context.Background()), bgloop.ErrSkipped)
+	require.NoError(t, rig.mock.ExpectationsWereMet())
+	assert.Empty(t, rig.sender.keys)
+}
+
+// TestBirthsFailures: a store's first sample is its birth only
+// when nothing before it could have been pruned; a failed read is an error.
+func TestBirthsFailures(t *testing.T) {
+	boom := errors.New("down")
+	rig := newSvc(t, &fakeSettings{}, nil)
+	rig.mock.ExpectQuery(`min\(sampled_at\)`).WillReturnError(boom)
+	_, err := rig.svc.births(context.Background(), now)
+	require.Error(t, err)
+	rig.mock.ExpectQuery(`min\(sampled_at\)`).WillReturnRows(sqlmock.NewRows([]string{"store"}).AddRow("database"))
+	_, err = rig.svc.births(context.Background(), now)
+	require.Error(t, err)
+	rig.mock.ExpectQuery(`min\(sampled_at\)`).WillReturnRows(
+		sqlmock.NewRows([]string{"store", "first"}).AddRow("database", now).RowError(0, boom))
+	_, err = rig.svc.births(context.Background(), now)
+	require.Error(t, err)
 }
 
 func TestHistory(t *testing.T) {

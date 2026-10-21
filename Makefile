@@ -53,7 +53,7 @@ GOVET := $(GO) vet
 GOFMT := gofmt
 GOLINT := golangci-lint
 
-.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release alert-rules-test builtin-pages-check \
+.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
 	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
@@ -545,6 +545,10 @@ patch-coverage: test
 patch-coverage-check:
 	@echo "Checking patch coverage..."
 	@PATCH_COVERAGE_THRESHOLD=$(PATCH_COVERAGE_MIN) ./scripts/patch-coverage.sh
+
+## docs-images-check: Resolve every image the docs pin to a digest against its registry (network and Docker; run by the E2E Nightly)
+docs-images-check:
+	@./scripts/docs-image-digests.sh docs
 
 ## doc-check: Fail on orphaned docs, unresolved doc links, or unregistered tool refs; warn on undocumented changes
 doc-check:

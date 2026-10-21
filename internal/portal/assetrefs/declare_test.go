@@ -816,3 +816,64 @@ func TestConfig(t *testing.T) {
 	require.Error(t, bad.Validate())
 	assert.Equal(t, assetrefs.DefaultMaxRefs, bad.Resolved())
 }
+
+// TestWidenAddsWithoutDropping is #2234: ahead of a content write, the
+// references it declares are recorded beside the ones the asset has, keeping
+// their tokens; restore puts the list back; a declaration that adds nothing
+// writes nothing; the token Widen minted is the one Apply keeps.
+func TestWidenAddsWithoutDropping(t *testing.T) {
+	store := newFakeRefs()
+	d := declarer(store)
+	logo := assetrefs.Declared{Kind: assetrefs.TargetResource, TargetID: "res-logo", URI: logoURI}
+	other := assetrefs.Declared{Kind: assetrefs.TargetResource, TargetID: "res-other", URI: "mcp://global/brand/other.png"}
+	first, err := d.Apply(t.Context(), testAssetID, []assetrefs.Declared{logo}, author)
+	require.NoError(t, err)
+
+	restore, err := d.Widen(t.Context(), testAssetID, []assetrefs.Declared{other, other}, author)
+	require.NoError(t, err)
+	require.NotNil(t, restore)
+	widened := store.byAsset[testAssetID]
+	require.Len(t, widened, 2, "the kept reference and the added one, once")
+	assert.Equal(t, first[0].RefToken, widened[0].RefToken)
+	assert.Equal(t, "res-other", widened[1].TargetID)
+	assert.Equal(t, 1, widened[1].Position)
+
+	applied, err := d.Apply(t.Context(), testAssetID, []assetrefs.Declared{other}, author)
+	require.NoError(t, err)
+	assert.Equal(t, widened[1].RefToken, applied[0].RefToken, "Apply keeps the token Widen minted")
+
+	require.NoError(t, restore(t.Context()))
+	require.Len(t, store.byAsset[testAssetID], 1)
+	assert.Equal(t, "res-logo", store.byAsset[testAssetID][0].TargetID)
+
+	none, err := d.Widen(t.Context(), testAssetID, []assetrefs.Declared{logo}, author)
+	require.NoError(t, err)
+	assert.Len(t, store.byAsset[testAssetID], 1, "a declaration the asset already holds adds nothing")
+	require.NoError(t, none(t.Context()))
+	assert.Len(t, store.byAsset[testAssetID], 1, "and restoring it changes nothing")
+}
+
+// TestWidenReportsStoreFailures: every store failure is reported, restore's
+// included, and an unavailable declarer refuses.
+func TestWidenReportsStoreFailures(t *testing.T) {
+	declared := []assetrefs.Declared{{Kind: assetrefs.TargetResource, TargetID: "res-logo", URI: logoURI}}
+
+	_, err := (*assetrefs.Declarer)(nil).Widen(t.Context(), testAssetID, declared, author)
+	require.Error(t, err)
+
+	listFails := newFakeRefs()
+	listFails.listErr = errStore
+	_, err = declarer(listFails).Widen(t.Context(), testAssetID, declared, author)
+	require.ErrorIs(t, err, errStore)
+
+	writeFails := newFakeRefs()
+	writeFails.putErr = errStore
+	_, err = declarer(writeFails).Widen(t.Context(), testAssetID, declared, author)
+	require.ErrorIs(t, err, errStore)
+
+	restoreFails := newFakeRefs()
+	restore, err := declarer(restoreFails).Widen(t.Context(), testAssetID, declared, author)
+	require.NoError(t, err)
+	restoreFails.putErr = errStore
+	require.ErrorIs(t, restore(t.Context()), errStore)
+}

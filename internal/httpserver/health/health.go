@@ -19,6 +19,13 @@ const (
 // It is safe for concurrent use.
 type Checker struct {
 	state atomic.Int32
+	pool  atomic.Pointer[PoolProbe]
+}
+
+// WatchPool makes a starved database pool take the replica out of service
+// while the process is otherwise ready (#2169).
+func (c *Checker) WatchPool(p *PoolProbe) {
+	c.pool.Store(p)
 }
 
 // NewChecker creates a Checker in the Starting state.
@@ -67,10 +74,14 @@ func (*Checker) LivenessHandler() http.HandlerFunc {
 }
 
 // ReadinessHandler returns an http.HandlerFunc that responds 200 when ready
-// and 503 when starting or draining.
+// and 503 when starting, draining, or its database pool is starved.
 // Use this for K8s readinessProbe (/readyz).
 func (c *Checker) ReadinessHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if c.IsReady() && c.pool.Load().Starved(r.Context()) {
+			writeJSON(w, http.StatusServiceUnavailable, healthResponse{Status: statusPoolStarved})
+			return
+		}
 		if c.IsReady() {
 			writeJSON(w, http.StatusOK, healthResponse{Status: c.State()})
 			return

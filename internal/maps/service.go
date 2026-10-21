@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/pmtiles"
@@ -150,28 +151,14 @@ func (s *Service) poke() {
 	}
 }
 
-// advisoryLock takes the fetch lock on a session of its own, so the lock
-// lives exactly as long as the pass.
+// advisoryLock takes the fetch lock on the process's lock session; the pass
+// runs on the pool (#2169).
 func (s *Service) advisoryLock(ctx context.Context) (unlock func(), ok bool, err error) {
-	conn, err := s.d.DB.Conn(ctx)
+	unlock, ok, err = advisorylock.Try(ctx, s.d.DB, advisorylock.ID(FetchLockKey))
 	if err != nil {
-		return nil, false, fmt.Errorf("maps: opening a lock session: %w", err)
-	}
-	var got bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", FetchLockKey).Scan(&got); err != nil {
-		_ = conn.Close()
 		return nil, false, fmt.Errorf("maps: taking the fetch lock: %w", err)
 	}
-	if !got {
-		_ = conn.Close()
-		return nil, false, nil
-	}
-	return func() {
-		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		_, _ = conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", FetchLockKey)
-		_ = conn.Close()
-	}, true, nil
+	return unlock, ok, nil
 }
 
 // Pass is one iteration of the fetch loop: under the fetch lock, it records

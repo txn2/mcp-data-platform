@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
@@ -20,9 +21,6 @@ const LockKey int64 = 4713210201
 // interval itself is the operator's setting; this only bounds how late after
 // it a scan starts.
 const pollInterval = time.Minute
-
-// unlockTimeout bounds the release of the lock after a scan.
-const unlockTimeout = 5 * time.Second
 
 // Loop runs a scan whenever the configured interval has passed since the
 // last one any replica started, and whenever asked to.
@@ -141,8 +139,8 @@ func (l *Loop) runOnce(ctx context.Context) error {
 // requested; no row means neither has happened.
 const scanDue = `SELECT started_at, requested_at FROM catalog_scan_state WHERE id`
 
-// lockedScan takes the lock on a dedicated connection, since an advisory lock
-// belongs to the session that took it, and scans when due. It returns
+// lockedScan takes the lock on the process's lock session and scans when
+// due; the scan's own queries run on the pool (#2169). It returns
 // bgloop.ErrSkipped when another replica holds the lock, and ran is false
 // when no scan was due.
 //
@@ -150,31 +148,20 @@ const scanDue = `SELECT started_at, requested_at FROM catalog_scan_state WHERE i
 // replica that asked was refused the lock, and would otherwise wait for its
 // next poll to look again (#2218).
 func (l *Loop) lockedScan(ctx context.Context) (ran bool, err error) {
-	conn, err := l.db.Conn(ctx)
+	release, got, err := advisorylock.Try(ctx, l.db, advisorylock.ID(LockKey))
 	if err != nil {
-		return false, fmt.Errorf("acquiring a connection for the lock: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-	var got bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", LockKey).Scan(&got); err != nil {
-		return false, fmt.Errorf("taking the advisory lock: %w", err)
+		return false, err //nolint:wrapcheck // the lock session names the statement
 	}
 	if !got {
 		return false, bgloop.ErrSkipped
 	}
-	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
-		defer cancel()
-		if _, uerr := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", LockKey); uerr != nil {
-			slog.WarnContext(ctx, "catalog scan: advisory unlock failed", "error", logsan.SanitizeForLog(uerr.Error()))
-		}
-	}()
+	defer release()
 	for {
-		due, err := l.due(ctx, conn)
+		due, err := l.due(ctx)
 		if err != nil || !due {
 			return ran, err
 		}
-		if _, err := conn.ExecContext(ctx, recordStart); err != nil {
+		if _, err := l.db.ExecContext(ctx, recordStart); err != nil {
 			return ran, fmt.Errorf("recording the scan's start: %w", err)
 		}
 		if _, err := l.scanner.Scan(ctx); err != nil {
@@ -189,13 +176,13 @@ func (l *Loop) lockedScan(ctx context.Context) (ran bool, err error) {
 // started.
 // The times are read under the lock, so two replicas cannot both find the
 // same scan due.
-func (l *Loop) due(ctx context.Context, conn *sql.Conn) (bool, error) {
+func (l *Loop) due(ctx context.Context) (bool, error) {
 	set, err := l.settings.Get(ctx)
 	if err != nil {
 		return false, fmt.Errorf("reading catalog settings: %w", err)
 	}
 	var last, requested sql.NullTime
-	err = conn.QueryRowContext(ctx, scanDue).Scan(&last, &requested)
+	err = l.db.QueryRowContext(ctx, scanDue).Scan(&last, &requested)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("reading the last scan: %w", err)
 	}

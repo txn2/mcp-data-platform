@@ -34,9 +34,10 @@ Create a `docker-compose.yml`:
 
 ```yaml
 services:
-  # PostgreSQL for metadata storage
+  # PostgreSQL for metadata storage, with pgvector (the platform's migrations
+  # create the vector extension)
   postgres:
-    image: postgres:16-alpine@sha256:acf5271bce6b4b62e352341e3b175c2b1e9e0b6f6e3f2e7e3b7f8c9d0e1f2a3b
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -52,15 +53,15 @@ services:
 
   # Keycloak for authentication
   keycloak:
-    image: quay.io/keycloak/keycloak:24.0@sha256:b3c4a5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4
+    image: quay.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
     command: start-dev --import-realm
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: postgres
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     volumes:
       - ./keycloak-realm.json:/opt/keycloak/data/import/realm.json
     ports:
@@ -71,7 +72,7 @@ services:
 
   # Trino for SQL queries
   trino:
-    image: trinodb/trino:440@sha256:d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5
+    image: trinodb/trino:453@sha256:86f7a156aeeca1dda3a1ba1e97474913d10c75f8fb7cda0da1d29a52b5731e0c
     ports:
       - "8081:8080"
     volumes:
@@ -519,7 +520,10 @@ spec:
 ```
 
 `/readyz` reports `draining` (503) as soon as SIGTERM arrives, so the load
-balancer stops routing to a terminating pod before the drain begins;
+balancer stops routing to a terminating pod before the drain begins, and
+`database_pool_starved` (503) when the replica's database pool has handed out
+no connection for 30 seconds
+([Observability](observability.md#authentication-configuration-and-platform-state));
 `/healthz` stays 200 for as long as the process is alive. Size the probe and
 resource figures from the
 [Tuning and Scaling guide](../reference/tuning-and-scaling.md), which covers

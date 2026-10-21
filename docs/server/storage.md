@@ -19,16 +19,19 @@ A store with no capacity is listed with its usage and growth and no fill date; i
 
 ## Growth and when a store fills
 
-One replica at a time samples every store every 15 minutes
+One replica samples every store every 15 minutes
 (`MCP_PLATFORM_STORAGE_HISTORY_INTERVAL` overrides it) and keeps each sample
-for the settings' **History days** (default 180). Growth is the least-squares
-slope of the samples over the last 7 and the last 30 days, in bytes per day.
-The 7-day rate waits for a day of history and the 30-day rate for a week: a
-new install's first hours are setup (migrations, the built-in knowledge pages
-and their embeddings, the first catalog scan), not growth, and a 30-day rate
-over the same few hours as the 7-day one would only repeat it. Until then the
-page says **Not enough history** with how much there is and how much the rate
-needs. A store holding one size grows at exactly zero. The fill date uses the
+for the settings' **History days** (default 180). Every replica runs the loop,
+and one that finds a sample taken within the interval takes none of its own,
+so each tick has one sample. Growth is the least-squares slope of the samples
+over the last 7 and the last 30 days, in bytes per day. A store's first day is
+left out of every fit: a new install's first hours are setup (migrations, the
+built-in knowledge pages and their embeddings, seeding, the first catalog
+scan), not growth. After it, the 7-day rate waits for a day of history and the
+30-day rate for two weeks, so the 30-day rate is read from at least twice the
+history the 7-day one is and never repeats it. Until then the page says **Not
+enough history** with how much there is and how much the rate needs, the first
+day included. A store holding one size grows at exactly zero. The fill date uses the
 slower of the two that are growing, so a burst does not bring the date in, and
 the page says which it used. A store that is not growing has no fill date.
 

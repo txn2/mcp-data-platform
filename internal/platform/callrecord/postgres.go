@@ -153,8 +153,40 @@ func namedSourceExpr(eventID string) string {
 	)`
 }
 
+// citedSet is every event id an artifact names anywhere it could name a
+// source: a memory record's sources and an asset capture's event_ids (#2231).
+// It is not a second statement of the rule: every record satisfiedByCase finds
+// satisfied is in it, so a read that must decide every record (a count) asks
+// the rule only of the records in it and reads every other as unsatisfied, and
+// a read of the satisfied records narrows to it first. The rule itself still
+// decides. Collected once and hashed, it replaces two index probes per record,
+// which on a catalog of 100,000 records was three seconds of every count.
+//
+// Each array is read only where it is one: containment, which the rule uses,
+// never matches through a value that is not an array. The prefix is bound
+// three times.
+const citedSet = `SELECT substr(src.v, length(?) + 1) AS event_id FROM memory_records m
+	CROSS JOIN LATERAL jsonb_array_elements_text(
+		CASE WHEN jsonb_typeof(m.metadata->'sources') = 'array' THEN m.metadata->'sources' ELSE '[]'::jsonb END) src(v)
+	WHERE left(src.v, length(?)) = ?
+	UNION
+	SELECT ids.v FROM portal_assets a
+	CROSS JOIN LATERAL jsonb_array_elements(
+		CASE WHEN jsonb_typeof(a.provenance->'captures') = 'array' THEN a.provenance->'captures' ELSE '[]'::jsonb END) cap
+	CROSS JOIN LATERAL jsonb_array_elements_text(
+		CASE WHEN jsonb_typeof(cap->'event_ids') = 'array' THEN cap->'event_ids' ELSE '[]'::jsonb END) ids(v)
+	WHERE a.deleted_at IS NULL`
+
 // satisfiedByExpr is the derived read's column: the rule above, named.
 var satisfiedByExpr = satisfiedByCase("?") + " AS satisfied_by"
+
+// citedRule is the rule asked only of a record the joined citedSet names, and
+// NULL for every other. It reads the joined row, which also keeps the planner
+// from asking the rule of every record below the join.
+var citedRule = "CASE WHEN cited.event_id IS NOT NULL THEN " + satisfiedByCase("?") + " END"
+
+// citedJoin joins citedSet as cited; the prefix is bound three times.
+const citedJoin = "(" + citedSet + ") cited ON cited.event_id = r.event_id"
 
 // supersededExpr answers whether the same session later ran a better version of
 // this call: same connection, same kind, same targets, and it succeeded.
@@ -169,7 +201,12 @@ var satisfiedByExpr = satisfiedByCase("?") + " AS satisfied_by"
 // mutation is not a better version of an earlier mutation, even against the
 // same resource (#1352). Approving a script twice is two decisions, and
 // inserting a row twice is two rows.
-var supersededExpr = fmt.Sprintf(`EXISTS (
+var supersededExpr = supersededPredicate + " AS superseded"
+
+// supersededPredicate is the rule supersededExpr names. A count states it
+// once more as a condition of the records it reads (#2231), where the planner
+// can join it by hash rather than probe it per record.
+var supersededPredicate = fmt.Sprintf(`EXISTS (
 	SELECT 1 FROM call_records l
 	WHERE r.session_id <> ''
 	  AND l.session_id = r.session_id
@@ -182,7 +219,7 @@ var supersededExpr = fmt.Sprintf(`EXISTS (
 	  AND %s
 	  AND %s
 	  AND (l.created_at, l.event_id) > (r.created_at, r.event_id)
-) AS superseded`, readShapedExpr("r"), readShapedExpr("l"))
+)`, readShapedExpr("r"), readShapedExpr("l"))
 
 // readStatementPattern matches a statement that opens with a reading verb. It is
 // anchored at the start, past any opening parentheses a wrapped select carries,
@@ -228,17 +265,103 @@ var outcomeExpr = fmt.Sprintf(`CASE
 	ELSE '%s'
 END AS outcome`, OutcomeFailed, OutcomeSatisfied, OutcomeSuperseded, OutcomeRan)
 
+// supersededLater is supersededPredicate for a read that decides every record
+// at once (#2231): one pass over the reads that can take part, each group of
+// one session, kind, connection and targets in (created_at, event_id) order,
+// marking a read with a later successful read in its group. That is the rule's
+// own condition, stated as an ordering: event_id is unique, so a call is never
+// later than itself, only a read supersedes or is superseded, and a group's
+// targets are non-empty and its session named whenever either call's are.
+// Asked per record, the rule probed the session's calls once for each of
+// 100,000 records; this sorts them once.
+//
+// The group is newest first, with the frame from its start to the row before,
+// so the aggregate grows rather than being recomputed for every row: a session
+// that calls one endpoint thousands of times costs a pass, not its square.
+// Targets group by their text in byte order. Every writer stores them as an
+// array of strings, for which equal text is equal jsonb, and comparing bytes
+// is what keeps the sort from decoding each value. The joined row is sup, and
+// sup.later is NULL for a call outside every group.
+var supersededLater = fmt.Sprintf(`(
+	SELECT w.id, bool_or(w.success) OVER (
+		PARTITION BY w.session_id, w.kind, w.connection, w.targets::text COLLATE "C"
+		ORDER BY w.created_at DESC, w.event_id DESC
+		ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS later
+	FROM call_records w
+	WHERE w.session_id <> '' AND jsonb_array_length(w.targets) > 0 AND %s
+) sup ON sup.id = r.id`, readShapedExpr("w"))
+
+// supersededAtOnce is the rule's answer for the joined record: a read whose
+// group holds a later successful read. A record the pass did not see is not a
+// read in a session over targets, and is never superseded.
+var supersededAtOnce = "COALESCE(sup.later, FALSE)"
+
+// outcomeCondition is outcomeExpr's branch for one outcome, as a condition on
+// a record, for a count (#2231). Stated as the conditions the CASE reaches
+// that outcome by, in its order, a count asks the satisfied rule only of a
+// record citedSet names and asks the supersession rule only of a record that
+// got past the branches before it. The branches are the CASE's, read from the
+// same expressions.
+//
+// Supersession is read from supersededLater, one ordered pass, rather than
+// probed per record. Written as the EXISTS in a WHERE clause it was a join the
+// planner hashed on the session, kind, connection and targets, and the records
+// with no session, or one session's thousands of calls to one endpoint, were
+// then a single bucket compared pair by pair: a count of a catalog of 108,000
+// records, 103,000 with no session, ran for minutes.
+func outcomeCondition(outcome string) sq.Sqlizer {
+	prefix := callReferencePrefix()
+	unsatisfied := sq.Expr("("+citedRule+") IS NULL", prefix)
+	switch outcome {
+	case OutcomeFailed:
+		return sq.Expr("NOT r.success")
+	case OutcomeSatisfied:
+		return sq.And{sq.Expr("r.success"), sq.Expr("("+citedRule+") IS NOT NULL", prefix)}
+	case OutcomeSuperseded:
+		return sq.And{sq.Expr("r.success"), unsatisfied, sq.Expr(supersededAtOnce)}
+	default:
+		return sq.And{sq.Expr("r.success"), unsatisfied, sq.Expr("NOT " + supersededAtOnce)}
+	}
+}
+
 // derived builds the record rows with their derived columns, before the outcome
 // is named or filtered. The capture reference prefix is bound rather than
 // spliced: the mcp: reference grammar has one owner (pkg/portal/knowledgepage)
 // and this reads it rather than restating it in SQL.
+//
+// A read of the satisfied records joins citedSet and asks the rule of the
+// records it names (#2231): satisfied records are few, and found through the
+// rule alone they cost a probe of every record in the catalog. Every other
+// read asks the rule per record, so a page read newest first stops after a
+// page of matches.
 func derived(f Filter) sq.SelectBuilder {
-	qb := sq.Select(storedColumns...).
-		Column(satisfiedByExpr, callReferencePrefix()).
-		Column(supersededExpr).
-		Column(reuseCountExpr).
-		From("call_records r")
+	prefix := callReferencePrefix()
+	qb := sq.Select(storedColumns...)
+	if facetOutcome(f) == OutcomeSatisfied {
+		qb = qb.Column(citedRule+" AS satisfied_by", prefix).
+			Column(supersededExpr).
+			Column(reuseCountExpr).
+			From("call_records r").
+			Join(citedJoin, prefix, prefix, prefix)
+	} else {
+		qb = qb.Column(satisfiedByExpr, prefix).
+			Column(supersededExpr).
+			Column(reuseCountExpr).
+			From("call_records r")
+	}
 	return applyFilters(qb, f)
+}
+
+// facetOutcome is the outcome a filter narrows to, empty when none: its
+// outcome, or satisfied for the review queue.
+func facetOutcome(f Filter) string {
+	if f.PromotableOnly {
+		return OutcomeSatisfied
+	}
+	if ValidOutcome(f.Outcome) {
+		return f.Outcome
+	}
+	return ""
 }
 
 // withOutcome names the outcome over the derived rows.
@@ -285,7 +408,20 @@ func applyFilters(qb sq.SelectBuilder, f Filter) sq.SelectBuilder {
 	if f.PromotableOnly {
 		qb = qb.Where(sq.Eq{"r.promoted_urn": "", "r.rejected_at": nil})
 	}
-	return qb
+	return successFilter(qb, f)
+}
+
+// successFilter states, on the stored column, the part of an outcome facet
+// the record's own success decides (#2231): a failed record is exactly one
+// that did not succeed, and every other outcome is of one that did. The facet
+// on the named outcome still decides; this keeps the derived columns from
+// being computed for records it cannot match.
+func successFilter(qb sq.SelectBuilder, f Filter) sq.SelectBuilder {
+	outcome := facetOutcome(f)
+	if outcome == "" {
+		return qb
+	}
+	return qb.Where(sq.Eq{"r.success": outcome != OutcomeFailed})
 }
 
 // outcomeFilter applies the derived-outcome facets over the named rows. The
@@ -314,6 +450,31 @@ func listQuery(f Filter) sq.SelectBuilder {
 	return qb.OrderBy("o.created_at DESC", "o.event_id DESC")
 }
 
+// noJIT turns JIT compilation off for a catalog read (#2231). The derived
+// read's estimated cost is high enough that the planner compiles it, and the
+// compile took a second and a half of every list and count on a catalog of
+// 100,000 records, longer than the read.
+const noJIT = "SET LOCAL jit = off"
+
+// withoutJIT runs fn in a read-only transaction under noJIT.
+func (s *PostgresStore) withoutJIT(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("opening the call record read: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, noJIT); err != nil {
+		return fmt.Errorf("opening the call record read: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("closing the call record read: %w", err)
+	}
+	return nil
+}
+
 // List returns records matching the filter, newest first.
 func (s *PostgresStore) List(ctx context.Context, f Filter) ([]Record, error) {
 	qb := listQuery(f)
@@ -328,39 +489,62 @@ func (s *PostgresStore) List(ctx context.Context, f Filter) ([]Record, error) {
 		return nil, fmt.Errorf("building call record list query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("querying call records: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
 	records := make([]Record, 0, listCapacity(f.Limit))
-	for rows.Next() {
-		rec, err := scanRecord(rows)
+	err = s.withoutJIT(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, query, args...)
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("querying call records: %w", err)
 		}
-		records = append(records, rec)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating call records: %w", err)
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			rec, err := scanRecord(rows)
+			if err != nil {
+				return err
+			}
+			records = append(records, rec)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterating call records: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return records, nil
 }
 
+// countQuery counts the records the filter matches. With an outcome facet it
+// counts by outcomeCondition, over the records joined to citedSet; without
+// one it names no outcome at all.
+func countQuery(f Filter) sq.SelectBuilder {
+	qb := psq.Select("COUNT(*)").From("call_records r")
+	if outcome := facetOutcome(f); outcome != "" {
+		prefix := callReferencePrefix()
+		qb = qb.LeftJoin(citedJoin, prefix, prefix, prefix)
+		if outcome == OutcomeSuperseded || outcome == OutcomeRan {
+			qb = qb.LeftJoin(supersededLater)
+		}
+		qb = qb.Where(outcomeCondition(outcome))
+	}
+	return applyFilters(qb, f)
+}
+
 // Count returns how many records match the filter, ignoring its paging.
 func (s *PostgresStore) Count(ctx context.Context, f Filter) (int, error) {
-	f.Limit, f.Offset = 0, 0
-	inner := sq.Select("o.outcome").FromSelect(withOutcome(f), "o")
-	inner = outcomeFilter(inner, f)
-
-	query, args, err := psq.Select("COUNT(*)").FromSelect(inner, "c").ToSql()
+	query, args, err := countQuery(f).ToSql()
 	if err != nil {
 		return 0, fmt.Errorf("building call record count query: %w", err)
 	}
 	var count int
-	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
-		return 0, fmt.Errorf("counting call records: %w", err)
+	err = s.withoutJIT(ctx, func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+			return fmt.Errorf("counting call records: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 	return count, nil
 }

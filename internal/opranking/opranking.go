@@ -76,6 +76,10 @@ const ScoreFloor = 0.45
 // dominant while preserving that precision.
 const SemanticWeight = 0.6
 
+// unembeddedSemantic is the semantic term of a candidate with no vector: a
+// cosine of zero mapped onto [0,1].
+const unembeddedSemantic = 0.5
+
 // Candidate is one rankable operation as this package sees it: an
 // opaque id the caller maps back, the text a query's tokens are matched
 // against, and the operation's embedding when one is indexed.
@@ -169,7 +173,13 @@ func scoreOne(c Candidate, lexical bool, queryVec []float32, mode Mode) float64 
 		if mode == ModeSemantic {
 			return 0
 		}
-		return (1 - SemanticWeight) * lex
+		// A candidate not embedded yet is blended at a cosine of zero, the
+		// value every SQL ranker gives a row the vector arm cannot see
+		// (#2230): its lexical match then outranks every candidate that
+		// matches none of the query's tokens, as it does on every other
+		// surface. Blended at zero semantic, it fell below any near
+		// neighbor above 0.67.
+		return SemanticWeight*unembeddedSemantic + (1-SemanticWeight)*lex
 	}
 	// Map the cosine's [-1,1] onto [0,1] so the blend's two terms are on
 	// one scale.

@@ -20,10 +20,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log/slog"
-	"time"
 
-	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 )
 
 // NotifyChannel is the channel the trigger notifies when a row becomes due.
@@ -43,9 +41,6 @@ const (
 // chunk is how many rows one statement of a sweep marks, so no statement
 // holds row locks on more than this many rows at a time.
 const chunk = 2000
-
-// unlockTimeout bounds the advisory unlock after a sweep.
-const unlockTimeout = 5 * time.Second
 
 // The advisory locks the sweeps run under, one per table, so two replicas
 // starting together sweep a table once.
@@ -97,44 +92,33 @@ func Sweep(ctx context.Context, db *sql.DB, table Table, rule string) (int64, er
 	if err != nil {
 		return 0, err
 	}
-	conn, err := db.Conn(ctx)
+	release, got, err := advisorylock.Try(ctx, db, advisorylock.ID(key))
 	if err != nil {
-		return 0, fmt.Errorf("thumbdue: acquiring a connection for the sweep: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-	var got bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&got); err != nil {
 		return 0, fmt.Errorf("thumbdue: taking the sweep lock: %w", err)
 	}
 	if !got {
 		return 0, nil
 	}
-	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockTimeout)
-		defer cancel()
-		if _, uerr := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", key); uerr != nil {
-			slog.WarnContext(ctx, "thumbnails: sweep unlock failed", "table", string(table), "error", logsan.SanitizeForLog(uerr.Error()))
-		}
-	}()
-	return sweepLocked(ctx, conn, table, rule)
+	defer release()
+	return sweepLocked(ctx, db, table, rule)
 }
 
 // sweepLocked is Sweep once its lock is held: mark the table unless it was
 // swept under rule, then record rule.
-func sweepLocked(ctx context.Context, conn *sql.Conn, table Table, rule string) (int64, error) {
+func sweepLocked(ctx context.Context, db *sql.DB, table Table, rule string) (int64, error) {
 	var recorded string
-	err := conn.QueryRowContext(ctx, `SELECT rule FROM thumbnail_sweeps WHERE subject = $1`, string(table)).Scan(&recorded)
+	err := db.QueryRowContext(ctx, `SELECT rule FROM thumbnail_sweeps WHERE subject = $1`, string(table)).Scan(&recorded)
 	if err != nil && err != sql.ErrNoRows { //nolint:errorlint // database/sql returns ErrNoRows unwrapped
 		return 0, fmt.Errorf("thumbdue: reading the sweep record: %w", err)
 	}
 	if recorded == rule {
 		return 0, nil
 	}
-	marked, err := markAll(ctx, conn, table)
+	marked, err := markAll(ctx, db, table)
 	if err != nil {
 		return marked, err
 	}
-	if _, err := conn.ExecContext(ctx, `
+	if _, err := db.ExecContext(ctx, `
 		INSERT INTO thumbnail_sweeps (subject, rule, swept_at) VALUES ($1, $2, now())
 		ON CONFLICT (subject) DO UPDATE SET rule = EXCLUDED.rule, swept_at = EXCLUDED.swept_at`,
 		string(table), rule); err != nil {
@@ -144,7 +128,7 @@ func sweepLocked(ctx context.Context, conn *sql.Conn, table Table, rule string) 
 }
 
 // markAll marks table due chunk rows at a time, walking its primary key.
-func markAll(ctx context.Context, conn *sql.Conn, table Table) (int64, error) {
+func markAll(ctx context.Context, db *sql.DB, table Table) (int64, error) {
 	query := markQuery(table)
 	var marked int64
 	after := ""
@@ -152,7 +136,7 @@ func markAll(ctx context.Context, conn *sql.Conn, table Table) (int64, error) {
 		var n int64
 		var last sql.NullString
 		// #nosec G701 -- table is one of the Table constants; every value is bound
-		if err := conn.QueryRowContext(ctx, query, after, chunk).Scan(&n, &last); err != nil {
+		if err := db.QueryRowContext(ctx, query, after, chunk).Scan(&n, &last); err != nil {
 			return marked, fmt.Errorf("thumbdue: marking %s due: %w", string(table), err)
 		}
 		marked += n

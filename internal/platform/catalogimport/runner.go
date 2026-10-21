@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
@@ -129,22 +130,16 @@ func (rn *Runner) Start(ctx context.Context, url, token, by string) (Run, error)
 	if err != nil {
 		return Run{}, fmt.Errorf("opening DataHub at %s: %w", url, err)
 	}
-	conn, err := rn.db.Conn(ctx)
+	release, got, err := advisorylock.Try(ctx, rn.db, advisorylock.ID(LockKey))
 	if err != nil {
-		return Run{}, fmt.Errorf("taking a connection for the import's lock: %w", err)
-	}
-	var got bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", LockKey).Scan(&got); err != nil {
-		_ = conn.Close()
 		return Run{}, fmt.Errorf("taking the import's lock: %w", err)
 	}
 	if !got {
-		_ = conn.Close()
 		return Run{}, ErrRunning
 	}
 	run, err := rn.store.begin(ctx, url, by)
 	if err != nil {
-		release(conn)
+		release()
 		return Run{}, err
 	}
 	rn.mu.Lock()
@@ -153,7 +148,7 @@ func (rn *Runner) Start(ctx context.Context, url, token, by string) (Run, error)
 	rn.mu.Unlock()
 	go func() {
 		defer rn.wg.Done()
-		defer release(conn)
+		defer release()
 		rn.execute(runCtx, run.ID, src)
 	}()
 	return run, nil
@@ -176,12 +171,6 @@ func (rn *Runner) execute(ctx context.Context, id string, src Source) {
 	}
 }
 
-// release lets go of the lock and its connection.
-func release(conn *sql.Conn) {
-	_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", LockKey)
-	_ = conn.Close()
-}
-
 // Runs lists the latest runs, newest first, saying which is under way.
 func (rn *Runner) Runs(ctx context.Context, limit int) ([]Run, error) {
 	running, err := rn.locked(ctx)
@@ -193,19 +182,11 @@ func (rn *Runner) Runs(ctx context.Context, limit int) ([]Run, error) {
 
 // locked reports whether some replica holds the import's lock.
 func (rn *Runner) locked(ctx context.Context) (bool, error) {
-	conn, err := rn.db.Conn(ctx)
+	held, err := advisorylock.For(rn.db).Held(ctx, advisorylock.ID(LockKey))
 	if err != nil {
-		return false, fmt.Errorf("taking a connection to read the import's lock: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-	var got bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", LockKey).Scan(&got); err != nil {
 		return false, fmt.Errorf("reading the import's lock: %w", err)
 	}
-	if got {
-		_, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", LockKey)
-	}
-	return !got, nil
+	return held, nil
 }
 
 // Configured is the address of the DataHub the configuration names, or "".

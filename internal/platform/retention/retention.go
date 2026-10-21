@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
@@ -50,10 +51,6 @@ func Days(configured, def int) int {
 		return configured
 	}
 }
-
-// unlockTimeout bounds the advisory unlock after a sweep, so a shutdown
-// cannot hang on releasing it.
-const unlockTimeout = 5 * time.Second
 
 // Sweep is one removal the loop runs. LockKey is its advisory lock, distinct
 // from every other maintenance lock in the platform. Run reports how many
@@ -152,29 +149,18 @@ func (l *Loop) RunOnce(ctx context.Context) error {
 	return nil
 }
 
-// runLocked runs one sweep while holding its advisory lock on a dedicated
-// connection, since an advisory lock belongs to the session that took it.
-// ran is false when another replica holds the lock.
+// runLocked runs one sweep while holding its advisory lock on the process's
+// lock session; the sweep runs on the pool (#2169). ran is false when another
+// replica holds the lock.
 func (l *Loop) runLocked(ctx context.Context, s Sweep) (removed int64, ran bool, err error) {
-	conn, err := l.db.Conn(ctx)
+	release, got, err := advisorylock.Try(ctx, l.db, advisorylock.ID(s.LockKey))
 	if err != nil {
-		return 0, false, fmt.Errorf("acquiring a connection for the lock: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-	var got bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", s.LockKey).Scan(&got); err != nil {
-		return 0, false, fmt.Errorf("taking the advisory lock: %w", err)
+		return 0, false, err //nolint:wrapcheck // the lock session names the statement
 	}
 	if !got {
 		return 0, false, nil
 	}
-	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
-		defer cancel()
-		if _, uerr := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", s.LockKey); uerr != nil {
-			slog.WarnContext(ctx, "retention: advisory unlock failed", "sweep", s.Name, "error", logsan.SanitizeForLog(uerr.Error()))
-		}
-	}()
+	defer release()
 	removed, err = s.Run(ctx)
 	return removed, true, err
 }

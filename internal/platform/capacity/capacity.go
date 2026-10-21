@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/objectobs"
@@ -49,8 +50,6 @@ const (
 	// other maintenance lock (retention 4713210101-4713210105, the call
 	// catalog 4713210001, maps 4713210301).
 	scanLockKey int64 = 4713210401
-
-	unlockTimeout = 5 * time.Second
 )
 
 // Sources is what the service reads.
@@ -355,27 +354,16 @@ var errListedRecently = errors.New("capacity: listed recently")
 // recent for.
 const recentFraction = 0.9
 
-// locked runs fn while holding the listing's advisory lock on a dedicated
-// connection, since an advisory lock belongs to the session that took it.
+// locked runs fn while holding the listing's advisory lock on the process's
+// lock session; fn runs on the pool (#2169).
 func (s *Service) locked(ctx context.Context, fn func(context.Context) error) (bool, error) {
-	conn, err := s.src.DB.Conn(ctx)
+	release, got, err := advisorylock.Try(ctx, s.src.DB, advisorylock.ID(scanLockKey))
 	if err != nil {
-		return false, fmt.Errorf("acquiring a connection for the lock: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-	var got bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", scanLockKey).Scan(&got); err != nil {
-		return false, fmt.Errorf("taking the advisory lock: %w", err)
+		return false, err //nolint:wrapcheck // the lock session names the statement
 	}
 	if !got {
 		return false, nil
 	}
-	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
-		defer cancel()
-		if _, err := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", scanLockKey); err != nil {
-			slog.WarnContext(ctx, "capacity: advisory unlock failed", "error", logsan.SanitizeForLog(err.Error()))
-		}
-	}()
+	defer release()
 	return true, fn(ctx)
 }

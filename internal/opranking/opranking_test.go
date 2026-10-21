@@ -124,6 +124,24 @@ func TestScoreCreditsLexicalOnAnUnembeddedCandidate(t *testing.T) {
 	}
 }
 
+// #2230: an operation not embedded yet that contains every token of the
+// query outranks a near neighbor that contains none, however near: it is
+// blended at a cosine of zero, as every SQL ranker blends a row the vector
+// arm cannot see.
+func TestScoreAnUnembeddedMatchOutranksANearNeighbor(t *testing.T) {
+	cands := []Candidate{
+		{ID: "neighbor", Fields: []string{"list invoices"}, Vector: []float32{0, 1, 0}},
+		{ID: "match", Fields: []string{"list orders 2024"}},
+	}
+	got := Score(cands, "orders 2024", []float32{0, 1, 0}, ModeHybrid)
+	if got[0].ID != "match" {
+		t.Fatalf("hybrid put %q first at %v; the unembedded token match (%v) must lead", got[0].ID, got[0].Score, got[1].Score)
+	}
+	if want := SemanticWeight*unembeddedSemantic + (1 - SemanticWeight); got[0].Score != want {
+		t.Errorf("the unembedded match scored %v; want %v, the SQL rankers' score for it", got[0].Score, want)
+	}
+}
+
 func TestScoreSemanticIgnoresAnUnembeddedCandidate(t *testing.T) {
 	cands := []Candidate{{ID: "match", Fields: []string{"list orders"}}}
 	got := Score(cands, "orders", []float32{0, 1, 0}, ModeSemantic)

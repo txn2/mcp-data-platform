@@ -231,11 +231,9 @@ func objects1627(t *testing.T, raw []any) []map[string]any {
 func hitTable1627(t *testing.T, c *client, reference, name string) map[string]any {
 	t.Helper()
 	intent := strings.ReplaceAll(name, "-", " ")
-	// A file is ranked by its embedding beside its words, and one not yet
-	// embedded is outranked by files whose names merely look alike: a stack
-	// holding hundreds of acceptance files buried it below the limit. What
-	// this criterion reads is the hit's table, so it searches once the file's
-	// index job has finished.
+	// What this criterion reads is the hit's table, which the file's index
+	// job records, so it searches once that job has finished. The file is
+	// found by the words of its name (#2230).
 	db := issue1904DB(t)
 	id := strings.TrimPrefix(reference, "mcp:resource:")
 	issue1904Await(t, "the file's index job finished", func() bool {

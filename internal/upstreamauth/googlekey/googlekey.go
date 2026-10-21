@@ -153,7 +153,13 @@ type apiError struct {
 // APIHint is the operator's next step for a Google API refusing a call a
 // service-account connection made, or "" when the response is not one. A valid
 // token is not access: the API must be enabled in the account's Cloud project,
-// and the account granted inside the product. body is the decoded response.
+// the token must carry the API's scope, and the account must be granted inside
+// the product. body is the decoded response.
+//
+// Every Google API refuses in one shape (error.code, error.status,
+// error.details[].reason), and the token was issued by Google a moment before,
+// so a 401 or 403 in that shape is read by its status and reasons alone, never
+// by one product's message text (#2237).
 func APIHint(status int, body any) string {
 	if status != http.StatusUnauthorized && status != http.StatusForbidden {
 		return ""
@@ -163,19 +169,19 @@ func APIHint(status int, body any) string {
 		return ""
 	}
 	var e apiError
-	if json.Unmarshal(raw, &e) != nil {
+	if json.Unmarshal(raw, &e) != nil || e.Error.Status == "" {
 		return ""
 	}
 	reasons := make([]string, 0, len(e.Error.Details))
 	for _, d := range e.Error.Details {
 		reasons = append(reasons, d.Reason)
 	}
-	msg := strings.ToLower(e.Error.Message)
 	switch {
 	case slices.Contains(reasons, "SERVICE_DISABLED"):
 		return "the API is not enabled in the service account's Google Cloud project; enable it there (the error names the project and the API)"
-	case e.Error.Status == "PERMISSION_DENIED" || strings.Contains(msg, "cannot get profile"):
+	case slices.Contains(reasons, "ACCESS_TOKEN_SCOPE_INSUFFICIENT"):
+		return "the token does not carry the scope this API needs; add it to the connection's oauth_scope"
+	default:
 		return "the token is valid but the service account has no access in this product; grant the service account's email access inside the product"
 	}
-	return ""
 }

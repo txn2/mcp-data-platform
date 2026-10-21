@@ -126,6 +126,8 @@ export const mockConnectionInstances: ConnectionInstance[] = [
       oauth_client_secret: "[REDACTED]",
       oauth_scope: "billing.read",
       oauth_endpoint_auth_style: "params",
+      // The billing token endpoint states no expires_in (#2236).
+      oauth_token_lifetime: "30m",
     },
     description:
       "HTTP API gateway over the internal billing service. Exposes invoice and subscription lookups as a single `api_invoke` tool with discovery.",

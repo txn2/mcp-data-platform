@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/platform/levelalert"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
@@ -63,4 +64,45 @@ func TestPassRealDB(t *testing.T) {
 	budgetsRead, err := BudgetsFrom(settings)(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]int64{"portal": 1000}, budgetsRead)
+}
+
+// TestPassOncePerTickRealDB is #2203's fourth item: two replicas whose
+// timers fire in the same tick take one sample between them, the second
+// finding the first's; a tick an interval later samples again. The store's
+// first sample is its birth, and its first day is left out of the fit.
+func TestPassOncePerTickRealDB(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	settings := NewSettingsStore(db)
+	at := time.Date(2026, 10, 20, 3, 24, 7, 0, time.UTC)
+	replica := func() *Service {
+		return New(Deps{
+			DB: db, Settings: settings, Engine: levelalert.New(levelalert.NewPostgresStore(db), nil),
+			Interval: 15 * time.Minute, Now: func() time.Time { return at },
+		})
+	}
+	a, b := replica(), replica()
+	samples := func() int {
+		var n int
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM storage_samples WHERE store = 'database'`).Scan(&n))
+		return n
+	}
+
+	require.NoError(t, a.Pass(ctx))
+	at = at.Add(400 * time.Millisecond)
+	require.ErrorIs(t, b.Pass(ctx), bgloop.ErrSkipped, "the second replica in one tick")
+	assert.Equal(t, 1, samples())
+
+	at = at.Add(15 * time.Minute)
+	require.NoError(t, b.Pass(ctx))
+	assert.Equal(t, 2, samples(), "the next tick samples again")
+
+	r, err := b.Report(ctx)
+	require.NoError(t, err)
+	for _, s := range r.Stores {
+		if s.Store == "database" {
+			assert.Nil(t, s.Forecast.Rate7d)
+			assert.Equal(t, 48.0, s.Forecast.Rate7dMinHistoryHours, "a store born a quarter hour ago waits out its first day")
+		}
+	}
 }

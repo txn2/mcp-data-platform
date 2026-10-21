@@ -54,6 +54,25 @@ export const adminConnectionRoutes: ScreenshotRoute[] = [
     },
   },
   {
+    // The token lifetime field (#2236) under the OAuth block of an api
+    // connection whose token endpoint states no expiry.
+    slug: "admin-connection-token-lifetime",
+    path: "/portal/admin/connections?kind=api&name=acme-billing-api",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const edit = page.locator("button:has-text('Edit')").first();
+      if (await edit.isVisible()) {
+        await edit.click();
+        await page.waitForTimeout(600);
+      }
+      const lifetime = page.locator("text=Token lifetime").first();
+      if (await lifetime.isVisible()) {
+        await lifetime.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(300);
+      }
+    },
+  },
+  {
     // A connection carrying both OAuth config vocabularies (#1682). The values
     // nothing reads are struck through and badged rather than listed beside the
     // live ones as equals, which is the state an operator has to be able to see.

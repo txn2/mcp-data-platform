@@ -700,6 +700,13 @@ would take every replica out of the load balancer at once during an
 upstream outage, including the routes that do not need that upstream. Alert
 on `dependency_up == 0` instead.
 
+The one exception is the replica's own database pool. When every connection
+of it has been in use, with none handed out within half a second of being
+asked, for 30 seconds, `/readyz` answers 503 `database_pool_starved` and logs
+the `database pool starved` WARN: the replica cannot serve anything that reads
+the database, and another replica may. A database that is down is not this:
+its pool opens no connections, and the replica stays ready (#2169).
+
 **Connections and personas.** `mcp_platform_connections{kind, state}`
 counts the connections of every kind that lists them by the state the last
 call through each one found it in. Nothing is sent to an upstream to find

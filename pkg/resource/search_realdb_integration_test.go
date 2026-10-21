@@ -283,3 +283,49 @@ func TestResourceIndex_RealDB_UnsettledContentIsAGap(t *testing.T) {
 	assert.Equal(t, []string{"res_owed"}, gaps,
 		"an embedded row whose content pass never settled must still be a gap")
 }
+
+// TestResourceSearch_RealDB_AFileIsFoundByTheWordsOfItsName is #2230. Among
+// thirty embedded files whose names look like it, one not embedded yet and
+// named acceptance-1627-<n>.csv is the first hit for "acceptance 1627 <n>":
+// its name matches by its words, and an unembedded match outranks every file
+// that matches none of the query's tokens. PostgreSQL's parser read the name
+// as "acceptance" and the signed numbers -1627 and -<n>, so the file matched
+// nothing. A name with a dotted extension is found by its words the same way,
+// and still by itself.
+func TestResourceSearch_RealDB_AFileIsFoundByTheWordsOfItsName(t *testing.T) {
+	db := testdb.New(t)
+	store := NewPostgresStore(db)
+	ctx := context.Background()
+	insert := func(id, name string) {
+		require.NoError(t, store.Insert(ctx, Resource{
+			ID: id, Scope: ScopeGlobal, Path: "acceptance-1657", Filename: name + ".bin", DisplayName: name,
+			MIMEType: "application/octet-stream", S3Key: id, URI: "mcp://global/acceptance-1657/" + name + ".bin", UploaderSub: "sub-1",
+		}))
+	}
+	for i := range 30 {
+		id := "res_alike_" + strings.Repeat("x", i+1)
+		insert(id, "Acceptance 1657 thing-"+strings.Repeat("a", i+1))
+		_, err := db.ExecContext(ctx, `UPDATE resources SET embedding = $2, embedding_model = 'test' WHERE id = $1`, id, vectorLiteral(768))
+		require.NoError(t, err)
+	}
+	const name = "acceptance-1627-1792487495133911000"
+	insert("res_target", name)
+	_, err := db.ExecContext(ctx, `UPDATE resources SET filename = 'q3-2024-report.csv' WHERE id = 'res_target'`)
+	require.NoError(t, err)
+	scopes := []ScopeFilter{{Scope: ScopeGlobal}}
+
+	for _, query := range []string{"acceptance 1627 1792487495133911000", name, "q3 2024 report", "q3-2024-report.csv"} {
+		got, err := store.(Searcher).Search(ctx, SearchQuery{
+			Embedding: unitQueryVector(768), //nolint:mnd // the schema's vector dimensionality
+			QueryText: query, Scopes: scopes, Limit: 25,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, got, query)
+		assert.Equal(t, "res_target", got[0].Resource.ID, "the first hit for %q", query)
+
+		lexical, err := store.(Searcher).Search(ctx, SearchQuery{QueryText: query, Scopes: scopes})
+		require.NoError(t, err)
+		require.NotEmpty(t, lexical, "the lexical search for %q", query)
+		assert.Equal(t, "res_target", lexical[0].Resource.ID, "the first lexical hit for %q", query)
+	}
+}

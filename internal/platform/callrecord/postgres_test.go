@@ -76,10 +76,19 @@ func nullable(s string) any {
 	return s
 }
 
+// expectJITOff queues the read-only transaction a list or a count runs in,
+// with JIT off (#2231).
+func expectJITOff(mock sqlmock.Sqlmock) {
+	mock.ExpectBegin()
+	mock.ExpectExec("SET LOCAL jit = off").WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
 func TestListProjectsARecord(t *testing.T) {
 	store, mock := newMock(t)
+	expectJITOff(mock)
 	mock.ExpectQuery("FROM call_records").
 		WillReturnRows(recordRow(OutcomeSatisfied, SatisfiedByCapture, 2))
+	mock.ExpectCommit()
 
 	got, err := store.List(context.Background(), Filter{UserID: "u1", Limit: 10})
 	require.NoError(t, err)
@@ -107,7 +116,9 @@ func TestListCarriesADecidedRecordsTimestamps(t *testing.T) {
 		"asset", false, 0, OutcomeSatisfied,
 	)
 
+	expectJITOff(mock)
 	mock.ExpectQuery("FROM call_records").WillReturnRows(row)
+	mock.ExpectCommit()
 	got, err := store.List(context.Background(), Filter{})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -123,9 +134,11 @@ func TestListScopesToTheCallerInSQL(t *testing.T) {
 	store, mock := newMock(t)
 	// The caller is a predicate inside the query, not a check after the read:
 	// another caller's record must never be selected in the first place.
+	expectJITOff(mock)
 	mock.ExpectQuery("FROM call_records").
 		WithArgs(sqlmock.AnyArg(), "u1").
 		WillReturnRows(sqlmock.NewRows(recordColumns))
+	mock.ExpectCommit()
 
 	_, err := store.List(context.Background(), Filter{UserID: "u1"})
 	require.NoError(t, err)
@@ -133,8 +146,10 @@ func TestListScopesToTheCallerInSQL(t *testing.T) {
 
 func TestListAppliesEveryFacet(t *testing.T) {
 	store, mock := newMock(t)
+	expectJITOff(mock)
 	mock.ExpectQuery("FROM call_records").
 		WillReturnRows(sqlmock.NewRows(recordColumns))
+	mock.ExpectCommit()
 
 	_, err := store.List(context.Background(), Filter{
 		UserID: "u1", Kind: KindAPI, Connection: "acme", Outcome: OutcomeRan,
@@ -148,8 +163,10 @@ func TestListReviewQueueOrdersByReuse(t *testing.T) {
 	store, mock := newMock(t)
 	// A query a stranger re-ran is better evidence than one its own author
 	// vouched for, so the queue leads with reuse.
+	expectJITOff(mock)
 	mock.ExpectQuery("ORDER BY o.reuse_count DESC").
 		WillReturnRows(recordRow(OutcomeSatisfied, SatisfiedByAsset, 3))
+	mock.ExpectCommit()
 
 	got, err := store.List(context.Background(), Filter{PromotableOnly: true})
 	require.NoError(t, err)
@@ -158,7 +175,9 @@ func TestListReviewQueueOrdersByReuse(t *testing.T) {
 
 func TestListReportsAQueryFailure(t *testing.T) {
 	store, mock := newMock(t)
+	expectJITOff(mock)
 	mock.ExpectQuery("FROM call_records").WillReturnError(errors.New("db down"))
+	mock.ExpectRollback()
 
 	_, err := store.List(context.Background(), Filter{})
 	require.Error(t, err)
@@ -166,7 +185,9 @@ func TestListReportsAQueryFailure(t *testing.T) {
 
 func TestCountIgnoresPaging(t *testing.T) {
 	store, mock := newMock(t)
+	expectJITOff(mock)
 	mock.ExpectQuery("COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
+	mock.ExpectCommit()
 
 	got, err := store.Count(context.Background(), Filter{UserID: "u1", Limit: 5, Offset: 10})
 	require.NoError(t, err)
@@ -400,3 +421,83 @@ func TestNormalizeTargetsSortsAndDeduplicates(t *testing.T) {
 
 // Verify the store satisfies the sql.DB-backed contract the wiring passes it as.
 var _ Store = (*PostgresStore)(nil)
+
+// TestCountByOutcomeStatesTheCasesBranch: a count filtered by outcome counts
+// the records meeting the condition the outcome CASE reaches it by, over the
+// cited join, and asks no outcome of an unfiltered count (#2231).
+func TestCountByOutcomeStatesTheCasesBranch(t *testing.T) {
+	cases := map[string][]string{
+		OutcomeFailed:     {"NOT r.success", "r.success = $"},
+		OutcomeSatisfied:  {"cited.event_id IS NOT NULL THEN", ") IS NOT NULL"},
+		OutcomeSuperseded: {") IS NULL", "COALESCE(sup.later, FALSE)", "PARTITION BY w.session_id"},
+		OutcomeRan:        {") IS NULL", "NOT COALESCE(sup.later, FALSE)", "PARTITION BY w.session_id"},
+	}
+	for outcome, fragments := range cases {
+		query, _, err := countQuery(Filter{Outcome: outcome}).ToSql()
+		require.NoError(t, err)
+		assert.Contains(t, query, "LEFT JOIN (SELECT substr(src.v", outcome)
+		for _, fragment := range fragments {
+			assert.Contains(t, query, fragment, outcome)
+		}
+		assert.NotContains(t, query, "AS outcome", "a count names no outcome")
+	}
+	plain, _, err := countQuery(Filter{UserID: "u1"}).ToSql()
+	require.NoError(t, err)
+	assert.NotContains(t, plain, "cited.event_id", "an unfiltered count joins nothing")
+	queue, _, err := countQuery(Filter{PromotableOnly: true}).ToSql()
+	require.NoError(t, err)
+	assert.Contains(t, queue, ") IS NOT NULL", "the review queue counts satisfied records")
+}
+
+// TestListOfSatisfiedJoinsTheCitedSet: a page of satisfied records reads the
+// records an artifact names, and every other page asks the rule per record so
+// it can stop at a page of matches (#2231).
+func TestListOfSatisfiedJoinsTheCitedSet(t *testing.T) {
+	satisfied, _, err := listQuery(Filter{Outcome: OutcomeSatisfied}).ToSql()
+	require.NoError(t, err)
+	assert.Contains(t, satisfied, "JOIN (SELECT substr(src.v")
+	assert.Contains(t, satisfied, "r.success = $")
+	ran, _, err := listQuery(Filter{Outcome: OutcomeRan}).ToSql()
+	require.NoError(t, err)
+	assert.NotContains(t, ran, "cited.event_id")
+}
+
+// TestCatalogReadFailures: each step of the read's transaction that fails is
+// reported.
+func TestCatalogReadFailures(t *testing.T) {
+	boom := errors.New("db down")
+	steps := map[string]func(sqlmock.Sqlmock){
+		"begin": func(m sqlmock.Sqlmock) { m.ExpectBegin().WillReturnError(boom) },
+		"settings": func(m sqlmock.Sqlmock) {
+			m.ExpectBegin()
+			m.ExpectExec("SET LOCAL jit").WillReturnError(boom)
+			m.ExpectRollback()
+		},
+		"count": func(m sqlmock.Sqlmock) {
+			expectJITOff(m)
+			m.ExpectQuery("COUNT").WillReturnError(boom)
+			m.ExpectRollback()
+		},
+		"commit": func(m sqlmock.Sqlmock) {
+			expectJITOff(m)
+			m.ExpectQuery("COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+			m.ExpectCommit().WillReturnError(boom)
+		},
+	}
+	for name, expect := range steps {
+		t.Run(name, func(t *testing.T) {
+			store, mock := newMock(t)
+			expect(mock)
+			_, err := store.Count(context.Background(), Filter{UserID: "u1"})
+			require.ErrorIs(t, err, boom)
+		})
+	}
+	t.Run("scan", func(t *testing.T) {
+		store, mock := newMock(t)
+		expectJITOff(mock)
+		mock.ExpectQuery("FROM call_records").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("x"))
+		mock.ExpectRollback()
+		_, err := store.List(context.Background(), Filter{})
+		require.Error(t, err)
+	})
+}

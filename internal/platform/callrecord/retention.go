@@ -9,7 +9,9 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -62,10 +64,6 @@ const (
 	// distinct from every other maintenance lock in the platform so one
 	// subsystem's sweep never blocks another's.
 	sweepLockKey = 4713210001
-
-	// unlockTimeout bounds the advisory unlock after a sweep, so a shutdown
-	// cannot hang on releasing it.
-	unlockTimeout = 5 * time.Second
 
 	// sweepBatchSize bounds how many records one statement of the sweep
 	// removes. It is the same bound the index queue's own retention purges
@@ -242,30 +240,16 @@ func (s *PostgresStore) Close() error {
 // deletes per tick. It returns bgloop.ErrSkipped when another replica held
 // the lock, and the error of a sweep that failed.
 func (s *PostgresStore) sweepTick(ctx context.Context) error {
-	conn, err := s.db.Conn(ctx)
+	release, acquired, err := advisorylock.Try(ctx, s.db, advisorylock.ID(sweepLockKey))
 	if err != nil {
-		slog.WarnContext(ctx, "call catalog: acquire connection for the retention lock", "error", err)
-		return fmt.Errorf("call catalog: retention lock connection: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-
-	var acquired bool
-	if err := conn.QueryRowContext(ctx,
-		"SELECT pg_try_advisory_lock($1)", sweepLockKey).Scan(&acquired); err != nil {
-		slog.WarnContext(ctx, "call catalog: try retention lock", "error", err)
+		slog.WarnContext(ctx, "call catalog: try retention lock", "error", logsan.SanitizeForLog(err.Error()))
 		return fmt.Errorf("call catalog: try retention lock: %w", err)
 	}
 	if !acquired {
 		// Another replica is sweeping; this tick has nothing to do.
 		return bgloop.ErrSkipped
 	}
-	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
-		defer cancel()
-		if _, err := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", sweepLockKey); err != nil {
-			slog.WarnContext(ctx, "call catalog: release retention lock", "error", err)
-		}
-	}()
+	defer release()
 
 	removed, err := s.Cleanup(ctx)
 	if err != nil {

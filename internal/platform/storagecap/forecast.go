@@ -11,14 +11,17 @@ const (
 	longWindow  = 30 * 24 * time.Hour
 	day         = 24 * time.Hour
 	// minSpan7d and minSpan30d are the shortest stretch of history each rate
-	// is fitted over (#2201). A new install's first hours are setup, not
-	// growth: migrations, the built-in pages and their embeddings, the first
-	// catalog scan. An hour of that read as +112 MB/day, four times the whole
-	// database. A day of history is the least a weekly rate is read from, and
-	// a week the least a monthly one is, so the 30-day rate never repeats the
-	// 7-day one over the same few hours.
+	// is fitted over (#2201): a day for a weekly rate, and two weeks for a
+	// monthly one, so the 30-day rate is read from at least twice the history
+	// the 7-day rate is and never repeats it over the same days (#2203).
 	minSpan7d  = day
-	minSpan30d = 7 * day
+	minSpan30d = 14 * day
+	// settle is how much of a store's history is left out of every fit from
+	// its first sample (#2203). A new install's first hours are setup, not
+	// growth: migrations, the built-in pages and their embeddings, seeding,
+	// the first catalog scan. Fitted, they read as +87 MB/day for a database
+	// of 28 MB that had stopped growing.
+	settle = day
 	// flatRate is the largest slope read as no growth, in bytes per day: a
 	// store holding one size gives a slope of rounding error, never 0.
 	flatRate = 1.0
@@ -62,16 +65,22 @@ type Forecast struct {
 
 // Project fits the store's growth over its history and, with its capacity,
 // when it fills. points are in time order; the last is the current reading.
-func Project(points []Point, now time.Time) Forecast {
+// born is when the store's history began, or zero when it began before the
+// history kept: a store's first day is left out of every fit.
+func Project(points []Point, now, born time.Time) Forecast {
+	from, wait := time.Time{}, time.Duration(0)
+	if !born.IsZero() {
+		from, wait = born.Add(settle), settle
+	}
 	f := Forecast{
-		Rate7dMinHistoryHours:  minSpan7d.Hours(),
-		Rate30dMinHistoryHours: minSpan30d.Hours(),
+		Rate7dMinHistoryHours:  (wait + minSpan7d).Hours(),
+		Rate30dMinHistoryHours: (wait + minSpan30d).Hours(),
 	}
 	if len(points) > 1 {
 		f.HistoryHours = points[len(points)-1].At.Sub(points[0].At).Hours()
 	}
-	f.Rate7d = rateOver(points, now.Add(-shortWindow), minSpan7d)
-	f.Rate30d = rateOver(points, now.Add(-longWindow), minSpan30d)
+	f.Rate7d = rateOver(points, latest(now.Add(-shortWindow), from), minSpan7d)
+	f.Rate30d = rateOver(points, latest(now.Add(-longWindow), from), minSpan30d)
 	rate, used := slower(f.Rate7d, f.Rate30d)
 	if rate == nil || len(points) == 0 {
 		return f
@@ -91,6 +100,14 @@ func Project(points []Point, now time.Time) Forecast {
 		f.ExhaustionAt = &at
 	}
 	return f
+}
+
+// latest is the later of two times.
+func latest(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // slower is the smaller of the growing rates and which it is; nil when

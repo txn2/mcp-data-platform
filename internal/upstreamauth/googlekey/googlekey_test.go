@@ -118,19 +118,23 @@ func TestAPIHint(t *testing.T) {
 	}
 	disabled := decode(`{"error":{"code":403,"message":"Google Sheets API has not been used in project 1234567890 before or it is disabled.","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"SERVICE_DISABLED"}]}}`)
 	denied := decode(`{"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}`)
-	profile := decode(`{"error":{"code":401,"message":"Cannot get profile for this user.","status":"UNAUTHENTICATED"}}`)
+	unauthenticated := decode(`{"error":{"code":401,"message":"Request had invalid authentication credentials.","status":"UNAUTHENTICATED"}}`)
+	anyMessage := decode(`{"error":{"code":401,"message":"Something only this product says.","status":"UNAUTHENTICATED"}}`)
+	scope := decode(`{"error":{"code":403,"message":"Request had insufficient authentication scopes.","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}`)
 	for name, tc := range map[string]struct {
 		status int
 		body   any
 		want   string
 	}{
-		"an API not enabled":        {http.StatusForbidden, disabled, "not enabled in the service account's Google Cloud project"},
-		"no access in product":      {http.StatusForbidden, denied, "grant the service account's email access"},
-		"no profile in the product": {http.StatusUnauthorized, profile, "grant the service account's email access"},
-		"a success":                 {http.StatusOK, denied, ""},
-		"not Google's shape":        {http.StatusForbidden, decode(`{"message":"forbidden"}`), ""},
-		"a body that is text":       {http.StatusForbidden, "forbidden", ""},
-		"an unmarshalable body":     {http.StatusForbidden, func() {}, ""},
+		"an API not enabled":           {http.StatusForbidden, disabled, "not enabled in the service account's Google Cloud project"},
+		"a scope the token lacks":      {http.StatusForbidden, scope, "add it to the connection's oauth_scope"},
+		"no access in product":         {http.StatusForbidden, denied, "grant the service account's email access"},
+		"a 401 in Google's shape":      {http.StatusUnauthorized, unauthenticated, "grant the service account's email access"},
+		"a 401 with any other message": {http.StatusUnauthorized, anyMessage, "grant the service account's email access"},
+		"a success":                    {http.StatusOK, denied, ""},
+		"not Google's shape":           {http.StatusForbidden, decode(`{"message":"forbidden"}`), ""},
+		"a body that is text":          {http.StatusForbidden, "forbidden", ""},
+		"an unmarshalable body":        {http.StatusForbidden, func() {}, ""},
 	} {
 		if got := APIHint(tc.status, tc.body); (tc.want == "" && got != "") || !strings.Contains(got, tc.want) {
 			t.Errorf("%s: hint = %q, want %q", name, got, tc.want)
