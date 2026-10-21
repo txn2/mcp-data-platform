@@ -209,3 +209,39 @@ describe("ApiGatewayAuthFields — the jwt_bearer grant", () => {
     );
   });
 });
+
+// #2236: oauth_token_lifetime, how long a token whose endpoint states no
+// expiry is reused, is set from the form on api and graphql connections.
+describe("ApiGatewayAuthFields — token lifetime", () => {
+  it("shows the field with its help when the mode is oauth, holding the stored value", () => {
+    renderFields({ ...canonical, oauth_token_lifetime: "45m" });
+
+    const field = screen.getByLabelText(/^Token lifetime$/i);
+    expect(field).toHaveValue("45m");
+    expect(screen.getByText("Used when the token endpoint states no expiry")).toBeInTheDocument();
+  });
+
+  it("shows a value stored as seconds", () => {
+    renderFields({ ...canonical, oauth_token_lifetime: 900 }, "graphql");
+
+    expect(screen.getByLabelText(/^Token lifetime$/i)).toHaveValue("900");
+  });
+
+  it("writes oauth_token_lifetime", () => {
+    const onChange = renderFields(canonical);
+    fireEvent.change(screen.getByLabelText(/^Token lifetime$/i), { target: { value: "30m" } });
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ oauth_token_lifetime: "30m" }));
+  });
+
+  it("stores nothing when emptied, so the server's default applies", () => {
+    const onChange = renderFields({ ...canonical, oauth_token_lifetime: "30m" });
+    fireEvent.change(screen.getByLabelText(/^Token lifetime$/i), { target: { value: "" } });
+    expect(onChange.mock.lastCall?.[0]).not.toHaveProperty("oauth_token_lifetime");
+  });
+
+  it("is not shown for a mode that fetches no token", () => {
+    renderFields({ auth_mode: "bearer", credential: "[REDACTED]" });
+
+    expect(screen.queryByLabelText(/^Token lifetime$/i)).not.toBeInTheDocument();
+  });
+});

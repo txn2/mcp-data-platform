@@ -261,7 +261,7 @@ func TestService_ScanFailures(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	_ = db.Close()
-	require.ErrorContains(t, s.scan(context.Background()), "acquiring a connection")
+	require.ErrorContains(t, s.scan(context.Background()), "acquiring the lock session")
 }
 
 // TestService_AdministratorBudgetsOverrideTheEnvironment covers #2148: a

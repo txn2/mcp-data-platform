@@ -14,7 +14,9 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
 
@@ -554,54 +556,26 @@ func (s *Store) runMaintenanceTick(ctx context.Context) error {
 	})
 }
 
-// unlockTimeout caps the time the deferred advisory_unlock call may take.
-// The unlock runs on a detached context so it still fires when the parent
-// context has been canceled by Close, but it must not block shutdown
-// indefinitely if the database itself is unreachable.
-const unlockTimeout = 5 * time.Second
-
 // runUnderMaintenanceLock attempts to acquire the audit maintenance advisory
 // lock and, if successful, invokes fn. If another replica already holds the
 // lock, fn is not invoked and bgloop.ErrSkipped is returned; when the
 // database is unreachable, the error. The next tick will retry.
 //
-// The lock is taken on a dedicated connection so the acquire and release
-// happen on the same PostgreSQL session (advisory locks are session-scoped).
-// fn itself uses s.db, which may draw other connections from the pool; those
-// queries are not blocked by the lock. The lock only prevents OTHER replicas
-// from running maintenance concurrently.
-//
-// The unlock uses a detached context with a short timeout so a canceled
-// parent context (e.g. Close called during fn) cannot leave the advisory
-// lock held on the pooled connection.
+// The lock is taken on the process's lock session (internal/advisorylock),
+// which every background lock shares, so holding it pins no connection of its
+// own (#2169). fn uses s.db; the lock only prevents OTHER replicas from
+// running maintenance concurrently.
 func (s *Store) runUnderMaintenanceLock(ctx context.Context, fn func(context.Context) error) error {
-	conn, err := s.db.Conn(ctx)
+	release, got, err := advisorylock.Try(ctx, s.db, advisorylock.ID(auditMaintenanceLockKey))
 	if err != nil {
-		slog.WarnContext(ctx, "audit cleanup: acquire connection for lock", slogKeyError, err)
-		return fmt.Errorf("audit cleanup: acquire connection for lock: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-
-	var got bool
-	if err := conn.QueryRowContext(ctx,
-		"SELECT pg_try_advisory_lock($1)", auditMaintenanceLockKey,
-	).Scan(&got); err != nil {
-		slog.WarnContext(ctx, "audit cleanup: try advisory lock", slogKeyError, err)
+		slog.WarnContext(ctx, "audit cleanup: try advisory lock", slogKeyError, logsan.SanitizeForLog(err.Error()))
 		return fmt.Errorf("audit cleanup: try advisory lock: %w", err)
 	}
 	if !got {
 		// Another replica holds the lock; skip this tick.
 		return bgloop.ErrSkipped
 	}
-	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
-		defer cancel()
-		if _, err := conn.ExecContext(unlockCtx,
-			"SELECT pg_advisory_unlock($1)", auditMaintenanceLockKey,
-		); err != nil {
-			slog.WarnContext(ctx, "audit cleanup: advisory unlock", slogKeyError, err)
-		}
-	}()
+	defer release()
 
 	return fn(ctx)
 }

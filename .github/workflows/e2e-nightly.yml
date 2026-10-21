@@ -48,6 +48,12 @@ jobs:
           go-version: "1.27.2"
           cache: true
 
+      # A digest the docs pin is checked by nothing else, and three that did
+      # not exist shipped in the deployment guide (#2224). It asks the
+      # registries, so it runs here rather than in verify.
+      - name: Resolve the image digests the docs pin
+        run: make docs-images-check
+
       - name: Start E2E environment
         run: make e2e-up
 

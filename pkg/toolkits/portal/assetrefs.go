@@ -155,6 +155,30 @@ func (t *Toolkit) applyRefs(
 	return len(refs), nil
 }
 
+// widenRefs grants a write's newly declared references before its content
+// write creates the version that makes the asset owed a tile (#2234): the tile
+// worker may draw the new version the moment it exists, and a file not yet
+// granted is drawn as missing and stays so until the next content change.
+// undo puts the references back when that content write fails; applyRefs after
+// a write that succeeded records exactly the declared set.
+func (t *Toolkit) widenRefs(
+	ctx context.Context, assetID string, declared []assetrefs.Declared, present bool,
+) (undo func(), result *mcp.CallToolResult) {
+	if !present {
+		return func() {}, nil
+	}
+	restore, err := t.contentRefs.Widen(ctx, assetID, declared, resolveOwnerEmail(ctx))
+	if err != nil {
+		return nil, refResult(err)
+	}
+	return func() {
+		if err := restore(context.WithoutCancel(ctx)); err != nil {
+			slog.WarnContext(ctx, "portal: restoring an asset's references after a failed write",
+				"asset_id", assetID, "error", logsan.SanitizeForLog(err.Error()))
+		}
+	}, nil
+}
+
 // addRefFields reports a completed declaration on a map-shaped tool response.
 // A count below zero means the write said nothing about references, and adds
 // nothing.

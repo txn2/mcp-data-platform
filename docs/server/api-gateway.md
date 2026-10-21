@@ -620,9 +620,10 @@ The save is refused, naming the field and never a value, when the file is not JS
 | Token `400 invalid_grant` "Invalid JWT Signature" or "account not found" | The key was deleted or disabled, or the account was removed | create a new key, or check the account still exists |
 | Token `400 invalid_grant` "Token must be a short-lived token" | Clock skew | check the host clock and `jwt_issued_at_skew` |
 | API `403` with reason `SERVICE_DISABLED` | The API is not enabled in the account's Cloud project | enable it there |
-| API `403 PERMISSION_DENIED`, or `401` "cannot get profile" | The token is valid but the account has no access in the product | grant the account's email access inside the product |
+| API `403` with reason `ACCESS_TOKEN_SCOPE_INSUFFICIENT` | The token does not carry the scope this API needs | add the scope to the connection's `oauth_scope` |
+| Any other API `401` or `403` in Google's error shape (`PERMISSION_DENIED`, `UNAUTHENTICATED`, ...) | The token is valid but the account has no access in the product | grant the account's email access inside the product |
 
-A token refusal raises the connection's alert like any `jwt_bearer` refusal. The two API refusals arrive on a data call rather than at the token endpoint, so they are the call's `hint` on an `api` connection, not an authentication failure.
+A token refusal raises the connection's alert like any `jwt_bearer` refusal. The API refusals arrive on a data call rather than at the token endpoint, so they are the call's `hint` on an `api` connection, not an authentication failure.
 
 Pick `signed_jwt` when the upstream validates the client-minted JWT itself, and `jwt_bearer` when it exchanges the JWT for a token of its own; [Signed JWT upstreams](signed-jwt-auth.md#signed_jwt-or-the-jwt_bearer-grant) compares the two.
 

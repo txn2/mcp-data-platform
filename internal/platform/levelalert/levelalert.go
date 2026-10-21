@@ -17,13 +17,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
-	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
@@ -224,33 +223,19 @@ func (s *PostgresStore) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// unlockTimeout bounds the unlock after a locked pass, which runs on a context
-// that may already be done.
-const unlockTimeout = 5 * time.Second
-
-// Locked runs fn while holding the session advisory lock key on a dedicated
-// connection, so one replica evaluates a family at a time. It returns
-// bgloop.ErrSkipped when another replica holds the lock.
+// Locked runs fn while holding the advisory lock key on the process's lock
+// session, so one replica evaluates a family at a time. fn runs on the pool,
+// never on the lock's session (#2169). It returns bgloop.ErrSkipped when
+// another replica holds the lock.
 func Locked(ctx context.Context, db *sql.DB, key int64, fn func(ctx context.Context) error) error {
-	conn, err := db.Conn(ctx)
+	release, got, err := advisorylock.Try(ctx, db, advisorylock.ID(key))
 	if err != nil {
-		return fmt.Errorf("acquiring a connection for the lock: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-	var got bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&got); err != nil {
-		return fmt.Errorf("taking the advisory lock: %w", err)
+		return err //nolint:wrapcheck // the lock session names the statement
 	}
 	if !got {
 		return bgloop.ErrSkipped
 	}
-	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockTimeout)
-		defer cancel()
-		if _, uerr := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", key); uerr != nil {
-			slog.WarnContext(ctx, "alert evaluation: advisory unlock failed", "error", logsan.SanitizeForLog(uerr.Error()))
-		}
-	}()
+	defer release()
 	return fn(ctx)
 }
 

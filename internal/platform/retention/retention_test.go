@@ -50,12 +50,16 @@ func TestRunOnce(t *testing.T) {
 	mock.ExpectQuery(lockQ).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows([]string{"l"}).AddRow(true))
 	mock.ExpectExec(unlockQ).WithArgs(int64(1)).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(lockQ).WithArgs(int64(2)).WillReturnRows(sqlmock.NewRows([]string{"l"}).AddRow(false))
-	mock.ExpectQuery(lockQ).WithArgs(int64(3)).WillReturnRows(sqlmock.NewRows([]string{"l"}).AddRow(true))
-	mock.ExpectExec(unlockQ).WithArgs(int64(3)).WillReturnError(errors.New("gone"))
 	mock.ExpectQuery(lockQ).WithArgs(int64(4)).WillReturnError(errors.New("down"))
+	mock.ExpectQuery(lockQ).WithArgs(int64(3)).WillReturnRows(sqlmock.NewRows([]string{"l"}).AddRow(true))
+	// An unlock that failed ends the lock session, so it comes last: the
+	// mock's one connection goes with it.
+	mock.ExpectExec(unlockQ).WithArgs(int64(3)).WillReturnError(errors.New("gone"))
 
-	New(db, 0, sweep("first", 1, nil), sweep("held", 2, nil), sweep("failing", 3, errors.New("boom")), sweep("unlockable", 4, nil)).
+	err = New(db, 0, sweep("first", 1, nil), sweep("held", 2, nil), sweep("unlockable", 4, nil), sweep("failing", 3, errors.New("boom"))).
 		RunOnce(context.Background())
+	require.ErrorContains(t, err, "boom", "a failing sweep is reported")
+	require.ErrorContains(t, err, "down", "a lock that could not be taken is reported")
 
 	assert.Equal(t, []string{"first", "failing"}, ran)
 	assert.NoError(t, mock.ExpectationsWereMet())

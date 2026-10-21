@@ -1050,6 +1050,10 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 
 	var followed map[string]any
 	if hasContent {
+		undo, widenResult := t.widenRefs(ctx, asset.ID, declaredRefs, hasRefs)
+		if widenResult != nil {
+			return widenResult, nil, nil
+		}
 		edit := contentEdit{
 			content:      input.Content,
 			declaredType: input.ContentType,
@@ -1058,6 +1062,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 		}
 		version, tables, contentErr := t.uploadContentUpdate(ctx, asset, edit)
 		if contentErr != nil {
+			undo()
 			return toolkit.ErrorResult("failed to upload new content: " + contentErr.Error()), nil, nil
 		}
 		followed = tableFields(version, tables)

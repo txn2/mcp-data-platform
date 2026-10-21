@@ -211,3 +211,17 @@ func TestOpen(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 }
+
+// #2169: a pool too small for the platform's own background work is refused
+// at startup, naming the minimum; zero takes the default.
+func TestCheckPoolSize(t *testing.T) {
+	for _, n := range []int{0, MinOpenConns, 25} {
+		if err := CheckPoolSize(n); err != nil {
+			t.Errorf("max_open_conns %d refused: %v", n, err)
+		}
+	}
+	err := CheckPoolSize(MinOpenConns - 1)
+	if err == nil || !strings.Contains(err.Error(), "database.max_open_conns is 3; the platform needs at least 4") {
+		t.Errorf("max_open_conns 3: %v", err)
+	}
+}

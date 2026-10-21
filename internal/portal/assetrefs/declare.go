@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -266,6 +267,73 @@ func (d *Declarer) Apply(
 		LogGranted(assetID, ref)
 	}
 	return refs, nil
+}
+
+// Widen records every declared reference the asset does not have yet beside
+// the ones it has, ahead of a write whose new content uses them (#2234). The
+// new version is what makes the asset owed a tile, and the tile worker may draw
+// it the moment it exists, so its files must already be granted then; the
+// references the write drops are dropped by the Apply after it, since the
+// content still current until then uses them. Each added reference gets the
+// token Apply keeps.
+//
+// restore puts the references back as they were, for a write that failed; it
+// does nothing when Widen added nothing.
+func (d *Declarer) Widen(
+	ctx context.Context, assetID string, declared []Declared, author string,
+) (restore func(context.Context) error, err error) {
+	if !d.Available() {
+		return nil, errNoRefStore()
+	}
+	existing, err := d.refs.ListByAsset(ctx, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("reading existing references: %w", err)
+	}
+	added, err := missingRefs(assetID, existing, declared, author)
+	if err != nil {
+		return nil, err
+	}
+	if len(added) == 0 {
+		return func(context.Context) error { return nil }, nil
+	}
+	if err := d.refs.Replace(ctx, assetID, slices.Concat(existing, added)); err != nil {
+		return nil, fmt.Errorf("recording references: %w", err)
+	}
+	for _, ref := range added {
+		LogGranted(assetID, ref)
+	}
+	return func(ctx context.Context) error {
+		if err := d.refs.Replace(ctx, assetID, existing); err != nil {
+			return fmt.Errorf("restoring references: %w", err)
+		}
+		return nil
+	}, nil
+}
+
+// missingRefs is the declared references existing does not hold, each with a
+// new token, positioned after existing.
+func missingRefs(assetID string, existing []Ref, declared []Declared, author string) ([]Ref, error) {
+	have := make(map[string]bool, len(existing))
+	for _, ref := range existing {
+		have[refKey(ref.TargetKind, ref.TargetID)] = true
+	}
+	var added []Ref
+	for _, dec := range declared {
+		key := refKey(dec.Kind, dec.TargetID)
+		if have[key] {
+			continue
+		}
+		have[key] = true
+		token, err := tokenFor(nil, key)
+		if err != nil {
+			return nil, err
+		}
+		added = append(added, Ref{
+			AssetID: assetID, TargetKind: dec.Kind, TargetID: dec.TargetID, URI: dec.URI,
+			RefToken: token, Position: len(existing) + len(added), DeclaredBy: author,
+		})
+	}
+	return added, nil
 }
 
 // DeclaredURIs returns the reference strings an asset declares now, in declared

@@ -388,8 +388,9 @@ const rawRecordCols = "id, created_at, updated_at, created_by, persona, dimensio
 // ftsExpr is the Postgres full-text expression the lexical arm matches
 // and ranks against. It MUST be byte-identical to the expression the
 // idx_memory_records_content_fts GIN index is built on (migration
-// 000054) or the planner will not use the index.
-const ftsExpr = "to_tsvector('english', content)"
+// 000209, which reads a memory's identifiers by their words, #2230) or the
+// planner will not use the index.
+const ftsExpr = "to_tsvector('english', fts_name_words(content))"
 
 // ftsRankNormalization is the ts_rank_cd normalization bitmask for the
 // LexicalSearch score. Bit 1 divides the rank by 1 + log(document length) so a

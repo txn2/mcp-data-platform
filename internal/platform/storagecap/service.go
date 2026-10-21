@@ -128,8 +128,16 @@ func (s *Service) Stop() {
 }
 
 // Pass is one iteration: read every store, record a sample of each, drop the
-// history past the settings' period, and evaluate the alerts.
+// history past the settings' period, and evaluate the alerts. A pass within
+// most of the interval of the last sample is skipped: another replica took it.
 func (s *Service) Pass(ctx context.Context) error {
+	recent, err := s.sampledRecently(ctx)
+	if err != nil {
+		return err
+	}
+	if recent {
+		return bgloop.ErrSkipped
+	}
 	settings, err := Read(ctx, s.d.Settings)
 	if err != nil {
 		return err
@@ -150,6 +158,24 @@ func (s *Service) Pass(ctx context.Context) error {
 		return fmt.Errorf("evaluating storage alerts: %w", err)
 	}
 	return nil
+}
+
+// recentFraction is the share of the interval a sample counts as recent for:
+// nine tenths, so a timer that fires a little early does not skip its turn.
+const recentFraction = 0.9
+
+// sampledRecently reports whether a sample was taken within most of the
+// interval (#2203). Every replica runs the loop on its own timer, and the lock
+// is held only for a pass, so a replica whose turn came just after another's
+// pass would otherwise sample the same tick again.
+func (s *Service) sampledRecently(ctx context.Context) (bool, error) {
+	since := s.d.Now().UTC().Add(-time.Duration(float64(s.d.Interval) * recentFraction))
+	var recent bool
+	if err := s.d.DB.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM storage_samples WHERE sampled_at > $1)`, since).Scan(&recent); err != nil {
+		return false, fmt.Errorf(errReadingHistory, err)
+	}
+	return recent, nil
 }
 
 // spoolGone is how long a replica's spool goes unreported before its volume
@@ -366,6 +392,10 @@ func (s *Service) project(ctx context.Context, r *Report) error {
 	if err != nil {
 		return err
 	}
+	born, err := s.births(ctx, r.GeneratedAt.Add(-time.Duration(r.HistoryDays)*day+day))
+	if err != nil {
+		return err
+	}
 	for i := range r.Stores {
 		st := &r.Stores[i]
 		if st.TotalBytes != nil {
@@ -374,9 +404,36 @@ func (s *Service) project(ctx context.Context, r *Report) error {
 			st.FreeBytes, st.PercentUsed = &free, &pct
 		}
 		points := slices.Concat(history[st.Store], []Point{{At: r.GeneratedAt, Used: st.UsedBytes, Total: st.TotalBytes}})
-		st.Forecast = Project(points, r.GeneratedAt)
+		st.Forecast = Project(points, r.GeneratedAt, born[st.Store])
 	}
 	return nil
+}
+
+// births is when each store's history began, for the stores whose first
+// sample is after kept: a store whose first sample is older may have had its
+// first days pruned, and its earliest sample kept is not its first.
+func (s *Service) births(ctx context.Context, kept time.Time) (map[string]time.Time, error) {
+	rows, err := s.d.DB.QueryContext(ctx,
+		`SELECT store, min(sampled_at) FROM storage_samples GROUP BY store HAVING min(sampled_at) > $1`, kept)
+	if err != nil {
+		return nil, fmt.Errorf(errReadingHistory, err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var (
+			store string
+			first time.Time
+		)
+		if err := rows.Scan(&store, &first); err != nil {
+			return nil, fmt.Errorf("scanning storage history: %w", err)
+		}
+		out[store] = first.UTC()
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(errReadingHistory, err)
+	}
+	return out, nil
 }
 
 // historySince is every store's samples since since, oldest first.

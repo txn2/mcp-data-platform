@@ -103,7 +103,7 @@ Reading memory back is served by the universal `search` tool, which federates me
 
 #### Hybrid ranking
 
-The `semantic` strategy fuses two signals per record: the embedding cosine similarity and a lexical full-text match flag, blended as `0.6 * semantic + 0.4 * lexical`. This mirrors the api-gateway ranking precedent and materially improves recall on identifier-heavy content (entity URNs, column names, error codes) where pure vector search underweights an exact token. The vector arm is backed by an `hnsw` ANN index on `memory_records.embedding`; the lexical arm by a GIN index on `to_tsvector('english', content)`.
+The `semantic` strategy fuses two signals per record: the embedding cosine similarity and a lexical full-text match flag, blended as `0.6 * semantic + 0.4 * lexical`. This mirrors the api-gateway ranking precedent and materially improves recall on identifier-heavy content (entity URNs, column names, error codes) where pure vector search underweights an exact token. The vector arm is backed by an `hnsw` ANN index on `memory_records.embedding`; the lexical arm by a GIN index on `to_tsvector('english', fts_name_words(content))`. `fts_name_words` adds the text again with `-`, `_`, `.`, `/` and `:` read as spaces, so an identifier such as `orders-2024` matches "orders 2024" as well as itself (#2230). The same reading applies to the names, titles, paths, file names, tags and categories every other surface's full-text search matches: resources, assets and collections, prompts, knowledge pages, managed scripts and catalog datasets.
 
 #### Graceful degradation
 

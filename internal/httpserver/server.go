@@ -171,6 +171,9 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	mux := http.NewServeMux()
 	hcfg := extractHTTPConfig(p)
 	hc := health.NewChecker()
+	if p != nil && p.DB() != nil {
+		hc.WatchPool(health.NewPoolProbe(p.DB(), health.DefaultPoolWait, health.DefaultPoolStarvedFor))
+	}
 
 	if !hcfg.tlsEnabled {
 		slog.WarnContext(ctx, "HTTP transport without TLS; credentials may be transmitted in plaintext")

@@ -128,6 +128,10 @@ auth mode reveals it:
   default) or `params`, which some identity providers require. Shown for the
   HTTP-based kinds.
 - **OIDC prompt** (`oauth_prompt`) — `authorization_code` only.
+- **Token lifetime** (`oauth_token_lifetime`) — `api` and `graphql`: how long a
+  token is reused when the token endpoint's response states no `expires_in`, a
+  duration (`30m`) or seconds. Empty stores nothing, and the default of 15
+  minutes applies; a negative value is refused.
 - **Signed assertion (RFC 7523)** — `jwt_bearer` only: the Signed JWT block
   below, with the algorithm defaulting to `RS256`, the audience to the token
   URL, and **Issuer** and **Subject** both required. The issuer is usually the
@@ -139,6 +143,8 @@ shown only for `authorization_code`: it reports the token a browser sign-in
 stored, and the other grants store none.
 
 ![OAuth 2.1 credentials](../images/screenshots/light/admin-admin-connection-oauth-light.webp#only-light)![OAuth 2.1 credentials](../images/screenshots/dark/admin-admin-connection-oauth-dark.webp#only-dark)
+
+![Token lifetime](../images/screenshots/light/admin-admin-connection-token-lifetime-light.webp#only-light)![Token lifetime](../images/screenshots/dark/admin-admin-connection-token-lifetime-dark.webp#only-dark)
 
 An `api` connection authored before these keys unified across the kinds may
 still carry the earlier `oauth2_*` spelling with the grant encoded in the

@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -604,4 +605,180 @@ func TestSaveRecordsReferencesBeforeTheFirstVersion(t *testing.T) {
 	require.False(t, result.IsError)
 	out := decodeSave(t, result)
 	assert.Equal(t, 1, versions.atNew[out.AssetID], "the reference was not recorded when the first version was created")
+}
+
+// refsRig is a toolkit whose version store notes how many references an asset
+// had when each version was created, with an asset saved naming the logo.
+type refsRig struct {
+	tk       *Toolkit
+	versions *refsAtVersionStore
+	refs     *refStoreStub
+	s3       *mockS3Client
+	id       string
+}
+
+func versionRefsRig(t *testing.T) refsRig {
+	t.Helper()
+	assets := newInMemoryAssetStore()
+	refs := newRefStoreStub()
+	versions := &refsAtVersionStore{inMemoryVersionStore: newInMemoryVersionStore(), refs: refs, atNew: map[string]int{}}
+	s3 := &mockS3Client{getBody: []byte("<h1>Q4</h1>"), getCT: "text/html"}
+	tk := New(Config{
+		Name: "test", AssetStore: assets, VersionStore: versions,
+		S3Client: s3, S3Bucket: "bucket", BaseURL: "http://example.com",
+	})
+	tk.SetContentRefs(newDeclarer(refs, assets))
+	saved := decodeSave(t, mustSave(t, tk, []string{refLogoURI}))
+	return refsRig{tk: tk, versions: versions, refs: refs, s3: s3, id: saved.AssetID}
+}
+
+// TestUpdateGrantsNewReferencesBeforeTheNewVersion is #2234: the new version
+// is what makes the asset owed a tile, so a reference the update declares is
+// already recorded when it is created, beside the one the update drops, which
+// the content still current until then uses; once the content is written the
+// asset names exactly what the update declared, the kept reference with its
+// token.
+func TestUpdateGrantsNewReferencesBeforeTheNewVersion(t *testing.T) {
+	rig := versionRefsRig(t)
+	tk, versions, refs, id := rig.tk, rig.versions, rig.refs, rig.id
+	logoToken := refs.byAsset[id][0].RefToken
+
+	result, _, err := tk.handleUpdate(refCtx("finance"), manageAssetInput{
+		Action: "update", AssetID: id, Content: `<img src="` + refChartURI + `">`,
+		References: []string{refChartURI},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, errText(t, result))
+	assert.Equal(t, 2, versions.atNew[id], "the new reference was not recorded when the version was created")
+	stored := refs.byAsset[id]
+	require.Len(t, stored, 1)
+	assert.Equal(t, "res-chart", stored[0].TargetID)
+
+	result, _, err = tk.handleUpdate(refCtx("finance"), manageAssetInput{
+		Action: "update", AssetID: id, Content: `<img src="` + refLogoURI + `"><img src="` + refChartURI + `">`,
+		References: []string{refLogoURI, refChartURI},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, errText(t, result))
+	assert.Equal(t, 2, versions.atNew[id])
+	require.Len(t, refs.byAsset[id], 2)
+	chartToken := refs.byAsset[id][1].RefToken
+	assert.NotEqual(t, logoToken, refs.byAsset[id][0].RefToken, "a reference dropped and declared again is a new grant")
+
+	// Content that names what the asset already has adds nothing first.
+	result, _, err = tk.handleUpdate(refCtx("finance"), manageAssetInput{
+		Action: "update", AssetID: id, Content: `<img src="` + refChartURI + `">`, References: []string{refChartURI},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, errText(t, result))
+	require.Len(t, refs.byAsset[id], 1)
+	assert.Equal(t, chartToken, refs.byAsset[id][0].RefToken, "a kept reference keeps its token")
+}
+
+// TestPatchGrantsNewReferencesBeforeTheNewVersion is #2234 for a patch.
+func TestPatchGrantsNewReferencesBeforeTheNewVersion(t *testing.T) {
+	rig := versionRefsRig(t)
+	tk, versions, refs, id := rig.tk, rig.versions, rig.refs, rig.id
+	result, _, err := tk.handlePatch(refCtx("finance"), manageAssetInput{
+		Action: "patch", AssetID: id,
+		Edits:      []textpatch.Edit{{Op: textpatch.OpInsertAfter, Find: "</h1>", Text: `<img src="` + refChartURI + `">`}},
+		References: []string{refLogoURI, refChartURI},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, errText(t, result))
+	assert.Equal(t, 2, versions.atNew[id], "the new reference was not recorded when the version was created")
+	assert.Len(t, refs.byAsset[id], 2)
+}
+
+// TestAFailedContentWriteRestoresTheReferences: a write whose content could not
+// be stored leaves the asset naming what it named before, not the references
+// granted ahead of it.
+func TestAFailedContentWriteRestoresTheReferences(t *testing.T) {
+	for _, action := range []string{"update", "patch"} {
+		t.Run(action, func(t *testing.T) {
+			rig := versionRefsRig(t)
+			tk, refs, s3, id := rig.tk, rig.refs, rig.s3, rig.id
+			s3.putErr = errors.New("storage down")
+			input := manageAssetInput{Action: action, AssetID: id, References: []string{refChartURI}}
+			var (
+				result *mcp.CallToolResult
+				err    error
+			)
+			if action == "update" {
+				input.Content = `<img src="` + refChartURI + `">`
+				result, _, err = tk.handleUpdate(refCtx("finance"), input)
+			} else {
+				input.Edits = []textpatch.Edit{{Op: textpatch.OpInsertAfter, Find: "</h1>", Text: `<img src="` + refChartURI + `">`}}
+				result, _, err = tk.handlePatch(refCtx("finance"), input)
+			}
+			require.NoError(t, err)
+			require.True(t, result.IsError)
+			stored := refs.byAsset[id]
+			require.Len(t, stored, 1)
+			assert.Equal(t, "res-logo", stored[0].TargetID)
+		})
+	}
+}
+
+// failingRefs is a reference store that fails its reads once told to, and its
+// writes after replacesOK more have succeeded (negative: never).
+type failingRefs struct {
+	*refStoreStub
+	listErr    error
+	replacesOK int
+}
+
+func (f *failingRefs) ListByAsset(ctx context.Context, id string) ([]assetrefs.Ref, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.refStoreStub.ListByAsset(ctx, id)
+}
+
+func (f *failingRefs) Replace(ctx context.Context, id string, refs []assetrefs.Ref) error {
+	if f.replacesOK == 0 {
+		return errors.New("refs down")
+	}
+	f.replacesOK--
+	return f.refStoreStub.Replace(ctx, id, refs)
+}
+
+// A write whose references cannot be granted ahead of it changes nothing and
+// says so; a failed content write whose references cannot be put back is
+// still reported as the content write's failure (#2234).
+func TestWidenFailures(t *testing.T) {
+	assets := newInMemoryAssetStore()
+	refs := &failingRefs{refStoreStub: newRefStoreStub(), replacesOK: -1}
+	s3 := &mockS3Client{getBody: []byte("<h1>Q4</h1>"), getCT: "text/html"}
+	tk := New(Config{
+		Name: "test", AssetStore: assets, VersionStore: newInMemoryVersionStore(),
+		S3Client: s3, S3Bucket: "bucket", BaseURL: "http://example.com",
+	})
+	tk.SetContentRefs(newDeclarer(refs, assets))
+	id := decodeSave(t, mustSave(t, tk, []string{refLogoURI})).AssetID
+	update := manageAssetInput{
+		Action: "update", AssetID: id, Content: `<img src="` + refChartURI + `">`, References: []string{refChartURI},
+	}
+
+	refs.listErr = errors.New("refs down")
+	result, _, err := tk.handleUpdate(refCtx("finance"), update)
+	require.NoError(t, err)
+	require.True(t, result.IsError, "a grant that could not be recorded refuses the write")
+
+	refs.listErr = nil
+	s3.putErr = errors.New("storage down")
+	result, _, err = tk.handleUpdate(refCtx("finance"), update)
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	assert.Contains(t, errText(t, result), "failed to upload new content")
+
+	// The grant ahead of the write is recorded; putting it back is not.
+	refs.replacesOK = 1
+	result, _, err = tk.handlePatch(refCtx("finance"), manageAssetInput{
+		Action: "patch", AssetID: id, References: []string{refChartURI},
+		Edits: []textpatch.Edit{{Op: textpatch.OpInsertAfter, Find: "</h1>", Text: "<p>x</p>"}},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	assert.Contains(t, errText(t, result), "failed to write patched content")
 }

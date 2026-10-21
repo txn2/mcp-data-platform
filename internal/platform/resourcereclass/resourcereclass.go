@@ -14,6 +14,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -76,32 +77,25 @@ type reclassRow struct {
 // whole walk and answers ErrReclassifyRunning when another holds it.
 func (r *Reclassifier) Run(ctx context.Context) (ReclassifyResult, error) {
 	var out ReclassifyResult
-	conn, err := r.db.Conn(ctx)
+	release, got, err := advisorylock.Try(ctx, r.db, advisorylock.ID(reclassifyLock))
 	if err != nil {
-		return out, fmt.Errorf("resourceindex: reclassify connection: %w", err)
-	}
-	defer conn.Close() //nolint:errcheck // returning the connection to the pool
-	var got bool
-	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, reclassifyLock).Scan(&got); err != nil {
 		return out, fmt.Errorf("resourceindex: reclassify lock: %w", err)
 	}
 	if !got {
 		return out, ErrReclassifyRunning
 	}
-	defer func() {
-		_, _ = conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, reclassifyLock)
-	}()
+	defer release()
 
 	cursor := ""
 	for {
-		rows, err := r.batch(ctx, conn, cursor)
+		rows, err := r.batch(ctx, cursor)
 		if err != nil {
 			return out, err
 		}
 		if len(rows) == 0 {
 			return out, nil
 		}
-		if err := r.apply(ctx, conn, rows, &out); err != nil {
+		if err := r.apply(ctx, rows, &out); err != nil {
 			return out, err
 		}
 		cursor = rows[len(rows)-1].id
@@ -111,8 +105,8 @@ func (r *Reclassifier) Run(ctx context.Context) (ReclassifyResult, error) {
 	}
 }
 
-func (*Reclassifier) batch(ctx context.Context, conn *sql.Conn, cursor string) ([]reclassRow, error) {
-	rows, err := conn.QueryContext(ctx, `SELECT id, index_policy, index_policy_explicit, path, mime_type,
+func (r *Reclassifier) batch(ctx context.Context, cursor string) ([]reclassRow, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, index_policy, index_policy_explicit, path, mime_type,
 		size_bytes, scope, COALESCE(scope_id, ''), uploader_sub, content_text <> ''
 		FROM resources WHERE id > $1 ORDER BY id LIMIT 500`, cursor)
 	if err != nil {
@@ -169,13 +163,13 @@ func (r *Reclassifier) plan(rows []reclassRow, out *ReclassifyResult) reclassPla
 
 // apply rewrites one batch: each changed row under its new policy, and the
 // kept text of every row whose policy reads none.
-func (r *Reclassifier) apply(ctx context.Context, conn *sql.Conn, rows []reclassRow, out *ReclassifyResult) error {
+func (r *Reclassifier) apply(ctx context.Context, rows []reclassRow, out *ReclassifyResult) error {
 	p := r.plan(rows, out)
-	if err := r.move(ctx, conn, p.changed, out); err != nil {
+	if err := r.move(ctx, p.changed, out); err != nil {
 		return err
 	}
 	if len(p.stale) > 0 {
-		if _, err := conn.ExecContext(ctx, `UPDATE resources SET content_text = '' WHERE id = ANY($1)`,
+		if _, err := r.db.ExecContext(ctx, `UPDATE resources SET content_text = '' WHERE id = ANY($1)`,
 			pq.Array(p.stale)); err != nil {
 			return fmt.Errorf("resourceindex: reclassify clear: %w", err)
 		}
@@ -189,10 +183,10 @@ func (r *Reclassifier) apply(ctx context.Context, conn *sql.Conn, rows []reclass
 
 // move writes each changed row under its new policy, dropping its vector and
 // kept text, and enqueues the ones still indexed.
-func (r *Reclassifier) move(ctx context.Context, conn *sql.Conn, changed map[indexpolicy.Policy][]string, out *ReclassifyResult) error {
+func (r *Reclassifier) move(ctx context.Context, changed map[indexpolicy.Policy][]string, out *ReclassifyResult) error {
 	for policy, ids := range changed {
 		// A writer's choice made after the batch was read is left alone.
-		res, err := conn.ExecContext(ctx, `UPDATE resources SET index_policy = $1,
+		res, err := r.db.ExecContext(ctx, `UPDATE resources SET index_policy = $1,
 			content_text = '', content_indexed_at = NULL,
 			embedding = NULL, embedding_model = '', embedding_text_hash = NULL
 			WHERE id = ANY($2) AND NOT index_policy_explicit`, string(policy), pq.Array(ids))

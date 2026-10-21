@@ -45,8 +45,8 @@ func TestRealDB_TheLimitHoldsAcrossReplicas(t *testing.T) {
 }
 
 // TestRealDB_ASlotIsHeldOnlyWhileItIsHeld: a waiting call holds no database
-// connection, a held slot frees on release, and a second slot is a second
-// call in flight.
+// connection, held slots share one, a held slot frees on release, and a
+// second slot is a second call in flight.
 func TestRealDB_ASlotIsHeldOnlyWhileItIsHeld(t *testing.T) {
 	db := testdb.New(t)
 	a, b := New(db, nil), New(db, nil)
@@ -66,8 +66,8 @@ func TestRealDB_ASlotIsHeldOnlyWhileItIsHeld(t *testing.T) {
 	if _, _, err := b.Acquire(short, "api", "billing", 2); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("a third call took a slot of two: %v", err)
 	}
-	if open := db.Stats().InUse - baseline; open != 2 {
-		t.Errorf("%d database connections in use; the two held slots hold one each and the waiter none", open)
+	if open := db.Stats().InUse - baseline; open != 1 {
+		t.Errorf("%d database connections in use; the two held slots share the process's lock session (#2169) and the waiter holds none", open)
 	}
 	first.Release()
 	third, _, err := b.Acquire(ctx, "api", "billing", 2)

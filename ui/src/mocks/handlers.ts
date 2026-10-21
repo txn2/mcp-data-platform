@@ -1797,6 +1797,8 @@ export const handlers = [
           oauth_client_secret: "[REDACTED]",
           oauth_scope: "billing.read",
           oauth_endpoint_auth_style: "params",
+          // The billing token endpoint states no expires_in (#2236).
+          oauth_token_lifetime: "30m",
         },
         created_by: "admin@example.com",
         updated_at: new Date(Date.now() - 4 * 86400000).toISOString(),

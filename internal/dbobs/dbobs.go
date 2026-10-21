@@ -138,3 +138,20 @@ func isVectorSearch(query string) bool {
 	}
 	return false
 }
+
+// MinOpenConns is the smallest pool the platform runs on (#2169): one
+// connection for the session every background lock shares, one for the
+// statements of a locked pass, and two for the requests the replica serves
+// meanwhile.
+const MinOpenConns = 4
+
+// CheckPoolSize refuses a database.max_open_conns too small for the platform
+// to finish its own background work. Zero takes the default.
+func CheckPoolSize(maxOpen int) error {
+	if maxOpen > 0 && maxOpen < MinOpenConns {
+		return fmt.Errorf("database.max_open_conns is %d; the platform needs at least %d: "+
+			"one for the session its background locks share, one for a locked pass, and two for requests",
+			maxOpen, MinOpenConns)
+	}
+	return nil
+}

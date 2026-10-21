@@ -193,6 +193,21 @@ function ConnectPanel({
   );
 }
 
+// TokenLifetimeField sets oauth_token_lifetime (#2236): how long a token is
+// reused when its endpoint's response states no expires_in. Empty stores
+// nothing, and the server's 15m default applies.
+function TokenLifetimeField({ config, onChange }: ConfigFormProps) {
+  return (
+    <ConfigField
+      label="Token lifetime"
+      help="Used when the token endpoint states no expiry"
+      value={String(config.oauth_token_lifetime ?? "")}
+      onChange={(v) => onChange(update(config, "oauth_token_lifetime", v))}
+      placeholder="15m"
+    />
+  );
+}
+
 // ApiGatewayAuthFields renders the mode picker plus whichever credential
 // block the selected mode needs. The mode set matches what the apigateway
 // toolkit accepts (pkg/toolkits/apigateway/config.go); mtls carries no fields
@@ -259,19 +274,22 @@ export function ApiGatewayAuthFields({
         <GoogleServiceAccountFields config={config} onChange={onChange} />
       )}
       {mode === AUTH_MODE_OAUTH && (
-        <OAuthFields
-          config={config}
-          onChange={onChange}
-          endpointAuthStyle
-          jwtBearer
-          connect={
-            <ConnectPanel
-              kind={kind}
-              connectionName={connectionName}
-              isCreate={isCreate}
-            />
-          }
-        />
+        <>
+          <OAuthFields
+            config={config}
+            onChange={onChange}
+            endpointAuthStyle
+            jwtBearer
+            connect={
+              <ConnectPanel
+                kind={kind}
+                connectionName={connectionName}
+                isCreate={isCreate}
+              />
+            }
+          />
+          <TokenLifetimeField config={config} onChange={onChange} />
+        </>
       )}
       <ConfigField
         label="Path secret"

@@ -40,6 +40,11 @@ test.describe("Connection editor — a canonical OAuth connection", () => {
     await expect(
       page.getByRole("button", { name: "Connect", exact: true }),
     ).toBeVisible();
+    // #2236: how long a token is reused when its endpoint states no expiry.
+    await expect(page.getByLabel("Token lifetime")).toHaveValue("30m");
+    await expect(
+      page.getByText("Used when the token endpoint states no expiry"),
+    ).toBeVisible();
   });
 });
 

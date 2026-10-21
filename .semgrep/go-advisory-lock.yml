@@ -1,0 +1,31 @@
+rules:
+  # A try-lock the platform holds across work goes onto the process's one lock
+  # session, internal/advisorylock (#2169). Each loop used to take its lock on
+  # a pooled connection of its own and hold it for the whole pass while the
+  # pass drew its queries from the same pool; with four such loops on a pool of
+  # five, the passes waited on the pool for their own queries, never released
+  # their locks, and starved the replica. connoauth's blocking per-call lock is
+  # the one session lock taken elsewhere, since a lock that waits cannot share
+  # a session. Test code takes what locks it likes, to stand in for another
+  # replica.
+  - id: advisory-try-lock-outside-advisorylock
+    languages: [go]
+    severity: ERROR
+    paths:
+      include:
+        - pkg
+        - internal
+        - cmd
+      exclude:
+        - "*_test.go"
+        - /internal/advisorylock
+        - /bench
+    pattern-regex: pg_try_advisory_lock\(
+    message: >-
+      Take a session advisory lock through internal/advisorylock: advisorylock.Try(ctx, db,
+      advisorylock.ID(key)) and defer the release it returns, and run the locked work on the pool.
+      A try-lock taken on a connection of its own pins that connection for as long as it is held,
+      and enough of them starve the pool their holders need to finish (#2169).
+    metadata:
+      category: reliability
+      issue: "#2169"

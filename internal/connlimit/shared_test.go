@@ -38,7 +38,7 @@ func TestShared_TakesTheFirstFreeSlotAndWaits(t *testing.T) {
 	mock.ExpectQuery(tryLockQ).WithArgs(space, int32(1)).WillReturnRows(lockRow(false))
 	mock.ExpectQuery(tryLockQ).WithArgs(space, int32(0)).WillReturnRows(lockRow(false))
 	mock.ExpectQuery(tryLockQ).WithArgs(space, int32(1)).WillReturnRows(lockRow(true))
-	mock.ExpectQuery(unlockQ).WithArgs(space, int32(1)).WillReturnRows(lockRow(true))
+	mock.ExpectExec(unlockQ).WithArgs(space, int32(1)).WillReturnResult(sqlmock.NewResult(0, 0))
 
 	slot, waited, err := l.Acquire(context.Background(), "api", "crm", 2)
 	if err != nil {
@@ -83,7 +83,7 @@ func TestShared_DeadlineDuringTheQuery(t *testing.T) {
 }
 
 // A failed lock query fails the call rather than waiting forever, and an
-// unlock that fails drops the database connection instead of pooling it.
+// unlock that fails gives the slot back all the same.
 func TestShared_Failures(t *testing.T) {
 	l, mock := sharedLimiter(t)
 	down := errors.New("db down")
@@ -96,21 +96,16 @@ func TestShared_Failures(t *testing.T) {
 		t.Error(err)
 	}
 
-	for _, unlock := range []func(*sqlmock.ExpectedQuery){
-		func(q *sqlmock.ExpectedQuery) { q.WillReturnError(down) },
-		func(q *sqlmock.ExpectedQuery) { q.WillReturnRows(lockRow(false)) },
-	} {
-		l, mock := sharedLimiter(t)
-		mock.ExpectQuery(tryLockQ).WillReturnRows(lockRow(true))
-		unlock(mock.ExpectQuery(unlockQ))
-		slot, _, err := l.Acquire(context.Background(), "api", "crm", 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		slot.Release()
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Error(err)
-		}
+	l, mock = sharedLimiter(t)
+	mock.ExpectQuery(tryLockQ).WillReturnRows(lockRow(true))
+	mock.ExpectExec(unlockQ).WillReturnError(down)
+	slot, _, err := l.Acquire(context.Background(), "api", "crm", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot.Release()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
 	}
 
 	// No database connection to reserve: the call fails naming the limit.

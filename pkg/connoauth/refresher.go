@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -95,10 +96,8 @@ func (NoopLocker) TryLock(_ context.Context, _ Key) (release func(), ok bool, er
 }
 
 // PostgresLocker wraps a *sql.DB with pg_try_advisory_lock semantics.
-// The lock is held in the session associated with the *sql.Conn the
-// locker checks out from the pool; release() closes the connection
-// back to the pool which Postgres treats as a session end (and
-// auto-releases the lock).
+// The lock is held on the process's lock session, which every background
+// try-lock shares.
 type PostgresLocker struct {
 	db *sql.DB
 }
@@ -111,7 +110,9 @@ func NewPostgresLocker(db *sql.DB) *PostgresLocker {
 }
 
 // TryLock acquires a session-scoped advisory lock keyed by
-// hashtext('connoauth-refresh:<kind>/<name>'). The hash uses FNV
+// hashtext('connoauth-refresh:<kind>/<name>'), on the process's lock session
+// (internal/advisorylock), so a refresh in flight pins no connection of its
+// own (#2169). The hash uses FNV
 // here (Postgres-equivalent stability is not required because every
 // lock key is held by the same process for at most one tick) and
 // converts to a bigint for pg_try_advisory_lock.
@@ -119,35 +120,11 @@ func (l *PostgresLocker) TryLock(ctx context.Context, k Key) (release func(), ok
 	if !k.IsValid() {
 		return nil, false, errInvalidKey
 	}
-	conn, err := l.db.Conn(ctx)
+	release, ok, err = advisorylock.Try(ctx, l.db, advisorylock.ID(advisoryLockKey(k)))
 	if err != nil {
-		return nil, false, fmt.Errorf("connoauth: locker checkout: %w", err)
-	}
-	keyID := advisoryLockKey(k)
-	var acquired bool
-	if err := conn.QueryRowContext(ctx,
-		`SELECT pg_try_advisory_lock($1)`, keyID).Scan(&acquired); err != nil {
-		_ = conn.Close()
 		return nil, false, fmt.Errorf("connoauth: try lock: %w", err)
 	}
-	if !acquired {
-		_ = conn.Close()
-		return nil, false, nil
-	}
-	release = func() {
-		// Use a short detached context so the unlock doesn't depend
-		// on the caller's ctx (a refresh that overran its tick
-		// timeout would otherwise leak the lock for the duration of
-		// the session-end-on-conn-close).
-		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, err := conn.ExecContext(unlockCtx, `SELECT pg_advisory_unlock($1)`, keyID); err != nil {
-			slog.WarnContext(ctx, "connoauth: advisory unlock failed (lock released on conn close)",
-				logKeyKind, k.Kind, logKeyName, k.Name, logKeyError, err)
-		}
-		_ = conn.Close()
-	}
-	return release, true, nil
+	return release, ok, nil
 }
 
 // advisoryLockKey hashes "connoauth-refresh:<kind>/<name>" into the

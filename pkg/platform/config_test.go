@@ -1253,6 +1253,20 @@ func TestConfigValidate_SessionsDatabaseWithoutDSN(t *testing.T) {
 	}
 }
 
+// #2169: a pool too small for the platform's background work is refused at
+// startup, naming the minimum.
+func TestConfigValidate_RefusesATooSmallPool(t *testing.T) {
+	cfg := &Config{Database: DatabaseConfig{DSN: "postgres://x", MaxOpenConns: 3}}
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "database.max_open_conns is 3; the platform needs at least 4") {
+		t.Errorf("Validate() with max_open_conns 3: %v", err)
+	}
+	cfg.Database.MaxOpenConns = 4
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() with max_open_conns 4: %v", err)
+	}
+}
+
 func TestConfigValidate_SessionsDatabaseWithDSN(t *testing.T) {
 	cfg := &Config{
 		Sessions: SessionsConfig{

@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/txn2/mcp-data-platform/internal/dbobs"
 	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
 	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
@@ -2050,7 +2051,7 @@ func (c *Config) Validate() error {
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
 	_, thumbSources := c.Thumbnails.SourceLimits()
-	for _, err := range []error{admission, runBudget, thumbs, thumbSources, c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
+	for _, err := range []error{admission, runBudget, thumbs, thumbSources, dbobs.CheckPoolSize(c.Database.MaxOpenConns), c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}

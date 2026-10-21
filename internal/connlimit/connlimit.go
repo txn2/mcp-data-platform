@@ -10,9 +10,9 @@
 // export's page walk, a script's platform.call.
 //
 // A slot is a PostgreSQL session-level advisory lock, (connection, slot n),
-// held on a pooled database connection for the length of the call, so the
-// limit holds across replicas: an upstream that takes one request does not
-// take three because the deployment runs three replicas. A call over the
+// held on the process's lock session (internal/advisorylock) for the length
+// of the call, so the limit holds across replicas: an upstream that takes one
+// request does not take three because the deployment runs three replicas. A call over the
 // limit waits for a slot instead of failing, and the wait counts against the
 // call's own deadline; a call whose deadline passes while it waits fails
 // naming the limit and how long it waited. A deployment with no database
@@ -22,7 +22,6 @@ package connlimit
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -30,6 +29,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -39,9 +39,6 @@ import (
 const (
 	firstPoll = 20 * time.Millisecond
 	maxPoll   = 250 * time.Millisecond
-	// releaseTimeout bounds giving a slot back, which runs after the call's
-	// own context may have ended.
-	releaseTimeout = 5 * time.Second
 )
 
 // keySpace is the first half of every slot's advisory-lock key. It is
@@ -134,8 +131,7 @@ func (l *Limiter) Acquire(ctx context.Context, kind, connection string, limit in
 }
 
 // acquireShared takes a slot as an advisory lock, polling until one is free.
-// A database connection is held only while a slot is: a waiting call holds
-// none.
+// A waiting call holds no database connection.
 func (l *Limiter) acquireShared(ctx context.Context, kind, connection string, limit int) (*Slot, error) {
 	space := keySpace(kind, connection)
 	// One request's wait for a slot, bounded by the request's own context:
@@ -164,50 +160,24 @@ func pause(ctx context.Context, d time.Duration) error {
 }
 
 // tryShared takes the first free slot, or reports none free with a nil slot.
+// Slots are held on the process's lock session, so however many calls are in
+// flight they pin one database connection between them (#2169).
 func (l *Limiter) tryShared(ctx context.Context, space int32, limit int) (*Slot, error) {
-	conn, err := l.db.Conn(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("reserving a database connection for the slot: %w", err)
-	}
 	for n := int32(0); int(n) < limit; n++ {
-		var got bool
-		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1, $2)`, space, n).Scan(&got); err != nil {
-			discard(conn)
-			// A deadline reached during the query is the driver's cancel
-			// error; the call's own end is what the caller is told.
+		release, got, err := advisorylock.Try(ctx, l.db, advisorylock.Pair(space, n))
+		if err != nil {
+			// A deadline reached during the take is the call's own end, and
+			// that is what the caller is told.
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, ctxErr //nolint:wrapcheck // WaitError names it
 			}
 			return nil, fmt.Errorf("taking a slot: %w", err)
 		}
 		if got {
-			return &Slot{release: func() { unlockShared(conn, space, n) }}, nil
+			return &Slot{release: release}, nil
 		}
 	}
-	_ = conn.Close()
 	return nil, nil //nolint:nilnil // no slot free is not a failure: the caller waits
-}
-
-// unlockShared gives a slot back and returns its database connection to the
-// pool. A connection whose unlock failed may still hold the lock, so it is
-// closed rather than pooled: a pooled connection holding a slot would hold it
-// until the pool closed it.
-func unlockShared(conn *sql.Conn, space, n int32) {
-	ctx, cancel := context.WithTimeout(context.Background(), releaseTimeout)
-	defer cancel()
-	var released bool
-	if err := conn.QueryRowContext(ctx, `SELECT pg_advisory_unlock($1, $2)`, space, n).Scan(&released); err != nil || !released {
-		discard(conn)
-		return
-	}
-	_ = conn.Close()
-}
-
-// discard closes conn and drops it from the pool, ending its session and with
-// it any lock the session holds.
-func discard(conn *sql.Conn) {
-	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
-	_ = conn.Close()
 }
 
 // acquireLocal takes a slot from this process's own count of the connection.

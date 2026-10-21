@@ -430,7 +430,7 @@ database:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `dsn` | string | - | PostgreSQL connection string |
-| `max_open_conns` | int | `25` | Maximum open database connections |
+| `max_open_conns` | int | `25` | Maximum open database connections. At least `4`: one for the session every background lock shares, one for a locked pass, and two for requests; a smaller value is refused at startup |
 
 !!! note "What the database unlocks"
     Setting `dsn` enables audit logging, knowledge capture, session externalization, and OAuth persistence. Without it, these features degrade to in-memory or noop implementations.

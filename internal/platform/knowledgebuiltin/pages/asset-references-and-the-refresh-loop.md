@@ -48,7 +48,11 @@ list. Two forms go in it, and they are not interchangeable:
 
 The list is the whole declaration. Omitting it leaves the asset's references
 alone, sending a list replaces them, and sending an empty list removes them
-all. At most 20 per asset unless the deployment sets its own cap; the
+all. A write that changes the content and the list together grants the newly
+listed files before the new version exists, so the version's tile and its
+first reader see them, and drops the ones no longer listed once the content is
+stored; a write whose content cannot be stored leaves the references as they
+were. At most 20 per asset unless the deployment sets its own cap; the
 `references` field's `maxItems` in the save_asset and manage_asset schemas
 states this deployment's number. A save above it is refused with the number
 you declared.
