@@ -389,7 +389,7 @@ func TestIssue2068_AnArchiveUploadedByHandIsReadyWithNoFetch(t *testing.T) {
 		if port == "" {
 			port = "9443"
 		}
-		ca, _ := filepath.Abs("../../dev/.tls/minio/public.crt")
+		ca, _ := filepath.Abs("../../dev/.tls/seaweedfs/public.crt")
 		cmd := exec.Command("aws", append([]string{"--endpoint-url", "https://localhost:" + port, "s3"}, args...)...)
 		cmd.Env = append(os.Environ(), "AWS_ACCESS_KEY_ID=dev-access-key", "AWS_SECRET_ACCESS_KEY=dev-secret-key", "AWS_CA_BUNDLE="+ca)
 		if out, err := cmd.CombinedOutput(); err != nil {

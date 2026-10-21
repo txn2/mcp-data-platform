@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/buildinfo"
+	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -106,13 +107,19 @@ type publicBrandingResponse struct {
 	PortalLogoLight string `json:"portal_logo_light" example:"https://example.com/logo-light.svg"`
 	PortalLogoDark  string `json:"portal_logo_dark" example:"https://example.com/logo-dark.svg"`
 	OIDCEnabled     bool   `json:"oidc_enabled" example:"false"`
+	// LoginRedirect: the login screen sends a signed-out visitor straight to
+	// the identity provider; true only with portal.login_redirect and OIDC on.
+	LoginRedirect bool `json:"login_redirect" example:"false"`
+	// AllowAPIKeyLogin: /portal/?login=api_key offers the API key form.
+	AllowAPIKeyLogin bool `json:"allow_api_key_login" example:"true"`
 }
 
 // getPublicBranding handles GET /api/v1/admin/public/branding.
 // This endpoint is unauthenticated and returns only non-sensitive display info.
 func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 	resp := publicBrandingResponse{
-		Version: buildinfo.Version,
+		Version:          buildinfo.Version,
+		AllowAPIKeyLogin: true,
 	}
 	if h.deps.Config != nil {
 		resp.Name = h.deps.Config.Server.Name
@@ -126,6 +133,8 @@ func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 		resp.PortalLogoLight = h.deps.Config.Portal.LogoLight
 		resp.PortalLogoDark = h.deps.Config.Portal.LogoDark
 		resp.OIDCEnabled = h.deps.Config.Auth.BrowserSession.Enabled && h.deps.Config.Auth.OIDC.Enabled
+		resp.LoginRedirect, _ = portalcfg.LoginRedirect(h.deps.Config.Portal.LoginRedirect, resp.OIDCEnabled)
+		resp.AllowAPIKeyLogin = portalcfg.APIKeyLoginAllowed(h.deps.Config.Portal.AllowAPIKeyLogin)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -151,7 +151,7 @@ Each feature links to its full documentation.
 
 ## The Portal
 
-A built-in web portal serves both operators and end users. Enable with `portal.enabled: true`.
+A built-in web portal serves both operators and end users. Enable with `portal.enabled: true`. On a deployment that signs in through OIDC, `portal.login_redirect: true` sends a signed-out visitor straight to the identity provider instead of the login screen; `/portal/?login=api_key` keeps the API key form for administrators and service accounts unless `portal.allow_api_key_login: false` ([configuration](https://mcp-data-platform.txn2.com/server/configuration/#sending-sign-in-straight-to-the-identity-provider)).
 
 **For operators**: dashboards with activity timelines and performance percentiles, a searchable audit log, an interactive tool explorer with per-persona visibility and inline test runs, knowledge insight governance, connection and persona management, API keys, and indexing health. See the [Admin Portal guide](https://mcp-data-platform.txn2.com/portal/).
 

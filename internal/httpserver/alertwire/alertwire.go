@@ -76,7 +76,7 @@ func BuildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *revi
 		Enqueuer: notify.Enqueuer(),
 		Channels: notify.AlertChannels(),
 		BaseURL:  p.Config().Portal.PublicBaseURL,
-		Interval: reviewAlertInterval(),
+		Interval: envInterval(EnvReviewAlertInterval),
 	})
 	if checker != nil {
 		slog.Info("Knowledge review-queue staleness alert enabled")
@@ -122,6 +122,7 @@ func buildConnAlertConfig(p *platform.Platform, notify *notifydelivery.Handle) c
 		Enqueuer: notify.Enqueuer(),
 		Channels: notify.AlertChannels(),
 		BaseURL:  p.Config().Portal.PublicBaseURL,
+		Interval: envInterval(EnvConnAlertInterval),
 	}
 }
 
@@ -199,16 +200,21 @@ func AdminDeps(deps *admin.Deps, p *platform.Platform, notify *notifydelivery.Ha
 // against in seconds rather than an hour.
 const EnvReviewAlertInterval = "MCP_PLATFORM_REVIEW_ALERT_INTERVAL"
 
-// reviewAlertInterval reads EnvReviewAlertInterval, or zero (the default)
+// EnvConnAlertInterval overrides how often an open connection revocation is
+// checked for escalation (default every minute, connalert.DefaultSweepInterval),
+// as a Go duration; an environment knob for the same reason (#2232).
+const EnvConnAlertInterval = "MCP_PLATFORM_CONNECTION_ALERT_INTERVAL"
+
+// envInterval reads the named variable as a duration, or zero (the default)
 // when it is unset or not a positive duration.
-func reviewAlertInterval() time.Duration {
-	raw := os.Getenv(EnvReviewAlertInterval)
+func envInterval(name string) time.Duration {
+	raw := os.Getenv(name)
 	if raw == "" {
 		return 0
 	}
 	d, err := time.ParseDuration(raw)
 	if err != nil || d <= 0 {
-		slog.Warn("ignoring "+EnvReviewAlertInterval+"; it must be a positive duration such as 30s",
+		slog.Warn("ignoring "+name+"; it must be a positive duration such as 30s",
 			"value", logsan.SanitizeForLog(raw))
 		return 0
 	}

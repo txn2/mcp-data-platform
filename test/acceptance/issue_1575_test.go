@@ -3,6 +3,8 @@
 package acceptance
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"testing"
@@ -248,9 +250,12 @@ func TestIssue1575_SomebodyElseIsRefused(t *testing.T) {
 // TestIssue1575_TheScheduleAndTheRunsGoWithIt is criterion 4: a script with a
 // schedule and a run history loses both, and nothing fires it afterwards.
 //
-// The fire is checked by waiting past a cadence that fires every minute rather
-// than by reasoning from the absent schedule row: the criterion is about what
-// happens next, and the run listing is where a fire would show up.
+// The fire is checked by making the schedule due and waiting past the passes
+// that would fire it, rather than by reasoning from the absent schedule row:
+// the criterion is about what happens next, and the run listing is where a
+// fire would show up. The schedule is moved to due just before the delete,
+// so the next fire is the scheduler's next pass (two seconds on the dev
+// stack) rather than up to a minute of cron away (#2232).
 func TestIssue1575_TheScheduleAndTheRunsGoWithIt(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	name := "acceptance-1575-sched-" + unique1575()
@@ -271,9 +276,11 @@ func TestIssue1575_TheScheduleAndTheRunsGoWithIt(t *testing.T) {
 		t.Fatalf("the script has no schedule to lose: status %d", scheduleStatus)
 	}
 
+	dueSchedule1575(t, id)
 	if status, body := deleteFromPortal1575(t, owner, id); status != http.StatusOK {
 		t.Fatalf("DELETE as the owner: status %d: %v", status, body)
 	}
+	deleted := float64(time.Now().UnixNano()) / 1e9
 
 	if status, _ := owner.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/schedule", http.NoBody); status != http.StatusNotFound {
 		t.Fatalf("the schedule survived the delete: status %d", status)
@@ -282,9 +289,9 @@ func TestIssue1575_TheScheduleAndTheRunsGoWithIt(t *testing.T) {
 		t.Fatalf("the run history survived the delete: status %d, %d runs", status, runs)
 	}
 
-	// Past the next fire the schedule would have had. A session of its own,
-	// because the wait outlives the one the checks above were made in.
-	time.Sleep(75 * time.Second)
+	// Past the passes that would have fired it: two scheduler passes that
+	// began after the delete, on any replica.
+	waitForLoopPass(t, "script_scheduler", waitForLoopPass(t, "script_scheduler", deleted))
 	after := connectAs(t, devOwnerAPIKey)
 	if status, runs := runsOf1575(t, after, id); status != http.StatusNotFound || runs != 0 {
 		t.Fatalf("a fire happened after the delete: status %d, %d runs", status, runs)
@@ -412,4 +419,26 @@ func namesProducer1575(rows []map[string]any, producerID string) bool {
 		}
 	}
 	return false
+}
+
+// dueSchedule1575 makes the script's schedule due now, so the scheduler's next
+// pass would fire it. Moving next_run_at is the only part no surface drives:
+// cron cannot express a fire sooner than the next minute.
+func dueSchedule1575(t *testing.T, scriptID string) {
+	t.Helper()
+	db, err := sql.Open("postgres", issue1694DevDSN())
+	if err != nil {
+		t.Fatalf("opening the dev database: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	res, err := db.ExecContext(ctx,
+		`UPDATE script_schedules SET next_run_at = now() - interval '1 second' WHERE script_id = $1`, scriptID)
+	if err != nil {
+		t.Fatalf("making the schedule due: %v", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("made %d schedules due for %s; the schedule was never set", n, scriptID)
+	}
 }

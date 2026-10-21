@@ -22,8 +22,14 @@ import (
 
 // issue2201Seed writes a synthetic bucket store's samples, at interval from
 // now-span to now, used as a function of the time since the first, and a
-// budget so the store has a capacity. It returns the store's key.
-func issue2201Seed(t *testing.T, span, interval time.Duration, used func(time.Duration) int64) string {
+// budget so the store has a capacity. It returns the store's report.
+//
+// The bucket exists only in these rows, and the full bucket listing removes
+// the usage row of a bucket it does not find, which the report then reads as
+// holding nothing, its correct reading of a bucket that is not there. So the
+// row is put back right before each read, and the report is read until it
+// carries the seeded usage rather than a listing's.
+func issue2201Seed(t *testing.T, span, interval time.Duration, used func(time.Duration) int64) map[string]any {
 	t.Helper()
 	c := connect(t)
 	db := devDB(t)
@@ -44,25 +50,25 @@ func issue2201Seed(t *testing.T, span, interval time.Duration, used func(time.Du
 		_, _ = db.Exec(`DELETE FROM storage_usage WHERE bucket = $1`, bucket)
 	})
 	putSettings(t, c, issue2148Path, map[string]any{"budgets": map[string]any{bucket: int64(1) << 40}})
-	waitFor(t, "the synthetic store in the report", func() (bool, string) {
+	var st map[string]any
+	waitFor(t, "the synthetic store in the report at its seeded usage", func() (bool, string) {
 		if _, err := db.Exec(`INSERT INTO storage_usage (bucket, purpose, bytes, objects, updated_at) VALUES ($1, 'resources', $2, 1, NOW())
 			ON CONFLICT (bucket, purpose) DO UPDATE SET bytes = EXCLUDED.bytes`, bucket, last); err != nil {
 			t.Fatal(err)
 		}
-		st := issue2148Store(t, c, store)
-		return st != nil, fmt.Sprintf("%v", st)
+		st = issue2148Store(t, c, store)
+		return st != nil && st["used_bytes"] == float64(last), fmt.Sprintf("%v", st)
 	})
-	return store
+	return st
 }
 
 // TestIssue2201_AFirstBootBurstIsNoDailyRate: 16 MB to 28 MB over 1h42m, the
 // samples #2201 was reported from, is no rate, and the report says how much
 // history the store has and each rate needs.
 func TestIssue2201_AFirstBootBurstIsNoDailyRate(t *testing.T) {
-	store := issue2201Seed(t, 102*time.Minute, 6*time.Minute, func(d time.Duration) int64 {
+	st := issue2201Seed(t, 102*time.Minute, 6*time.Minute, func(d time.Duration) int64 {
 		return 16_075_923 + int64(float64(28_011_667-16_075_923)*d.Minutes()/102)
 	})
-	st := issue2148Store(t, connect(t), store)
 	if st["rate_7d_bytes_per_day"] != nil || st["rate_30d_bytes_per_day"] != nil {
 		t.Fatalf("an hour and a half of history gave a rate: %v", st)
 	}
@@ -72,7 +78,9 @@ func TestIssue2201_AFirstBootBurstIsNoDailyRate(t *testing.T) {
 	if h, _ := st["history_hours"].(float64); h < 1.6 || h > 1.8 {
 		t.Fatalf("history_hours = %v; the samples span 1.7 h", st["history_hours"])
 	}
-	if st["rate_7d_min_history_hours"] != 24.0 || st["rate_30d_min_history_hours"] != 168.0 {
+	// A day of history for the weekly rate and two weeks for the monthly one,
+	// each after the store's first day, which no fit reads (#2203).
+	if st["rate_7d_min_history_hours"] != 48.0 || st["rate_30d_min_history_hours"] != 360.0 {
 		t.Fatalf("the report does not say what each rate needs: %v", st)
 	}
 }
@@ -82,10 +90,9 @@ func TestIssue2201_AFirstBootBurstIsNoDailyRate(t *testing.T) {
 // measurement shown twice.
 func TestIssue2201_TheMonthlyRateWaitsForAWeek(t *testing.T) {
 	const perDay = int64(1) << 30
-	store := issue2201Seed(t, 72*time.Hour, time.Hour, func(d time.Duration) int64 {
+	st := issue2201Seed(t, 72*time.Hour, time.Hour, func(d time.Duration) int64 {
 		return 10*perDay + int64(float64(perDay)*d.Hours()/24)
 	})
-	st := issue2148Store(t, connect(t), store)
 	r7, ok := st["rate_7d_bytes_per_day"].(float64)
 	if !ok || r7 < float64(perDay)*0.9 || r7 > float64(perDay)*1.1 {
 		t.Fatalf("three days growing 1 GiB a day: rate_7d = %v", st["rate_7d_bytes_per_day"])
@@ -99,10 +106,11 @@ func TestIssue2201_TheMonthlyRateWaitsForAWeek(t *testing.T) {
 }
 
 // TestIssue2201_AFlatStoreGrowsAtZero: a store at 16,801,792 bytes at every
-// sample for ten days grows at exactly zero, not -0.15 B/day.
+// sample for sixteen days grows at exactly zero, not -0.15 B/day. Sixteen, so
+// both rates are measured: the monthly one waits for two weeks after the
+// store's first day (#2203).
 func TestIssue2201_AFlatStoreGrowsAtZero(t *testing.T) {
-	store := issue2201Seed(t, 10*24*time.Hour, 15*time.Minute, func(time.Duration) int64 { return 16_801_792 })
-	st := issue2148Store(t, connect(t), store)
+	st := issue2201Seed(t, 16*24*time.Hour, 15*time.Minute, func(time.Duration) int64 { return 16_801_792 })
 	if st["rate_7d_bytes_per_day"] != 0.0 || st["rate_30d_bytes_per_day"] != 0.0 {
 		t.Fatalf("a store holding one size: rate_7d = %v, rate_30d = %v; want exactly 0",
 			st["rate_7d_bytes_per_day"], st["rate_30d_bytes_per_day"])

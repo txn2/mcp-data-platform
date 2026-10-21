@@ -514,3 +514,15 @@ func TestScheduler_RecordsNothingWhenNoFireIsMissed(t *testing.T) {
 
 	assert.NotContains(t, scrapeWorkerMetrics(t, m), "script_missed_fires_total")
 }
+
+// TestMaterializeEvery pins #2232's knob: a positive duration replaces the
+// default pass interval and anything else leaves the default.
+func TestMaterializeEvery(t *testing.T) {
+	cases := map[string]time.Duration{"": 0, "2s": 2 * time.Second, "soon": 0, "-1s": 0, "0s": 0}
+	for raw, want := range cases {
+		t.Setenv(EnvMaterializeEvery, raw)
+		if got := materializeEvery(); got != want {
+			t.Errorf("%q: interval = %v, want %v", raw, got, want)
+		}
+	}
+}

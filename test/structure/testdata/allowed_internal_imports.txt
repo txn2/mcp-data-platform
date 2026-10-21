@@ -1554,6 +1554,7 @@ pkg/admin -> internal/platform/callrecord
 pkg/admin -> internal/platform/configenv
 pkg/admin -> internal/platform/configwarn
 pkg/admin -> internal/platform/connalert
+pkg/admin -> internal/platform/portalcfg
 pkg/admin -> internal/platform/reviewalert
 pkg/admin -> internal/platform/scriptalert
 pkg/admin -> internal/platform/storagecap

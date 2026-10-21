@@ -14,9 +14,8 @@ import (
 //
 // There are two because a Hive catalog reads its metastore and its tables
 // through one S3 client, and the dev stack runs two object stores: portal
-// assets on SeaweedFS, managed resources on MinIO, which is the backend that
-// bounds a single PUT and so the one the upload path is exercised against
-// (#1631). A registration over a file has to name the connection whose catalog
+// assets on SeaweedFS, managed resources on a second SeaweedFS served over TLS,
+// the transport the upload path is exercised over (#1631). A registration over a file has to name the connection whose catalog
 // can reach that file's store. A deployment has one store and one of these.
 const (
 	// scratchConnection reaches portal assets.

@@ -209,7 +209,7 @@ func issue2121Start(t *testing.T, dir string, store *issue2121Store, extra ...st
 	env = append(env,
 		"TRINO_ENABLED=true", "TRINO_HOST=localhost", "TRINO_PORT=9283", "TRINO_USER=dev", "TRINO_PASSWORD=",
 		"TRINO_SSL=false", "TRINO_SSL_VERIFY=false",
-		"AWS_CA_BUNDLE="+filepath.Join(root, "dev", ".tls", "minio", "public.crt"),
+		"AWS_CA_BUNDLE="+filepath.Join(root, "dev", ".tls", "seaweedfs", "public.crt"),
 	)
 	env = append(env, extra...)
 	r := &issue2121Replica{env: env, base: "http://127.0.0.1:" + api, metrics: "http://127.0.0.1:" + metrics + "/metrics"}

@@ -1314,7 +1314,11 @@ the list does. A schedule the server cannot parse is listed under
 **One fire, one run, however many replicas.** Every worker replica materializes
 due schedules, with no leader and no election. Several notice the same fire at
 the same moment, they all try to write the run, and a unique index on
-(schedule, fire time) means exactly one of those writes survives.
+(schedule, fire time) means exactly one of those writes survives. Due
+schedules are looked for every 30 seconds, so a fire becomes a run within that
+of its time; `MCP_PLATFORM_SCRIPT_SCHEDULER_INTERVAL` (a duration such as `2s`)
+overrides it, for a local stack proved against in seconds. Cron still fires at
+most once a minute.
 
 **Overlap policy: skip if the previous run is still going.** A fire arriving
 while the schedule's previous run is still pending or running does not queue

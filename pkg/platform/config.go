@@ -437,6 +437,9 @@ type PortalConfig struct {
 	// OrphanedProducerRetentionDays: days a producer record outlives its file
 	// (#1904); 0 = 90, negative = forever.
 	OrphanedProducerRetentionDays int `yaml:"orphaned_producer_retention_days"`
+	// LoginRedirect and AllowAPIKeyLogin: see portalcfg.LoginRedirect (#2242).
+	LoginRedirect    bool  `yaml:"login_redirect"`
+	AllowAPIKeyLogin *bool `yaml:"allow_api_key_login"`
 }
 
 // PortalExportConfig configures the trino_export tool.
@@ -448,27 +451,11 @@ type PortalExportConfig struct {
 	MaxTimeout     string `yaml:"max_timeout"`     // max query timeout (default: "10m")
 }
 
-// ImplementorConfig configures the optional implementor brand shown in the
-// far-left zone of the public viewer header (e.g., "ACME Corp").
-type ImplementorConfig struct {
-	Name string `yaml:"name"` // display name (e.g., "ACME Corp")
-	Logo string `yaml:"logo"` // URL to logo SVG (fetched at startup for inline rendering)
-	URL  string `yaml:"url"`  // link URL (e.g., "https://acme.com")
-}
+// ImplementorConfig is the portal's implementor brand (portalcfg.Implementor).
+type ImplementorConfig = portalcfg.Implementor
 
-// PortalRateLimitConfig configures rate limiting for the public portal viewer.
-type PortalRateLimitConfig struct {
-	RequestsPerMinute int `yaml:"requests_per_minute"` // default: 60
-	BurstSize         int `yaml:"burst_size"`          // default: 10
-	// TrustedProxies lists CIDRs whose X-Forwarded-For headers are trusted for
-	// client attribution, mirroring oauth.rate_limit.trusted_proxies. Empty (the
-	// default) trusts none: the direct peer address is used and forwarding
-	// headers are ignored, which is the correct safe default when the
-	// deployment's proxy topology is unknown. Set this to your reverse-proxy or
-	// ingress CIDRs so per-client limiting attributes to the real client instead
-	// of collapsing onto the proxy IP.
-	TrustedProxies []string `yaml:"trusted_proxies"`
-}
+// PortalRateLimitConfig is the public viewer's rate limit (portalcfg.RateLimit).
+type PortalRateLimitConfig = portalcfg.RateLimit
 
 // ServerConfig configures the MCP server.
 type ServerConfig struct {
@@ -1902,6 +1889,10 @@ func applyPortalDefaults(cfg *Config) {
 		cfg.MCPApps.IsEnabled(), cfg.MCPApps.Apps[builtinPlatformInfoName].Config)
 	p.MaxContentSize = portalcfg.MaxContentSize(p.MaxContentSize)
 	p.S3Bucket, p.S3Prefix = portalcfg.S3Location(p.S3Bucket, p.S3Prefix)
+	var ignored bool
+	if p.LoginRedirect, ignored = portalcfg.LoginRedirect(p.LoginRedirect, cfg.Auth.OIDC.Enabled && cfg.Auth.BrowserSession.Enabled); ignored {
+		configwarn.Warn(context.Background(), configwarn.CodeLoginRedirectIgnored, portalcfg.LoginRedirectIgnored)
+	}
 }
 
 // applyResourceDefaults sets defaults for managed resources config.

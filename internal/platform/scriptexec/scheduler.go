@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -33,6 +34,29 @@ const (
 	maxDuePerPass = 100
 )
 
+// EnvMaterializeEvery overrides defaultMaterializeEvery as a Go duration
+// (#2232). Cron cannot fire more often than once a minute, so this does not
+// change what a schedule expresses: it is how soon a due fire is found, which
+// a local stack sets in seconds so a criterion about the next fire does not
+// wait half a minute for the pass that finds it.
+const EnvMaterializeEvery = "MCP_PLATFORM_SCRIPT_SCHEDULER_INTERVAL"
+
+// materializeEvery reads EnvMaterializeEvery, or zero (the default) when it
+// is unset or not a positive duration.
+func materializeEvery() time.Duration {
+	raw := os.Getenv(EnvMaterializeEvery)
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		slog.Warn("ignoring "+EnvMaterializeEvery+"; it must be a positive duration such as 5s",
+			"value", logsan.SanitizeForLog(raw))
+		return 0
+	}
+	return d
+}
+
 // logKeyScheduleID is the structured-logging key for a schedule id.
 const logKeyScheduleID = "schedule_id"
 
@@ -48,8 +72,8 @@ type schedulerConfig struct {
 	// that is quietly not keeping its cadence is visible without reading the
 	// table (#1307). Nil is a no-op.
 	metrics *observability.Metrics
-	// interval overrides defaultMaterializeEvery, and now overrides the clock.
-	// Both are testing hooks.
+	// interval overrides defaultMaterializeEvery (EnvMaterializeEvery), and
+	// now overrides the clock, a testing hook.
 	interval time.Duration
 	now      func() time.Time
 }

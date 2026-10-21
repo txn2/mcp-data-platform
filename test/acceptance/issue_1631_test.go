@@ -20,17 +20,18 @@ import (
 
 // Issue #1631: the managed-resource blob write was the one upload path in the
 // platform without multipart. The whole object went to storage as a single
-// PutObject, and an S3-compatible backend is free to bound one: MinIO refuses
-// a PutObject above 16 MiB under the aws-chunked encoding the AWS SDK uses
-// over HTTPS, so a file above that could not be filed at all, whatever
-// resources.managed.max_upload_bytes said. The same file stored as a portal
-// asset, which had always written through the transfer manager.
+// PutObject, and an S3-compatible backend is free to bound one: a store that
+// caps an aws-chunked chunk at 16 MiB refuses such a PutObject under the
+// encoding the AWS SDK uses over HTTPS, so a file above that could not be
+// filed at all, whatever resources.managed.max_upload_bytes said. The same
+// file stored as a portal asset, which had always written through the
+// transfer manager.
 //
-// The dev stack this suite runs against carries MinIO over TLS for exactly
-// this reason (dev/docker-compose.yml, dev/platform.yaml): managed resources
-// are stored on it, portal assets stay on SeaweedFS, and SeaweedFS accepts an
-// unbounded single PUT, so it could not stand in for the backend these
-// criteria are about.
+// The dev stack stores managed resources on a SeaweedFS served over TLS
+// (dev/docker-compose.yml, dev/platform.yaml), so the write goes over HTTPS
+// with the aws-chunked encoding. SeaweedFS accepts an unbounded single PUT, so
+// these criteria hold the stored bytes and the multipart route to the sizes
+// above the bound rather than reproducing the refusal.
 //
 // Wire forms. This ticket touches no MCP tool parameter. Its surfaces are two
 // multipart HTTP routes, whose forms are enumerated and sent below:
@@ -49,7 +50,8 @@ import (
 // TestIssue1631_TheToolPathStillStoresWhatItHolds.
 
 const (
-	// issue1631SinglePutBound is what MinIO refuses a single PutObject above.
+	// issue1631SinglePutBound is the chunk size a bounding store refuses a
+	// single PutObject above.
 	// Every size below is stated against it.
 	issue1631SinglePutBound = 16 << 20
 	// issue1631Size is comfortably past that bound and far under the dev
@@ -68,7 +70,7 @@ const (
 // TestIssue1631_AFileAboveTheSinglePutBoundIsStored is the criterion the
 // ticket exists for. Before the change this answered 503 with "The storage
 // backend did not accept the file. Nothing was saved." and the log carried
-// MinIO's "chunk too big: choose chunk size <= 16MiB".
+// the store's "chunk too big: choose chunk size <= 16MiB".
 func TestIssue1631_AFileAboveTheSinglePutBoundIsStored(t *testing.T) {
 	c := connect(t)
 

@@ -174,8 +174,8 @@ func assertOneUnitRun(t *testing.T, makefile string) {
 func assertStaticChecksInALane(t *testing.T, makefile string) {
 	t.Helper()
 	lanes := prerequisites(makefile, "verify-checks")
-	if !slices.Contains(lanes, "verify-static") {
-		t.Fatalf("verify-checks starts %v; the static checks need a lane of their own", lanes)
+	if !slices.Contains(lanes, "verify-static-ui") || stepAt(recipe(t, makefile, "verify-static-ui"), "verify-static") != 0 {
+		t.Fatalf("verify-checks starts %v; the static checks need a lane that starts with them", lanes)
 	}
 	static := recipe(t, makefile, "verify-static")
 	for _, gate := range []string{"security", "semgrep"} {
@@ -185,6 +185,41 @@ func assertStaticChecksInALane(t *testing.T, makefile string) {
 		if stepAt(recipe(t, makefile, "verify-go"), gate) >= 0 {
 			t.Errorf("verify-go still runs %s after the unit run", gate)
 		}
+	}
+}
+
+// TestVerifyStartsTheUILaneAfterTheStaticLane pins #2243: verify-ui starts
+// once verify-static has finished, in the same lane, so vitest's 5-second
+// per-test timeout is not run against every lane starting at once; and that
+// lane still runs beside verify-go and verify-docker rather than after them.
+func TestVerifyStartsTheUILaneAfterTheStaticLane(t *testing.T) {
+	raw, err := os.ReadFile("../../Makefile")
+	require(t, err)
+	makefile := string(raw)
+
+	lanes := prerequisites(makefile, "verify-checks")
+	for _, want := range []string{"verify-go", "verify-docker", "verify-static-ui"} {
+		if !slices.Contains(lanes, want) {
+			t.Errorf("verify-checks starts %v; %s must be one of its concurrent lanes", lanes, want)
+		}
+	}
+	for _, alone := range []string{"verify-ui", "verify-static"} {
+		if slices.Contains(lanes, alone) {
+			t.Errorf("verify-checks starts %s beside the other lanes; it belongs to verify-static-ui", alone)
+		}
+	}
+	lane := recipe(t, makefile, "verify-static-ui")
+	static, ui := stepAt(lane, "verify-static"), stepAt(lane, "verify-ui")
+	if static < 0 || ui < 0 || ui < static {
+		t.Errorf("verify-static-ui runs %v; it must run verify-static and then verify-ui", lane)
+	}
+	for _, line := range lane {
+		if strings.Contains(line, " -j") {
+			t.Errorf("verify-static-ui line %q runs its steps concurrently", line)
+		}
+	}
+	if !strings.Contains(strings.Join(recipe(t, makefile, "verify"), "\n"), "-j4 verify-checks") {
+		t.Error("verify no longer runs verify-checks concurrently")
 	}
 }
 

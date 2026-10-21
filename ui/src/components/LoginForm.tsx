@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "@/stores/auth";
 import { useResolvedDark } from "@/stores/theme";
 import { useBranding } from "@/api/portal/hooks";
 import { resolvePortalLogo } from "@/lib/portalLogo";
 import { usePortalTitle } from "@/hooks/usePortalTitle";
+import { buildLoginURL } from "@/lib/loginUrl";
 import { LogIn } from "lucide-react";
+import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +21,12 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   auth_failed: "Authentication failed. Please try again.",
 };
 
+// The query parameter that keeps the API key form reachable on a deployment
+// that sends sign-in straight to the identity provider (#2242).
+function apiKeyLoginRequested(): boolean {
+  return new URLSearchParams(window.location.search).get("login") === "api_key";
+}
+
 function getAuthError(): string | null {
   const params = new URLSearchParams(window.location.search);
   const code = params.get("error");
@@ -30,12 +38,17 @@ function getAuthError(): string | null {
 
 export function LoginForm() {
   const [key, setKey] = useState("");
+  // Read before getAuthError clears the query string.
+  const [keyRequested] = useState(apiKeyLoginRequested);
   const [error, setError] = useState(() => getAuthError() || "");
+  // A sign-in the identity provider refused is not redirected again until
+  // the user asks, or the portal and the provider would loop (#2242).
+  const [authFailed] = useState(() => error !== "");
   const [loading, setLoading] = useState(false);
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const loginApiKey = useAuthStore((s) => s.loginApiKey);
   const loginOIDC = useAuthStore((s) => s.loginOIDC);
-  const { data: branding } = useBranding();
+  const { data: branding, isLoading: brandingLoading } = useBranding();
 
   const isDark = useResolvedDark();
 
@@ -44,6 +57,13 @@ export function LoginForm() {
   const oidcButtonLabel = branding?.oidc_button_label || DEFAULT_OIDC_BUTTON_LABEL;
   const portalLogo = resolvePortalLogo(branding ?? undefined, isDark);
   const oidcEnabled = branding?.oidc_enabled ?? false;
+  const loginRedirect = branding?.login_redirect ?? false;
+  const keyFormOffered = !loginRedirect || (keyRequested && (branding?.allow_api_key_login ?? true));
+  const redirecting = loginRedirect && !keyFormOffered && !authFailed;
+
+  useEffect(() => {
+    if (redirecting) window.location.replace(buildLoginURL());
+  }, [redirecting]);
 
   async function handleApiKeyLogin() {
     const trimmed = key.trim();
@@ -63,6 +83,17 @@ export function LoginForm() {
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") handleApiKeyLogin();
+  }
+
+  // Until branding says whether to redirect, and while the redirect is under
+  // way, the login screen is not drawn: it would flash before the identity
+  // provider's page.
+  if (brandingLoading || redirecting) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <LoadingIndicator />
+      </div>
+    );
   }
 
   return (
@@ -99,49 +130,56 @@ export function LoginForm() {
           </Alert>
         )}
 
-        {/* SSO Button — shown when OIDC is enabled */}
+        {/* SSO Button — shown when OIDC is enabled. On a redirecting
+            deployment the screen is drawn without the key form only after
+            the identity provider refused the sign-in, and the button is the
+            way to try again. */}
         {oidcEnabled && (
           <Button type="button" onClick={loginOIDC} className="mb-3 w-full">
             <LogIn />
-            {oidcButtonLabel}
+            {keyFormOffered ? oidcButtonLabel : "Try again"}
           </Button>
         )}
 
-        {/* "or use an API key" divider — only when OIDC is also an
-            option, so a deployment without SSO doesn't get a redundant
-            heading above its lone form. */}
-        {oidcEnabled && (
-          <div className="my-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" />
-            <span>or use an API key</span>
-            <div className="h-px flex-1 bg-border" />
-          </div>
-        )}
+        {keyFormOffered && (
+          <>
+            {/* "or use an API key" divider — only when OIDC is also an
+                option, so a deployment without SSO doesn't get a redundant
+                heading above its lone form. */}
+            {oidcEnabled && (
+              <div className="my-3 flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="h-px flex-1 bg-border" />
+                <span>or use an API key</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            )}
 
-        <Input
-          type="text"
-          autoComplete="off"
-          data-1p-ignore
-          data-lpignore="true"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="X-API-Key"
-          style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
-          className="mb-3"
-          autoFocus={!oidcEnabled}
-        />
-        {/* With SSO on the page the key form is the secondary way in, so it
-            takes the secondary face and leaves the filled one to OIDC. */}
-        <Button
-          type="button"
-          variant={oidcEnabled ? "secondary" : "default"}
-          disabled={!key.trim() || loading}
-          onClick={handleApiKeyLogin}
-          className="w-full"
-        >
-          {loading ? "Validating..." : "Sign in with API key"}
-        </Button>
+            <Input
+              type="text"
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="X-API-Key"
+              style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
+              className="mb-3"
+              autoFocus={!oidcEnabled}
+            />
+            {/* With SSO on the page the key form is the secondary way in, so it
+                takes the secondary face and leaves the filled one to OIDC. */}
+            <Button
+              type="button"
+              variant={oidcEnabled ? "secondary" : "default"}
+              disabled={!key.trim() || loading}
+              onClick={handleApiKeyLogin}
+              className="w-full"
+            >
+              {loading ? "Validating..." : "Sign in with API key"}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

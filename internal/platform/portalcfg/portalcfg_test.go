@@ -170,3 +170,29 @@ func TestDuration(t *testing.T) {
 		}
 	}
 }
+
+// TestLoginRedirect pins #2242: the setting is in force only where the portal
+// signs in through OIDC, and is reported ignored where it is set without it.
+func TestLoginRedirect(t *testing.T) {
+	cases := []struct{ set, oidc, redirect, ignored bool }{
+		{false, false, false, false},
+		{false, true, false, false},
+		{true, true, true, false},
+		{true, false, false, true},
+	}
+	for _, c := range cases {
+		redirect, ignored := LoginRedirect(c.set, c.oidc)
+		if redirect != c.redirect || ignored != c.ignored {
+			t.Errorf("LoginRedirect(%v, %v) = %v, %v; want %v, %v", c.set, c.oidc, redirect, ignored, c.redirect, c.ignored)
+		}
+	}
+}
+
+// TestAPIKeyLoginAllowed: unset is on, and only an explicit false turns the
+// portal's key form off.
+func TestAPIKeyLoginAllowed(t *testing.T) {
+	off, on := false, true
+	if !APIKeyLoginAllowed(nil) || !APIKeyLoginAllowed(&on) || APIKeyLoginAllowed(&off) {
+		t.Error("APIKeyLoginAllowed: want nil and true on, false off")
+	}
+}

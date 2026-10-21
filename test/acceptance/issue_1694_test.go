@@ -328,12 +328,13 @@ const (
 	// the revocation enqueues directly.
 	issue1694FirstAlertWait = 30 * time.Second
 	// issue1694EscalationWait bounds the wait for the escalation, which the
-	// sweep raises on its own once-a-minute schedule
-	// (connalert.DefaultSweepInterval).
-	issue1694EscalationWait = 150 * time.Second
-	// issue1694OneMoreSweep spans a further sweep, so the count that follows
-	// it is a count after the sweep had a second chance to raise a duplicate.
-	issue1694OneMoreSweep = 65 * time.Second
+	// sweep raises on its own schedule: every two seconds on the dev stack
+	// (MCP_PLATFORM_CONNECTION_ALERT_INTERVAL in dev/start.sh), every minute
+	// by default (connalert.DefaultSweepInterval).
+	issue1694EscalationWait = 30 * time.Second
+	// issue1694OneMoreSweep spans further sweeps, so the count that follows
+	// it is a count after the sweep had more chances to raise a duplicate.
+	issue1694OneMoreSweep = 7 * time.Second
 )
 
 // issue1694EscalationSession is how long the escalation criterion's session
