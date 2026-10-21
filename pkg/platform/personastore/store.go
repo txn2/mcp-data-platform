@@ -42,9 +42,13 @@ type Definition struct {
 	ServiceAccount bool `json:"service_account"`
 	// HideAutomations takes the portal's Automations section away from the
 	// persona's people (#2109).
-	HideAutomations bool      `json:"hide_automations"`
-	CreatedBy       string    `json:"created_by"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	HideAutomations bool `json:"hide_automations"`
+	// AllowSharing lets the persona's people share what they own (#2241).
+	// The column defaults true, which is what every persona stored before it
+	// could do.
+	AllowSharing bool      `json:"allow_sharing"`
+	CreatedBy    string    `json:"created_by"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // ToPersona converts a Definition to a persona.Persona.
@@ -67,6 +71,7 @@ func (d *Definition) ToPersona() *persona.Persona {
 		Priority:        d.Priority,
 		ServiceAccount:  d.ServiceAccount,
 		HideAutomations: d.HideAutomations,
+		AllowSharing:    new(d.AllowSharing),
 	}
 }
 
@@ -86,6 +91,7 @@ func DefinitionFromPersona(p *persona.Persona, author string) Definition {
 		Priority:        p.Priority,
 		ServiceAccount:  p.ServiceAccount,
 		HideAutomations: p.HideAutomations,
+		AllowSharing:    p.SharingAllowed(),
 		CreatedBy:       author,
 	}
 }
@@ -113,7 +119,7 @@ func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, display_name, description, roles, tools_allow, tools_deny,
 		        connections_allow, connections_deny, api_routes, context, priority, service_account,
-		        hide_automations, created_by, updated_at
+		        hide_automations, allow_sharing, created_by, updated_at
 		 FROM persona_definitions ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("querying persona definitions: %w", err)
@@ -139,14 +145,14 @@ func (s *PostgresStore) Get(ctx context.Context, name string) (*Definition, erro
 	row := s.db.QueryRowContext(ctx,
 		`SELECT name, display_name, description, roles, tools_allow, tools_deny,
 		        connections_allow, connections_deny, api_routes, context, priority, service_account,
-		        hide_automations, created_by, updated_at
+		        hide_automations, allow_sharing, created_by, updated_at
 		 FROM persona_definitions WHERE name = $1`, name)
 
 	var d Definition
 	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON []byte
 	err := row.Scan(&d.Name, &d.DisplayName, &d.Description,
 		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &apiRoutes, &contextJSON,
-		&d.Priority, &d.ServiceAccount, &d.HideAutomations, &d.CreatedBy, &d.UpdatedAt)
+		&d.Priority, &d.ServiceAccount, &d.HideAutomations, &d.AllowSharing, &d.CreatedBy, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -178,15 +184,15 @@ func (s *PostgresStore) Set(ctx context.Context, def Definition) error {
 		`INSERT INTO persona_definitions
 		 (name, display_name, description, roles, tools_allow, tools_deny,
 		  connections_allow, connections_deny, api_routes, context, priority, created_by,
-		  service_account, hide_automations, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+		  service_account, hide_automations, allow_sharing, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
 		 ON CONFLICT (name) DO UPDATE SET
 		  display_name = $2, description = $3, roles = $4, tools_allow = $5, tools_deny = $6,
 		  connections_allow = $7, connections_deny = $8, api_routes = $9, context = $10,
-		  priority = $11, created_by = $12, service_account = $13, hide_automations = $14, updated_at = NOW()`,
+		  priority = $11, created_by = $12, service_account = $13, hide_automations = $14, allow_sharing = $15, updated_at = NOW()`,
 		def.Name, def.DisplayName, def.Description,
 		roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON,
-		def.Priority, def.CreatedBy, def.ServiceAccount, def.HideAutomations,
+		def.Priority, def.CreatedBy, def.ServiceAccount, def.HideAutomations, def.AllowSharing,
 	)
 	if err != nil {
 		return fmt.Errorf("upserting persona definition: %w", err)
@@ -217,7 +223,7 @@ func scanDef(rows *sql.Rows) (Definition, error) {
 	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON []byte
 	if err := rows.Scan(&d.Name, &d.DisplayName, &d.Description,
 		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &apiRoutes, &contextJSON,
-		&d.Priority, &d.ServiceAccount, &d.HideAutomations, &d.CreatedBy, &d.UpdatedAt); err != nil {
+		&d.Priority, &d.ServiceAccount, &d.HideAutomations, &d.AllowSharing, &d.CreatedBy, &d.UpdatedAt); err != nil {
 		return d, fmt.Errorf("scanning persona definition: %w", err)
 	}
 	if err := unmarshalJSON(&d, jsonFields{

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/contenturl"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 )
@@ -28,7 +29,7 @@ type contentURLResponse struct {
 // mintContentURL handles GET /api/v1/portal/assets/{id}/content-url.
 //
 // @Summary      Get a signed content URL
-// @Description  Returns an expiring, signed URL that downloads one version of the asset without a portal session: the current version, or the one named by version. ttl is its lifetime in seconds (default 300, at most 86400). The caller must be able to view the asset. The link keeps serving that exact version until it expires and answers 403 afterwards.
+// @Description  Returns an expiring, signed URL that downloads one version of the asset without a portal session: the current version, or the one named by version. ttl is its lifetime in seconds (default 300, at most 86400). The caller must be able to view the asset, and a caller whose access is viewer may link only to the current version (403 otherwise). The link keeps serving that exact version until it expires and answers 403 afterwards.
 // @Tags         Assets
 // @Produce      json
 // @Param        id       path   string   true   "Asset ID"
@@ -58,6 +59,12 @@ func (h *Handler) mintContentURL(w http.ResponseWriter, r *http.Request) {
 	}
 	version, ttl, ok := contentURLParams(w, r, asset.CurrentVersion)
 	if !ok {
+		return
+	}
+	// A link outlives the session that minted it, so a viewer's link names
+	// the current version only, as their own reads do (#2226).
+	if version != asset.CurrentVersion && !h.access.SeesAssetHistory(r.Context(), asset, user) {
+		writeError(w, http.StatusForbidden, access.ErrHistoryNotShared)
 		return
 	}
 	if _, err := h.deps.VersionStore.GetByVersion(r.Context(), id, version); err != nil {

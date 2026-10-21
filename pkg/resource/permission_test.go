@@ -8,7 +8,7 @@ import (
 )
 
 func TestCanWriteScope(t *testing.T) {
-	admin := Claims{Sub: "admin-1", Roles: []string{"admin"}}
+	admin := Claims{Sub: "admin-1", Roles: []string{"admin"}, IsAdmin: true}
 	user := Claims{Sub: "user-1", Roles: []string{"analyst"}}
 	personaAdmin := Claims{Sub: "pa-1", Roles: []string{"persona-admin:finance"}}
 	// Simulates an API key or OIDC user with prefixed role dp_admin mapped to admin persona.
@@ -56,7 +56,7 @@ func TestCanModifyResource(t *testing.T) {
 	}
 
 	// Admin can modify
-	if !CanModifyResource(Claims{Sub: "other", Roles: []string{"admin"}}, r) {
+	if !CanModifyResource(Claims{Sub: "other", Roles: []string{"admin"}, IsAdmin: true}, r) {
 		t.Error("admin should be able to modify")
 	}
 
@@ -154,11 +154,12 @@ func TestVisibleScopes_EmailSameAsSub(t *testing.T) {
 }
 
 func TestIsPlatformAdmin(t *testing.T) {
-	if !isPlatformAdmin(Claims{Roles: []string{"admin"}}) {
-		t.Error("admin role should be platform admin")
-	}
-	if !isPlatformAdmin(Claims{Roles: []string{"platform-admin"}}) {
-		t.Error("platform-admin role should be platform admin")
+	// A role's name alone grants nothing: who administers is the
+	// platform's one rule, resolved by the caller into IsAdmin (#2228).
+	for _, role := range []string{"admin", "platform-admin"} {
+		if isPlatformAdmin(Claims{Roles: []string{role}}) {
+			t.Errorf("the %q role alone made a caller a platform admin", role)
+		}
 	}
 	if isPlatformAdmin(Claims{Roles: []string{"analyst"}}) {
 		t.Error("analyst should not be platform admin")
@@ -183,7 +184,7 @@ func TestIsPersonaAdmin(t *testing.T) {
 	if isPersonaAdmin(Claims{Roles: []string{"persona-admin:finance"}}, "engineering") {
 		t.Error("persona-admin:finance should not be admin of engineering")
 	}
-	if !isPersonaAdmin(Claims{Roles: []string{"admin"}}, "anything") {
+	if !isPersonaAdmin(Claims{Roles: []string{"admin"}, IsAdmin: true}, "anything") {
 		t.Error("platform admin should be persona admin of any persona")
 	}
 	// AdminOfPersonas resolved by caller — works with prefixed roles.

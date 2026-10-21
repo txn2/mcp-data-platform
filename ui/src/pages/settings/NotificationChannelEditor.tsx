@@ -199,12 +199,12 @@ function KindFields({
       {usesTarget(form.kind) && (
         <ConfigField
           label="Target channel id"
-          help="The chat channel a post is addressed to."
+          help="The chat channel a post is addressed to. Leave it empty and people sharing an asset choose among the channels the bot is in; a daily channel needs one."
           value={form.target}
           onChange={(v) => onChange({ target: v })}
           placeholder="C0123456789"
           mono
-          required
+          required={form.mode === "daily"}
         />
       )}
       {form.kind === "email" && (

@@ -953,7 +953,9 @@ described before it is asked for. In the portal editor, a save refused this way
 lists the differences and asks for the summary. The script's page lists every
 version's summary under **What changed**, with who saved it and when it was
 agreed, for anyone reading the automation: no code, diff, lint output or test
-result is shown there.
+result is shown there. The newest three are shown and the rest open with
+**Show N more**, which the browser remembers (#2185); every version, with the
+code it changed, is listed under Source.
 
 ![What changed](../images/screenshots/light/user-script-changes-light.webp#only-light)![What changed](../images/screenshots/dark/user-script-changes-dark.webp#only-dark)
 

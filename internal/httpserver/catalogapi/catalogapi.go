@@ -63,7 +63,10 @@ type Deps struct {
 	// PersonaResolver resolves a caller's roles to the persona's tools and
 	// connection reach; nil leaves the catalog to administrators.
 	PersonaResolver portal.PersonaResolver
-	AdminRoles      []string
+	// AdminRoles are the admin persona's roles, read only when IsAdmin is nil.
+	AdminRoles []string
+	// IsAdmin is the platform's one administrator rule (#2228).
+	IsAdmin func(roles []string) bool
 	// Audit records each write; nil records none.
 	Audit audit.Logger
 }
@@ -127,7 +130,11 @@ func (h *Handler) reader(w http.ResponseWriter, r *http.Request) (*caller, bool)
 		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required")
 		return nil, false
 	}
-	c := &caller{user: user, admin: access.HasAnyRole(user.Roles, h.deps.AdminRoles)}
+	admin := access.HasAnyRole(user.Roles, h.deps.AdminRoles)
+	if h.deps.IsAdmin != nil {
+		admin = h.deps.IsAdmin(user.Roles)
+	}
+	c := &caller{user: user, admin: admin}
 	if h.deps.PersonaResolver != nil {
 		c.info = h.deps.PersonaResolver(user.Roles)
 	}

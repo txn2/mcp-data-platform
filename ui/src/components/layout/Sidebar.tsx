@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { LogOut, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
+import { initials } from "@/lib/initials";
 import { NavButton } from "./sidebar/NavButton";
 import { NavSection } from "./sidebar/NavSection";
 import { adminNavItems, portalMoreNavItems, portalPinnedNavItems } from "./sidebar/navItems";
@@ -169,6 +170,11 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
             onClick={onToggleCollapse}
           />
         )}
+        <ProfileButton
+          collapsed={effectiveCollapsed}
+          active={currentPath === "/profile"}
+          onClick={() => handleNavigate("/profile")}
+        />
         <NavButton
           icon={LogOut}
           label="Sign Out"
@@ -177,5 +183,38 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
         />
       </div>
     </aside>
+  );
+}
+
+/**
+ * ProfileButton says who is signed in, above Sign Out (#2215): an avatar of
+ * initials and the account's email, or its id when it has none. Collapsed,
+ * the avatar alone, with the account as its hover copy. It opens the profile.
+ */
+function ProfileButton({ collapsed, active, onClick }: { collapsed: boolean; active: boolean; onClick: () => void }) {
+  const user = useAuthStore((s) => s.user);
+  if (!user) return null;
+  const identity = user.email || user.user_id;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={collapsed ? identity : undefined}
+      aria-label={`Profile: ${identity}`}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-accent",
+        collapsed && "justify-center px-2",
+        active && "bg-primary/10 text-primary",
+      )}
+    >
+      <span
+        aria-hidden
+        className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[0.65rem] font-semibold text-primary"
+      >
+        {initials(identity)}
+      </span>
+      {!collapsed && <span className="min-w-0 truncate">{identity}</span>}
+    </button>
   );
 }

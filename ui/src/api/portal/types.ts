@@ -109,6 +109,13 @@ export interface Share {
   created_at: string;
   hide_expiration?: boolean;
   notice_text?: string;
+  /** How the share came to exist: explicit, public_link_login, channel_post. */
+  origin?: string;
+  /**
+   * The channel a channel_post share's link was posted to (#2241), as
+   * "#general (slack)".
+   */
+  posted_to?: string;
 }
 
 /**

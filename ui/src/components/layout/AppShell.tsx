@@ -62,6 +62,7 @@ const ScratchTableRoutes = lazy(() =>
 const FeedbackPage = lazy(() =>
   import("@/pages/feedback/FeedbackPage").then((m) => ({ default: m.FeedbackPage })),
 );
+const ProfilePage = lazy(() => import("@/pages/profile/ProfilePage").then((m) => ({ default: m.ProfilePage })));
 const UserSettingsPage = lazy(() =>
   import("@/pages/settings/UserSettingsPage").then((m) => ({ default: m.UserSettingsPage })),
 );
@@ -104,6 +105,7 @@ const pageTitles: Record<string, string> = {
   "/prompts": "Prompts",
   "/automations": "Automations",
   "/settings": "Settings",
+  "/profile": "Profile",
   "/admin": "Dashboard",
   "/admin/assets": "Assets",
   "/admin/collections": "Collections",
@@ -537,9 +539,8 @@ export function AppShell() {
           )}
           {!adminRoute && route === "/apis" && <ApisPage scope="portal" />}
           {!adminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
-          {!adminRoute && route === "/settings" && (
-            <UserSettingsPage onNavigate={navigate} />
-          )}
+          {!adminRoute && route === "/settings" && <UserSettingsPage onNavigate={navigate} />}
+          {!adminRoute && route === "/profile" && <ProfilePage />}
           {!adminRoute &&
             (route === "/knowledge" ||
               knowledgePagesList ||

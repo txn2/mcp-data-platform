@@ -1,4 +1,4 @@
-package notifywire
+package notifywiring
 
 import (
 	"context"

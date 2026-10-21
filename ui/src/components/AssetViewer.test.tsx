@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ContentFetchError } from "@/lib/contentFetch";
 import { AssetViewer } from "./AssetViewer";
+import { useAuthStore } from "@/stores/auth";
 
 // One asset is referenced by a knowledge page; every other asset here is not,
 // so the rest of the file renders the viewer it always has.
@@ -305,10 +306,29 @@ describe("AssetViewer: an incomplete export", () => {
   });
 });
 
-describe("AssetViewer Post to a channel (#1723)", () => {
-  it("offers the post to a reader who does not own the asset, and opens the dialog", () => {
+describe("AssetViewer sharing (#2241)", () => {
+  it("has no separate Post to a channel action", () => {
+    renderViewer({});
+    expect(screen.queryByRole("button", { name: /post to a channel/i })).not.toBeInTheDocument();
+  });
+
+  it("gives a viewer-share recipient no Share action", () => {
     renderViewer({ isOwner: false, sharePermission: "viewer" });
-    fireEvent.click(screen.getByRole("button", { name: /post to a channel/i }));
-    expect(screen.getByRole("dialog", { name: /post to a channel/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^share$/i })).not.toBeInTheDocument();
+  });
+
+  it("gives an owner whose persona withholds sharing no Share action", () => {
+    useAuthStore.setState({ user: { user_id: "u1", roles: [], is_admin: false, sharing: false } });
+    try {
+      renderViewer({});
+      expect(screen.queryByRole("button", { name: /^share$/i })).not.toBeInTheDocument();
+    } finally {
+      useAuthStore.setState({ user: null });
+    }
+  });
+
+  it("offers Share to an owner whose persona allows it", () => {
+    renderViewer({});
+    expect(screen.getByRole("button", { name: /^share$/i })).toBeInTheDocument();
   });
 });

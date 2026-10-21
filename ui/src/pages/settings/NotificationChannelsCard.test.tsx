@@ -107,8 +107,11 @@ describe("NotificationChannelsCard", () => {
     render(<NotificationChannelsCard isReadOnly={false} />);
     fireEvent.click(screen.getByTestId("channel-new"));
 
-    // mattermost is the default: a connection and a target.
+    // mattermost is the default: a connection and a target, optional on an
+    // immediate channel, where an empty one leaves the bot's channels to the
+    // person sharing (#2241).
     expect(screen.getByText("Target channel id")).toBeInTheDocument();
+    expect(screen.getByText(/Leave it empty and people sharing an asset choose/)).toBeInTheDocument();
     expect(screen.getByText("Connection")).toBeInTheDocument();
     expect(screen.queryByText("Recipients")).not.toBeInTheDocument();
 

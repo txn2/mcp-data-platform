@@ -292,11 +292,11 @@ func buildResourceClaims(user *portal.User, pr *persona.Registry, adminPersona s
 		for _, per := range pr.All() {
 			if matchesAnyRole(per.Roles, user.Roles) {
 				claims.Personas = append(claims.Personas, per.Name)
-				if per.Name == adminPersona {
-					claims.IsAdmin = true
-				}
 			}
 		}
+		// Membership reaches every persona library the roles match; who
+		// administers is the one rule every surface asks (#2228).
+		claims.IsAdmin = pr.AdminRule(adminPersona)(user.Roles)
 	}
 	if len(claims.Personas) == 0 {
 		return nil, resource.ErrForbidden
@@ -388,7 +388,7 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 		deps.SearchRouter = portalSearchAdapter{router: router}
 	}
 	if store := catalogstore.StoreFor(p.DB()); store != nil {
-		deps.CatalogRegistrar = catalogwire.PortalRegistrar(p, store, deps.PersonaResolver, deps.AdminRoles)
+		deps.CatalogRegistrar = catalogwire.PortalRegistrar(p, store, deps.PersonaResolver, p.PersonaRegistry().AdminRule(p.Config().Admin.Persona))
 		// A knowledge page citing a glossary term, a tag or a domain renders
 		// its name, read from the same catalog the routes serve (#1159).
 		deps.CatalogLabeler = catalogwire.Labeler{Store: store}
@@ -454,7 +454,7 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 		if !ok || per == nil {
 			return nil
 		}
-		info := &portal.PersonaInfo{Name: per.Name, HideAutomations: per.HideAutomations}
+		info := &portal.PersonaInfo{Name: per.Name, HideAutomations: per.HideAutomations, SharingDenied: !per.SharingAllowed()}
 		if tr != nil {
 			filter := persona.NewToolFilter(pr)
 			info.Tools = filter.FilterTools(per, tr.AllTools())

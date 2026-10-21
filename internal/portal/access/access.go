@@ -36,8 +36,13 @@ type Config struct {
 	Collections portaldomain.CollectionStore
 	Shares      portaldomain.ShareStore
 	Prompts     prompt.Store
-	// AdminRoles are the roles that grant admin access in the portal.
+	// AdminRoles are the roles that grant admin access in the portal, read
+	// only when AdminRule is nil.
 	AdminRoles []string
+	// AdminRule is the platform's one administrator rule (#2228): the
+	// persona the roles resolve to is the admin persona. The platform wires
+	// it; a nil rule falls back to holding one of AdminRoles.
+	AdminRule func(roles []string) bool
 	// PersonaTools resolves a user's roles to the tool names their persona
 	// grants. nil means no persona resolution is wired, in which case only
 	// the admin arm of the capability checks can grant.
@@ -52,10 +57,15 @@ type Checker struct {
 // New returns a Checker over cfg.
 func New(cfg Config) *Checker { return &Checker{cfg: cfg} }
 
-// IsAdmin reports whether the user holds one of the portal's admin roles.
+// IsAdmin reports whether the user administers the platform: by the
+// platform's admin rule when one is wired, otherwise by holding one of the
+// portal's admin roles.
 func (c *Checker) IsAdmin(user *User) bool {
 	if user == nil {
 		return false
+	}
+	if c.cfg.AdminRule != nil {
+		return c.cfg.AdminRule(user.Roles)
 	}
 	return HasAnyRole(user.Roles, c.cfg.AdminRoles)
 }
@@ -266,6 +276,23 @@ func (c *Checker) ResolveAssetPermission(ctx context.Context, assetID string, us
 	return best, err
 }
 
+// SeesAssetHistory reports whether the user may read an asset's earlier
+// versions (#2226): its owner, an administrator, and an editor, by a direct
+// share or a collection's. Anyone whose access is viewer reads only the
+// current version, so sharing an asset does not hand out every draft before
+// the one the owner meant to share. A store error answers false: history is
+// withheld rather than shown on an access check that did not complete.
+func (c *Checker) SeesAssetHistory(ctx context.Context, asset *portaldomain.Asset, user *User) bool {
+	if asset == nil || user == nil {
+		return false
+	}
+	if c.CanManageAsset(asset, user) {
+		return true
+	}
+	perm, err := c.ResolveAssetPermission(ctx, asset.ID, user)
+	return err == nil && GrantsEdit(perm)
+}
+
 // CanViewAsset reports whether the user may view the asset (owner, a direct
 // share, or a collection share). A direct-share store error is tolerated: a
 // collection grant still allows access. It short-circuits on a direct grant to
@@ -473,3 +500,11 @@ func (c *Checker) CanModerateThread(ctx context.Context, user *User, thread *thr
 		return false // standalone: only author/admin (handled above)
 	}
 }
+
+// ErrSharingNotAllowed is the refusal a caller whose persona withholds
+// sharing gets from every share-creating route and tool action (#2241).
+const ErrSharingNotAllowed = "sharing is not available to your persona"
+
+// ErrHistoryNotShared is the refusal a reader whose access to an asset is
+// viewer gets for its earlier versions (#2226).
+const ErrHistoryNotShared = "this asset is shared with you to view its current version; its earlier versions are its owner's and editors'"

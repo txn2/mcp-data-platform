@@ -67,6 +67,15 @@ type Config struct {
 	// AdminPersona is the persona name whose reach is unrestricted, as it is
 	// everywhere else in the product. Empty means no persona is lifted.
 	AdminPersona string
+	// Targets lists the chat channels a slack or mattermost channel's bot is
+	// in (#2241). nil lists none, and a send naming a target is refused.
+	Targets TargetLister
+	// Shares writes the link share a publish posts (#2088). nil leaves
+	// publish able to post the asset page's link only (access=existing).
+	Shares ShareStore
+	// SharingAllowed reports whether a persona lets its people share (#2241).
+	// nil allows every persona.
+	SharingAllowed func(persona string) bool
 }
 
 // Handle is the registered tool.

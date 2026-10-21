@@ -14,10 +14,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
+	"github.com/txn2/mcp-data-platform/internal/platform/notifywiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/storagecap"
@@ -183,7 +183,7 @@ func AdminDeps(deps *admin.Deps, p *platform.Platform, notify *notifydelivery.Ha
 	}
 	deps.SendChannelTest = notify.SendChannelTest
 	deps.ChannelActivity = notify.ChannelActivity
-	deps.APIConnectionExists = notifywire.APIConnectionExists(p.ToolkitRegistry())
+	deps.APIConnectionExists = notifywiring.APIConnectionExists(p.ToolkitRegistry())
 	// The OAuth callback forgets a connection's open revocation as it
 	// authorizes it again (#1694). Assigned through the same nil-guarded
 	// builder so a typed nil never reaches the interface.

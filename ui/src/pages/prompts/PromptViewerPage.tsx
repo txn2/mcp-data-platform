@@ -48,6 +48,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   // user is also personal-scoped but owned by someone else, so it is read-only.
   const isOwner = prompt?.scope === "personal" && prompt?.owner_email === myEmail;
   const isAdmin = useAuthStore((s) => s.isAdmin)();
+  const canShare = useAuthStore((s) => s.canShare());
   // Placement rule (#1010), mirrored server-side: owners organize their own
   // prompts, admins organize shared (and any non-system) prompts.
   const canOrganize = prompt?.source !== "system" && (isOwner || isAdmin);
@@ -220,7 +221,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
         onBack={onBack}
         onCopyContent={handleCopyContent}
         onSaveAsAsset={handleSaveAsAsset}
-        onShare={handleShare}
+        onShare={canShare ? handleShare : undefined}
         onRequestPromotion={promotion.openDialog}
         onEdit={() => setEditing(true)}
         onDeleteRequest={() => setDeleteOpen(true)}

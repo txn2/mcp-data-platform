@@ -51,6 +51,9 @@ type PersonaDef struct {
 	// HideAutomations takes the portal's Automations section away from the
 	// people signed in under this persona (#2109). Absent shows it.
 	HideAutomations bool `yaml:"hide_automations,omitempty"`
+	// AllowSharing lets the persona's people share what they own (#2241).
+	// Absent allows it.
+	AllowSharing *bool `yaml:"allow_sharing,omitempty"`
 }
 
 // APIRouteDef defines one per-(connection, method, path) rule for the HTTP API
@@ -117,6 +120,7 @@ func (d PersonaDef) ToPersona(name, source string) *persona.Persona {
 		Priority:        d.Priority,
 		ServiceAccount:  d.ServiceAccount,
 		HideAutomations: d.HideAutomations,
+		AllowSharing:    d.AllowSharing,
 		Source:          source,
 	}
 }

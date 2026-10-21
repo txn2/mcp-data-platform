@@ -27,7 +27,7 @@ import {
 export type LinkAccessMode = Exclude<ShareAccessMode, "restricted">;
 
 /** The lifetimes a public link can be minted with. */
-const TTL_OPTIONS = [
+export const TTL_OPTIONS = [
   { value: "1h", label: "1 hour" },
   { value: "24h", label: "24 hours" },
   { value: "168h", label: "7 days" },

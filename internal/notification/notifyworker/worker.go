@@ -367,6 +367,7 @@ func (w *Worker) loadFiles(ctx context.Context, atts []notification.Attachment) 
 			linked = append(linked, a)
 			continue
 		}
+		f.Preview = a.Preview
 		files = append(files, f)
 	}
 	return files, linked

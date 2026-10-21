@@ -239,7 +239,7 @@ func TestNotifyPublish_ACSVAssetIsATableWithAPreview(t *testing.T) {
 		}
 		c.Access = allowAll{}
 	})
-	res := callNotify(t, h, `{"action":"publish","channel":"ops","asset":"a9","key":"weekly"}`)
+	res := callNotify(t, h, `{"action":"publish","access":"existing","channel":"ops","asset":"a9","key":"weekly"}`)
 	if res.IsError {
 		t.Fatal(resultText(t, res))
 	}

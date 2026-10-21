@@ -3,7 +3,6 @@ package tableregister
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -32,9 +31,6 @@ type Subject func(ctx context.Context, id string, caller Caller) (Source, bool)
 // refuse.
 type ToolAdapter struct {
 	reg *Registrar
-	// adminRoles are the roles that make a caller an administrator, resolved
-	// from the admin persona the way every other surface resolves it.
-	adminRoles []string
 	// subjects resolves a reference's kind to the records of that kind. A kind
 	// with no entry cannot be registered through the tool, which is what a
 	// deployment with no resource store or no asset store gets.
@@ -55,11 +51,11 @@ type Locator func(ctx context.Context, kind, id string) (Source, bool)
 // Registrar, or one with no kind to resolve, yields nil, which the toolkit
 // renders as "this deployment cannot register tables" rather than as a
 // failure.
-func NewToolAdapter(reg *Registrar, adminRoles []string, subjects map[string]Subject, locate Locator) *ToolAdapter {
+func NewToolAdapter(reg *Registrar, subjects map[string]Subject, locate Locator) *ToolAdapter {
 	if !reg.Available() || len(subjects) == 0 {
 		return nil
 	}
-	return &ToolAdapter{reg: reg, adminRoles: adminRoles, subjects: subjects, locate: locate}
+	return &ToolAdapter{reg: reg, subjects: subjects, locate: locate}
 }
 
 // Register registers a table over the current content of the file a reference
@@ -291,20 +287,10 @@ func (a *ToolAdapter) callerFrom(ctx context.Context) Caller {
 		Email:         pc.UserEmail,
 		Persona:       pc.PersonaName,
 		Roles:         pc.Roles,
-		IsAdmin:       hasAnyRole(pc.Roles, a.adminRoles),
+		IsAdmin:       pc.IsAdmin,
 		OnBehalfOf:    pc.OnBehalfOfEmail,
 		OnBehalfOfSub: pc.OnBehalfOfSub,
 	}
-}
-
-// hasAnyRole reports whether the caller holds any of the administrator roles.
-func hasAnyRole(held, admin []string) bool {
-	for _, r := range held {
-		if slices.Contains(admin, r) {
-			return true
-		}
-	}
-	return false
 }
 
 // Verify the adapter satisfies the toolkit-side capability.

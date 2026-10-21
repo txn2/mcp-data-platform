@@ -1,5 +1,5 @@
 import type { ThreadEvent, ThreadStatus } from "@/api/portal/types";
-import { MentionText } from "../MentionText";
+import { CommentBody } from "../CommentBody";
 import { STATUS_LABEL, formatRelative } from "../meta";
 
 // What each non-comment timeline event says it did. Statuses and ratings carry
@@ -53,11 +53,7 @@ export function ThreadTimeline({
             {eventSummary(e) ?? "commented"} · {formatRelative(e.created_at)}
           </p>
           {e.body && (
-            <MentionText
-              body={e.body}
-              mentions={recordedMentions(e)}
-              className="mt-0.5 whitespace-pre-wrap"
-            />
+            <CommentBody body={e.body} mentions={recordedMentions(e)} className="mt-0.5" />
           )}
         </div>
       ))}

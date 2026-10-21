@@ -25,14 +25,24 @@ import (
 // transport.
 const publishBodyBytes = 8000
 
-// handlePublish posts a portal asset to a channel.
+// handlePublish posts a portal asset to a channel, with a link that opens
+// for the people access names (#2088): a link share for signed_in and public,
+// made or reused here, or the asset page for existing.
 func (h *Handle) handlePublish(ctx context.Context, input notifyInput) (*mcp.CallToolResult, any, error) {
 	if h.cfg.Assets == nil || h.cfg.Access == nil {
 		return toolkit.ErrorResult("notify: publishing an asset is unavailable in this deployment; " +
 			"use action=send with a link instead"), nil, nil
 	}
+	mode, err := normalizeAccess(input.Access)
+	if err != nil {
+		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
+	}
 	c := h.resolveCaller(ctx)
 	ch, err := h.resolveChannel(ctx, input.Channel, c)
+	if err != nil {
+		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
+	}
+	target, err := h.resolveTarget(ctx, *ch, input.Target)
 	if err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
@@ -40,13 +50,29 @@ func (h *Handle) handlePublish(ctx context.Context, input notifyInput) (*mcp.Cal
 	if err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
-	doc, err := h.documentFromAsset(ctx, asset, input.Message)
+	link, err := h.linkFor(ctx, asset, c, linkRequest{mode: mode, expiresIn: input.ExpiresIn, where: postedTo(*ch, target)})
 	if err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
-	doc.Key = strings.TrimSpace(input.Key)
+	doc, err := h.documentFromAsset(ctx, asset, input.Message, link.url)
+	if err != nil {
+		h.withdraw(ctx, link)
+		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
+	}
+	doc.Key, doc.Target = strings.TrimSpace(input.Key), target.ID
 	stamp(ctx, &doc, notification.DocumentScriptPublished, notification.DocumentNotifyPublished)
-	return h.enqueue(ctx, *ch, c, doc, input.RepeatAfter)
+	result, ok := h.enqueueDocument(ctx, *ch, c, doc, input.RepeatAfter)
+	if !ok || result.Queued == 0 {
+		h.withdraw(ctx, link)
+	}
+	if !ok {
+		return toolkit.ErrorResult("notify: " + result.Detail), nil, nil
+	}
+	result.Access = mode
+	if link.share != nil && result.Queued > 0 {
+		result.ShareID, result.ExpiresAt = link.share.ID, link.share.ExpiresAt
+	}
+	return toolkit.JSONResult(result), nil, nil
 }
 
 // readableAsset resolves the asset a publish names and refuses one the caller
@@ -96,10 +122,10 @@ func assetID(in string) string {
 // JSX component, an image -- contribute no body. The message is then the
 // asset's name, the sender's message and the link, which is what a reader
 // would act on anyway: the page itself is the thing to open.
-func (h *Handle) documentFromAsset(ctx context.Context, asset *portaldomain.Asset, message string) (notification.Document, error) {
+func (h *Handle) documentFromAsset(ctx context.Context, asset *portaldomain.Asset, message, link string) (notification.Document, error) {
 	doc := notification.Document{
 		Title:       asset.Name,
-		Link:        h.assetLink(asset.ID),
+		Link:        link,
 		Attachments: previewOf(asset),
 	}
 	var parts []string

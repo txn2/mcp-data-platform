@@ -52,6 +52,9 @@ function toPayload(draft: PersonaDraft) {
     // Sent only when hidden: absent shows Automations, as every persona did
     // before the setting existed.
     hide_automations: draft.showAutomations ? undefined : true,
+    // Sent every time: absent allows sharing, so a persona denied it has to
+    // say so, and one allowed it says so to undo a denial.
+    allow_sharing: draft.allowSharing,
   };
 }
 

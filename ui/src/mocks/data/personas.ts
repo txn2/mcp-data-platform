@@ -40,6 +40,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     priority: 0,
     service_account: false,
     hide_automations: false,
+    allow_sharing: true,
     allow_tools: ["*"],
     deny_tools: [],
     tools: resolveTools(["*"], []),
@@ -61,6 +62,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     priority: 10,
     service_account: false,
     hide_automations: false,
+    allow_sharing: true,
     allow_tools: ["trino_*", "search", "fetch", "s3_*", "save_asset"],
     deny_tools: ["memory_capture"],
     api_routes: [],
@@ -83,6 +85,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     priority: 20,
     service_account: false,
     hide_automations: false,
+    allow_sharing: true,
     allow_tools: [
       "trino_query",
       "trino_describe_table",
@@ -123,6 +126,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     priority: 30,
     service_account: false,
     hide_automations: false,
+    allow_sharing: true,
     allow_tools: ["trino_query", "search", "fetch", "save_asset"],
     deny_tools: [
       "trino_explain",
@@ -155,6 +159,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     priority: 30,
     service_account: false,
     hide_automations: false,
+    allow_sharing: true,
     // Read-only against the billing API, with the one destructive CRM
     // operation refused outright. The read rule is what closes the rest of
     // acme-billing: once any rule names a connection, an operation must match
@@ -203,6 +208,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     priority: 20,
     service_account: false,
     hide_automations: false,
+    allow_sharing: true,
     allow_tools: [
       "trino_query",
       "search",

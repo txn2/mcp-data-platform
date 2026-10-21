@@ -90,6 +90,9 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 			adminRoles = adminP.Roles
 		}
 	}
+	// The one administrator rule (#2228): the persona a user's roles resolve
+	// to is the admin persona. Every portal surface below asks it.
+	isAdmin := p.PersonaRegistry().AdminRule(p.Config().Admin.Persona)
 
 	brandName := portalBrandName(p)
 
@@ -130,6 +133,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		RateLimitResolver:   rlResolver,
 		OIDCEnabled:         p.BrowserSessionFlow() != nil,
 		AdminRoles:          adminRoles,
+		AdminRule:           isAdmin,
 		Authenticator:       portalAuth,
 		PromptStore:         p.PromptStore(),
 		PromptRegistrar:     p,
@@ -188,19 +192,19 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// It is registered from the assetrefs constant so the mount and the URL
 	// the rewrite emits cannot drift apart.
 	mux.Handle(assetrefs.PathPrefix, handler)
-	mountPromptVersionPortalAPI(mux, p, wrap, adminRoles)
-	mountScriptPortalAPI(mux, p, wrap, adminRoles)
+	mountPromptVersionPortalAPI(mux, p, wrap, isAdmin)
+	mountScriptPortalAPI(mux, p, wrap, isAdmin)
 	// The operation browser a caller reads before composing a gateway call
 	// (#1478). Read-only: it names operations and invokes none.
 	apiwire.Mount(mux, wrap, apiwire.Deps{
 		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(),
-		Resolver: deps.PersonaResolver, AdminRoles: adminRoles, Stored: platform.StoredConnections(p),
+		Resolver: deps.PersonaResolver, IsAdmin: isAdmin, Stored: platform.StoredConnections(p),
 	})
-	mountMentionAPI(mux, p, wrap, adminRoles)
+	mountMentionAPI(mux, p, wrap, isAdmin)
 	// Table registration serves both the portal's assets and the managed
 	// resources API, so it is mounted once here rather than beside each.
-	mountTableAPI(mux, p, wrap, adminRoles)
-	wireTableToolRegistrar(p, adminRoles)
+	mountTableAPI(mux, p, wrap, isAdmin)
+	wireTableToolRegistrar(p, isAdmin)
 	slog.Info("Portal API enabled on /api/v1/portal/ (persona required)")
 	return nil
 }
@@ -250,7 +254,7 @@ func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string
 // the cadence and the source (#1307), and neither grants anything: a cadence
 // carries no authority, and an edit to an approved script becomes a draft for
 // review. Approval stays on the admin surface.
-func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap func(http.Handler) http.Handler, adminRoles []string) {
+func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap func(http.Handler) http.Handler, isAdmin func([]string) bool) {
 	deps, ok := scriptDeps(p)
 	if !ok {
 		return
@@ -261,7 +265,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap f
 	if pr := p.PersonaRegistry(); pr != nil {
 		resolver = buildPersonaResolver(pr, p.ToolkitRegistry())
 	}
-	deps.PortalUser = scriptPortalIdentity(adminRoles, resolver)
+	deps.PortalUser = scriptPortalIdentity(isAdmin, resolver)
 	// Who other than the owner may run a script (#1846). Portal-only: the
 	// admin surface is every script's already.
 	deps.Grants = scriptgrant.NewPostgres(p.DB())
@@ -352,7 +356,7 @@ func contentURLKey(p *platform.Platform) []byte {
 // scriptPortalIdentity resolves the portal caller for the script routes: who
 // they are, the persona they resolved to, and whether they hold the admin
 // roles that make the surface unrestricted for them.
-func scriptPortalIdentity(adminRoles []string, resolver portal.PersonaResolver) func(r *http.Request) *scripthttp.PortalIdentity {
+func scriptPortalIdentity(isAdmin func([]string) bool, resolver portal.PersonaResolver) func(r *http.Request) *scripthttp.PortalIdentity {
 	return func(r *http.Request) *scripthttp.PortalIdentity {
 		user := portal.GetUser(r.Context())
 		if user == nil {
@@ -361,7 +365,7 @@ func scriptPortalIdentity(adminRoles []string, resolver portal.PersonaResolver) 
 		id := &scripthttp.PortalIdentity{
 			UserID: user.UserID, Email: user.Email, Roles: user.Roles,
 			AuthType: user.AuthType, Claims: user.Claims,
-			IsAdmin: rolesIntersect(user.Roles, adminRoles),
+			IsAdmin: isAdmin(user.Roles),
 		}
 		if resolver != nil {
 			if pi := resolver(user.Roles); pi != nil {
@@ -376,7 +380,7 @@ func scriptPortalIdentity(adminRoles []string, resolver portal.PersonaResolver) 
 // mountPromptVersionPortalAPI registers the portal prompt-version routes.
 // Called from mountPortalAPI with the portal's assembled auth middleware and
 // admin roles.
-func mountPromptVersionPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, adminRoles []string) {
+func mountPromptVersionPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, isAdmin func([]string) bool) {
 	deps, ok := promptVersionDeps(p)
 	if !ok {
 		return
@@ -387,7 +391,7 @@ func mountPromptVersionPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap 
 	if pr := p.PersonaRegistry(); pr != nil {
 		resolver = buildPersonaResolver(pr, p.ToolkitRegistry())
 	}
-	deps.PortalUser = portalIdentityResolver(adminRoles, resolver)
+	deps.PortalUser = portalIdentityResolver(isAdmin, resolver)
 	versionhttp.New(deps).RegisterPortal(mux, wrap)
 	attachhttp.New(promptAttachmentDeps(p, portalAttachmentIdentity(p.PersonaRegistry(), p.Config().Admin.Persona))).
 		Register(mux, "/api/v1/portal", wrap)
@@ -523,10 +527,10 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 // mountMentionAPI registers the people and mention routes with the portal's
 // authentication middleware. Called from mountPortalAPI; each route registers
 // only when the dependency behind it exists.
-func mountMentionAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, adminRoles []string) {
+func mountMentionAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, isAdmin func([]string) bool) {
 	deps := mentionhttp.Deps{
 		Threads: p.PortalThreadStore(),
-		Caller:  mentionIdentityResolver(adminRoles),
+		Caller:  mentionIdentityResolver(isAdmin),
 	}
 	// Assign only a live audience: a typed nil in the interface field would
 	// read as wired and panic on the first lookup.

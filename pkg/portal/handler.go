@@ -107,6 +107,9 @@ type PersonaInfo struct {
 	// HideAutomations is the persona taking Automations out of the portal
 	// (#2109).
 	HideAutomations bool
+	// SharingDenied is the persona withholding sharing (#2241): no Share
+	// action, and every share-creating route refuses. The zero value shares.
+	SharingDenied bool
 	// ReachesCatalogRef reports whether the persona may reach the connection a
 	// platform catalog reference names: a dataset, a column, a schema document
 	// (#1918). A reference naming no connection is reachable. Nil reaches every
@@ -126,7 +129,7 @@ const catalogReadTool = "fetch"
 // It is the one rule behind the catalog reads the portal serves outside the
 // catalog routes, the knowledge-page reference labels (#1159), so the portal
 // never discloses more than the persona-filtered MCP surface would.
-func HasCatalogAccess(user *User, resolver PersonaResolver, adminRoles []string) bool {
+func HasCatalogAccess(user *User, resolver PersonaResolver, isAdmin func(*User) bool) bool {
 	if user == nil {
 		return false
 	}
@@ -135,7 +138,7 @@ func HasCatalogAccess(user *User, resolver PersonaResolver, adminRoles []string)
 			return true
 		}
 	}
-	return access.HasAnyRole(user.Roles, adminRoles)
+	return isAdmin(user)
 }
 
 // Deps holds dependencies for the portal handler.
@@ -177,9 +180,13 @@ type Deps struct {
 	// rate limiter with trusted-proxy awareness (#904). nil yields the safe
 	// trust-none default (direct peer address; X-Forwarded-For ignored), so an
 	// attacker cannot mint unlimited per-IP buckets with a spoofed header.
-	RateLimitResolver  *ratelimit.Resolver
-	OIDCEnabled        bool
-	AdminRoles         []string // roles that grant admin access in the portal
+	RateLimitResolver *ratelimit.Resolver
+	OIDCEnabled       bool
+	AdminRoles        []string // roles that grant admin access in the portal, read when AdminRule is nil
+	// AdminRule is the platform's one administrator rule (#2228): the persona
+	// a user's roles resolve to is the admin persona. Nil falls back to
+	// AdminRoles.
+	AdminRule          func(roles []string) bool
 	PromptStore        PromptStore
 	PromptRegistrar    PromptRegistrar
 	PromptInfoProvider PromptInfoProvider
@@ -400,6 +407,7 @@ func newAccessChecker(deps Deps) *access.Checker {
 		Shares:      deps.ShareStore,
 		Prompts:     deps.PromptStore,
 		AdminRoles:  deps.AdminRoles,
+		AdminRule:   deps.AdminRule,
 	}
 	if deps.PersonaResolver != nil {
 		cfg.PersonaTools = func(roles []string) []string {
@@ -680,6 +688,10 @@ type meResponse struct {
 	// section (#2109): false when their persona hides it, always true for an
 	// administrator.
 	Automations bool `json:"automations" example:"true"`
+	// Sharing is whether this caller may share what they own, with a person
+	// or to a channel (#2241): false when their persona withholds it, always
+	// true for an administrator.
+	Sharing bool `json:"sharing" example:"true"`
 }
 
 // getMe handles GET /api/v1/portal/me.
@@ -707,6 +719,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		IsAdmin:        h.access.IsAdmin(user),
 		MaxUploadBytes: resource.NormalizeMaxUploadBytes(h.deps.ResourceMaxUploadBytes),
 		Automations:    true,
+		Sharing:        h.sharingAllowed(user),
 	}
 	// Cookie sessions carry a CSRF token the SPA echoes on mutations; API-key
 	// callers are exempt. Issued here since only /me needs it.
@@ -1459,7 +1472,7 @@ func (h *Handler) cleanupOrphanedS3(ctx context.Context, bucket, key string) {
 // listVersions handles GET /api/v1/portal/assets/{id}/versions.
 //
 // @Summary      List asset versions
-// @Description  Returns paginated version history for an asset.
+// @Description  Returns paginated version history for an asset. A caller whose access is viewer is refused with 403: earlier versions are the owner's, an editor's and an administrator's (#2226).
 // @Tags         Assets
 // @Produce      json
 // @Param        id      path   string   true   "Asset ID"
@@ -1494,6 +1507,10 @@ func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
 	if !h.canViewAsset(w, r, id, asset, user) {
 		return
 	}
+	if !h.access.SeesAssetHistory(r.Context(), asset, user) {
+		writeError(w, http.StatusForbidden, access.ErrHistoryNotShared)
+		return
+	}
 	if h.deps.VersionStore == nil {
 		writeJSON(w, http.StatusOK, paginatedResponse{Data: []AssetVersion{}, Total: 0})
 		return
@@ -1515,7 +1532,7 @@ func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
 // getVersionContent handles GET /api/v1/portal/assets/{id}/versions/{version}/content.
 //
 // @Summary      Get version content
-// @Description  Downloads the binary content of a specific asset version.
+// @Description  Downloads the binary content of a specific asset version. A caller whose access is viewer gets only the current version; any other answers 403 (#2226).
 // @Tags         Assets
 // @Produce      octet-stream
 // @Param        id       path  string   true  "Asset ID"
@@ -1559,6 +1576,10 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 	versionNum, err := strconv.Atoi(r.PathValue(keyVersion))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid version number")
+		return
+	}
+	if versionNum != asset.CurrentVersion && !h.access.SeesAssetHistory(r.Context(), asset, user) {
+		writeError(w, http.StatusForbidden, access.ErrHistoryNotShared)
 		return
 	}
 
@@ -1794,6 +1815,10 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	}
 	if !h.access.CanManageAsset(asset, user) {
 		writeError(w, http.StatusForbidden, "only the owner can share this asset")
+		return
+	}
+	if !h.sharingAllowed(user) {
+		writeError(w, http.StatusForbidden, access.ErrSharingNotAllowed)
 		return
 	}
 
@@ -2925,4 +2950,17 @@ func (h *Handler) createAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, newAsset)
+}
+
+// sharingAllowed reports whether user may create a share: an administrator
+// always, anyone else unless their persona withholds it (#2241).
+func (h *Handler) sharingAllowed(user *User) bool {
+	if user == nil {
+		return false
+	}
+	if h.access.IsAdmin(user) || h.deps.PersonaResolver == nil {
+		return true
+	}
+	info := h.deps.PersonaResolver(user.Roles)
+	return info == nil || !info.SharingDenied
 }

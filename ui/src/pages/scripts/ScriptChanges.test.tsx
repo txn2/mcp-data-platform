@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ScriptChanges } from "./ScriptChanges";
 
 const versions = vi.fn();
@@ -62,5 +62,52 @@ describe("ScriptChanges (#1943)", () => {
     render(<ScriptChanges scriptId="s1" />);
     expect(screen.getByTestId("script-changes")).toHaveTextContent("saved by unknown");
     expect(screen.getByTestId("script-changes")).not.toHaveTextContent("agreed on");
+  });
+});
+
+describe("ScriptChanges collapse (#2185)", () => {
+  function many(n: number) {
+    history(
+      Array.from({ length: n }, (_, i) => ({
+        id: `v${n - i}`, version: n - i, author: "a", created_at: "", source: "x",
+        change_summary: `Change ${n - i}.`,
+      })),
+    );
+  }
+
+  afterEach(() => {
+    try {
+      window.localStorage.removeItem("script-changes-expanded");
+    } catch {
+      // no storage in this environment
+    }
+  });
+
+  it("shows the newest three and the rest behind Show N more", () => {
+    many(7);
+    render(<ScriptChanges scriptId="s1" />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByTestId("script-changes")).toHaveTextContent("Change 7.");
+    expect(screen.getByTestId("script-changes")).not.toHaveTextContent("Change 4.");
+    fireEvent.click(screen.getByRole("button", { name: "Show 4 more" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(7);
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("offers no toggle when every summary fits, and points to the full history", () => {
+    many(3);
+    render(<ScriptChanges scriptId="s1" />);
+    expect(screen.queryByRole("button", { name: /show/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("script-changes")).toHaveTextContent("listed under Source");
+  });
+
+  it("remembers an opened list in this browser", () => {
+    many(5);
+    render(<ScriptChanges scriptId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Show 2 more" }));
+    cleanup();
+    render(<ScriptChanges scriptId="s1" />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(5);
   });
 });

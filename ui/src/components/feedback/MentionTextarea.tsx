@@ -9,6 +9,7 @@ import { activeMentionQuery, replaceMentionQuery, scanMentions } from "@/lib/men
 import { useAuthStore } from "@/stores/auth";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { CommentBody } from "./CommentBody";
 
 interface Props {
   target: FeedbackTarget;
@@ -79,6 +80,9 @@ export function MentionTextarea({
   // Pending caret position after an insertion; applied once React has painted
   // the new value, otherwise the browser drops the caret at the end.
   const [pendingCaret, setPendingCaret] = useState<number | null>(null);
+  // previewing shows the body as it will read once posted (#2214): Markdown,
+  // with the mentions that will be delivered as chips.
+  const [previewing, setPreviewing] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(active?.query.trim() ?? ""), 150);
@@ -153,7 +157,17 @@ export function MentionTextarea({
 
   return (
     <div ref={containerRef} className="relative">
+      <ComposerView
+        previewing={previewing}
+        onPreview={(on) => {
+          if (on) setActive(null);
+          setPreviewing(on);
+        }}
+        body={value}
+        mentions={willNotify}
+      />
       <Textarea
+        hidden={previewing}
         ref={textareaRef}
         aria-label={ariaLabel}
         value={value}
@@ -206,5 +220,46 @@ export function MentionTextarea({
       )}
       <DeliveryHint willNotify={willNotify} unreachable={unreachable} />
     </div>
+  );
+}
+
+/**
+ * ComposerView is the Write/Preview switch above the composer and, while
+ * previewing, the body as it will read once posted (#2214): Markdown, with the
+ * mentions that will be delivered as chips.
+ */
+function ComposerView({
+  previewing,
+  onPreview,
+  body,
+  mentions,
+}: {
+  previewing: boolean;
+  onPreview: (on: boolean) => void;
+  body: string;
+  mentions: string[];
+}) {
+  const tab = (on: boolean) =>
+    cn("rounded px-1.5 py-0.5 text-xs", previewing === on ? "bg-accent font-medium" : "text-muted-foreground");
+  return (
+    <>
+      <div className="mb-1 flex gap-1" role="group" aria-label="Composer view">
+        <button type="button" aria-pressed={!previewing} onClick={() => onPreview(false)} className={tab(false)}>
+          Write
+        </button>
+        <button type="button" aria-pressed={previewing} onClick={() => onPreview(true)} className={tab(true)}>
+          Preview
+        </button>
+      </div>
+      {previewing && (
+        <div className="min-h-16 rounded-md border px-3 py-1.5 text-sm" data-testid="comment-preview">
+          {body.trim() ? (
+            <CommentBody body={body} mentions={mentions} />
+          ) : (
+            <p className="text-xs text-muted-foreground">Nothing to preview.</p>
+          )}
+        </div>
+      )}
+    </>
   );
 }

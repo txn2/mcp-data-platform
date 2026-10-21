@@ -15,7 +15,9 @@ interface Props {
   thumbSize: ThumbSize;
   onChangeThumbSize: (size: ThumbSize) => void;
   onEdit: () => void;
-  onShare: () => void;
+  // onShare opens the Share dialog; absent when the persona withholds
+  // sharing (#2241).
+  onShare?: () => void;
   onDelete: () => void;
   deletePending: boolean;
   /** Where a referencing knowledge page opens. */
@@ -61,10 +63,12 @@ export function CollectionViewerActions({
       )}
       {canManage && (
         <>
-          <Button variant="outline" size="sm" onClick={onShare}>
-            <Share2 />
-            Share
-          </Button>
+          {onShare && (
+            <Button variant="outline" size="sm" onClick={onShare}>
+              <Share2 />
+              Share
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"

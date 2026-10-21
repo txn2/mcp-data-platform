@@ -106,6 +106,8 @@ When a [knowledge page](knowledge.md) references the asset, a **Referenced by** 
 
 ![The version picker, with every version dated](../images/screenshots/light/user-asset-versions-light.webp#only-light)![The version picker, with every version dated](../images/screenshots/dark/user-asset-versions-dark.webp#only-dark)
 
+The version picker and the history are the owner's, an editor's and an administrator's (#2226). Someone the asset is shared with as a viewer, directly or through a collection, sees the current version only: no picker, no version number and no comparison, and the version routes (`GET /api/v1/portal/assets/{id}/versions`, an earlier version's content, a signed content URL naming one) answer them `403`. `manage_asset` `list_versions` and `diff` refuse the same way. A feedback thread raised against an older version still opens. The public and guest views never showed history.
+
 ### Version retention
 
 Every write to an asset records a version, and until a cap applies that history grows without end. A dashboard a scheduled script refreshes hourly writes twenty-four versions a day, each with its own stored content, for as long as the schedule runs.
@@ -139,6 +141,8 @@ The Share action opens a dialog to mint a link or a user-scoped share, with a co
 | `restricted` | Only the named recipient (and the person who created the share) |
 | `authenticated` | Any signed-in platform user |
 | `public` | Anyone with the link, without signing in |
+
+**Share to a Channel** posts the asset to a notification channel with a link that opens for the channel's readers: choose one of the chat channels a Slack or Mattermost bot is in, or another channel you reach, then **Signed-in users** or **Anyone with the link** with an expiration, and an optional message. Posting creates a link share in that mode, listed with the others as **Posted to** the channel; revoking it stops the posted link from opening. See [who can open a published link](../server/notifications.md#who-can-open-a-published-link). Share is the owner's, and offered only when their persona allows sharing ([Sharing](../personas/overview.md#sharing)).
 
 Sharing with a person makes the share `restricted`: the link resolves only for that recipient, signed in, so forwarding the email or the URL grants nothing. The **Share by Link** section mints a link for any signed-in user by default, with no lifetime control, because such a link resolves against who the viewer is and ends on revocation. Choosing **Anyone with the link** makes it `public`, shows a warning that the link opens without sign-in, and reveals the lifetime control: possession of a public URL is the whole of its access check, so it expires on a clock as well. A signed-in user who is not the recipient of a restricted share sees a branded page naming the account they are signed in as, with a sign-out-and-switch action, rather than a generic not-found.
 

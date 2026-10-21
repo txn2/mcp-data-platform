@@ -31,7 +31,7 @@ func mentionAudience(p *platform.Platform) *mention.Audience {
 
 // mentionIdentityResolver adapts the portal auth context to the mentionhttp
 // identity shape.
-func mentionIdentityResolver(adminRoles []string) func(*http.Request) *mentionhttp.Identity {
+func mentionIdentityResolver(isAdmin func([]string) bool) func(*http.Request) *mentionhttp.Identity {
 	return func(r *http.Request) *mentionhttp.Identity {
 		user := portal.GetUser(r.Context())
 		if user == nil {
@@ -40,7 +40,7 @@ func mentionIdentityResolver(adminRoles []string) func(*http.Request) *mentionht
 		return &mentionhttp.Identity{
 			UserID:  user.UserID,
 			Email:   user.Email,
-			IsAdmin: rolesIntersect(user.Roles, adminRoles),
+			IsAdmin: isAdmin(user.Roles),
 		}
 	}
 }

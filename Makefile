@@ -53,7 +53,7 @@ GOVET := $(GO) vet
 GOFMT := gofmt
 GOLINT := golangci-lint
 
-.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
+.PHONY: all migrate-check-diff build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
 	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
@@ -1050,6 +1050,20 @@ realdb-lane:
 ## one. Those three run once, in verify and in CI.
 preverify: preverify-fast
 	@$(MAKE) --no-print-directory lint
+	@$(MAKE) --no-print-directory migrate-check-diff
+
+## migrate-check-diff: Run migrate-check when the diff against main adds or changes a migration (#2239)
+## The RealDB tests run on pg16 alone, so a migration PostgreSQL 17 refuses
+## (#2169's 000209: an index function called by an unqualified name, which an
+## index build on 17 resolves under search_path pg_catalog) passed every test
+## and failed verify's Docker lane. A diff with no migration skips it.
+MIGRATIONS_DIR := pkg/database/migrate/migrations
+migrate-check-diff:
+	@base=$$(git merge-base origin/main HEAD 2>/dev/null || git merge-base main HEAD); \
+	changed=$$( { git diff --name-only $$base -- $(MIGRATIONS_DIR); git ls-files --others --exclude-standard -- $(MIGRATIONS_DIR); } | sort -u); \
+	if [ -z "$$changed" ]; then echo "migrate-check-diff: no migration changed; skipped"; exit 0; fi; \
+	echo "migrate-check-diff: $$(echo $$changed | wc -w | tr -d ' ') migration file(s) changed"; \
+	$(MAKE) --no-print-directory migrate-check
 
 ## verify-static: the static checks that read source and no coverage profile.
 ##

@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect } from "react";
 import { FileQuestion } from "lucide-react";
 import { KnowledgeBacklinksButton } from "@/components/knowledge/KnowledgeBacklinksButton";
 import { EmptyState } from "@/components/patterns/EmptyState";
-import { PostToChannelDialog } from "@/components/PostToChannelDialog";
 import { ShareDialog } from "@/components/ShareDialog";
 import { Button } from "@/components/ui/button";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
@@ -22,6 +21,7 @@ import { AssetViewerModals } from "./assetviewer/AssetViewerModals";
 import { ViewerLayout } from "./viewer/ViewerLayout";
 import { IncompleteBadge } from "@/components/IncompleteBadge";
 import { isTruncated } from "@/lib/truncation";
+import { useAuthStore } from "@/stores/auth";
 
 export type { AssetViewerProps } from "./assetviewer/types";
 
@@ -56,7 +56,6 @@ export function AssetViewer({
   versionContentLoading,
 }: AssetViewerProps) {
   const [shareOpen, setShareOpen] = useState(false);
-  const [postOpen, setPostOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
@@ -75,6 +74,7 @@ export function AssetViewer({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
 
   const isSharedEditor = !isOwner && sharePermission === "editor";
+  const canShare = useAuthStore((s) => s.canShare());
 
   const canEditSource =
     !!contentUpdateMutation && !!asset && isEditableContent(asset.content_type, asset.name);
@@ -235,13 +235,13 @@ export function AssetViewer({
           <AssetViewerActions
             toolbarExtra={toolbarExtra}
             isOwner={isOwner}
+            canShare={canShare}
             sharePermission={sharePermission}
             copyMutation={copyMutation}
             onDelete={() => setDeleteModalOpen(true)}
             onDownload={handleDownload}
             onCopyToMyAssets={handleCopyToMyAssets}
             onShare={() => setShareOpen(true)}
-            onPostToChannel={() => setPostOpen(true)}
           />
         }
         sidebar={
@@ -307,7 +307,6 @@ export function AssetViewer({
       </ViewerLayout>
 
       <ShareDialog assetId={asset.id} open={shareOpen} onOpenChange={setShareOpen} />
-      <PostToChannelDialog assetId={asset.id} open={postOpen} onOpenChange={setPostOpen} />
 
       <AssetViewerModals
         asset={asset}

@@ -19,25 +19,23 @@ import (
 // into a shared schema, so this is owner authority the way sharing is.
 func TestAssetVisibleTo(t *testing.T) {
 	asset := portal.Asset{ID: "a1", OwnerID: "u1", OwnerEmail: "alice@example.com"}
-	admins := []string{"admin"}
+	assert.True(t, AssetVisibleTo(asset,
+		tableregister.Caller{UserID: "u1", Email: "alice@example.com"}), "the owner")
 
+	// An administrator is unrestricted by design, everywhere, by the flag the
+	// surface resolved with the platform's one admin rule (#2228). A role
+	// named admin is not that rule.
+	assert.False(t, AssetVisibleTo(asset,
+		tableregister.Caller{UserID: "u9", Email: "root@example.com", Roles: []string{"admin"}}),
+		"a role's name alone is not administration")
 	assert.True(t, AssetVisibleTo(asset,
-		tableregister.Caller{UserID: "u1", Email: "alice@example.com"}, admins), "the owner")
-
-	// An administrator is unrestricted by design, everywhere. Both the
-	// resolved flag and the raw roles say so, because a caller may be built by
-	// a surface that resolves only one of them.
-	assert.True(t, AssetVisibleTo(asset,
-		tableregister.Caller{UserID: "u9", Email: "root@example.com", Roles: []string{"admin"}}, admins),
-		"an administrator reaches every asset")
-	assert.True(t, AssetVisibleTo(asset,
-		tableregister.Caller{UserID: "u9", IsAdmin: true}, admins),
-		"an administrator whose surface already resolved the flag")
+		tableregister.Caller{UserID: "u9", IsAdmin: true}),
+		"an administrator, by the resolved flag")
 
 	assert.False(t, AssetVisibleTo(asset,
-		tableregister.Caller{UserID: "u2", Email: "bob@example.com"}, admins), "another person")
+		tableregister.Caller{UserID: "u2", Email: "bob@example.com"}), "another person")
 
-	assert.False(t, AssetVisibleTo(asset, tableregister.Caller{}, admins), "no caller")
+	assert.False(t, AssetVisibleTo(asset, tableregister.Caller{}), "no caller")
 }
 
 // TestAssetVisibleTo_MatchesOnlyOnANonEmptyIdentity. An unauthenticated
@@ -45,22 +43,14 @@ func TestAssetVisibleTo(t *testing.T) {
 // match on two empty strings would hand every unattributed asset to anybody.
 func TestAssetVisibleTo_MatchesOnlyOnANonEmptyIdentity(t *testing.T) {
 	unowned := portal.Asset{ID: "a1"}
-	assert.False(t, AssetVisibleTo(unowned, tableregister.Caller{}, nil))
-	assert.False(t, AssetVisibleTo(unowned, tableregister.Caller{UserID: "u1"}, nil))
+	assert.False(t, AssetVisibleTo(unowned, tableregister.Caller{}))
+	assert.False(t, AssetVisibleTo(unowned, tableregister.Caller{UserID: "u1"}))
 
 	// The address match holds only when both sides carry one.
 	byEmail := portal.Asset{ID: "a1", OwnerEmail: "alice@example.com"}
-	assert.False(t, AssetVisibleTo(byEmail, tableregister.Caller{UserID: "u2"}, nil))
-	assert.True(t, AssetVisibleTo(byEmail, tableregister.Caller{Email: "ALICE@example.com"}, nil),
+	assert.False(t, AssetVisibleTo(byEmail, tableregister.Caller{UserID: "u2"}))
+	assert.True(t, AssetVisibleTo(byEmail, tableregister.Caller{Email: "ALICE@example.com"}),
 		"an address is matched case-insensitively, as it is everywhere else")
-}
-
-func TestHasAnyRole(t *testing.T) {
-	assert.True(t, HasAnyRole([]string{"analyst", "admin"}, []string{"admin"}))
-	assert.False(t, HasAnyRole([]string{"analyst"}, []string{"admin"}))
-	assert.False(t, HasAnyRole(nil, []string{"admin"}))
-	assert.False(t, HasAnyRole([]string{"admin"}, nil),
-		"a deployment with no admin persona makes nobody an administrator")
 }
 
 // --- the resolvers behind both table surfaces ---
@@ -185,7 +175,7 @@ func TestAssetSubject(t *testing.T) {
 		ID: "a1", Name: "Vendor keys", OwnerID: "u1", OwnerEmail: "alice@example.com",
 		S3Bucket: "portal-assets", S3Key: "artifacts/u1/a1/content.csv", ContentType: "text/csv",
 	}
-	subject := AssetSubject(stubAssetStore{asset: asset}, []string{"admin"})
+	subject := AssetSubject(stubAssetStore{asset: asset})
 
 	src, ok := subject(context.Background(), "a1", tableregister.Caller{UserID: "u1"})
 	require.True(t, ok)
@@ -204,12 +194,12 @@ func TestAssetSubject_ADeletedAssetIsGone(t *testing.T) {
 	deletedAt := time.Now()
 	subject := AssetSubject(stubAssetStore{asset: &portal.Asset{
 		ID: "a1", OwnerID: "u1", DeletedAt: &deletedAt,
-	}}, nil)
+	}})
 
 	_, ok := subject(context.Background(), "a1", tableregister.Caller{UserID: "u1"})
 	assert.False(t, ok)
 
-	_, ok = AssetSubject(stubAssetStore{err: errors.New("connection refused")}, nil)(
+	_, ok = AssetSubject(stubAssetStore{err: errors.New("connection refused")})(
 		context.Background(), "a1", tableregister.Caller{UserID: "u1"})
 	assert.False(t, ok, "a failed read")
 }
@@ -217,18 +207,18 @@ func TestAssetSubject_ADeletedAssetIsGone(t *testing.T) {
 // TestSubjects_OmitsAKindWithNoStore, so a deployment holding one kind
 // does not advertise the other on either surface.
 func TestSubjects_OmitsAKindWithNoStore(t *testing.T) {
-	both := Subjects(stubResourceStore{}, "b", stubAssetStore{}, nil)
+	both := Subjects(stubResourceStore{}, "b", stubAssetStore{})
 	assert.Len(t, both, 2)
 
-	resourcesOnly := Subjects(stubResourceStore{}, "b", nil, nil)
+	resourcesOnly := Subjects(stubResourceStore{}, "b", nil)
 	assert.Contains(t, resourcesOnly, tableregister.KindResource)
 	assert.NotContains(t, resourcesOnly, tableregister.KindAsset)
 
-	assetsOnly := Subjects(nil, "", stubAssetStore{}, nil)
+	assetsOnly := Subjects(nil, "", stubAssetStore{})
 	assert.Contains(t, assetsOnly, tableregister.KindAsset)
 	assert.NotContains(t, assetsOnly, tableregister.KindResource)
 
-	assert.Empty(t, Subjects(nil, "", nil, nil))
+	assert.Empty(t, Subjects(nil, "", nil))
 }
 
 // --- the seams behind the cross-source listing (#1472) ---
@@ -339,20 +329,20 @@ func TestAssetSourceRefs_AppliesTheOwnerRuleToTheActionOnly(t *testing.T) {
 		},
 	}}
 
-	mine := assetSourceRefs(context.Background(), store, []string{"admin"},
+	mine := assetSourceRefs(context.Background(), store,
 		[]string{"a1"}, tableregister.Caller{UserID: "u1"})
 	require.Contains(t, mine, "a1")
 	assert.Equal(t, "portal-assets", mine["a1"].Bucket)
 	assert.Equal(t, "artifacts/u1/a1/v3/content.csv", mine["a1"].HeadKey)
 	assert.True(t, mine["a1"].CanModify)
 
-	theirs := assetSourceRefs(context.Background(), store, []string{"admin"},
+	theirs := assetSourceRefs(context.Background(), store,
 		[]string{"a1"}, tableregister.Caller{UserID: "u2"})
 	require.Contains(t, theirs, "a1")
 	assert.False(t, theirs["a1"].CanModify)
 
-	operator := assetSourceRefs(context.Background(), store, []string{"admin"},
-		[]string{"a1"}, tableregister.Caller{UserID: "u9", Roles: []string{"admin"}})
+	operator := assetSourceRefs(context.Background(), store,
+		[]string{"a1"}, tableregister.Caller{UserID: "u9", IsAdmin: true})
 	assert.True(t, operator["a1"].CanModify, "an administrator")
 }
 
@@ -366,15 +356,15 @@ func TestAssetSourceRefs_ADeletedAssetIsGone(t *testing.T) {
 	}}
 
 	assert.NotContains(t,
-		assetSourceRefs(context.Background(), store, nil, []string{"a1"},
+		assetSourceRefs(context.Background(), store, []string{"a1"},
 			tableregister.Caller{UserID: "u1"}),
 		"a1")
 
 	assert.Empty(t, assetSourceRefs(context.Background(),
-		bulkAssetStore{err: errors.New("connection refused")}, nil,
+		bulkAssetStore{err: errors.New("connection refused")},
 		[]string{"a1"}, tableregister.Caller{UserID: "u1"}))
 
-	assert.Nil(t, assetSourceRefs(context.Background(), nil, nil,
+	assert.Nil(t, assetSourceRefs(context.Background(), nil,
 		[]string{"a1"}, tableregister.Caller{UserID: "u1"}))
 }
 
@@ -389,7 +379,6 @@ func TestRefLookup_DispatchesOnKind(t *testing.T) {
 		bulkAssetStore{rows: map[string]*portal.Asset{
 			"a1": {ID: "a1", Name: "Vendor keys", OwnerID: "u1", S3Bucket: "portal-assets", S3Key: "a/a1/x.csv"},
 		}},
-		[]string{"admin"},
 	)
 	caller := tableregister.Caller{UserID: "u1"}
 
@@ -442,7 +431,7 @@ func TestLocator_ResolvesWhatTheSubjectsResolve(t *testing.T) {
 
 	located, ok := Locator(nil, "", store)(context.Background(), tableregister.KindAsset, "a1")
 	require.True(t, ok)
-	resolved, ok := AssetSubject(store, nil)(context.Background(), "a1", tableregister.Caller{UserID: "u1"})
+	resolved, ok := AssetSubject(store)(context.Background(), "a1", tableregister.Caller{UserID: "u1"})
 	require.True(t, ok)
 	assert.Equal(t, resolved, located)
 }
@@ -482,14 +471,14 @@ func TestAssetVisibleTo_ARunDoesNotReachASameNamedScriptsOutput(t *testing.T) {
 	assert.True(t, AssetVisibleTo(output, tableregister.Caller{
 		UserID: "script:weekly-revenue", Email: "alice@example.com",
 		OnBehalfOf: "alice@example.com",
-	}, nil), "the author's own run still registers over its own output")
+	}), "the author's own run still registers over its own output")
 
 	assert.False(t, AssetVisibleTo(output, tableregister.Caller{
 		UserID: "script:weekly-revenue", Email: "bob@example.com",
 		OnBehalfOf: "bob@example.com",
-	}, nil), "another owner's same-named script must not reach it")
+	}), "another owner's same-named script must not reach it")
 
 	assert.False(t, AssetVisibleTo(output, tableregister.Caller{
 		UserID: "u-bob", Email: "bob@example.com",
-	}, nil), "the person that run acts for cannot reach it either")
+	}), "the person that run acts for cannot reach it either")
 }

@@ -4,6 +4,7 @@ import { AssetViewer } from "@/components/AssetViewer";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { SharedPageLink } from "@/components/share/SharedPageLink";
 import { mySessionPath } from "@/pages/activity/routes";
+import { useAuthStore } from "@/stores/auth";
 
 interface Props {
   assetId: string;
@@ -18,7 +19,11 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
   const deleteMutation = useDeleteAsset();
   const contentUpdateMutation = useUpdateAssetContent();
   const copyMutation = useCopyAsset();
-  const { data: versionsData, isLoading: versionsLoading } = useAssetVersions(assetId);
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // A reader whose access is viewer sees the current version only: no
+  // history, no version number and no comparison (#2226).
+  const seesHistory = asset != null && (asset.is_owner !== false || asset.share_permission === "editor" || isAdmin);
+  const { data: versionsData, isLoading: versionsLoading } = useAssetVersions(assetId, seesHistory);
   const revertMutation = useRevertVersion();
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
 
@@ -62,8 +67,8 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
       // section, which shows it to its owner and to an administrator and
       // answers everybody else not-found -- the same rule its page applies.
       scriptPath={(id) => `/automations/${encodeURIComponent(id)}`}
-      versions={versionsData?.data}
-      versionsLoading={versionsLoading}
+      versions={seesHistory ? versionsData?.data : undefined}
+      versionsLoading={seesHistory && versionsLoading}
       revertMutation={revertMutation}
       selectedVersion={selectedVersion}
       onSelectVersion={setSelectedVersion}

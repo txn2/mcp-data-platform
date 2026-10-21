@@ -228,7 +228,8 @@ func TestIssue1824_AReportIsPublishedToSlack(t *testing.T) {
 		return ok, "reading conversations.history"
 	})
 	raw := fmt.Sprint(msg["blocks"])
-	if !strings.Contains(raw, "table") || !strings.Contains(raw, "/portal/assets/"+assetID) {
+	link, _ := out["link"].(string)
+	if !strings.Contains(raw, "table") || !strings.Contains(link, "/portal/view/") || !strings.Contains(raw, link) {
 		t.Errorf("the published report lacks its table or its link: %s", raw)
 	}
 }

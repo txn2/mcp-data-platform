@@ -255,6 +255,11 @@ type emailItem struct {
 	// and set by nothing else. The HTML template writes it unescaped in
 	// place of Body; the text template keeps Body.
 	BodyHTML htmltemplate.HTML
+	// MessageHTML is a comment's markdown rendered by markdownHTML (#2214),
+	// set for the kinds whose Message a person wrote in a feedback thread.
+	// The HTML template writes it in place of the quoted Message; the text
+	// template keeps Message, whose markdown source reads as plain text.
+	MessageHTML htmltemplate.HTML
 	// Links are attachments named by link rather than carried.
 	Links []AttachmentLink
 	Link  string
@@ -298,6 +303,8 @@ func buildItem(n notification.Notification) emailItem {
 		Link:    n.Payload.Link,
 	}
 	switch n.Payload.Kind {
+	case notification.KindComment, notification.KindFeedback, notification.KindMention:
+		item.MessageHTML = markdownHTML(mentionsAsAddresses(item.Message))
 	case notification.KindReviewQueue:
 		item.Body = reviewQueueBody(n.Payload.Review)
 		item.LinkText = reviewQueueLinkText

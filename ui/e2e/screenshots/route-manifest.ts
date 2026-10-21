@@ -296,6 +296,12 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/settings",
     category: "user",
   },
+  {
+    // Who the portal is signed in as (#2215), opened from the sidebar footer.
+    slug: "profile",
+    path: "/portal/profile",
+    category: "user",
+  },
 
   // =========================================================================
   // Admin Routes

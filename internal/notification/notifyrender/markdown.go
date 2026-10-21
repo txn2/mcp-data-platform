@@ -7,6 +7,8 @@ import (
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
+
+	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 )
 
 // markdown converts a channel document's body to HTML for its email.
@@ -41,4 +43,15 @@ func markdownHTML(source string) htmltemplate.HTML {
 func firstParagraph(source string) string {
 	head, _, _ := strings.Cut(strings.TrimSpace(source), "\n\n")
 	return strings.TrimSpace(head)
+}
+
+// mentionsAsAddresses writes each @local(domain) mention as the address it
+// names, so an email reader sees an address rather than the stored token and
+// markdown does not read its parentheses as anything (#2214). The tokens are
+// read by the platform's one mention grammar, pkg/portal/mention.
+func mentionsAsAddresses(source string) string {
+	for _, m := range mention.Scan(source) {
+		source = strings.ReplaceAll(source, m.Raw, "@"+m.Email)
+	}
+	return source
 }

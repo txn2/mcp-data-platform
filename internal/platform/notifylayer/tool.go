@@ -35,7 +35,7 @@ const (
 // already exist, and that delivery is queued rather than immediate.
 const toolDescription = `Send a message, or publish a saved asset, to a notification channel an administrator has configured (Slack, Mattermost, an incoming webhook, or an email list).
 
-Call action=list first: channel names are not guessable, and a channel this session cannot reach is not listed. action=send posts a title and a markdown body with an optional link and up to 5 attached assets or resources. action=publish posts a portal asset -- its title, its content, its preview image, and a link back to it.
+Call action=list first: channel names are not guessable, and a channel this session cannot reach is not listed. A Slack or Mattermost channel lists the chat channels its bot is in under targets; pass one as target to post there. action=send posts a title and a markdown body with an optional link and up to 5 attached assets or resources. action=publish posts a portal asset -- its title, its content, its preview image, and a link the channel's readers can open: by default a link share any signed-in user opens (access=signed_in), or access=public with expires_in, or access=existing for the asset page, which opens only for people who already have access. signed_in and public need you to own the asset.
 
 For an alert that repeats, pass key: a second send with the same key inside the channel's repeat window is counted and not posted, and the next post says how many were held back. A channel refuses sends past its hourly cap.
 
@@ -72,6 +72,14 @@ type notifyInput struct {
 	Asset string `json:"asset,omitempty" jsonschema:"the portal asset id to publish, for action=publish"`
 	// Message is an optional line published above the asset's content.
 	Message string `json:"message,omitempty" jsonschema:"an optional line to publish above the asset"`
+
+	// Target is the chat channel of a slack or mattermost channel a post
+	// goes to, chosen among the ones its bot is in (#2241).
+	Target string `json:"target,omitempty" jsonschema:"for a slack or mattermost channel, the id of one of the chat channels its bot is in, as action=list reports them under targets; empty posts to the channel's own"`
+	// Access is who the posted link opens for, for action=publish (#2088).
+	Access string `json:"access,omitempty" jsonschema:"for action=publish, who can open the posted link: signed_in (the default) creates or reuses a link share any signed-in user opens, public creates a link share anyone opens until expires_in, existing posts the asset page's link, which opens only for the people who already have access. signed_in and public need you to own the asset"`
+	// ExpiresIn is the public link's lifetime, for access=public.
+	ExpiresIn string `json:"expires_in,omitempty" jsonschema:"for access=public, how long the link opens, such as 24h or 168h; required for public and refused otherwise"`
 }
 
 // channelSummary is one entry of the list action's answer.
@@ -83,6 +91,15 @@ type channelSummary struct {
 	// Carries states what this kind can show, so a caller knows before
 	// sending whether its markdown will be read as markup or as text.
 	Carries string `json:"carries"`
+	// Target is the chat channel a post goes to when it names none: the
+	// channel's own. Empty on a slack or mattermost channel that stands for
+	// its bot, where a post names one of Targets.
+	Target string `json:"target,omitempty"`
+	// Targets are the chat channels the bot of a slack or mattermost
+	// channel is in, read live (#2241). Empty for every other kind.
+	Targets []notification.ChatTarget `json:"targets"`
+	// TargetsError says why Targets could not be read.
+	TargetsError string `json:"targets_error,omitempty"`
 }
 
 // listResult is the list action's answer.
@@ -107,6 +124,13 @@ type sendResult struct {
 	Detail    string `json:"detail"`
 	// Link is the URL the message points at, when it carries one.
 	Link string `json:"link,omitempty"`
+	// Target is the chat channel the post went to when it named one.
+	Target string `json:"target,omitempty"`
+	// Access, ShareID and ExpiresAt describe the link a publish posted: who
+	// it opens for and the share that makes it open (#2088).
+	Access    string     `json:"access,omitempty"`
+	ShareID   string     `json:"share_id,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 // RegisterTool registers notify on the server. A nil handle registers
@@ -168,6 +192,9 @@ type caller struct {
 	// persona is the name whose connection rules decide which channels are
 	// reachable.
 	persona string
+	// onBehalfOf is the address of the person a managed script's run acts
+	// for, which the asset a run publishes is owned by.
+	onBehalfOf string
 	// unrestricted lifts the persona boundary for an administrator.
 	unrestricted bool
 }
@@ -187,8 +214,18 @@ func (h *Handle) resolveCaller(ctx context.Context) caller {
 		email:        pc.UserEmail,
 		userID:       pc.UserID,
 		persona:      pc.PersonaName,
+		onBehalfOf:   pc.OnBehalfOfEmail,
 		unrestricted: h.cfg.AdminPersona != "" && pc.PersonaName == h.cfg.AdminPersona,
 	}
+}
+
+// ownerEmail is the address an ownership check is made against: the person a
+// script's run acts for, or the caller.
+func (c caller) ownerEmail() string {
+	if c.onBehalfOf != "" {
+		return c.onBehalfOf
+	}
+	return c.email
 }
 
 // resolveChannel finds the channel a call names and reports why it cannot be
@@ -212,17 +249,27 @@ func (h *Handle) resolveChannel(ctx context.Context, name string, c caller) (*no
 
 // enqueue writes the document to the channel and renders the result.
 func (h *Handle) enqueue(ctx context.Context, ch notification.Channel, c caller, doc notification.Document, repeatAfter string) (*mcp.CallToolResult, any, error) {
+	result, ok := h.enqueueDocument(ctx, ch, c, doc, repeatAfter)
+	if !ok {
+		return toolkit.ErrorResult("notify: " + result.Detail), nil, nil
+	}
+	return toolkit.JSONResult(result), nil, nil
+}
+
+// enqueueDocument writes the document to the channel. ok is false when the
+// send was refused, with the refusal as the result's Detail.
+func (h *Handle) enqueueDocument(ctx context.Context, ch notification.Channel, c caller, doc notification.Document, repeatAfter string) (sendResult, bool) {
 	window, err := parseRepeatAfter(repeatAfter)
 	if err != nil {
-		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
+		return sendResult{Detail: err.Error()}, false
 	}
 	res, err := h.cfg.Enqueuer.NotifyChannel(ctx, notification.ChannelSend{
 		Channel: ch, Document: doc, Actor: c.email, RepeatAfter: window,
 	})
 	if err != nil {
-		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
+		return sendResult{Detail: err.Error()}, false
 	}
-	result := sendResult{Channel: ch.Name, Kind: ch.Kind, Queued: res.Queued, Suppressed: res.Suppressed, Link: doc.Link}
+	result := sendResult{Channel: ch.Name, Kind: ch.Kind, Queued: res.Queued, Suppressed: res.Suppressed, Link: doc.Link, Target: doc.Target}
 	switch {
 	case res.Suppressed:
 		result.Detail = fmt.Sprintf("not posted: a message with key %q went to %q inside the channel's repeat window; "+
@@ -237,7 +284,7 @@ func (h *Handle) enqueue(ctx context.Context, ch notification.Channel, c caller,
 		result.Detail = fmt.Sprintf("accepted for delivery to %q; an administrator can see the outcome "+
 			"in the platform's notification history", ch.Name)
 	}
-	return toolkit.JSONResult(result), nil, nil
+	return result, true
 }
 
 // maxRepeatAfter bounds how long a sender may lengthen a key's window: a week,
@@ -267,11 +314,16 @@ func (h *Handle) handleSend(ctx context.Context, input notifyInput) (*mcp.CallTo
 	if err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
+	target, err := h.resolveTarget(ctx, *ch, input.Target)
+	if err != nil {
+		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
+	}
 	doc := notification.Document{
-		Title: strings.TrimSpace(input.Title),
-		Body:  input.Body,
-		Link:  strings.TrimSpace(input.Link),
-		Key:   strings.TrimSpace(input.Key),
+		Title:  strings.TrimSpace(input.Title),
+		Body:   input.Body,
+		Link:   strings.TrimSpace(input.Link),
+		Key:    strings.TrimSpace(input.Key),
+		Target: target.ID,
 	}
 	if err := h.attach(ctx, &doc, input.Attachments, c); err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
@@ -314,16 +366,7 @@ func (h *Handle) handleList(ctx context.Context) (*mcp.CallToolResult, any, erro
 	if err != nil {
 		return toolkit.ErrorResult("notify: reading the configured channels failed"), nil, nil
 	}
-	out := listResult{Channels: make([]channelSummary, 0, len(channels))}
-	for _, ch := range channels {
-		out.Channels = append(out.Channels, channelSummary{
-			Name:        ch.Name,
-			Kind:        ch.Kind,
-			Mode:        ch.Mode,
-			Description: ch.Description,
-			Carries:     carries(ch.Kind),
-		})
-	}
+	out := listResult{Channels: h.summaries(ctx, channels)}
 	if len(out.Channels) == 0 {
 		out.Note = "this session can reach no notification channels; an administrator configures them " +
 			"under Admin > Settings > Notification Channels"

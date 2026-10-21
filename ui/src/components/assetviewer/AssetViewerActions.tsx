@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Share2, Trash2, Download, Copy, Send } from "lucide-react";
+import { Share2, Trash2, Download, Copy } from "lucide-react";
 import type { SharePermission } from "@/api/portal/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,15 +8,15 @@ import type { MutationLike } from "./types";
 interface AssetViewerActionsProps {
   toolbarExtra?: ReactNode;
   isOwner: boolean;
+  // canShare is the reader's persona allowing sharing (#2241). Share is
+  // the owner's, and only when their persona lets them share.
+  canShare?: boolean;
   sharePermission?: SharePermission;
   copyMutation?: MutationLike<string>;
   onDelete: () => void;
   onDownload: () => void;
   onCopyToMyAssets: () => void;
   onShare: () => void;
-  // onPostToChannel opens the Post to a channel dialog. Absent hides the
-  // action, as in a deployment with no notifications.
-  onPostToChannel?: () => void;
 }
 
 /** What the reader can do to this asset, for the viewer header's action slot.
@@ -24,13 +24,13 @@ interface AssetViewerActionsProps {
 export function AssetViewerActions({
   toolbarExtra,
   isOwner,
+  canShare = true,
   sharePermission,
   copyMutation,
   onDelete,
   onDownload,
   onCopyToMyAssets,
   onShare,
-  onPostToChannel,
 }: AssetViewerActionsProps) {
   return (
     <>
@@ -69,15 +69,9 @@ export function AssetViewerActions({
           {copyMutation.isPending ? "Copying..." : "Save to My Assets"}
         </Button>
       )}
-      {/* Anyone who can read the asset may post it; the channel's own
-          connection decides whether they reach the channel. */}
-      {onPostToChannel && (
-        <Button variant="outline" size="sm" onClick={onPostToChannel}>
-          <Send />
-          Post to a channel
-        </Button>
-      )}
-      {isOwner && (
+      {/* Sharing with a person or to a channel is one action, the owner's,
+          and only for a persona that allows sharing (#2241). */}
+      {isOwner && canShare && (
         <Button size="sm" onClick={onShare}>
           <Share2 />
           Share

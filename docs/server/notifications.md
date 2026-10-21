@@ -596,9 +596,9 @@ excerpt of the upstream's answer.
 
 | Surface | How |
 | --- | --- |
-| A person in a session | the `notify` tool: `action=list`, then `action=send` (with optional `data`, `attachments`, `key` and `repeat_after`) or `action=publish` (with optional `key` and `repeat_after`) |
-| A managed script | `platform.notify(channel, title, body="", link="", data=None, key="", repeat_after="", attachments=None)` and `platform.publish(channel, name, message="", key="", repeat_after="")` |
-| A person in the portal | **Post to a channel** on an asset's page: the channel, an optional message, and the asset posted as `notify action=publish` would post it |
+| A person in a session | the `notify` tool: `action=list`, then `action=send` (with optional `target`, `data`, `attachments`, `key` and `repeat_after`) or `action=publish` (with optional `target`, `access`, `expires_in`, `key` and `repeat_after`) |
+| A managed script | `platform.notify(channel, title, body="", link="", data=None, key="", repeat_after="", attachments=None, target="")` and `platform.publish(channel, name, message="", key="", repeat_after="", access="", expires_in="", target="")` |
+| A person in the portal | **Share** on an asset they own, under **Share to a Channel**: the channel, who can open the posted link, and an optional message |
 | An administrator | **Send test** on the channel's editor, which delivers immediately and reports what the upstream said |
 | The platform | the [review-queue](#review-queue-alerts), [connection revocation](#connection-revocation-alerts) and [scheduled run failure](#scheduled-run-failures) alerts, to the channels each names |
 
@@ -616,12 +616,51 @@ something a rehearsal may leave behind. A script's post links back to the run
 that produced it unless the script names its own link, and the run's page
 lists every post the run made, with whether it was delivered.
 
-![Asset page: Post to a channel](../images/screenshots/light/user-asset-post-to-channel-light.webp#only-light)![Asset page: Post to a channel](../images/screenshots/dark/user-asset-post-to-channel-dark.webp#only-dark)
+### A bot's chat channels
 
-The portal's **Post to a channel** is the same tool call: the portal opens an
-in-process session as the signed-in person and calls `notify`, so the
-channels offered, the persona rules, the rate limit and the audit row are the
-tool's.
+A `slack` or `mattermost` channel names the api connection holding a bot
+token, and its `target` is optional. With a target, it is a fixed destination
+that agents, scripts and alerts post to. Without one, it stands for the bot:
+`notify action=list` reports, under each such channel's `targets`, the chat
+channels its bot is in, read from the upstream on each list (Slack
+`users.conversations`, public and private channels, or public ones alone when
+the token lacks `groups:read`; Mattermost, the open and private channels of
+every team the bot is on). A send or publish names one of them as `target`,
+and a send to a channel with no target of its own that names none is refused.
+A `daily` channel collects one bulletin for one chat channel, so it needs its own target and takes none per post. One immediate channel per workspace is enough: the person posting chooses among the
+channels the bot was invited to, and a channel the bot joined a minute ago is
+offered on the next list. A target outside the bot's channels is refused.
+
+### Who can open a published link
+
+`notify action=publish` (and `platform.publish`) takes `access`, who the posted
+link opens for (#2088):
+
+| `access` | The link posted | Who may choose it |
+| --- | --- | --- |
+| `signed_in` (default) | a link share any signed-in user opens, with no expiration; posting the same asset to the same place again reuses it | the asset's owner, or an administrator, whose persona allows sharing |
+| `public` | a link share anyone with the URL opens until `expires_in` (required, e.g. `168h`) | the same |
+| `existing` | the asset page, which opens only for the people who already have access | anyone who can read the asset |
+
+The share a post creates is an ordinary link share with origin `channel_post`
+and `posted_to` naming where it went (`#general (slack)`): it is listed in the
+asset's shares, and revoking it stops the posted link from opening. A post
+that was held back by a repeat key, or refused, revokes a share it created.
+The result reports `access`, `share_id` and, for a public link, `expires_at`.
+
+![Share dialog: Share to a Channel](../images/screenshots/light/user-asset-share-to-channel-light.webp#only-light)![Share dialog: Share to a Channel](../images/screenshots/dark/user-asset-share-to-channel-dark.webp#only-dark)
+
+In the portal, **Share** on an asset its owner holds offers a channel beside a
+person (#2241): the chat channels each bot is in and the other channels the
+person reaches, **Signed-in users** or **Anyone with the link** with an
+expiration, and an optional message. When the channel shows files (Slack,
+Mattermost, email) the dialog says everyone in it sees the preview image and,
+for a text asset, the first part of its content. The post is the same tool
+call: the portal opens an in-process session as the signed-in person and calls
+`notify`, so the channels offered, the persona rules, the rate limit and the
+audit row are the tool's. A persona without the [sharing
+permission](../personas/overview.md) has no Share action, and the channel
+routes answer it 403.
 
 ### REST
 
@@ -643,8 +682,8 @@ as them:
 
 | Route | Does |
 | --- | --- |
-| `GET /api/v1/portal/channels` | the channels the person can post to |
-| `POST /api/v1/portal/channels/{name}/publish` | post an asset (`{"asset_id": "...", "message": "..."}`) |
+| `GET /api/v1/portal/channels` | the channels the person can share to, with each bot's chat channels under `targets`; 403 for a persona without sharing |
+| `POST /api/v1/portal/assets/{id}/channel-shares` | share an asset to a channel: `{"channel": "...", "target": "...", "access_mode": "authenticated" or "public", "expires_in": "168h", "message": "..."}`; creates the link share and posts its URL; 403 for a persona without sharing |
 | `POST /api/v1/portal/channels/{name}/send` | post a message (`{"title": "...", "body": "...", "link": "..."}`) |
 | `GET /api/v1/portal/scripts/{id}/runs/{runID}/posts` | the posts one run made, each with its channel, title and status (`sent`, `failed`, `queued`); readable by the script's owner, an administrator and whoever requested the run |
 
@@ -663,8 +702,11 @@ the scope, a revoked token says to reinstall the app). An answer that is not a
 Web API envelope means the connection's `base_url` is not
 `https://slack.com/api`.
 
-A message's files are uploaded before it is posted and shared into its thread
-after, so they sit with the message they belong to. The bytes go only to an
+A message's files are uploaded before it is posted and shared after it: an
+asset's preview image into the channel itself, the line under the message,
+so everyone in the channel sees it without opening a thread, and every other
+file into the message's thread. The bot needs `channels:read` (and
+`groups:read` for private channels) for its channels to be listed. The bytes go only to an
 upload address on the connection's own domain (`files.slack.com` for
 `slack.com`). A share that fails after the message was posted fails the
 delivery saying so, rather than retrying and posting the message twice.

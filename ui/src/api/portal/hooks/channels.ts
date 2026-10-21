@@ -1,9 +1,16 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 
-// --- Post to a channel (#1723) and a run's posts ---
+// --- Share to a channel (#2241) and a run's posts ---
 
-// PortalChannel is one channel the signed-in person can post to, as the
+// ChatTarget is one chat channel a Slack or Mattermost channel's bot is in.
+export interface ChatTarget {
+  id: string;
+  name: string;
+  private?: boolean;
+}
+
+// PortalChannel is one channel the signed-in person can share to, as the
 // notify tool's list action reports it.
 export interface PortalChannel {
   name: string;
@@ -11,6 +18,13 @@ export interface PortalChannel {
   mode: string;
   description?: string;
   carries: string;
+  // target is the channel's own chat channel; empty on a channel that
+  // stands for its bot, which posts to one of targets.
+  target?: string;
+  // targets are the chat channels the bot is in, read when the list is.
+  targets: ChatTarget[];
+  // targets_error says why targets could not be read.
+  targets_error?: string;
 }
 
 export interface PortalChannelList {
@@ -19,32 +33,61 @@ export interface PortalChannelList {
   note?: string;
 }
 
-// ChannelPostResult is what the notify tool answered a post with.
-export interface ChannelPostResult {
+// ChannelShareResult is what the notify tool answered a channel share with.
+export interface ChannelShareResult {
   channel: string;
   queued: number;
   suppressed?: boolean;
   detail: string;
+  link?: string;
+  access?: string;
+  share_id?: string;
+  expires_at?: string;
 }
 
-// usePortalChannels lists the channels the signed-in person reaches. It is
-// read only while the dialog that needs it is open.
+// ChannelShareBody is one share to a channel: where it goes, who opens the
+// link, and the line posted above the asset.
+export interface ChannelShareBody {
+  assetId: string;
+  channel: string;
+  target?: string;
+  access_mode: "authenticated" | "public";
+  expires_in?: string;
+  message?: string;
+}
+
+// usePortalChannels lists the channels the signed-in person reaches, with
+// each bot's chat channels. It is read only while the dialog that needs it is
+// open, and read again each time it opens, so a channel the bot was just
+// invited to is offered.
 export function usePortalChannels(enabled: boolean) {
   return useQuery({
     queryKey: ["portal-channels"],
     queryFn: () => apiFetch<PortalChannelList>("/channels"),
     enabled,
+    staleTime: 0,
   });
 }
 
-// usePublishToChannel posts an asset to a channel.
-export function usePublishToChannel() {
+// useShareToChannel creates a link share on an asset and posts the asset to a
+// channel with the share's link. The asset's share list is read again after,
+// since the post added a share to it.
+export function useShareToChannel() {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ channel, assetId, message }: { channel: string; assetId: string; message?: string }) =>
-      apiFetch<ChannelPostResult>(`/channels/${encodeURIComponent(channel)}/publish`, {
+    mutationFn: ({ assetId, ...body }: ChannelShareBody) =>
+      apiFetch<ChannelShareResult>(`/assets/${encodeURIComponent(assetId)}/channel-shares`, {
         method: "POST",
-        body: JSON.stringify({ asset_id: assetId, message: message || undefined }),
+        body: JSON.stringify({
+          ...body,
+          target: body.target || undefined,
+          expires_in: body.expires_in || undefined,
+          message: body.message || undefined,
+        }),
       }),
+    onSuccess: (_res, { assetId }) => {
+      void qc.invalidateQueries({ queryKey: ["shares", assetId] });
+    },
   });
 }
 

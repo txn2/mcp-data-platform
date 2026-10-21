@@ -5,6 +5,7 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 vi.mock("@/api/portal/hooks", () => ({
   useMentionCandidates: vi.fn(),
   useMentionEligibility: vi.fn(() => ({})),
+  useDirectoryNames: vi.fn(() => ({ "marcus.johnson@example.com": "Marcus Johnson" })),
 }));
 
 vi.mock("@/stores/auth", () => ({
@@ -130,5 +131,30 @@ describe("MentionTextarea", () => {
 
     expect(screen.queryByText(/Notifying/)).not.toBeInTheDocument();
     expect(screen.queryByText(/does not have access/)).not.toBeInTheDocument();
+  });
+});
+
+describe("MentionTextarea preview (#2214)", () => {
+  beforeEach(() => {
+    mockCandidates.mockReturnValue({ data: { candidates: [] } } as unknown as ReturnType<typeof useMentionCandidates>);
+  });
+
+  it("shows the body as it will read, with a deliverable mention as a chip, and goes back to writing", () => {
+    mockEligibility.mockReturnValue({ "marcus.johnson@example.com": true });
+    render(<Harness initial={"**Done**, @marcus.johnson(example.com)"} />);
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const preview = screen.getByTestId("comment-preview");
+    expect(preview.querySelector("strong")).toHaveTextContent("Done");
+    expect(screen.getByText("@Marcus Johnson")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reply")).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Write" }));
+    expect(screen.queryByTestId("comment-preview")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Reply")).toBeVisible();
+  });
+
+  it("says when there is nothing to preview", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(screen.getByText("Nothing to preview.")).toBeInTheDocument();
   });
 });

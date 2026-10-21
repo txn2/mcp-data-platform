@@ -344,7 +344,7 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := checkPortalPromptPermission(user, existing, h.deps.AdminRoles, "update"); errMsg != "" {
+	if errMsg := checkPortalPromptPermission(user, existing, h.access.IsAdmin(user), "update"); errMsg != "" {
 		writePortalError(w, http.StatusForbidden, errMsg)
 		return
 	}
@@ -393,11 +393,11 @@ func reregisterPrompt(reg PromptRegistrar, oldName string, p *prompt.Prompt) {
 // prompt (verb is "update" or "delete"). System rows are read-only config
 // mirrors for every caller, admins may mutate anything else, and a non-admin
 // only their own personal prompts. Returns a non-empty error message if denied.
-func checkPortalPromptPermission(user *User, existing *prompt.Prompt, adminRoles []string, verb string) string {
+func checkPortalPromptPermission(user *User, existing *prompt.Prompt, isAdmin bool, verb string) string {
 	if existing.Source == prompt.SourceSystem {
 		return "this prompt is defined in server configuration and is read-only"
 	}
-	if access.HasAnyRole(user.Roles, adminRoles) {
+	if isAdmin {
 		return ""
 	}
 	if existing.Scope != prompt.ScopePersonal {
@@ -518,7 +518,7 @@ func (h *Handler) deleteMyPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := checkPortalPromptPermission(user, existing, h.deps.AdminRoles, "delete"); errMsg != "" {
+	if errMsg := checkPortalPromptPermission(user, existing, h.access.IsAdmin(user), "delete"); errMsg != "" {
 		writePortalError(w, http.StatusForbidden, errMsg)
 		return
 	}
@@ -642,6 +642,10 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 	// a person-to-person share to grant.
 	if pr.Scope != prompt.ScopePersonal || !h.access.CanManageEmail(pr.OwnerEmail, user) {
 		writePortalError(w, http.StatusForbidden, "only the owner can share this prompt")
+		return
+	}
+	if !h.sharingAllowed(user) {
+		writePortalError(w, http.StatusForbidden, access.ErrSharingNotAllowed)
 		return
 	}
 

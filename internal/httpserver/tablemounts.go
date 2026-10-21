@@ -238,22 +238,22 @@ func (a objectReaderAdapter) ListDirectory(
 // rather than present and always refusing, which is what lets the portal hide
 // it instead of showing a button that answers with an apology.
 func mountTableAPI(
-	mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, adminRoles []string,
+	mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, isAdmin func([]string) bool,
 ) {
 	registrar := tableRegistrar(p)
 	if !registrar.Available() {
 		return
 	}
 
-	subjects := platformTableSubjects(p, adminRoles)
+	subjects := platformTableSubjects(p)
 	handler := tablehttp.New(tablehttp.Deps{
 		Registrar:   registrar,
 		Resources:   subjects[tableregister.KindResource],
 		Assets:      subjects[tableregister.KindAsset],
-		Connections: tableConnectionEnumerator(p, adminRoles),
+		Connections: tableConnectionEnumerator(p, isAdmin),
 		Visible:     tableVisibility(p),
-		Sources:     tableSourceLookup(p, adminRoles),
-		Caller:      tableCaller(p, adminRoles),
+		Sources:     tableSourceLookup(p),
+		Caller:      tableCaller(p, isAdmin),
 	})
 	if handler == nil {
 		return
@@ -326,12 +326,12 @@ func (f sourceFollower) follow(ctx context.Context, kind, id string, version int
 // The tool is given the same per-kind resolvers the REST routes use, so the
 // rule for who may register a file is applied once and cannot differ between
 // the two doors.
-func wireTableToolRegistrar(p *platform.Platform, adminRoles []string) {
+func wireTableToolRegistrar(p *platform.Platform, _ func([]string) bool) {
 	registrar := tableRegistrar(p)
 	if !registrar.Available() {
 		return
 	}
-	adapter := tableregister.NewToolAdapter(registrar, adminRoles, platformTableSubjects(p, adminRoles),
+	adapter := tableregister.NewToolAdapter(registrar, platformTableSubjects(p),
 		platformTableLocator(p))
 	if adapter == nil {
 		return
@@ -368,9 +368,9 @@ func wireTableLookup(p *platform.Platform, lookup *tablelookup.Lookup) {
 
 // platformTableSubjects reads the two stores off the platform and builds the
 // resolvers over them.
-func platformTableSubjects(p *platform.Platform, adminRoles []string) map[string]tableregister.Subject {
+func platformTableSubjects(p *platform.Platform) map[string]tableregister.Subject {
 	return tablesource.Subjects(
-		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore(), adminRoles)
+		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore())
 }
 
 // platformTableLocator reads the two stores off the platform and builds the
@@ -383,7 +383,7 @@ func platformTableLocator(p *platform.Platform) tableregister.Locator {
 // this caller reaches that can actually hold a table: granted to their persona
 // and carrying a scratch catalog and schema. A picker that offered anything
 // else would offer a choice the registrar then refuses.
-func tableConnectionEnumerator(p *platform.Platform, adminRoles []string) tablehttp.ConnectionEnumerator {
+func tableConnectionEnumerator(p *platform.Platform, isAdmin func([]string) bool) tablehttp.ConnectionEnumerator {
 	lister := connreach.New(connreach.Deps{
 		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(), Stored: platform.StoredConnections(p),
 	})
@@ -403,9 +403,7 @@ func tableConnectionEnumerator(p *platform.Platform, adminRoles []string) tableh
 				personaName = info.Name
 			}
 		}
-		isAdmin := tablesource.HasAnyRole(user.Roles, adminRoles)
-
-		return scratchConnectionChoices(lister.ForPersona(ctx, personaName, isAdmin), exec)
+		return scratchConnectionChoices(lister.ForPersona(ctx, personaName, isAdmin(user.Roles)), exec)
 	}
 }
 
@@ -493,9 +491,9 @@ func connectionVisibility(lister *connreach.Lister) tablehttp.Visibility {
 // what a caller may QUERY, decided by connection; the unregister action needs
 // authority over the SOURCE, which is a different and narrower question, and a
 // row is shown either way.
-func tableSourceLookup(p *platform.Platform, adminRoles []string) tableregister.Sources {
+func tableSourceLookup(p *platform.Platform) tableregister.Sources {
 	files := tablesource.RefLookup(
-		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore(), adminRoles)
+		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore())
 	hooks := whsource.NewStore(p.DB(), p.RestEncryptor())
 	return func(ctx context.Context, kind string, ids []string, caller tableregister.Caller) map[string]tableregister.SourceRef {
 		if kind == tableregister.KindWebhook {
@@ -524,14 +522,14 @@ func webhookSourceRefs(ctx context.Context, hooks *whsource.Store, ids []string)
 }
 
 // tableCaller builds the registrar's view of an authenticated portal user.
-func tableCaller(p *platform.Platform, adminRoles []string) func(*portal.User) tableregister.Caller {
+func tableCaller(p *platform.Platform, isAdmin func([]string) bool) func(*portal.User) tableregister.Caller {
 	resolver := buildPersonaResolver(p.PersonaRegistry(), p.ToolkitRegistry())
 	return func(user *portal.User) tableregister.Caller {
 		caller := tableregister.Caller{
 			UserID:  user.UserID,
 			Email:   user.Email,
 			Roles:   user.Roles,
-			IsAdmin: tablesource.HasAnyRole(user.Roles, adminRoles),
+			IsAdmin: isAdmin(user.Roles),
 		}
 		if resolver != nil {
 			if info := resolver(user.Roles); info != nil {

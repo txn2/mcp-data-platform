@@ -43,6 +43,12 @@ type Document struct {
 	// Data is the sender's structured payload, JSON, delivered verbatim by a
 	// JSON webhook channel and ignored by every other kind.
 	Data json.RawMessage `json:"data,omitempty"`
+	// Target is the chat channel the post goes to on the channel's
+	// connection, in place of the channel's own Target (#2241): a person
+	// sharing an asset picks one of the channels the connection's bot is in.
+	// Empty posts to the channel's Target. The slack and mattermost kinds read
+	// it; the others carry no channel choice.
+	Target string `json:"target,omitempty"`
 }
 
 // Attachment names one file a document carries: a portal asset or a managed
@@ -72,6 +78,9 @@ type File struct {
 	Name        string
 	ContentType string
 	Data        []byte
+	// Preview marks the asset's tile image, which a kind that can shows in
+	// the channel beside the message rather than in its thread (#2241).
+	Preview bool
 }
 
 // SuppressionNote is the line a document delivered after suppressed sends

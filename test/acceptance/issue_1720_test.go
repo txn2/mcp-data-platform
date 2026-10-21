@@ -439,8 +439,10 @@ func TestIssue1723_NotifyPublishesAnAsset(t *testing.T) {
 	if queued := number(t, res, "queued"); queued != 1 {
 		t.Fatalf("queued = %v, want 1", queued)
 	}
-	if link, _ := res["link"].(string); !strings.Contains(link, assetID) {
-		t.Errorf("link = %q, want the asset's portal page", link)
+	// The link is a share the channel's readers open (#2088), not the asset
+	// page that opens only for the people who already have access.
+	if link, _ := res["link"].(string); !strings.Contains(link, "/portal/view/") || res["share_id"] == nil {
+		t.Errorf("link = %q, share %v, want a signed-in link share", link, res["share_id"])
 	}
 
 	waitFor(t, "the published asset", func() (bool, string) {

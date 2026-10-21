@@ -373,14 +373,17 @@ export function useCreateAsset() {
 
 // --- Versions ---
 
-export function useAssetVersions(assetId: string) {
+// useAssetVersions reads an asset's version history. enabled is false for a
+// reader whose access is viewer, who is shown the current version only and
+// whom the route refuses (#2226).
+export function useAssetVersions(assetId: string, enabled = true) {
   return useQuery({
     queryKey: ["asset-versions", assetId],
     queryFn: () =>
       apiFetch<PaginatedResponse<AssetVersion>>(
         `/assets/${assetId}/versions`,
       ),
-    enabled: !!assetId,
+    enabled: !!assetId && enabled,
   });
 }
 

@@ -427,7 +427,7 @@ func TestPublish_BuildsTheDocumentFromTheAsset(t *testing.T) {
 		})
 
 	res, _, err := h.handle(asAnalyst(t), notifyInput{
-		Action: "publish", Channel: "ops", Asset: "asset_1", Message: "This week's numbers",
+		Action: "publish", Access: "existing", Channel: "ops", Asset: "asset_1", Message: "This week's numbers",
 	})
 	if err != nil {
 		t.Fatalf("publish: %v", err)
@@ -493,7 +493,7 @@ func TestPublish_ContentTypesThatCannotBeShownContributeNoBody(t *testing.T) {
 			c.Assets = &memAssets{asset: asset, content: []byte("<html><body>…</body></html>")}
 			c.Access = allowAll{}
 		})
-	if _, _, err := h.handle(asAnalyst(t), notifyInput{Action: "publish", Channel: "ops", Asset: "a1"}); err != nil {
+	if _, _, err := h.handle(asAnalyst(t), notifyInput{Action: "publish", Access: "existing", Channel: "ops", Asset: "a1"}); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	if body := queue.rows[0].Payload.Document.Body; strings.Contains(body, "<html>") {

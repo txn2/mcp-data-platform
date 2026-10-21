@@ -36,13 +36,13 @@ func adminEmail(r *http.Request) string {
 
 // portalIdentityResolver adapts the portal auth context to the versionhttp
 // identity shape: caller email, admin membership, and resolved persona.
-func portalIdentityResolver(adminRoles []string, resolver portal.PersonaResolver) func(r *http.Request) *versionhttp.PortalIdentity {
+func portalIdentityResolver(isAdmin func([]string) bool, resolver portal.PersonaResolver) func(r *http.Request) *versionhttp.PortalIdentity {
 	return func(r *http.Request) *versionhttp.PortalIdentity {
 		user := portal.GetUser(r.Context())
 		if user == nil {
 			return nil
 		}
-		id := &versionhttp.PortalIdentity{UserID: user.UserID, Email: user.Email, IsAdmin: rolesIntersect(user.Roles, adminRoles)}
+		id := &versionhttp.PortalIdentity{UserID: user.UserID, Email: user.Email, IsAdmin: isAdmin(user.Roles)}
 		if resolver != nil {
 			if pi := resolver(user.Roles); pi != nil {
 				id.Persona = pi.Name
