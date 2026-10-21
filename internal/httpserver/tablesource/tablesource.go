@@ -21,7 +21,6 @@ package tablesource
 import (
 	"context"
 	"log/slog"
-	"slices"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
@@ -38,14 +37,14 @@ import (
 // A kind whose store is absent has no entry, which leaves that kind
 // unregisterable on both surfaces rather than half-served on one.
 func Subjects(
-	resources resource.Store, resourceBucket string, assets portal.AssetStore, adminRoles []string,
+	resources resource.Store, resourceBucket string, assets portal.AssetStore,
 ) map[string]tableregister.Subject {
 	subjects := make(map[string]tableregister.Subject, 2)
 	if resources != nil {
 		subjects[tableregister.KindResource] = ResourceSubject(resources, resourceBucket)
 	}
 	if assets != nil {
-		subjects[tableregister.KindAsset] = AssetSubject(assets, adminRoles)
+		subjects[tableregister.KindAsset] = AssetSubject(assets)
 	}
 	return subjects
 }
@@ -98,10 +97,10 @@ func resourceSource(res *resource.Resource, bucket string) tableregister.Source 
 }
 
 // AssetSubject resolves a portal asset for the table surfaces.
-func AssetSubject(store portal.AssetStore, adminRoles []string) tableregister.Subject {
+func AssetSubject(store portal.AssetStore) tableregister.Subject {
 	return func(ctx context.Context, id string, caller tableregister.Caller) (tableregister.Source, bool) {
 		asset, ok := readAsset(ctx, store, id)
-		if !ok || !AssetVisibleTo(*asset, caller, adminRoles) {
+		if !ok || !AssetVisibleTo(*asset, caller) {
 			return tableregister.Source{}, false
 		}
 		return assetSource(asset), true
@@ -141,12 +140,10 @@ func assetSource(asset *portal.Asset) tableregister.Source {
 // managed script's output is registered, listed and dropped by the same person
 // the portal calls its owner, and by nobody else.
 //
-// The administrator arm is checked twice on purpose: a caller assembled by a
-// surface that does not resolve IsAdmin still carries the roles it was
-// authenticated with, and an administrator is unrestricted whichever door they
-// came through.
-func AssetVisibleTo(asset portal.Asset, caller tableregister.Caller, adminRoles []string) bool {
-	if caller.IsAdmin || HasAnyRole(caller.Roles, adminRoles) {
+// The administrator arm is the caller's IsAdmin, which every surface that
+// assembles a caller resolves by the platform's one admin rule (#2228).
+func AssetVisibleTo(asset portal.Asset, caller tableregister.Caller) bool {
+	if caller.IsAdmin {
 		return true
 	}
 	return assetOwnerOf(caller).OwnsAsset(&asset)
@@ -207,7 +204,7 @@ func locateAsset(ctx context.Context, store portal.AssetStore, id string) (table
 // RefLookup dispatches a listing's source resolution to the store that holds
 // that kind, the way Subjects does for the per-source routes.
 func RefLookup(
-	resources resource.Store, bucket string, assets portal.AssetStore, adminRoles []string,
+	resources resource.Store, bucket string, assets portal.AssetStore,
 ) tableregister.Sources {
 	return func(
 		ctx context.Context, kind string, ids []string, caller tableregister.Caller,
@@ -216,7 +213,7 @@ func RefLookup(
 		case tableregister.KindResource:
 			return resourceSourceRefs(ctx, resources, bucket, ids, caller)
 		case tableregister.KindAsset:
-			return assetSourceRefs(ctx, assets, adminRoles, ids, caller)
+			return assetSourceRefs(ctx, assets, ids, caller)
 		default:
 			return nil
 		}
@@ -262,7 +259,7 @@ func resourceSourceRefs(
 // assetSourceRefs reads a page of portal assets in one query. A soft-deleted
 // asset is left out, which is what the Subject resolver does with one.
 func assetSourceRefs(
-	ctx context.Context, store portal.AssetStore, adminRoles []string,
+	ctx context.Context, store portal.AssetStore,
 	ids []string, caller tableregister.Caller,
 ) map[string]tableregister.SourceRef {
 	if store == nil {
@@ -284,18 +281,8 @@ func assetSourceRefs(
 			Description: asset.Description,
 			Bucket:      asset.S3Bucket,
 			HeadKey:     asset.S3Key,
-			CanModify:   AssetVisibleTo(*asset, caller, adminRoles),
+			CanModify:   AssetVisibleTo(*asset, caller),
 		}
 	}
 	return out
-}
-
-// HasAnyRole reports whether held contains any of want.
-func HasAnyRole(held, want []string) bool {
-	for _, h := range held {
-		if slices.Contains(want, h) {
-			return true
-		}
-	}
-	return false
 }

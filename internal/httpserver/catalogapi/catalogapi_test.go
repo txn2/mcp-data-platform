@@ -598,3 +598,24 @@ func TestDefinitionSaysWhenMoreCarryItThanAreListed(t *testing.T) {
 		t.Fatalf("%d uses listed, more_uses %v", len(uses), view["more_uses"])
 	}
 }
+
+// TestReader_TheAdminRuleDecides: a wired admin rule, the platform's one
+// (#2228), decides who reads the catalog unrestricted, not the admin roles.
+func TestReader_TheAdminRuleDecides(t *testing.T) {
+	h := New(Deps{AdminRoles: []string{roleAdmin}, IsAdmin: func(roles []string) bool { return len(roles) == 1 && roles[0] == "root" }})
+	for _, tc := range []struct {
+		roles []string
+		want  bool
+	}{
+		{[]string{"root"}, true},
+		{[]string{roleAdmin}, false},
+	} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+		req = req.WithContext(portal.ContextWithUser(req.Context(), &portal.User{UserID: "u", Roles: tc.roles}))
+		w := httptest.NewRecorder()
+		_, ok := h.reader(w, req)
+		if ok != tc.want {
+			t.Errorf("roles %v: admitted %v, want %v (%d)", tc.roles, ok, tc.want, w.Code)
+		}
+	}
+}

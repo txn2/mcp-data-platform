@@ -157,12 +157,29 @@ func TestValidateChannel_Slack(t *testing.T) {
 	if err := ValidateChannel(ok); err != nil {
 		t.Errorf("a slack channel with a connection and a target was refused: %v", err)
 	}
+	// A channel with no target stands for the bot, whose channels a person
+	// chooses among (#2241); the send that names none is refused at enqueue.
 	noTarget := ok
 	noTarget.Target = ""
-	if err := ValidateChannel(noTarget); err == nil {
-		t.Error("a slack channel with no target was accepted")
+	if err := ValidateChannel(noTarget); err != nil {
+		t.Errorf("a slack channel with no target was refused: %v", err)
+	}
+	if !ChannelHasTarget(ChannelKindSlack) || !ChannelHasTarget(ChannelKindMattermost) ||
+		ChannelHasTarget(ChannelKindWebhook) || ChannelHasTarget(ChannelKindEmail) {
+		t.Error("only the slack and mattermost kinds choose a chat channel")
 	}
 	if !ChannelNeedsConnection(ChannelKindSlack) || !ChannelCarriesFiles(ChannelKindSlack) {
 		t.Error("a slack channel names a connection and carries files")
+	}
+}
+
+func TestValidateChannel_ADailyChatChannelNeedsItsOwnTarget(t *testing.T) {
+	daily := Channel{Name: "ops", Kind: ChannelKindMattermost, Mode: ChannelModeDaily, Connection: "c"}
+	if err := ValidateChannel(daily); err == nil || !strings.Contains(err.Error(), "give it a target") {
+		t.Errorf("a daily chat channel with no target: %v", err)
+	}
+	daily.Target = "town"
+	if err := ValidateChannel(daily); err != nil {
+		t.Errorf("a daily chat channel with a target was refused: %v", err)
 	}
 }

@@ -72,14 +72,47 @@ func (s *SlackSender) Send(ctx context.Context, ch notification.Channel, d notif
 	if err != nil {
 		return err
 	}
-	if len(ids) == 0 {
-		return nil
-	}
 	ts, _ := posted["ts"].(string)
-	if _, err := slackCall(ctx, u, slackCompleteUploads, slackShare(ids, d.Files, ch.Target, ts)); err != nil {
-		return fmt.Errorf("the message was posted, but its files could not be attached to it (%s): %w", err.Error(), ErrTerminal)
+	inChannel, inThread := splitPreview(ids, d.Files)
+	// The preview is shared into the channel itself, the message's next
+	// line, so everyone in the channel sees what the asset looks like
+	// without opening a thread (#2241). Every other file goes to the thread.
+	for _, share := range []slackFiles{inChannel, inThread.withThread(ts)} {
+		if len(share.ids) == 0 {
+			continue
+		}
+		if _, err := slackCall(ctx, u, slackCompleteUploads, slackShare(share.ids, share.files, ch.Target, share.thread)); err != nil {
+			return fmt.Errorf("the message was posted, but its files could not be attached to it (%s): %w", err.Error(), ErrTerminal)
+		}
 	}
 	return nil
+}
+
+// slackFiles is one completeUploadExternal share: the uploaded ids, the files
+// they were uploaded from, and the thread they go to (empty: the channel).
+type slackFiles struct {
+	ids    []string
+	files  []notification.File
+	thread string
+}
+
+// withThread is the share addressed to a post's thread.
+func (s slackFiles) withThread(ts string) slackFiles {
+	s.thread = ts
+	return s
+}
+
+// splitPreview separates the preview images, shared into the channel, from
+// the files that go to the post's thread.
+func splitPreview(ids []string, files []notification.File) (inChannel, inThread slackFiles) {
+	for i, id := range ids {
+		if files[i].Preview {
+			inChannel.ids, inChannel.files = append(inChannel.ids, id), append(inChannel.files, files[i])
+			continue
+		}
+		inThread.ids, inThread.files = append(inThread.ids, id), append(inThread.files, files[i])
+	}
+	return inChannel, inThread
 }
 
 // slackMessage builds the chat.postMessage body: a header block with the
@@ -129,7 +162,7 @@ func slackMarkdown(d notification.Delivery) string {
 }
 
 // slackShare builds the completeUploadExternal body sharing the files into
-// the post's thread.
+// the channel, or into the post's thread when threadTS names one.
 func slackShare(ids []string, files []notification.File, channelID, threadTS string) map[string]any {
 	list := make([]map[string]any, 0, len(ids))
 	for i, id := range ids {

@@ -24,6 +24,7 @@ const draft: PersonaDraft = {
   agentInstructionsOverride: "",
   serviceAccount: false,
   showAutomations: true,
+  allowSharing: true,
 };
 
 afterEach(cleanup);
@@ -63,6 +64,27 @@ describe("BehaviorTab Automations (#2109)", () => {
   it("reflects a persona that hides them", () => {
     render(<BehaviorTab draft={{ ...draft, showAutomations: false }} onUpdate={vi.fn()} isReadOnly />);
     const box = screen.getByRole("checkbox", { name: /^Automations/ });
+    expect(box).not.toBeChecked();
+    expect(box).toBeDisabled();
+  });
+});
+
+describe("BehaviorTab Sharing (#2241)", () => {
+  it("allows sharing by default and saves withholding it into the draft", () => {
+    const onUpdate = vi.fn();
+    render(<BehaviorTab draft={draft} onUpdate={onUpdate} isReadOnly={false} />);
+    const box = screen.getByRole("checkbox", { name: /^Sharing/ });
+    expect(box).toBeChecked();
+    expect(
+      screen.getByText("Share what they own with a person or to a channel. Administrators always can."),
+    ).toBeInTheDocument();
+    fireEvent.click(box);
+    expect(onUpdate).toHaveBeenCalledWith({ allowSharing: false });
+  });
+
+  it("reflects a persona denied sharing", () => {
+    render(<BehaviorTab draft={{ ...draft, allowSharing: false }} onUpdate={vi.fn()} isReadOnly />);
+    const box = screen.getByRole("checkbox", { name: /^Sharing/ });
     expect(box).not.toBeChecked();
     expect(box).toBeDisabled();
   });

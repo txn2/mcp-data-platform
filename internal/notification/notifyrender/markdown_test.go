@@ -164,3 +164,28 @@ func TestFirstParagraph(t *testing.T) {
 		}
 	}
 }
+
+func TestCommentMessagesRenderAsMarkdown(t *testing.T) {
+	item := buildItem(notification.Notification{Payload: notification.Payload{
+		Kind: notification.KindComment, Message: "**Fixed** in `v2`, thanks @ada.l(example.com)\n\n- one\n- two",
+	}})
+	html := string(item.MessageHTML)
+	for _, want := range []string{"<strong>Fixed</strong>", "<code>v2</code>", "<li>one</li>", "@ada.l@example.com"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("MessageHTML %q does not contain %q", html, want)
+		}
+	}
+	if item.Message == "" {
+		t.Error("the text part lost the message")
+	}
+	raw := buildItem(notification.Notification{Payload: notification.Payload{
+		Kind: notification.KindMention, Message: "<script>alert(1)</script> [x](javascript:alert(1))",
+	}})
+	if strings.Contains(string(raw.MessageHTML), "<script>") || strings.Contains(string(raw.MessageHTML), "javascript:") {
+		t.Errorf("raw HTML or a script link reached the email: %s", raw.MessageHTML)
+	}
+	share := buildItem(notification.Notification{Payload: notification.Payload{Kind: notification.KindAsset, Message: "**hi**"}})
+	if share.MessageHTML != "" {
+		t.Error("a share's note was rendered as a comment")
+	}
+}

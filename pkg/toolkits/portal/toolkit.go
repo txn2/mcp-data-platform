@@ -315,6 +315,11 @@ type Config struct {
 	// action (#1280). Nil (no database, so no directory) leaves sharing
 	// working by email address only.
 	Directory DirectoryReader
+
+	// SharingAllowed reports whether a persona lets its people share what
+	// they own (#2241); the share action refuses a persona it denies. Nil
+	// allows every persona.
+	SharingAllowed func(persona string) bool
 }
 
 // DirectoryReader looks people up in the known-users directory. The share
@@ -350,6 +355,7 @@ type Toolkit struct {
 
 	captureProvenance portal.ProvenanceCapturer
 	directory         DirectoryReader
+	sharingAllowed    func(persona string) bool
 	// contentRefs declares the managed resources an asset's content names.
 	// Nil-safe: every method it is called through checks Available first.
 	contentRefs *assetrefs.Declarer
@@ -409,6 +415,7 @@ func New(cfg Config) *Toolkit {
 
 		captureProvenance: cfg.CaptureProvenance,
 		directory:         cfg.Directory,
+		sharingAllowed:    cfg.SharingAllowed,
 	}
 	tk.actions = tk.buildActions()
 	tk.feedbackActions = tk.buildFeedbackActions()
@@ -1275,6 +1282,13 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageAssetInput) (*mc
 func (t *Toolkit) handleListVersions(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if input.AssetID == "" {
 		return toolkit.ErrorResult("asset_id is required for list_versions action"), nil, nil
+	}
+	asset, denial := t.loadReadableAsset(ctx, input.AssetID)
+	if denial != nil {
+		return denial, nil, nil
+	}
+	if !t.seesHistory(ctx, asset) {
+		return historyRefusal(), nil, nil
 	}
 
 	limit := input.Limit

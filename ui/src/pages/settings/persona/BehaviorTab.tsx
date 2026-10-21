@@ -63,6 +63,24 @@ export function BehaviorTab({
               </span>
             </span>
           </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={draft.allowSharing}
+              onChange={(e) => onUpdate({ allowSharing: e.target.checked })}
+              aria-describedby="persona-sharing-help"
+            />
+            <span>
+              <span className="font-medium">Sharing</span>
+              <span
+                id="persona-sharing-help"
+                className="block text-xs text-muted-foreground"
+              >
+                Share what they own with a person or to a channel. Administrators always can.
+              </span>
+            </span>
+          </label>
           <CtxField
             label="Description Prefix"
             value={draft.descriptionPrefix}

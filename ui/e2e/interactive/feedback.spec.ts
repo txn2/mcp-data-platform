@@ -174,7 +174,9 @@ test.describe("Mentions", () => {
   test("renders a stored mention as a name chip in the timeline", async ({ page }) => {
     await openAssetFeedback(page);
     await page.getByText("We don't use that term").click();
-    await expect(page.getByTitle("sarah.chen@example.com")).toHaveText("@Sarah Chen");
+    // The timeline's chip: the collapsed sidebar names the signed-in account
+    // with the same title (#2215).
+    await expect(page.getByTestId("comment-body").getByTitle("sarah.chen@example.com")).toHaveText("@Sarah Chen");
   });
 
   test("the mentions list shows threads that named me", async ({ page }) => {

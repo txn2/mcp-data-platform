@@ -78,11 +78,6 @@ func TestValidateChannel_RefusesTheWrongShapes(t *testing.T) {
 			ch.Connection = ""
 			return ch
 		}, "needs an api connection"},
-		{"a chat channel with no target", func() Channel {
-			ch := validChannel(ChannelKindMattermost)
-			ch.Target = ""
-			return ch
-		}, "needs a target channel id"},
 		{"a chat channel with recipients", func() Channel {
 			ch := validChannel(ChannelKindMattermost)
 			ch.Recipients = []string{"a@example.com"}

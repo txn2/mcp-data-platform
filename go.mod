@@ -2,7 +2,7 @@ module github.com/txn2/mcp-data-platform
 
 go 1.27.0
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2

@@ -5,6 +5,7 @@ import { canonicalRoute, isAdminRoute, isKnownRoute, redirectFor } from "./porta
 
 describe("isKnownRoute", () => {
   it("recognizes a section index and its detail alike", () => {
+    expect(isKnownRoute("/profile")).toBe(true);
     expect(isKnownRoute("/automations")).toBe(true);
     expect(isKnownRoute("/automations/script-001")).toBe(true);
     expect(isKnownRoute("/admin/calls/call-1")).toBe(true);

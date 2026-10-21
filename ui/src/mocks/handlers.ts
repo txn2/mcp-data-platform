@@ -2015,6 +2015,7 @@ export const handlers = [
       priority?: number;
       service_account?: boolean;
       hide_automations?: boolean;
+      allow_sharing?: boolean;
     };
 
     if (!body.name || !body.display_name) {
@@ -2042,6 +2043,7 @@ export const handlers = [
       api_routes: body.api_routes ?? [],
       service_account: body.service_account ?? false,
       hide_automations: body.hide_automations ?? false,
+      allow_sharing: body.allow_sharing ?? true,
       tools: [] as string[],
     };
 
@@ -2071,6 +2073,7 @@ export const handlers = [
       priority?: number;
       service_account?: boolean;
       hide_automations?: boolean;
+      allow_sharing?: boolean;
     };
 
     if (!body.display_name) {
@@ -2092,6 +2095,7 @@ export const handlers = [
     // Absent is false, as on the server: the editor sends it only when set.
     existing.service_account = body.service_account ?? false;
     existing.hide_automations = body.hide_automations ?? false;
+    existing.allow_sharing = body.allow_sharing ?? true;
 
     const idx = mockPersonas.findIndex((p) => p.name === name);
     if (idx !== -1) {
@@ -4264,31 +4268,39 @@ export const handlers = [
   }),
 
   // =========================================================================
-  // Portal: Post to a channel (#1723)
+  // Portal: Share to a channel (#2241)
   // =========================================================================
 
   http.get(`${PORTAL_BASE}/channels`, () =>
     HttpResponse.json({
       channels: [
         {
-          name: "ops-alerts", kind: "mattermost", mode: "immediate",
-          description: "The ops-alerts channel on the team Mattermost",
+          name: "team-chat", kind: "mattermost", mode: "immediate",
+          description: "The team Mattermost",
           carries: "a title, a markdown body, files and a link",
+          targets: [
+            { id: "mm-town", name: "town-square" },
+            { id: "mm-ops", name: "ops-alerts" },
+          ],
         },
         {
           name: "ops-email", kind: "email", mode: "daily", description: "The operations mailing list",
           carries: "a subject, a rendered body, files and a link button, in the deployment's branded template",
+          targets: [],
         },
       ],
     }),
   ),
 
-  http.post(`${PORTAL_BASE}/channels/:name/publish`, ({ params }) =>
-    HttpResponse.json({
-      channel: String(params.name), kind: "mattermost", queued: 1, delivered: false,
-      detail: `accepted for delivery to "${String(params.name)}"; an administrator can see the outcome in the platform's notification history`,
-    }),
-  ),
+  http.post(`${PORTAL_BASE}/assets/:id/channel-shares`, async ({ params, request }) => {
+    const body = (await request.json()) as { channel: string; access_mode: string };
+    return HttpResponse.json({
+      channel: body.channel, kind: "mattermost", queued: 1, delivered: false,
+      access: body.access_mode === "public" ? "public" : "signed_in",
+      share_id: `share-post-${String(params.id)}`,
+      detail: `accepted for delivery to "${body.channel}"; an administrator can see the outcome in the platform's notification history`,
+    });
+  }),
 
   // =========================================================================
   // Portal + Admin: Notification delivery history (#1016)

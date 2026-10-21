@@ -138,13 +138,22 @@ function RecipientLabel({ share }: { share: Share }) {
   );
 }
 
-/** LinkLabel describes a share addressed to nobody. */
+/**
+ * LinkLabel describes a share addressed to nobody, and where it was posted
+ * when a post to a channel created it (#2241): revoking it is how the posted
+ * link stops opening.
+ */
 function LinkLabel({ share }: { share: Share }) {
   return (
     <span className="text-muted-foreground">
       {share.access_mode === "public"
         ? "Link: anyone"
         : "Link: signed-in users"}
+      {share.posted_to && (
+        <span className="block text-xs" data-testid="share-posted-to">
+          Posted to {share.posted_to}
+        </span>
+      )}
     </span>
   );
 }

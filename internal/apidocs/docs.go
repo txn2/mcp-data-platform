@@ -12832,6 +12832,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/{id}/channel-shares": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a link share on an asset the signed-in user owns, in the access mode asked for (authenticated, or public with expires_in), and posts the asset to a channel they reach with the share's URL as its link: the asset's name, its content (a CSV as a table of its first rows) and its preview image when it has one. Posting the same asset to the same place again with authenticated reuses the share it made. The share appears in the asset's share list with posted_to naming the channel; revoking it stops the posted link from opening. Delivery is queued. Refused for a persona that does not allow sharing.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "Share an asset to a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The channel, who opens the link, and an optional message",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/channelhttp.ChannelShareRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/content": {
             "get": {
                 "security": [
@@ -13013,7 +13087,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns an expiring, signed URL that downloads one version of the asset without a portal session: the current version, or the one named by version. ttl is its lifetime in seconds (default 300, at most 86400). The caller must be able to view the asset. The link keeps serving that exact version until it expires and answers 403 afterwards.",
+                "description": "Returns an expiring, signed URL that downloads one version of the asset without a portal session: the current version, or the one named by version. ttl is its lifetime in seconds (default 300, at most 86400). The caller must be able to view the asset, and a caller whose access is viewer may link only to the current version (403 otherwise). The link keeps serving that exact version until it expires and answers 403 afterwards.",
                 "produces": [
                     "application/json"
                 ],
@@ -14211,7 +14285,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns paginated version history for an asset.",
+                "description": "Returns paginated version history for an asset. A caller whose access is viewer is refused with 403: earlier versions are the owner's, an editor's and an administrator's (#2226).",
                 "produces": [
                     "application/json"
                 ],
@@ -14290,7 +14364,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Downloads the binary content of a specific asset version.",
+                "description": "Downloads the binary content of a specific asset version. A caller whose access is viewer gets only the current version; any other answers 403 (#2226).",
                 "produces": [
                     "application/octet-stream"
                 ],
@@ -15518,14 +15592,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the enabled notification channels the signed-in user reaches: every email channel, and each chat or webhook channel whose api connection the user's persona reaches. Answered by the notify tool's list action.",
+                "description": "Returns the enabled notification channels the signed-in user reaches: every email channel, and each chat or webhook channel whose api connection the user's persona reaches. A Slack or Mattermost channel lists the chat channels its bot is in under targets, read from the upstream on each call. Answered by the notify tool's list action. Refused for a persona that does not allow sharing.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Notifications"
                 ],
-                "summary": "List the channels I can post to",
+                "summary": "List the channels I can share to",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -15536,80 +15610,18 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/portal/channels/{name}/publish": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Posts a portal asset the signed-in user can read to a channel they reach: the asset's name, its content (a CSV as a table of its first rows), its preview image when it has one, and a link to it. Delivery is queued.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Notifications"
-                ],
-                "summary": "Post an asset to a channel",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Channel name",
-                        "name": "name",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "The asset and an optional message",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/channelhttp.PublishRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "429": {
-                        "description": "Too Many Requests",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -26643,6 +26655,11 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "allow_sharing": {
+                    "description": "AllowSharing lets the persona's people share what they own: an asset,\ncollection or prompt with a person, and an asset to a notification\nchannel; an administrator always can. Absent is true, which allows it.",
+                    "type": "boolean",
+                    "example": true
+                },
                 "allow_tools": {
                     "type": "array",
                     "items": {
@@ -26723,6 +26740,11 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "allow_sharing": {
+                    "description": "AllowSharing lets the persona's people share what they own, with a\nperson or to a channel (#2241). True unless the persona was denied it.",
+                    "type": "boolean",
+                    "example": true
                 },
                 "allow_tools": {
                     "type": "array",
@@ -30417,18 +30439,37 @@ const docTemplate = `{
                 }
             }
         },
-        "channelhttp.PublishRequest": {
+        "channelhttp.ChannelShareRequest": {
             "type": "object",
             "properties": {
-                "asset_id": {
-                    "description": "AssetID is the asset to post.",
+                "access_mode": {
+                    "description": "AccessMode is who opens the posted link: authenticated (any signed-in\nuser, no expiration) or public (anyone with the link, expires_in\nrequired).",
                     "type": "string",
-                    "example": "ast_01HK7R8Z"
+                    "enum": [
+                        "authenticated",
+                        "public"
+                    ],
+                    "example": "authenticated"
+                },
+                "channel": {
+                    "description": "Channel is the channel's name, as the list reports it.",
+                    "type": "string",
+                    "example": "slack"
+                },
+                "expires_in": {
+                    "description": "ExpiresIn is the public link's lifetime, a duration such as 168h.",
+                    "type": "string",
+                    "example": "168h"
                 },
                 "message": {
                     "description": "Message is an optional line posted above the asset.",
                     "type": "string",
                     "example": "This week's numbers"
+                },
+                "target": {
+                    "description": "Target is the chat channel of a slack or mattermost channel, one of\nthe ids the list reports under the channel's targets. Empty posts to\nthe channel's own.",
+                    "type": "string",
+                    "example": "C0123456789"
                 }
             }
         },
@@ -33914,6 +33955,11 @@ const docTemplate = `{
                     ],
                     "example": "viewer"
                 },
+                "posted_to": {
+                    "description": "PostedTo names the channel a channel_post share's link was posted to,\nas the person sharing chose it: \"#general on slack\". Empty for every\nother origin.",
+                    "type": "string",
+                    "example": "#general on slack"
+                },
                 "prompt_id": {
                     "type": "string"
                 },
@@ -34643,6 +34689,11 @@ const docTemplate = `{
                         "analyst",
                         "data_engineer"
                     ]
+                },
+                "sharing": {
+                    "description": "Sharing is whether this caller may share what they own, with a person\nor to a channel (#2241): false when their persona withholds it, always\ntrue for an administrator.",
+                    "type": "boolean",
+                    "example": true
                 },
                 "tools": {
                     "type": "array",
@@ -35394,11 +35445,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "explicit",
-                "public_link_login"
+                "public_link_login",
+                "channel_post"
             ],
             "x-enum-varnames": [
                 "OriginExplicit",
-                "OriginPublicLinkLogin"
+                "OriginPublicLinkLogin",
+                "OriginChannelPost"
             ]
         },
         "portaldomain.SharePermission": {

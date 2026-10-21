@@ -257,14 +257,21 @@ func validateChannelFormat(c Channel) error {
 }
 
 // validateChatChannel applies the rules a bot-token kind follows: a
-// connection to deliver through, a chat channel to deliver to, and no
-// recipient list, which belongs to the email kind alone.
+// connection to deliver through and no recipient list, which belongs to the
+// email kind alone.
+//
+// The target is optional on an immediate channel (#2241). With one, the
+// channel is a fixed destination agents, scripts and alerts post to. Without
+// one it stands for the connection's bot as a whole, and a person sharing an
+// asset chooses among the chat channels the bot is in; a send that names no
+// target is refused at enqueue (checkSend). A daily channel collects one
+// bulletin for one chat channel, so it needs its own.
 func validateChatChannel(c Channel) error {
 	if c.Connection == "" {
 		return fmt.Errorf("a %s channel needs an api connection holding its bot token", c.Kind)
 	}
-	if c.Target == "" {
-		return fmt.Errorf("a %s channel needs a target channel id to post to", c.Kind)
+	if c.Target == "" && c.Mode == ChannelModeDaily {
+		return fmt.Errorf("a daily %s channel posts one bulletin to its own chat channel; give it a target, or make it immediate", c.Kind)
 	}
 	if len(c.Recipients) > 0 {
 		return fmt.Errorf("a %s channel posts to its target, not to a recipient list; remove the recipients", c.Kind)
@@ -333,4 +340,22 @@ func ChannelNeedsConnection(kind string) bool {
 // The others name each attachment by its link.
 func ChannelCarriesFiles(kind string) bool {
 	return kind == ChannelKindSlack || kind == ChannelKindMattermost || kind == ChannelKindEmail
+}
+
+// ChannelHasTarget reports whether a kind posts to a chat channel its
+// connection's bot chooses among: the kinds a document's Target can redirect.
+func ChannelHasTarget(kind string) bool {
+	return kind == ChannelKindSlack || kind == ChannelKindMattermost
+}
+
+// ChatTarget is one chat channel a slack or mattermost connection's bot is
+// in: what a person sharing an asset chooses among (#2241).
+type ChatTarget struct {
+	// ID is the channel id a post is addressed to.
+	ID string `json:"id"`
+	// Name is the channel's name as the upstream shows it, with the team in
+	// front on a Mattermost bot that is in more than one.
+	Name string `json:"name"`
+	// Private marks a channel only its members see.
+	Private bool `json:"private,omitempty"`
 }

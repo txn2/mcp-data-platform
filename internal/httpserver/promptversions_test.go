@@ -44,7 +44,7 @@ func TestAdminEmail(t *testing.T) {
 }
 
 func TestPortalIdentityResolver(t *testing.T) {
-	resolver := portalIdentityResolver([]string{"admin"}, func(roles []string) *portal.PersonaInfo {
+	resolver := portalIdentityResolver(adminByRole, func(roles []string) *portal.PersonaInfo {
 		if rolesIntersect(roles, []string{"analyst_role"}) {
 			return &portal.PersonaInfo{Name: "analyst"}
 		}
@@ -76,7 +76,7 @@ func TestPortalIdentityResolver(t *testing.T) {
 }
 
 func TestMentionIdentityResolver(t *testing.T) {
-	resolver := mentionIdentityResolver([]string{"admin"})
+	resolver := mentionIdentityResolver(adminByRole)
 
 	// No user in context: nil identity, which the handlers answer as a 401.
 	assert.Nil(t, resolver(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x", http.NoBody)))
@@ -104,3 +104,7 @@ func TestMentionIdentityResolver(t *testing.T) {
 func TestMentionAudience_NoDatabase(t *testing.T) {
 	assert.Nil(t, mentionAudience(&platform.Platform{}))
 }
+
+// adminByRole stands for the platform's admin rule in these tests: the
+// persona an "admin" role resolves to is the admin persona.
+func adminByRole(roles []string) bool { return rolesIntersect(roles, []string{"admin"}) }

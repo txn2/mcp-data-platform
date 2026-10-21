@@ -78,6 +78,9 @@ type personaDetail struct {
 	// HideAutomations takes the portal's Automations section away from the
 	// persona's people (#2109). False shows it.
 	HideAutomations bool `json:"hide_automations" example:"false"`
+	// AllowSharing lets the persona's people share what they own, with a
+	// person or to a channel (#2241). True unless the persona was denied it.
+	AllowSharing bool `json:"allow_sharing" example:"true"`
 }
 
 // MarshalJSON enforces the non-nil wire invariant for the required arrays.
@@ -129,6 +132,10 @@ type personaCreateRequest struct {
 	// its script routes away from the persona's people; an administrator
 	// keeps them. Absent is false, which shows Automations.
 	HideAutomations bool `json:"hide_automations,omitempty" example:"false"`
+	// AllowSharing lets the persona's people share what they own: an asset,
+	// collection or prompt with a person, and an asset to a notification
+	// channel; an administrator always can. Absent is true, which allows it.
+	AllowSharing *bool `json:"allow_sharing,omitempty" example:"true"`
 }
 
 // personaListResponse wraps a list of personas.
@@ -569,6 +576,7 @@ func toPersonaDetail(p *persona.Persona, tools []string) personaDetail {
 		APIRoutes:        p.APIRoutes,
 		ServiceAccount:   p.ServiceAccount,
 		HideAutomations:  p.HideAutomations,
+		AllowSharing:     p.SharingAllowed(),
 	}
 }
 
@@ -615,6 +623,7 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 		Priority:        req.Priority,
 		ServiceAccount:  req.ServiceAccount,
 		HideAutomations: req.HideAutomations,
+		AllowSharing:    req.AllowSharing,
 	}
 }
 

@@ -442,7 +442,7 @@ WHAT IS AVAILABLE
       the log printed so far; call it as often as you like, since only the
       latest is written, every few seconds.
   platform.notify(channel, title, body="", link="", data=None, key="",
-          repeat_after="", attachments=None)  Post a message to a
+          repeat_after="", attachments=None, target="")  Post a message to a
       notification channel an administrator configured: a Slack or Mattermost channel,
       an incoming webhook, or a named email list. Call
       platform.call("notify", {"action": "list"}) to see which channels this
@@ -460,15 +460,24 @@ WHAT IS AVAILABLE
       key, never shortens it. attachments is a list of up to 5 asset ids,
       resource references or dicts naming asset_id or resource_id; email,
       Slack and Mattermost carry them as files, a webhook as links. A channel refuses
-      posts past its hourly cap. Delivery is queued: the call returns when the
-      message is accepted, not when it appears.
-  platform.publish(channel, name, message="", key="", repeat_after="")  Post a
+      posts past its hourly cap. target is, for a Slack or Mattermost channel,
+      the id of one of the chat channels its bot is in, as the list action
+      reports them under targets; left out, the post goes to the channel's own.
+      Delivery is queued: the call returns when the message is accepted, not
+      when it appears.
+  platform.publish(channel, name, message="", key="", repeat_after="",
+          access="", expires_in="", target="")  Post a
       portal asset to a channel: the asset's name, its content (a CSV as a
       table of its first rows) and a link to it, with its preview image when
       it has one. name is the name platform.export saved the asset under, so a
       script that builds a report and posts it says the name twice rather than
       carrying an id between the two calls. message is a line printed above
-      it; key and repeat_after are as for notify.
+      it; key, repeat_after and target are as for notify. access is who the
+      link opens for: "signed_in" (the default) creates, or reuses, a link any
+      signed-in user opens; "public" one anyone opens until expires_in (e.g.
+      "168h", required); "existing" links the asset page, which opens only for
+      people who already have access. signed_in and public need the script's
+      owner to own the asset and their persona to allow sharing.
       In a draft run both are refused unless the draft was started with
       allow_writes, like every other call that persists: a message in
       somebody else's chat client is not something a dry run may leave behind.

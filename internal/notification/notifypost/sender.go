@@ -101,7 +101,8 @@ type DeliveryIDCarrier interface {
 // a second mail path would be a second place for the deployment's mail
 // settings to be read.
 type Senders struct {
-	byKind map[string]Sender
+	byKind   map[string]Sender
+	upstream UpstreamFunc
 }
 
 // NewSenders builds the dispatcher for the HTTP kinds over upstream.
@@ -109,7 +110,7 @@ type Senders struct {
 // deployment names this deployment in a JSON webhook envelope, so a receiver
 // fed by several can tell them apart.
 func NewSenders(upstream UpstreamFunc, deployment string) *Senders {
-	return &Senders{byKind: map[string]Sender{
+	return &Senders{upstream: upstream, byKind: map[string]Sender{
 		notification.ChannelKindSlack:      &SlackSender{upstream: upstream},
 		notification.ChannelKindMattermost: &MattermostSender{upstream: upstream},
 		notification.ChannelKindWebhook:    &WebhookSender{upstream: upstream, deployment: deployment},
@@ -130,6 +131,9 @@ func (s *Senders) Send(ctx context.Context, ch notification.Channel, d notificat
 	snd, ok := s.For(ch.Kind)
 	if !ok {
 		return fmt.Errorf("channel kind %q has no transport: %w", ch.Kind, ErrTerminal)
+	}
+	if d.Target != "" && notification.ChannelHasTarget(ch.Kind) {
+		ch.Target = d.Target
 	}
 	return snd.Send(ctx, ch, d) //nolint:wrapcheck // the kind's own message is what the operator reads
 }

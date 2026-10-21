@@ -17,6 +17,7 @@ import {
 import type { SharePermission } from "@/api/portal/types";
 import { parseEmailAddress } from "@/lib/emailAddress";
 import { ActiveShares } from "@/components/share/ActiveShares";
+import { ChannelShareSection } from "@/components/share/ChannelShareSection";
 import {
   LinkShareSection,
   UserShareSection,
@@ -230,6 +231,12 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
           onShare={handleShareWithUser}
           isPending={isPending}
         />
+
+        {/* An asset alone goes to a channel: a collection or a prompt has no
+            content to post (#2241). */}
+        {resolved.type === "asset" && resolved.id && (
+          <ChannelShareSection assetId={resolved.id} open={open} />
+        )}
 
         <ActiveShares
           shares={activeShares}

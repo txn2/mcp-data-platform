@@ -50,7 +50,7 @@ func TestToolAdapter_RegisterCarriesTheFollowChoice(t *testing.T) {
 func TestToolAdapter_FollowAssetTablesMovesTheTableAndReports(t *testing.T) {
 	h := newHarness(t)
 	src := testSource()
-	adapter := NewToolAdapter(h.reg, []string{"admin"}, map[string]Subject{
+	adapter := NewToolAdapter(h.reg, map[string]Subject{
 		KindAsset: assetSubjectFor(adapterAsset(), nil),
 	}, locatorFor(&src))
 	ctx := callerContext("alice@example.com", "analyst")
@@ -75,7 +75,7 @@ func TestToolAdapter_FollowResourceTablesUsesTheResourceKind(t *testing.T) {
 	}
 	src := SourceFromResource(rec)
 	h.objects.entries = []ObjectEntry{{Key: src.HeadKey}}
-	adapter := NewToolAdapter(h.reg, nil, map[string]Subject{
+	adapter := NewToolAdapter(h.reg, map[string]Subject{
 		KindResource: resourceSubjectFor(rec, "u1"),
 	}, locatorFor(&src))
 	_, err := adapter.Register(callerContext("alice@example.com", "analyst"), resourceRef, "scratch", "",
@@ -97,11 +97,11 @@ func TestToolAdapter_FollowResourceTablesUsesTheResourceKind(t *testing.T) {
 // is no table to say anything about.
 func TestToolAdapter_FollowWithNothingToResolve(t *testing.T) {
 	h := newHarness(t)
-	unlocatable := NewToolAdapter(h.reg, nil, map[string]Subject{KindAsset: assetSubjectFor(adapterAsset(), nil)}, nil)
+	unlocatable := NewToolAdapter(h.reg, map[string]Subject{KindAsset: assetSubjectFor(adapterAsset(), nil)}, nil)
 	assert.Nil(t, unlocatable.FollowAssetTables(context.Background(), "asset_1", 2))
 
 	src := testSource()
-	located := NewToolAdapter(h.reg, nil, map[string]Subject{KindAsset: assetSubjectFor(adapterAsset(), nil)},
+	located := NewToolAdapter(h.reg, map[string]Subject{KindAsset: assetSubjectFor(adapterAsset(), nil)},
 		locatorFor(&src))
 	assert.Nil(t, located.FollowAssetTables(context.Background(), "asset_9", 2))
 	assert.Nil(t, located.FollowAssetTables(context.Background(), "asset_1", 2), "nothing registered over it")

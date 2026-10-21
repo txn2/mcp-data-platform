@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -214,6 +215,10 @@ func (t *Toolkit) handleDiff(ctx context.Context, input manageAssetInput) (*mcp.
 	if errResult != nil {
 		return errResult, nil, nil
 	}
+	// A diff reads at least one version before the current one.
+	if !t.seesHistory(ctx, asset) {
+		return historyRefusal(), nil, nil
+	}
 
 	to := input.ToVersion
 	if to <= 0 {
@@ -331,6 +336,32 @@ func (t *Toolkit) loadReadableAsset(ctx context.Context, assetID string) (*porta
 			"Ask the owner to share it with you, or call manage_asset action=list to see the assets you can read.")
 	}
 	return asset, nil
+}
+
+// seesHistory reports whether the caller may read the asset's earlier
+// versions (#2226): an administrator, the owner, and an editor, by a direct
+// share or a collection's. A caller whose access is viewer reads only the
+// current version, as on the asset's page.
+func (t *Toolkit) seesHistory(ctx context.Context, asset *portal.Asset) bool {
+	if t.isAdmin(ctx) || ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
+		return true
+	}
+	if t.shareStore == nil {
+		return false
+	}
+	userID, email := shareIdentity(ctx)
+	if share, err := t.shareStore.GetActiveShareForTarget(ctx, threadTargetAsset, asset.ID, userID, email); err == nil &&
+		share != nil && share.Permission == portal.PermissionEditor {
+		return true
+	}
+	perm, _ := t.shareStore.GetUserAssetPermissionViaCollection(ctx, asset.ID, userID, email)
+	return perm == portal.PermissionEditor
+}
+
+// historyRefusal is what a viewer asking for an asset's history is told.
+func historyRefusal() *mcp.CallToolResult {
+	return middleware.UnauthorizedResult(access.ErrHistoryNotShared,
+		"Read the current version with action=get_content, or ask the owner for editor access.")
 }
 
 // canReadAsset reports whether the caller owns the asset or holds any share

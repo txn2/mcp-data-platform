@@ -127,6 +127,12 @@ func checkSend(s ChannelSend) error {
 	if err := ValidateChannel(s.Channel); err != nil {
 		return fmt.Errorf("channel %q is misconfigured: %w", s.Channel.Name, err)
 	}
+	if ChannelHasTarget(s.Channel.Kind) && s.Channel.Target == "" && s.Document.Target == "" {
+		return fmt.Errorf("channel %q has no chat channel of its own; name one of its bot's channels as the target", s.Channel.Name)
+	}
+	if s.Document.Target != "" && s.Channel.Mode == ChannelModeDaily {
+		return fmt.Errorf("channel %q collects a daily bulletin for its own chat channel; a target is for an immediate channel", s.Channel.Name)
+	}
 	return ValidateDocument(s.Document)
 }
 

@@ -25,6 +25,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/assetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceholds"
@@ -71,6 +72,9 @@ type Config struct {
 	// resolves a recipient's name against (#1280). Nil leaves sharing working
 	// by email address only.
 	Directory portalkit.DirectoryReader
+	// SharingAllowed reports whether a persona lets its people share (#2241),
+	// passed straight through to the asset toolkit. Nil allows every persona.
+	SharingAllowed func(persona string) bool
 }
 
 // Handle owns the assembled portal store layer: the six stores, the S3 blob
@@ -84,10 +88,13 @@ type Config struct {
 type Handle struct {
 	// sources reads managed-resource text for managed scripts (#2113, #2114),
 	// and db counts the scripts loading a file before it is deleted.
-	sources            *scriptsrc.Reader
-	db                 *sql.DB
-	assetStore         portal.AssetStore
-	shareStore         portal.ShareStore
+	sources    *scriptsrc.Reader
+	db         *sql.DB
+	assetStore portal.AssetStore
+	shareStore portal.ShareStore
+	// sharingAllowed is the persona permission an export's share link is
+	// held to (#2241).
+	sharingAllowed     func(persona string) bool
 	versionStore       portal.VersionStore
 	collectionStore    portal.CollectionStore
 	threadStore        portal.ThreadStore
@@ -206,6 +213,7 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 	// against, so an asset reference works on a deployment with no
 	// managed-resource layer at all; BindResources adds that layer when there
 	// is one (#1488).
+	h.sharingAllowed = cfg.SharingAllowed
 	h.declarer = assetrefs.NewDeclarer(h.contentRefs, h.assetStore).WithMax(cfg.MaxRefs)
 	h.toolkit = portalkit.New(portalkit.Config{
 		Name:            cfg.Name,
@@ -223,6 +231,7 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 
 		CaptureProvenance: cfg.CaptureProvenance,
 		Directory:         cfg.Directory,
+		SharingAllowed:    cfg.SharingAllowed,
 	})
 	h.toolkit.SetContentRefs(h.declarer)
 	return h
@@ -384,6 +393,16 @@ func (h *Handle) ShareStore() portal.ShareStore {
 		return nil
 	}
 	return h.shareStore
+}
+
+// ExportShareStore is the share store an export's create_public_link writes
+// through: a share is created only for an administrator or a persona that
+// allows sharing (#2241).
+func (h *Handle) ExportShareStore() portal.ShareStore {
+	if h == nil {
+		return nil
+	}
+	return exportadapters.GatedShares(h.shareStore, h.sharingAllowed)
 }
 
 // VersionStore returns the portal version store, or nil on a nil Handle.

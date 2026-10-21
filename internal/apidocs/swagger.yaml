@@ -981,6 +981,13 @@ definitions:
         items:
           type: string
         type: array
+      allow_sharing:
+        description: |-
+          AllowSharing lets the persona's people share what they own: an asset,
+          collection or prompt with a person, and an asset to a notification
+          channel; an administrator always can. Absent is true, which allows it.
+        example: true
+        type: boolean
       allow_tools:
         example:
         - search
@@ -1047,6 +1054,12 @@ definitions:
         items:
           type: string
         type: array
+      allow_sharing:
+        description: |-
+          AllowSharing lets the persona's people share what they own, with a
+          person or to a channel (#2241). True unless the persona was denied it.
+        example: true
+        type: boolean
       allow_tools:
         example:
         - trino_*
@@ -3974,15 +3987,36 @@ definitions:
       status:
         type: string
     type: object
-  channelhttp.PublishRequest:
+  channelhttp.ChannelShareRequest:
     properties:
-      asset_id:
-        description: AssetID is the asset to post.
-        example: ast_01HK7R8Z
+      access_mode:
+        description: |-
+          AccessMode is who opens the posted link: authenticated (any signed-in
+          user, no expiration) or public (anyone with the link, expires_in
+          required).
+        enum:
+        - authenticated
+        - public
+        example: authenticated
+        type: string
+      channel:
+        description: Channel is the channel's name, as the list reports it.
+        example: slack
+        type: string
+      expires_in:
+        description: ExpiresIn is the public link's lifetime, a duration such as 168h.
+        example: 168h
         type: string
       message:
         description: Message is an optional line posted above the asset.
         example: This week's numbers
+        type: string
+      target:
+        description: |-
+          Target is the chat channel of a slack or mattermost channel, one of
+          the ids the list reports under the channel's targets. Empty posts to
+          the channel's own.
+        example: C0123456789
         type: string
     type: object
   channelhttp.SendRequest:
@@ -6700,6 +6734,13 @@ definitions:
         allOf:
         - $ref: '#/definitions/portaldomain.SharePermission'
         example: viewer
+      posted_to:
+        description: |-
+          PostedTo names the channel a channel_post share's link was posted to,
+          as the person sharing chose it: "#general on slack". Empty for every
+          other origin.
+        example: '#general on slack'
+        type: string
       prompt_id:
         type: string
       revoked:
@@ -7301,6 +7342,13 @@ definitions:
         items:
           type: string
         type: array
+      sharing:
+        description: |-
+          Sharing is whether this caller may share what they own, with a person
+          or to a channel (#2241): false when their persona withholds it, always
+          true for an administrator.
+        example: true
+        type: boolean
       tools:
         example:
         - trino_query
@@ -7889,10 +7937,12 @@ definitions:
     enum:
     - explicit
     - public_link_login
+    - channel_post
     type: string
     x-enum-varnames:
     - OriginExplicit
     - OriginPublicLinkLogin
+    - OriginChannelPost
   portaldomain.SharePermission:
     enum:
     - viewer
@@ -22148,6 +22198,60 @@ paths:
       summary: Update asset metadata
       tags:
       - Assets
+  /portal/assets/{id}/channel-shares:
+    post:
+      consumes:
+      - application/json
+      description: 'Creates a link share on an asset the signed-in user owns, in the
+        access mode asked for (authenticated, or public with expires_in), and posts
+        the asset to a channel they reach with the share''s URL as its link: the asset''s
+        name, its content (a CSV as a table of its first rows) and its preview image
+        when it has one. Posting the same asset to the same place again with authenticated
+        reuses the share it made. The share appears in the asset''s share list with
+        posted_to naming the channel; revoking it stops the posted link from opening.
+        Delivery is queued. Refused for a persona that does not allow sharing.'
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The channel, who opens the link, and an optional message
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/channelhttp.ChannelShareRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Share an asset to a channel
+      tags:
+      - Shares
   /portal/assets/{id}/content:
     get:
       description: Downloads the asset's binary content from S3.
@@ -22262,8 +22366,9 @@ paths:
       description: 'Returns an expiring, signed URL that downloads one version of
         the asset without a portal session: the current version, or the one named
         by version. ttl is its lifetime in seconds (default 300, at most 86400). The
-        caller must be able to view the asset. The link keeps serving that exact version
-        until it expires and answers 403 afterwards.'
+        caller must be able to view the asset, and a caller whose access is viewer
+        may link only to the current version (403 otherwise). The link keeps serving
+        that exact version until it expires and answers 403 afterwards.'
       parameters:
       - description: Asset ID
         in: path
@@ -23055,7 +23160,9 @@ paths:
       - Portal
   /portal/assets/{id}/versions:
     get:
-      description: Returns paginated version history for an asset.
+      description: 'Returns paginated version history for an asset. A caller whose
+        access is viewer is refused with 403: earlier versions are the owner''s, an
+        editor''s and an administrator''s (#2226).'
       parameters:
       - description: Asset ID
         in: path
@@ -23105,7 +23212,9 @@ paths:
       - Assets
   /portal/assets/{id}/versions/{version}/content:
     get:
-      description: Downloads the binary content of a specific asset version.
+      description: Downloads the binary content of a specific asset version. A caller
+        whose access is viewer gets only the current version; any other answers 403
+        (#2226).
       parameters:
       - description: Asset ID
         in: path
@@ -23983,7 +24092,10 @@ paths:
     get:
       description: 'Returns the enabled notification channels the signed-in user reaches:
         every email channel, and each chat or webhook channel whose api connection
-        the user''s persona reaches. Answered by the notify tool''s list action.'
+        the user''s persona reaches. A Slack or Mattermost channel lists the chat
+        channels its bot is in under targets, read from the upstream on each call.
+        Answered by the notify tool''s list action. Refused for a persona that does
+        not allow sharing.'
       produces:
       - application/json
       responses:
@@ -23994,6 +24106,10 @@ paths:
             type: object
         "401":
           description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "503":
@@ -24003,52 +24119,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: List the channels I can post to
-      tags:
-      - Notifications
-  /portal/channels/{name}/publish:
-    post:
-      consumes:
-      - application/json
-      description: 'Posts a portal asset the signed-in user can read to a channel
-        they reach: the asset''s name, its content (a CSV as a table of its first
-        rows), its preview image when it has one, and a link to it. Delivery is queued.'
-      parameters:
-      - description: Channel name
-        in: path
-        name: name
-        required: true
-        type: string
-      - description: The asset and an optional message
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/channelhttp.PublishRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "429":
-          description: Too Many Requests
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Post an asset to a channel
+      summary: List the channels I can share to
       tags:
       - Notifications
   /portal/channels/{name}/send:

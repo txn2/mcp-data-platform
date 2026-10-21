@@ -29,6 +29,10 @@ Opening a thread shows its full timeline. Anyone can reply; the item's owner, an
 
 ![Feedback thread detail](../images/screenshots/light/user-asset-feedback-detail-light.webp#only-light)![Feedback thread detail](../images/screenshots/dark/user-asset-feedback-detail-dark.webp#only-dark)
 
+## Writing a message
+
+A thread's messages are Markdown (#2214): emphasis, `code`, lists, headings, tables and links render as such, and a single line break is kept as written. Raw HTML is not rendered and a link with a script address is not followed. **Preview** above the composer shows the message as it will read, with the mentions that will be delivered as chips; **Write** goes back to editing. A notification email renders the message the same way.
+
 ## Mentioning a teammate
 
 Type `@` anywhere in a feedback message or reply to address someone directly. The composer suggests people as you type and inserts the person as `@marcus.johnson(example.com)`, which reads as a name in the thread and is stored as an address so it keeps working when someone's display name changes.

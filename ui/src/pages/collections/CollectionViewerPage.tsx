@@ -13,6 +13,7 @@ import { ShareDialog } from "@/components/ShareDialog";
 import { CollectionSection } from "./viewer/CollectionSection";
 import { CollectionViewerActions } from "./viewer/CollectionViewerActions";
 import { type ThumbSize } from "./viewer/thumbSize";
+import { useAuthStore } from "@/stores/auth";
 
 interface Props {
   collectionId: string;
@@ -26,6 +27,7 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
   const configMutation = useUpdateCollectionConfig();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const canShare = useAuthStore((s) => s.canShare());
 
   const thumbSize: ThumbSize = (coll?.config?.thumbnail_size as ThumbSize) || "large";
 
@@ -70,7 +72,7 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
             thumbSize={thumbSize}
             onChangeThumbSize={changeThumbSize}
             onEdit={() => onNavigate(`/collections/${collectionId}/edit`)}
-            onShare={() => setShareOpen(true)}
+            onShare={canShare ? () => setShareOpen(true) : undefined}
             onDelete={() => setDeleteOpen(true)}
             deletePending={deleteMutation.isPending}
             onNavigate={onNavigate}

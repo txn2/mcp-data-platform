@@ -106,3 +106,36 @@ func TestPublish(t *testing.T) {
 		}
 	}
 }
+
+func TestPublish_AccessExpiryAndTarget(t *testing.T) {
+	got, err := call(t, `publish(channel="slack", name="Weekly", access="public", expires_in="168h", target="C1")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"action": "publish", "channel": "slack", "asset": "Weekly", "message": "",
+		"access": "public", "expires_in": "168h", "target": "C1",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("payload = %v, want %v", got, want)
+	}
+	got, err = call(t, `publish(channel="slack", name="Weekly")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"access", "expires_in", "target"} {
+		if _, ok := got[key]; ok {
+			t.Errorf("%s was sent although the script gave none, so the tool's default would not apply", key)
+		}
+	}
+}
+
+func TestSend_Target(t *testing.T) {
+	got, err := call(t, `notify(channel="slack", title="t", target="C9")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["target"] != "C9" {
+		t.Errorf("target = %v", got["target"])
+	}
+}

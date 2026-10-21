@@ -1117,6 +1117,7 @@ func (p *Platform) initRegistries(opts *Options) error {
 		p.loadDBPersonas()
 	}
 	if p.personaRegistry != nil {
+		p.personaRegistry.SetRoleMapping(p.config.Personas.RoleMapping.OIDCToPersona) // one resolution on every surface (#2228)
 		// A calls.exclude_personas entry naming no persona this deployment
 		// knows excludes nothing and says so nowhere. It is a warning rather
 		// than a refusal because personas come from the config file and from
@@ -1735,6 +1736,7 @@ func (p *Platform) initPortal() error {
 		MaxRefs:           p.config.Portal.AssetRefs.Resolved(),
 		CaptureProvenance: p.captureProvenance,
 		Directory:         p.UserStore(),
+		SharingAllowed:    p.personaRegistry.SharingAllowed,
 	})
 
 	// Registration stays a Platform/registry concern.
@@ -1840,7 +1842,7 @@ func (p *Platform) wireTrinoExport() {
 	exportCfg := p.parseExportConfig()
 
 	trinoExporter := exportadapters.NewTrinoExporter(
-		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ShareStore(),
+		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ExportShareStore(),
 		p.config.Portal.PublicBaseURL, p.captureProvenance,
 	)
 
@@ -2858,7 +2860,7 @@ func (p *Platform) Start(ctx context.Context) error {
 		Blobs: p.portalStore.S3Client(), Shares: p.portalStore.ShareStore(),
 		Collections: p.portalStore.CollectionStore(),
 		PortalURL:   p.config.Portal.PublicBaseURL, AdminPersona: p.config.Admin.Persona,
-		DigestHourUTC: p.config.Notifications.DigestHour(), Resources: p.resources.Store(),
+		DigestHourUTC: p.config.Notifications.DigestHour(), Resources: p.resources.Store(), Toolkits: p.toolkitRegistry,
 	})
 
 	// Register platform-level prompts from config
@@ -3575,7 +3577,7 @@ func (p *Platform) wireAPIGatewayExport() {
 	}
 
 	apiExporter := exportadapters.NewAPIExporter(
-		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ShareStore(),
+		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ExportShareStore(),
 		p.config.Portal.PublicBaseURL, p.captureProvenance,
 	)
 

@@ -64,6 +64,9 @@ test.describe("The stated purpose can be read", () => {
   test("it is not clipped to one line behind a tooltip", async ({ page }) => {
     await openFirstSession(page);
     const purposes = page.getByTestId("timeline-purpose");
+    // count() reads the page as it is, without waiting: the timeline renders
+    // after its fetch, and on a loaded run it had not yet.
+    await expect(purposes.first()).toBeVisible();
     const count = await purposes.count();
     expect(count).toBeGreaterThan(0);
 

@@ -36,9 +36,12 @@ type Deps struct {
 	// Resolver maps a caller's roles to their persona. Nil leaves every caller
 	// without one, which reaches nothing.
 	Resolver portal.PersonaResolver
-	// AdminRoles are the roles the admin persona is granted, which is what
-	// makes a caller's reach over this surface unrestricted.
+	// AdminRoles are the roles the admin persona is granted, read only when
+	// IsAdmin is nil.
 	AdminRoles []string
+	// IsAdmin is the platform's one administrator rule (#2228), which makes a
+	// caller's reach over this surface unrestricted.
+	IsAdmin func(roles []string) bool
 	// Stored is the connection store, which is what says a connection exists.
 	// Nil lists what this process serves, which in a multi-replica deployment
 	// is a different answer per replica (#1757).
@@ -79,7 +82,7 @@ func callerResolver(deps Deps) func(*http.Request) *apishttp.Caller {
 		}
 		c := &apishttp.Caller{
 			UserID: user.UserID, Email: user.Email, Roles: user.Roles,
-			IsAdmin: rolesIntersect(user.Roles, deps.AdminRoles),
+			IsAdmin: deps.adminRule()(user.Roles),
 		}
 		if deps.Resolver != nil {
 			if info := deps.Resolver(user.Roles); info != nil {
@@ -88,6 +91,14 @@ func callerResolver(deps Deps) func(*http.Request) *apishttp.Caller {
 		}
 		return c
 	}
+}
+
+// adminRule is IsAdmin, or holding one of AdminRoles when none is wired.
+func (d Deps) adminRule() func([]string) bool {
+	if d.IsAdmin != nil {
+		return d.IsAdmin
+	}
+	return func(roles []string) bool { return rolesIntersect(roles, d.AdminRoles) }
 }
 
 // rolesIntersect reports whether any of the caller's roles is an admin role.

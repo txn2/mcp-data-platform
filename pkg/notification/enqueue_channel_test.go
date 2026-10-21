@@ -150,6 +150,12 @@ func TestNotifyChannel_RefusesWhatCannotBeDelivered(t *testing.T) {
 			"misconfigured",
 		},
 		{
+			"a chat channel with no target, sent no target",
+			Channel{Name: "ops", Kind: ChannelKindSlack, Enabled: true, Mode: ChannelModeImmediate, Connection: "c"},
+			Document{Title: "t"},
+			"no chat channel of its own",
+		},
+		{
 			"a document with no title",
 			Channel{Name: "ops", Kind: ChannelKindMattermost, Enabled: true, Mode: ChannelModeImmediate, Connection: "c", Target: "C1"},
 			Document{Body: "orphan"},
@@ -170,6 +176,20 @@ func TestNotifyChannel_RefusesWhatCannotBeDelivered(t *testing.T) {
 				t.Errorf("a refused send wrote %d rows", len(queue.enqueued))
 			}
 		})
+	}
+}
+
+func TestNotifyChannel_AChatChannelWithNoTargetTakesTheDocumentsTarget(t *testing.T) {
+	e, queue := channelEnqueuer(t, nil)
+	ch := Channel{Name: "ops", Kind: ChannelKindMattermost, Enabled: true, Mode: ChannelModeImmediate, Connection: "c"}
+	res, err := e.NotifyChannel(context.Background(), ChannelSend{
+		Channel: ch, Actor: "a@example.com", Document: Document{Title: "t", Target: "town-square"},
+	})
+	if err != nil || res.Queued != 1 || len(queue.enqueued) != 1 {
+		t.Fatalf("queued %d rows, err %v; a document naming a target is deliverable", res.Queued, err)
+	}
+	if got := queue.enqueued[0].Payload.Document.Target; got != "town-square" {
+		t.Errorf("the queued document targets %q", got)
 	}
 }
 
@@ -254,5 +274,16 @@ func TestWantsCategory_ChannelIsAddressedByResponsibility(t *testing.T) {
 	}
 	if wantsCategory(Prefs{Mode: ModeOff}, CategoryChannel) {
 		t.Error("ModeOff did not stop a channel notification")
+	}
+}
+
+func TestNotifyChannel_ADailyChannelTakesNoTarget(t *testing.T) {
+	e, queue := channelEnqueuer(t, nil)
+	ch := Channel{Name: "ops", Kind: ChannelKindMattermost, Enabled: true, Mode: ChannelModeDaily, Connection: "c", Target: "own"}
+	_, err := e.NotifyChannel(context.Background(), ChannelSend{
+		Channel: ch, Actor: "a@example.com", Document: Document{Title: "t", Target: "other"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "daily bulletin") || len(queue.enqueued) != 0 {
+		t.Errorf("a target on a daily channel: err %v, %d rows", err, len(queue.enqueued))
 	}
 }

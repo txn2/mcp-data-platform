@@ -2,6 +2,7 @@ package tableregister
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,6 +49,10 @@ func callerContextFor(userID, email, persona string, roles ...string) context.Co
 		UserEmail:   email,
 		PersonaName: persona,
 		Roles:       roles,
+		// The tool-call middleware resolves this by the platform's one admin
+		// rule (#2228); an "admin" role stands for resolving to the admin
+		// persona here.
+		IsAdmin: slices.Contains(roles, "admin"),
 	})
 }
 
@@ -86,7 +91,7 @@ func resourceSubjectFor(rec Record, ownerID string) Subject {
 func newAdapterHarness(t *testing.T) (*ToolAdapter, *harness) {
 	t.Helper()
 	h := newHarness(t)
-	adapter := NewToolAdapter(h.reg, []string{"admin"}, map[string]Subject{
+	adapter := NewToolAdapter(h.reg, map[string]Subject{
 		KindAsset: assetSubjectFor(adapterAsset(), nil),
 	}, nil)
 	require.NotNil(t, adapter)
@@ -124,7 +129,7 @@ func TestToolAdapter_ResolvesTheKindFromTheReference(t *testing.T) {
 			entries: []ObjectEntry{{Key: "resources/res_1/glossary.csv", Size: int64(len(csvBody))}},
 		}
 	})
-	adapter := NewToolAdapter(h.reg, []string{"admin"}, map[string]Subject{
+	adapter := NewToolAdapter(h.reg, map[string]Subject{
 		KindAsset: assetSubjectFor(adapterAsset(), nil),
 		KindResource: resourceSubjectFor(Record{
 			ID: "res_1", Name: "Vendor glossary", Bucket: "resources",
@@ -198,7 +203,7 @@ func TestToolAdapter_AnonymousCallRegistersNothing(t *testing.T) {
 	h := newHarness(t)
 	// A subject that admits anyone, so what refuses the call is the registrar's
 	// identity check rather than the resolver's.
-	adapter := NewToolAdapter(h.reg, nil, map[string]Subject{
+	adapter := NewToolAdapter(h.reg, map[string]Subject{
 		KindAsset: func(_ context.Context, _ string, _ Caller) (Source, bool) {
 			return SourceFromAssetRecord(Record{
 				ID: "asset_1", Name: "Vendor keys", Bucket: "portal-assets",
@@ -214,11 +219,12 @@ func TestToolAdapter_AnonymousCallRegistersNothing(t *testing.T) {
 }
 
 // TestToolAdapter_AdminIsResolvedFromRoles: an administrator is unrestricted
-// by design, and which roles say so is the deployment's admin persona.
+// by design, and the adapter takes who is one from the call's resolved
+// IsAdmin, the platform's one admin rule (#2228).
 func TestToolAdapter_AdminIsResolvedFromRoles(t *testing.T) {
 	var seen Caller
 	h := newHarness(t)
-	adapter := NewToolAdapter(h.reg, []string{"admin"}, map[string]Subject{
+	adapter := NewToolAdapter(h.reg, map[string]Subject{
 		KindAsset: assetSubjectFor(adapterAsset(), &seen),
 	}, nil)
 	require.NotNil(t, adapter)
@@ -301,7 +307,7 @@ func TestToolAdapter_DropResourceTables(t *testing.T) {
 			entries: []ObjectEntry{{Key: "resources/res_1/glossary.csv", Size: int64(len(csvBody))}},
 		}
 	})
-	adapter := NewToolAdapter(h.reg, []string{"admin"}, map[string]Subject{
+	adapter := NewToolAdapter(h.reg, map[string]Subject{
 		KindResource: resourceSubjectFor(Record{
 			ID: "res_1", Name: "Vendor glossary", Bucket: "resources",
 			Key: "resources/res_1/glossary.csv", ContentType: "text/csv",
@@ -327,7 +333,7 @@ func TestToolAdapter_DropResourceTables(t *testing.T) {
 func TestToolAdapter_ReportsStale(t *testing.T) {
 	h := newHarness(t)
 	current := adapterAsset()
-	adapter := NewToolAdapter(h.reg, nil, map[string]Subject{
+	adapter := NewToolAdapter(h.reg, map[string]Subject{
 		KindAsset: func(_ context.Context, _ string, _ Caller) (Source, bool) {
 			return SourceFromAssetRecord(Record{
 				ID: current.ID, Name: current.Name, Bucket: current.S3Bucket,
@@ -352,9 +358,9 @@ func TestToolAdapter_ReportsStale(t *testing.T) {
 // cannot register tables" rather than holding an adapter that always fails.
 func TestNewToolAdapter_UnwiredYieldsNil(t *testing.T) {
 	subjects := map[string]Subject{KindAsset: assetSubjectFor(adapterAsset(), nil)}
-	assert.Nil(t, NewToolAdapter(New(Deps{}), nil, subjects, nil))
-	assert.Nil(t, NewToolAdapter(nil, nil, subjects, nil))
-	assert.Nil(t, NewToolAdapter(newHarness(t).reg, nil, nil, nil),
+	assert.Nil(t, NewToolAdapter(New(Deps{}), subjects, nil))
+	assert.Nil(t, NewToolAdapter(nil, subjects, nil))
+	assert.Nil(t, NewToolAdapter(newHarness(t).reg, nil, nil),
 		"a registrar with no kind to resolve can register nothing through the tool")
 }
 
@@ -384,14 +390,6 @@ func TestSourceConstructorsCarryTheirKind(t *testing.T) {
 
 	asset := SourceFromAssetRecord(rec)
 	assert.Equal(t, KindAsset, asset.Kind)
-}
-
-func TestHasAnyRole(t *testing.T) {
-	assert.True(t, hasAnyRole([]string{"analyst", "admin"}, []string{"admin"}))
-	assert.False(t, hasAnyRole([]string{"analyst"}, []string{"admin"}))
-	assert.False(t, hasAnyRole(nil, []string{"admin"}))
-	assert.False(t, hasAnyRole([]string{"admin"}, nil),
-		"a deployment with no admin persona makes nobody an administrator here")
 }
 
 // TestScratchTargetIsNotABoundary documents in a test what the config comment

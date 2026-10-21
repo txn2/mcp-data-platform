@@ -1,6 +1,6 @@
-// Package channelhttp serves the portal's "Post to a channel" routes (#1723):
-// the channels the signed-in person can reach, posting an asset to one, and
-// sending a message to one.
+// Package channelhttp serves the portal's channel routes: the channels the
+// signed-in person can reach with their bots' chat channels, sharing an asset
+// to one from the Share dialog (#2241), and sending a message to one (#1723).
 //
 // Every route is a notify tool call, made over an in-memory session that
 // authenticates as the person the portal signed in. That is the whole point of
@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
 // toolNotify is the tool every route calls. It is named rather than imported
@@ -42,19 +43,40 @@ type API struct {
 	// Server is the assembled MCP server the calls are made against. nil
 	// answers every route 503.
 	Server *mcp.Server
+	// SharingAllowed reports whether the signed-in person's persona lets
+	// them share (#2241). The channel list and the channel share refuse
+	// without it. nil allows everyone.
+	SharingAllowed func(*access.User) bool
 }
 
 // Register mounts the routes on the portal's authenticated mux.
 func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/portal/channels", a.list)
-	mux.HandleFunc("POST /api/v1/portal/channels/{name}/publish", a.publish)
+	mux.HandleFunc("POST /api/v1/portal/assets/{id}/channel-shares", a.share)
 	mux.HandleFunc("POST /api/v1/portal/channels/{name}/send", a.send)
 }
 
-// PublishRequest posts an asset.
-type PublishRequest struct {
-	// AssetID is the asset to post.
-	AssetID string `json:"asset_id" example:"ast_01HK7R8Z"`
+// The two link modes a channel share takes, in the share vocabulary the
+// Share dialog speaks.
+const (
+	modeAuthenticated = "authenticated"
+	modePublic        = "public"
+)
+
+// ChannelShareRequest shares an asset to a channel (#2241).
+type ChannelShareRequest struct {
+	// Channel is the channel's name, as the list reports it.
+	Channel string `json:"channel" example:"slack"`
+	// Target is the chat channel of a slack or mattermost channel, one of
+	// the ids the list reports under the channel's targets. Empty posts to
+	// the channel's own.
+	Target string `json:"target,omitempty" example:"C0123456789"`
+	// AccessMode is who opens the posted link: authenticated (any signed-in
+	// user, no expiration) or public (anyone with the link, expires_in
+	// required).
+	AccessMode string `json:"access_mode" example:"authenticated" enums:"authenticated,public"`
+	// ExpiresIn is the public link's lifetime, a duration such as 168h.
+	ExpiresIn string `json:"expires_in,omitempty" example:"168h"`
 	// Message is an optional line posted above the asset.
 	Message string `json:"message,omitempty" example:"This week's numbers"`
 }
@@ -70,49 +92,78 @@ type SendRequest struct {
 
 // list handles GET /api/v1/portal/channels.
 //
-// @Summary      List the channels I can post to
-// @Description  Returns the enabled notification channels the signed-in user reaches: every email channel, and each chat or webhook channel whose api connection the user's persona reaches. Answered by the notify tool's list action.
+// @Summary      List the channels I can share to
+// @Description  Returns the enabled notification channels the signed-in user reaches: every email channel, and each chat or webhook channel whose api connection the user's persona reaches. A Slack or Mattermost channel lists the chat channels its bot is in under targets, read from the upstream on each call. Answered by the notify tool's list action. Refused for a persona that does not allow sharing.
 // @Tags         Notifications
 // @Produce      json
 // @Success      200  {object}  map[string]any
 // @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
 // @Failure      503  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /portal/channels [get]
 func (a *API) list(w http.ResponseWriter, r *http.Request) {
+	if !a.mayShare(w, r) {
+		return
+	}
 	a.call(w, r, map[string]any{"action": "list"})
 }
 
-// publish handles POST /api/v1/portal/channels/{name}/publish.
+// share handles POST /api/v1/portal/assets/{id}/channel-shares.
 //
-// @Summary      Post an asset to a channel
-// @Description  Posts a portal asset the signed-in user can read to a channel they reach: the asset's name, its content (a CSV as a table of its first rows), its preview image when it has one, and a link to it. Delivery is queued.
-// @Tags         Notifications
+// @Summary      Share an asset to a channel
+// @Description  Creates a link share on an asset the signed-in user owns, in the access mode asked for (authenticated, or public with expires_in), and posts the asset to a channel they reach with the share's URL as its link: the asset's name, its content (a CSV as a table of its first rows) and its preview image when it has one. Posting the same asset to the same place again with authenticated reuses the share it made. The share appears in the asset's share list with posted_to naming the channel; revoking it stops the posted link from opening. Delivery is queued. Refused for a persona that does not allow sharing.
+// @Tags         Shares
 // @Accept       json
 // @Produce      json
-// @Param        name     path  string          true  "Channel name"
-// @Param        request  body  PublishRequest  true  "The asset and an optional message"
+// @Param        id       path  string               true  "Asset ID"
+// @Param        request  body  ChannelShareRequest  true  "The channel, who opens the link, and an optional message"
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
 // @Failure      429  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /portal/channels/{name}/publish [post]
-func (a *API) publish(w http.ResponseWriter, r *http.Request) {
-	var req PublishRequest
+// @Router       /portal/assets/{id}/channel-shares [post]
+func (a *API) share(w http.ResponseWriter, r *http.Request) {
+	if !a.mayShare(w, r) {
+		return
+	}
+	var req ChannelShareRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	if strings.TrimSpace(req.AssetID) == "" {
-		httpjson.WriteError(w, http.StatusBadRequest, "asset_id is required")
+	if strings.TrimSpace(req.Channel) == "" {
+		httpjson.WriteError(w, http.StatusBadRequest, "channel is required")
+		return
+	}
+	accessArg, ok := map[string]string{modeAuthenticated: "signed_in", modePublic: "public"}[strings.TrimSpace(req.AccessMode)]
+	if !ok {
+		httpjson.WriteError(w, http.StatusBadRequest, "access_mode must be authenticated or public")
 		return
 	}
 	a.call(w, r, map[string]any{
-		"action": "publish", "channel": r.PathValue("name"),
-		"asset": req.AssetID, "message": req.Message,
+		"action": "publish", "channel": req.Channel, "target": req.Target,
+		"asset": r.PathValue("id"), "message": req.Message,
+		"access": accessArg, "expires_in": req.ExpiresIn,
 	})
+}
+
+// mayShare refuses a caller whose persona withholds sharing, answering the
+// request itself when it does.
+func (a *API) mayShare(w http.ResponseWriter, r *http.Request) bool {
+	user := access.GetUser(r.Context())
+	if user == nil {
+		httpjson.WriteError(w, http.StatusUnauthorized, "sign in to share to a channel")
+		return false
+	}
+	if a.SharingAllowed != nil && !a.SharingAllowed(user) {
+		httpjson.WriteError(w, http.StatusForbidden, "sharing is not available to your persona")
+		return false
+	}
+	return true
 }
 
 // send handles POST /api/v1/portal/channels/{name}/send.
@@ -245,4 +296,21 @@ func asUser(ctx context.Context, u *access.User) context.Context {
 	return middleware.WithPreAuthenticatedUser(ctx, &middleware.UserInfo{
 		UserID: u.UserID, Email: u.Email, Roles: u.Roles, Claims: u.Claims, AuthType: u.AuthType,
 	})
+}
+
+// SharingFor answers whether a portal user's persona lets them share
+// (#2241): the persona their roles resolve to allows it, or is the admin
+// persona. A user whose roles resolve to no persona shares nothing. nil with
+// no registry, which allows everyone.
+func SharingFor(reg *persona.Registry, adminPersona string) func(*access.User) bool {
+	if reg == nil {
+		return nil
+	}
+	return func(u *access.User) bool {
+		p, ok := reg.GetForRoles(u.Roles)
+		if !ok {
+			return false
+		}
+		return reg.AdminRule(adminPersona)(u.Roles) || p.SharingAllowed()
+	}
 }

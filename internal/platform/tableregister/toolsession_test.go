@@ -34,7 +34,7 @@ func TestManageTableOverAnMCPSession(t *testing.T) {
 			entries: []ObjectEntry{{Key: "resources/res_1/vendor_rebates.csv", Size: int64(len(csvBody))}},
 		}
 	})
-	adapter := NewToolAdapter(h.reg, []string{"admin"}, map[string]Subject{
+	adapter := NewToolAdapter(h.reg, map[string]Subject{
 		KindResource: resourceSubjectFor(Record{
 			ID: resourceID, Name: "Vendor rebates", Bucket: "resources",
 			Key: "resources/res_1/vendor_rebates.csv", ContentType: "text/csv",

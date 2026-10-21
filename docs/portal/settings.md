@@ -13,6 +13,12 @@ a delivery mode (Off, Immediate, or Daily digest) and per-category toggles
 for shares, comments/feedback, and mentions. Defaults are immediate delivery
 with all categories enabled; changes save as they are made.
 
+## Profile
+
+![Profile: the account this session is signed in as](../images/screenshots/light/user-profile-light.webp#only-light)![Profile: the account this session is signed in as](../images/screenshots/dark/user-profile-dark.webp#only-dark)
+
+The sidebar's footer names the account you are signed in as, above **Sign Out**: your email (or user ID for an account with none) beside an avatar of its initials, or the avatar alone with the account in its tooltip when the sidebar is collapsed (#2215). It opens **Profile** (`/portal/profile`), which shows your email, user ID, persona, roles, whether you are an administrator, and whether you signed in with single sign-on or an API key, with a **Sign Out** button. It changes nothing about the account and shows no token or key.
+
 ## API Keys
 
 The **API Keys** section holds the keys you have issued for your own account.

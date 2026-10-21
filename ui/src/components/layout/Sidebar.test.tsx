@@ -134,3 +134,24 @@ describe("Sidebar Automations (#2109)", () => {
     expect(screen.getByRole("button", { name: /Automations/ })).toBeInTheDocument();
   });
 });
+
+describe("Sidebar signed-in identity (#2215)", () => {
+  it("shows the account above Sign Out and opens the profile", () => {
+    useAuthStore.setState({ user: { user_id: "u1", email: "ada.lovelace@example.com", roles: [], is_admin: false } });
+    const onNavigate = vi.fn();
+    render(<Sidebar currentPath="/assets" onNavigate={onNavigate} collapsed={false} onToggleCollapse={vi.fn()} />);
+    const entry = screen.getByRole("button", { name: "Profile: ada.lovelace@example.com" });
+    expect(entry).toHaveTextContent("AL");
+    expect(entry).toHaveTextContent("ada.lovelace@example.com");
+    fireEvent.click(entry);
+    expect(onNavigate).toHaveBeenCalledWith("/profile");
+  });
+
+  it("collapsed, shows the avatar with the account as its hover copy, and an id when there is no email", () => {
+    useAuthStore.setState({ user: { user_id: "apikey:ci", roles: [], is_admin: false } });
+    renderSidebar(true);
+    const entry = screen.getByRole("button", { name: "Profile: apikey:ci" });
+    expect(entry).toHaveAttribute("title", "apikey:ci");
+    expect(entry).not.toHaveTextContent("apikey:ci");
+  });
+});

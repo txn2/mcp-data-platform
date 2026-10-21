@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
+	"github.com/txn2/mcp-data-platform/internal/platform/notifywiring"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
@@ -67,7 +68,7 @@ func BuildNotifications(p *platform.Platform, brand Brand) *notifydelivery.Handl
 		},
 		DigestHourUTC:   p.Config().Notifications.DigestHour(),
 		UnsubscribeURL:  brand.UnsubscribeURL,
-		ChannelUpstream: ChannelUpstream(p.ToolkitRegistry()),
+		ChannelUpstream: notifywiring.ChannelUpstream(p.ToolkitRegistry()),
 		Attachments:     attachmentLoader(p),
 	})
 	if err != nil {
@@ -192,9 +193,9 @@ func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 	}
 	// Both surfaces are self-scoped to the same caller identity, so they
 	// resolve it through one function rather than two spellings of it.
-	// Post to a channel (#1723): the asset page's dialog, over the notify
-	// tool the signed-in person's agent would call.
-	channelAPI := &channelhttp.API{Server: p.MCPServer()}
+	// Share to a channel (#2241): the Share dialog's channel destination,
+	// over the notify tool the signed-in person's agent would call.
+	channelAPI := &channelhttp.API{Server: p.MCPServer(), SharingAllowed: channelhttp.SharingFor(p.PersonaRegistry(), p.Config().Admin.Persona)}
 	deps.NotificationRegistrar = func(mux *http.ServeMux) {
 		prefsAPI.Register(mux)
 		historyAPI.Register(mux)

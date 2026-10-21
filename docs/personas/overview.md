@@ -253,6 +253,10 @@ personas:
 
 A user with roles `["analyst", "senior"]` gets the `senior_analyst` persona (higher priority).
 
+Resolution is one rule wherever a persona is read: the MCP tools, the portal, the admin API and managed resources all resolve the same persona (#2228). A role named in `personas.role_mapping.oidc_to_persona` selects its persona first; otherwise the highest priority among the personas the roles match wins, and two personas of equal priority resolve to the one whose name sorts first, on every request.
+
+An administrator is a user whose roles resolve to the admin persona (`admin.persona`). That is the one rule every surface applies: a user whose roles also match a higher-priority persona resolves to that persona and is not an administrator anywhere, and a role named `admin` or `platform-admin` grants nothing on its own.
+
 ## Context Overrides
 
 Personas can include context overrides that customize the platform description and agent instructions returned by the `platform_info` tool:
@@ -318,6 +322,23 @@ analyst:
 | `hide_automations` | bool | `false` | The portal sidebar has no Automations entry, an Automations address shows a notice that they are not available to this persona, and the portal's script routes answer `403`. |
 
 The portal's persona editor shows the same setting as the **Automations** checkbox on the AI Assistant Behavior tab. `GET /api/v1/portal/me` reports it to the browser as `automations`. The setting is read from the persona the caller resolves to ([Persona Priority](#persona-priority)). Administrators always see Automations. It changes nothing about the MCP tools: `manage_script` and `run_script` are governed by the persona's `tools:` rules as before (#2109).
+
+## Sharing
+
+Sharing what they own, with a person or to a notification channel, is a persona permission (#2241). It is allowed unless a persona withholds it:
+
+```yaml
+contractor:
+  display_name: "Contractor"
+  roles: ["contractor"]
+  allow_sharing: false
+```
+
+| Field | Type | Default | Effect |
+|-------|------|---------|--------|
+| `allow_sharing` | bool | `true` | `false` takes the Share action off assets, collections and prompts in the portal, and refuses every share-creating route (`POST .../shares`, `POST /api/v1/portal/assets/{id}/channel-shares`) and the channel list (`GET /api/v1/portal/channels`) with `403`. `manage_asset action=share`, an export's `create_public_link`, and `notify action=publish` with `access` `signed_in` or `public` are refused the same way. |
+
+The portal's persona editor shows the setting as the **Sharing** checkbox on the AI Assistant Behavior tab. `GET /api/v1/portal/me` reports it as `sharing`. It is read from the persona the caller resolves to, and administrators can always share. Connection scoping still applies to a persona that can share: it is offered only the channels on connections it reaches.
 
 ## Connection Access Control
 

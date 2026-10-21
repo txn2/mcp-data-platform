@@ -76,6 +76,14 @@ type Persona struct {
 	// governed by Tools, not by this.
 	HideAutomations bool `json:"hide_automations,omitempty" yaml:"hide_automations,omitempty"`
 
+	// AllowSharing lets the people signed in under this persona share what
+	// they own: an asset, collection or prompt with a person, and an asset to
+	// a notification channel (#2241). nil, which every persona written before
+	// it carries, allows it; read it through SharingAllowed. Without it the
+	// portal shows no Share action and every share-creating route and tool
+	// action refuses. An administrator shares whatever the persona says.
+	AllowSharing *bool `json:"allow_sharing,omitempty" yaml:"allow_sharing,omitempty"`
+
 	// Source indicates where this persona was loaded from at runtime.
 	// Values: "file" (YAML config), "database" (DB-managed), "both" (file
 	// with DB override). This is runtime metadata — not persisted.
@@ -250,4 +258,10 @@ func AdminPersona() *Persona {
 		Context:  ContextOverrides{},
 		Priority: defaultPersonaPriority,
 	}
+}
+
+// SharingAllowed reports whether the persona's people may share what they
+// own. An unset AllowSharing allows it.
+func (p *Persona) SharingAllowed() bool {
+	return p == nil || p.AllowSharing == nil || *p.AllowSharing
 }

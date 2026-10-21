@@ -475,10 +475,11 @@ func uploadedByCaller(c Claims, r *Resource) bool {
 	return addr != "" && r.UploaderEmail != "" && strings.EqualFold(r.UploaderEmail, addr)
 }
 
+// isPlatformAdmin is the caller's IsAdmin, which every surface resolves by the
+// platform's one administrator rule: the persona the roles resolve to is the
+// admin persona (#2228). A role's name alone grants nothing.
 func isPlatformAdmin(c Claims) bool {
-	return c.IsAdmin ||
-		slices.Contains(c.Roles, "admin") ||
-		slices.Contains(c.Roles, "platform-admin")
+	return c.IsAdmin
 }
 
 func isPersonaAdmin(c Claims, personaName string) bool {

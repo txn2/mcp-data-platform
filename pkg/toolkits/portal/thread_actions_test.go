@@ -109,6 +109,8 @@ var _ portal.ThreadStore = (*fakeThreadStore)(nil)
 type fakeShareStore struct {
 	assetShare *portal.Share
 	collPerm   portal.SharePermission
+	// assetViaColl is the permission an asset grants through a collection.
+	assetViaColl portal.SharePermission
 }
 
 func (f *fakeShareStore) GetActiveShareForTarget(_ context.Context, _, _, _, _ string) (*portal.Share, error) {
@@ -161,8 +163,8 @@ func (*fakeShareStore) ListActiveCollectionShareSummaries(_ context.Context, _ [
 	return nil, nil //nolint:nilnil // test stub
 }
 
-func (*fakeShareStore) GetUserAssetPermissionViaCollection(_ context.Context, _, _, _ string) (portal.SharePermission, error) {
-	return "", nil
+func (f *fakeShareStore) GetUserAssetPermissionViaCollection(_ context.Context, _, _, _ string) (portal.SharePermission, error) {
+	return f.assetViaColl, nil
 }
 func (*fakeShareStore) Revoke(_ context.Context, _ string) error          { return nil }
 func (*fakeShareStore) IncrementAccess(_ context.Context, _ string) error { return nil }

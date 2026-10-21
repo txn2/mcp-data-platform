@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifypost"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyprefs"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
 	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
@@ -25,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -58,6 +60,10 @@ type Deps struct {
 	PortalURL string
 	// AdminPersona is the persona whose reach is unrestricted.
 	AdminPersona string
+	// Toolkits is the live toolkit registry the chat channels' api
+	// connections are found in, for listing a bot's channels (#2241). nil
+	// lists none.
+	Toolkits *registry.Registry
 	// DigestHourUTC is the hour a daily channel's bulletin is scheduled for.
 	DigestHourUTC int
 }
@@ -80,12 +86,15 @@ func Wire(deps Deps) {
 			notifyprefs.NewPostgresStore(deps.DB),
 			notifyqueue.NewPostgresStore(deps.DB),
 			deps.DigestHourUTC),
-		Scope:        connscope.New(connscope.Deps{Registry: deps.Personas}),
-		Assets:       assetReaderOf(deps),
-		Access:       assetAccessOf(deps),
-		Resources:    resourcesOf(deps.Resources),
-		PortalURL:    deps.PortalURL,
-		AdminPersona: deps.AdminPersona,
+		Scope:          connscope.New(connscope.Deps{Registry: deps.Personas}),
+		Assets:         assetReaderOf(deps),
+		Access:         assetAccessOf(deps),
+		Resources:      resourcesOf(deps.Resources),
+		PortalURL:      deps.PortalURL,
+		AdminPersona:   deps.AdminPersona,
+		Targets:        targetsOf(deps.Toolkits),
+		Shares:         sharesOf(deps.Shares),
+		SharingAllowed: sharingOf(deps.Personas),
 	})
 	handle.RegisterTool(deps.Server)
 }
@@ -148,6 +157,36 @@ func assetAccessOf(deps Deps) notifylayer.Entitlement {
 		Collections: deps.Collections,
 		Shares:      deps.Shares,
 	})}
+}
+
+// targetsOf lists a chat channel's bot's channels through the same
+// connection resolution the send worker delivers through, or nil with no
+// registry to resolve against.
+func targetsOf(reg *registry.Registry) notifylayer.TargetLister {
+	up := ChannelUpstream(reg)
+	if up == nil {
+		return nil
+	}
+	return notifypost.NewSenders(up, "")
+}
+
+// sharingOf reads a persona's sharing permission from the registry per call,
+// so a persona an administrator changes takes effect on the next publish. nil
+// with no registry, which allows every persona.
+func sharingOf(reg *persona.Registry) func(string) bool {
+	if reg == nil {
+		return nil
+	}
+	return reg.SharingAllowed
+}
+
+// sharesOf narrows the share store to what a publish writes, keeping an
+// absent store absent rather than a typed nil.
+func sharesOf(store portal.ShareStore) notifylayer.ShareStore {
+	if store == nil {
+		return nil
+	}
+	return store
 }
 
 // resourcesOf narrows the resource store to the read the tool needs, keeping

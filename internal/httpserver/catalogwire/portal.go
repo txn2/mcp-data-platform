@@ -15,7 +15,7 @@ import (
 )
 
 // PortalRegistrar returns the route registrar for the portal catalog (#1921).
-func PortalRegistrar(p *platform.Platform, store catalog.Store, resolver portal.PersonaResolver, adminRoles []string) func(*http.ServeMux) {
+func PortalRegistrar(p *platform.Platform, store catalog.Store, resolver portal.PersonaResolver, isAdmin func([]string) bool) func(*http.ServeMux) {
 	var auditLogger audit.Logger
 	if s := p.Audit().Store(); s != nil {
 		auditLogger = s
@@ -25,7 +25,7 @@ func PortalRegistrar(p *platform.Platform, store catalog.Store, resolver portal.
 		Store:           docs,
 		Connections:     func() []catalogapi.Connection { return Connections(p.ToolkitRegistry()) },
 		PersonaResolver: resolver,
-		AdminRoles:      adminRoles,
+		IsAdmin:         isAdmin,
 		Audit:           auditLogger,
 	})
 	return handler.Register

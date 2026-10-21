@@ -1315,6 +1315,7 @@ personas:
 | `<name>.context.agent_instructions_suffix` | string | - | Appended to the admin `agent_instructions` layer |
 | `<name>.context.agent_instructions_override` | string | - | Replaces the admin `agent_instructions` layer only; the platform baseline is always present |
 | `<name>.hide_automations` | bool | `false` | Hides Automations from the portal for this persona: the sidebar entry is gone, its pages show a notice, and the portal's script routes answer `403`. The MCP tools are governed by `tools:` as before. Administrators always see Automations (#2109) |
+| `<name>.allow_sharing` | bool | `true` | `false` withholds sharing from this persona: no Share action in the portal, and every share-creating route and tool action refuses. Administrators can always share (#2241) |
 
 !!! warning "No persona means no access"
     A caller whose roles match no persona has **no access at all**: tool calls resolve to the built-in deny-all persona and are refused, the portal answers `403` with a branded page, and the managed-resources API refuses the request. There is no fallback persona, so every user who should reach anything needs a role one of your personas lists.

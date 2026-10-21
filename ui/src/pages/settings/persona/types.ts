@@ -30,6 +30,9 @@ export interface PersonaDraft {
   // showAutomations is whether the portal shows the persona's people its
   // Automations section; stored inverted, as hide_automations (#2109).
   showAutomations: boolean;
+  // allowSharing is whether the persona's people may share what they own,
+  // with a person or to a channel (#2241).
+  allowSharing: boolean;
 }
 
 // Scope selects the axis the allow/deny editor and the explorer address:

@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-// Issue #1723's portal half: the asset page's "Post to a channel" and the run
-// page's list of what a run posted, through the routes the portal calls. The
-// tool half is in issue_1720_test.go.
+// Issue #1723's portal half: posting an asset to a channel from the portal,
+// now the Share dialog's channel destination (#2241), and the run page's list
+// of what a run posted, through the routes the portal calls. The tool half is
+// in issue_1720_test.go.
 //
-// Wire forms. The publish route's body declares asset_id and message as
-// strings; message is sent present by one criterion and absent by the other.
-// The send route's title and body are strings.
+// Wire forms. The channel-share body declares channel, access_mode and message
+// as strings; message is sent present by one request and absent by the other.
 
 // TestIssue1723_ThePortalPostsAnAssetToAChannel is the asset page's dialog:
 // the channels the signed-in person reaches, then the asset posted to one.
@@ -48,8 +48,8 @@ func TestIssue1723_ThePortalPostsAnAssetToAChannel(t *testing.T) {
 	})
 	assetID, _ := saved["asset_id"].(string)
 
-	code, out := c.rest(http.MethodPost, "/api/v1/portal/channels/"+chanMattermost+"/publish",
-		jsonBody(t, map[string]any{"asset_id": assetID, "message": "From the asset page."}))
+	code, out := c.rest(http.MethodPost, "/api/v1/portal/assets/"+assetID+"/channel-shares",
+		jsonBody(t, map[string]any{"channel": chanMattermost, "access_mode": "authenticated", "message": "From the asset page."}))
 	if code != http.StatusOK || number(t, out, "queued") != 1 {
 		t.Fatalf("publish: %d %v", code, out)
 	}
@@ -58,15 +58,15 @@ func TestIssue1723_ThePortalPostsAnAssetToAChannel(t *testing.T) {
 		return ok, "waiting"
 	})
 	post, _ := mattermostPostWith(t, env, marker)
-	for _, want := range []string{"From the asset page.", "| west | 812 |", "/portal/assets/" + assetID} {
+	for _, want := range []string{"From the asset page.", "| west | 812 |", "/portal/view/"} {
 		if !containing([]string{post.message}, want) {
 			t.Errorf("the post lacks %q: %q", want, post.message)
 		}
 	}
 
 	// A channel the person cannot reach is refused in the tool's words.
-	code, out = c.rest(http.MethodPost, "/api/v1/portal/channels/no-such-channel/publish",
-		jsonBody(t, map[string]any{"asset_id": assetID}))
+	code, out = c.rest(http.MethodPost, "/api/v1/portal/assets/"+assetID+"/channel-shares",
+		jsonBody(t, map[string]any{"channel": "no-such-channel", "access_mode": "authenticated"}))
 	if code != http.StatusBadRequest {
 		t.Errorf("an unknown channel: %d %v", code, out)
 	}

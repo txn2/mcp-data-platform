@@ -83,7 +83,7 @@ type CatalogLabeler interface {
 // derivable from the reference rather than learning through this endpoint what
 // the Catalog tab would not tell it.
 func (h *Handler) catalogLabels(ctx context.Context, user *User, urns []string) map[string]string {
-	if h.deps.CatalogLabeler == nil || !HasCatalogAccess(user, h.deps.PersonaResolver, h.deps.AdminRoles) {
+	if h.deps.CatalogLabeler == nil || !HasCatalogAccess(user, h.deps.PersonaResolver, h.access.IsAdmin) {
 		return nil
 	}
 	catalog := make([]string, 0, len(urns))

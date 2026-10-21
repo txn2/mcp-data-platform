@@ -424,6 +424,10 @@ const (
 	// OriginPublicLinkLogin is a viewer share auto-created when a user signs
 	// in through a public link and had no prior share for the target.
 	OriginPublicLinkLogin ShareOrigin = "public_link_login"
+	// OriginChannelPost is the link share a post to a notification channel
+	// created, so the channel's readers can open the asset it links to
+	// (#2241). Share.PostedTo names the channel.
+	OriginChannelPost ShareOrigin = "channel_post"
 )
 
 // ShareAccessMode determines who may open a share token. The mode domain and
@@ -462,6 +466,10 @@ type Share struct {
 	LastAccessedAt   *time.Time      `json:"last_accessed_at,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 	Origin           ShareOrigin     `json:"origin,omitempty" example:"explicit"`
+	// PostedTo names the channel a channel_post share's link was posted to,
+	// as the person sharing chose it: "#general on slack". Empty for every
+	// other origin.
+	PostedTo string `json:"posted_to,omitempty" example:"#general on slack"`
 }
 
 // SharedAsset combines an Asset with share metadata for "shared with me" results.

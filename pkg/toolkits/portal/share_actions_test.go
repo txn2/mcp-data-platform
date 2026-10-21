@@ -789,3 +789,24 @@ func TestDescribePeopleSortsAndFallsBackToEmail(t *testing.T) {
 	})
 	assert.Equal(t, []string{"Alpha Andersson <alpha@example.com>", "zeta@example.com"}, described)
 }
+
+// TestShareRefusesAPersonaWithoutSharing: a persona withholding sharing gets
+// no share from manage_asset (#2241); an administrator does whatever the
+// persona says.
+func TestShareRefusesAPersonaWithoutSharing(t *testing.T) {
+	shares := &recordingShareStore{}
+	tk := shareToolkit(t, shares, nil)
+	tk.sharingAllowed = func(string) bool { return false }
+
+	res := callManage(ownerCtx(), t, tk, manageAssetInput{Action: actionShare, AssetID: shareAssetID, Recipient: "bob@example.com"})
+	assert.True(t, res.IsError)
+	assert.Contains(t, resultText(t, res), "sharing is not available")
+	assert.Empty(t, shares.shares)
+
+	pc := middleware.GetPlatformContext(ownerCtx())
+	admin := *pc
+	admin.IsAdmin = true
+	res = callManage(middleware.WithPlatformContext(context.Background(), &admin), t, tk,
+		manageAssetInput{Action: actionShare, AssetID: shareAssetID, Recipient: "bob@example.com"})
+	assert.False(t, res.IsError, resultText(t, res))
+}

@@ -93,7 +93,7 @@ func (p *Platform) graphQLExportDeps() *graphqlkit.ExportDeps {
 	}
 	cfg := p.parseExportConfig()
 	exporter := exportadapters.NewGraphQLExporter(
-		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ShareStore(),
+		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ExportShareStore(),
 		p.config.Portal.PublicBaseURL, p.captureProvenance,
 	)
 	return &graphqlkit.ExportDeps{

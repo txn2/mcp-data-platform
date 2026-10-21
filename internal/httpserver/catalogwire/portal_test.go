@@ -26,7 +26,7 @@ func TestCatalogRegistrarMountsTheCatalogRoutes(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = p.Close() }()
 
-	reg := PortalRegistrar(p, catalogfake.New(), nil, []string{"admin"})
+	reg := PortalRegistrar(p, catalogfake.New(), nil, func([]string) bool { return true })
 	require.NotNil(t, reg)
 	mux := http.NewServeMux()
 	reg(mux)

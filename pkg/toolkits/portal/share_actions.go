@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -66,6 +67,9 @@ func (t *Toolkit) handleShare(ctx context.Context, input manageAssetInput) (*mcp
 	asset, denial := t.loadOwnedAsset(ctx, input.AssetID, actionShare, "share this asset")
 	if denial != nil {
 		return denial, nil, nil
+	}
+	if !t.mayShare(ctx) {
+		return toolkit.ErrorResult(access.ErrSharingNotAllowed), nil, nil
 	}
 
 	email, lookupErr := t.resolveRecipient(ctx, input.Recipient)
@@ -215,6 +219,16 @@ func (t *Toolkit) loadOwnedAsset(ctx context.Context, assetID, action, verb stri
 		return nil, toolkit.ErrorResult("only the owner can " + verb)
 	}
 	return asset, nil
+}
+
+// mayShare reports whether the caller's persona lets them create a share: an
+// administrator always, anyone else unless their persona withholds it (#2241).
+func (t *Toolkit) mayShare(ctx context.Context) bool {
+	if t.sharingAllowed == nil || t.isAdmin(ctx) {
+		return true
+	}
+	pc := middleware.GetPlatformContext(ctx)
+	return pc != nil && t.sharingAllowed(pc.PersonaName)
 }
 
 // resolveRecipient turns what the caller typed into the bare address a share is

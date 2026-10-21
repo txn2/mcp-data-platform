@@ -23,7 +23,7 @@ import (
 // their two entitlements from: the persona a listing is scoped to, and the
 // admin membership that makes the surface unrestricted.
 func TestScriptPortalIdentity(t *testing.T) {
-	resolver := scriptPortalIdentity([]string{"admin"}, func(roles []string) *portal.PersonaInfo {
+	resolver := scriptPortalIdentity(adminByRole, func(roles []string) *portal.PersonaInfo {
 		if rolesIntersect(roles, []string{"analyst_role"}) {
 			return &portal.PersonaInfo{Name: "analyst"}
 		}
@@ -57,7 +57,7 @@ func TestScriptPortalIdentity(t *testing.T) {
 // rather than panicking inside the closure, which is what the nil guard in the
 // mount is for.
 func TestScriptPortalIdentity_NoPersonaResolver(t *testing.T) {
-	resolver := scriptPortalIdentity(nil, nil)
+	resolver := scriptPortalIdentity(func([]string) bool { return false }, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x", http.NoBody)
 	req = req.WithContext(portal.ContextWithUser(req.Context(), &portal.User{Email: "sarah@example.com"}))

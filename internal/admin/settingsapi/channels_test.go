@@ -150,7 +150,7 @@ func TestPutChannel_RefusesTheWrongShape(t *testing.T) {
 	}{
 		{"an unknown kind", "ops", map[string]any{"kind": "teams"}, "must be one of"},
 		{"a name that is not a channel name", "OpsTeam", map[string]any{"kind": "email", "recipients": []string{"a@example.com"}}, "lowercase"},
-		{"a chat channel with no target", "ops", map[string]any{"kind": "mattermost", "connection": "c"}, "target channel id"},
+		{"a chat channel with recipients", "ops", map[string]any{"kind": "mattermost", "connection": "c", "recipients": []string{"a@example.com"}}, "remove the recipients"},
 		{"an email channel with a connection", "ops", map[string]any{"kind": "email", "connection": "c", "recipients": []string{"a@example.com"}}, "remove the connection"},
 		{"a malformed repeat_after", "ops", map[string]any{"kind": "webhook", "connection": "c", "repeat_after": "soon"}, "duration"},
 		{"a malformed recipient", "ops", map[string]any{"kind": "email", "recipients": []string{"nope"}}, "not a valid email address"},

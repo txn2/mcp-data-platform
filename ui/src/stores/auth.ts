@@ -30,6 +30,12 @@ export interface UserProfile {
    * field, which shows it.
    */
   automations?: boolean;
+  /**
+   * Whether this caller may share what they own, with a person or to a
+   * channel (#2241): false when their persona withholds it. Absent from a
+   * server that predates the field, which allows it.
+   */
+  sharing?: boolean;
 }
 
 type AuthMethod = "cookie" | "apikey" | null;
@@ -86,6 +92,8 @@ interface AuthState {
   isAdmin: () => boolean;
   /** Whether the portal shows this caller Automations (#2109). */
   showsAutomations: () => boolean;
+  /** Whether this caller may share what they own (#2241). */
+  canShare: () => boolean;
 }
 
 const API_KEY_STORAGE = "mcp-portal-api-key";
@@ -282,4 +290,5 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: () => get().user !== null,
   isAdmin: () => get().user?.is_admin === true,
   showsAutomations: () => get().user?.automations !== false,
+  canShare: () => get().user?.sharing !== false,
 }));

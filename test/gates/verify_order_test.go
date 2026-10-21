@@ -227,3 +227,29 @@ func TestVerifyReleaseRunsInOneInvocation(t *testing.T) {
 		t.Error("frontend-e2e no longer runs on a free port beside a dev server it finds on :5173")
 	}
 }
+
+// TestPreverifyChecksMigrationsOnBothMajors pins #2239: preverify runs the
+// migration gate on every pinned PostgreSQL major when the diff touches a
+// migration, and the step reads the diff (tracked and untracked) to decide.
+func TestPreverifyChecksMigrationsOnBothMajors(t *testing.T) {
+	data, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+	makefile := string(data)
+	if stepAt(recipe(t, makefile, "preverify"), "migrate-check-diff") < 0 {
+		t.Fatal("preverify does not run migrate-check-diff")
+	}
+	step := strings.Join(recipe(t, makefile, "migrate-check-diff"), "\n")
+	for _, want := range []string{"git diff --name-only", "git ls-files --others", "$(MIGRATIONS_DIR)", "migrate-check"} {
+		if !strings.Contains(step, want) {
+			t.Errorf("migrate-check-diff does not contain %q, so it cannot decide from the diff", want)
+		}
+	}
+	if !strings.Contains(makefile, "MIGRATIONS_DIR := pkg/database/migrate/migrations") {
+		t.Error("MIGRATIONS_DIR does not name the migration directory")
+	}
+	if !strings.Contains(makefile, "MIGRATE_PG_IMAGES") {
+		t.Error("migrate-check no longer runs over MIGRATE_PG_IMAGES")
+	}
+}

@@ -30,6 +30,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/resources",
   "/feedback",
   "/settings",
+  "/profile",
   "/knowledge",
   "/knowledge/pages",
   "/knowledge/catalog",

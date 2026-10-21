@@ -3,11 +3,13 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 
 // Capture what the dialog sends to the create-share mutations, so the tests
 // assert on the request rather than on the rendered button alone.
-const { createAsset, createColl, createPrompt, revoke } = vi.hoisted(() => ({
+const { createAsset, createColl, createPrompt, revoke, channelShare, channelList } = vi.hoisted(() => ({
   createAsset: { mutate: vi.fn(), isPending: false },
   createColl: { mutate: vi.fn(), isPending: false },
   createPrompt: { mutate: vi.fn(), isPending: false },
   revoke: { mutate: vi.fn() },
+  channelShare: { mutate: vi.fn(), isPending: false },
+  channelList: { data: { channels: [] as unknown[] }, isLoading: false, error: null as unknown },
 }));
 
 vi.mock("@/api/portal/hooks", () => ({
@@ -18,6 +20,8 @@ vi.mock("@/api/portal/hooks", () => ({
   useCreateCollectionShare: () => createColl,
   useCreatePromptShare: () => createPrompt,
   useRevokeShare: () => revoke,
+  usePortalChannels: () => channelList,
+  useShareToChannel: () => channelShare,
 }));
 
 vi.mock("@/components/UserPicker", () => ({
@@ -253,5 +257,83 @@ describe("ShareDialog recipient notification", () => {
 
     expect(createAsset.mutate).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent(/single email address/i);
+  });
+});
+
+describe("ShareDialog channel destination (#2241)", () => {
+  beforeEach(() => {
+    channelShare.mutate.mockClear();
+    channelList.data = {
+      channels: [
+        {
+          name: "team-chat", kind: "mattermost", mode: "immediate", carries: "",
+          targets: [{ id: "mm-town", name: "town-square" }],
+        },
+        { name: "ops-email", kind: "email", mode: "daily", carries: "", targets: [] },
+        { name: "slack", kind: "slack", mode: "immediate", carries: "", targets: [], targets_error: "missing_scope" },
+        { name: "hook", kind: "webhook", mode: "immediate", carries: "", targets: [] },
+      ],
+    };
+  });
+
+  it("offers the bot's chat channels and the other channels, and says what readers see", () => {
+    renderDialog();
+    expect(screen.getByText(/could not be read: missing_scope/i)).toBeInTheDocument();
+    choose(/^channel$/i, /#town-square \(team-chat\)/i);
+    expect(screen.getByText(/everyone in this channel sees the asset's preview image/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^post$/i }));
+    expect(channelShare.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetId: "ast-1", channel: "team-chat", target: "mm-town", access_mode: "authenticated", expires_in: undefined,
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("sends a public link with its expiration", () => {
+    renderDialog();
+    choose(/^channel$/i, /ops-email \(email\)/i);
+    choose(/who can open the posted link/i, /anyone with the link/i);
+    choose(/posted link expiration/i, /30 days/i);
+    fireEvent.click(screen.getByRole("button", { name: /^post$/i }));
+    expect(channelShare.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "ops-email", access_mode: "public", expires_in: "720h" }),
+      expect.anything(),
+    );
+  });
+
+  it("states what was posted, and clears the choice so a second post is deliberate", () => {
+    renderDialog();
+    choose(/^channel$/i, /^hook$/i);
+    expect(screen.queryByText(/everyone in this channel sees/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^post$/i }));
+    const opts = channelShare.mutate.mock.calls[0]?.[1];
+    act(() => {
+      opts.onSuccess({ channel: "hook", queued: 1, detail: "accepted" });
+      opts.onSettled();
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Posted to hook.");
+    expect(screen.getByRole("button", { name: /^post$/i })).toBeDisabled();
+  });
+
+  it("shows a refusal in the server's words", () => {
+    renderDialog();
+    choose(/^channel$/i, /^hook$/i);
+    fireEvent.click(screen.getByRole("button", { name: /^post$/i }));
+    const opts = channelShare.mutate.mock.calls[0]?.[1];
+    act(() => {
+      opts.onError(new Error("only the asset's owner can post a link"));
+      opts.onSettled();
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("only the asset's owner");
+  });
+
+  it("has no channel section when no channel is reachable, and none for a collection", () => {
+    channelList.data = { channels: [] };
+    renderDialog();
+    expect(screen.queryByText(/share to a channel/i)).not.toBeInTheDocument();
+    channelList.data = { channels: [{ name: "hook", kind: "webhook", mode: "immediate", carries: "", targets: [] }] };
+    render(<ShareDialog target={{ type: "collection", id: "c1" }} open onOpenChange={() => {}} />);
+    expect(screen.queryByText(/share to a channel/i)).not.toBeInTheDocument();
   });
 });

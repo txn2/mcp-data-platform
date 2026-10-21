@@ -25,7 +25,9 @@ interface ViewActionProps {
   createAssetPending: boolean;
   onCopyContent: () => void;
   onSaveAsAsset: () => void;
-  onShare: () => void;
+  // onShare opens the Share dialog; absent when the persona withholds
+  // sharing (#2241).
+  onShare?: () => void;
   onRequestPromotion: () => void;
   onEdit: () => void;
   onDeleteRequest: () => void;
@@ -139,7 +141,7 @@ function ViewActions({
         <FileBox />
         {createAssetPending ? "Saving..." : "Save as Asset"}
       </Button>
-      {isOwner && (
+      {isOwner && onShare && (
         <Button size="sm" onClick={onShare} title="Share this prompt with another user">
           <Share2 /> Share
         </Button>

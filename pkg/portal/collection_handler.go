@@ -691,6 +691,10 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusForbidden, "only the owner can share this collection")
 		return
 	}
+	if !h.sharingAllowed(user) {
+		writeError(w, http.StatusForbidden, access.ErrSharingNotAllowed)
+		return
+	}
 
 	var req createShareRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

@@ -132,6 +132,8 @@ export interface PersonaDetail {
   service_account: boolean;
   /** The persona takes Automations out of the portal for its people (#2109). */
   hide_automations: boolean;
+  /** The persona's people may share what they own (#2241). */
+  allow_sharing?: boolean;
 }
 
 export interface PersonaListResponse {
@@ -159,6 +161,8 @@ export interface PersonaCreateRequest {
   service_account?: boolean;
   /** Absent is false, which shows Automations. */
   hide_automations?: boolean;
+  /** Absent is true, which allows sharing. */
+  allow_sharing?: boolean;
 }
 
 /** One api-kind connection and every operation its catalog declares. */

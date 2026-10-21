@@ -3,6 +3,7 @@ package persona
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -17,6 +18,22 @@ type Registry struct {
 	mu sync.RWMutex
 
 	personas map[string]*Persona
+	// roleMapping is personas.role_mapping.oidc_to_persona: a role that
+	// names its persona outright, consulted before role matching (#2228).
+	roleMapping map[string]string
+}
+
+// SetRoleMapping installs the role-to-persona mapping GetForRoles consults
+// before matching roles (personas.role_mapping.oidc_to_persona), so every
+// surface that resolves a persona -- MCP, the portal, the admin API and
+// resources -- resolves the same one (#2228).
+func (r *Registry) SetRoleMapping(mapping map[string]string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.roleMapping = maps.Clone(mapping)
 }
 
 // NewRegistry creates a new persona registry.
@@ -147,6 +164,21 @@ func (r *Registry) IsServiceAccount(name string) bool {
 	return ok && p.ServiceAccount
 }
 
+// SharingAllowed reports whether the persona registered under name lets its
+// people share what they own (#2241), read from the registry as it is now. An
+// unknown name is refused: a call that resolved no persona has no grant to
+// read the permission from.
+func (r *Registry) SharingAllowed(name string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	p, ok := r.personas[name]
+	return ok && p.SharingAllowed()
+}
+
 // ServiceAccountNames returns the names of every persona marked as a service
 // account, sorted. A nil registry returns an empty slice.
 func (r *Registry) ServiceAccountNames() []string {
@@ -179,19 +211,46 @@ func (r *Registry) GetForRoles(roles []string) (*Persona, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var bestMatch *Persona
-	bestPriority := -1
-
-	for _, p := range r.personas {
-		if matchesAnyRole(p.Roles, roles) {
-			if p.Priority > bestPriority {
-				bestMatch = p
-				bestPriority = p.Priority
+	// A mapped role names its persona outright, in the order the roles are
+	// held, as the MCP path's mapper always has.
+	for _, role := range roles {
+		if name, ok := r.roleMapping[role]; ok {
+			if p, ok := r.personas[name]; ok {
+				return p, true
 			}
 		}
 	}
 
+	var bestMatch *Persona
+	for _, p := range r.personas {
+		if !matchesAnyRole(p.Roles, roles) {
+			continue
+		}
+		// The highest priority wins; a tie goes to the name that sorts
+		// first, so two equal personas resolve the same way on every
+		// request rather than in map order (#2228).
+		if bestMatch == nil || p.Priority > bestMatch.Priority ||
+			(p.Priority == bestMatch.Priority && p.Name < bestMatch.Name) {
+			bestMatch = p
+		}
+	}
+
 	return bestMatch, bestMatch != nil
+}
+
+// AdminRule is the one rule for who administers the platform (#2228): the
+// persona a user's roles resolve to is the admin persona. Every surface asks
+// it -- the admin API, the portal, resources, the MCP tools -- so a user is an
+// administrator on all of them or on none. An empty admin persona makes no one
+// an administrator; a nil registry likewise.
+func (r *Registry) AdminRule(adminPersona string) func(roles []string) bool {
+	return func(roles []string) bool {
+		if r == nil || adminPersona == "" {
+			return false
+		}
+		p, ok := r.GetForRoles(roles)
+		return ok && p.Name == adminPersona
+	}
 }
 
 // Unregister removes a persona by name. Returns error if not found.

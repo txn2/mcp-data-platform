@@ -31,11 +31,13 @@ const (
 // keyChannel is the payload key naming the channel, in both actions.
 const keyChannel = "channel"
 
-// options are the arguments the two bindings share: the suppression key and
-// the window it is held for.
+// options are the arguments the two bindings share: the suppression key, the
+// window it is held for, and the chat channel of a bot channel a post goes to
+// (#2241).
 type options struct {
 	key         string
 	repeatAfter string
+	target      string
 }
 
 // apply writes the shared arguments onto a payload, leaving out the ones the
@@ -47,10 +49,14 @@ func (o options) apply(payload map[string]any) {
 	if o.repeatAfter != "" {
 		payload["repeat_after"] = o.repeatAfter
 	}
+	if o.target != "" {
+		payload["target"] = o.target
+	}
 }
 
 // Send reads platform.notify(channel, title, body="", link="", data=None,
-// key="", repeat_after="", attachments=None) into a notify action=send call.
+// key="", repeat_after="", attachments=None, target="") into a notify
+// action=send call.
 //
 // runLink is the run's own page. It is the link when the script names none,
 // so every post from a scheduled script leads back to the run that produced
@@ -65,7 +71,8 @@ func Send(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple, run
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 		"channel", &channel, "title", &title, "body?", &body, "link?", &link, "data?", &data,
-		"key?", &opts.key, "repeat_after?", &opts.repeatAfter, "attachments?", &attachments); err != nil {
+		"key?", &opts.key, "repeat_after?", &opts.repeatAfter, "attachments?", &attachments,
+		"target?", &opts.target); err != nil {
 		return nil, fmt.Errorf("in %s: %w", b.Name(), err)
 	}
 	if channel == "" {
@@ -119,19 +126,22 @@ func attachmentList(b *starlark.Builtin, v starlark.Value) ([]any, error) {
 }
 
 // Publish reads platform.publish(channel, name, message="", key="",
-// repeat_after="") into a notify action=publish call.
+// repeat_after="", access="", expires_in="", target="") into a notify
+// action=publish call.
 //
 // The asset is named the way platform.export named it when it wrote it, so a
 // script that builds a report and publishes it says the same name twice rather
-// than carrying an id between the two calls.
+// than carrying an id between the two calls. access is who the posted link
+// opens for (#2088); left out, the tool's default, signed_in, applies.
 func Publish(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (map[string]any, error) {
 	var (
-		channel, name, message string
-		opts                   options
+		channel, name, message, access, expiresIn string
+		opts                                      options
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 		"channel", &channel, "name", &name, "message?", &message,
-		"key?", &opts.key, "repeat_after?", &opts.repeatAfter); err != nil {
+		"key?", &opts.key, "repeat_after?", &opts.repeatAfter,
+		"access?", &access, "expires_in?", &expiresIn, "target?", &opts.target); err != nil {
 		return nil, fmt.Errorf("in %s: %w", b.Name(), err)
 	}
 	if channel == "" {
@@ -145,6 +155,12 @@ func Publish(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) 
 		keyChannel: channel,
 		"asset":    name,
 		"message":  message,
+	}
+	if access != "" {
+		payload["access"] = access
+	}
+	if expiresIn != "" {
+		payload["expires_in"] = expiresIn
 	}
 	opts.apply(payload)
 	return payload, nil

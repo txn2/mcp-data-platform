@@ -37,6 +37,7 @@ function emptyDraft(): PersonaDraft {
     agentInstructionsOverride: "",
     serviceAccount: false,
     showAutomations: true,
+    allowSharing: true,
   };
 }
 
@@ -61,6 +62,7 @@ function detailToDraft(d: PersonaDetail): PersonaDraft {
     agentInstructionsOverride: d.context?.agent_instructions_override ?? "",
     serviceAccount: d.service_account ?? false,
     showAutomations: !(d.hide_automations ?? false),
+    allowSharing: d.allow_sharing ?? true,
   };
 }
 
