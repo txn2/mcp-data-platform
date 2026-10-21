@@ -160,6 +160,44 @@ func TestGetPublicBranding(t *testing.T) {
 		assert.Equal(t, "https://cdn.example.com/acme-dark.svg", body.PortalLogoDark)
 	})
 
+	t.Run("reports the login redirect only where OIDC sign-in is on", func(t *testing.T) {
+		off := false
+		tests := []struct {
+			name         string
+			redirect     bool
+			oidc         bool
+			allowKeys    *bool
+			wantRedirect bool
+			wantKeys     bool
+		}{
+			{name: "off", oidc: true, wantKeys: true},
+			{name: "on with OIDC", redirect: true, oidc: true, wantRedirect: true, wantKeys: true},
+			{name: "on without OIDC", redirect: true, wantKeys: true},
+			{name: "key form off", redirect: true, oidc: true, allowKeys: &off, wantRedirect: true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := testConfig()
+				cfg.Auth.OIDC.Enabled = tc.oidc
+				cfg.Auth.BrowserSession.Enabled = true
+				cfg.Portal.LoginRedirect = tc.redirect
+				cfg.Portal.AllowAPIKeyLogin = tc.allowKeys
+				h := NewHandler(Deps{Config: cfg}, nil)
+
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/public/branding", http.NoBody)
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, req)
+
+				require.Equal(t, http.StatusOK, w.Code)
+				var body map[string]any
+				require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+				assert.Equal(t, tc.oidc, body["oidc_enabled"])
+				assert.Equal(t, tc.wantRedirect, body["login_redirect"])
+				assert.Equal(t, tc.wantKeys, body["allow_api_key_login"])
+			})
+		}
+	})
+
 	t.Run("returns version even without config", func(t *testing.T) {
 		h := NewHandler(Deps{}, nil)
 

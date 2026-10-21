@@ -1271,6 +1271,8 @@ export const handlers = [
       portal_logo_light: mockSystemInfo.portal_logo_light,
       portal_logo_dark: mockSystemInfo.portal_logo_dark,
       oidc_enabled: false,
+      login_redirect: false,
+      allow_api_key_login: true,
     }),
   ),
 

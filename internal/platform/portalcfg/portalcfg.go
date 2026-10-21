@@ -128,3 +128,44 @@ func Duration(s string) time.Duration {
 	}
 	return d
 }
+
+// Implementor configures the optional implementor brand shown in the
+// far-left zone of the public viewer header (e.g., "ACME Corp").
+type Implementor struct {
+	Name string `yaml:"name"` // display name (e.g., "ACME Corp")
+	Logo string `yaml:"logo"` // URL to logo SVG (fetched at startup for inline rendering)
+	URL  string `yaml:"url"`  // link URL (e.g., "https://acme.com")
+}
+
+// RateLimit configures rate limiting for the public portal viewer.
+type RateLimit struct {
+	RequestsPerMinute int `yaml:"requests_per_minute"` // default: 60
+	BurstSize         int `yaml:"burst_size"`          // default: 10
+	// TrustedProxies lists CIDRs whose X-Forwarded-For headers are trusted for
+	// client attribution, mirroring oauth.rate_limit.trusted_proxies. Empty (the
+	// default) trusts none: the direct peer address is used and forwarding
+	// headers are ignored, which is the correct safe default when the
+	// deployment's proxy topology is unknown. Set this to your reverse-proxy or
+	// ingress CIDRs so per-client limiting attributes to the real client instead
+	// of collapsing onto the proxy IP.
+	TrustedProxies []string `yaml:"trusted_proxies"`
+}
+
+// LoginRedirectIgnored is the configuration warning for portal.login_redirect
+// set where nothing signs in through an identity provider.
+const LoginRedirectIgnored = "portal.login_redirect is ignored: it needs auth.oidc.enabled and auth.browser_session.enabled"
+
+// LoginRedirect is whether a signed-out portal visitor is sent straight to
+// the identity provider instead of the login screen (#2242): the setting, in
+// force only where the portal signs in through OIDC browser sessions. ignored
+// reports the setting made where it cannot take effect.
+func LoginRedirect(set, oidcSignIn bool) (redirect, ignored bool) {
+	return set && oidcSignIn, set && !oidcSignIn
+}
+
+// APIKeyLoginAllowed is whether /portal/?login=api_key still offers the API
+// key form on a redirecting deployment; unset is on. It changes only the
+// portal login screen: keys keep working on the MCP endpoint and the REST API.
+func APIKeyLoginAllowed(allow *bool) bool {
+	return allow == nil || *allow
+}

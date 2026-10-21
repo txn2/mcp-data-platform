@@ -260,6 +260,9 @@ at all. A connection is a tenant asset, so a revocation nobody has acted on
 after the operator's window is raised with the addresses the operator named.
 That email says whose authorization lapsed and how long it has been, so the
 reader knows why it reached them rather than the person who signed in.
+Open revocations are checked for escalation every minute;
+`MCP_PLATFORM_CONNECTION_ALERT_INTERVAL` (a duration such as `2s`) overrides
+that, for a local stack proved against in seconds.
 
 ![Admin Settings: the connection revocation alert card](../images/screenshots/light/admin-admin-settings-connection-alert-light.webp#only-light)![Admin Settings: the connection revocation alert card](../images/screenshots/dark/admin-admin-settings-connection-alert-dark.webp#only-dark)
 

@@ -365,6 +365,22 @@ auth:
 
 The portal UI automatically detects OIDC availability and shows an SSO button. API key authentication remains as a fallback. MCP protocol clients are unaffected — browser sessions only apply to the portal HTTP endpoints.
 
+#### Sending sign-in straight to the identity provider
+
+The portal login screen shows the SSO button, an "or use an API key" divider and an API key form. On a deployment whose users only ever sign in through the identity provider, `portal.login_redirect: true` skips that screen:
+
+```yaml
+portal:
+  login_redirect: true        # default false
+  allow_api_key_login: true   # default true
+```
+
+- Where the portal would draw the login screen (a fresh visit, or a session that expired), it navigates to `/portal/auth/login` with the page that was opened as `return_to`, so after signing in the user is on that page.
+- When the identity provider sends the user back with an error (`/portal/?error=access_denied` and the other codes the callback writes), the portal does not redirect again. It shows the error and a **Try again** button, so a refused user does not loop between the portal and the provider.
+- `/portal/?login=api_key` shows the full login screen, API key form included, for administrators and service accounts. `portal.allow_api_key_login: false` turns that off: the address is sent to the identity provider like any other.
+
+The public branding endpoint (`GET /api/v1/admin/public/branding`) reports `login_redirect` (true only when the setting and OIDC browser sign-in are both on) and `allow_api_key_login` beside `oidc_enabled`; the login screen reads them there.
+
 !!! warning "Session Limitations"
     Sessions are stateless (no server-side store). Individual sessions cannot be revoked. Rotating `signing_key` invalidates all active sessions. Users must re-authenticate after TTL expires.
 
@@ -590,6 +606,8 @@ portal:
   title: "ACME Data Platform"                     # Overrides the brand-composed title
   tagline: "Sign in to access your data."         # Login-screen subtitle
   oidc_button_label: "Sign in with ACME Keycloak" # Login-screen SSO button text
+  login_redirect: false         # Send signed-out visitors straight to the identity provider
+  allow_api_key_login: true     # Keep /portal/?login=api_key offering the API key form
   logo: https://example.com/logo.svg              # Logo URL (fallback for both themes)
   logo_light: https://example.com/logo-light.svg  # Logo for light theme
   logo_dark: https://example.com/logo-dark.svg    # Logo for dark theme
@@ -634,6 +652,8 @@ portal:
 | `title` | string | `<brand_name> Portal`, else `MCP Data Platform` | Sidebar/branding title text. Composed from `brand_name` when unset, so a branded deployment needs no second string to keep in sync. A brand already ending in "Portal" is not doubled. Only a `brand_name` set in the `portal` block composes the title: a brand inherited from the `mcpapps` block leaves an existing deployment's title unchanged |
 | `tagline` | string | `Sign in to access the platform.` | Login-screen subtitle text |
 | `oidc_button_label` | string | `Sign in with OIDC` | Login-screen SSO button text |
+| `login_redirect` | bool | `false` | Send a signed-out visitor straight to the identity provider instead of the login screen. In force only when `auth.oidc.enabled` and `auth.browser_session.enabled` are both on; set without them it is logged as a configuration warning (`login_redirect_ignored`) and ignored. See [Sending sign-in straight to the identity provider](#sending-sign-in-straight-to-the-identity-provider) |
+| `allow_api_key_login` | bool | `true` | With `login_redirect` on, whether `/portal/?login=api_key` still shows the login screen with the API key form. Set `false` and that address is sent to the identity provider like any other. It changes only the portal login screen: API keys keep working on the MCP endpoint and the REST API |
 | `logo` | string | - | URL to the logo image, in any format (used for both themes if no theme-specific logo is set). Also the platform brand mark on the public viewer and the share pages, which link it. The built-in MCP Apps cannot link it — a sandboxed iframe blocks external loads — so it is fetched once at startup and written into their config inline, and a fetch that fails logs one warning |
 | `logo_light` | string | - | URL to logo for light theme (overrides `logo`) |
 | `logo_dark` | string | - | URL to logo for dark theme (overrides `logo`) |

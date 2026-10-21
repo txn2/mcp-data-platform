@@ -52,6 +52,9 @@ const (
 	CodeExcludePersonaUnknown = "exclude_persona_unknown"
 	// CodeDeploymentIDUnset: an OTLP exporter is on with no deployment id.
 	CodeDeploymentIDUnset = "deployment_id_unset"
+	// CodeLoginRedirectIgnored: portal.login_redirect is set without OIDC
+	// browser sign-in to redirect to.
+	CodeLoginRedirectIgnored = "login_redirect_ignored"
 )
 
 // logKeyCode is the attribute every warning's log line carries its code under,

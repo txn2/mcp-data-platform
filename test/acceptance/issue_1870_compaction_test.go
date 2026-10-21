@@ -226,7 +226,7 @@ func issue1870WaitAllCompacted(t *testing.T, db *sql.DB, source string, within t
 			t.Fatalf("source %s: %d of %d windows still owed a compaction after %s (last error %q, read error %v)",
 				source, owed, total, within.Round(time.Second), lastErr.String, err)
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 }
 
@@ -250,7 +250,7 @@ func issue1870S3(t *testing.T) *s3client.Client {
 	if port == "" {
 		port = "9443"
 	}
-	ca, err := filepath.Abs("../../dev/.tls/minio/public.crt")
+	ca, err := filepath.Abs("../../dev/.tls/seaweedfs/public.crt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +451,7 @@ func issue1870WaitCompacted(t *testing.T, db *sql.DB, source string, start time.
 			t.Fatalf("window %s of %s was not compacted within %s (generation %d, compacted %d, last error %q, read error %v)",
 				start.Format(time.RFC3339), source, within.Round(time.Second), gen, compacted, lastErr, err)
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 }
 
@@ -564,7 +564,7 @@ func issue1870RawRetention(t *testing.T, c *client, db *sql.DB, store *s3client.
 		if time.Now().After(deadline) {
 			t.Fatalf("the compacted windows' raw segments were not deleted within two minutes")
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 	if n := len(issue1870Keys(t, store, quietPrefix)); n == 0 {
 		t.Fatalf("the raw segments of a window owed a compaction were deleted")
@@ -583,7 +583,7 @@ func issue1870RawRetention(t *testing.T, c *client, db *sql.DB, store *s3client.
 		if time.Now().After(deadline) {
 			t.Fatalf("once compacted, the window's raw segments were not deleted")
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 }
 
@@ -633,7 +633,7 @@ func issue1870Expiry(t *testing.T, c *client, db *sql.DB, store *s3client.Client
 		if time.Now().After(deadline) {
 			t.Fatalf("the interrupted expiry was not finished within two minutes")
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 	if st, _ := c.rest(http.MethodGet, "/api/v1/resources/"+resourceID, http.NoBody); st != http.StatusNotFound {
 		t.Errorf("the expired hour's resource answers %d, want 404", st)
@@ -760,7 +760,7 @@ func (r *issue1870Reader) waitFor(t *testing.T, c *client, want int, within time
 		if got >= want {
 			break
 		}
-		time.Sleep(15 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 	distinct := issue1870Count(t, c, "SELECT count(DISTINCT event_id) FROM "+r.sink+issue1870NotMarker)
 	if got != want || distinct != want {
@@ -785,7 +785,7 @@ func (r *issue1870Reader) waitForFailedRunRecovered(t *testing.T, c *client, wit
 			t.Fatalf("no run failed in the middle and was followed by a successful one within %s (%d failed, %d succeeded)",
 				within, failed, succeeded)
 		}
-		time.Sleep(15 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 }
 

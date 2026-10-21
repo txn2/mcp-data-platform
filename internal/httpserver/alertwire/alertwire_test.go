@@ -82,12 +82,14 @@ func TestAlertSettings_NoDatabase(t *testing.T) {
 	}
 }
 
-func TestReviewAlertInterval(t *testing.T) {
+func TestEnvInterval(t *testing.T) {
 	cases := map[string]time.Duration{"": 0, "15s": 15 * time.Second, "soon": 0, "-1m": 0}
-	for raw, want := range cases {
-		t.Setenv(EnvReviewAlertInterval, raw)
-		if got := reviewAlertInterval(); got != want {
-			t.Errorf("%q: interval = %v, want %v", raw, got, want)
+	for _, name := range []string{EnvReviewAlertInterval, EnvConnAlertInterval} {
+		for raw, want := range cases {
+			t.Setenv(name, raw)
+			if got := envInterval(name); got != want {
+				t.Errorf("%s=%q: interval = %v, want %v", name, raw, got, want)
+			}
 		}
 	}
 }

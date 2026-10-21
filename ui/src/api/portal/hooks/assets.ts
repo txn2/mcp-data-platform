@@ -51,6 +51,10 @@ export interface Branding {
   portal_logo_light: string;
   portal_logo_dark: string;
   oidc_enabled: boolean;
+  /** Send a signed-out visitor straight to the identity provider (#2242). */
+  login_redirect?: boolean;
+  /** Whether /portal/?login=api_key offers the API key form. */
+  allow_api_key_login?: boolean;
 }
 
 export function useBranding() {

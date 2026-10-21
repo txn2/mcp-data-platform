@@ -32,13 +32,14 @@ import (
 // string `intent` and a `sources` list; fetch with string `reference`.
 //
 // The criteria run against the local stack: both platform replicas behind the
-// proxy, Trino, the MinIO store the managed resources live in, and Postgres.
+// proxy, Trino, the SeaweedFS store the managed resources live in, and
+// Postgres.
 
 const (
 	issue1870Conn    = "acme-scratch-resources"
 	issue1870Schema  = "scratch_resources.uploads"
 	issue1870Purpose = "Acceptance for #1870: inbound webhook sources."
-	issue1870Store   = "acme-dev-minio"
+	issue1870Store   = "acme-dev-seaweedfs-resources"
 )
 
 // issue1870Name is a source name no other run has used.
@@ -95,8 +96,8 @@ var issue1870Forms = []struct {
 }
 
 // issue1870Client posts to the receiver. Its timeout outlasts the receiver's
-// 30-second write timeout, so a stalled store is answered by the platform
-// rather than by the client giving up.
+// write timeout (3 seconds on the dev stack, 30 by default), so a stalled
+// store is answered by the platform rather than by the client giving up.
 var issue1870Client = &http.Client{Timeout: 90 * time.Second}
 
 // issue1870Post sends raw bytes to /hooks/{path} at base.
@@ -527,10 +528,20 @@ func TestIssue1870_ARotatedSecretOverlapsThenEnds(t *testing.T) {
 		}
 	}
 	// The receiver re-reads sources every five seconds, so the end of the
-	// overlap reaches every replica within that of the moment it passes.
-	time.Sleep(22 * time.Second)
-	if res, _ := issue1870Signed(t, name, "whsec_old", "application/json", body); res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("after the overlap the old secret was answered %d, want 401", res.StatusCode)
+	// overlap reaches every replica within that of the moment it passes. The
+	// proxy alternates replicas, so three refusals in a row are both of them.
+	deadline := time.Now().Add(45 * time.Second)
+	for refused := 0; refused < 3; {
+		res, _ := issue1870Signed(t, name, "whsec_old", "application/json", body)
+		if res.StatusCode != http.StatusUnauthorized {
+			refused = 0
+			if time.Now().After(deadline) {
+				t.Fatalf("45s after the rotation the old secret was still answered %d, want 401", res.StatusCode)
+			}
+			time.Sleep(time.Second)
+			continue
+		}
+		refused++
 	}
 	if res, text := issue1870Signed(t, name, "whsec_new", "application/json", body); res.StatusCode != http.StatusAccepted {
 		t.Fatalf("after the overlap the new secret was answered %d: %s", res.StatusCode, text)

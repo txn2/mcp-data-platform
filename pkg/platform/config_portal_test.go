@@ -1,10 +1,13 @@
 package platform
 
 import (
+	"bytes"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 )
 
@@ -73,4 +76,24 @@ func TestConfig_PortalAssetRefsStrict(t *testing.T) {
 	_, err := LoadConfigFromBytes([]byte("config:\n  strict: true\nportal:\n  asset_refs:\n    maximum: 40\n"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "maximum")
+}
+
+// TestLoadConfig_LoginRedirectWithoutOIDCWarns pins #2242's warning: the
+// setting with nothing to redirect to starts, is logged with its code, and is
+// not in force.
+func TestLoadConfig_LoginRedirectWithoutOIDCWarns(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	cfg, err := LoadConfigFromBytes([]byte("apiVersion: v1\nportal:\n  login_redirect: true\n"))
+	require.NoError(t, err)
+	assert.False(t, cfg.Portal.LoginRedirect, "the setting is not in force without OIDC sign-in")
+	assert.Contains(t, buf.String(), "code="+configwarn.CodeLoginRedirectIgnored)
+
+	buf.Reset()
+	_, err = LoadConfigFromBytes([]byte("apiVersion: v1\nportal:\n  login_redirect: false\n"))
+	require.NoError(t, err)
+	assert.NotContains(t, buf.String(), configwarn.CodeLoginRedirectIgnored)
 }

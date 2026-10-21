@@ -22,36 +22,34 @@ import (
 // `platform_info` (no arguments) and the admin notifications route (a GET with
 // no body), which is what the #1694 criterion's final assertions were made of.
 
-// issue1738PastTheDefault is how long these criteria idle before their last
-// call: longer than the deadline a session used to be given, so a session that
-// still carried it would fail rather than answer.
+// issue1738PastTheDefault is how far past the default deadline a sized
+// session's own deadline must lie.
 const issue1738PastTheDefault = sessionTimeout + 15*time.Second
 
 // TestIssue1738_ASessionSizedToItsWaitsOutlivesTheDefault is the ticket's
-// criterion: a session opened for longer than sessionTimeout still serves both
-// a tool call and a REST read after the default deadline would have passed.
-// Both surfaces are asserted because the #1694 failure took the REST reads and
-// the cleanup writes down with the tool calls -- they share the one context.
+// criterion: a session opened for longer than sessionTimeout carries that
+// deadline on the one context its tool calls and REST reads both run on, and
+// serves both. Both surfaces are asserted because the #1694 failure took the
+// REST reads and the cleanup writes down with the tool calls -- they share the
+// one context. The deadline is read rather than idled past: idling 135 seconds
+// proved only that a context.WithTimeout deadline holds (#2232).
 func TestIssue1738_ASessionSizedToItsWaitsOutlivesTheDefault(t *testing.T) {
 	c := connectFor(t, issue1738PastTheDefault+2*time.Minute)
 
-	started := time.Now()
-	if status, _ := c.rest(http.MethodGet, "/api/v1/admin/notifications?limit=1", http.NoBody); status != http.StatusOK {
-		t.Fatalf("the REST read at the start of the session answered HTTP %d", status)
+	deadline, ok := c.ctx.Deadline()
+	if !ok {
+		t.Fatal("a sized session carries no deadline")
 	}
-
-	time.Sleep(issue1738PastTheDefault)
+	if remaining := time.Until(deadline); remaining <= issue1738PastTheDefault {
+		t.Fatalf("a session sized past the default has %s left, not more than %s", remaining, issue1738PastTheDefault)
+	}
 
 	info := c.call("platform_info", nil)
 	if id, _ := info["session_id"].(string); id == "" {
-		t.Errorf("platform_info after %s returned no session_id: %v", time.Since(started).Round(time.Second), info)
+		t.Errorf("platform_info on the sized session returned no session_id: %v", info)
 	}
-	status, body := c.rest(http.MethodGet, "/api/v1/admin/notifications?limit=1", http.NoBody)
-	if status != http.StatusOK {
-		t.Fatalf("the REST read %s into the session answered HTTP %d (%v)", time.Since(started).Round(time.Second), status, body)
-	}
-	if elapsed := time.Since(started); elapsed <= sessionTimeout {
-		t.Fatalf("the criterion finished in %s, inside the deadline a session used to carry: it proves nothing", elapsed)
+	if status, body := c.rest(http.MethodGet, "/api/v1/admin/notifications?limit=1", http.NoBody); status != http.StatusOK {
+		t.Fatalf("the REST read on the sized session answered HTTP %d (%v)", status, body)
 	}
 }
 

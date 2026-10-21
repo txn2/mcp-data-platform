@@ -85,11 +85,20 @@ func waitForFreshListing(t *testing.T, since time.Time) {
 // and returns that time.
 func waitForListing(t *testing.T, after float64) float64 {
 	t.Helper()
+	return waitForLoopPass(t, "storage_scan", after)
+}
+
+// waitForLoopPass waits until the named background loop has finished a pass
+// after the given Unix time on any replica, and returns that time. The dev
+// stack runs the loops these criteria read every few seconds (dev/start.sh).
+func waitForLoopPass(t *testing.T, loop string, after float64) float64 {
+	t.Helper()
+	series := `background_loop_last_success_timestamp_seconds{loop="` + loop + `"}`
 	deadline := time.Now().Add(3 * time.Minute)
 	for time.Now().Before(deadline) {
 		var newest float64
 		for _, line := range strings.Split(scrapeRaw(t), "\n") {
-			if strings.HasPrefix(line, `background_loop_last_success_timestamp_seconds{loop="storage_scan"}`) {
+			if strings.HasPrefix(line, series) {
 				if f := strings.Fields(line); len(f) == 2 {
 					v, _ := strconv.ParseFloat(f[1], 64)
 					newest = max(newest, v)
@@ -99,10 +108,9 @@ func waitForListing(t *testing.T, after float64) float64 {
 		if newest > after {
 			return newest
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
-	t.Fatalf("no bucket listing finished after %s (MCP_PLATFORM_STORAGE_SCAN_INTERVAL is 30s on the dev stack)",
-		time.Unix(int64(after), 0).Format(time.TimeOnly))
+	t.Fatalf("no %s pass finished after %s", loop, time.Unix(int64(after), 0).Format(time.TimeOnly))
 	return 0
 }
 
@@ -177,7 +185,9 @@ func TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing(t *testing.T)
 // Both are made behind the platform's back through s3_object, which writes to
 // the bucket directly.
 func TestIssue1899_TheReconcileCountsOneOrphanAndOneDangling(t *testing.T) {
-	c := connect(t)
+	// Two fresh listings, each up to two 30-second scans, outlast the default
+	// session deadline (#1738, #2232).
+	c := connectFor(t, 5*time.Minute)
 	labels := map[string]string{"purpose": "resources"}
 	// The baseline is read after a listing that began after this test did, so
 	// an earlier test's seeds, cleaned up since, are not still in it.

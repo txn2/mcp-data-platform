@@ -54,7 +54,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all migrate-check-diff build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
-	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui vet-tags \
+	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags \
 	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -948,7 +948,7 @@ verify:
 ##
 ## The steps are grouped by the resource they contend for, NOT spread evenly:
 ## a flat -j starves whatever it oversubscribes. Each group runs its own steps
-## in order; the five groups run at once, so the wall clock is the slowest group
+## in order; the groups run at once, so the wall clock is the slowest group
 ## rather than the sum of everything.
 ##
 ## The groupings are not arbitrary. Each one exists because running its members
@@ -977,9 +977,23 @@ verify:
 ## CodeQL is not here at all: its extractor runs the Makefile's default goal,
 ## which rewrites generated files, so `verify` runs it before this phase.
 ##
+##   - verify-ui runs after verify-static, in one lane with it (#2243).
+##     schedule-lane-ui runs each changed vitest file five times beside the
+##     full suite under vitest's 5-second per-test timeout, and the Go lanes
+##     only slow down under CPU starvation where a vitest test times out: with
+##     every lane starting together on a cold build cache the load average
+##     reached 465 on 18 cores and a test that takes 80ms alone took 8.9s.
+##     verify-static is the shortest lane, so the UI half still runs beside
+##     verify-go and verify-docker instead of adding its length to verify.
+##
 ## Run it directly to re-check without the formatting and generation steps.
-verify-checks: verify-go verify-static verify-docker verify-ui
+verify-checks: verify-go verify-static-ui verify-docker
 	@:
+
+## verify-static-ui: verify-static, then verify-ui, in one lane (#2243).
+verify-static-ui:
+	@$(MAKE) --no-print-directory verify-static
+	@$(MAKE) --no-print-directory verify-ui
 
 ## verify-go: the Go checks that read the tree and the coverage profile.
 ## coverage-summary and patch-coverage-check both read the coverage.out that

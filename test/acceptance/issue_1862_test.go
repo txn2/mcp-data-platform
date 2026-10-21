@@ -22,7 +22,7 @@ import (
 // created, revised or unchanged it did.
 //
 // The criteria run against the dev stack, whose managed resources are stored
-// on MinIO over TLS (dev/platform.yaml), the backend a deployment runs.
+// on SeaweedFS over TLS (dev/platform.yaml), the backend a deployment runs.
 //
 // Wire forms. This ticket touches no MCP tool parameter. Its surface is the
 // multipart create route, and every form the fields it reads admit is sent:

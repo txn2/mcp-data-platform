@@ -227,7 +227,7 @@ if [ "$DEV_REPLICAS" = 2 ]; then
   export COMPOSE_PROFILES=replicas
 fi
 export DEV_S3_PORT=$((9000 + DEV_OFFSET))
-# MinIO's TLS port moves with the S3 window rather than being relocated on its
+# The managed-resource store's TLS port moves with the S3 window rather than being relocated on its
 # own, so the two object stores stay in one addressable block.
 export DEV_S3_TLS_PORT=$((9443 + DEV_OFFSET))
 export DEV_OLLAMA_PORT=$((11434 + DEV_OFFSET))
@@ -376,7 +376,7 @@ docker exec -u postgres "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -q -U platform -
   || fail "dev/seed-graphql.sql did not apply to gql_fixture"
 ok "GraphQL fixture schema seeded (gql_fixture.gqlfixture)"
 
-# MinIO's TLS certificate. It is generated rather than committed, because a
+# The managed-resource store's TLS certificate. It is generated rather than committed, because a
 # private key does not belong in the repository, and it is regenerated only
 # when it is missing so a running stack keeps the certificate the platform
 # already trusts.
@@ -384,18 +384,18 @@ ok "GraphQL fixture schema seeded (gql_fixture.gqlfixture)"
 # 397 days: macOS refuses a server certificate valid for longer, reporting it
 # as "not standards compliant" rather than as untrusted, which is a confusing
 # way to learn that a dev certificate was minted for ten years.
-if [ ! -f dev/.tls/minio/public.crt ] || [ ! -f dev/.tls/minio/private.key ]; then
-  info "Generating the MinIO dev certificate..."
-  mkdir -p dev/.tls/minio
+if [ ! -f dev/.tls/seaweedfs/public.crt ] || [ ! -f dev/.tls/seaweedfs/private.key ]; then
+  info "Generating the SeaweedFS dev certificate..."
+  mkdir -p dev/.tls/seaweedfs
   openssl req -x509 -newkey rsa:2048 -sha256 -days 397 -nodes \
-    -keyout dev/.tls/minio/private.key -out dev/.tls/minio/public.crt \
+    -keyout dev/.tls/seaweedfs/private.key -out dev/.tls/seaweedfs/public.crt \
     -subj "/CN=localhost" \
-    -addext "subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:minio" \
+    -addext "subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:seaweedfs-resources" \
     -addext "basicConstraints=critical,CA:FALSE" \
     -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
     -addext "extendedKeyUsage=serverAuth" > /dev/null 2>&1 \
-    || fail "Could not generate the MinIO TLS certificate (is openssl installed?)"
-  ok "MinIO dev certificate generated (dev/.tls/minio, 397 days)"
+    || fail "Could not generate the SeaweedFS TLS certificate (is openssl installed?)"
+  ok "SeaweedFS dev certificate generated (dev/.tls/seaweedfs, 397 days)"
 fi
 # The AWS SDK reads this, and it is the only way the platform trusts the
 # certificate above: Go on macOS ignores SSL_CERT_FILE, so a self-signed
@@ -403,10 +403,10 @@ fi
 #
 # Trino trusts the same certificate through a Java truststore its container
 # builds at start (dev/docker-compose.yml), because it reads the resource
-# objects a registration points it at, and those are on MinIO. The
-# certificate therefore names `minio` as well as localhost: the platform
-# reaches it from the host, Trino from inside the compose network.
-export AWS_CA_BUNDLE="$PWD/dev/.tls/minio/public.crt"
+# objects a registration points it at, and those are on the TLS store. The
+# certificate therefore names `seaweedfs-resources` as well as localhost: the
+# platform reaches it from the host, Trino from inside the compose network.
+export AWS_CA_BUNDLE="$PWD/dev/.tls/seaweedfs/public.crt"
 
 # Now bring up the remaining services. Keycloak depends_on postgres
 # (already healthy), so this is a no-op for postgres and pulls/starts
@@ -427,22 +427,23 @@ for i in $(seq 1 30); do
 done
 ok "SeaweedFS ready on :$DEV_S3_PORT"
 
-# Wait for MinIO, which serves managed resources over TLS. The health endpoint
-# needs no credentials; --cacert is the dev certificate rather than -k, so a
-# certificate the platform will not trust fails here rather than at the first
-# upload.
-info "Waiting for MinIO..."
-for i in $(seq 1 30); do
-  if curl -sf --cacert dev/.tls/minio/public.crt \
-      "https://localhost:$DEV_S3_TLS_PORT/minio/health/live" > /dev/null 2>&1; then
+# Wait for the SeaweedFS that serves managed resources over TLS. Any HTTP
+# answer is ready (S3 refuses an anonymous GET / with 403); --cacert is the
+# dev certificate rather than -k, so a certificate the platform will not trust
+# fails here rather than at the first upload.
+info "Waiting for the managed-resource store (SeaweedFS, TLS)..."
+for i in $(seq 1 60); do
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --cacert dev/.tls/seaweedfs/public.crt \
+    "https://localhost:$DEV_S3_TLS_PORT/" 2>/dev/null || echo "000")
+  if [ "$HTTP_CODE" != "000" ]; then
     break
   fi
-  if [ "$i" -eq 30 ]; then
-    fail "MinIO did not become ready within 30s (check 'docker logs acme-dev-minio')"
+  if [ "$i" -eq 60 ]; then
+    fail "The managed-resource store did not become ready within 60s (check 'docker logs acme-dev-seaweedfs-resources')"
   fi
   sleep 1
 done
-ok "MinIO ready on :$DEV_S3_TLS_PORT (TLS)"
+ok "Managed-resource store ready on :$DEV_S3_TLS_PORT (SeaweedFS, TLS)"
 
 # Wait for Trino. It is the slowest service here (a JVM warming up a
 # coordinator), and the platform's trino toolkit is enabled only once it
@@ -506,6 +507,36 @@ for i in $(seq 1 120); do
   sleep 1
 done
 ok "Keycloak ready on :9090 (realm mcp-platform)"
+
+# The realm registers the portal's callback at :8080 (dev/keycloak-realm.json),
+# so a relocated stack's sign-in would be refused as an invalid redirect_uri.
+# Add the address this stack advertises to the portal client, through the
+# admin API, since the realm file is imported only on a fresh volume.
+if [ "$DEV_OFFSET" != 0 ]; then
+  KC_ORIGIN="http://localhost:$DEV_PUBLIC_API_PORT"
+  KC_ADMIN_TOKEN=$(curl -sf -d client_id=admin-cli -d username=admin -d password=admin -d grant_type=password \
+    http://localhost:9090/realms/master/protocol/openid-connect/token \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])') \
+    || fail "Could not sign in to Keycloak's admin API to register $KC_ORIGIN"
+  KC_CLIENTS="http://localhost:9090/admin/realms/mcp-platform/clients"
+  KC_CLIENT=$(curl -sf -H "Authorization: Bearer $KC_ADMIN_TOKEN" "$KC_CLIENTS?clientId=mcp-data-platform-portal") \
+    || fail "Could not read the portal client from Keycloak"
+  KC_UPDATE=$(printf '%s' "$KC_CLIENT" | KC_ORIGIN="$KC_ORIGIN" python3 -c '
+import json, os, sys
+c = json.load(sys.stdin)[0]
+origin = os.environ["KC_ORIGIN"]
+for key, value in (("redirectUris", origin + "/portal/auth/callback"), ("webOrigins", origin)):
+    if value not in c[key]:
+        c[key].append(value)
+logout = c.setdefault("attributes", {}).get("post.logout.redirect.uris", "").split("##")
+if origin + "/portal/" not in logout:
+    c["attributes"]["post.logout.redirect.uris"] = "##".join([u for u in logout if u] + [origin + "/portal/"])
+print(json.dumps(c))')
+  curl -sf -X PUT -H "Authorization: Bearer $KC_ADMIN_TOKEN" -H "Content-Type: application/json" \
+    -d "$KC_UPDATE" "$KC_CLIENTS/$(printf '%s' "$KC_UPDATE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" \
+    || fail "Could not register $KC_ORIGIN with Keycloak's portal client"
+  ok "Keycloak portal client accepts $KC_ORIGIN (relocated stack)"
+fi
 
 # Wait for the mcp-test fixture. First run pulls the image, which can
 # take longer than the other waits — give it up to 60s before failing.
@@ -601,25 +632,24 @@ if which aws > /dev/null 2>&1; then
     aws --endpoint-url http://localhost:$DEV_S3_PORT s3 mb s3://dev-scratch > /dev/null 2>&1 || \
     fail "Could not create the dev-scratch S3 bucket"
   ok "S3 bucket dev-scratch ready (Trino scratch metastore)"
-  # Managed resources live on MinIO, not SeaweedFS: it is the backend in this
-  # stack that bounds a single PUT, so the upload path is exercised here
-  # against the shape that broke it (#1631).
+  # Managed resources live on the SeaweedFS served over TLS, so the upload path
+  # is exercised over HTTPS, the transport #1631's streaming write is for.
   AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
     aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 ls s3://managed-resources > /dev/null 2>&1 || \
   AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
     aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 mb s3://managed-resources > /dev/null 2>&1 || \
-    fail "Could not create the managed-resources S3 bucket on MinIO"
-  ok "S3 bucket managed-resources ready (MinIO, TLS)"
+    fail "Could not create the managed-resources S3 bucket on the TLS store"
+  ok "S3 bucket managed-resources ready (SeaweedFS, TLS)"
   # The scratch_resources catalog keeps its own file metastore, on the same
   # endpoint as the data it describes: a Hive catalog reads its metastore and
-  # its tables through one S3 client, so a metastore on SeaweedFS and tables
-  # on MinIO is not a catalog that can exist.
+  # its tables through one S3 client, so a metastore on the plain store and
+  # tables on the TLS one is not a catalog that can exist.
   AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
     aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 ls s3://dev-scratch-resources > /dev/null 2>&1 || \
   AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
     aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 mb s3://dev-scratch-resources > /dev/null 2>&1 || \
-    fail "Could not create the dev-scratch-resources S3 bucket on MinIO"
-  ok "S3 bucket dev-scratch-resources ready (MinIO, scratch_resources metastore)"
+    fail "Could not create the dev-scratch-resources S3 bucket on the TLS store"
+  ok "S3 bucket dev-scratch-resources ready (SeaweedFS TLS, scratch_resources metastore)"
 else
   echo -e "  ${YELLOW}⚠${NC} aws CLI not found — S3 bucket not created. Install: brew install awscli"
 fi
@@ -712,13 +742,20 @@ export MCP_PLATFORM_DEPLOYMENT_ID=acme-dev
 export OTEL_LOGS_EXPORTER=otlp
 # Capacity (#1899): sample the tables and list the buckets every 30 seconds,
 # and count an object with no row as an orphan at once, so a criterion does not
-# wait out the production defaults (15m, 6h, 15m).
+# wait out the production defaults (15m, 6h, 15m). Not shorter: a listing
+# removes the usage row of a bucket it does not find, and #1899's upload
+# criterion needs an upload with no listing inside it (#2232).
 export MCP_PLATFORM_CAPACITY_INTERVAL="${DEV_CAPACITY_INTERVAL:-30s}"
 export MCP_PLATFORM_STORAGE_SCAN_INTERVAL="${DEV_STORAGE_SCAN_INTERVAL:-30s}"
 export MCP_PLATFORM_STORAGE_ORPHAN_GRACE="${DEV_STORAGE_ORPHAN_GRACE:-0s}"
 # The review queue is checked every five seconds rather than hourly, so the
 # review-queue alert's criterion (#1724) runs on this stack (#2219).
 export MCP_PLATFORM_REVIEW_ALERT_INTERVAL="${MCP_PLATFORM_REVIEW_ALERT_INTERVAL:-5s}"
+# An open connection revocation is checked for escalation every two seconds
+# rather than every minute (#1694), and due schedules are looked for every two
+# seconds rather than every thirty, so those criteria wait seconds (#2232).
+export MCP_PLATFORM_CONNECTION_ALERT_INTERVAL="${MCP_PLATFORM_CONNECTION_ALERT_INTERVAL:-2s}"
+export MCP_PLATFORM_SCRIPT_SCHEDULER_INTERVAL="${MCP_PLATFORM_SCRIPT_SCHEDULER_INTERVAL:-2s}"
 air -c dev/.air.toml > "$AIR_LOG" 2>&1 &
 PIDS+=($!)
 
@@ -1262,7 +1299,7 @@ if [ "$DEV_REPLICAS" = 2 ]; then
 fi
 echo -e "  Postgres:         ${CYAN}localhost:$DEV_PG_PORT${NC} (platform / platform_secret, db mcp_platform)"
 echo -e "  S3 (SeaweedFS):   ${CYAN}http://localhost:$DEV_S3_PORT${NC}"
-echo -e "  S3 (MinIO, TLS):  ${CYAN}https://localhost:$DEV_S3_TLS_PORT${NC}  (managed resources)"
+echo -e "  S3 (SeaweedFS TLS): ${CYAN}https://localhost:$DEV_S3_TLS_PORT${NC}  (managed resources)"
 echo -e "  API Key:          ${CYAN}acme-dev-key-2024${NC}"
 if [ "$DEV_OFFSET" != 0 ]; then
   echo -e "  ${YELLOW}Ports relocated +$DEV_OFFSET${NC} (5432/8080/9000/11434 were busy) — coexisting with your other stacks."

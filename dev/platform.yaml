@@ -421,10 +421,9 @@ toolkits:
           catalog: "${TRINO_SCRATCH_CATALOG:-scratch}"
           schema: "${TRINO_SCRATCH_SCHEMA:-uploads}"
       # The same thing for managed resources, which live on the other object
-      # store. A Hive catalog reads its metastore and its tables through one S3
-      # client, so a catalog over SeaweedFS cannot read a file on MinIO -- and
-      # managed resources are on MinIO because it is the backend in this stack
-      # that bounds a single PUT (#1631). Two stores therefore means two
+      # store (the SeaweedFS served over TLS). A Hive catalog reads its
+      # metastore and its tables through one S3 client, so a catalog over one
+      # store cannot read a file on the other. Two stores therefore means two
       # catalogs, and a connection per catalog.
       #
       # A deployment has one object store and one of these.
@@ -462,7 +461,7 @@ toolkits:
         access_key_id: "dev-access-key"
         secret_access_key: "dev-secret-key"
         # use_path_style, not force_path_style: the latter is what the AWS SDKs
-        # and MinIO call it, and it is what this said for a long time -- but
+        # call it, and it is what this said for a long time -- but
         # nothing reads it. toolkitcfg.S3Config reads "use_path_style", and an
         # unrecognized key in an instance block is silently ignored, so the
         # setting was simply absent and every write addressed the bucket as a
@@ -482,12 +481,11 @@ toolkits:
         use_path_style: true
         read_only: true
         description: "Local SeaweedFS, read-only"
-      # MinIO over TLS, where managed resources are stored. It is a separate
-      # connection because it is a separate backend: MinIO refuses a single
-      # PUT above 16 MiB under the aws-chunked encoding the AWS SDK uses over
-      # HTTPS, which is the bound the streaming upload path exists to clear
-      # (#1631). SeaweedFS accepts an unbounded single PUT and so cannot stand
-      # in for it.
+      # SeaweedFS over TLS, where managed resources are stored. It is a
+      # separate connection because it is a separate store: the AWS SDK writes
+      # with aws-chunked encoding and a trailing checksum over HTTPS, the
+      # transport the streaming upload path is written against (#1631), and
+      # the store can be stalled without stalling portal assets (#1870).
       dev-resources:
         enabled: true
         endpoint: "https://localhost:${DEV_S3_TLS_PORT:-9443}"
@@ -495,7 +493,7 @@ toolkits:
         access_key_id: "dev-access-key"
         secret_access_key: "dev-secret-key"
         use_path_style: true
-        description: "Local MinIO (TLS) for managed resources"
+        description: "Local SeaweedFS (TLS) for managed resources"
     default: dev-s3
 
   # mcp gateway: connections live in the database (added/edited via the
@@ -549,6 +547,10 @@ portal:
   # of the cap to the configured value rather than the default (#2021).
   asset_refs:
     max: 30
+  # Off here, so the dev portal keeps its login screen. The #2242 criteria
+  # start a replica of their own with these set.
+  login_redirect: ${DEV_PORTAL_LOGIN_REDIRECT:-false}
+  allow_api_key_login: ${DEV_PORTAL_ALLOW_API_KEY_LOGIN:-true}
 
 # Tiles are drawn in the renderer container dev/docker-compose.yml runs
 # (#1787). A deployment leaves this out: the default is the renderer beside
@@ -578,9 +580,8 @@ thumbnails:
 resources:
   managed:
     enabled: true
-    # MinIO rather than SeaweedFS, in its own bucket: the upload path has to
-    # run against a backend that bounds a single PUT, or the streaming write
-    # is never the thing being exercised (#1631).
+    # The SeaweedFS served over TLS, in its own bucket: the upload path runs
+    # over HTTPS, the transport the streaming write is for (#1631).
     s3_connection: dev-resources
     s3_bucket: managed-resources
     # Raised off the 100 MB default so the dev stack is a deployment that
@@ -672,13 +673,23 @@ scripts:
 # process they can stall and kill without touching the others.
 webhooks:
   receiver:
+    # Seconds rather than the 30s default: #1870's criteria stall the store and
+    # wait for each write to give up (#2232).
+    write_timeout: 3s
     spool:
       dir: "${DEV_WEBHOOK_SPOOL_DIR:-}"
       max_bytes: ${DEV_WEBHOOK_SPOOL_MAX_BYTES:-0}
   compactor:
-    poll: 10s
+    poll: 2s
     grace: 5s
     retention_every: 30s
+
+# The per-user tool-call limit, raised off 240 a minute: the #2111 criteria
+# write 1,500 files from a script, and every other criterion shares the dev
+# admin's bucket. No criterion holds the per-user limit to a number (#2232).
+rate_limit:
+  requests_per_minute: 12000
+  burst: 2000
 
 # Retention sweeps (#1904) run every 30 seconds rather than once a day, so a
 # deleted item backdated past its retention is seen removed within a minute.

@@ -400,6 +400,7 @@ func New(cfg Config) *Handle {
 		versions:  stores.versions,
 		wake:      h.worker.Notify,
 		metrics:   cfg.Metrics,
+		interval:  materializeEvery(),
 	})
 	if cfg.DSN != "" {
 		h.listener = pglisten.New(cfg.DSN, scriptstore.NotifyChannel, h)
