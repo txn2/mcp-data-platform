@@ -31,7 +31,10 @@ services:
       # next `make dev` re-applies it.
       - ./fixtures/postgres-init.sql:/docker-entrypoint-initdb.d/01-fixture-dbs.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U platform -d mcp_platform"]
+      # Over TCP: the init-phase temporary server answers only on the unix
+      # socket, so a socket check reports it healthy before the final
+      # server is up (#2253).
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U platform -d mcp_platform"]
       interval: 3s
       timeout: 3s
       retries: 10
