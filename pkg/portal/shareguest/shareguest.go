@@ -118,6 +118,10 @@ type Config struct {
 	// Resubscribe re-enables notification delivery for an address (#1022).
 	// nil omits the landing page's opt-back-in action.
 	Resubscribe func(ctx context.Context, email string) error
+	// AccountHolder reports whether an address has an external account
+	// (#2092). Such a recipient signs in to the portal, or is refused, and is
+	// never sent a guest link. nil treats no address as one.
+	AccountHolder func(ctx context.Context, email string) bool
 }
 
 // Service implements the guest access path. A nil *Service is inert: Admit
@@ -132,6 +136,7 @@ type Service struct {
 	brand        Brand
 	optOutStatus func(ctx context.Context, email string) (bool, error)
 	resubscribe  func(ctx context.Context, email string) error
+	accountOf    func(ctx context.Context, email string) bool
 	now          func() time.Time
 }
 
@@ -147,6 +152,7 @@ func New(cfg Config) *Service {
 		brand:        cfg.Brand,
 		optOutStatus: cfg.OptOutStatus,
 		resubscribe:  cfg.Resubscribe,
+		accountOf:    cfg.AccountHolder,
 		now:          time.Now,
 	}
 	if len(cfg.SessionKey) > 0 {

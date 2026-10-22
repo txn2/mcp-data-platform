@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/catalogfake"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -101,10 +102,12 @@ func (*recordingAudit) Close() error { return nil }
 // apply_knowledge, reaching only the connection "acme"), a reader (fetch
 // only) and someone whose persona grants neither.
 const (
-	roleAdmin   = "admin"
-	roleCurator = "curator"
-	roleReader  = "reader"
-	roleNone    = "none"
+	roleAdmin        = "admin"
+	roleCurator      = "curator"
+	roleReader       = "reader"
+	roleNone         = "none"
+	rolePortalEditor = "portal-editor"
+	rolePortalNone   = "portal-none"
 )
 
 type fixture struct {
@@ -133,11 +136,22 @@ func newFixture(t *testing.T) *fixture {
 		PersonaResolver: func(roles []string) *portal.PersonaInfo {
 			switch roles[0] {
 			case roleCurator:
-				return &portal.PersonaInfo{Name: "curator", Tools: []string{readTool, writeTool}, ReachesCatalogRef: reaches}
+				return &portal.PersonaInfo{Name: "curator", Tools: []string{"fetch", "apply_knowledge"}, ReachesCatalogRef: reaches}
 			case roleReader:
-				return &portal.PersonaInfo{Name: "reader", Tools: []string{readTool}, ReachesCatalogRef: reaches}
+				return &portal.PersonaInfo{Name: "reader", Tools: []string{"fetch"}, ReachesCatalogRef: reaches}
 			case roleNone:
 				return &portal.PersonaInfo{Name: "none", Tools: []string{"trino_query"}}
+			case rolePortalEditor:
+				// The portal level decides, not the tools (#2225).
+				return &portal.PersonaInfo{
+					Name: "editor", Tools: []string{"trino_query"}, ReachesCatalogRef: reaches,
+					Portal: persona.PortalAccess{Catalog: persona.PortalWrite},
+				}
+			case rolePortalNone:
+				return &portal.PersonaInfo{
+					Name: "withheld", Tools: []string{"fetch", "apply_knowledge"},
+					Portal: persona.PortalAccess{Catalog: persona.PortalNone},
+				}
 			default:
 				return nil
 			}
@@ -383,7 +397,7 @@ func TestWriteAspectHistoryAndRollback(t *testing.T) {
 		t.Fatalf("audited %d writes, want 4", len(f.audit.events))
 	}
 	ev := f.audit.events[0]
-	if ev.ToolName != writeTool || ev.Source != "portal" || ev.Persona != "curator" || ev.Parameters["action"] != "write_aspect" || !ev.Success {
+	if ev.ToolName != auditTool || ev.Source != "portal" || ev.Persona != "curator" || ev.Parameters["action"] != "write_aspect" || !ev.Success {
 		t.Fatalf("audit event %+v", ev)
 	}
 }
@@ -617,5 +631,19 @@ func TestReader_TheAdminRuleDecides(t *testing.T) {
 		if ok != tc.want {
 			t.Errorf("roles %v: admitted %v, want %v (%d)", tc.roles, ok, tc.want, w.Code)
 		}
+	}
+}
+
+// The portal catalog level decides who reads and edits the catalog (#2225): a
+// persona set to write edits without either tool, and one set to none reads
+// nothing although its tools would have let it.
+func TestCatalogFollowsThePortalCatalogLevel(t *testing.T) {
+	f := newFixture(t)
+	status, body := f.do(t, rolePortalEditor, http.MethodGet, prefix+"/connections", nil)
+	if writable, _ := body["writable"].(bool); status != http.StatusOK || !writable {
+		t.Fatalf("editor: %d %v, want 200 writable", status, body)
+	}
+	if status, _ := f.do(t, rolePortalNone, http.MethodGet, prefix+"/connections", nil); status != http.StatusForbidden {
+		t.Fatalf("catalog none: %d, want 403", status)
 	}
 }

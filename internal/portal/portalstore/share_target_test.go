@@ -19,7 +19,7 @@ import (
 func shareCols() []string {
 	return []string{
 		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
-		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin", "access_mode", "posted_to",
+		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin", "access_mode", "posted_to", "shared_with_persona",
 	}
 }
 
@@ -30,10 +30,10 @@ func TestGetActiveShareForTargetAsset(t *testing.T) {
 	store := NewPostgresShareStore(db)
 
 	mock.ExpectQuery("FROM portal_shares").
-		WithArgs("asset_1", "u1", "u1@example.com").
+		WithArgs("asset_1", "u1", "u1@example.com", "").
 		WillReturnRows(sqlmock.NewRows(shareCols()).AddRow(
 			"s1", "asset_1", nil, nil, "tok", "owner@example.com", "u1", "u1@example.com",
-			nil, false, false, "", 0, nil, time.Now(), string(portaldomain.PermissionViewer), string(portaldomain.OriginPublicLinkLogin), string(portaldomain.AccessModeRestricted), "",
+			nil, false, false, "", 0, nil, time.Now(), string(portaldomain.PermissionViewer), string(portaldomain.OriginPublicLinkLogin), string(portaldomain.AccessModeRestricted), "", "",
 		))
 
 	got, err := store.GetActiveShareForTarget(context.Background(), portaldomain.TargetTypeAsset, "asset_1", "u1", "u1@example.com")
@@ -50,7 +50,7 @@ func TestGetActiveShareForTargetNoRows(t *testing.T) {
 	store := NewPostgresShareStore(db)
 
 	mock.ExpectQuery("FROM portal_shares").
-		WithArgs("col_1", "u1", "u1@example.com").
+		WithArgs("col_1", "u1", "u1@example.com", "").
 		WillReturnError(sql.ErrNoRows)
 
 	got, err := store.GetActiveShareForTarget(context.Background(), portaldomain.TargetTypeCollection, "col_1", "u1", "u1@example.com")

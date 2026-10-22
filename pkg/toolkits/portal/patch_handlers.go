@@ -349,7 +349,7 @@ func (t *Toolkit) seesHistory(ctx context.Context, asset *portal.Asset) bool {
 	if t.shareStore == nil {
 		return false
 	}
-	userID, email := shareIdentity(ctx)
+	ctx, userID, email := shareIdentity(ctx)
 	if share, err := t.shareStore.GetActiveShareForTarget(ctx, threadTargetAsset, asset.ID, userID, email); err == nil &&
 		share != nil && share.Permission == portal.PermissionEditor {
 		return true
@@ -387,7 +387,7 @@ func (t *Toolkit) canReadAsset(ctx context.Context, asset *portal.Asset) bool {
 	if ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
 		return true
 	}
-	userID, email := shareIdentity(ctx)
+	ctx, userID, email := shareIdentity(ctx)
 	if t.shareStore == nil {
 		return false
 	}

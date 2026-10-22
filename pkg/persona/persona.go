@@ -68,13 +68,19 @@ type Persona struct {
 	// leaves it false, and its calls are cataloged.
 	ServiceAccount bool `json:"service_account,omitempty" yaml:"service_account,omitempty"`
 
-	// HideAutomations takes the Automations section out of the portal for the
-	// people signed in under this persona: the nav entry, the pages and the
-	// portal's script routes (#2109). False, the zero value every persona
-	// written before it carries, shows it. An administrator keeps Automations
-	// whatever the persona says, and the script tools an agent calls are
-	// governed by Tools, not by this.
-	HideAutomations bool `json:"hide_automations,omitempty" yaml:"hide_automations,omitempty"`
+	// Portal is what the persona's people may do in the portal, one setting
+	// per area (#2225). nil, and any field left unset, resolves to what the
+	// persona reached before the setting existed; read it through
+	// PortalPermissions. An administrator has every area whatever this says,
+	// and the tools an agent calls are governed by Tools, not by this.
+	Portal *PortalAccess `json:"portal,omitempty" yaml:"portal,omitempty"`
+
+	// External marks a persona for people outside the organization (#2092),
+	// whose accounts the platform creates. It sets limits the persona's other
+	// settings cannot raise: no MCP tool, only what is shared with its people
+	// in the portal, no sharing, no API keys and no people directory. Read the
+	// portal half through PortalPermissions.
+	External bool `json:"external,omitempty" yaml:"external,omitempty"`
 
 	// AllowSharing lets the people signed in under this persona share what
 	// they own: an asset, collection or prompt with a person, and an asset to
@@ -263,5 +269,8 @@ func AdminPersona() *Persona {
 // SharingAllowed reports whether the persona's people may share what they
 // own. An unset AllowSharing allows it.
 func (p *Persona) SharingAllowed() bool {
+	if p != nil && p.External {
+		return false
+	}
 	return p == nil || p.AllowSharing == nil || *p.AllowSharing
 }

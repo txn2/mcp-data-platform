@@ -8,6 +8,7 @@ import type {
 } from "../types";
 import { paginatedFetch, useOffsetInfiniteQuery, type InfiniteResult } from "./infinite";
 import { THREAD_PAGE_SIZE } from "./threads";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 
 // @-mention support for feedback comments (#627).
 
@@ -27,6 +28,8 @@ export interface MentionCandidate {
  * would be dropped.
  */
 export function useMentionCandidates(target: FeedbackTarget, q: string, enabled = true) {
+  // An external account has no people directory (#2092): nobody is offered.
+  const { external } = usePortalAccess();
   const targetID = target.type === "standalone" ? "" : target.id;
   const params = new URLSearchParams({ target_type: target.type });
   if (targetID) params.set("target_id", targetID);
@@ -35,7 +38,7 @@ export function useMentionCandidates(target: FeedbackTarget, q: string, enabled 
     queryKey: ["mention-candidates", target.type, targetID, q],
     queryFn: () =>
       apiFetch<{ candidates: MentionCandidate[] }>(`/mention-candidates?${params.toString()}`),
-    enabled,
+    enabled: enabled && !external,
   });
 }
 
@@ -53,9 +56,10 @@ export function useMentionEligibility(
   target: FeedbackTarget,
   emails: string[],
 ): Record<string, boolean | undefined> {
+  const { external } = usePortalAccess();
   const targetID = target.type === "standalone" ? "" : target.id;
   const results = useQueries({
-    queries: emails.map((email) => ({
+    queries: (external ? [] : emails).map((email) => ({
       queryKey: ["mention-eligibility", target.type, targetID, email],
       queryFn: () => {
         const params = new URLSearchParams({ target_type: target.type, q: email });

@@ -54,6 +54,9 @@ func (r *Registry) Register(p *Persona) error {
 	if err := ValidateAPIRoutes(p.APIRoutes); err != nil {
 		return fmt.Errorf("persona %q: %w", p.Name, err)
 	}
+	if err := p.Portal.Validate(); err != nil {
+		return fmt.Errorf("persona %q: %w", p.Name, err)
+	}
 
 	r.personas[p.Name] = p
 	return nil
@@ -249,7 +252,8 @@ func (r *Registry) AdminRule(adminPersona string) func(roles []string) bool {
 			return false
 		}
 		p, ok := r.GetForRoles(roles)
-		return ok && p.Name == adminPersona
+		// An external persona administers nothing, whatever it is named (#2092).
+		return ok && p.Name == adminPersona && !p.External
 	}
 }
 

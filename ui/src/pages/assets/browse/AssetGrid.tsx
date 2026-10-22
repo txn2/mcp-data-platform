@@ -13,6 +13,7 @@ import { dateLabelFor, type DateColumn } from "@/components/listSort";
 import type { DisplayAsset } from "./types";
 import { IncompleteBadge } from "@/components/IncompleteBadge";
 import { isTruncated } from "@/lib/truncation";
+import { sharedLine } from "@/lib/sharedLine";
 
 /** The Assets list as a gallery of thumbnails. */
 export function AssetGrid({
@@ -116,7 +117,7 @@ function AssetCard({
       )}
       {share && (
         <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="truncate">Shared by {share.shared_by}</span>
+          <span className="truncate">{sharedLine(share)}</span>
           <SharePermissionBadge permission={share.permission} />
         </div>
       )}

@@ -24,7 +24,8 @@ interface ViewActionProps {
   copied: boolean;
   createAssetPending: boolean;
   onCopyContent: () => void;
-  onSaveAsAsset: () => void;
+  // Absent for a persona that does not create assets (#2225).
+  onSaveAsAsset?: () => void;
   // onShare opens the Share dialog; absent when the persona withholds
   // sharing (#2241).
   onShare?: () => void;
@@ -131,16 +132,18 @@ function ViewActions({
         {copied ? "Copied" : "Copy"}
       </Button>
       <FeedbackButton target={{ type: "prompt", id: prompt.id }} canModerate={isOwner} />
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onSaveAsAsset}
-        disabled={createAssetPending}
-        title="Snapshot this prompt as a markdown asset in My Assets"
-      >
-        <FileBox />
-        {createAssetPending ? "Saving..." : "Save as Asset"}
-      </Button>
+      {onSaveAsAsset && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onSaveAsAsset}
+          disabled={createAssetPending}
+          title="Snapshot this prompt as a markdown asset in My Assets"
+        >
+          <FileBox />
+          {createAssetPending ? "Saving..." : "Save as Asset"}
+        </Button>
+      )}
       {isOwner && onShare && (
         <Button size="sm" onClick={onShare} title="Share this prompt with another user">
           <Share2 /> Share

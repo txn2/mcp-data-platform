@@ -113,25 +113,46 @@ describe("Sidebar portal sections", () => {
   });
 });
 
-describe("Sidebar Automations (#2109)", () => {
+describe("Sidebar portal permissions (#2225)", () => {
   const user = { user_id: "u1", roles: ["viewer"], is_admin: false };
+  const nav = () => screen.getAllByRole("button").map((b) => b.textContent ?? "");
 
-  it("lists Automations for a persona that shows them", () => {
-    useAuthStore.setState({ user: { ...user, automations: true } });
-    renderSidebar();
-    expect(screen.getByRole("button", { name: /Automations/ })).toBeInTheDocument();
-  });
-
-  it("leaves Automations out for a persona that hides them", () => {
-    useAuthStore.setState({ user: { ...user, automations: false } });
-    renderSidebar();
-    expect(screen.queryByRole("button", { name: /Automations/ })).not.toBeInTheDocument();
-  });
-
-  it("lists Automations when the server does not report the setting", () => {
+  it("lists every section when the persona has every area", () => {
     useAuthStore.setState({ user });
     renderSidebar();
-    expect(screen.getByRole("button", { name: /Automations/ })).toBeInTheDocument();
+    for (const label of ["Resources", "APIs", "Automations", "Inbox", "Knowledge", "Prompts"]) {
+      expect(nav().some((n) => n.includes(label))).toBe(true);
+    }
+  });
+
+  it("leaves out each section the persona does not include", () => {
+    useAuthStore.setState({
+      user: {
+        ...user,
+        portal: {
+          resources: "none",
+          apis: "none",
+          automations: false,
+          feedback: false,
+          prompts: false,
+          knowledge: "none",
+          catalog: "none",
+          memory: false,
+          search: false,
+        },
+      },
+    });
+    renderSidebar();
+    for (const label of ["Resources", "APIs", "Automations", "Inbox", "Knowledge", "Prompts"]) {
+      expect(nav().some((n) => n.includes(label))).toBe(false);
+    }
+    expect(nav().some((n) => n.includes("Assets"))).toBe(true);
+  });
+
+  it("keeps Knowledge while any of its areas remains", () => {
+    useAuthStore.setState({ user: { ...user, portal: { knowledge: "none", catalog: "read", memory: false, search: false } } });
+    renderSidebar();
+    expect(nav().some((n) => n.includes("Knowledge"))).toBe(true);
   });
 });
 

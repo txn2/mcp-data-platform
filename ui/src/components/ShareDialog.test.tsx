@@ -3,13 +3,14 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 
 // Capture what the dialog sends to the create-share mutations, so the tests
 // assert on the request rather than on the rendered button alone.
-const { createAsset, createColl, createPrompt, revoke, channelShare, channelList } = vi.hoisted(() => ({
+const { createAsset, createColl, createPrompt, revoke, channelShare, channelList, sharePersonas } = vi.hoisted(() => ({
   createAsset: { mutate: vi.fn(), isPending: false },
   createColl: { mutate: vi.fn(), isPending: false },
   createPrompt: { mutate: vi.fn(), isPending: false },
   revoke: { mutate: vi.fn() },
   channelShare: { mutate: vi.fn(), isPending: false },
   channelList: { data: { channels: [] as unknown[] }, isLoading: false, error: null as unknown },
+  sharePersonas: { data: { personas: [] as { name: string; display_name: string }[] } },
 }));
 
 vi.mock("@/api/portal/hooks", () => ({
@@ -22,6 +23,9 @@ vi.mock("@/api/portal/hooks", () => ({
   useRevokeShare: () => revoke,
   usePortalChannels: () => channelList,
   useShareToChannel: () => channelShare,
+  useSharePersonas: () => sharePersonas,
+  useAccessRequests: () => ({ data: { requests: [] } }),
+  useDecideAccessRequest: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/components/UserPicker", () => ({
@@ -335,5 +339,29 @@ describe("ShareDialog channel destination (#2241)", () => {
     channelList.data = { channels: [{ name: "hook", kind: "webhook", mode: "immediate", carries: "", targets: [] }] };
     render(<ShareDialog target={{ type: "collection", id: "c1" }} open onOpenChange={() => {}} />);
     expect(screen.queryByText(/share to a channel/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("ShareDialog personas (#2089)", () => {
+  beforeEach(() => {
+    createAsset.mutate.mockReset();
+    sharePersonas.data = { personas: [] };
+  });
+
+  it("offers no persona choice when there is no persona to share with", () => {
+    renderDialog();
+    expect(screen.queryByRole("radiogroup", { name: "Share with" })).not.toBeInTheDocument();
+  });
+
+  it("shares with a persona chosen under Personas", () => {
+    sharePersonas.data = { personas: [{ name: "finance", display_name: "Finance" }] };
+    renderDialog();
+    fireEvent.click(screen.getByRole("radio", { name: "Personas" }));
+    choose(/^Persona$/, /Finance/);
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    expect(createAsset.mutate).toHaveBeenCalledTimes(1);
+    const body = createAsset.mutate.mock.calls[0]![0] as Record<string, unknown>;
+    expect(body).toMatchObject({ assetId: "ast-1", shared_with_persona: "finance", permission: "viewer" });
+    expect(body).not.toHaveProperty("shared_with_email");
   });
 });

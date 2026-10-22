@@ -61,7 +61,9 @@ test.describe("The notifications the platform sent are in it", () => {
     // The retention sentence sits above the list, as it did on settings.
     await expect(page.getByText(/What the platform has sent you/)).toBeVisible();
 
-    const rows = page.locator("main li");
+    // The tab's own list: the Inbox also lists requests for access above
+    // the tabs (#2090).
+    const rows = page.getByRole("tabpanel").locator("li");
     await expect(rows.first()).toBeVisible();
 
     // One for one with what the endpoint returns for this caller.

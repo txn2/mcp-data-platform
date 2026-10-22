@@ -15,7 +15,20 @@ func (h *Handler) resolveMentions(ctx context.Context, t *threads.Thread, body, 
 	if h.cfg.Mentions == nil || body == "" {
 		return nil
 	}
-	return h.cfg.Mentions.ResolveMentions(ctx, t.TargetType, t.TargetID(), body, author)
+	resolved := h.cfg.Mentions.ResolveMentions(ctx, t.TargetType, t.TargetID(), body, author)
+	if t.Visibility == threads.VisibilityShared || h.cfg.ExternalAddress == nil {
+		return resolved
+	}
+	// An internal thread reaches nobody outside the organization (#2227): a
+	// person of an external account named in one is not notified, and the
+	// name posts as plain text.
+	internal := make([]string, 0, len(resolved))
+	for _, email := range resolved {
+		if !h.cfg.ExternalAddress(ctx, email) {
+			internal = append(internal, email)
+		}
+	}
+	return internal
 }
 
 // stampMentions records mentions on the event about to be written, so they are

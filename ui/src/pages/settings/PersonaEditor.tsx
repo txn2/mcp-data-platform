@@ -5,6 +5,7 @@ import type { PersonaDraft } from "./persona/types";
 import { EditorHeader } from "./persona/EditorHeader";
 import { IdentityRulesAside } from "./persona/IdentityRulesAside";
 import { BehaviorTab } from "./persona/BehaviorTab";
+import { PortalTab } from "./persona/PortalTab";
 import { PermissionsExplorer } from "./persona/PermissionsExplorer";
 import { usePersonaEditor } from "./persona/usePersonaEditor";
 
@@ -132,7 +133,7 @@ export function PersonaEditor({
 
         <Tabs
           value={editor.mainTab}
-          onValueChange={(v) => editor.setMainTab(v as "permissions" | "behavior")}
+          onValueChange={(v) => editor.setMainTab(v as "permissions" | "portal" | "behavior")}
           className="gap-0 lg:min-h-0 lg:overflow-hidden"
         >
           <TabsList
@@ -141,6 +142,9 @@ export function PersonaEditor({
           >
             <TabsTrigger value="permissions" className="flex-none">
               Permissions
+            </TabsTrigger>
+            <TabsTrigger value="portal" className="flex-none">
+              Portal
             </TabsTrigger>
             <TabsTrigger value="behavior" className="flex-none">
               AI Assistant Behavior
@@ -179,6 +183,13 @@ export function PersonaEditor({
               addDeny={editor.addDeny}
               addMany={editor.addMany}
             />
+          </TabsContent>
+
+          <TabsContent
+            value="portal"
+            className="flex flex-col lg:min-h-0 lg:overflow-hidden"
+          >
+            <PortalTab draft={draft} onUpdate={onUpdate} isReadOnly={isReadOnly} />
           </TabsContent>
 
           {/* BehaviorTab owns the scroll for its own long form, so the panel

@@ -588,7 +588,7 @@ func TestGetUserCollectionPermission(t *testing.T) {
 	store := NewPostgresShareStore(db)
 
 	mock.ExpectQuery("SELECT permission FROM portal_shares").
-		WithArgs("coll1", "user1", "user1@example.com").
+		WithArgs("coll1", "user1", "user1@example.com", "").
 		WillReturnRows(sqlmock.NewRows([]string{"permission"}).AddRow("editor"))
 
 	perm, err := store.GetUserCollectionPermission(context.Background(), "coll1", "user1", "user1@example.com")
@@ -605,7 +605,7 @@ func TestGetUserCollectionPermissionNotFound(t *testing.T) {
 	store := NewPostgresShareStore(db)
 
 	mock.ExpectQuery("SELECT permission FROM portal_shares").
-		WithArgs("coll1", "user1", "user1@example.com").
+		WithArgs("coll1", "user1", "user1@example.com", "").
 		WillReturnError(sql.ErrNoRows)
 
 	_, err = store.GetUserCollectionPermission(context.Background(), "coll1", "user1", "user1@example.com")
@@ -650,22 +650,22 @@ func TestListSharedCollectionsWithUser(t *testing.T) {
 
 	// COUNT query
 	mock.ExpectQuery("SELECT COUNT").
-		WithArgs("user2", "user2@example.com").
+		WithArgs("user2", "user2@example.com", "").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	// SELECT query
 	dataRows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description",
 		"thumbnail_s3_key", "config", "created_at", "updated_at", "deleted_at",
-		"share_id", "shared_by", "shared_at", "permission",
+		"share_id", "shared_by", "shared_at", "permission", "shared_with_persona",
 	}).AddRow(
 		"coll1", "user1", "user1@example.com", "Shared Collection", "A shared collection",
 		"thumb.png", configJSON, now, now, nil,
-		"share1", "user1@example.com", now, "viewer",
+		"share1", "user1@example.com", now, "viewer", "",
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares").
-		WithArgs("user2", "user2@example.com", 50, 0).
+		WithArgs("user2", "user2@example.com", 50, 0, "").
 		WillReturnRows(dataRows)
 
 	results, total, err := store.ListSharedCollectionsWithUser(context.Background(), "user2", "user2@example.com", 50, 0)

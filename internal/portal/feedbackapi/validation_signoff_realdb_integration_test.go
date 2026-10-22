@@ -107,7 +107,7 @@ func TestRealDB_ValidationSignoffWorklist(t *testing.T) {
 		_, err := store.AppendEvent(ctx, threads.ThreadEvent{ID: a.id, ThreadID: "thr_val", EventType: threads.EventTypeApproval, AuthorID: a.author, AuthorEmail: a.author + "@x"})
 		require.NoError(t, err)
 	}
-	n, err := store.CountSignoffs(ctx, portaldomain.TargetTypeAsset, "asset_p3")
+	n, err := store.CountSignoffs(ctx, portaldomain.TargetTypeAsset, "asset_p3", false)
 	require.NoError(t, err)
 	assert.Equal(t, 2, n)
 

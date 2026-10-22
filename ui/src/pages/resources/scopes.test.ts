@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { UserProfile } from "@/stores/auth";
+import type { PortalAccess } from "@/lib/portalAccess";
 import {
   canWriteScope,
   currentLibrary,
@@ -342,5 +343,24 @@ describe("the persona libraries an upload is withheld from", () => {
   it("names nothing for a caller with no persona or no session", () => {
     expect(withheldUploadPersonas(reader({ persona: undefined }))).toEqual([]);
     expect(withheldUploadPersonas(null)).toEqual([]);
+  });
+});
+
+describe("resources levels (#2225)", () => {
+  const base = { user_id: "u1", roles: ["persona-admin:ops"], is_admin: false, persona: "ops" };
+
+  it("writes nothing at Read and only the caller's own folder at Own folder", () => {
+    const own = { scope: "user" as const, scope_id: "u1" };
+    const ops = { scope: "persona" as const, scope_id: "ops" };
+    expect(canWriteScope({ ...base, portal: { resources: "shared" } }, own)).toBe(false);
+    expect(canWriteScope({ ...base, portal: { resources: "own" } }, own)).toBe(true);
+    expect(canWriteScope({ ...base, portal: { resources: "own" } }, ops)).toBe(false);
+    expect(canWriteScope({ ...base, portal: { resources: "persona" } }, ops)).toBe(true);
+  });
+
+  it("lists no persona folder at Own folder", () => {
+    const keys = (portal: PortalAccess) => rootsFor({ ...base, portal }, ["ops"]).map((r) => r.key);
+    expect(keys({ resources: "own" })).toEqual(["user", "global"]);
+    expect(keys({ resources: "persona" })).toContain("ops");
   });
 });

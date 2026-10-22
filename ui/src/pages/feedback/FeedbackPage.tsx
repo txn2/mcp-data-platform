@@ -11,6 +11,7 @@ import { NewThreadForm } from "@/components/feedback/NewThreadForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AccessRequestsList } from "@/components/access/AccessRequestsList";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -72,6 +73,10 @@ export function FeedbackPage({ onNavigate }: Props) {
           <Plus /> New feedback
         </Button>
       </div>
+
+      {/* Requests for access to the reader's items (#2090); the owner's email
+          links here. Absent when none are waiting. */}
+      <AccessRequestsList />
 
       <Tabs value={tab} onValueChange={(v) => selectTab(v as Tab)} className="gap-4">
         <TabsList

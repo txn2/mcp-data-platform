@@ -77,7 +77,8 @@ const ApisPage = lazy(() =>
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { SectionIntro } from "@/components/patterns/SectionIntro";
 import { AdminPages } from "./AdminPages";
-import { AdminOnlyNotice, AutomationsHiddenNotice, PageNotFound } from "./RouteFallbacks";
+import { AdminOnlyNotice, PageNotFound } from "./RouteFallbacks";
+import { SectionGate } from "./SectionGate";
 import {
   redirectFor,
   isAdminRoute,
@@ -275,7 +276,6 @@ function useIsMobile() {
 export function AppShell() {
   const [currentPath, setCurrentPath] = useState(readPath);
   const isAdmin = useAuthStore((s) => s.isAdmin());
-  const showsAutomations = useAuthStore((s) => s.showsAutomations());
   const isMobile = useIsMobile();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -499,6 +499,7 @@ export function AppShell() {
           <ErrorBoundary resetKey={route} fallback={<PageFailed />} reloadOnChunkError>
           <Suspense fallback={<PageLoading />}>
           {notFound && <PageNotFound route={route} onNavigate={navigate} />}
+          <SectionGate route={route} adminRoute={adminRoute}>
 
           {/* Portal routes — everyone */}
           {!adminRoute && isInSection(route, "/activity") && (
@@ -562,10 +563,7 @@ export function AppShell() {
               onBack={() => navigate("/prompts")}
             />
           )}
-          {!adminRoute && isInSection(route, "/automations") && !showsAutomations && (
-            <AutomationsHiddenNotice />
-          )}
-          {!adminRoute && isInSection(route, "/automations") && showsAutomations && (
+          {!adminRoute && isInSection(route, "/automations") && (
             <PortalScriptRoutes route={route} onNavigate={navigate} />
           )}
           {collectionAssetMatch && (
@@ -590,6 +588,7 @@ export function AppShell() {
               onBack={goBack}
             />
           )}
+          </SectionGate>
           </Suspense>
           </ErrorBoundary>
         </main>

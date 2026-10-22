@@ -48,12 +48,21 @@ type PersonaDef struct {
 	// calls are audited but not cataloged (#1980). The same rule as naming
 	// the persona in calls.exclude_personas, stated on the persona itself.
 	ServiceAccount bool `yaml:"service_account,omitempty"`
-	// HideAutomations takes the portal's Automations section away from the
-	// people signed in under this persona (#2109). Absent shows it.
+	// Portal is what the persona's people may do in the portal, one setting
+	// per area (#2225). Absent, and any field left unset, resolves to what the
+	// persona reached before the setting existed.
+	Portal *persona.PortalAccess `yaml:"portal,omitempty"`
+	// HideAutomations is the setting portal.automations replaced (#2109,
+	// #2225). It is still read, as portal.automations: false when the portal
+	// block does not set automations, so a file written for the release
+	// before keeps its meaning.
 	HideAutomations bool `yaml:"hide_automations,omitempty"`
 	// AllowSharing lets the persona's people share what they own (#2241).
 	// Absent allows it.
 	AllowSharing *bool `yaml:"allow_sharing,omitempty"`
+	// External marks the persona for people outside the organization, whose
+	// accounts the platform creates (#2092).
+	External bool `yaml:"external,omitempty"`
 }
 
 // APIRouteDef defines one per-(connection, method, path) rule for the HTTP API
@@ -117,12 +126,28 @@ func (d PersonaDef) ToPersona(name, source string) *persona.Persona {
 			AgentInstructionsSuffix:   d.Context.AgentInstructionsSuffix,
 			AgentInstructionsOverride: d.Context.AgentInstructionsOverride,
 		},
-		Priority:        d.Priority,
-		ServiceAccount:  d.ServiceAccount,
-		HideAutomations: d.HideAutomations,
-		AllowSharing:    d.AllowSharing,
-		Source:          source,
+		Priority:       d.Priority,
+		ServiceAccount: d.ServiceAccount,
+		Portal:         d.portal(),
+		External:       d.External,
+		AllowSharing:   d.AllowSharing,
+		Source:         source,
 	}
+}
+
+// portal is the definition's portal block with hide_automations folded in.
+func (d PersonaDef) portal() *persona.PortalAccess {
+	if d.Portal == nil && !d.HideAutomations {
+		return nil
+	}
+	var out persona.PortalAccess
+	if d.Portal != nil {
+		out = *d.Portal
+	}
+	if d.HideAutomations && out.Automations == nil {
+		out.Automations = new(false)
+	}
+	return &out
 }
 
 // apiRoutes projects the configured route rules onto the shape the authorizer

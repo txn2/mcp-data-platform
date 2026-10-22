@@ -134,6 +134,12 @@ const (
 	// payload carries a Document instead of an item reference, and the row's
 	// Channel names the destination.
 	KindChannel = "channel"
+	// KindAccessRequest marks a request for access to an item its owner is
+	// asked to answer (#2090). Actor is the requester, Message their note.
+	KindAccessRequest = "access_request"
+	// KindAccessDecision marks the answer to a person's request for access
+	// (#2090). Message says how it was answered.
+	KindAccessDecision = "access_decision"
 )
 
 // ReviewQueue is the pending-review rollup a KindReviewQueue notification

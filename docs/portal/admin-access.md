@@ -50,3 +50,14 @@ Features:
 Requires a database. Without one the directory is disabled and the share
 dialog falls back to free-typed email only.
 
+### External users
+
+Under the directory, **External users** lists the accounts the platform created for people outside the organization (#2092): their email, name, [external persona](../personas/overview.md#external-personas), how many items are shared with them, their last sign-in and when the account expires. The section appears only on a deployment with a database.
+
+- **Add external user** takes an email, a name, an external persona and an optional expiry, creates the account and emails the person an invitation with a sign-in link. An address that has already signed in through the identity provider is refused: that person is internal.
+- **Extend** sets a new expiry, **Suspend** stops the account signing in until **Resume**, and **Remove** deletes the account and revokes every share to its address.
+- The person signs in with the invitation link, or asks for a new link with **Email me a sign-in link** on the sign-in screen (`/portal/?login=email`). Each link works once. The answer to a request is the same whether or not the address has an account.
+- An account whose address later signs in through the identity provider is **Converted**: the account is closed, its links stop working, and what was shared with the address stays shared with the person, who is now internal.
+
+How long a session, an invitation link and a sign-in link last is set under [Settings > External accounts](admin-settings.md#settings): 12 hours, 7 days and 15 minutes by default.
+

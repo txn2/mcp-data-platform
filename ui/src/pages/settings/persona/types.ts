@@ -1,5 +1,6 @@
 import type { APIRouteRule } from "@/api/admin/types";
 import type { RouteResolution } from "./apiRoutes";
+import type { ResolvedPortal } from "@/lib/portalAccess";
 
 // Shared types for the persona editor facets. Extracted from PersonaEditor.tsx
 // (#766) so the panel, editor, and rule/explorer facets share one definition.
@@ -27,9 +28,11 @@ export interface PersonaDraft {
   // serviceAccount marks the persona an automated caller signs in under: its
   // calls are audited but not added to Calls.
   serviceAccount: boolean;
-  // showAutomations is whether the portal shows the persona's people its
-  // Automations section; stored inverted, as hide_automations (#2109).
-  showAutomations: boolean;
+  // portal is what the persona's people may do in the portal, one setting per
+  // area (#2225). The editor holds every area and saves the whole block.
+  portal: ResolvedPortal;
+  // external marks the persona for people outside the organization (#2092).
+  external: boolean;
   // allowSharing is whether the persona's people may share what they own,
   // with a person or to a channel (#2241).
   allowSharing: boolean;

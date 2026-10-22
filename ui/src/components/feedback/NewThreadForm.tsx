@@ -18,6 +18,9 @@ import {
 } from "@/components/ui/select";
 import { MentionTextarea } from "./MentionTextarea";
 import { THREAD_KINDS } from "./meta";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
+import { VisibilityChoice } from "./ThreadBadges";
+import type { ThreadVisibility } from "@/api/portal/types";
 
 interface Props {
   target: FeedbackTarget;
@@ -83,6 +86,10 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
   const [requiresResolution, setRequiresResolution] = useState(false);
   const [rating, setRating] = useState(5);
   const [useAnchor, setUseAnchor] = useState(true);
+  // A person of an external persona opens only shared threads (#2227), so
+  // they are offered no choice.
+  const { external } = usePortalAccess();
+  const [visibility, setVisibility] = useState<ThreadVisibility>("internal");
   const create = useCreateThread();
   const ids = useId();
 
@@ -97,6 +104,7 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
       ...(title.trim() ? { title: title.trim() } : {}),
       ...(kind === "rating" ? { rating } : {}),
       ...(anchor && useAnchor ? { anchor } : {}),
+      ...(external ? {} : { visibility }),
       ...targetFields(target),
     } as CreateThreadInput;
 
@@ -183,6 +191,8 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
       {anchor && (
         <AnchorToggle checked={useAnchor} onChange={setUseAnchor} exact={anchor.exact} />
       )}
+
+      {!external && <VisibilityChoice value={visibility} onChange={setVisibility} />}
 
       <Label className="gap-2 text-xs">
         <input

@@ -168,6 +168,8 @@ func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 	if audience != nil {
 		stores.Grantees = audience
 	}
+	// Set from the external accounts mounted before this (#2092, #2227).
+	stores.External = deps.ExternalAddress
 	if bridge := notify.PortalNotifier(stores, p.Config().Portal.PublicBaseURL); bridge != nil {
 		deps.Notifier = bridge
 		wireFeedbackToolNotifications(p, bridge, audience)

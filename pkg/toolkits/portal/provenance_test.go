@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -33,6 +34,26 @@ func assetWithCaptures(t *testing.T, n int) *inMemoryAssetStore {
 	return store
 }
 
+// capturesOwnerCtx is a call made by the assets' owner, who reads their record and
+// provenance.
+func capturesOwnerCtx() context.Context {
+	return middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+}
+
+// The record and provenance of an asset are read on the terms its content
+// is: a caller it is not shared with is refused.
+func TestManageAsset_GetAndProvenanceNeedReadAccess(t *testing.T) {
+	tk := New(Config{Name: "test", AssetStore: assetWithCaptures(t, 3), S3Bucket: "bucket"})
+	stranger := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "user2", UserEmail: "user2@example.com",
+	})
+	for _, action := range []string{actionGet, actionProvenance} {
+		result, _, err := tk.handleManageAsset(stranger, nil, manageAssetInput{Action: action, AssetID: "a1"})
+		require.NoError(t, err)
+		assert.True(t, result.IsError, action)
+	}
+}
+
 func resultAsset(t *testing.T, r *mcp.CallToolResult) portal.Asset {
 	t.Helper()
 	require.NotEmpty(t, r.Content)
@@ -46,7 +67,7 @@ func resultAsset(t *testing.T, r *mcp.CallToolResult) portal.Asset {
 func TestManageAsset_GetCarriesTheNewestCapturesAndTheirTotal(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: assetWithCaptures(t, 333), S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
+	result, _, err := tk.handleManageAsset(capturesOwnerCtx(), nil, manageAssetInput{
 		Action: actionGet, AssetID: "a1",
 	})
 	require.NoError(t, err)
@@ -64,7 +85,7 @@ func TestManageAsset_GetCarriesTheNewestCapturesAndTheirTotal(t *testing.T) {
 func TestManageAsset_GetASingleCaptureReadsUnchanged(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: assetWithCaptures(t, 1), S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
+	result, _, err := tk.handleManageAsset(capturesOwnerCtx(), nil, manageAssetInput{
 		Action: actionGet, AssetID: "a1",
 	})
 	require.NoError(t, err)
@@ -78,7 +99,7 @@ func TestManageAsset_GetASingleCaptureReadsUnchanged(t *testing.T) {
 func TestManageAsset_ProvenancePagesTheRest(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: assetWithCaptures(t, 50), S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
+	result, _, err := tk.handleManageAsset(capturesOwnerCtx(), nil, manageAssetInput{
 		Action: actionProvenance, AssetID: "a1", Offset: 20, Limit: 20,
 	})
 	require.NoError(t, err)
@@ -111,7 +132,7 @@ func TestManageAsset_ProvenanceDefaultsAndClamps(t *testing.T) {
 		{"clamped", 5000, portaldomain.MaxProvenancePageSize},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
+			result, _, err := tk.handleManageAsset(capturesOwnerCtx(), nil, manageAssetInput{
 				Action: actionProvenance, AssetID: "a1", Limit: tc.limit,
 			})
 			require.NoError(t, err)
@@ -135,7 +156,7 @@ func TestManageAsset_ProvenanceRequiresAnAsset(t *testing.T) {
 		{"unknown id", manageAssetInput{Action: actionProvenance, AssetID: "missing"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result, _, err := tk.handleManageAsset(context.Background(), nil, tc.input)
+			result, _, err := tk.handleManageAsset(capturesOwnerCtx(), nil, tc.input)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantErr, result.IsError)
 		})
@@ -147,7 +168,7 @@ func TestManageAsset_ProvenanceOnADeletedAsset(t *testing.T) {
 	require.NoError(t, store.SoftDelete(context.Background(), "a1"))
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
+	result, _, err := tk.handleManageAsset(capturesOwnerCtx(), nil, manageAssetInput{
 		Action: actionProvenance, AssetID: "a1",
 	})
 	require.NoError(t, err)

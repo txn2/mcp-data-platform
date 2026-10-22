@@ -1,6 +1,10 @@
 import { useState } from "react";
+import { FileQuestion } from "lucide-react";
 import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset, useUpdateAssetContent, useCopyAsset, useAssetVersions, useRevertVersion, useVersionContent } from "@/api/portal/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
+import { NoAccess } from "@/components/access/RequestAccessPanel";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Button } from "@/components/ui/button";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { SharedPageLink } from "@/components/share/SharedPageLink";
 import { mySessionPath } from "@/pages/activity/routes";
@@ -35,6 +39,21 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
 
   const isOwner = asset?.is_owner ?? true;
   const sharePermission = asset?.share_permission;
+
+  // An asset this reader cannot open offers a request to its owner (#2090).
+  if (!isLoading && !asset) {
+    return (
+      <NoAccess
+        type="asset"
+        id={assetId}
+        notFound={
+          <EmptyState icon={FileQuestion} action={<Button variant="outline" size="sm" onClick={onBack}>Back</Button>}>
+            <p className="font-medium">Asset not found</p>
+          </EmptyState>
+        }
+      />
+    );
+  }
 
   return (
     <AssetViewer

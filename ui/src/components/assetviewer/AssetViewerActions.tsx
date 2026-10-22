@@ -14,7 +14,9 @@ interface AssetViewerActionsProps {
   sharePermission?: SharePermission;
   copyMutation?: MutationLike<string>;
   onDelete: () => void;
-  onDownload: () => void;
+  // onDownload is absent when the reader's persona does not include Download
+  // (#2225), and the action is not offered.
+  onDownload?: () => void;
   onCopyToMyAssets: () => void;
   onShare: () => void;
 }
@@ -53,10 +55,12 @@ export function AssetViewerActions({
           Delete
         </Button>
       )}
-      <Button variant="outline" size="sm" onClick={onDownload} title="Download">
-        <Download />
-        Download
-      </Button>
+      {onDownload && (
+        <Button variant="outline" size="sm" onClick={onDownload} title="Download">
+          <Download />
+          Download
+        </Button>
+      )}
       {copyMutation && (
         <Button
           variant="outline"

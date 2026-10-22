@@ -953,13 +953,11 @@ func (t *Toolkit) handleGet(ctx context.Context, input manageAssetInput) (*mcp.C
 		return toolkit.ErrorResult("asset_id is required for get action"), nil, nil
 	}
 
-	asset, err := t.assetStore.Get(ctx, input.AssetID)
-	if err != nil {
-		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
-	}
-
-	if asset.DeletedAt != nil {
-		return toolkit.ErrorResult("asset has been deleted"), nil, nil
+	// The asset's record is read on the terms its content is: by its owner,
+	// someone it is shared with, or an administrator.
+	asset, refused := t.loadReadableAsset(ctx, input.AssetID)
+	if refused != nil {
+		return refused, nil, nil
 	}
 
 	// A capture is appended per content write and nothing caps them, so an
@@ -978,12 +976,8 @@ func (t *Toolkit) handleProvenance(ctx context.Context, input manageAssetInput) 
 		return toolkit.ErrorResult("asset_id is required for provenance action"), nil, nil
 	}
 
-	asset, err := t.assetStore.Get(ctx, input.AssetID)
-	if err != nil {
-		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
-	}
-	if asset.DeletedAt != nil {
-		return toolkit.ErrorResult("asset has been deleted"), nil, nil
+	if _, refused := t.loadReadableAsset(ctx, input.AssetID); refused != nil {
+		return refused, nil, nil
 	}
 
 	offset, limit := portaldomain.ClampProvenancePage(input.Offset, input.Limit)
@@ -1515,12 +1509,19 @@ func ownsResource(ctx context.Context, ownerID, ownerEmail string) bool {
 //
 // Ownership is unaffected — ownsResource is consulted before this — so a script
 // still reaches its author's own assets.
-func shareIdentity(ctx context.Context) (userID, email string) {
+//
+// The context it returns carries the caller's persona, which a share
+// addressed to a persona is matched against (#2089); a run's carries none,
+// for the reason a run carries no address.
+func shareIdentity(ctx context.Context) (shareCtx context.Context, userID, email string) {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc != nil && pc.Source == middleware.SourceScript {
-		return resolveOwnerID(ctx), ""
+		return ctx, resolveOwnerID(ctx), ""
 	}
-	return resolveOwnerID(ctx), resolveOwnerEmail(ctx)
+	if pc != nil && pc.PersonaName != "" {
+		ctx = portaldomain.WithCallerPersona(ctx, pc.PersonaName)
+	}
+	return ctx, resolveOwnerID(ctx), resolveOwnerEmail(ctx)
 }
 
 // resolveOwnerEmail returns the authenticated user's email from the context,

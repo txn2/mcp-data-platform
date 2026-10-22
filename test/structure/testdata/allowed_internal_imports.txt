@@ -51,6 +51,9 @@ internal/admin/endpointapi -> internal/endpoint/eprefusal
 internal/admin/endpointapi -> internal/httpjson
 internal/admin/endpointapi -> internal/logsan
 internal/admin/endpointapi -> pkg/script
+internal/admin/extaccountapi -> internal/extaccount
+internal/admin/extaccountapi -> internal/httpjson
+internal/admin/extaccountapi -> internal/logsan
 internal/admin/graphqlapi -> internal/httpjson
 internal/admin/graphqlapi -> pkg/registry
 internal/admin/graphqlapi -> pkg/toolkits/graphql
@@ -65,6 +68,7 @@ internal/admin/memoryapi -> pkg/memory
 internal/admin/notifyapi -> internal/httpjson
 internal/admin/notifyapi -> internal/notification/notifyrender
 internal/admin/notifyapi -> pkg/notification
+internal/admin/personarules -> pkg/persona
 internal/admin/resindexapi -> internal/httpjson
 internal/admin/resindexapi -> internal/indexpolicy
 internal/admin/resindexapi -> internal/platform/resourceindex
@@ -163,6 +167,9 @@ internal/endpoint/epwire -> pkg/middleware
 internal/endpoint/epwire -> pkg/observability
 internal/endpoint/epwire -> pkg/script
 internal/exportasync -> internal/wirejson
+internal/extaccount -> internal/logsan
+internal/extaccount -> pkg/browsersession
+internal/extaccount -> pkg/persona
 internal/formdata -> internal/pagewalk
 internal/headless -> internal/egressguard
 internal/headless -> internal/outbound
@@ -176,8 +183,10 @@ internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/buildinfo
 internal/httpserver -> internal/exporttrunc
+internal/httpserver -> internal/extaccount
 internal/httpserver -> internal/httpobs
 internal/httpserver -> internal/httpserver/accessgate
+internal/httpserver -> internal/httpserver/accessreqwire
 internal/httpserver -> internal/httpserver/adminwire
 internal/httpserver -> internal/httpserver/alertwire
 internal/httpserver -> internal/httpserver/apiwire
@@ -185,6 +194,7 @@ internal/httpserver -> internal/httpserver/attachhttp
 internal/httpserver -> internal/httpserver/catalogwire
 internal/httpserver -> internal/httpserver/corshttp
 internal/httpserver -> internal/httpserver/endpointwire
+internal/httpserver -> internal/httpserver/extaccountwire
 internal/httpserver -> internal/httpserver/gatewayhttp
 internal/httpserver -> internal/httpserver/health
 internal/httpserver -> internal/httpserver/httpauth
@@ -193,6 +203,8 @@ internal/httpserver -> internal/httpserver/mapwire
 internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifywire
 internal/httpserver -> internal/httpserver/pdfhttp
+internal/httpserver -> internal/httpserver/personashare
+internal/httpserver -> internal/httpserver/resourcelevel
 internal/httpserver -> internal/httpserver/scripthttp
 internal/httpserver -> internal/httpserver/scripthttp/connchoicehttp
 internal/httpserver -> internal/httpserver/scripthttp/flowhttp
@@ -272,8 +284,19 @@ internal/httpserver -> pkg/toolkits/knowledge
 internal/httpserver -> pkg/toolkits/portal
 internal/httpserver -> pkg/toolkits/trino
 internal/httpserver/accessgate -> internal/logsan
+internal/httpserver/accessgate -> internal/portal/portaldomain
+internal/httpserver/accessgate -> internal/portal/portalperm
 internal/httpserver/accessgate -> internal/wirejson
+internal/httpserver/accessgate -> pkg/persona
 internal/httpserver/accessgate -> pkg/portal
+internal/httpserver/accessreqwire -> internal/platform/notifydelivery
+internal/httpserver/accessreqwire -> internal/platform/settingsjson
+internal/httpserver/accessreqwire -> internal/portal/access
+internal/httpserver/accessreqwire -> internal/portal/accessreq
+internal/httpserver/accessreqwire -> internal/portal/portaldomain
+internal/httpserver/accessreqwire -> pkg/notification
+internal/httpserver/accessreqwire -> pkg/platform
+internal/httpserver/accessreqwire -> pkg/prompt
 internal/httpserver/adminwire -> internal/secretstore
 internal/httpserver/adminwire -> pkg/admin
 internal/httpserver/adminwire -> pkg/platform
@@ -307,6 +330,7 @@ internal/httpserver/catalogapi -> internal/portal/access
 internal/httpserver/catalogapi -> internal/wirejson
 internal/httpserver/catalogapi -> pkg/audit
 internal/httpserver/catalogapi -> pkg/catalog
+internal/httpserver/catalogapi -> pkg/persona
 internal/httpserver/catalogapi -> pkg/portal
 internal/httpserver/catalogwire -> internal/admin/catalogimportapi
 internal/httpserver/catalogwire -> internal/admin/catalogscanapi
@@ -344,6 +368,14 @@ internal/httpserver/endpointwire -> internal/endpoint/epwire
 internal/httpserver/endpointwire -> internal/platform/scriptstore
 internal/httpserver/endpointwire -> pkg/platform
 internal/httpserver/endpointwire -> pkg/portal
+internal/httpserver/extaccountwire -> internal/admin/extaccountapi
+internal/httpserver/extaccountwire -> internal/extaccount
+internal/httpserver/extaccountwire -> internal/platform/notifydelivery
+internal/httpserver/extaccountwire -> internal/platform/settingsjson
+internal/httpserver/extaccountwire -> pkg/browsersession
+internal/httpserver/extaccountwire -> pkg/persona
+internal/httpserver/extaccountwire -> pkg/platform
+internal/httpserver/extaccountwire -> pkg/user
 internal/httpserver/gatewayhttp -> internal/inprocess
 internal/httpserver/gatewayhttp -> internal/wirejson
 internal/httpserver/gatewayhttp -> pkg/middleware
@@ -403,6 +435,11 @@ internal/httpserver/pdfhttp -> pkg/blobserve
 internal/httpserver/pdfhttp -> pkg/contenttype
 internal/httpserver/pdfhttp -> pkg/platform
 internal/httpserver/pdfhttp -> pkg/ratelimit
+internal/httpserver/personashare -> pkg/persona
+internal/httpserver/personashare -> pkg/portal
+internal/httpserver/personashare -> pkg/user
+internal/httpserver/resourcelevel -> pkg/persona
+internal/httpserver/resourcelevel -> pkg/resource
 internal/httpserver/scripthttp -> internal/endpoint/epcmd
 internal/httpserver/scripthttp -> internal/httpjson
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/bindinghttp
@@ -822,6 +859,7 @@ internal/platform/notifydelivery -> pkg/notification/smtp
 internal/platform/notifydelivery -> pkg/observability
 internal/platform/notifydelivery -> pkg/portal
 internal/platform/notifydelivery -> pkg/portal/knowledgepage
+internal/platform/notifydelivery -> pkg/portal/threads
 internal/platform/notifylayer -> internal/platform/connscope
 internal/platform/notifylayer -> internal/portal/access
 internal/platform/notifylayer -> internal/portal/portaldomain
@@ -1373,8 +1411,12 @@ internal/platform/utilhandler -> internal/egressguard
 internal/platform/utilhandler -> internal/outbound
 internal/platform/utilhandler -> internal/wirejson
 internal/portal/access -> internal/portal/portaldomain
+internal/portal/access -> pkg/persona
 internal/portal/access -> pkg/portal/threads
 internal/portal/access -> pkg/prompt
+internal/portal/accessreq -> internal/httpjson
+internal/portal/accessreq -> internal/logsan
+internal/portal/accessreq -> internal/portal/access
 internal/portal/assetrefapi -> internal/httpjson
 internal/portal/assetrefapi -> internal/logsan
 internal/portal/assetrefapi -> internal/portal/access
@@ -1410,6 +1452,7 @@ internal/portal/feedbackapi -> pkg/toolkits/knowledge
 internal/portal/portaldomain -> pkg/contenttype
 internal/portal/portaldomain -> pkg/portal/shareaccess
 internal/portal/portalnoop -> internal/portal/portaldomain
+internal/portal/portalperm -> pkg/persona
 internal/portal/portalpurge -> internal/logsan
 internal/portal/portalpurge -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/portal/portaldomain
@@ -1537,6 +1580,7 @@ pkg/admin -> internal/admin/graphqlapi
 pkg/admin -> internal/admin/insightobs
 pkg/admin -> internal/admin/memoryapi
 pkg/admin -> internal/admin/notifyapi
+pkg/admin -> internal/admin/personarules
 pkg/admin -> internal/admin/sessionapi
 pkg/admin -> internal/admin/settingsapi
 pkg/admin -> internal/agentinstructions
@@ -1635,6 +1679,7 @@ pkg/connview -> pkg/connid
 pkg/connview -> pkg/portal/knowledgepage
 pkg/connview -> pkg/registry
 pkg/connview -> pkg/toolkit
+pkg/database/migrate -> internal/logsan
 pkg/embedding -> internal/outbound
 pkg/embedding -> pkg/observability
 pkg/indexjobs -> internal/bgloop
@@ -1893,6 +1938,7 @@ pkg/portal -> pkg/embedding
 pkg/portal -> pkg/indexjobs
 pkg/portal -> pkg/memory
 pkg/portal -> pkg/middleware
+pkg/portal -> pkg/persona
 pkg/portal -> pkg/portal/knowledgepage
 pkg/portal -> pkg/portal/shareaccess
 pkg/portal -> pkg/portal/shareguest

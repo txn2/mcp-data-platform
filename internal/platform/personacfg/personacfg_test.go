@@ -86,8 +86,8 @@ func TestPersonaDef_ToPersonaCarriesEveryField(t *testing.T) {
 		Priority:    7,
 		// #1980: a file persona can be marked as a service account too.
 		ServiceAccount: true,
-		// #2109: and can take Automations out of the portal.
-		HideAutomations: true,
+		// #2225: and can set its portal areas.
+		Portal: &persona.PortalAccess{Knowledge: persona.PortalNone},
 	}
 	p := def.ToPersona("analyst", "database")
 
@@ -107,12 +107,32 @@ func TestPersonaDef_ToPersonaCarriesEveryField(t *testing.T) {
 		{"instructions suffix", p.Context.AgentInstructionsSuffix, "bye"},
 		{"priority", p.Priority, 7},
 		{"service account", p.ServiceAccount, true},
-		{"hide automations", p.HideAutomations, true},
+		{"knowledge", p.Portal.Knowledge, persona.PortalNone},
 		{"source", p.Source, "database"},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
 			t.Errorf("%s = %v, want %v", c.field, c.got, c.want)
 		}
+	}
+}
+
+// hide_automations, the setting portal.automations replaced (#2225), still
+// reads as automations off, unless the portal block says otherwise.
+func TestToPersonaFoldsHideAutomationsIntoThePortalBlock(t *testing.T) {
+	folded := personacfg.PersonaDef{DisplayName: "Viewer", HideAutomations: true}.ToPersona("viewer", "file")
+	if folded.Portal == nil || persona.On(folded.Portal.Automations) {
+		t.Fatalf("hide_automations: true gave portal %+v, want automations off", folded.Portal)
+	}
+	on := true
+	stated := personacfg.PersonaDef{
+		DisplayName: "Viewer", HideAutomations: true,
+		Portal: &persona.PortalAccess{Automations: &on},
+	}.ToPersona("viewer", "file")
+	if !persona.On(stated.Portal.Automations) {
+		t.Error("a portal block stating automations lost to hide_automations")
+	}
+	if p := (personacfg.PersonaDef{DisplayName: "Viewer"}).ToPersona("viewer", "file"); p.Portal != nil {
+		t.Errorf("a persona with neither carries portal %+v, want none", p.Portal)
 	}
 }

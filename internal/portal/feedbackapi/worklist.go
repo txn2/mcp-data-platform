@@ -86,6 +86,7 @@ func (h *Handler) smeWorklist(w http.ResponseWriter, r *http.Request) {
 
 // writeWorklist runs a worklist filter and writes the paginated result.
 func (h *Handler) writeWorklist(w http.ResponseWriter, r *http.Request, filter threads.ThreadFilter) {
+	filter.SharedOnly = h.external(access.GetUser(r.Context()))
 	found, total, err := h.cfg.Threads.ListThreads(r.Context(), filter)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to load worklist")

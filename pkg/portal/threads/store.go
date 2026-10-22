@@ -154,7 +154,24 @@ type Thread struct {
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`
 	DeletedAt          *time.Time      `json:"deleted_at,omitempty"`
+	// Visibility is internal or shared (#2227): people of an external persona
+	// never see an internal thread, and a thread one of them opens is shared.
+	Visibility string `json:"visibility" example:"internal"`
 }
+
+// Thread visibilities (#2227).
+const (
+	// VisibilityInternal is a thread the organization's own people see.
+	VisibilityInternal = "internal"
+	// VisibilityShared is a thread everyone who can open its target sees,
+	// external people included.
+	VisibilityShared = "shared"
+	// EventTypeVisibilityChange records a thread made internal or shared.
+	EventTypeVisibilityChange = "visibility_changed"
+)
+
+// ValidVisibility reports whether v is a thread visibility.
+func ValidVisibility(v string) bool { return v == VisibilityInternal || v == VisibilityShared }
 
 // TargetID returns the id of whichever object the thread targets, empty for
 // the standalone channel. Exactly one target field is set on a row, so the
@@ -249,8 +266,11 @@ type ThreadFilter struct {
 	// a name written for someone outside the target's audience -- stored as
 	// plain text, notifying nobody -- never lands in their inbox either.
 	MentionedEmail string
-	Limit          int
-	Offset         int
+	// SharedOnly restricts to shared threads, which is all a person of an
+	// external persona sees (#2227).
+	SharedOnly bool
+	Limit      int
+	Offset     int
 }
 
 const (
@@ -282,6 +302,9 @@ type ThreadUpdate struct {
 	Status             *string
 	RequiresResolution *bool
 	ValidationState    *string
+	// Visibility makes the thread internal or shared (#2227); a change is
+	// recorded as a timeline event.
+	Visibility *string
 }
 
 // ThreadStore persists and queries feedback threads and their event timelines.
@@ -320,10 +343,10 @@ type ThreadStore interface {
 	// CountOpenByTargets returns, per target id, the number of open (non-deleted)
 	// threads. targetType must be asset/collection/prompt. Callers are
 	// responsible for restricting ids to those the requester may see.
-	CountOpenByTargets(ctx context.Context, targetType string, ids []string) (map[string]int, error)
+	CountOpenByTargets(ctx context.Context, targetType string, ids []string, sharedOnly bool) (map[string]int, error)
 	// CountSignoffs returns the number of distinct users who left an approval
 	// (signoff) event on any thread targeting the given asset/collection.
-	CountSignoffs(ctx context.Context, targetType, targetID string) (int, error)
+	CountSignoffs(ctx context.Context, targetType, targetID string, sharedOnly bool) (int, error)
 }
 
 // --- PostgreSQL ThreadStore ---
@@ -347,8 +370,8 @@ func (s *postgresThreadStore) CreateThread(ctx context.Context, t Thread, first 
 	insertThread := `
 		INSERT INTO portal_threads
 		(id, kind, target_type, asset_id, collection_id, prompt_id, knowledge_page_id, anchor, target_version,
-		 title, author_id, author_email, status, requires_resolution, validation_state)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		 title, author_id, author_email, status, requires_resolution, validation_state, visibility)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING created_at, updated_at
 	`
 	if err := tx.QueryRowContext(ctx, insertThread,
@@ -356,6 +379,7 @@ func (s *postgresThreadStore) CreateThread(ctx context.Context, t Thread, first 
 		nullString(t.AssetID), nullString(t.CollectionID), nullString(t.PromptID), nullString(t.KnowledgePageID),
 		nullJSON(t.Anchor), nullInt(t.TargetVersion),
 		t.Title, t.AuthorID, t.AuthorEmail, statusOrDefault(t.Status), t.RequiresResolution, validationOrDefault(t.ValidationState),
+		visibilityOrDefault(t.Visibility),
 	).Scan(&t.CreatedAt, &t.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("inserting thread: %w", err)
 	}
@@ -367,6 +391,7 @@ func (s *postgresThreadStore) CreateThread(ctx context.Context, t Thread, first 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf(errCommitTx, err)
 	}
+	t.Visibility = visibilityOrDefault(t.Visibility)
 	return &t, nil
 }
 
@@ -546,10 +571,10 @@ func (s *postgresThreadStore) UpdateThread(ctx context.Context, id string, u Thr
 	}
 	defer tx.Rollback() //nolint:errcheck // commit below on success
 
-	var oldStatus string
+	var oldStatus, oldVisibility string
 	if err := tx.QueryRowContext(ctx,
-		`SELECT status FROM portal_threads WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, id,
-	).Scan(&oldStatus); err != nil {
+		`SELECT status, visibility FROM portal_threads WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, id,
+	).Scan(&oldStatus, &oldVisibility); err != nil {
 		return fmt.Errorf("loading thread for update: %w", err)
 	}
 
@@ -571,6 +596,16 @@ func (s *postgresThreadStore) UpdateThread(ctx context.Context, id string, u Thr
 			AuthorID:    actorID,
 			AuthorEmail: actorEmail,
 			Metadata:    statusChangeMetadata(oldStatus, *u.Status),
+		}
+		if err := insertEventTx(ctx, tx, evt); err != nil {
+			return err
+		}
+	}
+	if u.Visibility != nil && *u.Visibility != oldVisibility {
+		evt := ThreadEvent{
+			ID: NewThreadID(eventIDKind), ThreadID: id, EventType: EventTypeVisibilityChange,
+			AuthorID: actorID, AuthorEmail: actorEmail,
+			Metadata: visibilityChangeMetadata(oldVisibility, *u.Visibility),
 		}
 		if err := insertEventTx(ctx, tx, evt); err != nil {
 			return err
@@ -789,7 +824,7 @@ func insightLinkedMetadata(insightID string) json.RawMessage {
 	return b
 }
 
-func (s *postgresThreadStore) CountOpenByTargets(ctx context.Context, targetType string, ids []string) (map[string]int, error) { //nolint:revive // interface impl
+func (s *postgresThreadStore) CountOpenByTargets(ctx context.Context, targetType string, ids []string, sharedOnly bool) (map[string]int, error) { //nolint:revive // interface impl
 	counts := make(map[string]int)
 	if len(ids) == 0 {
 		return counts, nil
@@ -802,11 +837,11 @@ func (s *postgresThreadStore) CountOpenByTargets(ctx context.Context, targetType
 	// #nosec G201 -- column is from targetColumn(), a fixed asset_id/collection_id/prompt_id allowlist, never user input
 	query := fmt.Sprintf(`
 		SELECT %s, COUNT(*) FROM portal_threads
-		WHERE %s = ANY($1) AND status = $2 AND deleted_at IS NULL
+		WHERE %s = ANY($1) AND status = $2 AND deleted_at IS NULL AND (NOT $3 OR visibility = 'shared')
 		GROUP BY %s
 	`, column, column, column)
 
-	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids), ThreadStatusOpen)
+	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids), ThreadStatusOpen, sharedOnly)
 	if err != nil {
 		return nil, fmt.Errorf("counting open threads: %w", err)
 	}
@@ -829,7 +864,7 @@ func (s *postgresThreadStore) CountOpenByTargets(ctx context.Context, targetType
 // CountSignoffs returns the number of distinct users who left an approval
 // (signoff) event on any thread targeting the given asset/collection (Phase 3 /
 // #603). This is the "N" in "signed off by N of M stakeholders".
-func (s *postgresThreadStore) CountSignoffs(ctx context.Context, targetType, targetID string) (int, error) { //nolint:revive // interface impl
+func (s *postgresThreadStore) CountSignoffs(ctx context.Context, targetType, targetID string, sharedOnly bool) (int, error) { //nolint:revive // interface impl
 	column, err := targetColumn(targetType)
 	if err != nil {
 		return 0, err
@@ -839,10 +874,10 @@ func (s *postgresThreadStore) CountSignoffs(ctx context.Context, targetType, tar
 		SELECT COUNT(DISTINCT e.author_id)
 		FROM portal_thread_events e
 		JOIN portal_threads t ON t.id = e.thread_id
-		WHERE t.%s = $1 AND t.deleted_at IS NULL AND e.event_type = $2
+		WHERE t.%s = $1 AND t.deleted_at IS NULL AND e.event_type = $2 AND (NOT $3 OR t.visibility = 'shared')
 	`, column)
 	var n int
-	if err := s.db.QueryRowContext(ctx, query, targetID, EventTypeApproval).Scan(&n); err != nil {
+	if err := s.db.QueryRowContext(ctx, query, targetID, EventTypeApproval, sharedOnly).Scan(&n); err != nil {
 		return 0, fmt.Errorf("counting signoffs: %w", err)
 	}
 	return n, nil
@@ -902,6 +937,9 @@ func applyThreadFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
 	}
 	if f.Unresolved {
 		qb = qb.Where(sq.NotEq{"t.status": []string{ThreadStatusResolved, ThreadStatusWontFix}})
+	}
+	if f.SharedOnly {
+		qb = qb.Where(sq.Eq{"t.visibility": VisibilityShared})
 	}
 	qb = applyThreadAuthorFilter(qb, f)
 	qb = applyThreadAuthorExcludeFilter(qb, f)
@@ -1021,6 +1059,9 @@ func threadUpdateSetMap(u ThreadUpdate) map[string]any {
 	if u.ValidationState != nil {
 		setMap["validation_state"] = *u.ValidationState
 	}
+	if u.Visibility != nil {
+		setMap["visibility"] = *u.Visibility
+	}
 	return setMap
 }
 
@@ -1058,7 +1099,7 @@ func scanThread(row interface{ Scan(...any) error }, t *Thread) error {
 	if err := row.Scan(
 		&t.ID, &t.Kind, &t.TargetType, &assetID, &collectionID, &promptID, &knowledgePageID, &anchor, &targetVersion,
 		&t.Title, &t.AuthorID, &t.AuthorEmail, &t.Status, &t.RequiresResolution, &t.ValidationState, &insightID,
-		&t.CreatedAt, &t.UpdatedAt, &deletedAt,
+		&t.CreatedAt, &t.UpdatedAt, &deletedAt, &t.Visibility,
 	); err != nil {
 		return fmt.Errorf("scanning thread row: %w", err)
 	}
@@ -1087,7 +1128,7 @@ func scanThreadWithMeta(rows *sql.Rows, tm *ThreadWithMeta) error {
 	if err := rows.Scan(
 		&tm.ID, &tm.Kind, &tm.TargetType, &assetID, &collectionID, &promptID, &knowledgePageID, &anchor, &targetVersion,
 		&tm.Title, &tm.AuthorID, &tm.AuthorEmail, &tm.Status, &tm.RequiresResolution, &tm.ValidationState, &insightID,
-		&tm.CreatedAt, &tm.UpdatedAt, &deletedAt,
+		&tm.CreatedAt, &tm.UpdatedAt, &deletedAt, &tm.Visibility,
 		&tm.EventCount, &tm.LastEventAt, &tm.LastEventType,
 	); err != nil {
 		return fmt.Errorf("scanning thread row: %w", err)
@@ -1162,7 +1203,7 @@ func aliasedThreadColumns(alias string) string {
 var threadColumnNames = []string{
 	"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "knowledge_page_id", "anchor", "target_version",
 	"title", "author_id", "author_email", "status", "requires_resolution", "validation_state", "insight_id",
-	"created_at", "updated_at", "deleted_at",
+	"created_at", "updated_at", "deleted_at", "visibility",
 }
 
 var threadSelectColumns = strings.Join(threadColumnNames, ", ")
@@ -1192,6 +1233,20 @@ func statusOrDefault(status string) string {
 		return ThreadStatusOpen
 	}
 	return status
+}
+
+// visibilityOrDefault is internal unless the thread says shared.
+func visibilityOrDefault(v string) string {
+	if v == VisibilityShared {
+		return VisibilityShared
+	}
+	return VisibilityInternal
+}
+
+// visibilityChangeMetadata records a visibility change on the timeline.
+func visibilityChangeMetadata(from, to string) json.RawMessage {
+	raw, _ := json.Marshal(map[string]string{"from": from, "to": to})
+	return raw
 }
 
 func validationOrDefault(v string) string {

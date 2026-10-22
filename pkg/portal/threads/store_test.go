@@ -28,7 +28,7 @@ func TestSearchThreads(t *testing.T) {
 		now := time.Now()
 		rows := sqlmock.NewRows(threadColumnNames).
 			AddRow("thr_1", "correction", "asset", nil, nil, nil, nil, nil, nil,
-				"amount is gross", "u1", "a@example.com", "open", false, "none", nil, now, now, nil)
+				"amount is gross", "u1", "a@example.com", "open", false, "none", nil, now, now, nil, "internal")
 		mock.ExpectQuery("SELECT .* FROM portal_threads").
 			WithArgs("a@example.com", "%amount%", 5).
 			WillReturnRows(rows)
@@ -112,12 +112,12 @@ func TestThreadStoreListThreads(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "knowledge_page_id", "anchor", "target_version",
 			"title", "author_id", "author_email", "status", "requires_resolution", "validation_state", "insight_id",
-			"created_at", "updated_at", "deleted_at",
+			"created_at", "updated_at", "deleted_at", "visibility",
 			"event_count", "last_event_at", "last_event_type",
 		}).AddRow(
 			"thr_1", ThreadKindComment, targetTypeAsset, "asset_1", nil, nil, nil, []byte(`{"type":"text_quote","exact":"x"}`), 3,
 			"title", "u1", "u1@example.com", ThreadStatusOpen, false, "none", nil,
-			now, now, nil,
+			now, now, nil, VisibilityInternal,
 			2, now, EventTypeComment,
 		))
 
@@ -141,11 +141,11 @@ func TestThreadStoreGetThread(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "knowledge_page_id", "anchor", "target_version",
 			"title", "author_id", "author_email", "status", "requires_resolution", "validation_state", "insight_id",
-			"created_at", "updated_at", "deleted_at",
+			"created_at", "updated_at", "deleted_at", "visibility",
 		}).AddRow(
 			"thr_1", ThreadKindQuestion, targetTypeStandalone, nil, nil, nil, nil, nil, nil,
 			"", "u1", "u1@example.com", ThreadStatusOpen, false, "none", nil,
-			now, now, nil,
+			now, now, nil, VisibilityShared,
 		))
 
 	got, err := store.GetThread(context.Background(), "thr_1")
@@ -193,9 +193,9 @@ func TestThreadStoreUpdateThreadWithStatusChange(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT status FROM portal_threads").
+	mock.ExpectQuery("SELECT status, visibility FROM portal_threads").
 		WithArgs("thr_1").
-		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(ThreadStatusOpen))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility"}).AddRow(ThreadStatusOpen, VisibilityInternal))
 	mock.ExpectExec("UPDATE portal_threads").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -210,9 +210,9 @@ func TestThreadStoreUpdateThreadNoStatusChangeSkipsEvent(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT status FROM portal_threads").
+	mock.ExpectQuery("SELECT status, visibility FROM portal_threads").
 		WithArgs("thr_1").
-		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(ThreadStatusOpen))
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility"}).AddRow(ThreadStatusOpen, VisibilityInternal))
 	mock.ExpectExec("UPDATE portal_threads").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -261,7 +261,7 @@ func TestThreadStoreAppendEventRollbackOnTouchError(t *testing.T) {
 func TestThreadStoreUpdateThreadLoadError(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT status FROM portal_threads").WithArgs("t").WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT status, visibility FROM portal_threads").WithArgs("t").WillReturnError(sql.ErrNoRows)
 	mock.ExpectRollback()
 	s := ThreadStatusResolved
 	err := store.UpdateThread(context.Background(), "t", ThreadUpdate{Status: &s}, "u", "u@x")
@@ -296,17 +296,17 @@ func TestThreadStoreListEventsError(t *testing.T) {
 func TestThreadStoreCountOpenByTargets(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 
-	got, err := store.CountOpenByTargets(context.Background(), targetTypeAsset, nil)
+	got, err := store.CountOpenByTargets(context.Background(), targetTypeAsset, nil, false)
 	require.NoError(t, err)
 	assert.Empty(t, got)
 
 	mock.ExpectQuery("FROM portal_threads").
 		WillReturnRows(sqlmock.NewRows([]string{"asset_id", "count"}).AddRow("asset_1", 2).AddRow("asset_2", 5))
-	got, err = store.CountOpenByTargets(context.Background(), targetTypeAsset, []string{"asset_1", "asset_2"})
+	got, err = store.CountOpenByTargets(context.Background(), targetTypeAsset, []string{"asset_1", "asset_2"}, false)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]int{"asset_1": 2, "asset_2": 5}, got)
 
-	_, err = store.CountOpenByTargets(context.Background(), "bogus", []string{"x"})
+	_, err = store.CountOpenByTargets(context.Background(), "bogus", []string{"x"}, false)
 	require.Error(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -314,7 +314,7 @@ func TestThreadStoreCountOpenByTargets(t *testing.T) {
 func TestThreadStoreCountOpenByTargetsQueryError(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 	mock.ExpectQuery("FROM portal_threads").WillReturnError(fmt.Errorf("boom"))
-	_, err := store.CountOpenByTargets(context.Background(), targetTypeCollection, []string{"c"})
+	_, err := store.CountOpenByTargets(context.Background(), targetTypeCollection, []string{"c"}, false)
 	require.Error(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -513,9 +513,9 @@ func TestThreadStoreRespondValidation(t *testing.T) {
 func TestThreadStoreCountSignoffs(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 	mock.ExpectQuery("SELECT COUNT\\(DISTINCT e.author_id\\)").
-		WithArgs("asset_1", EventTypeApproval).
+		WithArgs("asset_1", EventTypeApproval, true).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
-	n, err := store.CountSignoffs(context.Background(), "asset", "asset_1")
+	n, err := store.CountSignoffs(context.Background(), "asset", "asset_1", true)
 	require.NoError(t, err)
 	assert.Equal(t, 3, n)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -523,7 +523,7 @@ func TestThreadStoreCountSignoffs(t *testing.T) {
 
 func TestThreadStoreCountSignoffsBadTarget(t *testing.T) {
 	store, _ := newThreadStoreMock(t)
-	_, err := store.CountSignoffs(context.Background(), "bogus", "x")
+	_, err := store.CountSignoffs(context.Background(), "bogus", "x", false)
 	require.Error(t, err)
 }
 
@@ -638,4 +638,22 @@ func TestNewThreadID(t *testing.T) {
 	id := NewThreadID("thr")
 	assert.Contains(t, id, "thr_")
 	assert.NotEqual(t, id, NewThreadID("thr"))
+}
+
+// A visibility change is written to the thread and recorded on its timeline
+// (#2227); setting the same visibility records nothing.
+func TestThreadStoreUpdateThreadRecordsAVisibilityChange(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	shared := VisibilityShared
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status, visibility FROM portal_threads").WithArgs("thr_1").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility"}).AddRow(ThreadStatusOpen, VisibilityInternal))
+	mock.ExpectExec("UPDATE portal_threads").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, store.UpdateThread(context.Background(), "thr_1", ThreadUpdate{Visibility: &shared}, "u1", "u1@example.com"))
+	assert.NoError(t, mock.ExpectationsWereMet())
+	assert.True(t, ValidVisibility(VisibilityShared))
+	assert.False(t, ValidVisibility("public"))
+	assert.Equal(t, VisibilityInternal, visibilityOrDefault(""))
 }

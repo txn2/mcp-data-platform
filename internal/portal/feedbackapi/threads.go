@@ -47,6 +47,9 @@ type createThreadRequest struct {
 	RequiresResolution bool            `json:"requires_resolution"`
 	Body               string          `json:"body"`
 	Rating             *int            `json:"rating"`
+	// Visibility is internal (the default) or shared (#2227). A thread a
+	// person of an external persona opens is shared whatever this says.
+	Visibility string `json:"visibility" example:"internal"`
 }
 
 type appendEventRequest struct {
@@ -60,6 +63,9 @@ type updateThreadRequest struct {
 	Status             *string `json:"status"`
 	RequiresResolution *bool   `json:"requires_resolution"`
 	ValidationState    *string `json:"validation_state"`
+	// Visibility makes the thread internal or shared (#2227); recorded on its
+	// timeline. A person of an external persona cannot change it.
+	Visibility *string `json:"visibility" example:"shared"`
 }
 
 // --- handlers ---
@@ -103,6 +109,7 @@ func (h *Handler) listThreads(w http.ResponseWriter, r *http.Request) {
 		Status:          r.URL.Query().Get(paramStatus),
 		Limit:           intParam(r, paramLimit, threads.DefaultThreadLimit),
 		Offset:          intParam(r, paramOffset, 0),
+		SharedOnly:      h.external(user),
 	}
 
 	targetType, ok := scopeFromFilter(filter)
@@ -183,6 +190,17 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		AuthorEmail:        user.Email,
 		Status:             threads.ThreadStatusOpen,
 		RequiresResolution: req.RequiresResolution,
+		Visibility:         threads.VisibilityInternal,
+	}
+	switch {
+	case h.external(user):
+		thread.Visibility = threads.VisibilityShared
+	case req.Visibility == "":
+	case threads.ValidVisibility(req.Visibility):
+		thread.Visibility = req.Visibility
+	default:
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid visibility")
+		return
 	}
 	first := threads.ThreadEvent{
 		ID:          threads.NewThreadID("evt"),
@@ -415,6 +433,16 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request) {
 			"validation_state cannot be set here; use POST /api/v1/portal/threads/{id}/validation")
 		return
 	}
+	if req.Visibility != nil {
+		if !threads.ValidVisibility(*req.Visibility) {
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid visibility")
+			return
+		}
+		if h.external(user) {
+			httpjson.WriteError(w, http.StatusForbidden, "an external account cannot change who sees a thread")
+			return
+		}
+	}
 
 	if err := h.cfg.Threads.UpdateThread(r.Context(), thread.ID, threads.ThreadUpdate(req), user.UserID, user.Email); err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to update thread")
@@ -499,7 +527,7 @@ func (h *Handler) threadCounts(w http.ResponseWriter, r *http.Request) {
 		ids = h.filterOwnedTargets(r, targetType, ids, user)
 	}
 
-	counts, err := h.cfg.Threads.CountOpenByTargets(r.Context(), targetType, ids)
+	counts, err := h.cfg.Threads.CountOpenByTargets(r.Context(), targetType, ids, h.external(user))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to count threads")
 		return
@@ -544,7 +572,7 @@ func (h *Handler) loadThreadForRead(w http.ResponseWriter, r *http.Request) (*ac
 		return nil, nil
 	}
 	thread, err := h.cfg.Threads.GetThread(r.Context(), r.PathValue(pathKeyID))
-	if err != nil {
+	if err != nil || h.hiddenFrom(user, thread) {
 		httpjson.WriteError(w, http.StatusNotFound, errThreadNotFound)
 		return nil, nil
 	}
@@ -563,7 +591,7 @@ func (h *Handler) loadThreadForModerate(w http.ResponseWriter, r *http.Request) 
 		return nil, nil
 	}
 	thread, err := h.cfg.Threads.GetThread(r.Context(), r.PathValue(pathKeyID))
-	if err != nil {
+	if err != nil || h.hiddenFrom(user, thread) {
 		httpjson.WriteError(w, http.StatusNotFound, errThreadNotFound)
 		return nil, nil
 	}
@@ -572,6 +600,19 @@ func (h *Handler) loadThreadForModerate(w http.ResponseWriter, r *http.Request) 
 		return nil, nil
 	}
 	return user, thread
+}
+
+// external reports whether the user's persona is external (#2092), whose
+// people see only shared threads (#2227).
+func (h *Handler) external(user *access.User) bool {
+	return user != nil && h.access != nil && h.access.Portal(user).External
+}
+
+// hiddenFrom reports whether a thread is one the user may not know exists: an
+// internal thread, to a person of an external persona. It answers as a missing
+// thread would.
+func (h *Handler) hiddenFrom(user *access.User, t *threads.Thread) bool {
+	return t.Visibility != threads.VisibilityShared && h.external(user)
 }
 
 // canAccessThreadTarget reports whether the user may read/author feedback on the

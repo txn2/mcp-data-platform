@@ -19,6 +19,7 @@ import { Plus, Contact, ChevronUp, Search } from "lucide-react";
 import { PanelShell } from "./panels";
 import { AddUserForm } from "./users/AddUserForm";
 import { UserRow } from "./users/UserRow";
+import { ExternalUsersSection } from "./users/ExternalUsersSection";
 
 // ---------------------------------------------------------------------------
 // UsersPanel — directory of known people (#614)
@@ -90,6 +91,7 @@ export function UsersPanel() {
       </div>
 
       <div className="flex-1 overflow-auto">
+        <ExternalUsersSection isReadOnly={isReadOnly} />
         {isLoading ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
             Loading...

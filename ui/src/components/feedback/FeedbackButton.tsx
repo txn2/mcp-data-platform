@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { filterForTarget } from "./targetFilter";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 
 interface Props {
   target: FeedbackTarget;
@@ -19,7 +20,15 @@ interface Props {
 // slide-over panel. State is fully self-contained so viewers need no layout
 // changes. The slide-over is intentionally non-modal so a text selection in the
 // content (used for anchoring) survives opening the panel.
-export function FeedbackButton({ target, canModerate = false }: Props) {
+//
+// A persona without Feedback (#2225) gets no button, and no thread read: the
+// threads routes refuse it.
+export function FeedbackButton(props: Props) {
+  const { feedback } = usePortalAccess();
+  return feedback ? <FeedbackToggle {...props} /> : null;
+}
+
+function FeedbackToggle({ target, canModerate = false }: Props) {
   const [open, setOpen] = useState(false);
   const { data } = useThreads(filterForTarget(target));
   const openCount = (data?.data ?? []).filter((t) => t.status === "open").length;

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessgate"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -316,5 +317,50 @@ func TestDeny_RendersLogoOnlyImplementor(t *testing.T) {
 	}
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "https://img.example.net") {
 		t.Errorf("Content-Security-Policy %q must admit the origin of the logo the page renders", csp)
+	}
+}
+
+// A route of a portal area the persona does not include is refused with the
+// area named (#2225); an administrator under the same persona is not.
+func TestRequire_RefusesAPortalAreaThePersonaLacks(t *testing.T) {
+	resolve := func(roles []string) *portal.PersonaInfo {
+		if slices.Contains(roles, analystRole) {
+			return &portal.PersonaInfo{Name: "analyst", Portal: persona.PortalAccess{Knowledge: persona.PortalNone}}
+		}
+		return nil
+	}
+	gate := accessgate.New(resolve, accessgate.Brand{}).
+		WithAdmin(func(roles []string) bool { return slices.Contains(roles, "admin") })
+
+	for _, c := range []struct {
+		name  string
+		roles []string
+		want  int
+	}{
+		{"persona without knowledge", []string{analystRole}, http.StatusForbidden},
+		{"administrator under that persona", []string{analystRole, "admin"}, http.StatusOK},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			next := &reached{}
+			rec := httptest.NewRecorder()
+			gate.Require(next).ServeHTTP(rec, requestAs(t, http.MethodGet, "", &portal.User{UserID: "u1", Roles: c.roles}))
+			if rec.Code != c.want {
+				t.Fatalf("status %d, want %d: %s", rec.Code, c.want, rec.Body.String())
+			}
+			if c.want != http.StatusForbidden {
+				return
+			}
+			if next.hit {
+				t.Fatal("the refused request reached the handler")
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decoding the refusal: %v", err)
+			}
+			detail, _ := body["detail"].(string)
+			if body["area"] != "knowledge" || !strings.Contains(detail, "knowledge") {
+				t.Errorf("refusal %v does not name the area", body)
+			}
+		})
 	}
 }

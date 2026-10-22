@@ -702,6 +702,9 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if !h.allowedSharePersona(w, user, req) {
+		return
+	}
 	share, buildErr := buildShare(shareTarget{CollectionID: id}, user.Email, req)
 	if buildErr != nil {
 		writeError(w, http.StatusBadRequest, buildErr.Error())
@@ -714,7 +717,7 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.wantsNotify() {
-		h.notifyShare(r.Context(), &share, ShareEvent{
+		h.notifyShareRecipients(r.Context(), &share, ShareEvent{
 			Kind: "collection", ItemID: coll.ID, ItemTitle: coll.Name, Message: req.Message,
 		})
 	}

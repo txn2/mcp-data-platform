@@ -13,15 +13,18 @@ import {
   useCreateCollectionShare,
   usePromptShares,
   useCreatePromptShare,
+  useSharePersonas,
 } from "@/api/portal/hooks";
 import type { SharePermission } from "@/api/portal/types";
 import { parseEmailAddress } from "@/lib/emailAddress";
 import { ActiveShares } from "@/components/share/ActiveShares";
+import { AccessRequestsList } from "@/components/access/AccessRequestsList";
 import { ChannelShareSection } from "@/components/share/ChannelShareSection";
 import {
   LinkShareSection,
   UserShareSection,
   type LinkAccessMode,
+  type RecipientKind,
 } from "@/components/share/ShareSections";
 
 export type ShareTarget =
@@ -64,6 +67,10 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const revokeShare = useRevokeShare();
   const [ttl, setTtl] = useState("24h");
   const [email, setEmail] = useState("");
+  // A share can name a persona instead of a person (#2089).
+  const [recipientKind, setRecipientKind] = useState<RecipientKind>("people");
+  const [persona, setPersona] = useState("");
+  const { data: sharePersonas } = useSharePersonas(open);
   const [copied, setCopied] = useState<string | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const [permission, setPermission] = useState<SharePermission>("viewer");
@@ -118,6 +125,10 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   // can open the link, whether or not they receive it by email. They carry no
   // expiration -- access ends when the owner revokes the share.
   function handleShareWithUser() {
+    if (recipientKind === "personas") {
+      if (persona) shareWith({ shared_with_persona: persona });
+      return;
+    }
     if (!email.trim()) return;
     // Normalize here too, not only on the field's blur: a click on Share
     // straight from the input can beat the blur handler, and the address that
@@ -127,10 +138,20 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
       setShareError("Enter a single email address, e.g. user@example.com.");
       return;
     }
+    shareWith({ shared_with_email: recipient });
+    setEmail("");
+  }
+
+  // shareWith creates a share addressed to the recipient given, a person or a
+  // persona, with the permission and notice the dialog holds.
+  function shareWith(
+    recipientFields:
+      { shared_with_email: string } | { shared_with_persona: string },
+  ) {
     setShareError(null);
 
     const opts = {
-      shared_with_email: recipient,
+      ...recipientFields,
       permission,
       // Only stated when it differs from the default, so the request says
       // what the sharer changed rather than restating the default.
@@ -152,7 +173,6 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
     } else {
       createAssetShare.mutate({ assetId: resolved.id, ...opts }, { onError });
     }
-    setEmail("");
     setMessage("");
   }
 
@@ -218,6 +238,11 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
 
         {/* Share with user */}
         <UserShareSection
+          recipientKind={recipientKind}
+          setRecipientKind={setRecipientKind}
+          persona={persona}
+          setPersona={setPersona}
+          personas={sharePersonas?.personas ?? []}
           email={email}
           setEmail={setEmail}
           permission={permission}
@@ -237,6 +262,8 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
         {resolved.type === "asset" && resolved.id && (
           <ChannelShareSection assetId={resolved.id} open={open} />
         )}
+
+        <AccessRequestsList target={{ type: resolved.type, id: resolved.id }} />
 
         <ActiveShares
           shares={activeShares}

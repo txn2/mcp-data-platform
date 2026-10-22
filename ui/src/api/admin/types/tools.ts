@@ -1,3 +1,5 @@
+import type { PortalAccess } from "@/lib/portalAccess";
+
 // Types matching Go response structs
 //
 // Tool schemas & execution, personas, tool master-detail, and the
@@ -87,6 +89,8 @@ export interface PersonaSummary {
   roles: string[];
   tool_count: number;
   source?: "file" | "database" | "both";
+  /** A persona for people outside the organization (#2092). */
+  external?: boolean;
 }
 
 /**
@@ -130,8 +134,10 @@ export interface PersonaDetail {
    * not added to Calls, and the records it already wrote are removed.
    */
   service_account: boolean;
-  /** The persona takes Automations out of the portal for its people (#2109). */
-  hide_automations: boolean;
+  /** What the persona's people may do in the portal, every area resolved (#2225). */
+  portal: PortalAccess;
+  /** A persona for people outside the organization (#2092). */
+  external?: boolean;
   /** The persona's people may share what they own (#2241). */
   allow_sharing?: boolean;
 }
@@ -159,8 +165,10 @@ export interface PersonaCreateRequest {
   api_routes?: APIRouteRule[];
   /** Absent is false. */
   service_account?: boolean;
-  /** Absent is false, which shows Automations. */
-  hide_automations?: boolean;
+  /** One setting per portal area (#2225); an area left out resolves from the persona's tools. */
+  portal?: PortalAccess;
+  /** Absent is false. */
+  external?: boolean;
   /** Absent is true, which allows sharing. */
   allow_sharing?: boolean;
 }

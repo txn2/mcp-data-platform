@@ -21,7 +21,10 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/portalperm"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -53,6 +56,7 @@ type Brand struct {
 // Gate authorizes authenticated portal callers by persona.
 type Gate struct {
 	resolve PersonaResolver
+	isAdmin func(roles []string) bool
 	brand   Brand
 	csp     string
 }
@@ -62,6 +66,14 @@ type Gate struct {
 // input refuses rather than admits.
 func New(resolve PersonaResolver, brand Brand) *Gate {
 	return &Gate{resolve: resolve, brand: brand, csp: deniedCSP(brand.ImageSources)}
+}
+
+// WithAdmin sets the platform's administrator rule (#2228). An administrator
+// has every portal area whatever their persona sets (#2225); without a rule,
+// every caller is held to their persona's portal permissions.
+func (g *Gate) WithAdmin(isAdmin func(roles []string) bool) *Gate {
+	g.isAdmin = isAdmin
+	return g
 }
 
 // deniedCSPBase locks the denial page to its own inline style. The page has no
@@ -90,10 +102,7 @@ const deniedMessage = "Your account is not assigned to a persona. " +
 // already authenticated — the SPA shell gate — can ask the same question the
 // middleware asks without producing a response.
 func (g *Gate) Allows(roles []string) bool {
-	if g == nil || g.resolve == nil {
-		return false
-	}
-	return g.resolve(roles) != nil
+	return g.persona(roles) != nil
 }
 
 // Require returns middleware that refuses callers whose roles map to no
@@ -108,7 +117,8 @@ func (g *Gate) Require(next http.Handler) http.Handler {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
-		if !g.Allows(user.Roles) {
+		info := g.persona(user.Roles)
+		if info == nil {
 			// Logged at warn like the MCP authorizer's denial: a refusal here is
 			// either an account that needs granting or someone probing, and an
 			// operator asked "why can't they get in" needs the roles they
@@ -122,7 +132,48 @@ func (g *Gate) Require(next http.Handler) http.Handler {
 			g.Deny(w, r, user.Email)
 			return
 		}
-		next.ServeHTTP(w, r)
+		perms := info.Portal.Resolve(info.Tools)
+		if g.isAdmin != nil && g.isAdmin(user.Roles) {
+			perms = persona.FullPortalAccess()
+		}
+		if area := portalperm.Refused(perms, r.Method, r.URL.Path); area != "" {
+			denyArea(w, area)
+			return
+		}
+		// A share addressed to a persona is matched against the persona the
+		// caller resolves to now (#2089).
+		next.ServeHTTP(w, r.WithContext(portaldomain.WithCallerPersona(r.Context(), info.Name)))
+	})
+}
+
+// persona resolves the caller's persona, nil when the roles map to none or the
+// gate cannot evaluate them.
+func (g *Gate) persona(roles []string) *portal.PersonaInfo {
+	if g == nil || g.resolve == nil {
+		return nil
+	}
+	return g.resolve(roles)
+}
+
+// areaDenial is the sentence a refusal of a portal area reads.
+func areaDenial(area string) string {
+	if area == portalperm.AreaExternal {
+		return "That is not available to an external account."
+	}
+	return "Your persona does not include " + area + " in the portal."
+}
+
+// denyArea is the 403 for a route of a portal area the caller's persona does
+// not include (#2225), in the Problem Details body the portal's errors use.
+func denyArea(w http.ResponseWriter, area string) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(http.StatusForbidden)
+	_ = wirejson.Encode(w, problemDetail{
+		Type:   "about:blank",
+		Title:  http.StatusText(http.StatusForbidden),
+		Status: http.StatusForbidden,
+		Detail: areaDenial(area),
+		Area:   area,
 	})
 }
 
@@ -135,6 +186,9 @@ type problemDetail struct {
 	Status int    `json:"status"`
 	Detail string `json:"detail,omitempty"`
 	Email  string `json:"email,omitempty"`
+	// Area is the portal area a refusal names (#2225), absent when the
+	// caller has no persona at all.
+	Area string `json:"area,omitempty"`
 }
 
 // Deny writes the 403. A top-level browser navigation gets the branded page so

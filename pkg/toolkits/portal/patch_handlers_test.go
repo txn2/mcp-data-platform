@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
@@ -877,4 +878,41 @@ func (s *emailShareStore) GetUserAssetPermissionViaCollection(_ context.Context,
 		return portal.PermissionViewer, nil
 	}
 	return "", nil
+}
+
+// personaShareStore admits callers whose context carries one persona, which is
+// how a share addressed to a persona behaves in the real store (it matches
+// shared_with_persona against the caller's persona, #2089).
+type personaShareStore struct {
+	portal.ShareStore
+	persona string
+}
+
+func (s *personaShareStore) GetActiveShareForTarget(ctx context.Context, _, _, _, _ string) (*portal.Share, error) {
+	if portaldomain.CallerPersona(ctx) == s.persona {
+		return &portal.Share{Permission: portal.PermissionEditor, SharedWithPersona: s.persona}, nil
+	}
+	return nil, nil //nolint:nilnil // models the real store: no active share is not an error
+}
+
+func (*personaShareStore) GetUserAssetPermissionViaCollection(context.Context, string, string, string) (portal.SharePermission, error) {
+	return "", nil
+}
+
+// An agent reads, and sees the history of, an asset shared with its
+// caller's persona; a caller in another persona does not, and neither does a
+// run, which carries no persona as it carries no address.
+func TestCanReadAsset_APersonaShareReachesTheCallersPersona(t *testing.T) {
+	f := newPatchFixture(t, patchReport, "text/markdown")
+	shared := &portal.Asset{ID: "asset-shared", OwnerID: "someone-else", OwnerEmail: "other@example.com"}
+	f.tk.shareStore = &personaShareStore{persona: "finance"}
+	caller := func(persona string, source string) context.Context {
+		return middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+			UserID: "user1", UserEmail: "user1@example.com", PersonaName: persona, Source: source,
+		})
+	}
+	assert.True(t, f.tk.canReadAsset(caller("finance", ""), shared))
+	assert.True(t, f.tk.seesHistory(caller("finance", ""), shared), "the share is an editor share")
+	assert.False(t, f.tk.canReadAsset(caller("analyst", ""), shared))
+	assert.False(t, f.tk.canReadAsset(caller("finance", middleware.SourceScript), shared))
 }

@@ -105,7 +105,11 @@ function ShareRow({
 function ShareDescriptor({ share }: { share: Share }) {
   // A share names a person or it names nobody; the two read differently
   // enough to be separate lines rather than one nested ternary.
-  const named = Boolean(share.shared_with_user_id || share.shared_with_email);
+  const named = Boolean(
+    share.shared_with_user_id ||
+    share.shared_with_email ||
+    share.shared_with_persona,
+  );
   return (
     <div className="min-w-0 flex-1">
       {named ? <RecipientLabel share={share} /> : <LinkLabel share={share} />}
@@ -125,7 +129,9 @@ function ShareDescriptor({ share }: { share: Share }) {
 function RecipientLabel({ share }: { share: Share }) {
   return (
     <span className="text-muted-foreground">
-      User: {share.shared_with_email || share.shared_with_user_id}
+      {share.shared_with_persona
+        ? `Persona: ${share.shared_with_persona}`
+        : `User: ${share.shared_with_email || share.shared_with_user_id}`}
       {/* The same pill the item lists carry, so a permission reads the same
           colour wherever it is stated. */}
       <SharePermissionBadge permission={share.permission} className="ml-1.5" />
@@ -177,7 +183,10 @@ function ShareActions({
   // Only a link share has a URL worth copying: a share addressed to a person
   // resolves for that person alone, so handing its URL around achieves
   // nothing.
-  const isLink = !share.shared_with_user_id && !share.shared_with_email;
+  const isLink =
+    !share.shared_with_user_id &&
+    !share.shared_with_email &&
+    !share.shared_with_persona;
   return (
     <div className="flex items-center gap-1 ml-2">
       {isLink && (

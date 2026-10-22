@@ -40,9 +40,11 @@ type Definition struct {
 	// ServiceAccount marks the persona an automated caller signs in under:
 	// its calls are audited but not cataloged (#1980).
 	ServiceAccount bool `json:"service_account"`
-	// HideAutomations takes the portal's Automations section away from the
-	// persona's people (#2109).
-	HideAutomations bool `json:"hide_automations"`
+	// Portal is what the persona's people may do in the portal (#2225); a
+	// field it leaves unset resolves from the persona's tools at load.
+	Portal persona.PortalAccess `json:"portal"`
+	// External marks the persona for people outside the organization (#2092).
+	External bool `json:"external"`
 	// AllowSharing lets the persona's people share what they own (#2241).
 	// The column defaults true, which is what every persona stored before it
 	// could do.
@@ -66,34 +68,47 @@ func (d *Definition) ToPersona() *persona.Persona {
 			Allow: d.ConnsAllow,
 			Deny:  d.ConnsDeny,
 		},
-		APIRoutes:       d.APIRoutes,
-		Context:         d.Context,
-		Priority:        d.Priority,
-		ServiceAccount:  d.ServiceAccount,
-		HideAutomations: d.HideAutomations,
-		AllowSharing:    new(d.AllowSharing),
+		APIRoutes:      d.APIRoutes,
+		Context:        d.Context,
+		Priority:       d.Priority,
+		ServiceAccount: d.ServiceAccount,
+		Portal:         new(d.Portal),
+		External:       d.External,
+		AllowSharing:   new(d.AllowSharing),
 	}
 }
 
 // DefinitionFromPersona converts a persona.Persona to a Definition.
 func DefinitionFromPersona(p *persona.Persona, author string) Definition {
 	return Definition{
-		Name:            p.Name,
-		DisplayName:     p.DisplayName,
-		Description:     p.Description,
-		Roles:           p.Roles,
-		ToolsAllow:      p.Tools.Allow,
-		ToolsDeny:       p.Tools.Deny,
-		ConnsAllow:      p.Connections.Allow,
-		ConnsDeny:       p.Connections.Deny,
-		APIRoutes:       p.APIRoutes,
-		Context:         p.Context,
-		Priority:        p.Priority,
-		ServiceAccount:  p.ServiceAccount,
-		HideAutomations: p.HideAutomations,
-		AllowSharing:    p.SharingAllowed(),
-		CreatedBy:       author,
+		Name:           p.Name,
+		DisplayName:    p.DisplayName,
+		Description:    p.Description,
+		Roles:          p.Roles,
+		ToolsAllow:     p.Tools.Allow,
+		ToolsDeny:      p.Tools.Deny,
+		ConnsAllow:     p.Connections.Allow,
+		ConnsDeny:      p.Connections.Deny,
+		APIRoutes:      p.APIRoutes,
+		Context:        p.Context,
+		Priority:       p.Priority,
+		ServiceAccount: p.ServiceAccount,
+		Portal:         portalOf(p),
+		External:       p.External,
+		// The persona's own setting, not SharingAllowed: an external persona
+		// shares nothing whatever this says, and unmarking it must not leave
+		// sharing off.
+		AllowSharing: p.AllowSharing == nil || *p.AllowSharing,
+		CreatedBy:    author,
 	}
+}
+
+// portalOf is the portal block a persona carries, empty when it carries none.
+func portalOf(p *persona.Persona) persona.PortalAccess {
+	if p.Portal == nil {
+		return persona.PortalAccess{}
+	}
+	return *p.Portal
 }
 
 // Store manages persona definition persistence.
@@ -119,7 +134,7 @@ func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, display_name, description, roles, tools_allow, tools_deny,
 		        connections_allow, connections_deny, api_routes, context, priority, service_account,
-		        hide_automations, allow_sharing, created_by, updated_at
+		        portal, external, allow_sharing, created_by, updated_at
 		 FROM persona_definitions ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("querying persona definitions: %w", err)
@@ -145,14 +160,14 @@ func (s *PostgresStore) Get(ctx context.Context, name string) (*Definition, erro
 	row := s.db.QueryRowContext(ctx,
 		`SELECT name, display_name, description, roles, tools_allow, tools_deny,
 		        connections_allow, connections_deny, api_routes, context, priority, service_account,
-		        hide_automations, allow_sharing, created_by, updated_at
+		        portal, external, allow_sharing, created_by, updated_at
 		 FROM persona_definitions WHERE name = $1`, name)
 
 	var d Definition
-	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON []byte
+	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON, portalJSON []byte
 	err := row.Scan(&d.Name, &d.DisplayName, &d.Description,
 		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &apiRoutes, &contextJSON,
-		&d.Priority, &d.ServiceAccount, &d.HideAutomations, &d.AllowSharing, &d.CreatedBy, &d.UpdatedAt)
+		&d.Priority, &d.ServiceAccount, &portalJSON, &d.External, &d.AllowSharing, &d.CreatedBy, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -163,7 +178,7 @@ func (s *PostgresStore) Get(ctx context.Context, name string) (*Definition, erro
 	if err := unmarshalJSON(&d, jsonFields{
 		roles: roles, toolsAllow: toolsAllow, toolsDeny: toolsDeny,
 		connsAllow: connsAllow, connsDeny: connsDeny, apiRoutes: apiRoutes,
-		contextJSON: contextJSON,
+		contextJSON: contextJSON, portal: portalJSON,
 	}); err != nil {
 		return nil, err
 	}
@@ -179,20 +194,21 @@ func (s *PostgresStore) Set(ctx context.Context, def Definition) error {
 	connsDeny, _ := json.Marshal(def.ConnsDeny)
 	apiRoutes, _ := json.Marshal(def.APIRoutes)
 	contextJSON, _ := json.Marshal(def.Context)
+	portalJSON, _ := json.Marshal(def.Portal)
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO persona_definitions
 		 (name, display_name, description, roles, tools_allow, tools_deny,
 		  connections_allow, connections_deny, api_routes, context, priority, created_by,
-		  service_account, hide_automations, allow_sharing, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+		  service_account, portal, external, allow_sharing, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $16, $15, NOW())
 		 ON CONFLICT (name) DO UPDATE SET
 		  display_name = $2, description = $3, roles = $4, tools_allow = $5, tools_deny = $6,
 		  connections_allow = $7, connections_deny = $8, api_routes = $9, context = $10,
-		  priority = $11, created_by = $12, service_account = $13, hide_automations = $14, allow_sharing = $15, updated_at = NOW()`,
+		  priority = $11, created_by = $12, service_account = $13, portal = $14, external = $16, allow_sharing = $15, updated_at = NOW()`,
 		def.Name, def.DisplayName, def.Description,
 		roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON,
-		def.Priority, def.CreatedBy, def.ServiceAccount, def.HideAutomations, def.AllowSharing,
+		def.Priority, def.CreatedBy, def.ServiceAccount, portalJSON, def.AllowSharing, def.External,
 	)
 	if err != nil {
 		return fmt.Errorf("upserting persona definition: %w", err)
@@ -220,16 +236,16 @@ func (s *PostgresStore) Delete(ctx context.Context, name string) error {
 // scanDef scans a row into a Definition.
 func scanDef(rows *sql.Rows) (Definition, error) {
 	var d Definition
-	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON []byte
+	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON, portalJSON []byte
 	if err := rows.Scan(&d.Name, &d.DisplayName, &d.Description,
 		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &apiRoutes, &contextJSON,
-		&d.Priority, &d.ServiceAccount, &d.HideAutomations, &d.AllowSharing, &d.CreatedBy, &d.UpdatedAt); err != nil {
+		&d.Priority, &d.ServiceAccount, &portalJSON, &d.External, &d.AllowSharing, &d.CreatedBy, &d.UpdatedAt); err != nil {
 		return d, fmt.Errorf("scanning persona definition: %w", err)
 	}
 	if err := unmarshalJSON(&d, jsonFields{
 		roles: roles, toolsAllow: toolsAllow, toolsDeny: toolsDeny,
 		connsAllow: connsAllow, connsDeny: connsDeny, apiRoutes: apiRoutes,
-		contextJSON: contextJSON,
+		contextJSON: contextJSON, portal: portalJSON,
 	}); err != nil {
 		return d, err
 	}
@@ -245,6 +261,7 @@ type jsonFields struct {
 	connsDeny   []byte
 	apiRoutes   []byte
 	contextJSON []byte
+	portal      []byte
 }
 
 // unmarshalJSON deserializes JSONB columns into the Definition.
@@ -271,6 +288,11 @@ func unmarshalJSON(d *Definition, f jsonFields) error {
 	}
 	if len(f.contextJSON) > 0 {
 		_ = json.Unmarshal(f.contextJSON, &d.Context) // best-effort
+	}
+	if len(f.portal) > 0 {
+		if err := json.Unmarshal(f.portal, &d.Portal); err != nil {
+			return fmt.Errorf("unmarshaling portal: %w", err)
+		}
 	}
 	return nil
 }

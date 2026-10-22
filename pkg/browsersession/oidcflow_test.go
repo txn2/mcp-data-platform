@@ -302,6 +302,9 @@ func TestCallbackHandlerObservesLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFlow: %v", err)
 	}
+	// A hook added after the flow is built sees the address too (#2092).
+	var signedIn string
+	flow.AfterSignIn(func(_ context.Context, email string) { signedIn = email })
 
 	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/login", http.NoBody)
 	loginW := httptest.NewRecorder()
@@ -328,6 +331,9 @@ func TestCallbackHandlerObservesLogin(t *testing.T) {
 
 	if callbackW.Result().StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want %d", callbackW.Result().StatusCode, http.StatusFound)
+	}
+	if signedIn != "user@example.com" {
+		t.Errorf("AfterSignIn got %q, want user@example.com", signedIn)
 	}
 	if gotEmail != "user@example.com" || gotFirst != "Marcus" || gotLast != "Johnson" {
 		t.Errorf("OnLogin got (%q, %q, %q), want (user@example.com, Marcus, Johnson)", gotEmail, gotFirst, gotLast)

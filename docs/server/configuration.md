@@ -1334,7 +1334,8 @@ personas:
 | `<name>.context.description_override` | string | - | Replaces platform description entirely |
 | `<name>.context.agent_instructions_suffix` | string | - | Appended to the admin `agent_instructions` layer |
 | `<name>.context.agent_instructions_override` | string | - | Replaces the admin `agent_instructions` layer only; the platform baseline is always present |
-| `<name>.hide_automations` | bool | `false` | Hides Automations from the portal for this persona: the sidebar entry is gone, its pages show a notice, and the portal's script routes answer `403`. The MCP tools are governed by `tools:` as before. Administrators always see Automations (#2109) |
+| `<name>.portal` | object | resolved | What the persona's people may do in the portal, one setting per area: `assets`, `resources`, `knowledge`, `catalog`, `apis`, and the switches `feedback`, `prompts`, `automations`, `search`, `memory`, `download`. An unset area resolves to what the persona reached before the setting existed. Administrators have every area. See [Portal permissions](../personas/overview.md#portal-permissions) (#2225) |
+| `<name>.hide_automations` | bool | `false` | Replaced by `portal.automations`; still read as `portal.automations: false` when the block does not set `automations` (#2109, #2225) |
 | `<name>.allow_sharing` | bool | `true` | `false` withholds sharing from this persona: no Share action in the portal, and every share-creating route and tool action refuses. Administrators can always share (#2241) |
 
 !!! warning "No persona means no access"

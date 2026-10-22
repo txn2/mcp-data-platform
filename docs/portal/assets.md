@@ -146,6 +146,8 @@ The Share action opens a dialog to mint a link or a user-scoped share, with a co
 
 Sharing with a person makes the share `restricted`: the link resolves only for that recipient, signed in, so forwarding the email or the URL grants nothing. The **Share by Link** section mints a link for any signed-in user by default, with no lifetime control, because such a link resolves against who the viewer is and ends on revocation. Choosing **Anyone with the link** makes it `public`, shows a warning that the link opens without sign-in, and reveals the lifetime control: possession of a public URL is the whole of its access check, so it expires on a clock as well. A signed-in user who is not the recipient of a restricted share sees a branded page naming the account they are signed in as, with a sign-out-and-switch action, rather than a generic not-found.
 
+The dialog's **People** and **Personas** choice addresses a share to one person or to everyone in a persona; see [Sharing with a persona](../personas/overview.md#sharing-with-a-persona).
+
 ![Share asset](../images/screenshots/light/user-asset-share-light.webp#only-light)![Share asset](../images/screenshots/dark/user-asset-share-dark.webp#only-dark)
 
 The same dialog with the link switched to **Anyone with the link**:
@@ -191,6 +193,14 @@ All content types are rendered inline:
     Tabular data rendered as a sortable, searchable table.
 
     ![CSV Asset](../images/screenshots/light/user-asset-csv-light.webp#only-light)![CSV Asset](../images/screenshots/dark/user-asset-csv-dark.webp#only-dark)
+
+## Requesting access
+
+A signed-in person who follows a link to an asset, collection or prompt they cannot open is shown **You do not have access to this item**, its owner, and **Request access** with an optional message (#2090). The owner is notified by their notification preferences, and answers with **Approve as viewer**, **Approve as editor** or **Decline**: in the email, under **Access requests** at the top of the Inbox, or in the item's share dialog. Approving shares the item with the requester, so the link they followed opens with no further step; either answer is emailed to the requester.
+
+A person has one request waiting per item; asking again while it waits returns that request and notifies nobody. A person asks for one item at most three times a day, and a request no one answers expires after the period under [Settings > Access requests](admin-settings.md#settings), after which it can be made again. The request page names the item only when that setting says so. An administrator sees and answers every request.
+
+The routes are `GET` and `POST /api/v1/portal/{assets|collections|prompts}/{id}/access-request(s)`, `GET /api/v1/portal/access-requests` and `POST /api/v1/portal/access-requests/{id}/approve` or `/decline`.
 
 ## Querying a CSV asset as a table
 

@@ -105,10 +105,10 @@ func (*fakeThreads) RespondValidation(context.Context, string, threads.Validatio
 	return nil
 }
 
-func (*fakeThreads) CountOpenByTargets(context.Context, string, []string) (map[string]int, error) {
+func (*fakeThreads) CountOpenByTargets(context.Context, string, []string, bool) (map[string]int, error) {
 	return map[string]int{}, nil
 }
-func (*fakeThreads) CountSignoffs(context.Context, string, string) (int, error) { return 0, nil }
+func (*fakeThreads) CountSignoffs(context.Context, string, string, bool) (int, error) { return 0, nil }
 
 // fakeMarks is an in-memory watermark store that records every advance.
 type fakeMarks struct {

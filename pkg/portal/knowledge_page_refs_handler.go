@@ -203,7 +203,7 @@ func (h *Handler) knowledgePageLineage(w http.ResponseWriter, r *http.Request) {
 	// Lineage exposes the raw source-insight text and the capturer's identity, which
 	// are reviewer-facing source material, not org-shared page content. Gate it to
 	// apply_knowledge holders (the same gate as editing a page), not every viewer.
-	if !h.userHasApplyKnowledge(user) {
+	if !h.access.CanWriteKnowledge(user) {
 		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
 		return
 	}
@@ -306,7 +306,7 @@ func (h *Handler) setKnowledgePageRefs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	if !h.userHasApplyKnowledge(user) {
+	if !h.access.CanWriteKnowledge(user) {
 		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
 		return
 	}

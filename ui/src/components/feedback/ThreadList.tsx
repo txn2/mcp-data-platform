@@ -1,7 +1,7 @@
 import { Quote, MessageCircle, AlertCircle } from "lucide-react";
 import type { ThreadWithMeta } from "@/api/portal/types";
 import { EmptyState } from "@/components/patterns/EmptyState";
-import { ThreadKindBadge, ThreadStatusBadge } from "./ThreadBadges";
+import { ThreadKindBadge, ThreadStatusBadge, ThreadVisibilityBadge } from "./ThreadBadges";
 import { formatRelative } from "./meta";
 
 interface Props {
@@ -35,6 +35,7 @@ export function ThreadList({ threads, isLoading, onSelect }: Props) {
               <div className="flex w-full items-center gap-1.5">
                 <ThreadKindBadge kind={t.kind} />
                 <ThreadStatusBadge status={t.status} />
+                <ThreadVisibilityBadge visibility={t.visibility} />
                 {t.requires_resolution && t.status !== "resolved" && t.status !== "wont_fix" && (
                   <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-label="Needs resolution" />
                 )}

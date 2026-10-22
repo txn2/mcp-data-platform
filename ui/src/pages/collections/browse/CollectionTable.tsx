@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { markdownToPlainText } from "@/lib/markdownText";
 import { dateColumnFor, type CollectionSortKey, type ListSort } from "@/components/listSort";
 import type { DisplayCollection } from "./types";
+import { sharedLine } from "@/lib/sharedLine";
 
 /** The Collections list as a dense table. */
 export function CollectionTable({
@@ -58,7 +59,7 @@ export function CollectionTable({
         <TableBody>
           {items.map(({ collection: coll, share }) => {
             const tags = coll.asset_tags ?? [];
-            const secondary = share ? `Shared by ${share.shared_by}` : coll.description;
+            const secondary = share ? sharedLine(share) : coll.description;
             return (
               <TableRow
                 key={coll.id}

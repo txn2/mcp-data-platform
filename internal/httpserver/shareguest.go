@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/extaccount"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/unsubhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
@@ -59,7 +60,7 @@ type shareTokenReader interface {
 // one-time-link flow additionally needs the database (link store), the
 // notification substrate for the transactional email, the browser-session
 // signing key, and a public base URL, and disables itself when any is absent.
-func newShareGuestService(p *platform.Platform, notify *notifydelivery.Handle, store shareTokenReader, db *sql.DB) *shareguest.Service {
+func newShareGuestService(p *platform.Platform, notify *notifydelivery.Handle, store shareTokenReader, db *sql.DB, accounts *extaccount.Service) *shareguest.Service {
 	cfg := shareguest.Config{
 		Resolve:      shareGuestResolver(store),
 		SessionKey:   browserSessionSigningKey(p),
@@ -84,6 +85,9 @@ func newShareGuestService(p *platform.Platform, notify *notifydelivery.Handle, s
 	if prefs := notify.Prefs(); prefs != nil {
 		cfg.OptOutStatus = optOutStatusFn(prefs)
 		cfg.Resubscribe = resubscribeFn(prefs)
+	}
+	if accounts != nil {
+		cfg.AccountHolder = accounts.IsExternal
 	}
 	svc := shareguest.New(cfg)
 	if svc.LinksAvailable() {

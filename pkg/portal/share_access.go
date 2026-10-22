@@ -79,14 +79,15 @@ func (h *Handler) publicShareGate(next http.Handler) http.Handler {
 
 		viewer := h.resolvePublicViewer(r)
 		target := shareaccess.Share{
-			Mode:            share.AccessMode,
-			RecipientUserID: share.SharedWithUserID,
-			RecipientEmail:  share.SharedWithEmail,
-			CreatorEmail:    share.CreatedBy,
+			Mode:             share.AccessMode,
+			RecipientUserID:  share.SharedWithUserID,
+			RecipientEmail:   share.SharedWithEmail,
+			RecipientPersona: share.SharedWithPersona,
+			CreatorEmail:     share.CreatedBy,
 		}
 		var caller *shareaccess.Viewer
 		if viewer != nil {
-			caller = &shareaccess.Viewer{UserID: viewer.UserID, Email: viewer.Email}
+			caller = &shareaccess.Viewer{UserID: viewer.UserID, Email: viewer.Email, Persona: h.personaName(viewer.Roles)}
 		}
 		if msg, ok := shareaccess.Authorize(target, caller); !ok {
 			if viewer == nil && h.deps.ShareGuest.Admit(r, share.ID) != nil {

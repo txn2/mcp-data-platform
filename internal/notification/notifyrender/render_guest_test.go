@@ -67,3 +67,29 @@ func TestRenderOmitsUnsubscribeFooterWithoutBuilder(t *testing.T) {
 	assert.NotContains(t, email.Text, "Unsubscribe")
 	assert.Empty(t, email.UnsubURL)
 }
+
+// An external user's invitation and a requested sign-in link (#2092).
+func TestRenderExternalSignIn(t *testing.T) {
+	r, err := NewRenderer(Branding{Name: "ACME Data", BaseURL: "https://platform.example.com"})
+	require.NoError(t, err)
+	link := "https://platform.example.com/portal/auth/email-link/claim?token=abc"
+
+	invite, err := r.RenderExternalSignIn(SignIn{To: "client@example.org", Name: "Dana", Link: link, Invitation: true, Valid: 7 * 24 * time.Hour})
+	require.NoError(t, err)
+	assert.Equal(t, "You have been invited to ACME Data", invite.Subject)
+	for _, body := range []string{invite.HTML, invite.Text} {
+		assert.Contains(t, body, link)
+		assert.Contains(t, body, "Dana, you have been given access")
+		assert.Contains(t, body, "expires in 7 days")
+	}
+	assert.Empty(t, invite.UnsubURL)
+
+	signIn, err := r.RenderExternalSignIn(SignIn{To: "client@example.org", Link: link, Valid: 15 * time.Minute})
+	require.NoError(t, err)
+	assert.Equal(t, "ACME Data: your sign-in link", signIn.Subject)
+	assert.Contains(t, signIn.Text, "expires in 15 minutes")
+
+	for d, want := range map[time.Duration]string{time.Hour: "1 hour", 12 * time.Hour: "12 hours", 90 * time.Minute: "90 minutes", 24 * time.Hour: "24 hours"} {
+		assert.Equal(t, want, validFor(d))
+	}
+}
