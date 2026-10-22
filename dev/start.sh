@@ -326,15 +326,17 @@ echo -e "${BOLD}Starting Docker services${NC}"
 # pre-date the keycloak database — create it idempotently here.
 docker compose -f dev/docker-compose.yml up -d postgres 2>&1 | grep -v "^$" | sed 's/^/  /'
 
-# Wait for PostgreSQL. We require a REAL connection via the final
-# unix socket (/var/run/postgresql/.s.PGSQL.5432) with the `platform`
-# role — not just `pg_isready`, which returns ready during the
-# Postgres image's temporary-postmaster init phase before the final
-# socket and roles are in place.
+# Wait for PostgreSQL. On a fresh volume the image first runs a
+# temporary server for docker-entrypoint-initdb.d, then shuts it down and
+# starts the final one. The temporary server listens on the unix socket
+# and already has the `platform` role and database, so a socket
+# connection succeeds against it and the next statement can land as it
+# shuts down (#2253). It is started with listen_addresses='', so a TCP
+# connection succeeds only against the final server.
 PG_CONTAINER="acme-dev-postgres"
 info "Waiting for PostgreSQL..."
 for i in $(seq 1 60); do
-  if docker exec -u postgres "$PG_CONTAINER" psql -U platform -d mcp_platform -tAc 'SELECT 1' > /dev/null 2>&1; then
+  if docker exec -e PGPASSWORD=platform_secret "$PG_CONTAINER" psql -h 127.0.0.1 -U platform -d mcp_platform -tAc 'SELECT 1' > /dev/null 2>&1; then
     break
   fi
   if [ "$i" -eq 60 ]; then
@@ -347,8 +349,7 @@ ok "PostgreSQL ready on :$DEV_PG_PORT"
 # Idempotently ensure the auxiliary databases exist. The fixture init
 # script creates these on first volume bring-up; this block handles
 # upgrades where a pre-existing volume pre-dates a new database.
-# psql runs as the in-container `postgres` superuser so it uses the
-# image's local unix socket without needing to wait for TCP binding.
+# The wait above has seen the final server, so these use the socket.
 for db in mcp_test apitest keycloak; do
   exists=$(docker exec -u postgres "$PG_CONTAINER" psql -U platform -d mcp_platform -tAc \
     "SELECT 1 FROM pg_database WHERE datname='$db'" 2>/dev/null || true)
