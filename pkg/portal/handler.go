@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +32,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
@@ -104,9 +104,10 @@ type InsightSearcher = knowledge.InsightSearcher
 type PersonaInfo struct {
 	Name  string
 	Tools []string // resolved tool names from Allow/Deny patterns
-	// HideAutomations is the persona taking Automations out of the portal
-	// (#2109).
-	HideAutomations bool
+	// Portal is the persona's portal permissions, every area resolved
+	// (#2225). An administrator's are FullPortalAccess whatever this says;
+	// read a user's through the access checker's Portal.
+	Portal persona.PortalAccess
 	// SharingDenied is the persona withholding sharing (#2241): no Share
 	// action, and every share-creating route refuses. The zero value shares.
 	SharingDenied bool
@@ -117,28 +118,38 @@ type PersonaInfo struct {
 	ReachesCatalogRef func(reference string) bool
 }
 
+// portalOf is the persona's portal permissions with every area resolved: an
+// area Portal leaves unset reads from Tools. A nil info resolves every area
+// with no tool.
+func portalOf(i *PersonaInfo) persona.PortalAccess {
+	if i == nil {
+		return persona.PortalAccess{}.Resolve(nil)
+	}
+	return i.Portal.Resolve(i.Tools)
+}
+
 // PersonaResolver resolves a user's roles to their persona info.
 type PersonaResolver func(roles []string) *PersonaInfo
 
-// catalogReadTool is the MCP tool that reads the platform catalog. Unexported:
-// its only consumer is the check a few lines below.
-const catalogReadTool = "fetch"
-
 // HasCatalogAccess reports whether a user may read the platform catalog: their
-// persona grants fetch, the tool that reads it over MCP, or they are an admin.
-// It is the one rule behind the catalog reads the portal serves outside the
-// catalog routes, the knowledge-page reference labels (#1159), so the portal
-// never discloses more than the persona-filtered MCP surface would.
+// portal permissions give the catalog the read level or above (#2225), which a
+// persona with no catalog setting resolves from fetch, the tool that reads it
+// over MCP; an admin always may. It is the one rule behind the catalog reads
+// the portal serves outside the catalog routes, the knowledge-page reference
+// labels (#1159).
 func HasCatalogAccess(user *User, resolver PersonaResolver, isAdmin func(*User) bool) bool {
 	if user == nil {
 		return false
 	}
+	if isAdmin(user) {
+		return true
+	}
 	if resolver != nil {
-		if info := resolver(user.Roles); info != nil && slices.Contains(info.Tools, catalogReadTool) {
-			return true
+		if info := resolver(user.Roles); info != nil {
+			return persona.AtLeast(portalOf(info).Catalog, persona.PortalRead)
 		}
 	}
-	return isAdmin(user)
+	return false
 }
 
 // Deps holds dependencies for the portal handler.
@@ -282,6 +293,16 @@ type Deps struct {
 	// denial pages, one-time view links, and guest sessions. nil keeps the
 	// pre-#1001 plain-text denials and registers no guest routes.
 	ShareGuest *shareguest.Service
+	// ExternalAddress reports whether an address has an external account
+	// (#2092): such a person is never mentioned in an internal thread (#2227).
+	// nil treats no address as one.
+	ExternalAddress func(ctx context.Context, email string) bool
+	// Personas lists every persona a share can be addressed to (#2089); nil
+	// offers none.
+	Personas func() []SharePersona
+	// PersonaMembers lists the addresses of the people whose roles resolve to
+	// a persona, whom a share addressed to it notifies (#2089).
+	PersonaMembers func(ctx context.Context, persona string) []string
 	// NotificationRegistrar, when set, registers the self-scoped
 	// notification-preference REST routes onto the portal's authenticated
 	// mux (the CatalogRegistrar pattern): the feature lives with the
@@ -410,6 +431,9 @@ func newAccessChecker(deps Deps) *access.Checker {
 		AdminRule:   deps.AdminRule,
 	}
 	if deps.PersonaResolver != nil {
+		cfg.PortalPermissions = func(roles []string) persona.PortalAccess {
+			return portalOf(deps.PersonaResolver(roles))
+		}
 		cfg.PersonaTools = func(roles []string) []string {
 			if info := deps.PersonaResolver(roles); info != nil {
 				return info.Tools
@@ -426,17 +450,18 @@ func newAccessChecker(deps Deps) *access.Checker {
 // one checker.
 func (h *Handler) feedbackConfig() feedbackapi.Config {
 	cfg := feedbackapi.Config{
-		Threads:        h.deps.ThreadStore,
-		Assets:         h.deps.AssetStore,
-		Collections:    h.deps.CollectionStore,
-		Shares:         h.deps.ShareStore,
-		Prompts:        h.deps.PromptStore,
-		KnowledgePages: h.deps.KnowledgePageStore,
-		Changesets:     h.deps.ChangesetReader,
-		MemoryWriter:   h.deps.MemoryWriter,
-		Mentions:       h.deps.MentionResolver,
-		Notifier:       h.deps.Notifier,
-		Access:         h.access,
+		Threads:         h.deps.ThreadStore,
+		Assets:          h.deps.AssetStore,
+		Collections:     h.deps.CollectionStore,
+		Shares:          h.deps.ShareStore,
+		Prompts:         h.deps.PromptStore,
+		KnowledgePages:  h.deps.KnowledgePageStore,
+		Changesets:      h.deps.ChangesetReader,
+		MemoryWriter:    h.deps.MemoryWriter,
+		Mentions:        h.deps.MentionResolver,
+		Notifier:        h.deps.Notifier,
+		Access:          h.access,
+		ExternalAddress: h.deps.ExternalAddress,
 	}
 	if h.deps.PersonaResolver != nil {
 		cfg.PersonaName = func(roles []string) string {
@@ -530,6 +555,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/shares", h.listShares)
 	h.mux.HandleFunc("DELETE /api/v1/portal/shares/{id}", h.revokeShare)
 	h.mux.HandleFunc("GET /api/v1/portal/shared-with-me", h.listSharedWithMe)
+	h.mux.HandleFunc("GET /api/v1/portal/share-personas", h.listSharePersonas)
 	h.mux.HandleFunc("POST /api/v1/portal/assets/{id}/copy", h.copyAsset)
 
 	// The managed resources an asset's content references, from both ends:
@@ -684,10 +710,11 @@ type meResponse struct {
 	// on the payload the SPA already bootstraps from so the upload dialog can
 	// state it without a second copy of the number in the page.
 	MaxUploadBytes int64 `json:"max_upload_bytes" example:"104857600"`
-	// Automations is whether the portal shows this caller its Automations
-	// section (#2109): false when their persona hides it, always true for an
-	// administrator.
-	Automations bool `json:"automations" example:"true"`
+	// Portal is what this caller may do in the portal, one setting per area
+	// (#2225): their persona's, or every area for an administrator. The
+	// navigation shows what it allows, and every route of an area refuses
+	// what it does not.
+	Portal persona.PortalAccess `json:"portal"`
 	// Sharing is whether this caller may share what they own, with a person
 	// or to a channel (#2241): false when their persona withholds it, always
 	// true for an administrator.
@@ -718,7 +745,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		Roles:          user.Roles,
 		IsAdmin:        h.access.IsAdmin(user),
 		MaxUploadBytes: resource.NormalizeMaxUploadBytes(h.deps.ResourceMaxUploadBytes),
-		Automations:    true,
+		Portal:         h.access.Portal(user),
 		Sharing:        h.sharingAllowed(user),
 	}
 	// Cookie sessions carry a CSRF token the SPA echoes on mutations; API-key
@@ -731,7 +758,6 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		if info := h.deps.PersonaResolver(user.Roles); info != nil {
 			resp.Persona = info.Name
 			resp.Tools = info.Tools
-			resp.Automations = resp.IsAdmin || !info.HideAutomations
 		}
 	}
 
@@ -1729,12 +1755,17 @@ type createShareRequest struct {
 	// Naming a recipient does not exempt a share the caller also asked to
 	// make public -- such a link opens for anyone holding it, whoever it was
 	// announced to, so it is bounded like any other public link.
-	ExpiresIn        string  `json:"expires_in,omitempty" example:"24h"`
-	SharedWithUserID string  `json:"shared_with_user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
-	SharedWithEmail  string  `json:"shared_with_email,omitempty" example:"colleague@example.com"`
-	HideExpiration   bool    `json:"hide_expiration,omitempty" example:"false"`
-	NoticeText       *string `json:"notice_text,omitempty" example:"Confidential"` // nil = default, "" = hidden, custom = as-is
-	Permission       string  `json:"permission,omitempty" example:"viewer"`        // "viewer" (default) or "editor"
+	ExpiresIn        string `json:"expires_in,omitempty" example:"24h"`
+	SharedWithUserID string `json:"shared_with_user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
+	SharedWithEmail  string `json:"shared_with_email,omitempty" example:"colleague@example.com"`
+	// SharedWithPersona addresses the share to a persona (#2089): everyone
+	// whose roles resolve to it when they open the item. Exclusive with the
+	// user and email recipients. The caller's own persona, or any persona for
+	// an administrator (GET /api/v1/portal/share-personas).
+	SharedWithPersona string  `json:"shared_with_persona,omitempty" example:"finance"`
+	HideExpiration    bool    `json:"hide_expiration,omitempty" example:"false"`
+	NoticeText        *string `json:"notice_text,omitempty" example:"Confidential"` // nil = default, "" = hidden, custom = as-is
+	Permission        string  `json:"permission,omitempty" example:"viewer"`        // "viewer" (default) or "editor"
 	// AccessMode is "restricted", "authenticated", or "public". Empty means
 	// the default for the share's shape: restricted when a recipient is
 	// named, authenticated otherwise. "public" is never implied.
@@ -1828,6 +1859,9 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.allowedSharePersona(w, user, req) {
+		return
+	}
 	share, buildErr := buildShare(shareTarget{AssetID: assetID}, user.Email, req)
 	if buildErr != nil {
 		writeError(w, http.StatusBadRequest, buildErr.Error())
@@ -1840,7 +1874,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.wantsNotify() {
-		h.notifyShare(r.Context(), &share, ShareEvent{
+		h.notifyShareRecipients(r.Context(), &share, ShareEvent{
 			Kind: "asset", ItemID: asset.ID, ItemTitle: asset.Name, Message: req.Message,
 		})
 	}
@@ -1874,13 +1908,14 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 	}
 
 	share, err := portaldomain.BuildShare(target, createdBy, portaldomain.ShareSpec{
-		RecipientEmail:  req.SharedWithEmail,
-		RecipientUserID: req.SharedWithUserID,
-		Permission:      req.Permission,
-		AccessMode:      req.AccessMode,
-		ExpiresIn:       req.ExpiresIn,
-		NoticeText:      req.NoticeText,
-		HideExpiration:  req.HideExpiration,
+		RecipientEmail:   req.SharedWithEmail,
+		RecipientUserID:  req.SharedWithUserID,
+		RecipientPersona: req.SharedWithPersona,
+		Permission:       req.Permission,
+		AccessMode:       req.AccessMode,
+		ExpiresIn:        req.ExpiresIn,
+		NoticeText:       req.NoticeText,
+		HideExpiration:   req.HideExpiration,
 	})
 	if err != nil {
 		return Share{}, err //nolint:wrapcheck // message is the verbatim 400 body the caller must act on

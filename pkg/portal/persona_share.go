@@ -1,0 +1,116 @@
+package portal
+
+import (
+	"context"
+	"net/http"
+	"slices"
+)
+
+// SharePersona is one persona a share can be addressed to (#2089).
+type SharePersona struct {
+	Name        string `json:"name" example:"finance"`
+	DisplayName string `json:"display_name" example:"Finance"`
+}
+
+// sharePersonaList is the personas the caller may share with: the body of
+// GET /api/v1/portal/share-personas.
+type sharePersonaList struct {
+	Personas []SharePersona `json:"personas"`
+}
+
+// sharePersonas is the personas the caller may address a share to: every
+// persona for an administrator, their own for everyone else. A persona's
+// membership is decided when its people open the item, so naming one grants
+// nothing to anyone outside it.
+func (h *Handler) sharePersonas(user *User) []SharePersona {
+	out := make([]SharePersona, 0)
+	if h.deps.Personas == nil || user == nil {
+		return out
+	}
+	all := h.deps.Personas()
+	if h.access.IsAdmin(user) {
+		return all
+	}
+	if h.deps.PersonaResolver == nil {
+		return out
+	}
+	info := h.deps.PersonaResolver(user.Roles)
+	if info == nil {
+		return out
+	}
+	for _, p := range all {
+		if p.Name == info.Name {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// listSharePersonas handles GET /api/v1/portal/share-personas.
+//
+// @Summary      List the personas the caller may share with
+// @Description  Returns the personas a share may be addressed to by the caller: every persona for an administrator, the caller's own for everyone else (#2089). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.
+// @Tags         Shares
+// @Produce      json
+// @Success      200  {object}  sharePersonaList
+// @Failure      401  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/share-personas [get]
+func (h *Handler) listSharePersonas(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+	writeJSON(w, http.StatusOK, sharePersonaList{Personas: h.sharePersonas(user)})
+}
+
+// allowedSharePersona refuses, with 400, a share addressed to a persona the
+// caller may not name. A share naming no persona passes.
+func (h *Handler) allowedSharePersona(w http.ResponseWriter, user *User, req createShareRequest) bool {
+	if req.SharedWithPersona == "" {
+		return true
+	}
+	if !slices.ContainsFunc(h.sharePersonas(user), func(p SharePersona) bool { return p.Name == req.SharedWithPersona }) {
+		writeError(w, http.StatusBadRequest, "you can share with your own persona, or any persona as an administrator")
+		return false
+	}
+	return true
+}
+
+// notifyPersonaShare tells each member of the persona a share is addressed to
+// that something was shared with them, by their own notification
+// preferences. The share's other fields are the email it would have carried.
+func (h *Handler) notifyPersonaShare(ctx context.Context, share *Share, ev ShareEvent) {
+	if h.deps.Notifier == nil || h.deps.PersonaMembers == nil || share.SharedWithPersona == "" {
+		return
+	}
+	for _, email := range h.deps.PersonaMembers(ctx, share.SharedWithPersona) {
+		addressed := *share
+		addressed.SharedWithEmail = email
+		h.deps.Notifier.NotifyShare(ctx, &addressed, ev)
+	}
+}
+
+// notifyShareRecipients notifies a share's recipients: the person it names,
+// or each member of the persona it names.
+func (h *Handler) notifyShareRecipients(ctx context.Context, share *Share, ev ShareEvent) {
+	if share.SharedWithPersona != "" {
+		h.notifyPersonaShare(ctx, share, ev)
+		return
+	}
+	h.notifyShare(ctx, share, ev)
+}
+
+// personaName is the persona roles resolve to now, "" for none: what a share
+// addressed to a persona is matched against (#2089).
+func (h *Handler) personaName(roles []string) string {
+	if h.deps.PersonaResolver == nil {
+		return ""
+	}
+	if info := h.deps.PersonaResolver(roles); info != nil {
+		return info.Name
+	}
+	return ""
+}

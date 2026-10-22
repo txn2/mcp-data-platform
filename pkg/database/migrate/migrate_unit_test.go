@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 422
+	migrateTestFileCount    = 432
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -28,11 +28,19 @@ type mockMigrator struct {
 	versionVal uint
 	dirty      bool
 	versionErr error
+	closed     int
+	// closeSrcErr and closeDBErr are what Close returns.
+	closeSrcErr, closeDBErr error
 }
 
 func (m *mockMigrator) Up() error         { return m.upErr }
 func (m *mockMigrator) Down() error       { return m.downErr }
 func (m *mockMigrator) Steps(_ int) error { return m.stepsErr }
+func (m *mockMigrator) Close() (source, database error) {
+	m.closed++
+	return m.closeSrcErr, m.closeDBErr
+}
+
 func (m *mockMigrator) Version() (version uint, dirty bool, err error) {
 	return m.versionVal, m.dirty, m.versionErr
 }

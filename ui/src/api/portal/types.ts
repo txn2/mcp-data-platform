@@ -100,6 +100,8 @@ export interface Share {
   created_by: string;
   shared_with_user_id?: string;
   shared_with_email?: string;
+  /** The persona the share is addressed to (#2089). */
+  shared_with_persona?: string;
   permission: SharePermission;
   access_mode: ShareAccessMode;
   expires_at?: string;
@@ -133,6 +135,8 @@ export interface CreateShareBody {
   expires_in?: string;
   shared_with_user_id?: string;
   shared_with_email?: string;
+  /** Addresses the share to a persona (#2089); exclusive with the person fields. */
+  shared_with_persona?: string;
   hide_expiration?: boolean;
   notice_text?: string;
   permission?: SharePermission;
@@ -149,6 +153,8 @@ export interface SharedAsset {
   shared_by: string;
   shared_at: string;
   permission: SharePermission;
+  /** The persona the item was shared with, when it reached the caller that way (#2089). */
+  via_persona?: string;
 }
 
 export interface AssetResponse extends Asset {
@@ -239,6 +245,8 @@ export interface SharedCollection {
   shared_by: string;
   shared_at: string;
   permission: SharePermission;
+  /** The persona the item was shared with, when it reached the caller that way (#2089). */
+  via_persona?: string;
 }
 
 // Activity types (user-scoped audit metrics)
@@ -378,6 +386,7 @@ export type {
   ThreadKind,
   ThreadStatus,
   ThreadTargetType,
+  ThreadVisibility,
   ThreadWithMeta,
   ValidationState,
 } from "./feedback";

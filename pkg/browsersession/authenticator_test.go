@@ -194,3 +194,30 @@ func TestAuthenticatorCustomCookieName(t *testing.T) {
 		t.Errorf("UserID = %q, want %q", info.UserID, "u")
 	}
 }
+
+// A session judge refuses a validly signed cookie and replaces the roles it
+// carries (#2092).
+func TestAuthenticateHTTP_AdmitJudgesTheSession(t *testing.T) {
+	cfg := CookieConfig{Name: "s", Key: []byte("0123456789abcdef0123456789abcdef"), TTL: time.Hour}
+	signed, err := SignSession(SessionClaims{UserID: "ext:a1", Email: "x@example.com", Roles: []string{"old"}}, &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := func() *http.Request {
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
+		r.AddCookie(&http.Cookie{Name: "s", Value: signed, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
+		return r
+	}
+	a := NewAuthenticator(cfg)
+	if info, _ := a.AuthenticateHTTP(req()); info == nil || info.Roles[0] != "old" {
+		t.Fatalf("without a judge: %+v", info)
+	}
+	a.SetAdmit(func(_ context.Context, _ string, _ []string) ([]string, bool) { return []string{"now"}, true })
+	if info, _ := a.AuthenticateHTTP(req()); info == nil || info.Roles[0] != "now" {
+		t.Fatalf("admitted: %+v, want the judge's roles", info)
+	}
+	a.SetAdmit(func(context.Context, string, []string) ([]string, bool) { return nil, false })
+	if info, err := a.AuthenticateHTTP(req()); info != nil || err != nil {
+		t.Fatalf("refused: %+v %v, want unauthenticated", info, err)
+	}
+}

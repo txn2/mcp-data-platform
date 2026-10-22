@@ -727,8 +727,8 @@ func (s *postgresShareStore) Insert(ctx context.Context, share *portaldomain.Sha
 	// the value the caller renders carry one timestamp from one clock (#1511).
 	query := `
 		INSERT INTO portal_shares
-		(id, asset_id, collection_id, prompt_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission, origin, access_mode, posted_to)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		(id, asset_id, collection_id, prompt_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission, origin, access_mode, posted_to, shared_with_persona)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING created_at
 	`
 
@@ -758,12 +758,12 @@ func (s *postgresShareStore) Insert(ctx context.Context, share *portaldomain.Sha
 	// Anonymous access is never implied (#999).
 	mode := share.AccessMode
 	if mode == "" {
-		mode = shareaccess.Default(share.SharedWithUserID != "" || share.SharedWithEmail != "")
+		mode = shareaccess.Default(share.SharedWithUserID != "" || share.SharedWithEmail != "" || share.SharedWithPersona != "")
 	}
 
 	var createdAt time.Time
 	err := s.db.QueryRowContext(ctx, query,
-		share.ID, assetID, collectionID, promptID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm), string(origin), string(mode), share.PostedTo,
+		share.ID, assetID, collectionID, promptID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm), string(origin), string(mode), share.PostedTo, share.SharedWithPersona,
 	).Scan(&createdAt)
 	if err != nil {
 		return fmt.Errorf("inserting share: %w", err)
@@ -775,7 +775,7 @@ func (s *postgresShareStore) Insert(ctx context.Context, share *portaldomain.Sha
 func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*portaldomain.Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to, shared_with_persona
 		FROM portal_shares WHERE id = $1
 	`
 	return s.scanShare(ctx, query, id)
@@ -784,7 +784,7 @@ func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*portaldom
 func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*portaldomain.Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to, shared_with_persona
 		FROM portal_shares WHERE token = $1
 	`
 	return s.scanShare(ctx, query, token)
@@ -793,7 +793,7 @@ func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*por
 func (s *postgresShareStore) ListByAsset(ctx context.Context, assetID string) ([]portaldomain.Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to, shared_with_persona
 		FROM portal_shares WHERE asset_id = $1 ORDER BY created_at DESC
 	`
 	return s.listShares(ctx, query, assetID)
@@ -802,7 +802,7 @@ func (s *postgresShareStore) ListByAsset(ctx context.Context, assetID string) ([
 func (s *postgresShareStore) ListByCollection(ctx context.Context, collectionID string) ([]portaldomain.Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to, shared_with_persona
 		FROM portal_shares WHERE collection_id = $1 ORDER BY created_at DESC
 	`
 	return s.listShares(ctx, query, collectionID)
@@ -811,7 +811,7 @@ func (s *postgresShareStore) ListByCollection(ctx context.Context, collectionID 
 func (s *postgresShareStore) ListByPrompt(ctx context.Context, promptID string) ([]portaldomain.Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to, shared_with_persona
 		FROM portal_shares WHERE prompt_id = $1 ORDER BY created_at DESC
 	`
 	return s.listShares(ctx, query, promptID)
@@ -822,14 +822,15 @@ func (s *postgresShareStore) ListByPrompt(ctx context.Context, promptID string) 
 // references are returned; the prompt bodies are fetched from the prompt store.
 func (s *postgresShareStore) ListSharedPromptsWithUser(ctx context.Context, userID, email string) ([]portaldomain.SharedPromptRef, error) { //nolint:revive // interface impl
 	query := `
-		SELECT prompt_id, id, created_by, created_at, permission
+		SELECT prompt_id, id, created_by, created_at, permission, shared_with_persona
 		FROM portal_shares
 		WHERE prompt_id IS NOT NULL AND revoked = FALSE
 		  AND (expires_at IS NULL OR expires_at > NOW())
-		  AND ( ($1 <> '' AND shared_with_user_id = $1) OR ($2 <> '' AND LOWER(shared_with_email) = LOWER($2)) )
+		  AND ( ($1 <> '' AND shared_with_user_id = $1) OR ($2 <> '' AND LOWER(shared_with_email) = LOWER($2))
+		     OR ($3 <> '' AND shared_with_persona = $3) )
 		ORDER BY created_at DESC
 	`
-	rows, err := s.db.QueryContext(ctx, query, userID, email)
+	rows, err := s.db.QueryContext(ctx, query, userID, email, portaldomain.CallerPersona(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("querying shared prompts: %w", err)
 	}
@@ -838,7 +839,7 @@ func (s *postgresShareStore) ListSharedPromptsWithUser(ctx context.Context, user
 	var refs []portaldomain.SharedPromptRef
 	for rows.Next() {
 		var r portaldomain.SharedPromptRef
-		if err := rows.Scan(&r.PromptID, &r.ShareID, &r.SharedBy, &r.SharedAt, &r.Permission); err != nil {
+		if err := rows.Scan(&r.PromptID, &r.ShareID, &r.SharedBy, &r.SharedAt, &r.Permission, &r.ViaPersona); err != nil {
 			return nil, fmt.Errorf("scanning shared prompt: %w", err)
 		}
 		refs = append(refs, r)
@@ -883,7 +884,8 @@ func (s *postgresShareStore) ListSharedWithUserSince(ctx context.Context, userID
 		LEFT JOIN portal_collections pc ON ps.collection_id = pc.id AND pc.deleted_at IS NULL
 		LEFT JOIN prompts pr            ON ps.prompt_id = pr.id
 		WHERE ( ($1 <> '' AND ps.shared_with_user_id = $1)
-		     OR ($2 <> '' AND LOWER(ps.shared_with_email) = LOWER($2)) )
+		     OR ($2 <> '' AND LOWER(ps.shared_with_email) = LOWER($2))
+		     OR ($5 <> '' AND ps.shared_with_persona = $5) )
 		  AND ps.revoked = FALSE
 		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 		  AND ps.created_at > $3
@@ -891,7 +893,7 @@ func (s *postgresShareStore) ListSharedWithUserSince(ctx context.Context, userID
 		ORDER BY ps.created_at DESC, ps.id DESC
 		LIMIT $4
 	`
-	rows, err := s.db.QueryContext(ctx, query, userID, email, since, limit)
+	rows, err := s.db.QueryContext(ctx, query, userID, email, since, limit, portaldomain.CallerPersona(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("querying shares since: %w", err)
 	}
@@ -918,12 +920,13 @@ func (s *postgresShareStore) GetUserCollectionPermission(ctx context.Context, co
 		WHERE collection_id = $1
 		  AND revoked = FALSE
 		  AND (expires_at IS NULL OR expires_at > NOW())
-		  AND (shared_with_user_id = $2 OR ($3 != '' AND LOWER(shared_with_email) = LOWER($3)))
+		  AND (shared_with_user_id = $2 OR ($3 != '' AND LOWER(shared_with_email) = LOWER($3))
+		       OR ($4 <> '' AND shared_with_persona = $4))
 		ORDER BY CASE permission WHEN 'editor' THEN 0 ELSE 1 END
 		LIMIT 1
 	`
 	var perm string
-	err := s.db.QueryRowContext(ctx, query, collectionID, userID, email).Scan(&perm)
+	err := s.db.QueryRowContext(ctx, query, collectionID, userID, email, portaldomain.CallerPersona(ctx)).Scan(&perm)
 	if err != nil {
 		return "", fmt.Errorf("querying user collection permission: %w", err)
 	}
@@ -938,12 +941,13 @@ func buildActiveShareForTarget(column string) string {
 	// #nosec G201 -- column is one of two package-chosen names, never caller input.
 	return fmt.Sprintf(`
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode, posted_to, shared_with_persona
 		FROM portal_shares
 		WHERE %s = $1
 		  AND revoked = FALSE
 		  AND (expires_at IS NULL OR expires_at > NOW())
-		  AND (($2 <> '' AND shared_with_user_id = $2) OR ($3 <> '' AND LOWER(shared_with_email) = LOWER($3)))
+		  AND (($2 <> '' AND shared_with_user_id = $2) OR ($3 <> '' AND LOWER(shared_with_email) = LOWER($3))
+		       OR ($4 <> '' AND shared_with_persona = $4))
 		ORDER BY CASE permission WHEN 'editor' THEN 0 ELSE 1 END, created_at DESC
 		LIMIT 1
 	`, column)
@@ -966,7 +970,7 @@ func (s *postgresShareStore) GetActiveShareForTarget(ctx context.Context, target
 		return nil, nil //nolint:nilnil // unsupported target type → no share
 	}
 
-	share, err := s.scanShare(ctx, buildActiveShareForTarget(column), targetID, userID, email)
+	share, err := s.scanShare(ctx, buildActiveShareForTarget(column), targetID, userID, email, portaldomain.CallerPersona(ctx))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil //nolint:nilnil // no active share for this user/target
 	}
@@ -1012,10 +1016,11 @@ func buildSharedWithUserSelect() string {
 		provenanceSummaryExpr("pa.provenance") + `,
 		       pa.session_id, pa.current_version, pa.created_at, pa.updated_at, pa.deleted_at,
 		       COALESCE(pa.idempotency_key, ''),
-		       ps.id, COALESCE(NULLIF(pa.owner_email, ''), ps.created_by), ps.created_at, ps.permission
+		       ps.id, COALESCE(NULLIF(pa.owner_email, ''), ps.created_by), ps.created_at, ps.permission, ps.shared_with_persona
 		FROM portal_shares ps
 		JOIN portal_assets pa ON ps.asset_id = pa.id
-		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
+		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2))
+		       OR ($5 <> '' AND ps.shared_with_persona = $5))
 		  AND ps.revoked = FALSE AND pa.deleted_at IS NULL
 		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 		ORDER BY ps.created_at DESC
@@ -1028,12 +1033,13 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		SELECT COUNT(*)
 		FROM portal_shares ps
 		JOIN portal_assets pa ON ps.asset_id = pa.id
-		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
+		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2))
+		       OR ($3 <> '' AND ps.shared_with_persona = $3))
 		  AND ps.revoked = FALSE AND pa.deleted_at IS NULL
 		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 	`
 	var total int
-	if err := s.db.QueryRowContext(ctx, countQuery, userID, email).Scan(&total); err != nil { //nolint:gosec // query is a constant with parameterized placeholders
+	if err := s.db.QueryRowContext(ctx, countQuery, userID, email, portaldomain.CallerPersona(ctx)).Scan(&total); err != nil { //nolint:gosec // query is a constant with parameterized placeholders
 		return nil, 0, fmt.Errorf("counting shared assets: %w", err)
 	}
 
@@ -1044,7 +1050,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		limit = portaldomain.MaxLimit
 	}
 
-	rows, err := s.db.QueryContext(ctx, buildSharedWithUserSelect(), userID, email, limit, offset) //nolint:gosec // assembled from constants with parameterized placeholders
+	rows, err := s.db.QueryContext(ctx, buildSharedWithUserSelect(), userID, email, limit, offset, portaldomain.CallerPersona(ctx)) //nolint:gosec // assembled from constants with parameterized placeholders
 	if err != nil {
 		return nil, 0, fmt.Errorf("querying shared assets: %w", err)
 	}
@@ -1063,7 +1069,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 			&sa.Asset.ThumbnailRenderer, &sa.Asset.ThumbnailFailure, &sa.Asset.ThumbnailFailedVersion, &sa.Asset.SizeBytes,
 			&tags, &summary, &sa.Asset.SessionID, &sa.Asset.CurrentVersion,
 			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt, &sa.Asset.IdempotencyKey,
-			&sa.ShareID, &sa.SharedBy, &sa.SharedAt, &sa.Permission,
+			&sa.ShareID, &sa.SharedBy, &sa.SharedAt, &sa.Permission, &sa.ViaPersona,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scanning shared asset row: %w", err)
 		}
@@ -1093,12 +1099,13 @@ func (s *postgresShareStore) ListSharedCollectionsWithUser(ctx context.Context, 
 		SELECT COUNT(*)
 		FROM portal_shares ps
 		JOIN portal_collections pc ON ps.collection_id = pc.id
-		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
+		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2))
+		       OR ($3 <> '' AND ps.shared_with_persona = $3))
 		  AND ps.revoked = FALSE AND pc.deleted_at IS NULL
 		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 	`
 	var total int
-	if err := s.db.QueryRowContext(ctx, countQuery, userID, email).Scan(&total); err != nil { //nolint:gosec // constant query
+	if err := s.db.QueryRowContext(ctx, countQuery, userID, email, portaldomain.CallerPersona(ctx)).Scan(&total); err != nil { //nolint:gosec // constant query
 		return nil, 0, fmt.Errorf("counting shared collections: %w", err)
 	}
 
@@ -1112,17 +1119,18 @@ func (s *postgresShareStore) ListSharedCollectionsWithUser(ctx context.Context, 
 	selectQuery := `
 		SELECT pc.id, pc.owner_id, pc.owner_email, pc.name, pc.description,
 		       pc.thumbnail_s3_key, pc.config, pc.created_at, pc.updated_at, pc.deleted_at,
-		       ps.id, COALESCE(NULLIF(pc.owner_email, ''), ps.created_by), ps.created_at, ps.permission
+		       ps.id, COALESCE(NULLIF(pc.owner_email, ''), ps.created_by), ps.created_at, ps.permission, ps.shared_with_persona
 		FROM portal_shares ps
 		JOIN portal_collections pc ON ps.collection_id = pc.id
-		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
+		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2))
+		       OR ($5 <> '' AND ps.shared_with_persona = $5))
 		  AND ps.revoked = FALSE AND pc.deleted_at IS NULL
 		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 		ORDER BY ps.created_at DESC
 		LIMIT $3 OFFSET $4
 	`
 
-	rows, err := s.db.QueryContext(ctx, selectQuery, userID, email, limit, offset) //nolint:gosec // constant query
+	rows, err := s.db.QueryContext(ctx, selectQuery, userID, email, limit, offset, portaldomain.CallerPersona(ctx)) //nolint:gosec // constant query
 	if err != nil {
 		return nil, 0, fmt.Errorf("querying shared collections: %w", err)
 	}
@@ -1138,7 +1146,7 @@ func (s *postgresShareStore) ListSharedCollectionsWithUser(ctx context.Context, 
 			&sc.Collection.ID, &sc.Collection.OwnerID, &sc.Collection.OwnerEmail,
 			&sc.Collection.Name, &sc.Collection.Description, &sc.Collection.ThumbnailS3Key, &configJSON,
 			&sc.Collection.CreatedAt, &sc.Collection.UpdatedAt, &deletedAt,
-			&sc.ShareID, &sc.SharedBy, &sc.SharedAt, &sc.Permission,
+			&sc.ShareID, &sc.SharedBy, &sc.SharedAt, &sc.Permission, &sc.ViaPersona,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scanning shared collection row: %w", err)
 		}
@@ -1226,12 +1234,13 @@ func (s *postgresShareStore) GetUserAssetPermissionViaCollection(ctx context.Con
 		  AND ps.collection_id IS NOT NULL
 		  AND ps.revoked = FALSE
 		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
-		  AND (ps.shared_with_user_id = $2 OR ($3 != '' AND LOWER(ps.shared_with_email) = LOWER($3)))
+		  AND (ps.shared_with_user_id = $2 OR ($3 != '' AND LOWER(ps.shared_with_email) = LOWER($3))
+		       OR ($4 <> '' AND ps.shared_with_persona = $4))
 		ORDER BY CASE ps.permission WHEN 'editor' THEN 0 ELSE 1 END
 		LIMIT 1
 	`
 	var perm string
-	err := s.db.QueryRowContext(ctx, query, assetID, userID, email).Scan(&perm)
+	err := s.db.QueryRowContext(ctx, query, assetID, userID, email, portaldomain.CallerPersona(ctx)).Scan(&perm)
 	if err != nil {
 		return "", fmt.Errorf("querying asset permission via collection: %w", err)
 	}
@@ -1265,7 +1274,7 @@ func (s *postgresShareStore) scanShare(ctx context.Context, query string, args .
 	err := s.db.QueryRowContext(ctx, query, args...).Scan(
 		&share.ID, &assetID, &collectionID, &promptID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
-		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission, &share.Origin, &share.AccessMode, &share.PostedTo,
+		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission, &share.Origin, &share.AccessMode, &share.PostedTo, &share.SharedWithPersona,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying share: %w", err)
@@ -1608,7 +1617,7 @@ func scanShareRow(rows *sql.Rows) (portaldomain.Share, error) {
 	if err := rows.Scan(
 		&share.ID, &assetID, &collectionID, &promptID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
-		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission, &share.Origin, &share.AccessMode, &share.PostedTo,
+		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission, &share.Origin, &share.AccessMode, &share.PostedTo, &share.SharedWithPersona,
 	); err != nil {
 		return share, fmt.Errorf("scanning share row: %w", err)
 	}

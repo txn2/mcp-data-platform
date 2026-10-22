@@ -10,6 +10,7 @@ import { SegmentedControl } from "@/components/patterns/SegmentedControl";
 import { SortControl } from "@/components/patterns/SortControl";
 import { ScopeFilter, type Scope } from "@/components/ScopeFilter";
 import { Button } from "@/components/ui/button";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 
 const VIEW_OPTIONS = [
   { value: "grid" as const, label: "Grid view", icon: LayoutGrid },
@@ -43,6 +44,7 @@ export function CollectionFilterBar({
   onCreate: () => void;
   creating: boolean;
 }) {
+  const canCreate = usePortalAccess().assets === "own";
   return (
     <div className="flex flex-wrap items-center gap-3">
       <ScopeFilter value={scope} onChange={onScopeChange} />
@@ -55,8 +57,9 @@ export function CollectionFilterBar({
         }
       />
       {/* Creating from the Shared scope would drop the new collection out of
-          the list it was made from, so the action is not offered there. */}
-      {scope !== "shared" && (
+          the list it was made from, so the action is not offered there; nor
+          to a persona that only reads what is shared with it (#2225). */}
+      {scope !== "shared" && canCreate && (
         <Button onClick={onCreate} disabled={creating}>
           <Plus />
           {creating ? "Creating..." : "New Collection"}

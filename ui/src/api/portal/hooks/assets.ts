@@ -55,6 +55,8 @@ export interface Branding {
   login_redirect?: boolean;
   /** Whether /portal/?login=api_key offers the API key form. */
   allow_api_key_login?: boolean;
+  /** External accounts sign in with an emailed link from /portal/?login=email (#2092). */
+  email_link_login?: boolean;
 }
 
 export function useBranding() {
@@ -328,6 +330,21 @@ export function useCreateShare() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["shares"] });
     },
+  });
+}
+
+/** A persona a share can be addressed to (#2089). */
+export interface SharePersona {
+  name: string;
+  display_name: string;
+}
+
+/** The personas the caller may share with: their own, or every one for an administrator. */
+export function useSharePersonas(enabled = true) {
+  return useQuery({
+    queryKey: ["share-personas"],
+    queryFn: () => apiFetch<{ personas: SharePersona[] }>("/share-personas"),
+    enabled,
   });
 }
 

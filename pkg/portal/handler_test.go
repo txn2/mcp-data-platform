@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/persona"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -5127,17 +5129,19 @@ func TestListAssetsTagsAndMetadata(t *testing.T) {
 	assert.Nil(t, metadataFilter(url.Values{"tag": {"x"}}))
 }
 
-func TestGetMeReportsWhetherThePortalShowsAutomations(t *testing.T) {
+func TestGetMeReportsThePortalPermissions(t *testing.T) {
+	off := false
+	hidden := persona.PortalAccess{Automations: &off, Knowledge: persona.PortalNone}
 	cases := []struct {
-		name  string
-		roles []string
-		info  *PersonaInfo
-		want  bool
+		name        string
+		roles       []string
+		info        *PersonaInfo
+		automations bool
+		knowledge   string
 	}{
-		{"persona hides automations", []string{"viewer"}, &PersonaInfo{Name: "viewer", HideAutomations: true}, false},
-		{"persona shows automations", []string{"analyst"}, &PersonaInfo{Name: "analyst"}, true},
-		{"administrator under a persona that hides them", []string{"dp_admin"}, &PersonaInfo{Name: "viewer", HideAutomations: true}, true},
-		{"no persona resolved", []string{"nobody"}, nil, true},
+		{"persona hides automations and knowledge", []string{"viewer"}, &PersonaInfo{Name: "viewer", Portal: hidden}, false, persona.PortalNone},
+		{"administrator under that persona", []string{"dp_admin"}, &PersonaInfo{Name: "viewer", Portal: hidden}, true, persona.PortalWrite},
+		{"no persona resolved reads the defaults", []string{"nobody"}, nil, true, persona.PortalRead},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -5157,7 +5161,8 @@ func TestGetMeReportsWhetherThePortalShowsAutomations(t *testing.T) {
 			require.Equal(t, http.StatusOK, w.Code)
 			var resp meResponse
 			require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-			assert.Equal(t, c.want, resp.Automations)
+			assert.Equal(t, c.automations, persona.On(resp.Portal.Automations))
+			assert.Equal(t, c.knowledge, resp.Portal.Knowledge)
 		})
 	}
 }

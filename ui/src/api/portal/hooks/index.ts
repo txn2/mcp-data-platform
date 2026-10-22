@@ -13,3 +13,4 @@ export * from "./sessions";
 export * from "./calls";
 export * from "./provenance";
 export * from "./channels";
+export * from "./accessRequests";

@@ -100,7 +100,7 @@ func (h *Handler) collectionSignoff(w http.ResponseWriter, r *http.Request) {
 // with N > M (an approval from someone outside owner+grantees, e.g. a
 // collection-inherited viewer, must not over-report).
 func (h *Handler) writeSignoff(w http.ResponseWriter, r *http.Request, targetType, id string, m int) {
-	n, err := h.cfg.Threads.CountSignoffs(r.Context(), targetType, id)
+	n, err := h.cfg.Threads.CountSignoffs(r.Context(), targetType, id, h.external(access.GetUser(r.Context())))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to count sign-offs")
 		return

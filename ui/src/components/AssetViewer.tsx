@@ -22,6 +22,7 @@ import { ViewerLayout } from "./viewer/ViewerLayout";
 import { IncompleteBadge } from "@/components/IncompleteBadge";
 import { isTruncated } from "@/lib/truncation";
 import { useAuthStore } from "@/stores/auth";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 
 export type { AssetViewerProps } from "./assetviewer/types";
 
@@ -75,6 +76,7 @@ export function AssetViewer({
 
   const isSharedEditor = !isOwner && sharePermission === "editor";
   const canShare = useAuthStore((s) => s.canShare());
+  const portal = usePortalAccess();
 
   const canEditSource =
     !!contentUpdateMutation && !!asset && isEditableContent(asset.content_type, asset.name);
@@ -237,9 +239,11 @@ export function AssetViewer({
             isOwner={isOwner}
             canShare={canShare}
             sharePermission={sharePermission}
-            copyMutation={copyMutation}
+            // Saving a copy creates an asset, which a persona that only reads
+            // what is shared with it does not do (#2225).
+            copyMutation={portal.assets === "own" ? copyMutation : undefined}
             onDelete={() => setDeleteModalOpen(true)}
-            onDownload={handleDownload}
+            onDownload={portal.download ? handleDownload : undefined}
             onCopyToMyAssets={handleCopyToMyAssets}
             onShare={() => setShareOpen(true)}
           />

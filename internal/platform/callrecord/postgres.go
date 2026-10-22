@@ -475,8 +475,8 @@ func (s *PostgresStore) withoutJIT(ctx context.Context, fn func(tx *sql.Tx) erro
 	return nil
 }
 
-// List returns records matching the filter, newest first.
-func (s *PostgresStore) List(ctx context.Context, f Filter) ([]Record, error) {
+// listPage is listQuery with the filter's paging applied.
+func listPage(f Filter) sq.SelectBuilder {
 	qb := listQuery(f)
 	if f.Limit > 0 {
 		qb = qb.Limit(uint64(f.Limit))
@@ -484,7 +484,12 @@ func (s *PostgresStore) List(ctx context.Context, f Filter) ([]Record, error) {
 	if f.Offset > 0 {
 		qb = qb.Offset(uint64(f.Offset))
 	}
-	query, args, err := qb.ToSql()
+	return qb
+}
+
+// List returns records matching the filter, newest first.
+func (s *PostgresStore) List(ctx context.Context, f Filter) ([]Record, error) {
+	query, args, err := listPage(f).ToSql()
 	if err != nil {
 		return nil, fmt.Errorf("building call record list query: %w", err)
 	}

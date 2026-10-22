@@ -68,6 +68,7 @@ func (h *Handler) feedbackActivity(w http.ResponseWriter, r *http.Request) {
 		TargetPromptIDs:     targets.promptIDs,
 		Limit:               intParam(r, paramLimit, threads.DefaultThreadLimit),
 		Offset:              intParam(r, paramOffset, 0),
+		SharedOnly:          h.external(user),
 	}
 	found, total, err := h.cfg.Threads.ListThreads(r.Context(), filter)
 	if err != nil {

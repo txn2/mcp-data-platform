@@ -112,6 +112,10 @@ type publicBrandingResponse struct {
 	LoginRedirect bool `json:"login_redirect" example:"false"`
 	// AllowAPIKeyLogin: /portal/?login=api_key offers the API key form.
 	AllowAPIKeyLogin bool `json:"allow_api_key_login" example:"true"`
+	// EmailLinkLogin: the deployment has external accounts (#2092), whose
+	// people sign in with a link emailed from /portal/?login=email. It needs
+	// browser sessions and a database.
+	EmailLinkLogin bool `json:"email_link_login" example:"false"`
 }
 
 // getPublicBranding handles GET /api/v1/admin/public/branding.
@@ -135,6 +139,7 @@ func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 		resp.OIDCEnabled = h.deps.Config.Auth.BrowserSession.Enabled && h.deps.Config.Auth.OIDC.Enabled
 		resp.LoginRedirect, _ = portalcfg.LoginRedirect(h.deps.Config.Portal.LoginRedirect, resp.OIDCEnabled)
 		resp.AllowAPIKeyLogin = portalcfg.APIKeyLoginAllowed(h.deps.Config.Portal.AllowAPIKeyLogin)
+		resp.EmailLinkLogin = resp.OIDCEnabled && h.deps.Config.Database.DSN != ""
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

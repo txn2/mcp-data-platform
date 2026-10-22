@@ -14,6 +14,7 @@ import { CollectionSection } from "./viewer/CollectionSection";
 import { CollectionViewerActions } from "./viewer/CollectionViewerActions";
 import { type ThumbSize } from "./viewer/thumbSize";
 import { useAuthStore } from "@/stores/auth";
+import { NoAccess } from "@/components/access/RequestAccessPanel";
 
 interface Props {
   collectionId: string;
@@ -44,10 +45,18 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
   }
 
   if (!coll) {
+    // A collection this reader cannot open offers a request to its owner
+    // (#2090).
     return (
-      <EmptyState icon={FolderOpen}>
-        <p className="font-medium">Collection not found</p>
-      </EmptyState>
+      <NoAccess
+        type="collection"
+        id={collectionId}
+        notFound={
+          <EmptyState icon={FolderOpen}>
+            <p className="font-medium">Collection not found</p>
+          </EmptyState>
+        }
+      />
     );
   }
 

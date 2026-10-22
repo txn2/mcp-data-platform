@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { buildLoginURL } from "@/lib/loginUrl";
+import type { PortalAccess } from "@/lib/portalAccess";
 
 /** User profile returned by GET /api/v1/portal/me. */
 export interface UserProfile {
@@ -25,11 +26,11 @@ export interface UserProfile {
    */
   max_upload_bytes?: number;
   /**
-   * Whether the portal shows this caller its Automations section (#2109):
-   * false when their persona hides it. Absent from a server that predates the
-   * field, which shows it.
+   * What this caller may do in the portal, one setting per area (#2225): their
+   * persona's, or every area for an administrator. Absent from a server that
+   * predates the field, which showed every area.
    */
-  automations?: boolean;
+  portal?: PortalAccess;
   /**
    * Whether this caller may share what they own, with a person or to a
    * channel (#2241): false when their persona withholds it. Absent from a
@@ -90,8 +91,6 @@ interface AuthState {
 
   /** Convenience: true when user is admin. */
   isAdmin: () => boolean;
-  /** Whether the portal shows this caller Automations (#2109). */
-  showsAutomations: () => boolean;
   /** Whether this caller may share what they own (#2241). */
   canShare: () => boolean;
 }
@@ -289,6 +288,5 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   isAuthenticated: () => get().user !== null,
   isAdmin: () => get().user?.is_admin === true,
-  showsAutomations: () => get().user?.automations !== false,
   canShare: () => get().user?.sharing !== false,
 }));

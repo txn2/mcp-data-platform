@@ -271,7 +271,7 @@ func TestManageAsset_Get(t *testing.T) {
 
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
+	result, _, err := tk.handleManageAsset(capturesOwnerCtx(), nil, manageAssetInput{
 		Action: "get", AssetID: "a1",
 	})
 	require.NoError(t, err)

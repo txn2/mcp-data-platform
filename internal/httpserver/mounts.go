@@ -454,7 +454,7 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 		if !ok || per == nil {
 			return nil
 		}
-		info := &portal.PersonaInfo{Name: per.Name, HideAutomations: per.HideAutomations, SharingDenied: !per.SharingAllowed()}
+		info := &portal.PersonaInfo{Name: per.Name, SharingDenied: !per.SharingAllowed()}
 		if tr != nil {
 			filter := persona.NewToolFilter(pr)
 			info.Tools = filter.FilterTools(per, tr.AllTools())
@@ -466,6 +466,7 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 				return slices.ContainsFunc(names, func(n string) bool { return filter.IsConnectionAllowed(per, n) })
 			}
 		}
+		info.Portal = per.PortalPermissions(info.Tools)
 		return info
 	}
 }
@@ -514,6 +515,8 @@ func portalAuthChain(auth *portal.Authenticator, gate *accessgate.Gate) func(htt
 // resolver yields a gate that denies everyone, which is the correct reading of
 // "access cannot be evaluated".
 func portalAccessGate(p *platform.Platform, resolver portal.PersonaResolver) *accessgate.Gate {
+	// The platform's administrator rule (#2228) exempts an administrator from
+	// their persona's portal permissions; with no registry it exempts nobody.
 	return accessgate.New(accessgate.PersonaResolver(resolver), accessgate.Brand{
 		Name:                portalBrandName(p),
 		LogoHTML:            p.BrandLogoHTML(),
@@ -522,7 +525,7 @@ func portalAccessGate(p *platform.Platform, resolver portal.PersonaResolver) *ac
 		ImplementorLogoHTML: p.ImplementorLogoHTML(),
 		ImplementorURL:      p.Config().Portal.Implementor.URL,
 		ImageSources:        branding.ImageSources(p.Config().Portal.Logo, p.Config().Portal.Implementor.Logo),
-	})
+	}).WithAdmin(p.PersonaRegistry().AdminRule(p.Config().Admin.Persona))
 }
 
 // mountPortalUI registers the unified portal SPA frontend on the mux when the
@@ -606,6 +609,15 @@ func gateSPAShell(p *platform.Platform, spa http.Handler) http.Handler {
 // buildAdminAuth constructs the admin persona-gate middleware. Shared by the
 // admin API handler and the separately mounted prompt-version routes so both
 // enforce identical authentication, persona, and CSRF rules.
+// adminAuthIfEnabled is the admin API's authentication, nil when the admin
+// API is off.
+func adminAuthIfEnabled(p *platform.Platform) func(http.Handler) http.Handler {
+	if !p.Config().Admin.IsEnabled() {
+		return nil
+	}
+	return buildAdminAuth(p)
+}
+
 func buildAdminAuth(p *platform.Platform) func(http.Handler) http.Handler {
 	var authOpts []admin.PlatformAuthOption
 	if p.BrowserSessionAuth() != nil {

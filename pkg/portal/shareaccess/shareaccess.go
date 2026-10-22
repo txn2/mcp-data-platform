@@ -64,13 +64,17 @@ type Share struct {
 	Mode            Mode
 	RecipientUserID string
 	RecipientEmail  string
-	CreatorEmail    string
+	// RecipientPersona is the persona a share is addressed to (#2089).
+	RecipientPersona string
+	CreatorEmail     string
 }
 
 // Viewer is the authenticated caller. A nil *Viewer is an anonymous request.
 type Viewer struct {
 	UserID string
 	Email  string
+	// Persona is the persona the viewer resolves to now, "" for none.
+	Persona string
 }
 
 // Default returns the mode a share takes when its creator did not choose one:
@@ -112,7 +116,7 @@ func Resolve(requested string, hasRecipient bool) (Mode, error) {
 func Authorize(share Share, viewer *Viewer) (string, bool) {
 	mode := share.Mode
 	if mode == "" {
-		mode = Default(share.RecipientUserID != "" || share.RecipientEmail != "")
+		mode = Default(share.RecipientUserID != "" || share.RecipientEmail != "" || share.RecipientPersona != "")
 	}
 
 	if mode == ModePublic {
@@ -130,11 +134,14 @@ func Authorize(share Share, viewer *Viewer) (string, bool) {
 	return MsgNotRecipient, false
 }
 
-// namesViewer reports whether viewer is the share's named recipient or its
-// creator. The creator is admitted so the person who made the link can open it
-// to see what the recipient will see.
+// namesViewer reports whether viewer is the share's named recipient, in the
+// persona it is addressed to, or its creator. The creator is admitted so the
+// person who made the link can open it to see what the recipient will see.
 func namesViewer(share Share, viewer *Viewer) bool {
 	if share.RecipientUserID != "" && share.RecipientUserID == viewer.UserID {
+		return true
+	}
+	if share.RecipientPersona != "" && share.RecipientPersona == viewer.Persona {
 		return true
 	}
 	return emailsEqual(share.RecipientEmail, viewer.Email) ||

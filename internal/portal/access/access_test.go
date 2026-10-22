@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
@@ -667,4 +668,27 @@ func TestCanModerateThread(t *testing.T) {
 			assert.Equal(t, tt.want, New(cfg).CanModerateThread(context.Background(), tt.user, tt.thread))
 		})
 	}
+}
+
+// A person of an external persona is a viewer whatever a share grants (#2092).
+func TestExternalPersonaIsHeldToViewer(t *testing.T) {
+	user := &User{UserID: "ext:a1", Email: "client@example.org", Roles: []string{"client"}}
+	shares := &fakeShareStore{
+		byAsset:        map[string][]portaldomain.Share{"a1": {{SharedWithEmail: "client@example.org", Permission: portaldomain.PermissionEditor}}},
+		collectionPerm: map[string]portaldomain.SharePermission{"c1": portaldomain.PermissionEditor},
+	}
+	external := New(Config{Shares: shares, PortalPermissions: func([]string) persona.PortalAccess {
+		return persona.PortalAccess{External: true}
+	}})
+	perm, err := external.AssetSharePermission(context.Background(), "a1", user)
+	require.NoError(t, err)
+	assert.Equal(t, portaldomain.PermissionViewer, perm)
+	resolved, err := external.ResolveAssetPermission(context.Background(), "a1", user)
+	require.NoError(t, err)
+	assert.Equal(t, portaldomain.PermissionViewer, resolved)
+	assert.Equal(t, portaldomain.PermissionViewer, external.CollectionSharePermission(context.Background(), "c1", user))
+
+	internal := New(Config{Shares: shares, PortalPermissions: func([]string) persona.PortalAccess { return persona.PortalAccess{} }})
+	perm, _ = internal.AssetSharePermission(context.Background(), "a1", user)
+	assert.Equal(t, portaldomain.PermissionEditor, perm, "an internal person keeps the share's permission")
 }

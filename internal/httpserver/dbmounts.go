@@ -20,10 +20,14 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/accessreqwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/extaccountwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/personashare"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcelevel"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
@@ -151,6 +155,17 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	deps.OnAssetDeleted = hooks.AssetDeleted
 	deps.OnAssetRevised = hooks.AssetRevised
 
+	// External accounts first (#2092): the notifier, the feedback routes and
+	// the guest path all ask whether an address is one.
+	accounts := extaccountwire.MountPlatform(mux, p, notify, extaccountwire.Platform{
+		SigningKey: browserSessionSigningKey(p), AdminWrap: adminAuthIfEnabled(p), Author: adminEmail,
+	})
+	if accounts != nil {
+		deps.ExternalAddress = accounts.IsExternal
+	}
+
+	personashare.Wire(&deps, p.PersonaRegistry(), p.UserStore())
+
 	notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p))
 
 	userkeywire.Wire(&deps, p)
@@ -164,7 +179,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// Guest access path for email shares (#1001): branded denial pages plus
 	// one-time view links for recipients without an account. The share store
 	// is present on this path (checked at the top of this function).
-	deps.ShareGuest = newShareGuestService(p, notify, p.PortalShareStore(), p.DB())
+	deps.ShareGuest = newShareGuestService(p, notify, p.PortalShareStore(), p.DB(), accounts)
 
 	// Authentication proves identity; the gate decides access. Every
 	// authenticated portal route runs through both, so an account the IdP will
@@ -201,6 +216,9 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		Resolver: deps.PersonaResolver, IsAdmin: isAdmin, Stored: platform.StoredConnections(p),
 	})
 	mountMentionAPI(mux, p, wrap, isAdmin)
+	accessreqwire.Mount(mux, p, accessreqwire.Deps{
+		Wrap: wrap, IsAdmin: isAdmin, Notify: notify, AdminWrap: adminAuthIfEnabled(p), Author: adminEmail,
+	})
 	// Table registration serves both the portal's assets and the managed
 	// resources API, so it is mounted once here rather than beside each.
 	mountTableAPI(mux, p, wrap, isAdmin)
@@ -284,7 +302,9 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap f
 		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).WithStatementCeiling(p.Config().Scripts.SQL.MaxTimeout()).
 		WithRecordings(deps.Gate.Recordings).WithLibraries(deps.Gate.Libraries).WithResources(deps.Gate.Resources).
 		WithTokens(p.Endpoints().TokenIssuer())
-	wrap := scripthttp.GatedWrap(portalWrap, deps.PortalUser) // a persona hiding Automations is refused (#2109)
+	// A persona without Automations is refused by the persona gate, which
+	// decides every portal area from one route table (#2225).
+	wrap := portalWrap
 	scripts := scripthttp.New(deps)
 	scripts.RegisterPortal(mux, wrap)
 	// A version drawn as a diagram (#1906) and a run drawn on it (#1907).
@@ -370,7 +390,6 @@ func scriptPortalIdentity(isAdmin func([]string) bool, resolver portal.PersonaRe
 		if resolver != nil {
 			if pi := resolver(user.Roles); pi != nil {
 				id.Persona = pi.Name
-				id.AutomationsHidden = pi.HideAutomations
 			}
 		}
 		return id
@@ -462,7 +481,11 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		if user == nil {
 			return nil, errors.New("authentication required")
 		}
-		return buildResourceClaims(user, pr, adminPersona)
+		claims, err := buildResourceClaims(user, pr, adminPersona)
+		if err != nil {
+			return nil, err
+		}
+		return resourcelevel.Apply(claims, pr, r.Method)
 	}
 
 	// A deleted resource must not leave a table serving its file (#1327), and

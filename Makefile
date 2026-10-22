@@ -127,13 +127,21 @@ test-realdb:
 	@#
 	@# -p 4 still bounds package concurrency: it is what keeps 34 packages
 	@# from opening pools faster than one server will accept them.
+	@# The sampler reports the peak connections the run held, in total and for
+	@# the packages that held the most, beside REALDB_MAX_CONNECTIONS (#2249).
 	@set -e; \
-	trap 'docker rm -f $(REALDB_PG_CONTAINER) >/dev/null 2>&1 || true' EXIT; \
+	report=$$(mktemp); sampler=; \
+	finish() { \
+		if [ -n "$$sampler" ]; then kill -TERM $$sampler 2>/dev/null; wait $$sampler 2>/dev/null || true; cat "$$report"; fi; \
+		rm -f "$$report"; \
+		docker rm -f $(REALDB_PG_CONTAINER) >/dev/null 2>&1 || true; \
+	}; \
+	trap finish EXIT; \
 	docker rm -f $(REALDB_PG_CONTAINER) >/dev/null 2>&1 || true; \
 	docker run -d --name $(REALDB_PG_CONTAINER) \
 		-e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=postgres \
 		-p 127.0.0.1::5432 $(REALDB_PG_IMAGE) \
-		-c max_connections=400 -c fsync=off -c full_page_writes=off \
+		-c max_connections=$(REALDB_MAX_CONNECTIONS) -c fsync=off -c full_page_writes=off \
 		-c synchronous_commit=off >/dev/null; \
 	pg_port=$$(docker port $(REALDB_PG_CONTAINER) 5432/tcp | head -1 | sed 's/.*://'); \
 	if [ -z "$$pg_port" ]; then echo "FAIL: could not read the published Postgres port" >&2; exit 1; fi; \
@@ -148,9 +156,10 @@ test-realdb:
 		-c 'CREATE DATABASE $(REALDB_TEMPLATE)'; \
 	MIGRATE_TEST_DSN="postgres://test:test@localhost:$$pg_port/$(REALDB_TEMPLATE)?sslmode=disable" \
 		$(GOTEST) -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/ >/dev/null; \
+	python3 scripts/realdb-connections.py $(REALDB_PG_CONTAINER) "$$report" & sampler=$$!; \
 	TESTDB_DSN="postgres://test:test@localhost:$$pg_port/postgres?sslmode=disable" \
 	TESTDB_TEMPLATE="$(REALDB_TEMPLATE)" \
-		$(GOTEST) -count=1 -p 4 -tags=integration -run 'RealDB' $(REALDB_PKGS)
+		$(GOTEST) -count=1 -p 4 -tags=integration -run '$(REALDB_RUN)' $(REALDB_PKGS)
 	@echo "Real-DB gate passed."
 
 # Live post-deploy smoke: connects to a RUNNING MCP server as a real MCP client
@@ -193,6 +202,17 @@ REALDB_TEMPLATE     := testdb_template
 # REALDB_PKGS is what test-realdb runs: every package, unless realdb-lane
 # narrows it to the packages a branch can break (#1947).
 REALDB_PKGS         ?= ./...
+# REALDB_RUN is the -run pattern: every RealDB test, unless route-template-diff
+# names the one gate it needs (#2186).
+REALDB_RUN          ?= RealDB
+# REALDB_MAX_CONNECTIONS is the lane server's max_connections, set from what the
+# packages open (#2249). -p 4 runs four packages at once, so the four largest
+# package peaks bound the lane: 8+8+6+5 measured on 2026-10-21, plus the
+# template and admin sessions, about 30. Before the migration wrapper returned
+# its connection, pkg/oauth/postgres alone held 268 and a 400 limit was
+# exhausted under make verify's load. The sampler test-realdb runs prints each
+# run's peak and its largest packages.
+REALDB_MAX_CONNECTIONS ?= 100
 
 MIGRATE_PG_IMAGES := \
 	pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc \
@@ -609,6 +629,13 @@ docs-build:
 route-manifest-check:
 	cd $(UI_DIR) && npx vitest run e2e/screenshots/route-sync.test.ts
 
+## route-conformance-check: Fail when a mocked UI route is absent from swagger.json (#2186)
+## route-conformance.test.ts reads the MSW handlers and internal/apidocs/swagger.json
+## in under a second; like route-sync.test.ts, only the full vitest suite in verify's
+## UI lane ran it, so a mock for a route the API does not describe failed verify.
+route-conformance-check:
+	cd $(UI_DIR) && npx vitest run src/mocks/route-conformance.test.ts
+
 ## schedule-lane: Run the tests the diff touched at -race -cpu=1,2 -count=5 (ordering-dependent tests, #1711, #2039)
 ## `test` runs each test once at this machine's CPU count, which is not the
 ## schedule a loaded CI runner chooses. TestWithRevocations_WiredLate passed
@@ -671,6 +698,28 @@ acceptance:
 	set -o pipefail; \
 	eval "$(GOTEST) -count=1 -timeout $(ACCEPTANCE_TIMEOUT) -tags=integration ./test/acceptance/ -v -json $$run_flag" \
 		| python3 scripts/acceptance-evidence.py split
+
+## dev-smoke: One call through the platform per service the dev stack runs, in under a minute (#2248)
+## A managed resource read back by digest (the TLS store), a portal asset read
+## back (the plain store), a query on each scratch catalog, a Keycloak sign-in,
+## a search hit on a just-embedded asset (Ollama) and a drawn tile (renderer):
+## test/acceptance/devsmoke_test.go. With no stack answering it fails and says so.
+dev-smoke:
+	@set -a; [ -f dev/.dev-ports.env ] && . ./dev/.dev-ports.env; set +a; \
+	base="$${MCP_BASE_URL:-http://localhost:$${DEV_PROXY_PORT:-$${DEV_API_PORT:-8080}}}"; \
+	if ! curl -sf -o /dev/null --max-time 5 "$$base/healthz"; then \
+		echo "dev-smoke: no dev stack answers at $$base; start one with make dev" >&2; exit 1; fi; \
+	echo "dev-smoke: checking the dev stack at $$base"; \
+	$(GOTEST) -count=1 -timeout 2m -tags=integration ./test/acceptance/ -run '^TestDevSmoke_'
+
+## dev-smoke-diff: Run dev-smoke when the diff against main changes a file under dev/ (#2248)
+DEV_DIR := dev
+dev-smoke-diff:
+	@base=$$(git merge-base origin/main HEAD 2>/dev/null || git merge-base main HEAD); \
+	changed=$$( { git diff --name-only $$base -- $(DEV_DIR); git ls-files --others --exclude-standard -- $(DEV_DIR); } | sort -u); \
+	if [ -z "$$changed" ]; then echo "dev-smoke-diff: nothing under dev/ changed; skipped"; exit 0; fi; \
+	echo "dev-smoke-diff: $$(echo $$changed | wc -w | tr -d ' ') file(s) under dev/ changed"; \
+	$(MAKE) --no-print-directory dev-smoke
 
 ## acceptance-release: The whole acceptance suite against the dev stack, whether or not one is up (#1969)
 ## The E2E Nightly runs it (in groups, ACCEPTANCE_SHARD) and a tag requires
@@ -1018,8 +1067,8 @@ verify-go:
 ## preverify-fast: the cheap gates verify runs before its lanes (#1856, #2030)
 ## swagger-check and apidocs-openapi3-check (the API description is current and
 ## converts to OpenAPI 3), semgrep-diff, semgrep-changed, doc-check, acceptance-check,
-## state-readers-check, builtin-pages-check, e2e-copy-check, route-manifest-check, dead-code and
-## frontend-lint read the change and the tree, not a coverage profile, so they answer in under a
+## state-readers-check, builtin-pages-check, e2e-copy-check, route-manifest-check,
+## route-conformance-check, dead-code and frontend-lint read the change and the tree, not a coverage profile, so they answer in under a
 ## minute. verify runs them in its serial preamble. swagger-check runs first
 ## because it rewrites internal/apidocs, which state-readers-check reads.
 preverify-fast:
@@ -1034,6 +1083,7 @@ preverify-fast:
 	@$(MAKE) --no-print-directory builtin-pages-check
 	@$(MAKE) --no-print-directory e2e-copy-check
 	@$(MAKE) --no-print-directory route-manifest-check
+	@$(MAKE) --no-print-directory route-conformance-check
 	@$(MAKE) --no-print-directory dead-code
 	@$(MAKE) --no-print-directory frontend-lint
 
@@ -1061,10 +1111,33 @@ realdb-lane:
 ## It runs nothing verify runs again in full: the schedule lane, its UI half and
 ## the real-DB lane used to follow lint here (#1929, #1947) and on a change to
 ## pkg/platform they cost as much as verify itself, so a pre-gate was no longer
-## one. Those three run once, in verify and in CI.
+## one. Those three run once, in verify and in CI. What it adds to lint is scoped
+## to the diff (#2186, #2239, #2248): gosec over the changed packages, migrate-check
+## when a migration changed, the route-template gate when a mux registration
+## changed, and dev-smoke when a file under dev/ changed.
 preverify: preverify-fast
 	@$(MAKE) --no-print-directory lint
+	@$(MAKE) --no-print-directory security-diff
 	@$(MAKE) --no-print-directory migrate-check-diff
+	@$(MAKE) --no-print-directory route-template-diff
+	@$(MAKE) --no-print-directory dev-smoke-diff
+
+## security-diff: Run the standalone gosec over the packages the diff changes (#2186)
+## verify-static runs `gosec ./...`, which reads #nosec and not //nolint:gosec, so a
+## finding the patch lint passes failed verify. Same invocation, changed packages only.
+security-diff:
+	@pkgs="$$(python3 scripts/preverify-diff.py gosec-packages)"; \
+	if [ -z "$$pkgs" ]; then echo "security-diff: no production Go file changed; skipped"; exit 0; fi; \
+	echo "security-diff: gosec over $$(echo $$pkgs | wc -w | tr -d ' ') package(s)"; \
+	GOOS=linux gosec $$pkgs
+
+## route-template-diff: Run the route-template gate when the diff changes a mux registration (#2186)
+## TestEveryRouteReportsItsTemplate_RealDB fails a registration the test platform does
+## not mount, or one that reports no template, and ran only in verify's Docker lane.
+route-template-diff:
+	@if ! python3 scripts/preverify-diff.py routes-changed; then \
+		echo "route-template-diff: no route registration changed; skipped"; exit 0; fi; \
+	$(MAKE) --no-print-directory test-realdb REALDB_PKGS=./internal/httpserver/ REALDB_RUN=TestEveryRouteReportsItsTemplate_RealDB
 
 ## migrate-check-diff: Run migrate-check when the diff against main adds or changes a migration (#2239)
 ## The RealDB tests run on pg16 alone, so a migration PostgreSQL 17 refuses

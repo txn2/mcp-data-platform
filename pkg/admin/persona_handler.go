@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/personarules"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -28,6 +29,8 @@ type personaSummary struct {
 	Roles       []string `json:"roles" example:"data_engineer"`
 	ToolCount   int      `json:"tool_count" example:"19"`
 	Source      string   `json:"source,omitempty" example:"file"` // "file", "database", or "both"
+	// External marks a persona for people outside the organization (#2092).
+	External bool `json:"external,omitempty" example:"false"`
 }
 
 // MarshalJSON enforces the non-nil wire invariant for Roles.
@@ -75,9 +78,13 @@ type personaDetail struct {
 	// ServiceAccount marks the persona an automated caller signs in under:
 	// its calls are audited but not added to the call catalog (#1980).
 	ServiceAccount bool `json:"service_account" example:"false"`
-	// HideAutomations takes the portal's Automations section away from the
-	// persona's people (#2109). False shows it.
-	HideAutomations bool `json:"hide_automations" example:"false"`
+	// Portal is what the persona's people may do in the portal, every area
+	// resolved (#2225): a field the persona leaves unset reads as what its
+	// tools reached before the setting existed.
+	Portal persona.PortalAccess `json:"portal"`
+	// External marks the persona for people outside the organization, whose
+	// accounts the platform creates (#2092).
+	External bool `json:"external" example:"false"`
 	// AllowSharing lets the persona's people share what they own, with a
 	// person or to a channel (#2241). True unless the persona was denied it.
 	AllowSharing bool `json:"allow_sharing" example:"true"`
@@ -128,10 +135,15 @@ type personaCreateRequest struct {
 	// Saving it true removes the call records the persona already wrote on a
 	// sweep started at once. Absent is false.
 	ServiceAccount bool `json:"service_account,omitempty" example:"false"`
-	// HideAutomations takes the portal's Automations section, its pages and
-	// its script routes away from the persona's people; an administrator
-	// keeps them. Absent is false, which shows Automations.
-	HideAutomations bool `json:"hide_automations,omitempty" example:"false"`
+	// Portal is what the persona's people may do in the portal, one setting
+	// per area (#2225); an administrator has every area. Absent, and any
+	// field left out, resolves to what the persona's tools reached before the
+	// setting existed.
+	Portal *persona.PortalAccess `json:"portal,omitempty"`
+	// External marks the persona for people outside the organization: no
+	// MCP tool, only what is shared with its people, no sharing, keys or
+	// people directory (#2092). Absent is false.
+	External bool `json:"external,omitempty" example:"false"`
 	// AllowSharing lets the persona's people share what they own: an asset,
 	// collection or prompt with a person, and an asset to a notification
 	// channel; an administrator always can. Absent is true, which allows it.
@@ -166,6 +178,7 @@ func (h *Handler) listPersonas(w http.ResponseWriter, _ *http.Request) {
 			Roles:       p.Roles,
 			ToolCount:   len(h.allowedTools(p)),
 			Source:      p.Source,
+			External:    p.External,
 		})
 	}
 
@@ -262,7 +275,7 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 	p.Source = platform.SourceDatabase
 	// The registry validates these rules too, but it runs AFTER the store
 	// write below — a rule Register would refuse would already be persisted.
-	if err := persona.ValidateAPIRoutes(p.APIRoutes); err != nil {
+	if err := personarules.Validate(p); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -328,7 +341,7 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 	} else {
 		p.Source = platform.SourceDatabase
 	}
-	if err := persona.ValidateAPIRoutes(p.APIRoutes); err != nil {
+	if err := personarules.Validate(p); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -575,13 +588,21 @@ func toPersonaDetail(p *persona.Persona, tools []string) personaDetail {
 		Source:           p.Source,
 		APIRoutes:        p.APIRoutes,
 		ServiceAccount:   p.ServiceAccount,
-		HideAutomations:  p.HideAutomations,
+		Portal:           p.PortalPermissions(tools),
+		External:         p.External,
 		AllowSharing:     p.SharingAllowed(),
 	}
 }
 
 // buildPersonaFromRequest converts a create request into a persona.
 func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
+	if req.Portal != nil {
+		// external in a portal block is reported, never set: the persona's
+		// own external field is the setting (#2092).
+		block := *req.Portal
+		block.External = false
+		req.Portal = &block
+	}
 	allow := req.AllowTools
 	if allow == nil {
 		allow = []string{}
@@ -613,17 +634,18 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 			Allow: allowConn,
 			Deny:  denyConn,
 		},
-		APIRoutes: normalizeAPIRoutes(req.APIRoutes),
+		APIRoutes: personarules.Normalize(req.APIRoutes),
 		Context: persona.ContextOverrides{
 			DescriptionPrefix:         req.DescriptionPrefix,
 			DescriptionOverride:       req.DescriptionOverride,
 			AgentInstructionsSuffix:   req.AgentInstructionsSuffix,
 			AgentInstructionsOverride: req.AgentInstructionsOverride,
 		},
-		Priority:        req.Priority,
-		ServiceAccount:  req.ServiceAccount,
-		HideAutomations: req.HideAutomations,
-		AllowSharing:    req.AllowSharing,
+		Priority:       req.Priority,
+		ServiceAccount: req.ServiceAccount,
+		Portal:         req.Portal,
+		External:       req.External,
+		AllowSharing:   req.AllowSharing,
 	}
 }
 

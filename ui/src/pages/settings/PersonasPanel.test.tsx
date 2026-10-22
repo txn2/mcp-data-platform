@@ -29,6 +29,7 @@ vi.mock("./PersonaEditor", () => ({
 
 import { usePersonas, usePersonaDetail } from "@/api/admin/hooks";
 import { PersonasPanel } from "./PersonasPanel";
+import { FULL_PORTAL } from "@/lib/portalAccess";
 
 const summaries = [
   { name: "analyst", display_name: "Analyst", roles: ["analyst"], tool_count: 3 },
@@ -46,7 +47,7 @@ function detail(name: string, serviceAccount: boolean): PersonaDetail {
     tools: [],
     api_routes: [],
     service_account: serviceAccount,
-    hide_automations: false,
+    portal: { ...FULL_PORTAL },
   };
 }
 

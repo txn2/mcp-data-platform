@@ -669,6 +669,9 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.SharedWithUserID = "" // prompt shares resolve by email
+	if !h.allowedSharePersona(w, user, req) {
+		return
+	}
 	share, buildErr := buildShare(shareTarget{PromptID: id}, user.Email, req)
 	if buildErr != nil {
 		writePortalError(w, http.StatusBadRequest, buildErr.Error())
@@ -679,7 +682,7 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.wantsNotify() {
-		h.notifyShare(r.Context(), &share, ShareEvent{
+		h.notifyShareRecipients(r.Context(), &share, ShareEvent{
 			Kind: "prompt", ItemID: pr.ID, ItemTitle: pr.DisplayName, Message: req.Message,
 		})
 	}

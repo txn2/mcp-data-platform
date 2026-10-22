@@ -106,6 +106,9 @@ type Config struct {
 	// PersonaName resolves a caller's roles to their persona name, the value
 	// stamped on a captured insight. nil yields no persona.
 	PersonaName func(roles []string) string
+	// ExternalAddress reports whether an address has an external account
+	// (#2092), which an internal thread does not mention (#2227).
+	ExternalAddress func(ctx context.Context, email string) bool
 }
 
 // Handler serves the portal's feedback routes.

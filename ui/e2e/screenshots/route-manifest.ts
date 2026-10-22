@@ -1,6 +1,7 @@
 import { assetViewerRoutes } from "./route-assets";
 import { channelRoutes } from "./route-channels";
 import { storageRoutes } from "./route-storage";
+import { accessSettingsRoutes } from "./route-access";
 import { adminResourceRoutes, userResourceRoutes } from "./route-resources";
 import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
@@ -530,6 +531,7 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/settings/bot-check",
     category: "admin",
   },
+  ...accessSettingsRoutes,
   ...adminScriptRoutes,
 
   // =========================================================================

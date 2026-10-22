@@ -4,8 +4,9 @@ package callrecord
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"testing"
-	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/stretchr/testify/assert"
@@ -18,11 +19,25 @@ import (
 // filter about 95,000 records by outcome.
 const outcomeCatalogSize = 100_000
 
-// outcomeBound is how long one filtered page and its count may take.
-const outcomeBound = time.Second
-
-// outcomeAttempts is how many times each is measured; the fastest counts.
-const outcomeAttempts = 3
+// The bounds below are on work the database reports, not on time: a one-second
+// bound held when the package ran alone and failed under make verify's load
+// (#2249). Neither count changes with the machine's load.
+const (
+	// outcomeProbeShare is the most times a page and its count may probe the
+	// artifacts the satisfied rule reads (memory_records, portal_assets), as a
+	// share of the records in scope. Before #2231 the rule was asked of every
+	// record, a probe or two each (188,102 on this catalog); now it is asked
+	// of the cited records and a page's, at most 0.05 of them.
+	outcomeProbeShare = 0.25
+	// outcomeRowsPerRecord is the most rows a page and its count may examine,
+	// per record in the whole catalog. The supersession pass reads the catalog
+	// once in order, about ten rows a record across the plan's nodes; a
+	// supersession probed pair by pair, which ran for minutes on 103,000
+	// records with no session, is billions. It is measured against the
+	// catalog rather than the unguarded read, whose plan, and so its rows,
+	// changes between runs.
+	outcomeRowsPerRecord = 50
+)
 
 // seedOutcomeCatalog writes outcomeCatalogSize records: every seventeenth
 // failed, pairs of reads over one target in one session (the newer supersedes
@@ -62,10 +77,9 @@ func seedOutcomeCatalog(ctx context.Context, t *testing.T, store *PostgresStore)
 	require.NoError(t, err)
 }
 
-// unguardedOutcomes counts the catalog by outcome with the satisfied rule
-// asked of every record, the read before #2231, so the guarded read is held to
-// deciding every record the same way.
-func unguardedOutcomes(ctx context.Context, t *testing.T, store *PostgresStore) map[string]int {
+// unguardedQuery counts the catalog by outcome with the satisfied rule asked
+// of every record: the read before #2231.
+func unguardedQuery(t *testing.T) (string, []any) {
 	t.Helper()
 	inner := sq.Select(storedColumns...).
 		Column(satisfiedByCase("?")+" AS satisfied_by", callReferencePrefix()).
@@ -75,6 +89,14 @@ func unguardedOutcomes(ctx context.Context, t *testing.T, store *PostgresStore) 
 	query, args, err := psq.Select("o.outcome", "COUNT(*)").
 		FromSelect(outcomeOver(inner), "o").GroupBy("o.outcome").ToSql()
 	require.NoError(t, err)
+	return query, args
+}
+
+// unguardedOutcomes runs unguardedQuery, so the guarded read is held to
+// deciding every record the same way.
+func unguardedOutcomes(ctx context.Context, t *testing.T, store *PostgresStore) map[string]int {
+	t.Helper()
+	query, args := unguardedQuery(t)
 	rows, err := store.db.QueryContext(ctx, query, args...)
 	require.NoError(t, err)
 	defer func() { _ = rows.Close() }()
@@ -89,11 +111,81 @@ func unguardedOutcomes(ctx context.Context, t *testing.T, store *PostgresStore) 
 	return out
 }
 
+// readWork is what one statement cost the database: the rows its nodes
+// examined, how many times it probed the artifacts the satisfied rule reads,
+// and whether it was compiled.
+type readWork struct {
+	rows   float64
+	probes float64
+	jit    bool
+}
+
+func (w readWork) add(o readWork) readWork {
+	return readWork{rows: w.rows + o.rows, probes: w.probes + o.probes, jit: w.jit || o.jit}
+}
+
+// planNode is the part of an EXPLAIN (ANALYZE, FORMAT JSON) node the work is
+// read from.
+type planNode struct {
+	Relation       string     `json:"Relation Name"`
+	Rows           float64    `json:"Actual Rows"`
+	Loops          float64    `json:"Actual Loops"`
+	Filtered       float64    `json:"Rows Removed by Filter"`
+	JoinFiltered   float64    `json:"Rows Removed by Join Filter"`
+	RecheckDropped float64    `json:"Rows Removed by Index Recheck"`
+	Plans          []planNode `json:"Plans"`
+}
+
+// examined is the rows a node and its children produced or discarded, each
+// counted once per loop. A per-record probe is loops; a pairwise comparison
+// the planner hashed is rows removed by the join filter.
+func (n planNode) examined() float64 {
+	total := (n.Rows + n.Filtered + n.JoinFiltered + n.RecheckDropped) * n.Loops
+	for _, c := range n.Plans {
+		total += c.examined()
+	}
+	return total
+}
+
+// ruleProbes is the times a node and its children read memory_records or
+// portal_assets, the tables the satisfied rule asks of a record.
+func (n planNode) ruleProbes() float64 {
+	var total float64
+	if n.Relation == "memory_records" || n.Relation == "portal_assets" {
+		total = n.Loops
+	}
+	for _, c := range n.Plans {
+		total += c.ruleProbes()
+	}
+	return total
+}
+
+// explainRead runs a statement under EXPLAIN ANALYZE in the transaction the
+// store reads in, so a read compiled with JIT (#2231's second and a half) is
+// seen as the store would run it.
+func explainRead(ctx context.Context, t *testing.T, store *PostgresStore, query string, args []any) readWork {
+	t.Helper()
+	var raw []byte
+	require.NoError(t, store.withoutJIT(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+query, args...).Scan(&raw)
+	}))
+	var plans []struct {
+		Plan planNode        `json:"Plan"`
+		JIT  json.RawMessage `json:"JIT"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &plans))
+	require.Len(t, plans, 1)
+	top := plans[0].Plan
+	return readWork{rows: top.examined(), probes: top.ruleProbes(), jit: len(plans[0].JIT) > 0}
+}
+
 // TestCallCatalogRealDBFiltersEachOutcomeWithinASecond is #2231: on a catalog
-// of 100,000 records, a page of each outcome and its count answer within a
-// second, for the whole catalog (the admin list) and for one caller's records
-// (the portal's), and each outcome counts what the rule asked of every record
-// counts.
+// of 100,000 records, where the admin list took 36 seconds to filter by
+// outcome, a page of each outcome and its count, for the whole catalog (the
+// admin list) and for one caller's records (the portal's), ask the satisfied
+// rule of a few records rather than every one, examine a bounded number of
+// rows per catalog record, and are not compiled with JIT; and each outcome
+// counts what the rule asked of every record counts.
 func TestCallCatalogRealDBFiltersEachOutcomeWithinASecond(t *testing.T) {
 	ctx := context.Background()
 	store := NewPostgresStore(testdb.New(t), Config{})
@@ -103,36 +195,33 @@ func TestCallCatalogRealDBFiltersEachOutcomeWithinASecond(t *testing.T) {
 		require.Positive(t, want[outcome], "the seed holds no %s record", outcome)
 	}
 
+	rowBound := float64(outcomeRowsPerRecord * outcomeCatalogSize)
 	for _, scope := range []struct{ name, userID string }{{"admin", ""}, {"portal", "u0"}} {
+		total, err := store.Count(ctx, Filter{UserID: scope.userID})
+		require.NoError(t, err)
 		for _, outcome := range Outcomes {
 			f := Filter{UserID: scope.userID, Outcome: outcome, Limit: 50}
-			// The best of three: this runs beside the rest of the real-database
-			// suite, and one sample that lands on another package's burst
-			// measures that package rather than this query.
-			var (
-				page  []Record
-				count int
-				took  time.Duration
-			)
-			for attempt := range outcomeAttempts {
-				start := time.Now()
-				var err error
-				page, err = store.List(ctx, f)
-				require.NoError(t, err)
-				count, err = store.Count(ctx, f)
-				require.NoError(t, err)
-				if d := time.Since(start); attempt == 0 || d < took {
-					took = d
-				}
-			}
-			t.Logf("%s %s: %d records, page and count in %s (best of %d)", scope.name, outcome, count, took, outcomeAttempts)
-			assert.Less(t, took, outcomeBound, "%s list filtered to %s", scope.name, outcome)
-			require.NotEmpty(t, page, "%s %s", scope.name, outcome)
-			for _, rec := range page {
+			pageQuery, pageArgs, err := listPage(f).ToSql()
+			require.NoError(t, err)
+			countSQL, countArgs, err := countQuery(f).ToSql()
+			require.NoError(t, err)
+			work := explainRead(ctx, t, store, pageQuery, pageArgs).add(explainRead(ctx, t, store, countSQL, countArgs))
+			t.Logf("%s %s: page and count probe %.0f times (%.3f of the records) and examine %.0f rows (%.1f a catalog record)",
+				scope.name, outcome, work.probes, work.probes/float64(total), work.rows, work.rows/outcomeCatalogSize)
+			assert.LessOrEqual(t, work.probes, outcomeProbeShare*float64(total), "%s %s: rule probes", scope.name, outcome)
+			assert.LessOrEqual(t, work.rows, rowBound, "%s %s: rows examined", scope.name, outcome)
+			assert.False(t, work.jit, "%s %s was compiled with JIT", scope.name, outcome)
+
+			records, err := store.List(ctx, f)
+			require.NoError(t, err)
+			require.NotEmpty(t, records, "%s %s", scope.name, outcome)
+			for _, rec := range records {
 				assert.Equal(t, outcome, rec.Outcome)
 			}
 			if scope.userID == "" {
-				assert.Equal(t, want[outcome], count, "%s records counted", outcome)
+				n, err := store.Count(ctx, f)
+				require.NoError(t, err)
+				assert.Equal(t, want[outcome], n, "%s records counted", outcome)
 			}
 		}
 	}

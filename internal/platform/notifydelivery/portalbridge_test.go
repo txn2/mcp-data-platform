@@ -11,6 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
@@ -636,5 +637,56 @@ func TestNotifyThreadEvent_ActorlessEventSkipsFanoutKeepsMentions(t *testing.T) 
 	}
 	if rows[0].Recipient != "named@b.io" || rows[0].Category != notification.CategoryMention {
 		t.Errorf("unexpected row: %+v", rows[0])
+	}
+}
+
+// An internal thread emails no external account; a shared one does (#2227).
+func TestNotifyThreadEvent_InternalThreadSkipsExternalAccounts(t *testing.T) {
+	for vis, wantClient := range map[string]bool{"internal": false, threads.VisibilityShared: true} {
+		stores := PortalStores{
+			Assets:   &fakeAssets{asset: &portal.Asset{ID: "a1", Name: "Report", OwnerEmail: "owner@b.io"}},
+			Grantees: &fakeGrantees{emails: []string{"client@x.org", "colleague@b.io"}},
+			External: func(_ context.Context, email string) bool { return email == "client@x.org" },
+		}
+		n, queue := bridgeUnderTest(t, stores, "https://x.io")
+		thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "owner@b.io", Visibility: vis}
+		n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "internal note", nil)
+		got := map[string]bool{}
+		for _, r := range queue.snapshot() {
+			got[r.Recipient] = true
+		}
+		if got["client@x.org"] != wantClient || !got["colleague@b.io"] {
+			t.Errorf("%s thread recipients = %v", vis, got)
+		}
+	}
+}
+
+// A request for access reaches the owner with the link to their waiting
+// requests; the answer reaches the requester with the link given (#2090).
+func TestNotifyAccessRequestAndDecision(t *testing.T) {
+	n, queue := bridgeUnderTest(t, PortalStores{}, "https://x.io")
+
+	n.NotifyAccessRequest(context.Background(), AccessNotice{
+		To: "owner@b.io", Actor: "reader@b.io", ItemTitle: "Report", ItemID: "a1", Message: "for the review",
+		Link: "https://ignored.example",
+	})
+	n.NotifyAccessDecision(context.Background(), AccessNotice{
+		To: "reader@b.io", Actor: "owner@b.io", ItemTitle: "Report", ItemID: "a1",
+		Message: "Your request was approved as viewer.", Link: "https://x.io/portal/assets/a1",
+	})
+
+	rows := queue.snapshot()
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	req, dec := rows[0], rows[1]
+	if req.Recipient != "owner@b.io" || req.Payload.Kind != notification.KindAccessRequest ||
+		req.Payload.Actor != "reader@b.io" || req.Payload.Message != "for the review" ||
+		req.Payload.Link != "https://x.io/portal/feedback#access-requests" {
+		t.Errorf("request row: %+v", req)
+	}
+	if dec.Recipient != "reader@b.io" || dec.Payload.Kind != notification.KindAccessDecision ||
+		dec.Payload.Link != "https://x.io/portal/assets/a1" || dec.Payload.ItemTitle != "Report" {
+		t.Errorf("decision row: %+v", dec)
 	}
 }

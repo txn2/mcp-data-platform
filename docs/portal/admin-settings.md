@@ -36,6 +36,8 @@ address, so a link can open it directly:
 | Alerts | Connection revocations | `/portal/admin/settings/connection-revocations` |
 | Alerts | Run failures | `/portal/admin/settings/run-failures` |
 | Content | Maps | `/portal/admin/settings/maps` |
+| Access | External accounts | `/portal/admin/settings/external-accounts` |
+| Access | Access requests | `/portal/admin/settings/access-requests` |
 
 `/portal/admin/settings` opens on **Email**. The nav marks **Email** when no
 mail server is configured and **Channels** when a channel's last delivery
@@ -111,6 +113,10 @@ to be enabled untested. See [notification
 channels](../server/notifications.md#notification-channels).
 
 **Maps** sets the basemap a map asset draws on. See [Maps](../server/maps.md).
+
+**External accounts** sets how long an [external user's](admin-access.md#external-users) session lasts (12 hours by default), how long the link in their invitation email works (7 days), and how long a link asked for on the sign-in screen works (15 minutes). It is the `external_accounts` section of the platform settings, read and written at `/api/v1/admin/settings/external-accounts`.
+
+**Access requests** sets what a person who cannot open an item is shown when they ask for access ([Requesting access](assets.md#requesting-access)): **Show the item's name on the request page**, off by default, and **Requests expire after**, 14 days by default. It is the `access_requests` section, at `/api/v1/admin/settings/access-requests`.
 
 ## Change Log
 

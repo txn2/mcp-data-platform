@@ -88,7 +88,7 @@ func (h *Handler) restoreBuiltinPages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	if !h.userHasApplyKnowledge(user) {
+	if !h.access.CanWriteKnowledge(user) {
 		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
 		return
 	}
@@ -158,7 +158,7 @@ func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	if !h.userHasApplyKnowledge(user) {
+	if !h.access.CanWriteKnowledge(user) {
 		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
 		return
 	}
@@ -435,7 +435,7 @@ func (h *Handler) updateKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	if !h.userHasApplyKnowledge(user) {
+	if !h.access.CanWriteKnowledge(user) {
 		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
 		return
 	}
@@ -506,7 +506,7 @@ func (h *Handler) deleteKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	if !h.userHasApplyKnowledge(user) {
+	if !h.access.CanWriteKnowledge(user) {
 		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
 		return
 	}

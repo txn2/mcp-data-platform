@@ -3,10 +3,10 @@
 // curation, lineage and history, editing that curation, and the glossary, tags,
 // domains and data products it is curated with.
 //
-// Reading the catalog takes the persona's fetch grant and writing it the
-// apply_knowledge grant, the two tools that read and curate it over MCP, so
-// the portal never shows or changes more than the persona-filtered MCP surface
-// would. A dataset, its columns and its schema document belong to a
+// Reading the catalog takes the read level of the persona's portal catalog
+// setting and writing it the write level (#2225). A persona that does not set
+// it resolves it from the two tools that read and curate the catalog over MCP:
+// fetch reads, fetch and apply_knowledge write. A dataset, its columns and its schema document belong to a
 // connection, and are read and written only by a caller whose persona reaches
 // that connection. An administrator reaches everything.
 package catalogapi
@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
@@ -26,14 +25,13 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
-// The tools whose grants open the catalog to a persona.
-const (
-	readTool  = "fetch"
-	writeTool = "apply_knowledge"
-)
+// auditTool is the MCP tool a catalog write from the portal is audited as: the
+// one that curates the catalog over MCP.
+const auditTool = "apply_knowledge"
 
 // prefix is where the routes are mounted.
 const prefix = "/api/v1/portal/catalog"
@@ -107,7 +105,12 @@ type caller struct {
 
 // canWrite reports whether the caller may curate the catalog.
 func (c *caller) canWrite() bool {
-	return c.admin || (c.info != nil && slices.Contains(c.info.Tools, writeTool))
+	return c.admin || (c.info != nil && c.info.Portal.Resolve(c.info.Tools).Catalog == persona.PortalWrite)
+}
+
+// canRead reports whether the caller may read the catalog.
+func (c *caller) canRead() bool {
+	return c.admin || (c.info != nil && persona.AtLeast(c.info.Portal.Resolve(c.info.Tools).Catalog, persona.PortalRead))
 }
 
 // reaches reports whether the caller may see a catalog reference: one naming
@@ -138,8 +141,8 @@ func (h *Handler) reader(w http.ResponseWriter, r *http.Request) (*caller, bool)
 	if h.deps.PersonaResolver != nil {
 		c.info = h.deps.PersonaResolver(user.Roles)
 	}
-	if !c.admin && (c.info == nil || !slices.Contains(c.info.Tools, readTool)) {
-		httpjson.WriteError(w, http.StatusForbidden, "reading the catalog takes the fetch tool on your persona")
+	if !c.canRead() {
+		httpjson.WriteError(w, http.StatusForbidden, "your persona does not include reading the catalog")
 		return nil, false
 	}
 	return c, true
@@ -153,7 +156,7 @@ func (h *Handler) writer(w http.ResponseWriter, r *http.Request) (*caller, bool)
 		return nil, false
 	}
 	if !c.canWrite() {
-		httpjson.WriteError(w, http.StatusForbidden, "editing the catalog takes the apply_knowledge tool on your persona")
+		httpjson.WriteError(w, http.StatusForbidden, "your persona does not include editing the catalog")
 		return nil, false
 	}
 	return c, true
@@ -259,7 +262,7 @@ func (h *Handler) audit(ctx context.Context, c *caller, action string, params ma
 	if h.deps.Audit == nil {
 		return
 	}
-	ev := audit.NewEvent(writeTool)
+	ev := audit.NewEvent(auditTool)
 	ev.UserID, ev.UserEmail = c.user.UserID, c.user.Email
 	if c.info != nil {
 		ev.Persona = c.info.Name

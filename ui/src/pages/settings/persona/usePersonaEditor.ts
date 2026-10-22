@@ -49,9 +49,13 @@ function toPayload(draft: PersonaDraft) {
     // Sent only when set: absent is false, and a persona that is not a service
     // account is saved the way it was before the setting existed.
     service_account: draft.serviceAccount || undefined,
-    // Sent only when hidden: absent shows Automations, as every persona did
-    // before the setting existed.
-    hide_automations: draft.showAutomations ? undefined : true,
+    // Sent whole: every area is saved as the editor shows it, rather than
+    // left to resolve from the persona's tools on the server.
+    // The resolved block reports external; the persona's own flag is what
+    // saves it.
+    portal: (({ external: _external, ...areas }) => areas)(draft.portal),
+    // Sent only when set: absent is false.
+    external: draft.external || undefined,
     // Sent every time: absent allows sharing, so a persona denied it has to
     // say so, and one allowed it says so to undo a denial.
     allow_sharing: draft.allowSharing,
@@ -97,7 +101,7 @@ export function usePersonaEditor({
   // that rule governs. Indexed rather than matched by value: two rules can be
   // written identically and each still has its own chip.
   const [highlightRoute, setHighlightRoute] = useState<number | null>(null);
-  const [mainTab, setMainTab] = useState<"permissions" | "behavior">("permissions");
+  const [mainTab, setMainTab] = useState<"permissions" | "portal" | "behavior">("permissions");
 
   // --- derived ---------------------------------------------------------
   const uniqueTools = useMemo(() => aggregateTools(toolsData?.tools), [toolsData]);

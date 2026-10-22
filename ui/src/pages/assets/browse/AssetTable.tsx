@@ -15,6 +15,7 @@ import { markdownToPlainText } from "@/lib/markdownText";
 import { isTruncated } from "@/lib/truncation";
 import { dateColumnFor, type AssetSortKey, type ListSort } from "@/components/listSort";
 import type { DisplayAsset } from "./types";
+import { sharedLine } from "@/lib/sharedLine";
 
 /** The Assets list as a dense table. */
 export function AssetTable({
@@ -134,7 +135,7 @@ function NameCell({
   threadCount?: number;
 }) {
   const Icon = contentTypeIcon(asset.content_type);
-  const secondary = share ? `Shared by ${share.shared_by}` : asset.description;
+  const secondary = share ? sharedLine(share) : asset.description;
   return (
     <TableCell className="max-w-0 whitespace-normal">
       <div className="flex items-center gap-2">

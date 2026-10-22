@@ -18,6 +18,7 @@ import {
   DetailListItem,
   MasterDetail,
 } from "./MasterDetail";
+import { resolvePortal } from "@/lib/portalAccess";
 
 function emptyDraft(): PersonaDraft {
   return {
@@ -36,7 +37,8 @@ function emptyDraft(): PersonaDraft {
     agentInstructionsSuffix: "",
     agentInstructionsOverride: "",
     serviceAccount: false,
-    showAutomations: true,
+    portal: resolvePortal(),
+    external: false,
     allowSharing: true,
   };
 }
@@ -61,7 +63,8 @@ function detailToDraft(d: PersonaDetail): PersonaDraft {
     agentInstructionsSuffix: d.context?.agent_instructions_suffix ?? "",
     agentInstructionsOverride: d.context?.agent_instructions_override ?? "",
     serviceAccount: d.service_account ?? false,
-    showAutomations: !(d.hide_automations ?? false),
+    portal: resolvePortal(d.portal),
+    external: d.external ?? false,
     allowSharing: d.allow_sharing ?? true,
   };
 }

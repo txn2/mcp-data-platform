@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ConfigToggle } from "./connections/fields";
 import { MyAPIKeys } from "./MyAPIKeys";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { SettingsCard } from "./panels";
 import { ErrorBanner, WarningBanner } from "./settingsChrome";
 import { cn } from "@/lib/utils";
@@ -168,10 +169,12 @@ function NoDeliveryNotice({ onNavigate }: Props) {
 // ---------------------------------------------------------------------------
 
 export function UserSettingsPage({ onNavigate }: Props) {
+  // An external account issues no keys (#2092).
+  const { external } = usePortalAccess();
   return (
     <div className="space-y-4">
       <NotificationPrefsCard onNavigate={onNavigate} />
-      <MyAPIKeys />
+      {!external && <MyAPIKeys />}
     </div>
   );
 }

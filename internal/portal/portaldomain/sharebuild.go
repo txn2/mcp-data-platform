@@ -63,6 +63,10 @@ type ShareSpec struct {
 	// RecipientUserID names the recipient by platform user ID, for a caller
 	// that already resolved one.
 	RecipientUserID string
+	// RecipientPersona names a persona as the recipient (#2089): everyone
+	// whose roles resolve to it when they open the item. Exclusive with the
+	// email and user recipients.
+	RecipientPersona string
 	// Permission is "viewer" or "editor". Empty means viewer. A share naming
 	// nobody is forced to viewer whatever this says: a link anyone signed in
 	// can open must not carry write access.
@@ -84,8 +88,11 @@ type ShareSpec struct {
 // hasRecipient reports whether the spec addresses a person rather than minting
 // a bare link.
 func (s ShareSpec) hasRecipient() bool {
-	return s.RecipientEmail != "" || s.RecipientUserID != ""
+	return s.RecipientEmail != "" || s.RecipientUserID != "" || s.RecipientPersona != ""
 }
+
+// ErrPersonaAndPerson is a share naming both a persona and a person.
+var ErrPersonaAndPerson = errors.New("a share is addressed to a person or to a persona, not both")
 
 // BuildShare validates a spec and constructs the Share it describes, minting
 // the token. It performs no I/O: the caller inserts the returned Share and
@@ -94,6 +101,9 @@ func BuildShare(target ShareTarget, createdBy string, spec ShareSpec) (Share, er
 	token, err := GenerateShareToken()
 	if err != nil {
 		return Share{}, errors.New("failed to generate share token")
+	}
+	if spec.RecipientPersona != "" && (spec.RecipientEmail != "" || spec.RecipientUserID != "") {
+		return Share{}, ErrPersonaAndPerson
 	}
 
 	if spec.RecipientEmail != "" {
@@ -123,18 +133,19 @@ func BuildShare(target ShareTarget, createdBy string, spec ShareSpec) (Share, er
 	}
 
 	share := Share{
-		ID:               uuid.New().String(),
-		AssetID:          target.AssetID,
-		CollectionID:     target.CollectionID,
-		PromptID:         target.PromptID,
-		Token:            token,
-		CreatedBy:        createdBy,
-		SharedWithUserID: spec.RecipientUserID,
-		SharedWithEmail:  spec.RecipientEmail,
-		Permission:       perm,
-		AccessMode:       mode,
-		HideExpiration:   spec.HideExpiration,
-		NoticeText:       noticeText,
+		ID:                uuid.New().String(),
+		AssetID:           target.AssetID,
+		CollectionID:      target.CollectionID,
+		PromptID:          target.PromptID,
+		Token:             token,
+		CreatedBy:         createdBy,
+		SharedWithUserID:  spec.RecipientUserID,
+		SharedWithEmail:   spec.RecipientEmail,
+		SharedWithPersona: spec.RecipientPersona,
+		Permission:        perm,
+		AccessMode:        mode,
+		HideExpiration:    spec.HideExpiration,
+		NoticeText:        noticeText,
 	}
 
 	if expErr := applyExpiry(&share, mode, spec.ExpiresIn); expErr != nil {

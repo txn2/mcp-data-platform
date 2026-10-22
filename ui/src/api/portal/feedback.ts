@@ -80,7 +80,11 @@ export interface Thread {
   created_at: string;
   updated_at: string;
   deleted_at?: string;
+  /** Who sees the thread (#2227): internal is the organization's own people. */
+  visibility?: ThreadVisibility;
 }
+
+export type ThreadVisibility = "internal" | "shared";
 
 // A thread list row enriched with timeline aggregates.
 export interface ThreadWithMeta extends Thread {

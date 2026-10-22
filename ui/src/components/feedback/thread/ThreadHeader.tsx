@@ -1,7 +1,9 @@
 import { ArrowLeft, Quote, Trash2 } from "lucide-react";
 import type { Thread } from "@/api/portal/types";
 import { Button } from "@/components/ui/button";
-import { ThreadKindBadge, ThreadStatusBadge } from "../ThreadBadges";
+import { ThreadKindBadge, ThreadStatusBadge, ThreadVisibilityBadge, VisibilityChoice } from "../ThreadBadges";
+import { useUpdateThread } from "@/api/portal/hooks";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { formatRelative } from "../meta";
 
 // ThreadHeader is the way back out, what the thread is, and — for a moderator —
@@ -19,6 +21,10 @@ export function ThreadHeader({
   onBack: () => void;
   onDelete: () => void;
 }) {
+  // Whoever moderates the thread changes who sees it; an external person
+  // cannot (#2227).
+  const update = useUpdateThread();
+  const { external } = usePortalAccess();
   return (
     <div className="flex items-center gap-2 border-b p-3">
       <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to list">
@@ -26,6 +32,14 @@ export function ThreadHeader({
       </Button>
       <ThreadKindBadge kind={thread.kind} />
       <ThreadStatusBadge status={thread.status} />
+      <ThreadVisibilityBadge visibility={thread.visibility} />
+      {mayModerate && !external && (
+        <VisibilityChoice
+          value={thread.visibility ?? "internal"}
+          disabled={update.isPending}
+          onChange={(visibility) => update.mutate({ id: thread.id, visibility })}
+        />
+      )}
       {mayModerate && (
         <Button
           variant="ghost"

@@ -10,6 +10,7 @@ import { collectionMosaicSrc } from "@/lib/thumbnailSupport";
 import { useResolvedDark } from "@/stores/theme";
 import { dateLabelFor, type DateColumn } from "@/components/listSort";
 import type { DisplayCollection } from "./types";
+import { sharedLine } from "@/lib/sharedLine";
 
 /** The Collections list as a gallery of thumbnails. */
 export function CollectionGrid({
@@ -98,7 +99,7 @@ function CollectionCard({
       )}
       {share && (
         <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="truncate">Shared by {share.shared_by}</span>
+          <span className="truncate">{sharedLine(share)}</span>
           <SharePermissionBadge permission={share.permission} />
         </div>
       )}

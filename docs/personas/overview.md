@@ -306,22 +306,42 @@ integration:
 
 The portal's persona editor shows the same setting as the **Service account** checkbox on the AI Assistant Behavior tab. It changes nothing about what the persona may call: access is decided by its tool, connection and API route rules as before. See [Excluding an automated caller](../server/configuration.md#excluding-an-automated-caller).
 
-## Hiding Automations
+## Portal permissions
 
-A persona whose people have no use for managed scripts can have Automations left out of their portal:
+A persona's `portal` block sets what its people may do in the portal, one setting per area (#2225). The navigation shows only what the persona has, and every route of an area answers `403` naming the area when the level does not allow the request. Administrators have every area, whatever their persona says. The block governs the portal only: what an agent may call is still decided by `tools:`, `connections:` and `api_routes:`.
 
 ```yaml
-analyst:
-  display_name: "Data Analyst"
-  roles: ["analyst"]
-  hide_automations: true
+client:
+  display_name: "Client"
+  roles: ["client"]
+  portal:
+    assets: shared
+    resources: shared
+    knowledge: none
+    catalog: none
+    apis: none
+    automations: false
+    memory: false
+  allow_sharing: false
 ```
 
-| Field | Type | Default | Effect |
-|-------|------|---------|--------|
-| `hide_automations` | bool | `false` | The portal sidebar has no Automations entry, an Automations address shows a notice that they are not available to this persona, and the portal's script routes answer `403`. |
+| Area | Levels | What each allows |
+|------|--------|------------------|
+| `assets` | `shared`, `own` | `shared` reads and works on the assets and collections shared with the person, and creates none (`POST /api/v1/portal/assets`, `POST /api/v1/portal/collections` and a copy answer `403`); `own` creates and owns them too. |
+| `resources` | `none`, `shared`, `own`, `persona` | `none` refuses every `/api/v1/resources` route; `shared` reads the person's own folder, their persona's folder and Global and uploads nothing; `own` uploads to the person's own folder, which administrators see, and opens no persona folder; `persona` is the person's own folder, their persona's folder and Global, as before the setting existed. |
+| `knowledge` | `none`, `read`, `write` | Knowledge pages: `read` lists and opens them, `write` creates, edits and removes them. |
+| `catalog` | `none`, `read`, `write` | The portal catalog: `read` browses it, `write` curates it. |
+| `apis` | `none`, `browse` | The API browser (`/api/v1/apis`), still filtered by the persona's connections and API routes. |
+| `feedback` | `true`, `false` | Threads, comments, the feedback inbox and sign-off. |
+| `prompts` | `true`, `false` | The prompt library. |
+| `automations` | `true`, `false` | Managed scripts in the portal. |
+| `search` | `true`, `false` | The portal's unified search. |
+| `memory` | `true`, `false` | Memory and insights. |
+| `download` | `true`, `false` | The Download and Export PDF actions, and the PDF routes. The content a person can view is still read through the content route the viewer renders from. |
 
-The portal's persona editor shows the same setting as the **Automations** checkbox on the AI Assistant Behavior tab. `GET /api/v1/portal/me` reports it to the browser as `automations`. The setting is read from the persona the caller resolves to ([Persona Priority](#persona-priority)). Administrators always see Automations. It changes nothing about the MCP tools: `manage_script` and `run_script` are governed by the persona's `tools:` rules as before (#2109).
+An area the block leaves unset, and every area of a persona with no block, resolves to what the persona reached before the setting existed: `assets: own`, `resources: persona`, `apis: browse` and every switch on; `knowledge: write` when the persona's tools include `apply_knowledge` and `read` otherwise; `catalog: write` when they include `apply_knowledge` and `fetch`, `read` with `fetch` alone, `none` without it. `GET /api/v1/portal/me` reports the caller's block with every area resolved.
+
+The portal's persona editor shows the block on its **Portal** tab, and saving there writes every area. `hide_automations: true`, the setting `portal.automations` replaced (#2109), is still read as `automations: false` when the block does not set `automations`.
 
 ## Sharing
 
@@ -338,7 +358,34 @@ contractor:
 |-------|------|---------|--------|
 | `allow_sharing` | bool | `true` | `false` takes the Share action off assets, collections and prompts in the portal, and refuses every share-creating route (`POST .../shares`, `POST /api/v1/portal/assets/{id}/channel-shares`) and the channel list (`GET /api/v1/portal/channels`) with `403`. `manage_asset action=share`, an export's `create_public_link`, and `notify action=publish` with `access` `signed_in` or `public` are refused the same way. |
 
-The portal's persona editor shows the setting as the **Sharing** checkbox on the AI Assistant Behavior tab. `GET /api/v1/portal/me` reports it as `sharing`. It is read from the persona the caller resolves to, and administrators can always share. Connection scoping still applies to a persona that can share: it is offered only the channels on connections it reaches.
+The portal's persona editor shows the setting as the **Sharing** checkbox on the Portal tab. `GET /api/v1/portal/me` reports it as `sharing`. It is read from the persona the caller resolves to, and administrators can always share. Connection scoping still applies to a persona that can share: it is offered only the channels on connections it reaches.
+
+## External personas
+
+A persona marked `external: true` is for people outside the organization (#2092). Its people are given accounts by an administrator rather than by the identity provider, sign in with a one-time link emailed to them, and see only what is shared with them:
+
+```yaml
+client-review:
+  display_name: "Client review"
+  roles: ["client_review"]
+  external: true
+  portal:
+    feedback: true
+    download: false
+```
+
+Whatever the rest of the persona says, an external persona:
+
+- is denied every MCP tool, so an external person has no agent access;
+- has `assets: shared`, `resources: shared` (or `none`), `knowledge`, `catalog` and `apis` at `none`, and `search`, `prompts`, `automations` and `memory` off. `feedback` and `download` stay as the block sets them;
+- opens what is shared with its people as a viewer, whatever permission the share carries;
+- cannot share, has no API keys, no people directory and no mentions, and reaches no admin route; an administrator persona is never external.
+
+The portal's persona editor shows the setting as the **External** checkbox on the Portal tab. The accounts are listed and managed under [Admin > Users](../portal/admin-access.md#external-users).
+
+## Sharing with a persona
+
+A share can be addressed to a persona instead of a person (#2089). Everyone who resolves to that persona when they open the item opens it, so a person who joins the persona afterwards gains it and one who leaves loses it, with no change to the share. The share dialog offers **People** or **Personas**; anyone may share with their own persona, and an administrator with any persona. Each current member is notified by their own notification preferences, and the share is listed once on the item, as **Persona:** and the persona's name. `POST .../shares` takes `shared_with_persona` in place of `shared_with_email`, and a share naming both is refused.
 
 ## Connection Access Control
 

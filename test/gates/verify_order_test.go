@@ -83,7 +83,7 @@ func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
 		}
 	}
 
-	for _, gate := range []string{"semgrep-diff", "semgrep-changed", "doc-check", "docs-build", "acceptance-check", "state-readers-check", "builtin-pages-check", "e2e-copy-check", "route-manifest-check", "dead-code"} {
+	for _, gate := range []string{"semgrep-diff", "semgrep-changed", "doc-check", "docs-build", "acceptance-check", "state-readers-check", "builtin-pages-check", "e2e-copy-check", "route-manifest-check", "route-conformance-check", "dead-code"} {
 		if indexOf(recipe(t, makefile, "preverify-fast"), gate) < 0 {
 			t.Errorf("preverify-fast does not run %s", gate)
 		}
@@ -286,5 +286,94 @@ func TestPreverifyChecksMigrationsOnBothMajors(t *testing.T) {
 	}
 	if !strings.Contains(makefile, "MIGRATE_PG_IMAGES") {
 		t.Error("migrate-check no longer runs over MIGRATE_PG_IMAGES")
+	}
+}
+
+// TestPreverifyRunsTheGatesOnlyVerifyRan pins #2186: three gates that failed a
+// verify after preverify passed on the #2171-#2174 branch run in preverify,
+// scoped to the diff. The standalone gosec is invoked as verify-static invokes
+// it, the route-template gate runs alone and only on a changed registration,
+// and the mocked-route conformance test runs by itself in preverify-fast.
+func TestPreverifyRunsTheGatesOnlyVerifyRan(t *testing.T) {
+	raw, err := os.ReadFile("../../Makefile")
+	require(t, err)
+	makefile := string(raw)
+
+	pre := recipe(t, makefile, "preverify")
+	for _, gate := range []string{"security-diff", "route-template-diff"} {
+		if stepAt(pre, gate) < 0 {
+			t.Errorf("preverify does not run %s", gate)
+		}
+	}
+	if stepAt(recipe(t, makefile, "preverify-fast"), "route-conformance-check") < 0 {
+		t.Error("preverify-fast does not run route-conformance-check")
+	}
+	if got := strings.Join(recipe(t, makefile, "route-conformance-check"), "\n"); !strings.Contains(got, "vitest run src/mocks/route-conformance.test.ts") {
+		t.Errorf("route-conformance-check runs %q, not the conformance test alone", got)
+	}
+
+	gosec := strings.Join(recipe(t, makefile, "security-diff"), "\n")
+	if !strings.Contains(gosec, "preverify-diff.py gosec-packages") || !strings.Contains(gosec, "GOOS=linux gosec $$pkgs") {
+		t.Errorf("security-diff does not run verify's gosec over the changed packages:\n%s", gosec)
+	}
+	if !strings.Contains(strings.Join(recipe(t, makefile, "security"), "\n"), "GOOS=linux gosec ./...") {
+		t.Error("security no longer runs GOOS=linux gosec ./...; security-diff must run the same invocation")
+	}
+
+	routes := strings.Join(recipe(t, makefile, "route-template-diff"), "\n")
+	for _, want := range []string{"preverify-diff.py routes-changed", "REALDB_PKGS=./internal/httpserver/", "REALDB_RUN=TestEveryRouteReportsItsTemplate_RealDB"} {
+		if !strings.Contains(routes, want) {
+			t.Errorf("route-template-diff does not contain %q", want)
+		}
+	}
+	if !strings.Contains(strings.Join(recipe(t, makefile, "test-realdb"), "\n"), "-run '$(REALDB_RUN)'") {
+		t.Error("test-realdb does not run -run '$(REALDB_RUN)', so route-template-diff cannot narrow it")
+	}
+}
+
+// TestPreverifySmokesAChangedDevStack pins #2248: preverify runs dev-smoke when
+// the diff (tracked and untracked) changes a file under dev/ and skips it
+// otherwise, and dev-smoke fails, saying so, when no stack answers.
+func TestPreverifySmokesAChangedDevStack(t *testing.T) {
+	raw, err := os.ReadFile("../../Makefile")
+	require(t, err)
+	makefile := string(raw)
+
+	if stepAt(recipe(t, makefile, "preverify"), "dev-smoke-diff") < 0 {
+		t.Fatal("preverify does not run dev-smoke-diff")
+	}
+	step := strings.Join(recipe(t, makefile, "dev-smoke-diff"), "\n")
+	for _, want := range []string{"git diff --name-only", "git ls-files --others", "$(DEV_DIR)", "skipped", "dev-smoke"} {
+		if !strings.Contains(step, want) {
+			t.Errorf("dev-smoke-diff does not contain %q, so it cannot decide from the diff", want)
+		}
+	}
+	if !strings.Contains(makefile, "DEV_DIR := dev\n") {
+		t.Error("DEV_DIR does not name the dev stack's directory")
+	}
+	smoke := strings.Join(recipe(t, makefile, "dev-smoke"), "\n")
+	for _, want := range []string{"/healthz", "no dev stack answers", "exit 1", "-run '^TestDevSmoke_'"} {
+		if !strings.Contains(smoke, want) {
+			t.Errorf("dev-smoke does not contain %q", want)
+		}
+	}
+}
+
+// TestRealDBLaneReportsItsConnections pins #2249: the real-database lane's
+// server is started with the limit the Makefile sets from measurement, and
+// every run reports its peak connections beside it.
+func TestRealDBLaneReportsItsConnections(t *testing.T) {
+	raw, err := os.ReadFile("../../Makefile")
+	require(t, err)
+	makefile := string(raw)
+
+	lane := strings.Join(recipe(t, makefile, "test-realdb"), "\n")
+	for _, want := range []string{"max_connections=$(REALDB_MAX_CONNECTIONS)", "scripts/realdb-connections.py $(REALDB_PG_CONTAINER)", "trap finish EXIT", "-p 4"} {
+		if !strings.Contains(lane, want) {
+			t.Errorf("test-realdb does not contain %q", want)
+		}
+	}
+	if !strings.Contains(makefile, "REALDB_MAX_CONNECTIONS ?= ") {
+		t.Error("REALDB_MAX_CONNECTIONS is not set")
 	}
 }

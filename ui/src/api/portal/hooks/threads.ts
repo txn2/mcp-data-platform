@@ -8,6 +8,7 @@ import {
 import type {
   PaginatedResponse,
   Thread,
+  ThreadVisibility,
   ThreadWithMeta,
   ThreadActivityItem,
   ThreadEvent,
@@ -241,6 +242,8 @@ export function useThreadCounts(
 }
 
 export interface CreateThreadInput {
+  /** Internal (the default) or shared (#2227). */
+  visibility?: ThreadVisibility;
   kind: ThreadKind;
   target_type: ThreadTargetType;
   asset_id?: string;
@@ -339,6 +342,8 @@ export interface UpdateThreadInput {
   id: string;
   status?: ThreadStatus;
   requires_resolution?: boolean;
+  /** Internal or shared (#2227); a moderator's change is recorded on the timeline. */
+  visibility?: ThreadVisibility;
   // validation_state is intentionally not settable via the generic update:
   // validation transitions go through useRespondValidation (#603).
 }

@@ -1,5 +1,91 @@
 basePath: /api/v1
 definitions:
+  accessreq.DecideRequest:
+    properties:
+      permission:
+        description: Permission is viewer or editor.
+        example: viewer
+        type: string
+    type: object
+  accessreq.OpenRequest:
+    properties:
+      message:
+        example: I need this for the quarterly review
+        type: string
+    type: object
+  accessreq.Page:
+    properties:
+      has_access:
+        description: HasAccess is true when the person already opens the item.
+        type: boolean
+      name:
+        description: Name is the item's name, only when the deployment reveals names.
+        type: string
+      owner_email:
+        description: OwnerEmail is who a request goes to.
+        type: string
+      pending:
+        allOf:
+        - $ref: '#/definitions/accessreq.Request'
+        description: Pending is the person's live request for the item, if any.
+    type: object
+  accessreq.Request:
+    properties:
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      message:
+        type: string
+      owner_email:
+        type: string
+      permission:
+        example: viewer
+        type: string
+      requester_email:
+        type: string
+      requester_id:
+        type: string
+      share_id:
+        type: string
+      status:
+        example: pending
+        type: string
+      target_id:
+        type: string
+      target_name:
+        description: TargetName is the item's name, filled for its owner.
+        type: string
+      target_type:
+        example: asset
+        type: string
+    type: object
+  accessreq.RequestList:
+    properties:
+      requests:
+        items:
+          $ref: '#/definitions/accessreq.Request'
+        type: array
+    type: object
+  accessreq.Settings:
+    properties:
+      expire_days:
+        description: ExpireDays is how long a request waits for an answer.
+        example: 14
+        type: integer
+      reveal_names:
+        description: |-
+          RevealNames shows the item's name on the page a person who cannot
+          open it sees; otherwise the page has a generic title.
+        example: false
+        type: boolean
+    type: object
   admin.ToolActivityAggregate:
     properties:
       avg_duration_ms:
@@ -1021,16 +1107,24 @@ definitions:
       display_name:
         example: Data Viewer
         type: string
-      hide_automations:
+      external:
         description: |-
-          HideAutomations takes the portal's Automations section, its pages and
-          its script routes away from the persona's people; an administrator
-          keeps them. Absent is false, which shows Automations.
+          External marks the persona for people outside the organization: no
+          MCP tool, only what is shared with its people, no sharing, keys or
+          people directory (#2092). Absent is false.
         example: false
         type: boolean
       name:
         example: viewer
         type: string
+      portal:
+        allOf:
+        - $ref: '#/definitions/persona.PortalAccess'
+        description: |-
+          Portal is what the persona's people may do in the portal, one setting
+          per area (#2225); an administrator has every area. Absent, and any
+          field left out, resolves to what the persona's tools reached before the
+          setting existed.
       priority:
         example: 0
         type: integer
@@ -1095,15 +1189,22 @@ definitions:
       display_name:
         example: Data Engineer
         type: string
-      hide_automations:
+      external:
         description: |-
-          HideAutomations takes the portal's Automations section away from the
-          persona's people (#2109). False shows it.
+          External marks the persona for people outside the organization, whose
+          accounts the platform creates (#2092).
         example: false
         type: boolean
       name:
         example: data-engineer
         type: string
+      portal:
+        allOf:
+        - $ref: '#/definitions/persona.PortalAccess'
+        description: |-
+          Portal is what the persona's people may do in the portal, every area
+          resolved (#2225): a field the persona leaves unset reads as what its
+          tools reached before the setting existed.
       priority:
         example: 10
         type: integer
@@ -1150,6 +1251,11 @@ definitions:
       display_name:
         example: Data Engineer
         type: string
+      external:
+        description: External marks a persona for people outside the organization
+          (#2092).
+        example: false
+        type: boolean
       name:
         example: data-engineer
         type: string
@@ -4711,6 +4817,81 @@ definitions:
           waits its turn.
         type: string
     type: object
+  extaccount.NewAccount:
+    properties:
+      email:
+        type: string
+      expires_at:
+        type: string
+      name:
+        type: string
+      persona:
+        type: string
+    type: object
+  extaccount.Settings:
+    properties:
+      invite_hours:
+        description: InviteHours is how long the invitation email's link can be used.
+        example: 168
+        type: integer
+      link_minutes:
+        description: |-
+          LinkMinutes is how long a link asked for on the sign-in screen can be
+          used.
+        example: 15
+        type: integer
+      session_hours:
+        description: SessionHours is how long a signed-in session lasts.
+        example: 12
+        type: integer
+    type: object
+  extaccountapi.ExtendRequest:
+    properties:
+      expires_at:
+        description: ExpiresAt is the new expiry; null removes it.
+        type: string
+    type: object
+  extaccountapi.UserList:
+    properties:
+      users:
+        items:
+          $ref: '#/definitions/extaccountapi.UserView'
+        type: array
+    type: object
+  extaccountapi.UserView:
+    properties:
+      converted_at:
+        description: |-
+          ConvertedAt is when the person first signed in through the identity
+          provider, which closed the account.
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      email:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      last_sign_in_at:
+        type: string
+      name:
+        type: string
+      persona:
+        type: string
+      shared_items:
+        description: SharedItems is the live shares to the account's address.
+        example: 3
+        type: integer
+      status:
+        description: Status is active, suspended, expired or converted.
+        example: active
+        type: string
+      suspended_at:
+        type: string
+    type: object
   feedbackapi.appendEventRequest:
     properties:
       body:
@@ -4772,6 +4953,12 @@ definitions:
         type: integer
       title:
         type: string
+      visibility:
+        description: |-
+          Visibility is internal (the default) or shared (#2227). A thread a
+          person of an external persona opens is shared whatever this says.
+        example: internal
+        type: string
     type: object
   feedbackapi.pagedResponse:
     properties:
@@ -4832,6 +5019,12 @@ definitions:
       status:
         type: string
       validation_state:
+        type: string
+      visibility:
+        description: |-
+          Visibility makes the thread internal or shared (#2227); recorded on its
+          timeline. A person of an external persona cannot change it.
+        example: shared
         type: string
     type: object
   fireshttp.Timeline:
@@ -6360,6 +6553,49 @@ definitions:
     - AccessSourceAllow
     - AccessSourceDeny
     - AccessSourceDefault
+  persona.PortalAccess:
+    properties:
+      apis:
+        description: 'APIs is the portal API browser: none or browse.'
+        type: string
+      assets:
+        description: 'Assets is assets and collections: shared or own.'
+        type: string
+      automations:
+        description: |-
+          Automations is managed scripts in the portal; the script tools an agent
+          calls are governed by Tools. It replaces hide_automations (#2109).
+        type: boolean
+      catalog:
+        description: 'Catalog is the platform catalog: none, read or write.'
+        type: string
+      download:
+        description: Download is downloading content and exporting it as PDF.
+        type: boolean
+      external:
+        description: |-
+          External is reported, never set: the persona is external (#2092), so
+          the portal offers its people no people directory and no API keys.
+        type: boolean
+      feedback:
+        description: Feedback is threads, comments, activity, worklists and sign-off.
+        type: boolean
+      knowledge:
+        description: 'Knowledge is knowledge pages: none, read or write.'
+        type: string
+      memory:
+        description: Memory is memory and insights.
+        type: boolean
+      prompts:
+        description: Prompts is the prompt library.
+        type: boolean
+      resources:
+        description: 'Resources is managed resources: none, shared, own or persona.'
+        type: string
+      search:
+        description: Search is the portal's unified search.
+        type: boolean
+    type: object
   platform.ConnectionInstance:
     properties:
       config:
@@ -6749,10 +6985,27 @@ definitions:
       shared_with_email:
         example: bob@example.com
         type: string
+      shared_with_persona:
+        description: |-
+          SharedWithPersona names the persona the share is addressed to (#2089):
+          every person whose roles resolve to it when they open the item, decided
+          then rather than when the share was made. Exclusive with the user and
+          email recipients.
+        example: finance
+        type: string
       shared_with_user_id:
         type: string
       token:
         example: tk_a1b2c3d4e5f6
+        type: string
+    type: object
+  portal.SharePersona:
+    properties:
+      display_name:
+        example: Finance
+        type: string
+      name:
+        example: finance
         type: string
     type: object
   portal.ShareSummary:
@@ -6779,6 +7032,10 @@ definitions:
         type: string
       shared_by:
         example: alice@example.com
+        type: string
+      via_persona:
+        description: ViaPersona names the persona the collection was shared with (#2089).
+        example: finance
         type: string
     type: object
   portal.SharedPrompt:
@@ -7045,6 +7302,14 @@ definitions:
       shared_with_email:
         example: colleague@example.com
         type: string
+      shared_with_persona:
+        description: |-
+          SharedWithPersona addresses the share to a persona (#2089): everyone
+          whose roles resolve to it when they open the item. Exclusive with the
+          user and email recipients. The caller's own persona, or any persona for
+          an administrator (GET /api/v1/portal/share-personas).
+        example: finance
+        type: string
       shared_with_user_id:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
@@ -7306,13 +7571,6 @@ definitions:
     type: object
   portal.meResponse:
     properties:
-      automations:
-        description: |-
-          Automations is whether the portal shows this caller its Automations
-          section (#2109): false when their persona hides it, always true for an
-          administrator.
-        example: true
-        type: boolean
       csrf_token:
         description: |-
           CSRFToken is set only for cookie sessions; the SPA echoes it in the
@@ -7335,6 +7593,14 @@ definitions:
       persona:
         example: analyst
         type: string
+      portal:
+        allOf:
+        - $ref: '#/definitions/persona.PortalAccess'
+        description: |-
+          Portal is what this caller may do in the portal, one setting per area
+          (#2225): their persona's, or every area for an administrator. The
+          navigation shows what it allows, and every route of an area refuses
+          what it does not.
       roles:
         example:
         - analyst
@@ -7551,6 +7817,13 @@ definitions:
       sections:
         items:
           $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_portal.sectionInput'
+        type: array
+    type: object
+  portal.sharePersonaList:
+    properties:
+      personas:
+        items:
+          $ref: '#/definitions/portal.SharePersona'
         type: array
     type: object
   portal.shareResponse:
@@ -7938,11 +8211,13 @@ definitions:
     - explicit
     - public_link_login
     - channel_post
+    - access_request
     type: string
     x-enum-varnames:
     - OriginExplicit
     - OriginPublicLinkLogin
     - OriginChannelPost
+    - OriginAccessRequest
   portaldomain.SharePermission:
     enum:
     - viewer
@@ -12635,6 +12910,12 @@ definitions:
       validation_state:
         example: none
         type: string
+      visibility:
+        description: |-
+          Visibility is internal or shared (#2227): people of an external persona
+          never see an internal thread, and a thread one of them opens is shared.
+        example: internal
+        type: string
     type: object
   threads.ThreadEvent:
     properties:
@@ -17090,6 +17371,171 @@ paths:
       summary: Get one endpoint with its traffic
       tags:
       - Endpoints
+  /admin/external-users:
+    get:
+      description: 'Returns every account the platform created for a person outside
+        the organization, newest first: the address, name, external persona, expiry,
+        when it was suspended, its last sign-in, when the person''s first identity-provider
+        sign-in converted it, its status (active, suspended, expired or converted)
+        and the live shares to its address.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/extaccountapi.UserList'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List external users
+      tags:
+      - External users
+    post:
+      consumes:
+      - application/json
+      description: Creates an account for a person outside the organization under
+        an external persona and emails them an invitation holding a one-time sign-in
+        link, valid for the invite_hours setting. The persona must be external and
+        its own roles must resolve to it. An address that already has an account is
+        refused with 409, and so is one that already signs in through the identity
+        provider. expires_at is optional; after it the account's sessions end and
+        it cannot sign in.
+      parameters:
+      - description: The account
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/extaccount.NewAccount'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/extaccountapi.UserView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add an external user
+      tags:
+      - External users
+  /admin/external-users/{id}:
+    delete:
+      description: Deletes the account, ends its sessions on their next request, and
+        revokes every share to its address, so no guest link reopens what was shared.
+      parameters:
+      - description: Account id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove an external user
+      tags:
+      - External users
+  /admin/external-users/{id}/extend:
+    post:
+      consumes:
+      - application/json
+      description: Sets the account's expiry to expires_at, which must be in the future,
+        or removes it when expires_at is null.
+      parameters:
+      - description: Account id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The new expiry
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/extaccountapi.ExtendRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Extend an external user
+      tags:
+      - External users
+  /admin/external-users/{id}/resume:
+    post:
+      description: Lets a suspended account sign in again.
+      parameters:
+      - description: Account id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Resume an external user
+      tags:
+      - External users
+  /admin/external-users/{id}/suspend:
+    post:
+      description: Stops the account signing in and ends its sessions on their next
+        request. Its shares stay; Resume restores it.
+      parameters:
+      - description: Account id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Suspend an external user
+      tags:
+      - External users
   /admin/gateway/connections/{name}/enrichment-rules:
     get:
       parameters:
@@ -20084,6 +20530,53 @@ paths:
       summary: Get session
       tags:
       - Sessions
+  /admin/settings/access-requests:
+    get:
+      description: 'Returns whether the page a person who cannot open an item sees
+        names the item (reveal_names, default false: a generic title), and how many
+        days a request for access waits for an answer (expire_days, default 14) (#2090).'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Settings'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get the access request settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Sets reveal_names and expire_days (1 to 365). A request already
+        made keeps the expiry it was made with.
+      parameters:
+      - description: The settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/accessreq.Settings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Settings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update the access request settings
+      tags:
+      - Settings
   /admin/settings/bot-check:
     get:
       description: 'Returns the bot check a public endpoint requires: the provider
@@ -20193,6 +20686,55 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update connection-revocation alert settings
+      tags:
+      - Settings
+  /admin/settings/external-accounts:
+    get:
+      description: Returns how long an external user's signed-in session lasts (session_hours,
+        default 12), how long the invitation email's link can be used (invite_hours,
+        default 168), and how long a link asked for on the sign-in screen can be used
+        (link_minutes, default 15).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/extaccount.Settings'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get the external account settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Sets the three durations. session_hours and invite_hours are 1
+        to 720, link_minutes 1 to 1440. A session already signed in keeps the length
+        it was signed with.
+      parameters:
+      - description: The settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/extaccount.Settings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/extaccount.Settings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update the external account settings
       tags:
       - Settings
   /admin/settings/maps:
@@ -21709,6 +22251,108 @@ paths:
       summary: Call an upstream connection and stream the body back unbuffered
       tags:
       - Gateway
+  /portal/access-requests:
+    get:
+      description: Returns the pending requests for items the caller owns (#2090),
+        every pending request for an administrator, or one item's with target_type
+        and target_id.
+      parameters:
+      - description: asset, collection or prompt
+        in: query
+        name: target_type
+        type: string
+      - description: Item id
+        in: query
+        name: target_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.RequestList'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List access requests waiting on me
+      tags:
+      - Access requests
+  /portal/access-requests/{id}/approve:
+    post:
+      consumes:
+      - application/json
+      description: Creates a person share of the item for the requester with the permission
+        given, viewer or editor, recorded with origin access_request (#2090), and
+        tells the requester. The item's owner or an administrator.
+      parameters:
+      - description: Request id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The permission
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/accessreq.DecideRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Approve an access request
+      tags:
+      - Access requests
+  /portal/access-requests/{id}/decline:
+    post:
+      description: Closes the request without a share and tells the requester (#2090).
+        The item's owner or an administrator.
+      parameters:
+      - description: Request id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Decline an access request
+      tags:
+      - Access requests
   /portal/activity/breakdown:
     get:
       description: Returns activity breakdown grouped by a dimension (tool_name, user_id,
@@ -22198,6 +22842,85 @@ paths:
       summary: Update asset metadata
       tags:
       - Assets
+  /portal/assets/{id}/access-request:
+    get:
+      description: 'What the page shown to a signed-in person who cannot open an item
+        says (#2090): whether they already open it, the item''s owner, the item''s
+        name when the access_requests setting reveals names, and their pending request
+        for it if they have one.'
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Page'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read the request-access page
+      tags:
+      - Access requests
+  /portal/assets/{id}/access-requests:
+    post:
+      consumes:
+      - application/json
+      description: Asks the owner of an asset, collection or prompt for access (#2090),
+        with an optional message. The owner is notified by their notification preferences
+        with Approve as viewer, Approve as editor and Decline. A second request while
+        one is pending answers 200 with that request and notifies nobody; a person
+        who already opens the item is refused with 409, and one who has asked three
+        times for it in a day with 429.
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The message
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/accessreq.OpenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Request access to an item
+      tags:
+      - Access requests
   /portal/assets/{id}/channel-shares:
     post:
       consumes:
@@ -24376,6 +25099,85 @@ paths:
       summary: Update collection
       tags:
       - Collections
+  /portal/collections/{id}/access-request:
+    get:
+      description: 'What the page shown to a signed-in person who cannot open an item
+        says (#2090): whether they already open it, the item''s owner, the item''s
+        name when the access_requests setting reveals names, and their pending request
+        for it if they have one.'
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Page'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read the request-access page
+      tags:
+      - Access requests
+  /portal/collections/{id}/access-requests:
+    post:
+      consumes:
+      - application/json
+      description: Asks the owner of an asset, collection or prompt for access (#2090),
+        with an optional message. The owner is notified by their notification preferences
+        with Approve as viewer, Approve as editor and Decline. A second request while
+        one is pending answers 200 with that request and notifies nobody; a person
+        who already opens the item is refused with 409, and one who has asked three
+        times for it in a day with 429.
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The message
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/accessreq.OpenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Request access to an item
+      tags:
+      - Access requests
   /portal/collections/{id}/config:
     put:
       consumes:
@@ -26114,6 +26916,85 @@ paths:
       summary: Update personal prompt
       tags:
       - Prompts
+  /portal/prompts/{id}/access-request:
+    get:
+      description: 'What the page shown to a signed-in person who cannot open an item
+        says (#2090): whether they already open it, the item''s owner, the item''s
+        name when the access_requests setting reveals names, and their pending request
+        for it if they have one.'
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Page'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read the request-access page
+      tags:
+      - Access requests
+  /portal/prompts/{id}/access-requests:
+    post:
+      consumes:
+      - application/json
+      description: Asks the owner of an asset, collection or prompt for access (#2090),
+        with an optional message. The owner is notified by their notification preferences
+        with Approve as viewer, Approve as editor and Decline. A second request while
+        one is pending answers 200 with that request and notifies nobody; a person
+        who already opens the item is refused with 409, and one who has asked three
+        times for it in a day with 429.
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The message
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/accessreq.OpenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Request access to an item
+      tags:
+      - Access requests
   /portal/prompts/{id}/attachments:
     get:
       description: Returns the reference material attached to a prompt, in authored
@@ -28605,6 +29486,29 @@ paths:
       summary: Get one of my sessions
       tags:
       - Sessions
+  /portal/share-personas:
+    get:
+      description: 'Returns the personas a share may be addressed to by the caller:
+        every persona for an administrator, the caller''s own for everyone else (#2089).
+        A share addressed to a persona opens for everyone whose roles resolve to it
+        when they open the item.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.sharePersonaList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the personas the caller may share with
+      tags:
+      - Shares
   /portal/shared-collections:
     get:
       description: Returns paginated collections that other users have shared with
@@ -30762,11 +31666,16 @@ tags:
     description: "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."
   - name: "Users"
     description: "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."
+  - name: "Access requests"
+    description: "A signed-in person asking an item's owner for access to an asset, collection or prompt they cannot open, the owner's answer, and how long a request waits."
+  - name: "External users"
+    description: "Accounts for people outside the organization under an external persona, signed in by an emailed one-time link, and how long their session and links last."
 
 x-tagGroups:
   - name: "User API"
     tags:
       - "User"
+      - "Access requests"
       - "Activity"
       - "API Keys"
       - "APIs"
@@ -30793,6 +31702,7 @@ x-tagGroups:
       - "Config"
       - "Connections"
       - "Endpoints"
+      - "External users"
       - "Notifications"
       - "Personas"
       - "Scripts"

@@ -5058,6 +5058,258 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/external-users": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every account the platform created for a person outside the organization, newest first: the address, name, external persona, expiry, when it was suspended, its last sign-in, when the person's first identity-provider sign-in converted it, its status (active, suspended, expired or converted) and the live shares to its address.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "External users"
+                ],
+                "summary": "List external users",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/extaccountapi.UserList"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates an account for a person outside the organization under an external persona and emails them an invitation holding a one-time sign-in link, valid for the invite_hours setting. The persona must be external and its own roles must resolve to it. An address that already has an account is refused with 409, and so is one that already signs in through the identity provider. expires_at is optional; after it the account's sessions end and it cannot sign in.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "External users"
+                ],
+                "summary": "Add an external user",
+                "parameters": [
+                    {
+                        "description": "The account",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/extaccount.NewAccount"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/extaccountapi.UserView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/external-users/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes the account, ends its sessions on their next request, and revokes every share to its address, so no guest link reopens what was shared.",
+                "tags": [
+                    "External users"
+                ],
+                "summary": "Remove an external user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Account id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/external-users/{id}/extend": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets the account's expiry to expires_at, which must be in the future, or removes it when expires_at is null.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "External users"
+                ],
+                "summary": "Extend an external user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Account id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The new expiry",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/extaccountapi.ExtendRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/external-users/{id}/resume": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lets a suspended account sign in again.",
+                "tags": [
+                    "External users"
+                ],
+                "summary": "Resume an external user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Account id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/external-users/{id}/suspend": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stops the account signing in and ends its sessions on their next request. Its shares stay; Resume restores it.",
+                "tags": [
+                    "External users"
+                ],
+                "summary": "Suspend an external user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Account id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/gateway/connections/{name}/enrichment-rules": {
             "get": {
                 "security": [
@@ -9647,6 +9899,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/settings/access-requests": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns whether the page a person who cannot open an item sees names the item (reveal_names, default false: a generic title), and how many days a request for access waits for an answer (expire_days, default 14) (#2090).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get the access request settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Settings"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets reveal_names and expire_days (1 to 365). A request already made keeps the expiry it was made with.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update the access request settings",
+                "parameters": [
+                    {
+                        "description": "The settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Settings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Settings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/bot-check": {
             "get": {
                 "security": [
@@ -9796,6 +10122,80 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/external-accounts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns how long an external user's signed-in session lasts (session_hours, default 12), how long the invitation email's link can be used (invite_hours, default 168), and how long a link asked for on the sign-in screen can be used (link_minutes, default 15).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get the external account settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/extaccount.Settings"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets the three durations. session_hours and invite_hours are 1 to 720, link_minutes 1 to 1440. A session already signed in keeps the length it was signed with.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update the external account settings",
+                "parameters": [
+                    {
+                        "description": "The settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/extaccount.Settings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/extaccount.Settings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12010,6 +12410,164 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/access-requests": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the pending requests for items the caller owns (#2090), every pending request for an administrator, or one item's with target_type and target_id.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "List access requests waiting on me",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset, collection or prompt",
+                        "name": "target_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "target_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.RequestList"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/access-requests/{id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a person share of the item for the requester with the permission given, viewer or editor, recorded with origin access_request (#2090), and tells the requester. The item's owner or an administrator.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Approve an access request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The permission",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.DecideRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/access-requests/{id}/decline": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Closes the request without a share and tells the requester (#2090). The item's owner or an administrator.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Decline an access request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/activity/breakdown": {
             "get": {
                 "security": [
@@ -12827,6 +13385,121 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/access-request": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "What the page shown to a signed-in person who cannot open an item says (#2090): whether they already open it, the item's owner, the item's name when the access_requests setting reveals names, and their pending request for it if they have one.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Read the request-access page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Page"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/access-requests": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Asks the owner of an asset, collection or prompt for access (#2090), with an optional message. The owner is notified by their notification preferences with Approve as viewer, Approve as editor and Decline. A second request while one is pending answers 200 with that request and notifies nobody; a person who already opens the item is refused with 409, and one who has asked three times for it in a day with 429.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Request access to an item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The message",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.OpenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -16100,6 +16773,121 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/collections/{id}/access-request": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "What the page shown to a signed-in person who cannot open an item says (#2090): whether they already open it, the item's owner, the item's name when the access_requests setting reveals names, and their pending request for it if they have one.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Read the request-access page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Page"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections/{id}/access-requests": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Asks the owner of an asset, collection or prompt for access (#2090), with an optional message. The owner is notified by their notification preferences with Approve as viewer, Approve as editor and Decline. A second request while one is pending answers 200 with that request and notifies nobody; a person who already opens the item is refused with 409, and one who has asked three times for it in a day with 429.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Request access to an item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The message",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.OpenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/collections/{id}/config": {
             "put": {
                 "security": [
@@ -18798,6 +19586,121 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/prompts/{id}/access-request": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "What the page shown to a signed-in person who cannot open an item says (#2090): whether they already open it, the item's owner, the item's name when the access_requests setting reveals names, and their pending request for it if they have one.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Read the request-access page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Page"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/prompts/{id}/access-requests": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Asks the owner of an asset, collection or prompt for access (#2090), with an optional message. The owner is notified by their notification preferences with Approve as viewer, Approve as editor and Decline. A second request while one is pending answers 200 with that request and notifies nobody; a person who already opens the item is refused with 409, and one who has asked three times for it in a day with 429.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Request access to an item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The message",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.OpenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -22300,6 +23203,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/share-personas": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the personas a share may be addressed to by the caller: every persona for an administrator, the caller's own for everyone else (#2089). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "List the personas the caller may share with",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.sharePersonaList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/shared-collections": {
             "get": {
                 "security": [
@@ -25408,6 +26345,130 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "accessreq.DecideRequest": {
+            "type": "object",
+            "properties": {
+                "permission": {
+                    "description": "Permission is viewer or editor.",
+                    "type": "string",
+                    "example": "viewer"
+                }
+            }
+        },
+        "accessreq.OpenRequest": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "example": "I need this for the quarterly review"
+                }
+            }
+        },
+        "accessreq.Page": {
+            "type": "object",
+            "properties": {
+                "has_access": {
+                    "description": "HasAccess is true when the person already opens the item.",
+                    "type": "boolean"
+                },
+                "name": {
+                    "description": "Name is the item's name, only when the deployment reveals names.",
+                    "type": "string"
+                },
+                "owner_email": {
+                    "description": "OwnerEmail is who a request goes to.",
+                    "type": "string"
+                },
+                "pending": {
+                    "description": "Pending is the person's live request for the item, if any.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    ]
+                }
+            }
+        },
+        "accessreq.Request": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "decided_at": {
+                    "type": "string"
+                },
+                "decided_by": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "permission": {
+                    "type": "string",
+                    "example": "viewer"
+                },
+                "requester_email": {
+                    "type": "string"
+                },
+                "requester_id": {
+                    "type": "string"
+                },
+                "share_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "target_id": {
+                    "type": "string"
+                },
+                "target_name": {
+                    "description": "TargetName is the item's name, filled for its owner.",
+                    "type": "string"
+                },
+                "target_type": {
+                    "type": "string",
+                    "example": "asset"
+                }
+            }
+        },
+        "accessreq.RequestList": {
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/accessreq.Request"
+                    }
+                }
+            }
+        },
+        "accessreq.Settings": {
+            "type": "object",
+            "properties": {
+                "expire_days": {
+                    "description": "ExpireDays is how long a request waits for an answer.",
+                    "type": "integer",
+                    "example": 14
+                },
+                "reveal_names": {
+                    "description": "RevealNames shows the item's name on the page a person who cannot\nopen it sees; otherwise the page has a generic title.",
+                    "type": "boolean",
+                    "example": false
+                }
+            }
+        },
         "admin.ToolActivityAggregate": {
             "type": "object",
             "properties": {
@@ -26703,14 +27764,22 @@ const docTemplate = `{
                     "type": "string",
                     "example": "Data Viewer"
                 },
-                "hide_automations": {
-                    "description": "HideAutomations takes the portal's Automations section, its pages and\nits script routes away from the persona's people; an administrator\nkeeps them. Absent is false, which shows Automations.",
+                "external": {
+                    "description": "External marks the persona for people outside the organization: no\nMCP tool, only what is shared with its people, no sharing, keys or\npeople directory (#2092). Absent is false.",
                     "type": "boolean",
                     "example": false
                 },
                 "name": {
                     "type": "string",
                     "example": "viewer"
+                },
+                "portal": {
+                    "description": "Portal is what the persona's people may do in the portal, one setting\nper area (#2225); an administrator has every area. Absent, and any\nfield left out, resolves to what the persona's tools reached before the\nsetting existed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/persona.PortalAccess"
+                        }
+                    ]
                 },
                 "priority": {
                     "type": "integer",
@@ -26791,14 +27860,22 @@ const docTemplate = `{
                     "type": "string",
                     "example": "Data Engineer"
                 },
-                "hide_automations": {
-                    "description": "HideAutomations takes the portal's Automations section away from the\npersona's people (#2109). False shows it.",
+                "external": {
+                    "description": "External marks the persona for people outside the organization, whose\naccounts the platform creates (#2092).",
                     "type": "boolean",
                     "example": false
                 },
                 "name": {
                     "type": "string",
                     "example": "data-engineer"
+                },
+                "portal": {
+                    "description": "Portal is what the persona's people may do in the portal, every area\nresolved (#2225): a field the persona leaves unset reads as what its\ntools reached before the setting existed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/persona.PortalAccess"
+                        }
+                    ]
                 },
                 "priority": {
                     "type": "integer",
@@ -26861,6 +27938,11 @@ const docTemplate = `{
                 "display_name": {
                     "type": "string",
                     "example": "Data Engineer"
+                },
+                "external": {
+                    "description": "External marks a persona for people outside the organization (#2092).",
+                    "type": "boolean",
+                    "example": false
                 },
                 "name": {
                     "type": "string",
@@ -31339,6 +32421,109 @@ const docTemplate = `{
                 }
             }
         },
+        "extaccount.NewAccount": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "persona": {
+                    "type": "string"
+                }
+            }
+        },
+        "extaccount.Settings": {
+            "type": "object",
+            "properties": {
+                "invite_hours": {
+                    "description": "InviteHours is how long the invitation email's link can be used.",
+                    "type": "integer",
+                    "example": 168
+                },
+                "link_minutes": {
+                    "description": "LinkMinutes is how long a link asked for on the sign-in screen can be\nused.",
+                    "type": "integer",
+                    "example": 15
+                },
+                "session_hours": {
+                    "description": "SessionHours is how long a signed-in session lasts.",
+                    "type": "integer",
+                    "example": 12
+                }
+            }
+        },
+        "extaccountapi.ExtendRequest": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "description": "ExpiresAt is the new expiry; null removes it.",
+                    "type": "string"
+                }
+            }
+        },
+        "extaccountapi.UserList": {
+            "type": "object",
+            "properties": {
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/extaccountapi.UserView"
+                    }
+                }
+            }
+        },
+        "extaccountapi.UserView": {
+            "type": "object",
+            "properties": {
+                "converted_at": {
+                    "description": "ConvertedAt is when the person first signed in through the identity\nprovider, which closed the account.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_sign_in_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "persona": {
+                    "type": "string"
+                },
+                "shared_items": {
+                    "description": "SharedItems is the live shares to the account's address.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "status": {
+                    "description": "Status is active, suspended, expired or converted.",
+                    "type": "string",
+                    "example": "active"
+                },
+                "suspended_at": {
+                    "type": "string"
+                }
+            }
+        },
         "feedbackapi.appendEventRequest": {
             "type": "object",
             "properties": {
@@ -31431,6 +32616,11 @@ const docTemplate = `{
                 },
                 "title": {
                     "type": "string"
+                },
+                "visibility": {
+                    "description": "Visibility is internal (the default) or shared (#2227). A thread a\nperson of an external persona opens is shared whatever this says.",
+                    "type": "string",
+                    "example": "internal"
                 }
             }
         },
@@ -31523,6 +32713,11 @@ const docTemplate = `{
                 },
                 "validation_state": {
                     "type": "string"
+                },
+                "visibility": {
+                    "description": "Visibility makes the thread internal or shared (#2227); recorded on its\ntimeline. A person of an external persona cannot change it.",
+                    "type": "string",
+                    "example": "shared"
                 }
             }
         },
@@ -33500,6 +34695,59 @@ const docTemplate = `{
                 "AccessSourceDefault"
             ]
         },
+        "persona.PortalAccess": {
+            "type": "object",
+            "properties": {
+                "apis": {
+                    "description": "APIs is the portal API browser: none or browse.",
+                    "type": "string"
+                },
+                "assets": {
+                    "description": "Assets is assets and collections: shared or own.",
+                    "type": "string"
+                },
+                "automations": {
+                    "description": "Automations is managed scripts in the portal; the script tools an agent\ncalls are governed by Tools. It replaces hide_automations (#2109).",
+                    "type": "boolean"
+                },
+                "catalog": {
+                    "description": "Catalog is the platform catalog: none, read or write.",
+                    "type": "string"
+                },
+                "download": {
+                    "description": "Download is downloading content and exporting it as PDF.",
+                    "type": "boolean"
+                },
+                "external": {
+                    "description": "External is reported, never set: the persona is external (#2092), so\nthe portal offers its people no people directory and no API keys.",
+                    "type": "boolean"
+                },
+                "feedback": {
+                    "description": "Feedback is threads, comments, activity, worklists and sign-off.",
+                    "type": "boolean"
+                },
+                "knowledge": {
+                    "description": "Knowledge is knowledge pages: none, read or write.",
+                    "type": "string"
+                },
+                "memory": {
+                    "description": "Memory is memory and insights.",
+                    "type": "boolean"
+                },
+                "prompts": {
+                    "description": "Prompts is the prompt library.",
+                    "type": "boolean"
+                },
+                "resources": {
+                    "description": "Resources is managed resources: none, shared, own or persona.",
+                    "type": "string"
+                },
+                "search": {
+                    "description": "Search is the portal's unified search.",
+                    "type": "boolean"
+                }
+            }
+        },
         "platform.ConnectionInstance": {
             "type": "object",
             "properties": {
@@ -33971,12 +35219,30 @@ const docTemplate = `{
                     "type": "string",
                     "example": "bob@example.com"
                 },
+                "shared_with_persona": {
+                    "description": "SharedWithPersona names the persona the share is addressed to (#2089):\nevery person whose roles resolve to it when they open the item, decided\nthen rather than when the share was made. Exclusive with the user and\nemail recipients.",
+                    "type": "string",
+                    "example": "finance"
+                },
                 "shared_with_user_id": {
                     "type": "string"
                 },
                 "token": {
                     "type": "string",
                     "example": "tk_a1b2c3d4e5f6"
+                }
+            }
+        },
+        "portal.SharePersona": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string",
+                    "example": "Finance"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "finance"
                 }
             }
         },
@@ -34017,6 +35283,11 @@ const docTemplate = `{
                 "shared_by": {
                     "type": "string",
                     "example": "alice@example.com"
+                },
+                "via_persona": {
+                    "description": "ViaPersona names the persona the collection was shared with (#2089).",
+                    "type": "string",
+                    "example": "finance"
                 }
             }
         },
@@ -34300,6 +35571,11 @@ const docTemplate = `{
                 "shared_with_email": {
                     "type": "string",
                     "example": "colleague@example.com"
+                },
+                "shared_with_persona": {
+                    "description": "SharedWithPersona addresses the share to a persona (#2089): everyone\nwhose roles resolve to it when they open the item. Exclusive with the\nuser and email recipients. The caller's own persona, or any persona for\nan administrator (GET /api/v1/portal/share-personas).",
+                    "type": "string",
+                    "example": "finance"
                 },
                 "shared_with_user_id": {
                     "type": "string",
@@ -34654,11 +35930,6 @@ const docTemplate = `{
         "portal.meResponse": {
             "type": "object",
             "properties": {
-                "automations": {
-                    "description": "Automations is whether the portal shows this caller its Automations\nsection (#2109): false when their persona hides it, always true for an\nadministrator.",
-                    "type": "boolean",
-                    "example": true
-                },
                 "csrf_token": {
                     "description": "CSRFToken is set only for cookie sessions; the SPA echoes it in the\nX-CSRF-Token header on mutations. API-key clients are exempt.",
                     "type": "string"
@@ -34679,6 +35950,14 @@ const docTemplate = `{
                 "persona": {
                     "type": "string",
                     "example": "analyst"
+                },
+                "portal": {
+                    "description": "Portal is what this caller may do in the portal, one setting per area\n(#2225): their persona's, or every area for an administrator. The\nnavigation shows what it allows, and every route of an area refuses\nwhat it does not.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/persona.PortalAccess"
+                        }
+                    ]
                 },
                 "roles": {
                     "type": "array",
@@ -34987,6 +36266,17 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_portal.sectionInput"
+                    }
+                }
+            }
+        },
+        "portal.sharePersonaList": {
+            "type": "object",
+            "properties": {
+                "personas": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.SharePersona"
                     }
                 }
             }
@@ -35446,12 +36736,14 @@ const docTemplate = `{
             "enum": [
                 "explicit",
                 "public_link_login",
-                "channel_post"
+                "channel_post",
+                "access_request"
             ],
             "x-enum-varnames": [
                 "OriginExplicit",
                 "OriginPublicLinkLogin",
-                "OriginChannelPost"
+                "OriginChannelPost",
+                "OriginAccessRequest"
             ]
         },
         "portaldomain.SharePermission": {
@@ -40953,6 +42245,11 @@ const docTemplate = `{
                 "validation_state": {
                     "type": "string",
                     "example": "none"
+                },
+                "visibility": {
+                    "description": "Visibility is internal or shared (#2227): people of an external persona\nnever see an internal thread, and a thread one of them opens is shared.",
+                    "type": "string",
+                    "example": "internal"
                 }
             }
         },
@@ -42217,7 +43514,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Endpoints", "description": "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Endpoints", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Endpoints", "description": "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}, {"name": "Access requests", "description": "A signed-in person asking an item's owner for access to an asset, collection or prompt they cannot open, the owner's answer, and how long a request waits."}, {"name": "External users", "description": "Accounts for people outside the organization under an external persona, signed in by an emailed one-time link, and how long their session and links last."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Access requests", "Activity", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Endpoints", "External users", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

@@ -187,6 +187,14 @@ TAG_DESCRIPTIONS = {
         "The directory of known people, keyed by email. Administrative counterpart to the "
         "single-identity User tag."
     ),
+    "Access requests": (
+        "A signed-in person asking an item's owner for access to an asset, collection or "
+        "prompt they cannot open, the owner's answer, and how long a request waits."
+    ),
+    "External users": (
+        "Accounts for people outside the organization under an external persona, signed in "
+        "by an emailed one-time link, and how long their session and links last."
+    ),
 }
 
 TAG_GROUPS = [
@@ -194,6 +202,7 @@ TAG_GROUPS = [
         "name": "User API",
         "tags": [
             "User",
+            "Access requests",
             "Activity",
             "API Keys",
             "APIs",
@@ -223,6 +232,7 @@ TAG_GROUPS = [
             "Config",
             "Connections",
             "Endpoints",
+            "External users",
             "Notifications",
             "Personas",
             "Scripts",

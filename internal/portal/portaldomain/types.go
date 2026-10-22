@@ -428,6 +428,9 @@ const (
 	// created, so the channel's readers can open the asset it links to
 	// (#2241). Share.PostedTo names the channel.
 	OriginChannelPost ShareOrigin = "channel_post"
+	// OriginAccessRequest is the person share an owner's approval of a request
+	// for access created (#2090).
+	OriginAccessRequest ShareOrigin = "access_request"
 )
 
 // ShareAccessMode determines who may open a share token. The mode domain and
@@ -448,24 +451,29 @@ const (
 // Share represents a share link for an asset, collection, or prompt.
 // Exactly one of AssetID, CollectionID, or PromptID is set.
 type Share struct {
-	ID               string          `json:"id" example:"share_01HK7R9B"`
-	AssetID          string          `json:"asset_id,omitempty" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
-	CollectionID     string          `json:"collection_id,omitempty"`
-	PromptID         string          `json:"prompt_id,omitempty"`
-	Token            string          `json:"token" example:"tk_a1b2c3d4e5f6"`
-	CreatedBy        string          `json:"created_by" example:"alice@example.com"`
-	SharedWithUserID string          `json:"shared_with_user_id,omitempty"`
-	SharedWithEmail  string          `json:"shared_with_email,omitempty" example:"bob@example.com"`
-	Permission       SharePermission `json:"permission" example:"viewer"`
-	AccessMode       ShareAccessMode `json:"access_mode" example:"restricted"`
-	ExpiresAt        *time.Time      `json:"expires_at,omitempty"`
-	Revoked          bool            `json:"revoked" example:"false"`
-	HideExpiration   bool            `json:"hide_expiration" example:"false"`
-	NoticeText       string          `json:"notice_text" example:"Proprietary & Confidential"`
-	AccessCount      int             `json:"access_count" example:"3"`
-	LastAccessedAt   *time.Time      `json:"last_accessed_at,omitempty"`
-	CreatedAt        time.Time       `json:"created_at"`
-	Origin           ShareOrigin     `json:"origin,omitempty" example:"explicit"`
+	ID               string `json:"id" example:"share_01HK7R9B"`
+	AssetID          string `json:"asset_id,omitempty" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	CollectionID     string `json:"collection_id,omitempty"`
+	PromptID         string `json:"prompt_id,omitempty"`
+	Token            string `json:"token" example:"tk_a1b2c3d4e5f6"`
+	CreatedBy        string `json:"created_by" example:"alice@example.com"`
+	SharedWithUserID string `json:"shared_with_user_id,omitempty"`
+	SharedWithEmail  string `json:"shared_with_email,omitempty" example:"bob@example.com"`
+	// SharedWithPersona names the persona the share is addressed to (#2089):
+	// every person whose roles resolve to it when they open the item, decided
+	// then rather than when the share was made. Exclusive with the user and
+	// email recipients.
+	SharedWithPersona string          `json:"shared_with_persona,omitempty" example:"finance"`
+	Permission        SharePermission `json:"permission" example:"viewer"`
+	AccessMode        ShareAccessMode `json:"access_mode" example:"restricted"`
+	ExpiresAt         *time.Time      `json:"expires_at,omitempty"`
+	Revoked           bool            `json:"revoked" example:"false"`
+	HideExpiration    bool            `json:"hide_expiration" example:"false"`
+	NoticeText        string          `json:"notice_text" example:"Proprietary & Confidential"`
+	AccessCount       int             `json:"access_count" example:"3"`
+	LastAccessedAt    *time.Time      `json:"last_accessed_at,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	Origin            ShareOrigin     `json:"origin,omitempty" example:"explicit"`
 	// PostedTo names the channel a channel_post share's link was posted to,
 	// as the person sharing chose it: "#general on slack". Empty for every
 	// other origin.
@@ -479,6 +487,9 @@ type SharedAsset struct {
 	SharedBy   string          `json:"shared_by" example:"alice@example.com"`
 	SharedAt   time.Time       `json:"shared_at"`
 	Permission SharePermission `json:"permission" example:"viewer"`
+	// ViaPersona names the persona the item reached the person through, when
+	// it was shared with a persona rather than with them (#2089).
+	ViaPersona string `json:"via_persona,omitempty" example:"finance"`
 }
 
 // SharedPromptRef references a prompt shared with a user along with share
@@ -490,6 +501,8 @@ type SharedPromptRef struct {
 	SharedBy   string
 	SharedAt   time.Time
 	Permission SharePermission
+	// ViaPersona names the persona the prompt was shared with (#2089).
+	ViaPersona string
 }
 
 // SharedTargetRef is one active share grant to a named recipient, whatever kind
@@ -1101,6 +1114,8 @@ type SharedCollection struct {
 	SharedBy   string          `json:"shared_by" example:"alice@example.com"`
 	SharedAt   time.Time       `json:"shared_at"`
 	Permission SharePermission `json:"permission" example:"viewer"`
+	// ViaPersona names the persona the collection was shared with (#2089).
+	ViaPersona string `json:"via_persona,omitempty" example:"finance"`
 }
 
 // MaxCollectionDescriptionLength is the maximum length for collection descriptions.

@@ -2,6 +2,7 @@ import { lazy, Suspense, useMemo, type ReactNode } from "react";
 import { BinaryRenderer } from "./BinaryRenderer";
 import { resolveRenderer, type Resolution } from "./registry";
 import { pdfURLFor } from "@/lib/pdfExport";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 
 // Every family's viewer loads on demand. Only the registry, which decides
 // which family a piece of content belongs to, and the metadata card that
@@ -66,10 +67,14 @@ export function ContentRenderer({ contentType, content, fileName, contentUrl, si
     [contentType, fileName, content],
   );
 
+  // Export PDF is offered only to a persona with Download (#2225); the PDF
+  // route refuses the rest.
+  const { download } = usePortalAccess();
+
   if (entry.source === "url") {
     return renderFromURL(entry, { fileName, contentUrl, sizeBytes });
   }
-  return renderFromText(entry, content ?? "", fileName, controlsSlot, pdfURLFor(contentUrl));
+  return renderFromText(entry, content ?? "", fileName, controlsSlot, download ? pdfURLFor(contentUrl) : undefined);
 }
 
 interface URLProps {

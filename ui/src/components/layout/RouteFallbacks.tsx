@@ -34,18 +34,17 @@ export function AdminOnlyNotice() {
 }
 
 /**
- * AutomationsHiddenNotice is what /automations renders for a caller whose
- * persona takes Automations out of the portal (#2109). The server refuses the
- * section's routes as well; this says why the page is empty.
+ * SectionHiddenNotice is what a portal section renders for a caller whose
+ * persona does not include it (#2225). The navigation does not offer the
+ * section; this is for a link or a typed path.
  */
-export function AutomationsHiddenNotice() {
+export function SectionHiddenNotice({ section }: { section: string }) {
   return (
     <Alert variant="destructive" className="mx-auto max-w-md">
       <ShieldAlert />
       <AlertTitle>Access denied</AlertTitle>
       <AlertDescription>
-        Automations are not available to your persona. Ask an administrator if
-        you need them.
+        {section} is not available to your persona. Ask an administrator if you need it.
       </AlertDescription>
     </Alert>
   );

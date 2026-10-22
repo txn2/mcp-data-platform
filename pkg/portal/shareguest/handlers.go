@@ -50,6 +50,9 @@ func (s *Service) issuableShare(ctx context.Context, token string) (ShareInfo, b
 	if !ok || !share.Live() || share.Public || share.RecipientEmail == "" {
 		return ShareInfo{}, false
 	}
+	if s.accountOf != nil && s.accountOf(ctx, share.RecipientEmail) {
+		return ShareInfo{}, false
+	}
 	return share, true
 }
 

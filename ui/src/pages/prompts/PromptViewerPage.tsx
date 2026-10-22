@@ -22,6 +22,8 @@ import { CollectionPicker } from "./viewer/CollectionPicker";
 import { AttachmentsPanel } from "./viewer/AttachmentsPanel";
 import { usePromotionRequest } from "./viewer/usePromotionRequest";
 import type { EditForm, ViewMode } from "./viewer/types";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
+import { NoAccess } from "@/components/access/RequestAccessPanel";
 
 interface Props {
   promptId: string;
@@ -35,6 +37,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   const updateMutation = useUpdateMyPrompt();
   const deleteMutation = useDeleteMyPrompt();
   const createAssetMutation = useCreateAsset();
+  const portal = usePortalAccess();
   const myEmail = useAuthStore((s) => s.user?.email) ?? "";
 
   const prompt = useMemo<Prompt | undefined>(() => {
@@ -186,17 +189,24 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   }
 
   if (!prompt) {
+    // A prompt this reader cannot open offers a request to its owner (#2090).
     return (
-      <EmptyState
-        icon={MessageSquare}
-        action={
-          <Button variant="outline" size="sm" onClick={onBack}>
-            Back
-          </Button>
+      <NoAccess
+        type="prompt"
+        id={promptId}
+        notFound={
+          <EmptyState
+            icon={MessageSquare}
+            action={
+              <Button variant="outline" size="sm" onClick={onBack}>
+                Back
+              </Button>
+            }
+          >
+            Prompt not found
+          </EmptyState>
         }
-      >
-        Prompt not found
-      </EmptyState>
+      />
     );
   }
 
@@ -220,7 +230,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
         saveDisabled={!dirty || updateMutation.isPending || validatePromptName(form.name) !== null}
         onBack={onBack}
         onCopyContent={handleCopyContent}
-        onSaveAsAsset={handleSaveAsAsset}
+        onSaveAsAsset={portal.assets === "own" ? handleSaveAsAsset : undefined}
         onShare={canShare ? handleShare : undefined}
         onRequestPromotion={promotion.openDialog}
         onEdit={() => setEditing(true)}

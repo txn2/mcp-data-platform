@@ -133,3 +133,18 @@ func TestAvailability(t *testing.T) {
 		})
 	}
 }
+
+// A share addressed to a persona opens for a viewer in that persona and for
+// nobody else signed in; with no mode stored it is restricted (#2089).
+func TestAuthorizeAPersonaShare(t *testing.T) {
+	share := Share{RecipientPersona: "finance", CreatorEmail: "owner@example.com"}
+	_, ok := Authorize(share, &Viewer{UserID: "u1", Email: "a@example.com", Persona: "finance"})
+	assert.True(t, ok)
+	msg, ok := Authorize(share, &Viewer{UserID: "u2", Email: "b@example.com", Persona: "analyst"})
+	assert.False(t, ok)
+	assert.Equal(t, MsgNotRecipient, msg)
+	_, ok = Authorize(share, &Viewer{UserID: "u3", Email: "c@example.com"})
+	assert.False(t, ok, "a viewer in no persona")
+	_, ok = Authorize(share, nil)
+	assert.False(t, ok)
+}

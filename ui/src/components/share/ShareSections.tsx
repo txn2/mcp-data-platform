@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Link, ChevronDown, ChevronRight, TriangleAlert } from "lucide-react";
 import type { SharePermission, ShareAccessMode } from "@/api/portal/types";
 import { UserPicker } from "@/components/UserPicker";
@@ -185,7 +186,15 @@ export function LinkShareSection({
 /** MAX_SHARE_MESSAGE mirrors the server's cap on the sharer's note. */
 const MAX_SHARE_MESSAGE = 500;
 
+export type RecipientKind = "people" | "personas";
+
 export interface UserShareSectionProps {
+  /** Whether the share names a person or a persona (#2089). */
+  recipientKind?: RecipientKind;
+  setRecipientKind?: (v: RecipientKind) => void;
+  persona?: string;
+  setPersona?: (v: string) => void;
+  personas?: { name: string; display_name: string }[];
   email: string;
   setEmail: (v: string) => void;
   permission: SharePermission;
@@ -211,6 +220,11 @@ export interface UserShareSectionProps {
  * only while it has somewhere to go.
  */
 export function UserShareSection({
+  recipientKind,
+  setRecipientKind,
+  persona,
+  setPersona,
+  personas,
   email,
   setEmail,
   permission,
@@ -224,26 +238,40 @@ export function UserShareSection({
   onShare,
   isPending,
 }: UserShareSectionProps) {
-  const hasRecipient = email.trim() !== "";
+  const byPersona = recipientKind === "personas";
+  const hasRecipient = byPersona ? Boolean(persona) : email.trim() !== "";
   return (
     <div>
       <h3 className="text-sm font-medium mb-2">Share with User</h3>
+      <RecipientChoice
+        value={byPersona ? "personas" : "people"}
+        personas={personas}
+        onChange={
+          setRecipientKind &&
+          ((k) => {
+            onClearError();
+            setRecipientKind(k);
+          })
+        }
+      />
       <p className="mb-2 text-xs text-muted-foreground">
-        Only this person can open the link, and their access lasts until you
-        revoke it. With an account they sign in and get the permission you
-        grant; without one they can view (not edit) through single-use links
-        emailed to them.
+        {byPersona
+          ? "Everyone in the persona can open it while they are in it, and the share lasts until you revoke it."
+          : "Only this person can open the link, and their access lasts until you revoke it. With an account they sign in and get the permission you grant; without one they can view (not edit) through single-use links emailed to them."}
       </p>
       <div className="flex gap-2">
-        <UserPicker
-          value={email}
-          onChange={(v) => {
-            // Clear a rejection as soon as the sharer starts correcting it,
-            // rather than leaving it under a field that no longer matches.
-            onClearError();
-            setEmail(v);
-          }}
-        />
+        {byPersona ? (
+          <PersonaPicker value={persona} personas={personas} onChange={setPersona} />        ) : (
+          <UserPicker
+            value={email}
+            onChange={(v) => {
+              // Clear a rejection as soon as the sharer starts correcting it,
+              // rather than leaving it under a field that no longer matches.
+              onClearError();
+              setEmail(v);
+            }}
+          />
+        )}
         <Select
           value={permission}
           onValueChange={(v) => setPermission(v as SharePermission)}
@@ -316,5 +344,56 @@ export function UserShareSection({
         </Alert>
       )}
     </div>
+  );
+}
+
+/** RecipientChoice is People or Personas (#2089), offered only when there is
+ * a persona to share with. */
+function RecipientChoice({
+  value,
+  personas,
+  onChange,
+}: {
+  value: RecipientKind;
+  personas?: { name: string }[];
+  onChange?: (k: RecipientKind) => void;
+}) {
+  const name = useId();
+  if (!onChange || !personas?.length) return null;
+  return (
+    <div role="radiogroup" aria-label="Share with" className="mb-2 flex gap-3 text-xs">
+      {(["people", "personas"] as const).map((k) => (
+        <label key={k} className="flex items-center gap-1">
+          <input type="radio" name={name} checked={value === k} onChange={() => onChange(k)} />
+          {k === "people" ? "People" : "Personas"}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/** PersonaPicker chooses the persona a share is addressed to (#2089). */
+function PersonaPicker({
+  value,
+  personas,
+  onChange,
+}: {
+  value?: string;
+  personas?: { name: string; display_name: string }[];
+  onChange?: (v: string) => void;
+}) {
+  return (
+    <Select value={value ?? ""} onValueChange={(v) => onChange?.(v)}>
+      <SelectTrigger size="sm" className="flex-1" aria-label="Persona">
+        <SelectValue placeholder="Choose a persona" />
+      </SelectTrigger>
+      <SelectContent>
+        {(personas ?? []).map((p) => (
+          <SelectItem key={p.name} value={p.name}>
+            {p.display_name || p.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useAuthStore } from "@/stores/auth";
 import { KnowledgePageList } from "./parts/KnowledgePageList";
 import { KnowledgePageDetail } from "./parts/KnowledgePageDetail";
 import { KnowledgePageForm } from "./parts/KnowledgePageForm";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 
 // Re-exported so existing importers (e.g. KnowledgePageForm.test.tsx) can keep
 // importing the form from this module.
@@ -59,14 +59,11 @@ export function KnowledgePagesPage({
     }
   };
 
-  // Create/edit/remove gates on the apply_knowledge capability (a tool-access
-  // gate, not an admin-role gate), or admin. This mirrors the REST handler's
-  // userHasToolAccess (pkg/portal/knowledge_page_handler.go): the capability
-  // grants non-admins, and admins are allowed too since apply_knowledge may be
-  // unregistered on a deployment (#661).
-  const canEdit = useAuthStore(
-    (s) => (s.user?.tools?.includes("apply_knowledge") ?? false) || s.isAdmin(),
-  );
+  // Create/edit/remove gate on the Knowledge pages level of the persona's
+  // portal permissions (#2225), the rule the REST handler applies; an
+  // administrator's is always Edit. A persona that does not set it resolves it
+  // from apply_knowledge.
+  const canEdit = usePortalAccess().knowledge === "write";
 
   if (mode.view === "create") {
     return (

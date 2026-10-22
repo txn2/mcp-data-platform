@@ -1,5 +1,6 @@
 import type { UserProfile } from "@/stores/auth";
 import { scopeLabel } from "./shared";
+import { resolvePortal } from "@/lib/portalAccess";
 
 /** A resource library, named the way the create API names it. */
 export interface ScopeTarget {
@@ -117,8 +118,18 @@ export function rootsFor(user: UserProfile | null, personaNames: string[]): Reso
       target: { scope: "global", scope_id: "" },
       params: { scope: "global" },
     },
-    ...personasFor(user, personaNames).map(personaRoot),
+    // A persona at the own level reaches no persona folder (#2225).
+    ...(resourcesLevel(user) === "own" ? [] : personasFor(user, personaNames).map(personaRoot)),
   ];
+}
+
+/**
+ * resourcesLevel is the caller's Resources level (#2225), as the server applies
+ * it to every resources route: an administrator's is always the highest.
+ */
+function resourcesLevel(user: UserProfile | null): string {
+  if (isPlatformAdmin(user)) return "persona";
+  return resolvePortal(user?.portal).resources;
 }
 
 /** personRoot is one person's folder under People, named by their address. */
@@ -208,6 +219,11 @@ export function canWriteScope(user: UserProfile | null, target: ScopeTarget | nu
   if (!user) return false;
   if (isPlatformAdmin(user)) return true;
   if (!target) return false;
+  // The Resources level narrows it (#2225): Read writes nothing, Own folder
+  // writes only the caller's own.
+  const level = resourcesLevel(user);
+  if (level === "none" || level === "shared") return false;
+  if (level === "own" && target.scope !== "user") return false;
   return holdsScope(user, target);
 }
 

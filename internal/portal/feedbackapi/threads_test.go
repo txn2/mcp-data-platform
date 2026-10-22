@@ -100,12 +100,12 @@ func (m *mockThreadStore) UpdateThread(_ context.Context, _ string, u threads.Th
 
 func (m *mockThreadStore) SoftDeleteThread(_ context.Context, _ string) error { return m.deleteErr }
 
-func (m *mockThreadStore) CountOpenByTargets(_ context.Context, _ string, ids []string) (map[string]int, error) {
+func (m *mockThreadStore) CountOpenByTargets(_ context.Context, _ string, ids []string, _ bool) (map[string]int, error) {
 	m.lastCountIDs = ids
 	return m.counts, m.countErr
 }
 
-func (m *mockThreadStore) CountSignoffs(_ context.Context, _, _ string) (int, error) {
+func (m *mockThreadStore) CountSignoffs(_ context.Context, _, _ string, _ bool) (int, error) {
 	return m.signoffCount, m.signoffErr
 }
 

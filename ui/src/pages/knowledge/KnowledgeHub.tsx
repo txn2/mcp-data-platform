@@ -26,6 +26,8 @@ import {
   type InsightSubTab,
   type Tab,
 } from "./hubHash";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
+import type { ResolvedPortal } from "@/lib/portalAccess";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "knowledge", label: "Knowledge" },
@@ -62,11 +64,13 @@ interface SubTabMeta {
 function knowledgeSubTabsFor({
   hasCatalog,
   canApply,
+  portal,
 }: {
   hasCatalog: boolean;
   canApply: boolean;
+  portal: ResolvedPortal;
 }): SubTabMeta[] {
-  return [
+  const all: SubTabMeta[] = [
     {
       key: "search",
       label: "Search All",
@@ -77,7 +81,7 @@ function knowledgeSubTabsFor({
       key: "pages",
       label: "Knowledge Pages",
       description:
-        "Canonical business and domain knowledge, written as markdown and stored in the portal. Pages are one of the two knowledge sinks; technical and entity knowledge lives in the catalog instead. Holders of apply_knowledge can create, edit, and remove pages.",
+        "Canonical business and domain knowledge, written as markdown and stored in the portal. Pages are one of the two knowledge sinks; technical and entity knowledge lives in the catalog instead. People whose persona edits knowledge pages can create, edit, and remove them.",
     },
     ...(hasCatalog
       ? [
@@ -100,6 +104,9 @@ function knowledgeSubTabsFor({
         ]
       : []),
   ];
+  // A persona's portal permissions take Search and Knowledge Pages away
+  // (#2225); Catalog already follows the catalog's own answer.
+  return all.filter((t) => (t.key !== "search" || portal.search) && (t.key !== "pages" || portal.knowledge !== "none"));
 }
 
 /**
@@ -167,7 +174,8 @@ export function KnowledgeHub({
   const insightStats = useInsightStats({ enabled: isAdmin });
   const pendingReviews = isAdmin ? (insightStats.data?.total_pending ?? 0) : 0;
 
-  const knowledgeSubTabs = knowledgeSubTabsFor({ hasCatalog, canApply });
+  const portal = usePortalAccess();
+  const knowledgeSubTabs = knowledgeSubTabsFor({ hasCatalog, canApply, portal });
   // A routed sub-tab is selected by the URL; the others by in-page state. Honor
   // the routed sub-tab only when it is actually available (e.g. a deep-link to
   // /knowledge/catalog for a reader who cannot read the catalog falls back to
@@ -272,7 +280,7 @@ export function KnowledgeHub({
           a hierarchy rather than three identical rows. */}
       <Tabs value={tab} onValueChange={(v) => selectTab(v as Tab)} className="gap-6">
         <TabsList variant="line" className="w-full justify-start border-b">
-          {TABS.map((t) => (
+          {TABS.filter((t) => t.key === "knowledge" || portal.memory).map((t) => (
             <TabsTrigger key={t.key} value={t.key} className="flex-none px-4 py-2">
               {t.label}
               {t.key === "insights" && pendingReviews > 0 && (

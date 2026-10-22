@@ -7,6 +7,8 @@ import { NavSection } from "./sidebar/NavSection";
 import { adminNavItems, portalMoreNavItems, portalPinnedNavItems } from "./sidebar/navItems";
 import { useNavBadges } from "./sidebar/useNavBadges";
 import { useSidebarBrand } from "./sidebar/useSidebarBrand";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
+import { portalSectionVisible } from "@/lib/portalAccess";
 
 /**
  * BrandMark is the rail's masthead: the deployment's logo, and its name when
@@ -91,12 +93,11 @@ interface Props {
 export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, mobile, onClose }: Props) {
   const logout = useAuthStore((s) => s.logout);
   const isAdmin = useAuthStore((s) => s.isAdmin());
-  const showsAutomations = useAuthStore((s) => s.showsAutomations());
-  // A persona can take Automations out of the portal (#2109); the server
-  // reports an administrator as always shown.
-  const moreItems = showsAutomations
-    ? portalMoreNavItems
-    : portalMoreNavItems.filter((item) => item.path !== "/automations");
+  // A persona sets which portal areas its people have (#2225); the server
+  // reports an administrator as having every one.
+  const portal = usePortalAccess();
+  const pinnedItems = portalPinnedNavItems.filter((item) => portalSectionVisible(item.path, portal));
+  const moreItems = portalMoreNavItems.filter((item) => portalSectionVisible(item.path, portal));
   const badges = useNavBadges(isAdmin);
   const { portalLogo, fallbackLogo, portalTitle, brandURL } = useSidebarBrand();
 
@@ -131,7 +132,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
       <nav className="flex-1 space-y-1 overflow-auto p-2">
         <NavSection
           label="User"
-          items={portalPinnedNavItems}
+          items={pinnedItems}
           currentPath={currentPath}
           collapsed={effectiveCollapsed}
           badges={badges}

@@ -29,6 +29,14 @@ Opening a thread shows its full timeline. Anyone can reply; the item's owner, an
 
 ![Feedback thread detail](../images/screenshots/light/user-asset-feedback-detail-light.webp#only-light)![Feedback thread detail](../images/screenshots/dark/user-asset-feedback-detail-dark.webp#only-dark)
 
+## Internal and shared threads
+
+A thread is **Internal** or **Shared** (#2227). An internal thread is for the organization: a person of an [external persona](../personas/overview.md#external-personas) never sees it, in a list, a count, the sign-off, or by its address, and a mention or notification of it reaches nobody external. A shared thread is seen by everyone who can open the item, external people included. The composer opens on **Internal**, the thread list and header show which a thread is, and the item's owner, an editor or an administrator can change it later; the change is recorded on the timeline. A thread an external person opens is always shared, and an external person cannot change one.
+
+## Access requests
+
+When someone asks for access to an item you own, the request is listed under **Access requests** at the top of the Inbox, with **Approve as viewer**, **Approve as editor** and **Decline**. See [Requesting access](assets.md#requesting-access).
+
 ## Writing a message
 
 A thread's messages are Markdown (#2214): emphasis, `code`, lists, headings, tables and links render as such, and a single line break is kept as written. Raw HTML is not rendered and a link with a script address is not followed. **Preview** above the composer shows the message as it will read, with the mentions that will be delivered as chips; **Write** goes back to editing. A notification email renders the message the same way.

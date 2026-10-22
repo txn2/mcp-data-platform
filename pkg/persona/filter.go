@@ -65,6 +65,10 @@ func evaluateToolAccess(persona *Persona, toolName string) (allowed bool, patter
 		// DENY if no persona — fail closed.
 		return false, "", AccessSourceDefault
 	}
+	if persona.External {
+		// An external persona calls no tool, whatever its rules say (#2092).
+		return false, "", AccessSourceDefault
+	}
 
 	// Check deny rules first (they take precedence).
 	for _, p := range persona.Tools.Deny {

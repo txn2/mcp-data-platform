@@ -8,6 +8,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 )
 
 // PortalStores bundles the read access the notifier needs to resolve a
@@ -22,6 +23,10 @@ type PortalStores struct {
 	// Optional: nil narrows thread notifications to the target owner and the
 	// thread author.
 	Grantees ThreadGrantees
+	// External reports whether an address has an external account (#2092).
+	// An internal thread notifies none of them (#2227). nil treats no address
+	// as one.
+	External func(ctx context.Context, email string) bool
 }
 
 // ThreadGrantees lists the addresses holding an explicit grant on a thread
@@ -82,6 +87,35 @@ func (n *PortalNotifier) NotifyShare(ctx context.Context, share *portal.Share, e
 	})
 	if err != nil {
 		slog.WarnContext(ctx, "notification: share enqueue failed", // #nosec G706 -- structured slog call; error sanitized
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
+}
+
+// AccessNotice is one email about a request for access (#2090): To is who is
+// told, Actor who acted, Message the requester's note or the answer.
+type AccessNotice struct {
+	To, Actor, ItemTitle, ItemID, Message, Link string
+}
+
+// NotifyAccessRequest tells an item's owner that someone asked for access to
+// it, with the link to the requests waiting on them.
+func (n *PortalNotifier) NotifyAccessRequest(ctx context.Context, a AccessNotice) {
+	a.Link = notification.PortalLink(n.baseURL, "/feedback#access-requests")
+	n.enqueue(ctx, notification.KindAccessRequest, a)
+}
+
+// NotifyAccessDecision tells a requester how their request was answered;
+// approved, the link opens the item.
+func (n *PortalNotifier) NotifyAccessDecision(ctx context.Context, a AccessNotice) {
+	n.enqueue(ctx, notification.KindAccessDecision, a)
+}
+
+func (n *PortalNotifier) enqueue(ctx context.Context, kind string, a AccessNotice) {
+	p := notification.Payload{
+		Kind: kind, ItemID: a.ItemID, ItemTitle: a.ItemTitle, Actor: a.Actor, Message: a.Message, Link: a.Link,
+	}
+	if _, err := n.enq.Notify(ctx, a.To, notification.CategoryShare, p); err != nil {
+		slog.WarnContext(ctx, "notification: access request enqueue failed", // #nosec G706 -- structured slog call; error sanitized
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }
@@ -153,7 +187,22 @@ func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.T
 	candidates = append(candidates, target.owner, thread.AuthorEmail)
 	candidates = append(candidates, grantees...)
 	general := excluding(notification.RecipientsExcluding(actorEmail, candidates...), notifiedByName)
-	n.enq.NotifyFanout(ctx, general, notification.CategoryComment, payload)
+	n.enq.NotifyFanout(ctx, n.audienceOf(ctx, thread, general), notification.CategoryComment, payload)
+}
+
+// audienceOf drops the external accounts from an internal thread's fan-out
+// (#2227): a person outside the organization learns only of shared threads.
+func (n *PortalNotifier) audienceOf(ctx context.Context, thread *portal.Thread, recipients []string) []string {
+	if thread.Visibility == threads.VisibilityShared || n.stores.External == nil {
+		return recipients
+	}
+	out := make([]string, 0, len(recipients))
+	for _, r := range recipients {
+		if !n.stores.External(ctx, r) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // excluding returns the addresses in list that are not in drop, compared in

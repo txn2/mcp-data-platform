@@ -24,6 +24,8 @@ import { mockToolSchemas, generateMockResult } from "./data/tools";
 import { mockEnrichmentRules } from "./data/enrichment";
 import { mockAssets, mockShares, mockSharedWithMe } from "./data/assets";
 import { versionsForAsset } from "./data/assetVersions";
+import { mockAccessRequests } from "./data/accessRequests";
+import type { AccessRequest } from "@/api/portal/hooks";
 import { fixtureTile, resourceTileSVG } from "./data/resourceTile";
 import { catalogHandlers } from "./handlers/catalogs";
 import { apiBrowseHandlers } from "./handlers/apis";
@@ -91,6 +93,7 @@ import {
 } from "./data/memory";
 import { promInstantFor, promRangeFor } from "./data/observability";
 import { mockIndexJobsSummary, mockIndexJobs, mockIndexJobsFailures } from "./data/indexjobs";
+import { resolvePortal, type PortalAccess } from "@/lib/portalAccess";
 
 // Mutable copy backing the stateful prompt-collection handlers (#1010); module
 // state resets on page load, which is what the MSW-mode flows need.
@@ -1273,6 +1276,7 @@ export const handlers = [
       oidc_enabled: false,
       login_redirect: false,
       allow_api_key_login: true,
+      email_link_login: true,
     }),
   ),
 
@@ -2016,7 +2020,7 @@ export const handlers = [
       api_routes?: APIRouteRule[];
       priority?: number;
       service_account?: boolean;
-      hide_automations?: boolean;
+      portal?: PortalAccess;
       allow_sharing?: boolean;
     };
 
@@ -2044,7 +2048,7 @@ export const handlers = [
       deny_tools: body.deny_tools ?? [],
       api_routes: body.api_routes ?? [],
       service_account: body.service_account ?? false,
-      hide_automations: body.hide_automations ?? false,
+      portal: resolvePortal(body.portal),
       allow_sharing: body.allow_sharing ?? true,
       tools: [] as string[],
     };
@@ -2074,7 +2078,7 @@ export const handlers = [
       api_routes?: APIRouteRule[];
       priority?: number;
       service_account?: boolean;
-      hide_automations?: boolean;
+      portal?: PortalAccess;
       allow_sharing?: boolean;
     };
 
@@ -2096,7 +2100,9 @@ export const handlers = [
     if (body.priority !== undefined) existing.priority = body.priority;
     // Absent is false, as on the server: the editor sends it only when set.
     existing.service_account = body.service_account ?? false;
-    existing.hide_automations = body.hide_automations ?? false;
+    // The server resolves an area left out from the persona's tools; the mock
+    // reads it as the portal before the setting existed.
+    existing.portal = resolvePortal(body.portal);
     existing.allow_sharing = body.allow_sharing ?? true;
 
     const idx = mockPersonas.findIndex((p) => p.name === name);
@@ -2882,6 +2888,72 @@ export const handlers = [
     thread.deleted_at = new Date().toISOString();
     return HttpResponse.json({ status: "deleted" });
   }),
+
+  // Admin > Settings > External accounts (#2092) and Access requests (#2090).
+  http.get(`${ADMIN_BASE}/settings/external-accounts`, () =>
+    HttpResponse.json({ session_hours: 12, invite_hours: 168, link_minutes: 15 }),
+  ),
+  http.put(`${ADMIN_BASE}/settings/external-accounts`, async ({ request }) => HttpResponse.json(await request.json())),
+  http.get(`${ADMIN_BASE}/settings/access-requests`, () => HttpResponse.json({ reveal_names: false, expire_days: 14 })),
+  http.put(`${ADMIN_BASE}/settings/access-requests`, async ({ request }) => HttpResponse.json(await request.json())),
+
+  // Sharing with a persona (#2089): the personas the caller may name.
+  http.get(`${PORTAL_BASE}/share-personas`, () =>
+    HttpResponse.json({
+      personas: [
+        { name: "analyst", display_name: "Data Analyst" },
+        { name: "data-engineer", display_name: "Data Engineer" },
+      ],
+    }),
+  ),
+
+  // Requests for access (#2090). One request waits on the demo owner; an item
+  // the mocks do not hold reads as not found, so the viewer shows its
+  // not-found state.
+  http.get(`${PORTAL_BASE}/access-requests`, ({ request }) => {
+    const targetID = new URL(request.url).searchParams.get("target_id");
+    const requests = mockAccessRequests.filter((r) => r.status === "pending" && (!targetID || r.target_id === targetID));
+    return HttpResponse.json({ requests });
+  }),
+  http.post(`${PORTAL_BASE}/access-requests/:id/approve`, async ({ params, request }) => {
+    const r = mockAccessRequests.find((x) => x.id === params.id);
+    if (!r) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as { permission?: string };
+    r.status = "approved";
+    r.permission = body.permission;
+    return HttpResponse.json(r);
+  }),
+  http.post(`${PORTAL_BASE}/access-requests/:id/decline`, ({ params }) => {
+    const r = mockAccessRequests.find((x) => x.id === params.id);
+    if (!r) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    r.status = "declined";
+    return HttpResponse.json(r);
+  }),
+  ...(["assets", "collections", "prompts"] as const).flatMap((kind) => [
+    http.get(`${PORTAL_BASE}/${kind}/:id/access-request`, ({ params }) => {
+      const known =
+        (kind === "assets" && mockAssets.some((a) => a.id === params.id)) ||
+        (kind === "collections" && mockCollections.some((c) => c.id === params.id));
+      if (!known) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+      return HttpResponse.json({ has_access: true, owner_email: "alice@example.com" });
+    }),
+    http.post(`${PORTAL_BASE}/${kind}/:id/access-requests`, ({ params }) => {
+      const now = new Date();
+      const targetType = { assets: "asset", collections: "collection", prompts: "prompt" } as const;
+      const created: AccessRequest = {
+        id: `ar-${mockAccessRequests.length + 1}`,
+        target_type: targetType[kind],
+        target_id: String(params.id),
+        requester_email: "marcus.johnson@example.com",
+        owner_email: "alice@example.com",
+        status: "pending",
+        created_at: now.toISOString(),
+        expires_at: new Date(now.getTime() + 14 * 86400000).toISOString(),
+      };
+      mockAccessRequests.push(created);
+      return HttpResponse.json(created, { status: 201 });
+    }),
+  ]),
 
   http.get(`${PORTAL_BASE}/shared-with-me`, ({ request }) => {
     const url = new URL(request.url);

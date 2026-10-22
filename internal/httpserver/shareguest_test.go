@@ -107,7 +107,7 @@ func TestNewShareGuestService(t *testing.T) {
 
 	// Without a DB and notification handle, the service renders pages but
 	// cannot issue links.
-	svc := newShareGuestService(p, nil, &fakeShareReader{}, nil)
+	svc := newShareGuestService(p, nil, &fakeShareReader{}, nil, nil)
 	if svc == nil {
 		t.Fatal("expected a service")
 	}
@@ -128,7 +128,7 @@ func TestNewShareGuestService(t *testing.T) {
 	}
 	defer handle.Stop()
 
-	full := newShareGuestService(p, handle, &fakeShareReader{}, db)
+	full := newShareGuestService(p, handle, &fakeShareReader{}, db, nil)
 	if !full.LinksAvailable() {
 		t.Error("DB + handle + key + base URL must enable the link flow")
 	}

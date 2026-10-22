@@ -1270,31 +1270,31 @@ func TestPersonaSavedAsServiceAccountWithoutASweepingCatalog(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 }
 
-func TestPersonaSavesWhetherThePortalShowsAutomations(t *testing.T) {
+func TestPersonaSavesItsPortalPermissions(t *testing.T) {
 	cases := []struct {
-		name     string
-		method   string
-		path     string
-		body     string
-		status   int
-		wantHide bool
+		name          string
+		method        string
+		path          string
+		body          string
+		status        int
+		wantStored    persona.PortalAccess
+		wantKnowledge string
+		wantAutomated bool
 	}{
 		{
-			name: "create hiding", method: http.MethodPost, path: "/api/v1/admin/personas",
-			body:   `{"name":"viewer","display_name":"Viewer","roles":["viewer"],"hide_automations":true}`,
-			status: http.StatusCreated, wantHide: true,
+			name: "create with a portal block", method: http.MethodPost, path: "/api/v1/admin/personas",
+			body:          `{"name":"viewer","display_name":"Viewer","roles":["viewer"],"portal":{"automations":false,"knowledge":"none"}}`,
+			status:        http.StatusCreated,
+			wantStored:    persona.PortalAccess{Automations: new(false), Knowledge: persona.PortalNone},
+			wantKnowledge: persona.PortalNone, wantAutomated: false,
 		},
 		{
-			name: "update hiding", method: http.MethodPut, path: "/api/v1/admin/personas/analyst",
-			body:   `{"display_name":"Analyst","roles":["analyst"],"hide_automations":true}`,
-			status: http.StatusOK, wantHide: true,
-		},
-		{
-			// A persona saved without the field shows Automations, as every
-			// persona did before the setting existed.
+			// A persona saved without the block resolves every area from its
+			// tools, as every persona did before the setting existed.
 			name: "update without it", method: http.MethodPut, path: "/api/v1/admin/personas/analyst",
-			body:   `{"display_name":"Analyst","roles":["analyst"]}`,
-			status: http.StatusOK, wantHide: false,
+			body:          `{"display_name":"Analyst","roles":["analyst"]}`,
+			status:        http.StatusOK,
+			wantKnowledge: persona.PortalRead, wantAutomated: true,
 		},
 	}
 	for _, c := range cases {
@@ -1313,12 +1313,30 @@ func TestPersonaSavesWhetherThePortalShowsAutomations(t *testing.T) {
 
 			require.Equal(t, c.status, w.Code, w.Body.String())
 			require.Len(t, ps.setCalls, 1)
-			assert.Equal(t, c.wantHide, ps.setCalls[0].HideAutomations, "the choice is stored")
-			var detail map[string]any
+			assert.Equal(t, c.wantStored, ps.setCalls[0].Portal, "the block is stored as sent")
+			var detail personaDetail
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &detail))
-			assert.Equal(t, c.wantHide, detail["hide_automations"], "the choice is in the response")
+			assert.Equal(t, c.wantKnowledge, detail.Portal.Knowledge, "the response resolves every area")
+			assert.Equal(t, c.wantAutomated, persona.On(detail.Portal.Automations))
 		})
 	}
+}
+
+func TestPersonaRefusesAPortalLevelTheAreaDoesNotHave(t *testing.T) {
+	ps := &mockPersonaStore{}
+	h := NewHandler(Deps{
+		PersonaRegistry: &mockPersonaRegistry{allResult: testPersonas("admin")},
+		Config:          testConfig(),
+		ConfigStore:     &mockConfigStore{mode: "database"},
+		PersonaStore:    ps,
+	}, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas",
+		strings.NewReader(`{"name":"viewer","display_name":"Viewer","roles":["viewer"],"portal":{"knowledge":"browse"}}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "portal.knowledge")
+	assert.Empty(t, ps.setCalls, "nothing is stored")
 }
 
 // A persona saved through another replica is read from the store, so the read
@@ -1326,7 +1344,7 @@ func TestPersonaSavesWhetherThePortalShowsAutomations(t *testing.T) {
 // registry still holds the persona as it was (#2218).
 func TestGetPersona_ReadsTheStoreBeforeTheRegistry(t *testing.T) {
 	stale := &persona.Persona{Name: "analyst", DisplayName: "Analyst", Roles: []string{"analyst"}}
-	saved := &personastore.Definition{Name: "analyst", DisplayName: "Analyst", Roles: []string{"analyst"}, HideAutomations: true}
+	saved := &personastore.Definition{Name: "analyst", DisplayName: "Analyst", Roles: []string{"analyst"}, Portal: persona.PortalAccess{Automations: new(false)}}
 	get := func(deps Deps) personaDetail {
 		t.Helper()
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas/analyst", http.NoBody)
@@ -1341,7 +1359,7 @@ func TestGetPersona_ReadsTheStoreBeforeTheRegistry(t *testing.T) {
 	registry := &mockPersonaRegistry{allResult: []*persona.Persona{stale}}
 
 	body := get(Deps{PersonaRegistry: registry, PersonaStore: &mockPersonaStore{getResult: map[string]*personastore.Definition{"analyst": saved}}})
-	assert.True(t, body.HideAutomations, "the saved value, not the registry's")
+	assert.False(t, persona.On(body.Portal.Automations), "the saved value, not the registry's")
 	assert.Equal(t, platform.SourceDatabase, body.Source)
 
 	body = get(Deps{
@@ -1351,7 +1369,7 @@ func TestGetPersona_ReadsTheStoreBeforeTheRegistry(t *testing.T) {
 	assert.Equal(t, platform.SourceBoth, body.Source, "a file persona saved over is both")
 
 	body = get(Deps{PersonaRegistry: registry, PersonaStore: &mockPersonaStore{getErr: errors.New("database down")}})
-	assert.False(t, body.HideAutomations, "a store that cannot answer leaves the registry to")
+	assert.True(t, persona.On(body.Portal.Automations), "a store that cannot answer leaves the registry to")
 
 	body = get(Deps{PersonaRegistry: registry, PersonaStore: &mockPersonaStore{}})
 	assert.Equal(t, "analyst", body.Name, "a persona only in the file is read from the registry")

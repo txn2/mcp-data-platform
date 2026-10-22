@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -109,6 +110,20 @@ type Flow struct {
 	// clientOnce builds the chain client the first time httpClient is
 	// read with none configured.
 	clientOnce sync.Once
+	// signedIn are the hooks AfterSignIn added, run after OnLogin.
+	signedInMu sync.RWMutex
+	signedIn   []func(ctx context.Context, email string)
+}
+
+// AfterSignIn adds a hook run after every completed identity-provider sign-in
+// with the person's address, beside FlowConfig.OnLogin, for a feature
+// assembled after the flow: closing the external account a person had before
+// they were added to the identity provider (#2092). Like OnLogin it is best
+// effort, and the sign-in does not depend on it.
+func (f *Flow) AfterSignIn(fn func(ctx context.Context, email string)) {
+	f.signedInMu.Lock()
+	defer f.signedInMu.Unlock()
+	f.signedIn = append(f.signedIn, fn)
 }
 
 // NewFlow creates a new OIDC flow by performing provider discovery.
@@ -387,6 +402,12 @@ func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, v
 	// not affect login.
 	if f.cfg.OnLogin != nil {
 		f.cfg.OnLogin(claims.Email, claims.FirstName, claims.LastName, claims.UserID, claims.Roles)
+	}
+	f.signedInMu.RLock()
+	hooks := slices.Clone(f.signedIn)
+	f.signedInMu.RUnlock()
+	for _, fn := range hooks {
+		fn(ctx, claims.Email)
 	}
 	return opsobs.AuthReasonNone, nil
 }

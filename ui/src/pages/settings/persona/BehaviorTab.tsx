@@ -25,8 +25,8 @@ export function BehaviorTab({
       </p>
       <fieldset disabled={isReadOnly} className="contents">
         <div className="space-y-5">
-          {/* Native checkboxes: no checkbox primitive is vendored, and these
-              are the persona's two binary settings (#1980, #2109). */}
+          {/* A native checkbox: no checkbox primitive is vendored (#1980).
+              The portal settings are on the Portal tab (#2225). */}
           <label className="flex items-start gap-2 text-sm">
             <input
               type="checkbox"
@@ -42,42 +42,6 @@ export function BehaviorTab({
                 className="block text-xs text-muted-foreground"
               >
                 Its calls are audited but not added to Calls.
-              </span>
-            </span>
-          </label>
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={draft.showAutomations}
-              onChange={(e) => onUpdate({ showAutomations: e.target.checked })}
-              aria-describedby="persona-automations-help"
-            />
-            <span>
-              <span className="font-medium">Automations</span>
-              <span
-                id="persona-automations-help"
-                className="block text-xs text-muted-foreground"
-              >
-                Shown in the portal. Administrators always see Automations.
-              </span>
-            </span>
-          </label>
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={draft.allowSharing}
-              onChange={(e) => onUpdate({ allowSharing: e.target.checked })}
-              aria-describedby="persona-sharing-help"
-            />
-            <span>
-              <span className="font-medium">Sharing</span>
-              <span
-                id="persona-sharing-help"
-                className="block text-xs text-muted-foreground"
-              >
-                Share what they own with a person or to a channel. Administrators always can.
               </span>
             </span>
           </label>

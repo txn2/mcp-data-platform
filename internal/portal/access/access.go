@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
@@ -47,6 +48,10 @@ type Config struct {
 	// grants. nil means no persona resolution is wired, in which case only
 	// the admin arm of the capability checks can grant.
 	PersonaTools func(roles []string) []string
+	// PortalPermissions resolves a user's roles to their persona's portal
+	// permissions (#2225). nil resolves every area from PersonaTools as a
+	// persona with no portal block does.
+	PortalPermissions func(roles []string) persona.PortalAccess
 }
 
 // Checker answers the portal's authorization questions.
@@ -155,6 +160,34 @@ func (c *Checker) HasTool(user *User, tool string) bool {
 	return c.IsAdmin(user)
 }
 
+// Portal is the user's portal permissions (#2225): every area at its highest
+// level for an administrator, otherwise what their persona sets.
+func (c *Checker) Portal(user *User) persona.PortalAccess {
+	if user == nil {
+		return persona.PortalAccess{}
+	}
+	if c.IsAdmin(user) {
+		return persona.FullPortalAccess()
+	}
+	if c.cfg.PortalPermissions == nil {
+		var tools []string
+		if c.cfg.PersonaTools != nil {
+			tools = c.cfg.PersonaTools(user.Roles)
+		}
+		var unset *persona.Persona
+		return unset.PortalPermissions(tools)
+	}
+	return c.cfg.PortalPermissions(user.Roles)
+}
+
+// CanWriteKnowledge reports whether the user may create, edit and delete
+// knowledge pages: their portal permissions give knowledge the write level.
+// Before #2225 it was the apply_knowledge tool, which is still what a persona
+// with no knowledge setting resolves its level from.
+func (c *Checker) CanWriteKnowledge(user *User) bool {
+	return c.Portal(user).Knowledge == persona.PortalWrite
+}
+
 // ApplyKnowledgeTool is the persona tool whose access gates insight review and
 // canonical-knowledge writes. It is the single capability the REST path checks,
 // matching the MCP path's persona tool-visibility gate so both agree on who may
@@ -225,6 +258,30 @@ func permissionRank(p portaldomain.SharePermission) int {
 // shared asset. It returns the empty permission if the asset is not shared with
 // this user.
 func (c *Checker) AssetSharePermission(ctx context.Context, assetID string, user *User) (portaldomain.SharePermission, error) {
+	perm, err := c.directSharePermission(ctx, assetID, user)
+	return c.capExternal(perm, user), err
+}
+
+// capExternal holds a person of an external persona to viewer, whatever a
+// share grants (#2092).
+func (c *Checker) capExternal(perm portaldomain.SharePermission, user *User) portaldomain.SharePermission {
+	if perm == portaldomain.PermissionEditor && c.Portal(user).External {
+		return portaldomain.PermissionViewer
+	}
+	return perm
+}
+
+// shareAddresses reports whether the share is addressed to the user: by id,
+// by email, or to the persona the caller resolved to (#2089).
+func shareAddresses(ctx context.Context, s *portaldomain.Share, user *User) bool {
+	return s.SharedWithUserID == user.UserID ||
+		(user.Email != "" && strings.EqualFold(s.SharedWithEmail, user.Email)) ||
+		(s.SharedWithPersona != "" && s.SharedWithPersona == portaldomain.CallerPersona(ctx))
+}
+
+// directSharePermission is the highest permission a share addressed to the
+// user grants on the asset itself, before the external cap.
+func (c *Checker) directSharePermission(ctx context.Context, assetID string, user *User) (portaldomain.SharePermission, error) {
 	shares, err := c.cfg.Shares.ListByAsset(ctx, assetID)
 	if err != nil {
 		return "", fmt.Errorf("checking share permission: %w", err)
@@ -234,9 +291,7 @@ func (c *Checker) AssetSharePermission(ctx context.Context, assetID string, user
 		if !IsShareActive(s) {
 			continue
 		}
-		matched := s.SharedWithUserID == user.UserID ||
-			(user.Email != "" && strings.EqualFold(s.SharedWithEmail, user.Email))
-		if !matched {
+		if !shareAddresses(ctx, &s, user) {
 			continue
 		}
 		if s.Permission == portaldomain.PermissionEditor {
@@ -273,7 +328,7 @@ func (c *Checker) ResolveAssetPermission(ctx context.Context, assetID string, us
 	if permissionRank(collPerm) > permissionRank(best) {
 		best = collPerm
 	}
-	return best, err
+	return c.capExternal(best, user), err
 }
 
 // SeesAssetHistory reports whether the user may read an asset's earlier
@@ -354,7 +409,7 @@ func (c *Checker) CollectionSharePermission(ctx context.Context, collectionID st
 	if err != nil {
 		return ""
 	}
-	return perm
+	return c.capExternal(perm, user)
 }
 
 // CanViewCollection reports whether the user may view the collection (owner or
@@ -493,9 +548,9 @@ func (c *Checker) CanModerateThread(ctx context.Context, user *User, thread *thr
 	case portaldomain.TargetTypePrompt:
 		return c.OwnsPersonalPrompt(ctx, thread.PromptID, user)
 	case portaldomain.TargetTypeKnowledgePage:
-		// Pages are edited by apply_knowledge holders, so they also moderate
-		// page feedback (author/admin already handled above).
-		return c.HasApplyKnowledge(user)
+		// The people who may write pages also moderate page feedback
+		// (author/admin already handled above).
+		return c.CanWriteKnowledge(user)
 	default:
 		return false // standalone: only author/admin (handled above)
 	}

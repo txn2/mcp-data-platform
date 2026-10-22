@@ -96,11 +96,13 @@ func (f *fakeThreadStore) RespondValidation(_ context.Context, _ string, resp po
 	return f.respondErr
 }
 
-func (*fakeThreadStore) CountOpenByTargets(_ context.Context, _ string, _ []string) (map[string]int, error) {
+func (*fakeThreadStore) CountOpenByTargets(_ context.Context, _ string, _ []string, _ bool) (map[string]int, error) {
 	return nil, nil //nolint:nilnil // test stub
 }
 
-func (*fakeThreadStore) CountSignoffs(_ context.Context, _, _ string) (int, error) { return 0, nil }
+func (*fakeThreadStore) CountSignoffs(_ context.Context, _, _ string, _ bool) (int, error) {
+	return 0, nil
+}
 
 var _ portal.ThreadStore = (*fakeThreadStore)(nil)
 
