@@ -164,6 +164,15 @@ function LinkLabel({ share }: { share: Share }) {
   );
 }
 
+/**
+ * shareLink is what a link share opens: the share's viewer page, or a file's
+ * own page, which reads the share (#2258).
+ */
+function shareLink(share: Share): string {
+  if (share.resource_id) return `${window.location.origin}/portal/resources/${share.resource_id}`;
+  return `${window.location.origin}/portal/view/${share.token}`;
+}
+
 /** ShareActions is the copy-link and revoke control pair for one share. */
 function ShareActions({
   share,
@@ -194,12 +203,7 @@ function ShareActions({
           type="button"
           variant="ghost"
           size="xs"
-          onClick={() =>
-            onCopy(
-              `${window.location.origin}/portal/view/${share.token}`,
-              share.id,
-            )
-          }
+          onClick={() => onCopy(shareLink(share), share.id)}
           title="Copy public link"
         >
           {copied === share.id ? (

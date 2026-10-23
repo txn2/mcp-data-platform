@@ -173,7 +173,7 @@ func TestIssue1576_AMoveIntoAPersonaTheAuthorBelongsToKeepsTheScriptWriting(t *t
 	}
 
 	// The move the ticket is about: into a persona the person BELONGS to, which
-	// CanMoveToLibrary permits without persona-admin authority.
+	// canMoveToLibrary permits without persona-admin authority.
 	moveTo1576(t, owner, id, `{"scope":"persona","scope_id":"collaborator","path":"acceptance/issue-1576"}`)
 
 	after := refresh1576(t, owner, script, reference, "region,units\nnorth,12\n")

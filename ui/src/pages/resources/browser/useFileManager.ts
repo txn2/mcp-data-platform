@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { usePeople } from "@/api/resources/hooks";
 import type { ViewMode } from "@/components/listView";
-import type { UserProfile } from "@/stores/auth";
+import { useAuthStore, type UserProfile } from "@/stores/auth";
 import type { Resource } from "@/api/resources/types";
 import { canWriteScope, rootsFor, type ResourceRoot } from "../scopes";
 import { fromDrop } from "../bulk/collect";
@@ -110,7 +110,7 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
   const [dialog, setDialog] = useState<FmDialog>(null);
   const pending = useRef<string[] | null>(null);
 
-  const canWrite = canWriteScope(user, root.target);
+  const canWrite = !root.shared && canWriteScope(user, root.target);
   const picked = useMemo(() => data.entries.filter((e) => selection.has(e.key)), [data.entries, selection]);
   const canAct = canWrite || (picked.length > 0 && picked.every((e) => ownFile(e, user)));
 
@@ -137,6 +137,15 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
     [loc, root.key, onNavigate, basePath],
   );
 
+  // A file shared with the caller opens at its own page, as any file does.
+  const openFile = useCallback(
+    (id: string) => {
+      onNavigate?.(loc.address, { replace: true });
+      onNavigate?.(`${basePath}/${id}`);
+    },
+    [loc, onNavigate, basePath],
+  );
+
   // A dialog already open keeps its selection: a second Delete while the
   // first is still counting would otherwise start a second count (#1887).
   const act = (kind: "move" | "tag" | "delete") => {
@@ -147,6 +156,12 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
 
   const upload = (many: boolean, folder = path, files?: SourceFile[], target: ResourceRoot = root) =>
     setDialog({ kind: many ? "uploadMany" : "upload", folder, files, root: target });
+  // Upload and share puts one file in the caller's own folder and opens the
+  // share dialog on it (#2258): the folder in view when it is theirs.
+  const own = roots.find((r) => r.key === "user") ?? root;
+  const uploadAndShare = () =>
+    setDialog({ kind: "upload", folder: root.key === own.key ? path : "", root: own, share: true });
+  const canShare = useAuthStore((s) => s.canShare()) && canWriteScope(user, own.target);
 
   const copyURI = (r: Resource) => {
     void navigator.clipboard?.writeText(r.uri).catch(() => undefined);
@@ -179,8 +194,11 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
     canAct,
     picked,
     openEntry,
+    openFile,
     act,
     upload,
+    uploadAndShare,
+    canShare,
     copyURI,
   };
 }

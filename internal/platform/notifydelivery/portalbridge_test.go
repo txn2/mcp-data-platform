@@ -172,6 +172,19 @@ func TestNotifyShare_PromptLinksToPromptPage(t *testing.T) {
 	}
 }
 
+// A shared file links to its page in the portal, which reads the share
+// (#2258).
+func TestNotifyShare_ResourceLinksToResourcePage(t *testing.T) {
+	n, queue := bridgeUnderTest(t, PortalStores{}, "https://x.io")
+	n.NotifyShare(context.Background(),
+		&portal.Share{Token: "tok", CreatedBy: "o@b.io", SharedWithEmail: "r@b.io"},
+		portal.ShareEvent{Kind: "resource", ItemID: "res1", ItemTitle: "extract.csv"})
+	rows := queue.snapshot()
+	if len(rows) != 1 || rows[0].Payload.Link != "https://x.io/portal/resources/res1" {
+		t.Fatalf("rows = %+v", rows)
+	}
+}
+
 func TestNotifyShare_TokenOnlyShareQueuesNothing(t *testing.T) {
 	n, queue := bridgeUnderTest(t, PortalStores{}, "https://x.io")
 

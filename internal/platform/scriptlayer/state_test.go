@@ -139,7 +139,7 @@ func TestState_WritesAreRefusedFromInsideARun(t *testing.T) {
 }
 
 func TestState_UnavailableWithoutAStateStore(t *testing.T) {
-	h := New(Config{Store: storeWithoutState{newMemStore()}, AdminPersona: "admin"})
+	h := New(Config{Store: storeWithoutState{newMemStore()}})
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdState, Name: "sync"})
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "keeps no script state")
@@ -178,7 +178,7 @@ func TestLiveState(t *testing.T) {
 	store.stateErr = errors.New("boom")
 	assert.Nil(t, h.liveState(context.Background(), sc), "a failed read leaves the draft reading {} rather than failing it")
 
-	none := New(Config{Store: storeWithoutState{newMemStore()}, AdminPersona: "admin"})
+	none := New(Config{Store: storeWithoutState{newMemStore()}})
 	assert.Nil(t, none.liveState(context.Background(), sc))
 }
 

@@ -298,7 +298,7 @@ func TestScheduleList(t *testing.T) {
 // TestScheduleCommands_WithoutAScheduleStore pins the degraded deployment: the
 // commands answer plainly instead of panicking on a nil store.
 func TestScheduleCommands_WithoutAScheduleStore(t *testing.T) {
-	h := New(Config{Store: &scheduleless{newMemStore()}, AdminPersona: "admin"})
+	h := New(Config{Store: &scheduleless{newMemStore()}})
 	res := call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
 	})

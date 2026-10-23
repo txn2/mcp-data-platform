@@ -119,10 +119,11 @@ func ConnectionSecrets(db *sql.DB, enc secretstore.Encryptor) {
 }
 
 // Secrets attaches the stored secrets a request's {{secret:<name>}}
-// placeholders are filled from (#2051), read from db through enc; admin is
-// the administrator persona, whom allow_personas does not limit. No-op
-// without a database: a placeholder is then refused, never sent.
-func Secrets(source ToolkitSource, db *sql.DB, enc secretstore.Encryptor, admin string) {
+// placeholders are filled from (#2051), read from db through enc; admin
+// reports whether a persona is the administrator persona, whom
+// allow_personas does not limit. No-op without a database: a placeholder is
+// then refused, never sent.
+func Secrets(source ToolkitSource, db *sql.DB, enc secretstore.Encryptor, admin func(persona string) bool) {
 	if db == nil {
 		return
 	}

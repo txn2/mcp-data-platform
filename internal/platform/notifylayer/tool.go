@@ -215,7 +215,7 @@ func (h *Handle) resolveCaller(ctx context.Context) caller {
 		userID:       pc.UserID,
 		persona:      pc.PersonaName,
 		onBehalfOf:   pc.OnBehalfOfEmail,
-		unrestricted: h.cfg.AdminPersona != "" && pc.PersonaName == h.cfg.AdminPersona,
+		unrestricted: pc.IsAdmin,
 	}
 }
 

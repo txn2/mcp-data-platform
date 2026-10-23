@@ -304,7 +304,7 @@ integration:
 |-------|------|---------|--------|
 | `service_account` | bool | `false` | The persona's calls are audited but not added to the call catalog (Calls), and the records it wrote before it was marked are removed by the catalog's next sweep. |
 
-The portal's persona editor shows the same setting as the **Service account** checkbox on the AI Assistant Behavior tab. It changes nothing about what the persona may call: access is decided by its tool, connection and API route rules as before. See [Excluding an automated caller](../server/configuration.md#excluding-an-automated-caller).
+The portal's persona editor shows the same setting as the **Automated caller** account type in its Identity section (#2257). A persona is for internal people, external people or an automated caller, one of the three: `service_account` and `external` are never both set, and the admin API refuses a persona that sets both. The editor adds "Also excluded by configuration" when `calls.exclude_personas` names the persona too. It changes nothing about what the persona may call: access is decided by its tool, connection and API route rules as before. See [Excluding an automated caller](../server/configuration.md#excluding-an-automated-caller).
 
 ## Portal permissions
 
@@ -332,16 +332,20 @@ client:
 | `knowledge` | `none`, `read`, `write` | Knowledge pages: `read` lists and opens them, `write` creates, edits and removes them. |
 | `catalog` | `none`, `read`, `write` | The portal catalog: `read` browses it, `write` curates it. |
 | `apis` | `none`, `browse` | The API browser (`/api/v1/apis`), still filtered by the persona's connections and API routes. |
+| `scratch_tables` | `none`, `list`, `register` | The scratch-table routes and the Scratch Tables page (#2257): `list` lists the tables registered on the persona's connections (`GET /api/v1/tables`, `GET /api/v1/table-connections`, a file's or asset's `GET .../tables`), `register` also registers and unregisters a table over a file. Registering over a resource also needs a `resources` level above `none`. The tables are still on the persona's connections, and SQL through `trino_execute` is a tool. |
 | `feedback` | `true`, `false` | Threads, comments, the feedback inbox and sign-off. |
 | `prompts` | `true`, `false` | The prompt library. |
 | `automations` | `true`, `false` | Managed scripts in the portal. |
 | `search` | `true`, `false` | The portal's unified search. |
 | `memory` | `true`, `false` | Memory and insights. |
-| `download` | `true`, `false` | The Download and Export PDF actions, and the PDF routes. The content a person can view is still read through the content route the viewer renders from. |
+| `download` | `true`, `false` | PDF export: the Export PDF action and the PDF routes (`GET /api/v1/portal/assets/{id}/pdf`, `GET /api/v1/resources/{id}/pdf` and their versions), which answer `403` when it is off. The editor calls it **PDF export**. Downloading a file reads the same bytes viewing does, so it is not governed by this. |
+| `uploads` | `share_personas`, `share_emails` | An external persona only: its people may upload files to their own folder, each shared on arrival as viewer with every person of each persona named and each address named (#2258). Absent is no uploads. Saving it on an internal persona is refused. |
 
-An area the block leaves unset, and every area of a persona with no block, resolves to what the persona reached before the setting existed: `assets: own`, `resources: persona`, `apis: browse` and every switch on; `knowledge: write` when the persona's tools include `apply_knowledge` and `read` otherwise; `catalog: write` when they include `apply_knowledge` and `fetch`, `read` with `fetch` alone, `none` without it. `GET /api/v1/portal/me` reports the caller's block with every area resolved.
+An area the block leaves unset, and every area of a persona with no block, resolves to what the persona reached before the setting existed: `assets: own`, `resources: persona`, `apis: browse`, `scratch_tables: register` and every switch on; `knowledge: write` when the persona's tools include `apply_knowledge` and `read` otherwise; `catalog: write` when they include `apply_knowledge` and `fetch`, `read` with `fetch` alone, `none` without it. `GET /api/v1/portal/me` reports the caller's block with every area resolved.
 
-The portal's persona editor shows the block on its **Portal** tab, and saving there writes every area. `hide_automations: true`, the setting `portal.automations` replaced (#2109), is still read as `automations: false` when the block does not set `automations`.
+The portal's persona editor shows the block in its **Portal access** section, and saving there writes every area. `GET /api/v1/admin/personas/{name}` returns the block as stored in `portal`, the block the persona's people get in `effective_portal`, and the areas External lowered in `capped_by_external`, so saving an external persona leaves its stored levels where they were.
+
+The portal levels govern the portal only. A persona's MCP resources, MCP prompts and the memory tools are not governed by `resources`, `prompts` or `memory`; `memory_manage` lists the memory of every person of the persona, preferences included. `hide_automations: true`, the setting `portal.automations` replaced (#2109), is still read as `automations: false` when the block does not set `automations`.
 
 ## Sharing
 
@@ -356,9 +360,9 @@ contractor:
 
 | Field | Type | Default | Effect |
 |-------|------|---------|--------|
-| `allow_sharing` | bool | `true` | `false` takes the Share action off assets, collections and prompts in the portal, and refuses every share-creating route (`POST .../shares`, `POST /api/v1/portal/assets/{id}/channel-shares`) and the channel list (`GET /api/v1/portal/channels`) with `403`. `manage_asset action=share`, an export's `create_public_link`, and `notify action=publish` with `access` `signed_in` or `public` are refused the same way. |
+| `allow_sharing` | bool | `true` | `false` takes the Share action off assets, collections, prompts and files in the portal, and refuses every share-creating route (`POST .../shares`, `POST /api/v1/portal/assets/{id}/channel-shares`, `POST /api/v1/resources/{id}/channel-shares`), approving a request for access (which writes a share), and the channel list (`GET /api/v1/portal/channels`) with `403`. `manage_asset action=share`, an export's `create_public_link`, and `notify action=publish` with `access` `signed_in` or `public` are refused the same way. |
 
-The portal's persona editor shows the setting as the **Sharing** checkbox on the Portal tab. `GET /api/v1/portal/me` reports it as `sharing`. It is read from the persona the caller resolves to, and administrators can always share. Connection scoping still applies to a persona that can share: it is offered only the channels on connections it reaches.
+The portal's persona editor shows the setting as the **Sharing** checkbox in its Portal access section. `GET /api/v1/portal/me` reports it as `sharing`. It is read from the persona the caller resolves to, and administrators can always share. Connection scoping still applies to a persona that can share: it is offered only the channels on connections it reaches.
 
 ## External personas
 
@@ -377,11 +381,50 @@ client-review:
 Whatever the rest of the persona says, an external persona:
 
 - is denied every MCP tool, so an external person has no agent access;
-- has `assets: shared`, `resources: shared` (or `none`), `knowledge`, `catalog` and `apis` at `none`, and `search`, `prompts`, `automations` and `memory` off. `feedback` and `download` stay as the block sets them;
+- has `assets: shared`, `resources: shared` (or `none`), `knowledge`, `catalog`, `apis` and `scratch_tables` at `none`, and `search`, `prompts`, `automations` and `memory` off. `feedback`, `download` and `uploads` stay as the block sets them;
+- reads its people's own folders and its persona's folder, never Global (#2257);
+- registers and lists no scratch table, whatever its connection rules allow;
 - opens what is shared with its people as a viewer, whatever permission the share carries;
-- cannot share, has no API keys, no people directory and no mentions, and reaches no admin route; an administrator persona is never external.
+- cannot share, has no API keys, no people directory and no mentions, and reaches no admin route. An external person may share their own upload with a person who has shared something with them, and nothing else (#2258).
 
-The portal's persona editor shows the setting as the **External** checkbox on the Portal tab. The accounts are listed and managed under [Admin > Users](../portal/admin-access.md#external-users).
+The administrator persona is never external: the admin API refuses saving it so with `400`, a configuration file that marks it so is refused at startup, and one written to the store directly is still not an administrator anywhere (the admin API, the MCP tools, stored secrets, managed resources, script runs). Every surface asks the persona registry's one administrator rule rather than comparing a persona's name.
+
+The portal's persona editor shows the setting as the **External people** account type in its Identity section. The accounts are listed and managed under [Admin > Users](../portal/admin-access.md#external-users).
+
+### Uploads by external people
+
+An external persona can let its people deliver files (#2258):
+
+```yaml
+agency:
+  display_name: "Agency"
+  roles: ["agency"]
+  external: true
+  portal:
+    resources: shared
+    uploads:
+      share_personas: ["marketing"]
+      share_emails: ["lead@example.com"]
+```
+
+A person of the persona uploads through `POST /api/v1/resources` to their own folder. Each upload is shared at once, as viewer, with every person of `marketing` and with `lead@example.com`, and they are told who uploaded it and under which persona. The uploader sees their own uploads and what is shared with them, never the recipients' folders or Global. The deployment's `resources.managed.max_upload_bytes` and content-type detection apply as to every upload. Removing `uploads` stops new uploads; files already shared stay shared until their owner or an administrator removes the share. Without `uploads`, `POST /api/v1/resources` answers `403`.
+
+## What a persona reaches
+
+`POST /api/v1/admin/personas/effective-access` evaluates a persona, saved or not, the way every request is evaluated (#2257). Its body is the persona as the create route takes it, and the answer reports:
+
+- the tools its people can call and on which connections: a tool allowed by a pattern is not callable when every connection it reaches is denied;
+- the connections, with any scratch catalog each carries and the notification channels that deliver through it;
+- the API operations `api_invoke_endpoint` may call, and for each one that cannot be called, whether its connection, the tool, or External stops it;
+- the scratch tables: on each scratch connection it reaches, whether it can list and register, whether it can drop any registered table through SQL (`trino_execute` on a connection whose Trino user holds every privilege on the scratch catalog), how many tables are registered there, and the connections through which `trino_query` reads every registered table when their Trino user reads the scratch catalog;
+- the portal block as stored and as External leaves it, sharing, and the resource folders its people read;
+- who gets it: its roles, the roles `personas.role_mapping` assigns it, the other personas listing one of its roles, and the role that writes its folder (`persona-admin:<name>`);
+- the grants other objects hold that name it: stored secrets (and how many secrets name no persona, which every persona may use), script run grants, scripts whose latest version was saved with roles that resolve to it (a run carries those roles, so editing the persona changes what they can do), persona-scoped prompts, shares to it, webhook sources writing to its folder, external accounts, and API keys whose roles resolve to it;
+- the signed-in endpoints no persona governs: any signed-in account, External included, calls them.
+
+The portal's persona editor shows the answer as its **Access summary**, recomputed as the page changes. `DELETE /api/v1/admin/personas/{name}` answers `409` with the same references while any remain, and deletes with `?confirm=true`: a persona created later under the name would inherit them.
+
+A person's persona folder and persona-scoped prompts follow role overlap, not the persona the person resolves to: anyone holding one of a persona's roles reads its folder and prompts, whichever persona wins. The editor warns when another persona lists the same role.
 
 ## Sharing with a persona
 

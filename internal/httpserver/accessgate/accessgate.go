@@ -160,7 +160,7 @@ func areaDenial(area string) string {
 	if area == portalperm.AreaExternal {
 		return "That is not available to an external account."
 	}
-	return "Your persona does not include " + area + " in the portal."
+	return "Your persona does not include " + strings.ReplaceAll(area, "_", " ") + " in the portal."
 }
 
 // denyArea is the 403 for a route of a portal area the caller's persona does

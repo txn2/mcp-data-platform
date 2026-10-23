@@ -299,7 +299,9 @@ To verify your rules work as expected, check which tools are available for each 
 
 ![Admin Tools: the Visibility tab, previewing a persona's decision](../images/screenshots/light/admin-admin-tools-visibility-light.webp#only-light)![Admin Tools: the Visibility tab, previewing a persona's decision](../images/screenshots/dark/admin-admin-tools-visibility-dark.webp#only-dark)
 
-The portal answers the same question without a client: **Admin > Tools >
+The persona editor's **Access summary** answers it for the persona as you edit it: the server evaluates the unsaved persona and reports every tool it can call, and on which connections (`POST /api/v1/admin/personas/effective-access`). A tool its rules allow is not callable when every connection it reaches is denied, and an external persona calls none.
+
+The portal also answers it without a client: **Admin > Tools >
 Visibility** previews a given persona's decision for the selected tool before
 any rule is changed, and **Admin > Tools > Overview** carries that tool's full
 per-persona matrix with the pattern that matched.

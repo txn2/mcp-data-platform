@@ -75,7 +75,7 @@ func pendingHandle(source string) (handle *Handle, store *memStore, pending *mem
 		S3Key: "k", SizeBytes: int64(len(source)), UploaderEmail: "jane@example.com",
 	}
 	reader := scriptsrc.New(sourceLibrary{file: file}, sourceBlobs{body: source}, "b", "")
-	return New(Config{Store: store, AdminPersona: "admin", Sources: reader, Pending: pending}), store, pending
+	return New(Config{Store: store, Sources: reader, Pending: pending}), store, pending
 }
 
 // bigFlow is a 45 KB script whose test fails as written.
@@ -193,7 +193,7 @@ func (failingPending) Get(context.Context, string, string) (*scriptpending.Creat
 func (failingPending) Delete(context.Context, string, string) error { return errors.New("db down") }
 
 func TestAPendingStoreFailureLeavesTheRefusalStanding(t *testing.T) {
-	h := New(Config{Store: newMemStore(), AdminPersona: "admin", Pending: failingPending{}})
+	h := New(Config{Store: newMemStore(), Pending: failingPending{}})
 	res := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "flow", Source: tested(inMain("print(1)\n")) + "\nX = undefined_name\n",
 	}))
@@ -211,7 +211,7 @@ func TestRunDraftTimeoutIsAnAdministratorsToRaise(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	h := New(Config{Store: newMemStore(), DB: db, AdminPersona: "admin", DraftLimit: scriptbgdraft.Config{MaxSeconds: 600}})
+	h := New(Config{Store: newMemStore(), DB: db, DraftLimit: scriptbgdraft.Config{MaxSeconds: 600}})
 	createDaily(t, h)
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdRunDraft, Name: "daily", TimeoutSeconds: 120})
 	assert.Contains(t, resultText(res), "administrator's to run")
@@ -228,7 +228,7 @@ func TestRunDraftTimeoutIsAnAdministratorsToRaise(t *testing.T) {
 	limits, _ := help["limits"].(map[string]any)
 	assert.EqualValues(t, 600, limits["draft_max_seconds"])
 
-	noDB := New(Config{Store: newMemStore(), AdminPersona: "admin"})
+	noDB := New(Config{Store: newMemStore()})
 	createAdmins(t, noDB)
 	res = call(t, noDB, adminCtx(), manageScriptInput{Command: cmdRunDraft, Name: "shared", TimeoutSeconds: 300})
 	assert.Contains(t, resultText(res), "at most 60", "with nowhere to keep a long draft, none is offered")

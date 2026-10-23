@@ -14,8 +14,9 @@ interface AssetViewerActionsProps {
   sharePermission?: SharePermission;
   copyMutation?: MutationLike<string>;
   onDelete: () => void;
-  // onDownload is absent when the reader's persona does not include Download
-  // (#2225), and the action is not offered.
+  // onDownload is absent when there is nothing to download, and the action is
+  // not offered. The persona's PDF export setting governs only the PDF
+  // (#2257): downloading reads the same bytes viewing does.
   onDownload?: () => void;
   onCopyToMyAssets: () => void;
   onShare: () => void;

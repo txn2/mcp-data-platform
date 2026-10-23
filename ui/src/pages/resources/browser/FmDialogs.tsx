@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Folder, Resource } from "@/api/resources/types";
+import { ShareDialog } from "@/components/ShareDialog";
 import { BulkUploadModal } from "../modals/BulkUploadModal";
 import { UploadModal } from "../modals/UploadModal";
 import type { SourceFile } from "../bulk/plan";
@@ -11,7 +12,9 @@ import type { useActions } from "./useActions";
 /** Which dialog the file manager has open, if any. */
 export type FmDialog =
   | { kind: "move" | "tag" | "delete"; picked: Picked }
-  | { kind: "upload" | "uploadMany"; folder: string; files?: SourceFile[]; root: ResourceRoot }
+  | { kind: "upload" | "uploadMany"; folder: string; files?: SourceFile[]; root: ResourceRoot; share?: boolean }
+  // The share dialog on a file just uploaded with "Upload and share" (#2258).
+  | { kind: "share"; resourceId: string }
   | { kind: "describe"; folder: string }
   | null;
 
@@ -26,6 +29,7 @@ export function FmDialogs({
   actions,
   onClose,
   onDone,
+  onShare,
 }: {
   dialog: FmDialog;
   root: ResourceRoot;
@@ -37,32 +41,19 @@ export function FmDialogs({
   onClose: () => void;
   /** A dialog that finished cleanly, with what the toast says about it. */
   onDone: (message?: string) => void;
+  /** Opens the share dialog on a file "Upload and share" just uploaded. */
+  onShare: (resourceId: string) => void;
 }) {
   if (!dialog) return null;
   const paths = folders.map((f) => f.path);
   switch (dialog.kind) {
     case "upload":
-      return (
-        <UploadModal
-          admin={admin}
-          personaNames={personaNames}
-          destination={dialog.root.target}
-          folder={dialog.folder}
-          folders={dialog.root.key === root.key ? paths : []}
-          onClose={onClose}
-        />
-      );
     case "uploadMany":
       return (
-        <BulkUploadModal
-          personaNames={personaNames}
-          destination={dialog.root.target}
-          folder={dialog.folder}
-          folders={dialog.root.key === root.key ? paths : []}
-          initial={dialog.files}
-          onClose={onClose}
-        />
+        <Uploading dialog={dialog} root={root} paths={paths} admin={admin} personaNames={personaNames} onClose={onClose} onShare={onShare} />
       );
+    case "share":
+      return <ShareDialog target={{ type: "resource", id: dialog.resourceId }} open onOpenChange={(o) => !o && onClose()} />;
     case "move":
       return (
         <MoveDialog
@@ -158,6 +149,50 @@ function Deleting({
         if (!outcomes.some((o) => o.error)) onDone(summarize(outcomes, "deleted"));
         return outcomes;
       }}
+    />
+  );
+}
+
+/** Uploading is the upload dialog the file manager has open: one file, or many. */
+function Uploading({
+  dialog,
+  root,
+  paths,
+  admin,
+  personaNames,
+  onClose,
+  onShare,
+}: {
+  dialog: Extract<FmDialog, { kind: "upload" | "uploadMany" }>;
+  root: ResourceRoot;
+  paths: string[];
+  admin: boolean;
+  personaNames: string[];
+  onClose: () => void;
+  onShare: (resourceId: string) => void;
+}) {
+  const folders = dialog.root.key === root.key ? paths : [];
+  if (dialog.kind === "uploadMany") {
+    return (
+      <BulkUploadModal
+        personaNames={personaNames}
+        destination={dialog.root.target}
+        folder={dialog.folder}
+        folders={folders}
+        initial={dialog.files}
+        onClose={onClose}
+      />
+    );
+  }
+  return (
+    <UploadModal
+      admin={admin}
+      personaNames={personaNames}
+      destination={dialog.root.target}
+      folder={dialog.folder}
+      folders={folders}
+      onClose={onClose}
+      onUploaded={dialog.share ? (r) => onShare(r.id) : undefined}
     />
   );
 }

@@ -314,7 +314,7 @@ func TestVersions_NotTheOwnerGetsTheGetRefusal(t *testing.T) {
 // deployment: no versioning means no history, refused in the terms diff
 // already refuses in rather than answered with an empty list.
 func TestVersions_WithoutAVersionStoreRefusesLikeDiff(t *testing.T) {
-	h := New(Config{Store: &unversionedStore{inner: newMemStore()}, AdminPersona: "admin"})
+	h := New(Config{Store: &unversionedStore{inner: newMemStore()}})
 	require.Nil(t, h.versions)
 	createDaily(t, h)
 

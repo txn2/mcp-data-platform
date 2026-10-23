@@ -40,6 +40,15 @@ type Claims struct {
 	// which case the address keys the run's library as before. Empty for every
 	// human caller, whose own Sub is the same thing.
 	OnBehalfOfSub string
+	// NoGlobal withholds the Global library: the caller is a person of an
+	// external persona, who reads their own folder and their persona's and
+	// nothing every signed-in person reads (#2257).
+	NoGlobal bool
+	// Shared reports the permission a share gives the caller on a resource:
+	// "editor", "viewer", or "" for none (#2258). nil is no share. A viewer
+	// share reaches the resource as CanAccessResource, an editor share as
+	// CanEditResource; neither moves or deletes it.
+	Shared func(resourceID string) string
 }
 
 // personaAdminInfix is the role substring that marks a persona-admin grant.
@@ -130,7 +139,7 @@ func CanWriteScope(c Claims, scope Scope, scopeID string) bool {
 	}
 }
 
-// CanMoveToLibrary reports whether the caller may file a resource into the named
+// canMoveToLibrary reports whether the caller may file a resource into the named
 // library. The caller must separately be allowed to modify the resource itself
 // (CanModifyResource); this answers only the destination half.
 //
@@ -148,7 +157,7 @@ func CanWriteScope(c Claims, scope Scope, scopeID string) bool {
 //
 // Global stays admin-only through CanWriteScope, and so does another person's
 // library.
-func CanMoveToLibrary(c Claims, scope Scope, scopeID string) bool {
+func canMoveToLibrary(c Claims, scope Scope, scopeID string) bool {
 	if CanWriteScope(c, scope, scopeID) {
 		return true
 	}
@@ -206,7 +215,26 @@ func CanModifyResource(c Claims, r *Resource) bool {
 // is a wider set than this, and deliberately so; a surface that authorizes on
 // CanModifyResource alone is granting that wider set (#1576).
 func CanAccessResource(c Claims, r *Resource) bool {
-	return CanReadResource(c, r) || CanWriteScope(c, r.Scope, r.ScopeID) || uploadedBy(c, r)
+	return CanReadResource(c, r) || CanWriteScope(c, r.Scope, r.ScopeID) || uploadedBy(c, r) || shared(c, r) != ""
+}
+
+// CanEditResource reports whether the caller may rename the resource, change
+// its description and tags, and write a new version of its content: what
+// CanModifyResource allows, and an editor share (#2258). Moving and deleting
+// it stay CanModifyResource's.
+func CanEditResource(c Claims, r *Resource) bool {
+	return CanModifyResource(c, r) || shared(c, r) == sharePermissionEditor
+}
+
+// sharePermissionEditor is the share permission that edits.
+const sharePermissionEditor = "editor"
+
+// shared is the permission a share gives the caller on r, "" for none.
+func shared(c Claims, r *Resource) string {
+	if c.Shared == nil || r == nil {
+		return ""
+	}
+	return c.Shared(r.ID)
 }
 
 // CanReadResource checks whether the caller can read a specific resource.
@@ -297,8 +325,11 @@ func ListScopes(c Claims, scopeParam, scopeIDParam string) (scopes []ScopeFilter
 func VisibleScopes(c Claims) []ScopeFilter {
 	var filters []ScopeFilter
 
-	// Every authenticated user sees global resources.
-	filters = append(filters, ScopeFilter{Scope: ScopeGlobal})
+	// Every authenticated user sees global resources, but for a person of an
+	// external persona.
+	if !c.NoGlobal {
+		filters = append(filters, ScopeFilter{Scope: ScopeGlobal})
+	}
 
 	// User sees their own resources (match by sub or address so admins can
 	// scope resources to users by email address). For an unattended caller the
@@ -441,7 +472,7 @@ func uploadedBy(c Claims, r *Resource) bool {
 // Reading the address makes the arm survive a MOVE. A move rewrites the library,
 // the folder and the mcp:// address and never the uploader columns, so a person
 // who uploaded a file goes on modifying it after it is filed into a persona
-// library they merely belong to, which CanMoveToLibrary deliberately permits
+// library they merely belong to, which canMoveToLibrary deliberately permits
 // (#1576). Before that the uploader arm for an unattended caller required the
 // file to be sitting in its own uploader's user library, so a person who moved a
 // CSV their own scheduled script refreshes broke the schedule: nothing warned at

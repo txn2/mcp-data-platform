@@ -99,30 +99,38 @@ func evaluateToolAccess(persona *Persona, toolName string) (allowed bool, patter
 // deny. There is no "empty Allow means all connections" shortcut and no
 // special-cased connection category — the operator grants exactly the
 // connections each persona should reach.
-func (*ToolFilter) IsConnectionAllowed(persona *Persona, connectionName string) bool {
+func (f *ToolFilter) IsConnectionAllowed(persona *Persona, connectionName string) bool {
+	return f.WhyConnectionAllowed(persona, connectionName).Allowed
+}
+
+// WhyConnectionAllowed returns IsConnectionAllowed's verdict with the pattern
+// that decided it, so the persona editor can say which rule governs a
+// connection (#2257). A platform-level (empty) connection is allowed with no
+// pattern; a connection no rule matches is denied by default.
+func (*ToolFilter) WhyConnectionAllowed(persona *Persona, connectionName string) AccessDecision {
 	if persona == nil {
-		return false
+		return AccessDecision{Source: AccessSourceDefault}
 	}
 
 	// Empty connection name = platform-level tools (always allowed).
 	if connectionName == "" {
-		return true
+		return AccessDecision{Allowed: true, Source: AccessSourceDefault}
 	}
 
 	// Check deny rules first (they take precedence).
 	for _, pattern := range persona.Connections.Deny {
 		if matchPattern(pattern, connectionName) {
-			return false
+			return AccessDecision{MatchedPattern: pattern, Source: AccessSourceDeny}
 		}
 	}
 
 	// Deny-by-default: require an explicit allow match.
 	for _, pattern := range persona.Connections.Allow {
 		if matchPattern(pattern, connectionName) {
-			return true
+			return AccessDecision{Allowed: true, MatchedPattern: pattern, Source: AccessSourceAllow}
 		}
 	}
-	return false
+	return AccessDecision{Source: AccessSourceDefault}
 }
 
 // RouteQuery is one (connection, method, path) an APIRoutes rule set is

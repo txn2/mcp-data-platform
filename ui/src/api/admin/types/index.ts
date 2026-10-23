@@ -4,6 +4,7 @@
 export * from "./system";
 export * from "./audit";
 export * from "./tools";
+export * from "./personaAccess";
 export * from "./config";
 export * from "./scripts";
 export * from "./sessions";

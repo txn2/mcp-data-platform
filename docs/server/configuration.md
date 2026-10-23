@@ -750,7 +750,7 @@ The sweep runs once when the platform starts and then once a day per deployment,
 
 The catalog exists to answer one question about a recorded call: is this worth running again. An automated system driving ingestion through the same tools people use never produces that answer. Each of its calls fetches a distinct upstream resource once, and each is recorded, embedded, and ranked in search against the handful of records that did answer something. On one deployment a single service principal wrote 472,156 of 476,749 records in ten days, against 43 records that had been used for anything.
 
-Mark the persona the automated caller signs in under as a **service account**. In the portal, open the persona under Admin, then Personas, and on the AI Assistant Behavior tab check **Service account** ("Its calls are audited but not added to Calls."). A persona defined in the config file takes the same setting:
+Mark the persona the automated caller signs in under as a **service account**. In the portal, open the persona under Admin, then Personas, and in its Identity section choose the **Automated caller** account type ("Its calls are audited but not added to Calls."). A persona defined in the config file takes the same setting:
 
 ```yaml
 personas:
@@ -1334,7 +1334,13 @@ personas:
 | `<name>.context.description_override` | string | - | Replaces platform description entirely |
 | `<name>.context.agent_instructions_suffix` | string | - | Appended to the admin `agent_instructions` layer |
 | `<name>.context.agent_instructions_override` | string | - | Replaces the admin `agent_instructions` layer only; the platform baseline is always present |
-| `<name>.portal` | object | resolved | What the persona's people may do in the portal, one setting per area: `assets`, `resources`, `knowledge`, `catalog`, `apis`, and the switches `feedback`, `prompts`, `automations`, `search`, `memory`, `download`. An unset area resolves to what the persona reached before the setting existed. Administrators have every area. See [Portal permissions](../personas/overview.md#portal-permissions) (#2225) |
+| `<name>.portal` | object | resolved | What the persona's people may do in the portal, one setting per area: `assets`, `resources`, `knowledge`, `catalog`, `apis`, `scratch_tables` (`none`, `list`, `register`, #2257), and the switches `feedback`, `prompts`, `automations`, `search`, `memory`, `download` (PDF export). An unset area resolves to what the persona reached before the setting existed. Administrators have every area. See [Portal permissions](../personas/overview.md#portal-permissions) (#2225) |
+| `<name>.portal.scratch_tables` | string | `register` | The scratch-table routes and page: `none`, `list` (list the tables on the persona's connections), `register` (list, register and unregister). External sets it to `none` (#2257) |
+| `<name>.portal.uploads` | object | - | An external persona only: its people may upload files to their own folder, each shared on arrival as viewer with the recipients named. Absent is no uploads; set on an internal persona it is refused (#2258) |
+| `<name>.portal.uploads.share_personas` | array | `[]` | Personas every person of which reads each upload (#2258) |
+| `<name>.portal.uploads.share_emails` | array | `[]` | Addresses that read each upload (#2258) |
+| `<name>.external` | bool | `false` | A persona for people outside the organization: no MCP tool, only what is shared with its people, no Global folder or scratch tables. The administrator persona is never external, and a file persona that marks it so is refused at startup (#2092, #2257) |
+| `<name>.service_account` | bool | `false` | The persona an automated caller signs in under. Never set together with `external` (#1980, #2257) |
 | `<name>.hide_automations` | bool | `false` | Replaced by `portal.automations`; still read as `portal.automations: false` when the block does not set `automations` (#2109, #2225) |
 | `<name>.allow_sharing` | bool | `true` | `false` withholds sharing from this persona: no Share action in the portal, and every share-creating route and tool action refuses. Administrators can always share (#2241) |
 

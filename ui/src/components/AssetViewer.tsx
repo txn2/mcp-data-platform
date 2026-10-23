@@ -243,7 +243,7 @@ export function AssetViewer({
             // what is shared with it does not do (#2225).
             copyMutation={portal.assets === "own" ? copyMutation : undefined}
             onDelete={() => setDeleteModalOpen(true)}
-            onDownload={portal.download ? handleDownload : undefined}
+            onDownload={handleDownload}
             onCopyToMyAssets={handleCopyToMyAssets}
             onShare={() => setShareOpen(true)}
           />

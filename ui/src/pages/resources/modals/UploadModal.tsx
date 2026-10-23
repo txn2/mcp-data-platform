@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { X, Loader2 } from "lucide-react";
 import { useUploadResource } from "@/api/resources/hooks";
+import type { Resource } from "@/api/resources/types";
 import { useAuthStore } from "@/stores/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -93,8 +94,12 @@ export function UploadModal({
   destination,
   folder,
   folders,
+  onUploaded,
 }: {
   onClose: () => void;
+  // Called with the file once it is stored, before the dialog closes: what
+  // "Upload and share" opens the share dialog on (#2258).
+  onUploaded?: (resource: Resource) => void;
   admin: boolean;
   personaNames: string[];
   // The library this upload lands in when the caller is given no choice: the
@@ -199,7 +204,8 @@ export function UploadModal({
       // nothing to the person reading the result.
       const label = scopeLabel(target.scope, target.scope_id, user);
       try {
-        await upload.mutateAsync(draftForm(draft, target));
+        const created = await upload.mutateAsync(draftForm(draft, target));
+        onUploaded?.(created);
         successes.push(label);
       } catch (err) {
         errors.push(`${label}: ${err instanceof Error ? err.message : "failed"}`);
@@ -212,8 +218,9 @@ export function UploadModal({
       setError(fanOutMessage(successes, errors, targets.length));
       return;
     }
-    onClose();
-  }, [file, displayName, description, scope, path, tagsInput, index, upload, onClose, resolveTargets, user, maxBytes]);
+    // "Upload and share" has already moved on to the share dialog.
+    if (!onUploaded) onClose();
+  }, [file, displayName, description, scope, path, tagsInput, index, upload, onClose, onUploaded, resolveTargets, user, maxBytes]);
 
   return (
     <ModalShell

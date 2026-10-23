@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/adminwire"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,10 +80,10 @@ func TestWebhookSourceRefs(t *testing.T) {
 // with no platform or no database the routes are not mounted.
 func TestSecretAdminAPIMountsOnlyWithADatabase(t *testing.T) {
 	mux := http.NewServeMux()
-	mountDatabaseAdminAPIs(mux, nil)
+	adminwire.MountDatabaseAPIs(mux, nil, buildAdminAuth, adminEmail)
 	p := newTestPlatform(t, &platform.Config{Server: platform.ServerConfig{Name: "test"}, Admin: platform.AdminConfig{Enabled: new(true), Persona: "admin"}})
 	defer func() { _ = p.Close() }()
-	mountDatabaseAdminAPIs(mux, p)
+	adminwire.MountDatabaseAPIs(mux, p, buildAdminAuth, adminEmail)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/secrets", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -92,10 +94,10 @@ func TestSecretAdminAPIMountsOnlyWithADatabase(t *testing.T) {
 // platform or no database the routes are not mounted.
 func TestResourceIndexAdminAPIMountsOnlyWithADatabase(t *testing.T) {
 	mux := http.NewServeMux()
-	mountDatabaseAdminAPIs(mux, nil)
+	adminwire.MountDatabaseAPIs(mux, nil, buildAdminAuth, adminEmail)
 	p := newTestPlatform(t, &platform.Config{Server: platform.ServerConfig{Name: "test"}, Admin: platform.AdminConfig{Enabled: new(true), Persona: "admin"}})
 	defer func() { _ = p.Close() }()
-	mountDatabaseAdminAPIs(mux, p)
+	adminwire.MountDatabaseAPIs(mux, p, buildAdminAuth, adminEmail)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/resources/index", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, rec.Code)

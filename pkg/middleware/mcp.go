@@ -381,7 +381,10 @@ func authenticateAndAuthorize(
 	authorized, personaName, reason := params.authorizer.IsAuthorized(ctx, params.pc.UserID, params.pc.Roles, params.toolName, params.pc.Connection)
 	params.pc.Authorized = authorized
 	params.pc.PersonaName = personaName
-	params.pc.IsAdmin = personaName != "" && personaName == params.adminPersona
+	// An external persona is authorized for no tool (#2092), so an
+	// authorized call under the administrator's name is the administrator,
+	// which is what Registry.AdminRule decides everywhere else (#2257).
+	params.pc.IsAdmin = authorized && personaName != "" && personaName == params.adminPersona
 	if !authorized {
 		params.pc.DenialReason = denialReason(personaName, reason)
 		slog.WarnContext(ctx, "tool call authorization denied",

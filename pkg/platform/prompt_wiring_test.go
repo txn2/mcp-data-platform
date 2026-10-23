@@ -149,7 +149,7 @@ func TestBindPromptCollaborators_WiresEmbedderAndShareStore(t *testing.T) {
 
 	p := &Platform{
 		config:        &Config{Admin: AdminConfig{Persona: "admin"}},
-		prompts:       promptlayer.New(promptlayer.Config{Store: store, AdminPersona: "admin", Registry: registry.NewRegistry()}),
+		prompts:       promptlayer.New(promptlayer.Config{Store: store, Registry: registry.NewRegistry()}),
 		embeddingProv: &wiringEmbedder{},
 		portalStore: portalstore.NewFromStores(portalstore.Stores{
 			Share: &stubShareStore{promptRefs: []portal.SharedPromptRef{
@@ -229,7 +229,7 @@ func TestPromptDelegators(t *testing.T) {
 	store := newWiringPromptStore()
 	p := &Platform{
 		prompts: promptlayer.New(promptlayer.Config{
-			Store: store, AdminPersona: "admin", Registry: registry.NewRegistry(),
+			Store: store, Registry: registry.NewRegistry(),
 		}),
 	}
 

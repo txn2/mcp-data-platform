@@ -23,6 +23,7 @@ import (
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/adminwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
@@ -231,7 +232,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// substrate; they start and stop with the receiver.
 	enableWebhookAlerts(hooks, p, notify)
 	hooks.MountAdmin(mux, p, buildAdminAuth, adminEmail)
-	mountDatabaseAdminAPIs(mux, p)
+	adminwire.MountDatabaseAPIs(mux, p, buildAdminAuth, adminEmail)
 	mountTableAdmin(mux, p) // table registrations and the scratch reconcile (#2136)
 
 	// Street maps (#2068): the basemap archives and their listing, served
@@ -259,7 +260,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	}
 
 	// Mount managed resources API if enabled
-	mountResourcesAPI(mux, p)
+	mountResourcesAPI(mux, p, notify)
 
 	// Mount the REST gateway shim if an apigateway toolkit is loaded.
 	// Exposes api_invoke_endpoint over plain HTTP for non-MCP clients

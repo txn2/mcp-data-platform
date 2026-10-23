@@ -257,6 +257,19 @@ func (r *Registry) AdminRule(adminPersona string) func(roles []string) bool {
 	}
 }
 
+// IsAdminName reports whether the persona named name is the administrator
+// persona: named adminPersona, registered, and not external (#2257). It is
+// AdminRule for a caller that holds a resolved persona's name rather than
+// roles, so no surface treats an external persona that carries the
+// administrator's name as one.
+func (r *Registry) IsAdminName(name, adminPersona string) bool {
+	if r == nil || adminPersona == "" || name != adminPersona {
+		return false
+	}
+	p, ok := r.Get(name)
+	return ok && !p.External
+}
+
 // Unregister removes a persona by name. Returns error if not found.
 func (r *Registry) Unregister(name string) error {
 	r.mu.Lock()

@@ -83,6 +83,7 @@ func TestRender_SubjectVariants(t *testing.T) {
 		{notification.KindAsset, `x@y.z shared the asset "T" with you`},
 		{notification.KindCollection, `x@y.z shared the collection "T" with you`},
 		{notification.KindPrompt, `x@y.z shared the prompt "T" with you`},
+		{notification.KindResource, `x@y.z shared the file "T" with you`},
 		{notification.KindFeedback, `x@y.z left feedback on "T"`},
 		{notification.KindComment, `x@y.z commented on "T"`},
 	}

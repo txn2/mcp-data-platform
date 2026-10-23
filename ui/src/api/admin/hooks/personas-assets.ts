@@ -13,6 +13,7 @@ import type {
   PersonaTestAccessRequest,
   PersonaTestAccessResult,
   APIRouteConnectionList,
+  EffectiveAccess,
   AdminAssetListResponse,
 } from "../types";
 import type { Asset, AssetVersion, PaginatedResponse } from "@/api/portal/types";
@@ -78,11 +79,29 @@ export function useUpdatePersona() {
 export function useDeletePersona() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) =>
-      apiFetch(`/personas/${name}`, { method: "DELETE" }),
+    // confirm deletes although other objects still name the persona; the
+    // server refuses with 409 without it while any do (#2257).
+    mutationFn: ({ name, confirm = false }: { name: string; confirm?: boolean }) =>
+      apiFetch(`/personas/${name}${confirm ? "?confirm=true" : ""}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["personas"] });
     },
+  });
+}
+
+/**
+ * What a persona reaches, evaluated by the server from the editor's unsaved
+ * draft (#2257). The body is the create route's; the answer is recomputed
+ * whenever the draft changes, so the summary follows every edit.
+ */
+export function useEffectiveAccess(draft: PersonaCreateRequest | null) {
+  const body = draft ? JSON.stringify(draft) : "";
+  return useQuery({
+    queryKey: ["personas", "effective-access", body],
+    queryFn: () =>
+      apiFetch<EffectiveAccess>("/personas/effective-access", { method: "POST", body }),
+    enabled: draft !== null,
+    placeholderData: keepPreviousData,
   });
 }
 

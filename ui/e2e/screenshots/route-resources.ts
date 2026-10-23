@@ -38,6 +38,18 @@ export const userResourceRoutes: ScreenshotRoute[] = [
     beforeCapture: openPersonaScopeTab,
   },
   {
+    // The files shared with the caller, directly or through their persona
+    // (#2258).
+    slug: "resources-shared-with-me",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: async (page) => {
+      // Its view is the shares, not a folder, so it is waited on by its table.
+      await page.getByTestId("tree-node-shared-with-me:").click({ timeout: 3_000 });
+      await page.getByTestId("shared-with-me").waitFor({ timeout: 5_000 });
+    },
+  },
+  {
     // The Global top-level folder on the reader's own Resources page, where a
     // platform administrator is offered New folder and Upload (#1527). The
     // controls follow the caller's authority rather than which section the
@@ -145,6 +157,23 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/resources",
     category: "admin",
     beforeCapture: openResourceSearch,
+  },
+  {
+    // Sharing a file (#2258): a person, a persona or a channel, as viewer or
+    // editor, and who it is already shared with.
+    slug: "resource-share",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: async (page) => {
+      await openResourceDetail(page);
+      const share = page.getByRole("button", { name: "Share" }).first();
+      if (await share.isVisible()) await share.click();
+      await page.waitForTimeout(600);
+      // The recipient field opens the people list on focus; the capture is of
+      // the dialog.
+      await page.getByRole("dialog").getByText("Share File").click({ timeout: 2_000 }).catch(() => undefined);
+      await page.waitForTimeout(300);
+    },
   },
   {
     // Resource detail as it opens: the content at the page's own width, with

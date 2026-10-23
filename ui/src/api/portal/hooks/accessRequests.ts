@@ -3,7 +3,7 @@ import { apiFetch } from "../client";
 
 // Requests for access to an item a person cannot open (#2090).
 
-export type AccessTargetType = "asset" | "collection" | "prompt";
+export type AccessTargetType = "asset" | "collection" | "prompt" | "resource";
 
 export interface AccessRequest {
   id: string;

@@ -154,11 +154,10 @@ func testHandle(t *testing.T, channels []notification.Channel, allowedConns []st
 	enq := notification.NewEnqueuer(memPrefs{}, queue, 13)
 	t.Cleanup(enq.Close)
 	cfg := Config{
-		Channels:     &memChannels{channels: channels},
-		Enqueuer:     enq,
-		Scope:        personaScope(t, allowedConns...),
-		PortalURL:    "https://portal.example.com",
-		AdminPersona: "admin",
+		Channels:  &memChannels{channels: channels},
+		Enqueuer:  enq,
+		Scope:     personaScope(t, allowedConns...),
+		PortalURL: "https://portal.example.com",
 	}
 	for _, o := range opts {
 		o(&cfg)
@@ -183,7 +182,7 @@ func asAnalyst(t *testing.T) context.Context {
 func asAdmin(t *testing.T) context.Context {
 	t.Helper()
 	return middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
-		UserEmail: "admin@example.com", UserID: "u0", PersonaName: "admin",
+		UserEmail: "admin@example.com", UserID: "u0", PersonaName: "admin", IsAdmin: true,
 	})
 }
 

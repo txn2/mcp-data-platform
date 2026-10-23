@@ -1142,6 +1142,23 @@ definitions:
         example: false
         type: boolean
     type: object
+  admin.personaDeleteConflict:
+    properties:
+      detail:
+        example: resource not found
+        type: string
+      references:
+        $ref: '#/definitions/personaaccess.References'
+      status:
+        example: 404
+        type: integer
+      title:
+        example: Not Found
+        type: string
+      type:
+        example: about:blank
+        type: string
+    type: object
   admin.personaDetail:
     properties:
       allow_connections:
@@ -1171,6 +1188,11 @@ definitions:
         items:
           $ref: '#/definitions/persona.APIRouteRule'
         type: array
+      capped_by_external:
+        description: CappedByExternal names the areas External lowered from Portal.
+        items:
+          type: string
+        type: array
       context:
         $ref: '#/definitions/admin.personaContextDetail'
       deny_connections:
@@ -1189,6 +1211,12 @@ definitions:
       display_name:
         example: Data Engineer
         type: string
+      effective_portal:
+        allOf:
+        - $ref: '#/definitions/persona.PortalAccess'
+        description: |-
+          EffectivePortal is what the persona's people may do in the portal,
+          with the limits External sets applied.
       external:
         description: |-
           External marks the persona for people outside the organization, whose
@@ -1202,9 +1230,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/persona.PortalAccess'
         description: |-
-          Portal is what the persona's people may do in the portal, every area
-          resolved (#2225): a field the persona leaves unset reads as what its
-          tools reached before the setting existed.
+          Portal is the persona's portal block, every area resolved (#2225), as
+          stored: an external persona's limits are not applied, so the editor
+          saves back what the administrator chose (#2257).
       priority:
         example: 10
         type: integer
@@ -6570,7 +6598,9 @@ definitions:
         description: 'Catalog is the platform catalog: none, read or write.'
         type: string
       download:
-        description: Download is downloading content and exporting it as PDF.
+        description: |-
+          Download is exporting an asset or a resource as PDF; the portal names
+          it PDF export (#2257). Reading content is the item's own sharing.
         type: boolean
       external:
         description: |-
@@ -6592,9 +6622,340 @@ definitions:
       resources:
         description: 'Resources is managed resources: none, shared, own or persona.'
         type: string
+      scratch_tables:
+        description: |-
+          ScratchTables is the scratch-table routes and page: none, list or
+          register (#2257). The connections a table sits on are still the
+          persona's Connections.
+        type: string
       search:
         description: Search is the portal's unified search.
         type: boolean
+      uploads:
+        allOf:
+        - $ref: '#/definitions/persona.PortalUploads'
+        description: |-
+          Uploads lets the people of an external persona upload files, each one
+          shared on arrival with the recipients it names (#2258). nil is no
+          uploads; an internal persona's people upload by their Resources level
+          and this is dropped from its resolved block.
+    type: object
+  persona.PortalUploads:
+    properties:
+      share_emails:
+        description: ShareEmails are addresses that read each upload.
+        items:
+          type: string
+        type: array
+      share_personas:
+        description: SharePersonas are personas whose people read each upload.
+        items:
+          type: string
+        type: array
+    type: object
+  personaaccess.Assignment:
+    properties:
+      folder_reader_roles:
+        description: |-
+          FolderReaderRoles make a person a member of the persona's folder and
+          prompts: any of them, whatever persona the person resolves to.
+        items:
+          type: string
+        type: array
+      folder_writer_role:
+        description: FolderWriterRole writes the persona's folder; administrators
+          do too.
+        type: string
+      role_mapping:
+        description: |-
+          RoleMapping are the roles personas.role_mapping assigns to this
+          persona outright, before roles and priority are compared.
+        items:
+          type: string
+        type: array
+      role_overlaps:
+        items:
+          $ref: '#/definitions/personaaccess.RoleOverlap'
+        type: array
+      roles:
+        items:
+          type: string
+        type: array
+    type: object
+  personaaccess.ConnAccess:
+    properties:
+      allowed:
+        type: boolean
+      name:
+        type: string
+    type: object
+  personaaccess.ConnItem:
+    properties:
+      decision:
+        type: string
+      exact:
+        type: boolean
+      kind:
+        type: string
+      matched:
+        type: string
+      name:
+        type: string
+      scratch:
+        $ref: '#/definitions/personaaccess.Scratch'
+      used_by_channels:
+        items:
+          type: string
+        type: array
+    type: object
+  personaaccess.ConnSummary:
+    properties:
+      allowed:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/personaaccess.ConnItem'
+        type: array
+      total:
+        type: integer
+    type: object
+  personaaccess.Draft:
+    properties:
+      agent_instructions_override:
+        type: string
+      agent_instructions_suffix:
+        type: string
+      allow_connections:
+        items:
+          type: string
+        type: array
+      allow_sharing:
+        type: boolean
+      allow_tools:
+        items:
+          type: string
+        type: array
+      api_routes:
+        items:
+          $ref: '#/definitions/persona.APIRouteRule'
+        type: array
+      deny_connections:
+        items:
+          type: string
+        type: array
+      deny_tools:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      description_override:
+        type: string
+      description_prefix:
+        type: string
+      display_name:
+        type: string
+      external:
+        type: boolean
+      name:
+        example: analyst
+        type: string
+      portal:
+        $ref: '#/definitions/persona.PortalAccess'
+      priority:
+        type: integer
+      roles:
+        items:
+          type: string
+        type: array
+      service_account:
+        type: boolean
+    type: object
+  personaaccess.OpItem:
+    properties:
+      callable:
+        type: boolean
+      connection:
+        type: string
+      decision:
+        type: string
+      method:
+        type: string
+      path:
+        type: string
+      rule_index:
+        type: integer
+    type: object
+  personaaccess.OpSummary:
+    properties:
+      callable:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/personaaccess.OpItem'
+        type: array
+      total:
+        type: integer
+    type: object
+  personaaccess.PortalSummary:
+    properties:
+      capped_by_external:
+        items:
+          type: string
+        type: array
+      effective:
+        $ref: '#/definitions/persona.PortalAccess'
+      stored:
+        $ref: '#/definitions/persona.PortalAccess'
+    type: object
+  personaaccess.References:
+    properties:
+      api_keys:
+        type: integer
+      external_accounts:
+        type: integer
+      prompts:
+        type: integer
+      script_grants:
+        type: integer
+      script_versions:
+        type: integer
+      secrets:
+        $ref: '#/definitions/personaaccess.SecretRefs'
+      shares:
+        type: integer
+      webhook_sources:
+        items:
+          type: string
+        type: array
+    type: object
+  personaaccess.Report:
+    properties:
+      account_type:
+        type: string
+      admin_persona:
+        description: |-
+          AdminPersona is the configured administrator persona's name, which is
+          never external.
+        type: string
+      api_operations:
+        $ref: '#/definitions/personaaccess.OpSummary'
+      assignment:
+        $ref: '#/definitions/personaaccess.Assignment'
+      calls_excluded_by_config:
+        type: boolean
+      connections:
+        $ref: '#/definitions/personaaccess.ConnSummary'
+      is_admin:
+        type: boolean
+      portal:
+        $ref: '#/definitions/personaaccess.PortalSummary'
+      references:
+        $ref: '#/definitions/personaaccess.References'
+      resource_scopes:
+        items:
+          type: string
+        type: array
+      scratch:
+        items:
+          $ref: '#/definitions/personaaccess.ScratchItem'
+        type: array
+      sharing:
+        type: boolean
+      tools:
+        $ref: '#/definitions/personaaccess.ToolSummary'
+      unscoped:
+        $ref: '#/definitions/personaaccess.Unscoped'
+    type: object
+  personaaccess.RoleOverlap:
+    properties:
+      persona:
+        type: string
+      priority:
+        type: integer
+      role:
+        type: string
+    type: object
+  personaaccess.Scratch:
+    properties:
+      catalog:
+        type: string
+      schema:
+        type: string
+    type: object
+  personaaccess.ScratchItem:
+    properties:
+      catalog:
+        type: string
+      connection:
+        type: string
+      drop_via_sql:
+        description: |-
+          DropViaSQL is trino_execute on the connection, whose Trino user holds
+          every privilege on the scratch catalog: any registered table can be
+          dropped or replaced, whoever registered it.
+        type: boolean
+      list:
+        description: List and Register are the portal's scratch-table routes.
+        type: boolean
+      queryable_from:
+        description: |-
+          QueryableFrom are the connections trino_query reaches that read every
+          registered table when their Trino user reads the scratch catalog.
+        items:
+          type: string
+        type: array
+      register:
+        type: boolean
+      registrations:
+        type: integer
+      schema:
+        type: string
+    type: object
+  personaaccess.SecretRefs:
+    properties:
+      named:
+        items:
+          type: string
+        type: array
+      unrestricted:
+        type: integer
+    type: object
+  personaaccess.ToolItem:
+    properties:
+      callable:
+        type: boolean
+      connections:
+        items:
+          $ref: '#/definitions/personaaccess.ConnAccess'
+        type: array
+      decision:
+        type: string
+      exact:
+        type: boolean
+      kind:
+        type: string
+      matched:
+        type: string
+      name:
+        type: string
+    type: object
+  personaaccess.ToolSummary:
+    properties:
+      callable:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/personaaccess.ToolItem'
+        type: array
+      total:
+        type: integer
+    type: object
+  personaaccess.Unscoped:
+    properties:
+      signed_in_endpoints:
+        description: SignedInEndpoints admit any signed-in account, external included.
+        type: integer
     type: object
   platform.ConnectionInstance:
     properties:
@@ -6978,6 +7339,9 @@ definitions:
         example: '#general on slack'
         type: string
       prompt_id:
+        type: string
+      resource_id:
+        description: ResourceID is a managed resource the share is for (#2258).
         type: string
       revoked:
         example: false
@@ -8196,6 +8560,78 @@ definitions:
         example: trino_query
         type: string
     type: object
+  portaldomain.Share:
+    properties:
+      access_count:
+        example: 3
+        type: integer
+      access_mode:
+        allOf:
+        - $ref: '#/definitions/portaldomain.ShareAccessMode'
+        example: restricted
+      asset_id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      collection_id:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        example: alice@example.com
+        type: string
+      expires_at:
+        type: string
+      hide_expiration:
+        example: false
+        type: boolean
+      id:
+        example: share_01HK7R9B
+        type: string
+      last_accessed_at:
+        type: string
+      notice_text:
+        example: Proprietary & Confidential
+        type: string
+      origin:
+        allOf:
+        - $ref: '#/definitions/portaldomain.ShareOrigin'
+        example: explicit
+      permission:
+        allOf:
+        - $ref: '#/definitions/portaldomain.SharePermission'
+        example: viewer
+      posted_to:
+        description: |-
+          PostedTo names the channel a channel_post share's link was posted to,
+          as the person sharing chose it: "#general on slack". Empty for every
+          other origin.
+        example: '#general on slack'
+        type: string
+      prompt_id:
+        type: string
+      resource_id:
+        description: ResourceID is a managed resource the share is for (#2258).
+        type: string
+      revoked:
+        example: false
+        type: boolean
+      shared_with_email:
+        example: bob@example.com
+        type: string
+      shared_with_persona:
+        description: |-
+          SharedWithPersona names the persona the share is addressed to (#2089):
+          every person whose roles resolve to it when they open the item, decided
+          then rather than when the share was made. Exclusive with the user and
+          email recipients.
+        example: finance
+        type: string
+      shared_with_user_id:
+        type: string
+      token:
+        example: tk_a1b2c3d4e5f6
+        type: string
+    type: object
   portaldomain.ShareAccessMode:
     enum:
     - restricted
@@ -9183,6 +9619,56 @@ definitions:
         type: integer
       examined:
         type: integer
+    type: object
+  resourceshare.ShareList:
+    properties:
+      shares:
+        items:
+          $ref: '#/definitions/portaldomain.Share'
+        type: array
+    type: object
+  resourceshare.ShareRequest:
+    properties:
+      message:
+        description: Message is a plain-text note in the notification.
+        type: string
+      notify:
+        description: Notify is whether the recipient is told; omitted is yes.
+        type: boolean
+      permission:
+        description: |-
+          Permission is viewer (the default) or editor. A person of an external
+          persona opens it as viewer whatever it says.
+        example: viewer
+        type: string
+      shared_with_email:
+        example: colleague@example.com
+        type: string
+      shared_with_persona:
+        example: marketing
+        type: string
+    type: object
+  resourceshare.SharedList:
+    properties:
+      resources:
+        items:
+          $ref: '#/definitions/resourceshare.SharedResource'
+        type: array
+    type: object
+  resourceshare.SharedResource:
+    properties:
+      permission:
+        type: string
+      resource:
+        $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
+      share_id:
+        type: string
+      shared_at:
+        type: string
+      shared_by:
+        type: string
+      via_persona:
+        type: string
     type: object
   reviewalert.SettingsInput:
     properties:
@@ -18842,14 +19328,21 @@ paths:
       - Personas
   /admin/personas/{name}:
     delete:
-      description: Deletes a persona. Only available in database config mode. Cannot
-        delete the admin persona.
+      description: 'Deletes a persona. Only available in database config mode. Cannot
+        delete the admin persona. While stored secrets, script grants or versions,
+        prompts, shares, webhook sources, external accounts or API keys still name
+        the persona, answers 409 listing them unless confirm=true: a persona created
+        later under the name would inherit them (#2257).'
       parameters:
       - description: Persona name
         in: path
         name: name
         required: true
         type: string
+      - description: Delete although other objects still name the persona
+        in: query
+        name: confirm
+        type: boolean
       produces:
       - application/json
       responses:
@@ -18864,7 +19357,7 @@ paths:
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/admin.personaDeleteConflict'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -18974,6 +19467,43 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Preview a persona's decision for a tool or an API route
+      tags:
+      - Personas
+  /admin/personas/effective-access:
+    post:
+      consumes:
+      - application/json
+      description: 'Evaluates a persona, saved or not, as every request would: the
+        tools its people can call and on which connections, the API operations api_invoke_endpoint
+        may call, the scratch tables they can list, register or change through SQL,
+        the portal as stored and as External leaves it, sharing, the resource folders
+        they read, the grants other objects hold that name the persona (stored secrets,
+        script run grants, script versions whose author roles resolve to it, prompts,
+        shares, webhook sources, external accounts, API keys), and the signed-in endpoints
+        no persona governs (#2257). The body is the persona as the create route takes
+        it.'
+      parameters:
+      - description: The persona, saved or not
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/personaaccess.Draft'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/personaaccess.Report'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: What a persona reaches
       tags:
       - Personas
   /admin/prompt-collections:
@@ -22284,7 +22814,8 @@ paths:
       - application/json
       description: Creates a person share of the item for the requester with the permission
         given, viewer or editor, recorded with origin access_request (#2090), and
-        tells the requester. The item's owner or an administrator.
+        tells the requester. The item's owner or an administrator; 403 when the owner's
+        persona withholds sharing.
       parameters:
       - description: Request id
         in: path
@@ -22306,6 +22837,10 @@ paths:
             $ref: '#/definitions/accessreq.Request'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
@@ -27496,6 +28031,85 @@ paths:
       summary: Prompt usage stats (portal)
       tags:
       - Prompts
+  /portal/resources/{id}/access-request:
+    get:
+      description: 'What the page shown to a signed-in person who cannot open an item
+        says (#2090): whether they already open it, the item''s owner, the item''s
+        name when the access_requests setting reveals names, and their pending request
+        for it if they have one.'
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Page'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read the request-access page
+      tags:
+      - Access requests
+  /portal/resources/{id}/access-requests:
+    post:
+      consumes:
+      - application/json
+      description: Asks the owner of an asset, collection or prompt for access (#2090),
+        with an optional message. The owner is notified by their notification preferences
+        with Approve as viewer, Approve as editor and Decline. A second request while
+        one is pending answers 200 with that request and notifies nobody; a person
+        who already opens the item is refused with 409, and one who has asked three
+        times for it in a day with 429.
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The message
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/accessreq.OpenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/accessreq.Request'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Request access to an item
+      tags:
+      - Access requests
   /portal/resources/{id}/producers:
     get:
       description: Returns the scripts, sessions and people that created or modified
@@ -30563,6 +31177,55 @@ paths:
       summary: Update resource
       tags:
       - Resources
+  /resources/{id}/channel-shares:
+    post:
+      consumes:
+      - application/json
+      description: Posts a link to a managed resource to one of the deployment's notification
+        channels, with an optional line above it (#2258). access_mode authenticated
+        (the default) shares the file with every signed-in person of an internal persona,
+        as viewer, recorded as posted to the channel and withdrawn when the post does
+        not go out; existing posts the file's page, which opens for the people who
+        can already open it. A file has no public link. Someone who can change the
+        file and whose persona allows sharing.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Where to post and who can open the link
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/channelhttp.ChannelShareRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Post a file to a channel
+      tags:
+      - Resources
   /resources/{id}/content:
     get:
       description: Download the binary content of a managed resource.
@@ -30726,6 +31389,115 @@ paths:
       summary: Export an HTML document as PDF
       tags:
       - Portal
+  /resources/{id}/shares:
+    get:
+      description: 'The shares that still grant on a managed resource (#2258): who
+        it is shared with, as viewer or editor. Someone who can change the file.'
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resourceshare.ShareList'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a file's shares
+      tags:
+      - Resources
+    post:
+      consumes:
+      - application/json
+      description: Shares a managed resource with a person by address or with a persona,
+        as viewer or editor (#2258). A viewer reads it, an editor also renames it
+        and writes new versions; neither moves or deletes it. Someone who can change
+        the file and whose persona allows sharing; a person of an external persona
+        shares only their own upload, only with someone who has shared with them.
+        The recipient is told unless notify is false.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Who to share with
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resourceshare.ShareRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portaldomain.Share'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Share a file
+      tags:
+      - Resources
+  /resources/{id}/shares/{shareID}:
+    delete:
+      description: Revokes one share of a managed resource (#2258). Someone who can
+        change the file.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Share ID
+        in: path
+        name: shareID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Stop sharing a file
+      tags:
+      - Resources
   /resources/{id}/tables:
     get:
       description: Returns the registrations built over one managed resource under
@@ -31454,6 +32226,27 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List people's libraries
+      tags:
+      - Resources
+  /resources/shared-with-me:
+    get:
+      description: The managed resources shared with the caller, directly or through
+        their persona, each with the share that grants the most (#2258).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resourceshare.SharedList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Files shared with me
       tags:
       - Resources
   /table-connections:

@@ -15,6 +15,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/admin/apiroutesapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/connoauthapi"
+	"github.com/txn2/mcp-data-platform/internal/admin/personaaccess"
 	"github.com/txn2/mcp-data-platform/internal/apidocs"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
@@ -181,7 +182,11 @@ type Deps struct {
 	ConnectionStore ConnectionStore
 	ToolkitsConfig  map[string]any
 	PersonaStore    personastore.Store
-	APIKeyStore     platform.APIKeyStore
+	// PersonaReferences reads the grants other objects hold that name a
+	// persona, which a delete lists and refuses over until confirmed
+	// (#2257). nil deletes without asking.
+	PersonaReferences func(ctx context.Context, name string) (personaaccess.References, error)
+	APIKeyStore       platform.APIKeyStore
 	// UserStore is the known-users directory (#614). nil disables the
 	// /api/v1/admin/users routes (no database configured).
 	UserStore user.Store

@@ -8,6 +8,8 @@ import {
 import type { PersonaDetail } from "@/api/admin/types";
 import { Users } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { hasReferences, type PersonaReferences } from "@/api/admin/types";
+import { referenceLines } from "./persona/AccessSummary";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { PersonaEditor, type PersonaDraft } from "./PersonaEditor";
@@ -109,6 +111,9 @@ export function PersonasPanel() {
   const [draft, setDraft] = useState<PersonaDraft>(emptyDraft());
   const [dirty, setDirty] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // What other objects still name the selected persona, from the editor's
+  // summary: a delete lists them and confirms past them (#2257).
+  const [references, setReferences] = useState<PersonaReferences | undefined>(undefined);
   const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
 
   const { data: detail } = usePersonaDetail(isCreating ? null : selected);
@@ -196,14 +201,14 @@ export function PersonasPanel() {
 
   const handleDelete = useCallback(() => {
     if (!detail) return;
-    deleteMutation.mutate(detail.name, {
+    deleteMutation.mutate({ name: detail.name, confirm: !!references && hasReferences(references) }, {
       onSuccess: () => {
         setConfirmDelete(false);
         setSelected(null);
         setDirty(false);
       },
     });
-  }, [detail, deleteMutation]);
+  }, [detail, deleteMutation, references]);
 
   const updateDraft = useCallback(
     (partial: Partial<PersonaDraft>) => {
@@ -304,6 +309,7 @@ export function PersonasPanel() {
           selectedName={selected}
           canDelete={canDelete}
           onDelete={() => setConfirmDelete(true)}
+          onReferences={setReferences}
           sourceNote={sourceNoteFor(detail, isReadOnly)}
           isReadOnly={isReadOnly}
         />
@@ -342,9 +348,23 @@ export function PersonasPanel() {
           destructive
           title="Delete Persona"
           description={
-            detail.source === "both"
-              ? `Are you sure you want to remove the database override for "${detail.display_name}"? It will revert to the version defined in the config file.`
-              : `Are you sure you want to delete "${detail.display_name}"? This cannot be undone.`
+            <>
+              {detail.source === "both"
+                ? `Are you sure you want to remove the database override for "${detail.display_name}"? It will revert to the version defined in the config file.`
+                : `Are you sure you want to delete "${detail.display_name}"? This cannot be undone.`}
+              {references && hasReferences(references) && (
+                <span className="mt-3 block">
+                  These still name it, and a persona created later under the same name gets them:
+                  <span className="mt-1 block">
+                    {referenceLines(references).map((r) => (
+                      <span key={r.text} className="block">
+                        {r.text}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+              )}
+            </>
           }
           confirmLabel="Delete"
           loading={deleteMutation.isPending}

@@ -39,7 +39,9 @@ async function resourceFetch<T>(path: string, init?: RequestInit): Promise<T> {
       useAuthStore.getState().expireSession();
     }
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new ResourceApiError(res.status, body.error || res.statusText);
+    // The resources API answers {error}; the share routes beside it answer
+    // Problem Details (#2258).
+    throw new ResourceApiError(res.status, body.error || body.detail || res.statusText);
   }
 
   return res.json() as Promise<T>;

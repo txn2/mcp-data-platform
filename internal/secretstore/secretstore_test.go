@@ -223,7 +223,14 @@ func TestLookup(t *testing.T) {
 	_, err = s.Lookup(ctx, "grid", "analyst")("pw")
 	require.ErrorContains(t, err, "may not be used by persona analyst")
 
-	s.WithAdmin("admin")
+	// An external persona carrying the administrator's name is held to
+	// allow_personas: the rule is the registry's, not the name (#2257).
+	s.WithAdmin(func(string) bool { return false })
+	mock.ExpectQuery(`, value FROM gateway_secrets`).WithArgs("pw").WillReturnRows(valueRow(now, "enc:hunter22", "{finance}"))
+	_, err = s.Lookup(ctx, "grid", "admin")("pw")
+	require.ErrorContains(t, err, "may not be used by persona admin")
+
+	s.WithAdmin(func(p string) bool { return p == "admin" })
 	mock.ExpectQuery(`, value FROM gateway_secrets`).WithArgs("pw").WillReturnRows(valueRow(now, "enc:hunter22", "{finance}"))
 	v, err = s.Lookup(ctx, "grid", "admin")("pw")
 	require.NoError(t, err, "the administrator persona is not limited by allow_personas")

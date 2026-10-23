@@ -71,7 +71,11 @@ type Deps struct {
 	S3Bucket  string
 	URIScheme string          // defaults to "mcp" if empty
 	OnCreate  func(*Resource) // called after successful create to register with MCP
-	OnDelete  func(string)    // called after successful delete with URI to unregister
+	// OnUploaded is called after an upload through POST /api/v1/resources
+	// with the uploader's claims: an external person's upload is shared with
+	// the recipients their persona names (#2258). nil does nothing.
+	OnUploaded func(ctx context.Context, claims Claims, res *Resource)
+	OnDelete   func(string) // called after successful delete with URI to unregister
 	// OnDeleteID is called after a successful delete with the resource's ID,
 	// so a consumer keyed on the record rather than on its MCP URI can clean
 	// up after it -- the tables registered over its file (#1327). Separate
@@ -652,6 +656,9 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeUploadError(w, err, limit)
 		return
 	}
+	if h.deps.OnUploaded != nil {
+		h.deps.OnUploaded(r.Context(), *claims, res)
+	}
 	writeJSON(w, http.StatusCreated, createdResource{Resource: res, Outcome: outcomeCreated})
 	h.notifyCreate(res)
 }
@@ -989,7 +996,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !CanModifyResource(*claims, res) {
+	if !CanEditResource(*claims, res) {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}
@@ -1003,6 +1010,12 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if err := validateUpdate(u); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// An editor share renames and describes a file; moving it is its owner's
+	// (#2258).
+	if u.Relocates() && !CanModifyResource(*claims, res) {
+		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}
 

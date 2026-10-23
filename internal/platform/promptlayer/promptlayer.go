@@ -88,9 +88,6 @@ type Config struct {
 	// at registration. Nil skips the prompt entirely; the caller passes nil
 	// when no description exists and none can appear later.
 	ServerDescription func(ctx context.Context) string
-	// AdminPersona is the persona name that grants admin authority over prompts
-	// at every scope; matched against the caller's persona in each command.
-	AdminPersona string
 	// OperatorPrompts are the operator-configured static prompts to register.
 	OperatorPrompts []PromptSpec
 	// BuiltinPrompts disables named built-in workflow prompts (name → enabled);
@@ -116,7 +113,6 @@ type Handle struct {
 
 	serverName        string
 	serverDescription func(ctx context.Context) string
-	adminPersona      string
 	operatorPrompts   []PromptSpec
 	builtinPrompts    map[string]bool
 
@@ -167,7 +163,6 @@ func New(cfg Config) *Handle {
 		registry:          cfg.Registry,
 		serverName:        cfg.ServerName,
 		serverDescription: cfg.ServerDescription,
-		adminPersona:      cfg.AdminPersona,
 		operatorPrompts:   cfg.OperatorPrompts,
 		builtinPrompts:    cfg.BuiltinPrompts,
 	}

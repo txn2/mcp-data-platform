@@ -10,6 +10,7 @@ import { nextSort } from "./model";
 import { ContextMenu, Toast } from "./Overlays";
 import { PathBar } from "./PathBar";
 import { PreviewPane } from "./PreviewPane";
+import { SharedWithMe } from "./SharedWithMe";
 import { contextItems, useFileManager, type FileManagerProps } from "./useFileManager";
 
 type FM = ReturnType<typeof useFileManager>;
@@ -63,6 +64,7 @@ export function FileManager(props: FileManagerProps) {
         personaNames={fm.personaNames}
         actions={fm.actions}
         onClose={() => fm.setDialog(null)}
+        onShare={(id) => fm.setDialog({ kind: "share", resourceId: id })}
         onDone={(message) => {
           fm.setDialog(null);
           fm.selection.clear();
@@ -93,6 +95,7 @@ function Bar({ fm }: { fm: FM }) {
       onNewFolder={fm.startNewFolder}
       onUpload={() => fm.upload(false)}
       onUploadMany={() => fm.upload(true)}
+      onUploadShare={fm.canShare ? fm.uploadAndShare : undefined}
       drop={{ accepts: (e) => fm.accepts(fm.root, e), onDrop: (p, e) => fm.dropOn(fm.root, p, e) }}
     />
   );
@@ -134,6 +137,9 @@ function Main({ fm }: { fm: FM }) {
 }
 
 function Body({ fm, flat }: { fm: FM; flat: { query: string; tag: string } | null }) {
+  if (fm.root.shared) {
+    return <SharedWithMe onOpen={fm.openFile} />;
+  }
   if (fm.data.isLoading) {
     return (
       <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -172,6 +178,15 @@ function Body({ fm, flat }: { fm: FM; flat: { query: string; tag: string } | nul
 
 function Pane({ fm }: { fm: FM }) {
   const first = fm.picked[0];
+  // The files shared with the caller open at their own page; there is no
+  // folder to summarize beside them.
+  if (fm.root.shared) {
+    return (
+      <aside aria-label="Preview" data-testid="preview-pane" className={cn("hidden min-h-0 flex-col border-l p-4 text-xs text-muted-foreground", fm.prefs.preview && "xl:flex")}>
+        Open a file to see it.
+      </aside>
+    );
+  }
   return (
     <aside
       aria-label="Preview"

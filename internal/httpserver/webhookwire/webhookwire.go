@@ -166,6 +166,7 @@ func buildFrom(p platformSource, address string, exec whtable.Executor) (*Webhoo
 		tables: whtable.New(exec, cfg.Resources.Managed.S3Bucket),
 		resources: windowResources{
 			w: writer, byURI: p.ResourceStore(), uriScheme: uriScheme, adminPersona: cfg.Admin.Persona,
+			external: externalPersona(p.PersonaRegistry()),
 		},
 		encryptor: p.RestEncryptor(), metrics: p.Metrics(), observe: p.Metrics(), cfg: cfg,
 		replica: instanceheader.HostName(address), address: address,
@@ -291,6 +292,18 @@ func personaLookup(reg *persona.Registry) func(string) bool {
 	return func(name string) bool {
 		_, ok := reg.Get(name)
 		return ok
+	}
+}
+
+// externalPersona reports whether a registered persona is external; nil
+// without a registry.
+func externalPersona(reg *persona.Registry) func(string) bool {
+	if reg == nil {
+		return nil
+	}
+	return func(name string) bool {
+		p, ok := reg.Get(name)
+		return ok && p.External
 	}
 }
 

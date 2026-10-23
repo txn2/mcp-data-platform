@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/personaaccess"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
@@ -1373,4 +1374,80 @@ func TestGetPersona_ReadsTheStoreBeforeTheRegistry(t *testing.T) {
 
 	body = get(Deps{PersonaRegistry: registry, PersonaStore: &mockPersonaStore{}})
 	assert.Equal(t, "analyst", body.Name, "a persona only in the file is read from the registry")
+}
+
+// The administrator persona is never external, on create or update (#2257):
+// the admin API would otherwise admit the people the platform created
+// accounts for.
+func TestPersonaRefusesAnExternalAdministrator(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPut} {
+		t.Run(method, func(t *testing.T) {
+			h := NewHandler(Deps{PersonaRegistry: &mockPersonaRegistry{}, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
+			body := `{"name":"admin","display_name":"Administrator","roles":["admin"],"external":true}`
+			req := httptest.NewRequestWithContext(context.Background(), method, "/api/v1/admin/personas", strings.NewReader(body))
+			if method == http.MethodPut {
+				req = httptest.NewRequestWithContext(context.Background(), method, "/api/v1/admin/personas/admin", strings.NewReader(body))
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Equal(t, persona.ErrExternalAdmin.Error(), decodeProblem(w.Body.Bytes()).Detail)
+		})
+	}
+}
+
+// An external persona answers with what the administrator stored beside what
+// its people get, so the editor saving the block back does not lower it for
+// good (#2257).
+func TestPersonaDetailKeepsTheStoredPortal(t *testing.T) {
+	off := false
+	p := &persona.Persona{
+		Name: "vendors", External: true, AllowSharing: nil,
+		Portal: &persona.PortalAccess{Knowledge: persona.PortalWrite, Feedback: &off},
+	}
+	d := toPersonaDetail(p, nil)
+	assert.Equal(t, persona.PortalWrite, d.Portal.Knowledge, "stored")
+	assert.Equal(t, persona.PortalNone, d.EffectivePortal.Knowledge, "what External leaves")
+	assert.Contains(t, d.CappedByExternal, "knowledge")
+	assert.NotContains(t, d.CappedByExternal, "feedback")
+	assert.True(t, d.AllowSharing, "the stored choice; External overrides it without changing it")
+
+	raw, err := json.Marshal(toPersonaDetail(&persona.Persona{Name: "staff"}, nil))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"capped_by_external":[]`)
+}
+
+// A persona other objects still name is not deleted until the delete is
+// confirmed: a persona created later under the name would inherit them
+// (#2257).
+func TestDeletePersonaListsItsReferences(t *testing.T) {
+	refs := personaaccess.References{Secrets: personaaccess.SecretRefs{Named: []string{"crm-token"}}, ScriptGrants: 1}
+	deps := func() Deps {
+		return Deps{
+			PersonaRegistry: &mockPersonaRegistry{allResult: testPersonas("admin", "analyst")},
+			Config:          testConfig(), ConfigStore: &mockConfigStore{mode: "database"},
+			PersonaReferences: func(_ context.Context, name string) (personaaccess.References, error) {
+				if name == "analyst" {
+					return refs, nil
+				}
+				return personaaccess.References{}, nil
+			},
+		}
+	}
+	del := func(h *Handler, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, path, http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+
+	w := del(NewHandler(deps(), nil), "/api/v1/admin/personas/analyst")
+	require.Equal(t, http.StatusConflict, w.Code)
+	var body personaDeleteConflict
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, refs.Secrets.Named, body.References.Secrets.Named)
+	assert.Equal(t, 1, body.References.ScriptGrants)
+	assert.Contains(t, body.Detail, "confirm=true")
+
+	assert.Equal(t, http.StatusOK, del(NewHandler(deps(), nil), "/api/v1/admin/personas/analyst?confirm=true").Code)
 }

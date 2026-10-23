@@ -54,6 +54,7 @@ export function PathBar({
   onNewFolder,
   onUpload,
   onUploadMany,
+  onUploadShare,
   drop,
 }: {
   root: ResourceRoot;
@@ -73,6 +74,8 @@ export function PathBar({
   onNewFolder: () => void;
   onUpload: () => void;
   onUploadMany: () => void;
+  /** Uploads to the caller's own folder and shares the file; absent when they cannot share (#2258). */
+  onUploadShare?: () => void;
   drop: CrumbDrop;
 }) {
   const parts = path ? path.split("/") : [];
@@ -150,7 +153,7 @@ export function PathBar({
             <FolderPlus />
             New folder
           </Button>
-          <UploadMenu onUpload={onUpload} onUploadMany={onUploadMany} />
+          <UploadMenu onUpload={onUpload} onUploadMany={onUploadMany} onUploadShare={onUploadShare} />
         </>
       )}
     </div>
@@ -205,7 +208,15 @@ function ViewToggles({
   );
 }
 
-function UploadMenu({ onUpload, onUploadMany }: { onUpload: () => void; onUploadMany: () => void }) {
+function UploadMenu({
+  onUpload,
+  onUploadMany,
+  onUploadShare,
+}: {
+  onUpload: () => void;
+  onUploadMany: () => void;
+  onUploadShare?: () => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -218,6 +229,7 @@ function UploadMenu({ onUpload, onUploadMany }: { onUpload: () => void; onUpload
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onUpload}>A file...</DropdownMenuItem>
         <DropdownMenuItem onSelect={onUploadMany}>Many files or a folder...</DropdownMenuItem>
+        {onUploadShare && <DropdownMenuItem onSelect={onUploadShare}>Upload and share...</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
   );

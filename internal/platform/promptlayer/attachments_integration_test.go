@@ -125,7 +125,7 @@ func withAttachments(t *testing.T, links []prompt.Attachment) *Handle {
 	// attachment guard lives on that wrapper, so a handle assembled by hand
 	// would not exercise it.
 	store := newMockPromptStore()
-	h := New(Config{Store: store, AdminPersona: "admin", Registry: registry.NewRegistry()})
+	h := New(Config{Store: store, Registry: registry.NewRegistry()})
 	pr := &prompt.Prompt{
 		ID: "p1", Name: "quarterly-review", Scope: prompt.ScopeGlobal, Enabled: true, Status: prompt.StatusApproved,
 		Description: "Produce the quarterly review", Content: "Write the quarterly review.",
@@ -242,7 +242,7 @@ func TestPromptsGet_WithoutAttachmentsIsUnchanged(t *testing.T) {
 // resources disabled: no resolver is bound and serving is untouched.
 func TestPromptsGet_WithoutResolverIsUnchanged(t *testing.T) {
 	store := newMockPromptStore()
-	h := New(Config{Store: store, AdminPersona: "admin", Registry: registry.NewRegistry()})
+	h := New(Config{Store: store, Registry: registry.NewRegistry()})
 	store.prompts["quarterly-review"] = &prompt.Prompt{
 		ID: "p1", Name: "quarterly-review", Scope: prompt.ScopeGlobal, Enabled: true, Status: prompt.StatusApproved,
 		Content: "Write the quarterly review.",
@@ -374,7 +374,7 @@ func TestManagePromptUse_WithoutAttachmentsOmitsTheField(t *testing.T) {
 // manage_prompt update rather than the guard function.
 func TestPromotionBlockedByNarrowerAttachment(t *testing.T) {
 	store := &recordingStore{mockPromptStore: newMockPromptStore()}
-	h := New(Config{Store: store, AdminPersona: "admin", Registry: registry.NewRegistry()})
+	h := New(Config{Store: store, Registry: registry.NewRegistry()})
 	store.prompts["draft-sop:"+sopOwner] = &prompt.Prompt{
 		ID: "p1", Name: "draft-sop", Scope: prompt.ScopePersonal, OwnerEmail: sopOwner,
 		Content: "body", Enabled: true,
@@ -412,7 +412,7 @@ func TestPromotionBlockedByNarrowerAttachment(t *testing.T) {
 // 2: the same promotion succeeds when the material reaches the new audience.
 func TestPromotionAllowedOnceAttachmentIsWideEnough(t *testing.T) {
 	store := &recordingStore{mockPromptStore: newMockPromptStore()}
-	h := New(Config{Store: store, AdminPersona: "admin", Registry: registry.NewRegistry()})
+	h := New(Config{Store: store, Registry: registry.NewRegistry()})
 	store.prompts["draft-sop:"+sopOwner] = &prompt.Prompt{
 		ID: "p1", Name: "draft-sop", Scope: prompt.ScopePersonal, OwnerEmail: sopOwner,
 		Content: "body", Enabled: true,
@@ -449,7 +449,7 @@ func TestPromotionAllowedOnceAttachmentIsWideEnough(t *testing.T) {
 // unwritable. Renaming it, disabling it, or promoting it has to keep working.
 func TestDeletedAttachmentDoesNotFreezeThePrompt(t *testing.T) {
 	store := &recordingStore{mockPromptStore: newMockPromptStore()}
-	h := New(Config{Store: store, AdminPersona: "admin", Registry: registry.NewRegistry()})
+	h := New(Config{Store: store, Registry: registry.NewRegistry()})
 	store.prompts["draft-sop:"+sopOwner] = &prompt.Prompt{
 		ID: "p1", Name: "draft-sop", Scope: prompt.ScopePersonal, OwnerEmail: sopOwner,
 		Content: "body", Enabled: true,
@@ -480,7 +480,7 @@ func TestDeletedAttachmentDoesNotFreezeThePrompt(t *testing.T) {
 // prevent.
 func TestUnreadableAttachmentStoreBlocksTheWrite(t *testing.T) {
 	store := &recordingStore{mockPromptStore: newMockPromptStore()}
-	h := New(Config{Store: store, AdminPersona: "admin", Registry: registry.NewRegistry()})
+	h := New(Config{Store: store, Registry: registry.NewRegistry()})
 	store.prompts["draft-sop:"+sopOwner] = &prompt.Prompt{
 		ID: "p1", Name: "draft-sop", Scope: prompt.ScopePersonal, OwnerEmail: sopOwner,
 		Content: "body", Enabled: true,

@@ -149,7 +149,7 @@ func assembledServerWith(t *testing.T, destinations []script.Destination, inner 
 	const authorID = "user-jane@example.com"
 
 	store := newMemStore()
-	h := New(Config{Store: store, AdminPersona: "admin", Destinations: destinations, Recordings: newMemRecordings()})
+	h := New(Config{Store: store, Destinations: destinations, Recordings: newMemRecordings()})
 	audit := &recordingAudit{}
 	queries := &recordingQueries{rows: []map[string]any{
 		{"region": "west", "total": float64(120)},

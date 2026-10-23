@@ -171,7 +171,7 @@ func checkRelocation(claims *Claims, res *Resource, to Destination, configured s
 	// Only a change of library needs authority over a library. A person who may
 	// modify the resource may file it anywhere inside the one it is already in.
 	if res.Scope != to.Scope || res.ScopeID != to.ScopeID {
-		if !CanMoveToLibrary(*claims, to.Scope, to.ScopeID) {
+		if !canMoveToLibrary(*claims, to.Scope, to.ScopeID) {
 			return "", "", ErrMoveForbidden
 		}
 	}

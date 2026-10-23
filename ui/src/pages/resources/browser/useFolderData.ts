@@ -20,9 +20,11 @@ export function useFolderData(
   tag: string,
   sort: ResourceSort,
 ) {
-  const facets = useFacets(root.params);
+  // The files shared with the caller have no folders to read; their view
+  // lists the shares (#2258).
+  const facets = useFacets(root.params, !root.shared);
   const flat = query !== "" || tag !== "";
-  const listing = flat || path !== "";
+  const listing = listsFiles(root, path, flat);
   const list = useInfiniteResources(listingParams(root, path, query, tag, sort), listing);
 
   const folders = useMemo(() => facets.data?.folders ?? [], [facets.data]);
@@ -46,6 +48,15 @@ export function useFolderData(
     isFetchingNextPage: listing && list.isFetchingNextPage,
     fetchNextPage: list.fetchNextPage,
   };
+}
+
+/**
+ * listsFiles reports whether a view lists files: a folder below a library's
+ * root, or a search; never the files shared with the caller, whose view lists
+ * the shares.
+ */
+function listsFiles(root: ResourceRoot, path: string, flat: boolean): boolean {
+  return (flat || path !== "") && !root.shared;
 }
 
 /** The listing request a view makes: one folder's own files, or a search's hits. */

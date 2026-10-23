@@ -107,7 +107,6 @@ func Wire(deps Deps) *scriptexec.Handle {
 	layer := scriptlayer.New(scriptlayer.Config{
 		DB:           deps.DB,
 		Runs:         scripts.Runs(),
-		AdminPersona: deps.AdminPersona,
 		PortalURL:    deps.PortalURL,
 		Destinations: deps.Destinations,
 		// The ceilings a platform run executes under, which the help reports
@@ -194,7 +193,6 @@ type Deps struct {
 	NotificationsEnabled bool
 	DigestHourUTC        int
 	PortalURL            string
-	AdminPersona         string
 	Toolkits             *registry.Registry
 
 	// BotCheckKey signs a public endpoint's proof-of-work challenges

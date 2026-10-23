@@ -3,12 +3,14 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 
 // Capture what the dialog sends to the create-share mutations, so the tests
 // assert on the request rather than on the rendered button alone.
-const { createAsset, createColl, createPrompt, revoke, channelShare, channelList, sharePersonas } = vi.hoisted(() => ({
+const { createAsset, createColl, createPrompt, revoke, channelShare, channelList, sharePersonas, createFile, fileChannel } = vi.hoisted(() => ({
   createAsset: { mutate: vi.fn(), isPending: false },
   createColl: { mutate: vi.fn(), isPending: false },
   createPrompt: { mutate: vi.fn(), isPending: false },
   revoke: { mutate: vi.fn() },
   channelShare: { mutate: vi.fn(), isPending: false },
+  createFile: { mutate: vi.fn(), isPending: false },
+  fileChannel: { mutate: vi.fn(), isPending: false },
   channelList: { data: { channels: [] as unknown[] }, isLoading: false, error: null as unknown },
   sharePersonas: { data: { personas: [] as { name: string; display_name: string }[] } },
 }));
@@ -26,6 +28,13 @@ vi.mock("@/api/portal/hooks", () => ({
   useSharePersonas: () => sharePersonas,
   useAccessRequests: () => ({ data: { requests: [] } }),
   useDecideAccessRequest: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock("@/api/resources/shares", () => ({
+  useResourceShares: () => ({ data: [] }),
+  useCreateResourceShare: () => createFile,
+  useRevokeResourceShare: () => revoke,
+  usePostResourceToChannel: () => fileChannel,
 }));
 
 vi.mock("@/components/UserPicker", () => ({
@@ -363,5 +372,45 @@ describe("ShareDialog personas (#2089)", () => {
     const body = createAsset.mutate.mock.calls[0]![0] as Record<string, unknown>;
     expect(body).toMatchObject({ assetId: "ast-1", shared_with_persona: "finance", permission: "viewer" });
     expect(body).not.toHaveProperty("shared_with_email");
+  });
+});
+
+// A file is shared like an asset, with no link of its own, and posted to a
+// channel with its page's link (#2258).
+describe("ShareDialog for a file (#2258)", () => {
+  beforeEach(() => {
+    createFile.mutate.mockClear();
+    fileChannel.mutate.mockClear();
+    channelList.data = {
+      channels: [{ name: "ops-email", kind: "email", mode: "daily", carries: "", targets: [] }],
+    };
+  });
+
+  function renderFile() {
+    return render(<ShareDialog target={{ type: "resource", id: "res-1" }} open onOpenChange={() => {}} />);
+  }
+
+  it("shares the file with a person and offers no link", () => {
+    renderFile();
+    expect(screen.getByText("Share File")).toBeInTheDocument();
+    expect(screen.queryByText(/anyone with the link/i)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Recipient"), { target: { value: "reader@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /^share$/i }));
+    expect(createFile.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "res-1", shared_with_email: "reader@example.com", permission: "viewer" }),
+      expect.anything(),
+    );
+  });
+
+  it("posts the file to a channel for people who can already open it", () => {
+    renderFile();
+    choose(/^channel$/i, /ops-email \(email\)/i);
+    expect(screen.queryByText(/preview image/i)).not.toBeInTheDocument();
+    choose(/who can open the posted link/i, /people who can already open it/i);
+    fireEvent.click(screen.getByRole("button", { name: /^post$/i }));
+    expect(fileChannel.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "res-1", channel: "ops-email", access_mode: "existing" }),
+      expect.anything(),
+    );
   });
 });

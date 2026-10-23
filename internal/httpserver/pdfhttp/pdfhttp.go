@@ -39,7 +39,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
@@ -122,6 +124,12 @@ type Deps struct {
 		Allow(r *http.Request) bool
 		RetryAfter() int
 	}
+	// Exports reports whether the signed-in caller's persona includes PDF
+	// export (#2257). It is asked on the portal and resources routes, which
+	// the portal's area gate never sees: they are registered here, more
+	// specifically than its mount. Nil admits every caller; a caller it
+	// cannot identify is left to the content route, which refuses them.
+	Exports func(r *http.Request) bool
 }
 
 // Handler serves the PDF routes.
@@ -164,7 +172,40 @@ func MountFor(mux *http.ServeMux, p *platform.Platform) {
 	// The document reads the routes through the listener's CORS layer, as a
 	// reader's browser does: a map in a sandboxed frame reads its basemap
 	// cross-origin and is refused without it.
-	New(Deps{Routes: corshttp.Middleware(mux), Printer: renderer, Limiter: limiter}).Mount(mux)
+	New(Deps{
+		Routes: corshttp.Middleware(mux), Printer: renderer, Limiter: limiter,
+		Exports: exportsFor(p),
+	}).Mount(mux)
+}
+
+// exportsFor is Deps.Exports for the platform.
+func exportsFor(p *platform.Platform) func(r *http.Request) bool {
+	var opts []portal.AuthenticatorOption
+	if p.BrowserSessionAuth() != nil {
+		opts = append(opts, portal.WithBrowserAuth(p.BrowserSessionAuth()))
+	}
+	reg := p.PersonaRegistry()
+	return exports(portal.NewAuthenticator(p.Authenticator(), opts...), reg, reg.AdminRule(p.Config().Admin.Persona))
+}
+
+// callerAuth identifies a portal caller.
+type callerAuth interface {
+	Authenticate(r *http.Request) (*portal.User, error)
+}
+
+// exports admits the caller auth identifies when they are an administrator,
+// resolve to no persona (which the content route refuses), or their
+// persona's PDF export switch is on. A caller it cannot identify is left to
+// the content route.
+func exports(auth callerAuth, reg *persona.Registry, isAdmin func([]string) bool) func(r *http.Request) bool {
+	return func(r *http.Request) bool {
+		user, err := auth.Authenticate(r)
+		if err != nil || user == nil {
+			return true
+		}
+		per, ok := reg.GetForRoles(user.Roles)
+		return isAdmin(user.Roles) || !ok || persona.On(per.PortalPermissions(nil).Download)
+	}
 }
 
 // Mount registers every PDF route on mux.
@@ -183,12 +224,23 @@ func (h *Handler) route(rt Route) http.Handler {
 			http.Error(w, "Too many PDF exports from this address. Try again shortly.", http.StatusTooManyRequests)
 			return
 		}
+		if gated(rt) && h.deps.Exports != nil && !h.deps.Exports(r) {
+			http.Error(w, "Your persona does not include PDF export in the portal.", http.StatusForbidden)
+			return
+		}
 		printDoc := h.serveCurrent
 		if strings.Contains(rt.Pattern, "{version}") {
 			printDoc = h.serveVersion
 		}
 		printDoc(w, r, contentPath(rt.Content, r))
 	})
+}
+
+// gated reports whether a route is held to the caller's PDF export setting:
+// every route but a public share link's, which the share decides, and the
+// admin console's, which only administrators reach.
+func gated(rt Route) bool {
+	return !rt.Public && !strings.HasPrefix(rt.Pattern, "GET /api/v1/admin/")
 }
 
 // contentPath is the content route beside the request's PDF route, with the

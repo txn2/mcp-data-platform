@@ -1,4 +1,3 @@
-import type { ToolInfo } from "@/api/admin/types";
 
 // Pure allow/deny resolution logic for the persona editor's live preview.
 // Extracted from PersonaEditor.tsx (#766) so the wildcard matcher and the
@@ -120,34 +119,4 @@ export function resolve(
   if (decisiveIdx >= 0) steps[decisiveIdx]!.decisive = true;
 
   return { decision, matchedPattern, steps };
-}
-
-export interface UniqueTool {
-  name: string;
-  title?: string;
-  kinds: string[];
-  connections: string[];
-  primaryKind: string;
-}
-
-export function aggregateTools(tools: ToolInfo[] | undefined): UniqueTool[] {
-  if (!tools) return [];
-  const map = new Map<string, UniqueTool>();
-  for (const t of tools) {
-    const existing = map.get(t.name);
-    if (existing) {
-      if (!existing.kinds.includes(t.kind)) existing.kinds.push(t.kind);
-      if (!existing.connections.includes(t.connection))
-        existing.connections.push(t.connection);
-    } else {
-      map.set(t.name, {
-        name: t.name,
-        title: t.title,
-        kinds: [t.kind],
-        connections: [t.connection],
-        primaryKind: t.kind,
-      });
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
 }

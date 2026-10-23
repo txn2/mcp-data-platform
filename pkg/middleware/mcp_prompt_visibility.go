@@ -70,7 +70,7 @@ func MCPPromptVisibilityMiddleware(cfg PromptVisibilityConfig) mcp.Middleware {
 // on this path carries identity only; request and session ids belong to the
 // tools/call path and stay empty here.
 func resolvePromptCaller(ctx context.Context, cfg PromptVisibilityConfig, req mcp.Request) (callerCtx context.Context, email string, personas []string) {
-	pc := getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, "")
+	pc := getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, nil)
 	if pc == nil {
 		return ctx, "", nil
 	}

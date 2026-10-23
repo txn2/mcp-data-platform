@@ -59,5 +59,7 @@ Under the directory, **External users** lists the accounts the platform created 
 - The person signs in with the invitation link, or asks for a new link with **Email me a sign-in link** on the sign-in screen (`/portal/?login=email`). Each link works once. The answer to a request is the same whether or not the address has an account.
 - An account whose address later signs in through the identity provider is **Converted**: the account is closed, its links stop working, and what was shared with the address stays shared with the person, who is now internal.
 
+An external person reads only what is shared with them and their persona's folder, never Global, and registers no scratch table. When their persona allows [uploads](../personas/overview.md#uploads-by-external-people), they upload files to their own folder, each shared on arrival with the people and personas the persona names; they may share their own upload with someone who has shared something with them.
+
 How long a session, an invitation link and a sign-in link last is set under [Settings > External accounts](admin-settings.md#settings): 12 hours, 7 days and 15 minutes by default.
 

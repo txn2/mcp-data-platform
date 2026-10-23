@@ -449,7 +449,7 @@ func TestARunReachesAFileInItsAuthorsOwnLibrary(t *testing.T) {
 
 // --- A move does not revoke the script that maintains the file (#1576) ---
 
-// movedFiles are the same uploaded file after each move CanMoveToLibrary
+// movedFiles are the same uploaded file after each move canMoveToLibrary
 // permits: into the global library, and into a persona library. A move rewrites
 // the library, the folder and the mcp:// address and never the uploader
 // columns, which is why the row still names the person who uploaded it.
@@ -462,7 +462,7 @@ func movedFiles() []*Resource {
 
 // TestAMoveDoesNotRevokeTheScriptThatMaintainsTheFile is #1576. A person moves a
 // CSV their own scheduled script refreshes into a library they belong to, which
-// CanMoveToLibrary deliberately permits, and the script has to go on refreshing
+// canMoveToLibrary deliberately permits, and the script has to go on refreshing
 // it: the person may still replace the content, so the script acting for them
 // may too.
 func TestAMoveDoesNotRevokeTheScriptThatMaintainsTheFile(t *testing.T) {

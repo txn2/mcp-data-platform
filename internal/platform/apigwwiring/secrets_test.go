@@ -55,8 +55,8 @@ func TestWiredSecretsFillARequestThroughTheRealTool(t *testing.T) {
 		}).
 			AddRow("portal_password", "", "{grid}", "{}", "", "", now, now, "value", "", 0, 0, "hunter22-pw"))
 
-	Secrets(reg, nil, nil, "admin") // no database: nothing is wired
-	Secrets(reg, db, nil, "admin")
+	Secrets(reg, nil, nil, nil) // no database: nothing is wired
+	Secrets(reg, db, nil, nil)
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil)
 	tk.RegisterTools(server)

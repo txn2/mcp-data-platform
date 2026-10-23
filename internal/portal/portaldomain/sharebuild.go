@@ -41,12 +41,13 @@ func GenerateShareToken() (string, error) { return generateToken() }
 // asset.
 func GenerateRefToken() (string, error) { return generateToken() }
 
-// ShareTarget identifies what a share is for: an asset, a collection, or a
-// prompt. Exactly one field is set.
+// ShareTarget identifies what a share is for: an asset, a collection, a
+// prompt, or a managed resource (#2258). Exactly one field is set.
 type ShareTarget struct {
 	AssetID      string
 	CollectionID string
 	PromptID     string
+	ResourceID   string
 }
 
 // ShareSpec is what a caller asks for when creating a share, independent of
@@ -137,6 +138,7 @@ func BuildShare(target ShareTarget, createdBy string, spec ShareSpec) (Share, er
 		AssetID:           target.AssetID,
 		CollectionID:      target.CollectionID,
 		PromptID:          target.PromptID,
+		ResourceID:        target.ResourceID,
 		Token:             token,
 		CreatedBy:         createdBy,
 		SharedWithUserID:  spec.RecipientUserID,

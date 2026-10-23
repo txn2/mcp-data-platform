@@ -86,7 +86,7 @@ func (h *Handler) resolveRevisable(w http.ResponseWriter, r *http.Request) (*Res
 	if !ok {
 		return nil, nil, false
 	}
-	if !CanModifyResource(*claims, res) {
+	if !CanEditResource(*claims, res) {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return nil, nil, false
 	}

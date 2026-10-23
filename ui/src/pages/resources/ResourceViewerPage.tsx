@@ -1,6 +1,10 @@
 import { useState } from "react";
-import { Download, FileQuestion, Pencil, Trash2 } from "lucide-react";
+import { Download, FileQuestion, Pencil, Share2, Trash2 } from "lucide-react";
 import { useResource } from "@/api/resources/hooks";
+import { useSharedResources } from "@/api/resources/shares";
+import { NoAccess } from "@/components/access/RequestAccessPanel";
+import { ShareDialog } from "@/components/ShareDialog";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { resourceFetchRaw } from "@/api/resources/client";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { EmptyState } from "@/components/patterns/EmptyState";
@@ -81,41 +85,18 @@ export function ResourceViewerPage({
   const currentUser = useAuthStore((s) => s.user);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const { canModify, canEdit, showShare } = useFileRights(resource, !isLoading);
 
   if (isLoading) {
     return <LoadingIndicator />;
   }
 
   if (!resource) {
-    return (
-      <EmptyState
-        icon={FileQuestion}
-        data-testid="resource-not-found"
-        action={
-          <Button variant="outline" size="sm" onClick={onBack}>
-            Back
-          </Button>
-        }
-      >
-        <p className="font-medium">Resource not found</p>
-      </EmptyState>
-    );
+    return <Unopened resourceId={resourceId} onBack={onBack} />;
   }
 
   const ScopeIcon = scopeIcon(resource.scope);
-  // Who may edit or delete this file, read the way CanModifyResource reads it
-  // (pkg/resource/permission.go): whoever uploaded it, and whoever may add to
-  // the library it lives in. Which page the viewer was opened from is not part
-  // of it -- keying the check on that withheld Edit from a platform
-  // administrator looking at a file they did not upload, on a resource the
-  // server would have let them rewrite (#1527).
-  const canModify =
-    (resource.uploader_sub !== "" &&
-      resource.uploader_sub === currentUser?.user_id) ||
-    canWriteScope(currentUser, {
-      scope: resource.scope,
-      scope_id: resource.scope_id,
-    });
 
   return (
     <>
@@ -150,43 +131,15 @@ export function ResourceViewerPage({
           </span>
         }
         actions={
-          <div
-            data-testid="resource-detail-actions"
-            className="flex items-center gap-2"
-          >
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void downloadResource(resource)}
-            >
-              <Download />
-              Download
-            </Button>
-            {canModify && (
-              <>
-                {/* Named for what it edits. The content editor is on the
-                    content itself, and one control called Edit on a page
-                    showing a file is read as the file's (#1775). */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditing(true)}
-                >
-                  <Pencil />
-                  Edit details
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setDeleting(true)}
-                  className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <Trash2 />
-                  Delete
-                </Button>
-              </>
-            )}
-          </div>
+          <ResourceActions
+            resource={resource}
+            showShare={showShare}
+            canEdit={canEdit}
+            canModify={canModify}
+            onShare={() => setSharing(true)}
+            onEdit={() => setEditing(true)}
+            onDelete={() => setDeleting(true)}
+          />
         }
         sidebar={
           <ResourceSidebar
@@ -202,8 +155,10 @@ export function ResourceViewerPage({
         // would hide behind a toggle everything the dialog put in front.
         sidebarInitiallyOpen
       >
-        <ResourceContent resource={resource} canModify={canModify} />
+        <ResourceContent resource={resource} canModify={canEdit} />
       </ViewerLayout>
+
+      <ShareDialog target={{ type: "resource", id: resource.id }} open={sharing} onOpenChange={setSharing} />
 
       {editing && (
         <EditModal resource={resource} onClose={() => setEditing(false)} />
@@ -219,5 +174,111 @@ export function ResourceViewerPage({
         />
       )}
     </>
+  );
+}
+
+/**
+ * useFileRights is what the caller may do with a file.
+ *
+ * canModify is who may edit or delete it, read the way CanModifyResource reads
+ * it (pkg/resource/permission.go): whoever uploaded it, and whoever may add to
+ * the library it lives in. Which page the viewer was opened from is not part
+ * of it -- keying the check on that withheld Edit from a platform
+ * administrator looking at a file they did not upload, on a resource the
+ * server would have let them rewrite (#1527). An editor share also renames it
+ * and writes new versions (canEdit, #2258); moving and deleting stay with
+ * canModify. Sharing is offered to a persona that allows it and to a person of
+ * an external persona, who shares their own upload back; the server decides.
+ */
+function useFileRights(resource: Resource | undefined, ready: boolean) {
+  const currentUser = useAuthStore((s) => s.user);
+  const canShare = useAuthStore((s) => s.canShare());
+  const { external } = usePortalAccess();
+  const { data: sharedWithMe } = useSharedResources(ready);
+  if (!resource) return { canModify: false, canEdit: false, showShare: false };
+  const sharedAs = sharedWithMe?.find((s) => s.resource.id === resource.id)?.permission;
+  const canModify =
+    (resource.uploader_sub !== "" && resource.uploader_sub === currentUser?.user_id) ||
+    canWriteScope(currentUser, { scope: resource.scope, scope_id: resource.scope_id });
+  return { canModify, canEdit: canModify || sharedAs === "editor", showShare: canModify && (canShare || external) };
+}
+
+/**
+ * Unopened is the page for a file the caller cannot open: a request to its
+ * owner (#2258), or not found when there is no such file.
+ */
+function Unopened({ resourceId, onBack }: { resourceId: string; onBack: () => void }) {
+  return (
+    <NoAccess
+      type="resource"
+      id={resourceId}
+      notFound={
+        <EmptyState
+          icon={FileQuestion}
+          data-testid="resource-not-found"
+          action={
+            <Button variant="outline" size="sm" onClick={onBack}>
+              Back
+            </Button>
+          }
+        >
+          <p className="font-medium">Resource not found</p>
+        </EmptyState>
+      }
+    />
+  );
+}
+
+/** ResourceActions is the file page's action row. */
+function ResourceActions({
+  resource,
+  showShare,
+  canEdit,
+  canModify,
+  onShare,
+  onEdit,
+  onDelete,
+}: {
+  resource: Resource;
+  showShare: boolean;
+  canEdit: boolean;
+  canModify: boolean;
+  onShare: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div data-testid="resource-detail-actions" className="flex flex-wrap items-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => void downloadResource(resource)}>
+        <Download />
+        Download
+      </Button>
+      {showShare && (
+        <Button variant="outline" size="sm" onClick={onShare}>
+          <Share2 />
+          Share
+        </Button>
+      )}
+      {canEdit && (
+        // Named for what it edits. The content editor is on the content
+        // itself, and one control called Edit on a page showing a file is
+        // read as the file's (#1775).
+        <Button variant="outline" size="sm" onClick={onEdit}>
+          <Pencil />
+          Edit details
+        </Button>
+      )}
+      {canModify && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onDelete}
+          className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash2 />
+          Delete
+        </Button>
+      )}
+    </div>
   );
 }

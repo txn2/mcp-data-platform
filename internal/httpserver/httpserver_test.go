@@ -1611,3 +1611,58 @@ func TestExtractPersonaAdminRoles(t *testing.T) {
 		}
 	})
 }
+
+// The resources API takes a request's API key for the person it names and
+// refuses a request that names no one.
+func TestResourceClaimsExtractor(t *testing.T) {
+	p := newTestPlatform(t, &platform.Config{
+		Server:   platform.ServerConfig{Name: "test-platform", Transport: "http"},
+		Semantic: platform.SemanticConfig{Provider: "noop"},
+		Query:    platform.QueryConfig{Provider: "noop"},
+		Admin:    platform.AdminConfig{Enabled: new(true), Persona: "admin"},
+		Auth: platform.AuthConfig{APIKeys: platform.APIKeyAuthConfig{
+			Enabled: true,
+			Keys:    []platform.APIKeyDef{{Key: "test-admin-key", Name: "admin", Email: "admin@example.com", Roles: []string{"admin"}}},
+		}},
+		Personas: platform.PersonasConfig{Definitions: map[string]platform.PersonaDef{
+			"admin": {DisplayName: "Administrator", Roles: []string{"admin"}, Tools: platform.ToolRulesDef{Allow: []string{"*"}}},
+		}},
+	})
+	defer func() { _ = p.Close() }()
+	extract := resourceClaimsExtractor(p)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources", http.NoBody)
+	req.Header.Set("X-API-Key", "test-admin-key")
+	claims, err := extract(req)
+	if err != nil {
+		t.Fatalf("extract with a valid key: %v", err)
+	}
+	if !claims.IsAdmin {
+		t.Errorf("the admin key's claims are not admin: %+v", claims)
+	}
+
+	anon := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources", http.NoBody)
+	if _, err := extract(anon); err == nil {
+		t.Error("a request with no credential was given claims")
+	}
+}
+
+// A signed-in session that changes something without its CSRF token is
+// refused as forbidden, not signed out; a session whose roles resolve to no
+// persona is refused.
+func TestResourceClaimsExtractor_Session(t *testing.T) {
+	p, key := spaGatePlatform(t)
+	extract := resourceClaimsExtractor(p)
+
+	post := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/resources", http.NoBody)
+	post.AddCookie(sessionCookie(t, key, "member@example.com", []string{gateMappedRole}))
+	if _, err := extract(post); !errors.Is(err, resource.ErrForbidden) {
+		t.Errorf("a cookie write with no CSRF token: err = %v, want resource.ErrForbidden", err)
+	}
+
+	get := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources", http.NoBody)
+	get.AddCookie(sessionCookie(t, key, "nobody@example.com", nil))
+	if _, err := extract(get); !errors.Is(err, resource.ErrForbidden) {
+		t.Errorf("a session with no roles: err = %v, want resource.ErrForbidden", err)
+	}
+}

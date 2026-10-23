@@ -211,7 +211,7 @@ func TestPromptUse_RankedFallback(t *testing.T) {
 		{Prompt: prompt.Prompt{ID: "g1", Name: "daily-sales-report", Content: "ranked body"}, Score: 0.9},
 		{Prompt: prompt.Prompt{ID: "g2", Name: "weekly-report", Content: "other"}, Score: 0.4},
 	}
-	h := &Handle{adminPersona: "admin"}
+	h := &Handle{}
 	st := &searcherStore{mockPromptStore: base, scored: confident}
 	h.store = st
 	ctx := userCtx("sarah@example.com", "analyst")

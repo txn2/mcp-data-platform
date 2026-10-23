@@ -62,7 +62,15 @@ export interface ResourceRoot {
    * every key the caller's own files are stored under (subject and address).
    */
   params: { scope: string; scope_id?: string };
+  /**
+   * The files shared with the caller (#2258): no folder of its own, listed
+   * from the shares rather than by scope, and nothing can be written there.
+   */
+  shared?: boolean;
 }
+
+/** The key of the files shared with the caller. */
+export const SHARED_ROOT_KEY = "shared-with-me";
 
 /** The key prefix of a person's folder under People. */
 export const PERSON_PREFIX = "person:";
@@ -113,11 +121,23 @@ export function rootsFor(user: UserProfile | null, personaNames: string[]): Reso
       params: { scope: "user" },
     },
     {
-      key: "global",
-      label: "Global",
-      target: { scope: "global", scope_id: "" },
-      params: { scope: "global" },
+      key: SHARED_ROOT_KEY,
+      label: "Shared with me",
+      target: { scope: "user", scope_id: "" },
+      params: { scope: "user" },
+      shared: true,
     },
+    // A person of an external persona never reads Global (#2257).
+    ...(resolvePortal(user?.portal).external
+      ? []
+      : [
+          {
+            key: "global",
+            label: "Global",
+            target: { scope: "global" as const, scope_id: "" },
+            params: { scope: "global" },
+          },
+        ]),
     // A persona at the own level reaches no persona folder (#2225).
     ...(resourcesLevel(user) === "own" ? [] : personasFor(user, personaNames).map(personaRoot)),
   ];
@@ -222,9 +242,18 @@ export function canWriteScope(user: UserProfile | null, target: ScopeTarget | nu
   // The Resources level narrows it (#2225): Read writes nothing, Own folder
   // writes only the caller's own.
   const level = resourcesLevel(user);
-  if (level === "none" || level === "shared") return false;
+  if (level === "none") return false;
+  // Read writes nothing, but for a person of an external persona whose
+  // persona lets them upload, to their own folder (#2258).
+  if (level === "shared") return uploads(user) && target.scope === "user" && holdsScope(user, target);
   if (level === "own" && target.scope !== "user") return false;
   return holdsScope(user, target);
+}
+
+/** uploads reports whether the caller's external persona lets them upload. */
+function uploads(user: UserProfile): boolean {
+  const p = resolvePortal(user.portal);
+  return p.external && p.uploads !== null;
 }
 
 /**

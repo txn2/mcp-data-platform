@@ -70,7 +70,7 @@ describe("the folder a top-level key names", () => {
   });
 
   it("writes a location as a path from the top-level folder", () => {
-    const [mine, global] = rootsFor(reader(), []);
+    const [mine, , global] = rootsFor(reader(), []);
     expect(displayPath(global!, "data/weekly")).toBe("/Global/data/weekly");
     expect(displayPath(mine!, "")).toBe("/My Resources");
     expect(displayPath(personRoot("sub-9", "nine@example.com"), "a")).toBe("/People/nine@example.com/a");
@@ -269,8 +269,15 @@ describe("the options the Library picker offers", () => {
 });
 
 describe("the top-level folders a caller sees", () => {
-  it("gives a reader their own, Global, then their persona", () => {
-    expect(rootsFor(reader(), []).map((r) => r.key)).toEqual(["user", "global", "analyst"]);
+  it("gives a reader their own, what is shared with them, Global, then their persona", () => {
+    expect(rootsFor(reader(), []).map((r) => r.key)).toEqual(["user", "shared-with-me", "global", "analyst"]);
+  });
+
+  // A person of an external persona never reads Global (#2257).
+  it("gives a person of an external persona no Global", () => {
+    const keys = rootsFor(reader({ portal: { external: true, resources: "shared" } }), []).map((r) => r.key);
+    expect(keys).not.toContain("global");
+    expect(keys).toContain("shared-with-me");
   });
 
   it("names a persona the caller only administers, alongside the one they are in", () => {
@@ -291,11 +298,11 @@ describe("the top-level folders a caller sees", () => {
   // hiding one would hide a folder they own material in (#1553).
   it("gives a platform administrator every persona the deployment defines, once each", () => {
     const keys = rootsFor(reader({ is_admin: true }), ["ops", "finance", "analyst"]).map((r) => r.key);
-    expect(keys).toEqual(["user", "global", "analyst", "finance", "ops"]);
+    expect(keys).toEqual(["user", "shared-with-me", "global", "analyst", "finance", "ops"]);
   });
 
   it("offers My Resources and Global to a caller who is not signed in", () => {
-    expect(rootsFor(null, ["ops"]).map((r) => r.key)).toEqual(["user", "global"]);
+    expect(rootsFor(null, ["ops"]).map((r) => r.key)).toEqual(["user", "shared-with-me", "global"]);
   });
 });
 
@@ -360,7 +367,22 @@ describe("resources levels (#2225)", () => {
 
   it("lists no persona folder at Own folder", () => {
     const keys = (portal: PortalAccess) => rootsFor({ ...base, portal }, ["ops"]).map((r) => r.key);
-    expect(keys({ resources: "own" })).toEqual(["user", "global"]);
+    expect(keys({ resources: "own" })).toEqual(["user", "shared-with-me", "global"]);
     expect(keys({ resources: "persona" })).toContain("ops");
+  });
+});
+
+// A person of an external persona at Read writes nothing, unless the persona
+// lets its people upload, and then only to their own folder (#2258).
+describe("uploads by external people", () => {
+  const own = { scope: "user" as const, scope_id: "ext:1" };
+  const ext = (uploads: PortalAccess["uploads"]) =>
+    reader({ user_id: "ext:1", email: "vendor@example.com", portal: { external: true, resources: "shared", uploads } });
+  it("writes nothing without uploads", () => {
+    expect(canWriteScope(ext(null), own)).toBe(false);
+  });
+  it("writes their own folder with uploads", () => {
+    expect(canWriteScope(ext({ share_personas: ["marketing"] }), own)).toBe(true);
+    expect(canWriteScope(ext({ share_personas: ["marketing"] }), { scope: "persona", scope_id: "vendors" })).toBe(false);
   });
 });

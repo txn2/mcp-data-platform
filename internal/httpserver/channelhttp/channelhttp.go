@@ -212,20 +212,27 @@ func (a *API) call(w http.ResponseWriter, r *http.Request, args map[string]any) 
 		httpjson.WriteError(w, http.StatusUnauthorized, "sign in to post to a channel")
 		return
 	}
+	a.CallAs(w, r, user, args)
+}
+
+// CallAs issues one notify call as user and writes what the tool answered,
+// reporting whether the post went out: a file posted to a channel withdraws
+// the share it made when it did not (#2258).
+func (a *API) CallAs(w http.ResponseWriter, r *http.Request, user *access.User, args map[string]any) bool {
 	if a.Server == nil {
 		httpjson.WriteError(w, http.StatusServiceUnavailable, "posting to a channel is unavailable in this deployment")
-		return
+		return false
 	}
 	session, cleanup, err := a.connect(asUser(r.Context(), user))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusServiceUnavailable, "posting to a channel is unavailable right now")
-		return
+		return false
 	}
 	defer cleanup()
 	res, err := session.CallTool(r.Context(), &mcp.CallToolParams{Name: toolNotify, Arguments: args})
 	if err != nil {
 		httpjson.WriteError(w, http.StatusServiceUnavailable, "posting to a channel is unavailable right now")
-		return
+		return false
 	}
 	text := textOf(res)
 	if res.IsError {
@@ -233,16 +240,17 @@ func (a *API) call(w http.ResponseWriter, r *http.Request, args map[string]any) 
 			text = "the post was refused"
 		}
 		httpjson.WriteError(w, refusalStatus(res), text)
-		return
+		return false
 	}
 	var out map[string]any
 	if structured, ok := res.StructuredContent.(map[string]any); ok {
 		out = structured
 	} else if err := json.Unmarshal([]byte(text), &out); err != nil {
 		httpjson.WriteError(w, http.StatusServiceUnavailable, "the notify tool answered in a shape this route cannot read")
-		return
+		return false
 	}
 	httpjson.WriteJSON(w, http.StatusOK, out)
+	return true
 }
 
 // connect opens the in-memory session the call travels over.

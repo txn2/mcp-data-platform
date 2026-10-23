@@ -226,17 +226,9 @@ func (h *Handler) fillToolPersonaMatrix(ctx context.Context, name string, d *Too
 	filter := persona.NewToolFilter(nil)
 	d.HiddenByPersona = make(map[string]bool, len(defs))
 	for _, def := range defs {
-		p := &persona.Persona{
-			Name: def.Name,
-			Tools: persona.ToolRules{
-				Allow: def.ToolsAllow,
-				Deny:  def.ToolsDeny,
-			},
-			Connections: persona.ConnectionRules{
-				Allow: def.ConnsAllow,
-				Deny:  def.ConnsDeny,
-			},
-		}
+		// The stored persona whole, External included: a hand-built copy
+		// of its rules reported an external persona's tools allowed (#2257).
+		p := def.ToPersona()
 		toolDecision := filter.WhyAllowed(p, name)
 		// Connection check is independent. When the tool has no
 		// connection (platform-level tools), IsConnectionAllowed

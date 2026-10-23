@@ -7314,6 +7314,54 @@
                 }
             }
         },
+        "/admin/personas/effective-access": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Evaluates a persona, saved or not, as every request would: the tools its people can call and on which connections, the API operations api_invoke_endpoint may call, the scratch tables they can list, register or change through SQL, the portal as stored and as External leaves it, sharing, the resource folders they read, the grants other objects hold that name the persona (stored secrets, script run grants, script versions whose author roles resolve to it, prompts, shares, webhook sources, external accounts, API keys), and the signed-in endpoints no persona governs (#2257). The body is the persona as the create route takes it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Personas"
+                ],
+                "summary": "What a persona reaches",
+                "parameters": [
+                    {
+                        "description": "The persona, saved or not",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/personaaccess.Draft"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/personaaccess.Report"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/personas/{name}": {
             "get": {
                 "security": [
@@ -7424,7 +7472,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Deletes a persona. Only available in database config mode. Cannot delete the admin persona.",
+                "description": "Deletes a persona. Only available in database config mode. Cannot delete the admin persona. While stored secrets, script grants or versions, prompts, shares, webhook sources, external accounts or API keys still name the persona, answers 409 listing them unless confirm=true: a persona created later under the name would inherit them (#2257).",
                 "produces": [
                     "application/json"
                 ],
@@ -7439,6 +7487,12 @@
                         "name": "name",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Delete although other objects still name the persona",
+                        "name": "confirm",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -7457,7 +7511,7 @@
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/admin.personaDeleteConflict"
                         }
                     }
                 }
@@ -12456,7 +12510,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a person share of the item for the requester with the permission given, viewer or editor, recorded with origin access_request (#2090), and tells the requester. The item's owner or an administrator.",
+                "description": "Creates a person share of the item for the requester with the permission given, viewer or editor, recorded with origin access_request (#2090), and tells the requester. The item's owner or an administrator; 403 when the owner's persona withholds sharing.",
                 "consumes": [
                     "application/json"
                 ],
@@ -12494,6 +12548,12 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -20345,6 +20405,121 @@
                 }
             }
         },
+        "/portal/resources/{id}/access-request": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "What the page shown to a signed-in person who cannot open an item says (#2090): whether they already open it, the item's owner, the item's name when the access_requests setting reveals names, and their pending request for it if they have one.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Read the request-access page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Page"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/resources/{id}/access-requests": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Asks the owner of an asset, collection or prompt for access (#2090), with an optional message. The owner is notified by their notification preferences with Approve as viewer, Approve as editor and Decline. A second request while one is pending answers 200 with that request and notifies nobody; a person who already opens the item is refused with 409, and one who has asked three times for it in a day with 429.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Access requests"
+                ],
+                "summary": "Request access to an item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The message",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.OpenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/accessreq.Request"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/resources/{id}/producers": {
             "get": {
                 "security": [
@@ -25138,6 +25313,40 @@
                 }
             }
         },
+        "/resources/shared-with-me": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The managed resources shared with the caller, directly or through their persona, each with the share that grants the most (#2258).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Files shared with me",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resourceshare.SharedList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/resources/{id}": {
             "get": {
                 "security": [
@@ -25318,6 +25527,74 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/channel-shares": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Posts a link to a managed resource to one of the deployment's notification channels, with an optional line above it (#2258). access_mode authenticated (the default) shares the file with every signed-in person of an internal persona, as viewer, recorded as posted to the channel and withdrawn when the post does not go out; existing posts the file's page, which opens for the people who can already open it. A file has no public link. Someone who can change the file and whose persona allows sharing.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Post a file to a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Where to post and who can open the link",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/channelhttp.ChannelShareRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -25550,6 +25827,170 @@
                         "description": "Service Unavailable",
                         "schema": {
                             "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/shares": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The shares that still grant on a managed resource (#2258): who it is shared with, as viewer or editor. Someone who can change the file.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List a file's shares",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resourceshare.ShareList"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Shares a managed resource with a person by address or with a persona, as viewer or editor (#2258). A viewer reads it, an editor also renames it and writes new versions; neither moves or deletes it. Someone who can change the file and whose persona allows sharing; a person of an external persona shares only their own upload, only with someone who has shared with them. The recipient is told unless notify is false.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Share a file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Who to share with",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resourceshare.ShareRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portaldomain.Share"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/shares/{shareID}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes one share of a managed resource (#2258). Someone who can change the file.",
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Stop sharing a file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Share ID",
+                        "name": "shareID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -27795,6 +28236,30 @@
                 }
             }
         },
+        "admin.personaDeleteConflict": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string",
+                    "example": "resource not found"
+                },
+                "references": {
+                    "$ref": "#/definitions/personaaccess.References"
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 404
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Not Found"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "about:blank"
+                }
+            }
+        },
         "admin.personaDetail": {
             "type": "object",
             "properties": {
@@ -27828,6 +28293,13 @@
                         "$ref": "#/definitions/persona.APIRouteRule"
                     }
                 },
+                "capped_by_external": {
+                    "description": "CappedByExternal names the areas External lowered from Portal.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "context": {
                     "$ref": "#/definitions/admin.personaContextDetail"
                 },
@@ -27854,6 +28326,14 @@
                     "type": "string",
                     "example": "Data Engineer"
                 },
+                "effective_portal": {
+                    "description": "EffectivePortal is what the persona's people may do in the portal,\nwith the limits External sets applied.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/persona.PortalAccess"
+                        }
+                    ]
+                },
                 "external": {
                     "description": "External marks the persona for people outside the organization, whose\naccounts the platform creates (#2092).",
                     "type": "boolean",
@@ -27864,7 +28344,7 @@
                     "example": "data-engineer"
                 },
                 "portal": {
-                    "description": "Portal is what the persona's people may do in the portal, every area\nresolved (#2225): a field the persona leaves unset reads as what its\ntools reached before the setting existed.",
+                    "description": "Portal is the persona's portal block, every area resolved (#2225), as\nstored: an external persona's limits are not applied, so the editor\nsaves back what the administrator chose (#2257).",
                     "allOf": [
                         {
                             "$ref": "#/definitions/persona.PortalAccess"
@@ -34709,7 +35189,7 @@
                     "type": "string"
                 },
                 "download": {
-                    "description": "Download is downloading content and exporting it as PDF.",
+                    "description": "Download is exporting an asset or a resource as PDF; the portal names\nit PDF export (#2257). Reading content is the item's own sharing.",
                     "type": "boolean"
                 },
                 "external": {
@@ -34736,9 +35216,482 @@
                     "description": "Resources is managed resources: none, shared, own or persona.",
                     "type": "string"
                 },
+                "scratch_tables": {
+                    "description": "ScratchTables is the scratch-table routes and page: none, list or\nregister (#2257). The connections a table sits on are still the\npersona's Connections.",
+                    "type": "string"
+                },
                 "search": {
                     "description": "Search is the portal's unified search.",
                     "type": "boolean"
+                },
+                "uploads": {
+                    "description": "Uploads lets the people of an external persona upload files, each one\nshared on arrival with the recipients it names (#2258). nil is no\nuploads; an internal persona's people upload by their Resources level\nand this is dropped from its resolved block.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/persona.PortalUploads"
+                        }
+                    ]
+                }
+            }
+        },
+        "persona.PortalUploads": {
+            "type": "object",
+            "properties": {
+                "share_emails": {
+                    "description": "ShareEmails are addresses that read each upload.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "share_personas": {
+                    "description": "SharePersonas are personas whose people read each upload.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "personaaccess.Assignment": {
+            "type": "object",
+            "properties": {
+                "folder_reader_roles": {
+                    "description": "FolderReaderRoles make a person a member of the persona's folder and\nprompts: any of them, whatever persona the person resolves to.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "folder_writer_role": {
+                    "description": "FolderWriterRole writes the persona's folder; administrators do too.",
+                    "type": "string"
+                },
+                "role_mapping": {
+                    "description": "RoleMapping are the roles personas.role_mapping assigns to this\npersona outright, before roles and priority are compared.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "role_overlaps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/personaaccess.RoleOverlap"
+                    }
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "personaaccess.ConnAccess": {
+            "type": "object",
+            "properties": {
+                "allowed": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "personaaccess.ConnItem": {
+            "type": "object",
+            "properties": {
+                "decision": {
+                    "type": "string"
+                },
+                "exact": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "matched": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "scratch": {
+                    "$ref": "#/definitions/personaaccess.Scratch"
+                },
+                "used_by_channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "personaaccess.ConnSummary": {
+            "type": "object",
+            "properties": {
+                "allowed": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/personaaccess.ConnItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "personaaccess.Draft": {
+            "type": "object",
+            "properties": {
+                "agent_instructions_override": {
+                    "type": "string"
+                },
+                "agent_instructions_suffix": {
+                    "type": "string"
+                },
+                "allow_connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "allow_sharing": {
+                    "type": "boolean"
+                },
+                "allow_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "api_routes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/persona.APIRouteRule"
+                    }
+                },
+                "deny_connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "deny_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "description_override": {
+                    "type": "string"
+                },
+                "description_prefix": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "external": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "analyst"
+                },
+                "portal": {
+                    "$ref": "#/definitions/persona.PortalAccess"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "service_account": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "personaaccess.OpItem": {
+            "type": "object",
+            "properties": {
+                "callable": {
+                    "type": "boolean"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "decision": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "rule_index": {
+                    "type": "integer"
+                }
+            }
+        },
+        "personaaccess.OpSummary": {
+            "type": "object",
+            "properties": {
+                "callable": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/personaaccess.OpItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "personaaccess.PortalSummary": {
+            "type": "object",
+            "properties": {
+                "capped_by_external": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "effective": {
+                    "$ref": "#/definitions/persona.PortalAccess"
+                },
+                "stored": {
+                    "$ref": "#/definitions/persona.PortalAccess"
+                }
+            }
+        },
+        "personaaccess.References": {
+            "type": "object",
+            "properties": {
+                "api_keys": {
+                    "type": "integer"
+                },
+                "external_accounts": {
+                    "type": "integer"
+                },
+                "prompts": {
+                    "type": "integer"
+                },
+                "script_grants": {
+                    "type": "integer"
+                },
+                "script_versions": {
+                    "type": "integer"
+                },
+                "secrets": {
+                    "$ref": "#/definitions/personaaccess.SecretRefs"
+                },
+                "shares": {
+                    "type": "integer"
+                },
+                "webhook_sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "personaaccess.Report": {
+            "type": "object",
+            "properties": {
+                "account_type": {
+                    "type": "string"
+                },
+                "admin_persona": {
+                    "description": "AdminPersona is the configured administrator persona's name, which is\nnever external.",
+                    "type": "string"
+                },
+                "api_operations": {
+                    "$ref": "#/definitions/personaaccess.OpSummary"
+                },
+                "assignment": {
+                    "$ref": "#/definitions/personaaccess.Assignment"
+                },
+                "calls_excluded_by_config": {
+                    "type": "boolean"
+                },
+                "connections": {
+                    "$ref": "#/definitions/personaaccess.ConnSummary"
+                },
+                "is_admin": {
+                    "type": "boolean"
+                },
+                "portal": {
+                    "$ref": "#/definitions/personaaccess.PortalSummary"
+                },
+                "references": {
+                    "$ref": "#/definitions/personaaccess.References"
+                },
+                "resource_scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "scratch": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/personaaccess.ScratchItem"
+                    }
+                },
+                "sharing": {
+                    "type": "boolean"
+                },
+                "tools": {
+                    "$ref": "#/definitions/personaaccess.ToolSummary"
+                },
+                "unscoped": {
+                    "$ref": "#/definitions/personaaccess.Unscoped"
+                }
+            }
+        },
+        "personaaccess.RoleOverlap": {
+            "type": "object",
+            "properties": {
+                "persona": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "personaaccess.Scratch": {
+            "type": "object",
+            "properties": {
+                "catalog": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "string"
+                }
+            }
+        },
+        "personaaccess.ScratchItem": {
+            "type": "object",
+            "properties": {
+                "catalog": {
+                    "type": "string"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "drop_via_sql": {
+                    "description": "DropViaSQL is trino_execute on the connection, whose Trino user holds\nevery privilege on the scratch catalog: any registered table can be\ndropped or replaced, whoever registered it.",
+                    "type": "boolean"
+                },
+                "list": {
+                    "description": "List and Register are the portal's scratch-table routes.",
+                    "type": "boolean"
+                },
+                "queryable_from": {
+                    "description": "QueryableFrom are the connections trino_query reaches that read every\nregistered table when their Trino user reads the scratch catalog.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "register": {
+                    "type": "boolean"
+                },
+                "registrations": {
+                    "type": "integer"
+                },
+                "schema": {
+                    "type": "string"
+                }
+            }
+        },
+        "personaaccess.SecretRefs": {
+            "type": "object",
+            "properties": {
+                "named": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "unrestricted": {
+                    "type": "integer"
+                }
+            }
+        },
+        "personaaccess.ToolItem": {
+            "type": "object",
+            "properties": {
+                "callable": {
+                    "type": "boolean"
+                },
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/personaaccess.ConnAccess"
+                    }
+                },
+                "decision": {
+                    "type": "string"
+                },
+                "exact": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "matched": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "personaaccess.ToolSummary": {
+            "type": "object",
+            "properties": {
+                "callable": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/personaaccess.ToolItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "personaaccess.Unscoped": {
+            "type": "object",
+            "properties": {
+                "signed_in_endpoints": {
+                    "description": "SignedInEndpoints admit any signed-in account, external included.",
+                    "type": "integer"
                 }
             }
         },
@@ -35203,6 +36156,10 @@
                     "example": "#general on slack"
                 },
                 "prompt_id": {
+                    "type": "string"
+                },
+                "resource_id": {
+                    "description": "ResourceID is a managed resource the share is for (#2258).",
                     "type": "string"
                 },
                 "revoked": {
@@ -36712,6 +37669,103 @@
                 }
             }
         },
+        "portaldomain.Share": {
+            "type": "object",
+            "properties": {
+                "access_count": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "access_mode": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.ShareAccessMode"
+                        }
+                    ],
+                    "example": "restricted"
+                },
+                "asset_id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "collection_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "hide_expiration": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "id": {
+                    "type": "string",
+                    "example": "share_01HK7R9B"
+                },
+                "last_accessed_at": {
+                    "type": "string"
+                },
+                "notice_text": {
+                    "type": "string",
+                    "example": "Proprietary & Confidential"
+                },
+                "origin": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.ShareOrigin"
+                        }
+                    ],
+                    "example": "explicit"
+                },
+                "permission": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.SharePermission"
+                        }
+                    ],
+                    "example": "viewer"
+                },
+                "posted_to": {
+                    "description": "PostedTo names the channel a channel_post share's link was posted to,\nas the person sharing chose it: \"#general on slack\". Empty for every\nother origin.",
+                    "type": "string",
+                    "example": "#general on slack"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "resource_id": {
+                    "description": "ResourceID is a managed resource the share is for (#2258).",
+                    "type": "string"
+                },
+                "revoked": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "shared_with_email": {
+                    "type": "string",
+                    "example": "bob@example.com"
+                },
+                "shared_with_persona": {
+                    "description": "SharedWithPersona names the persona the share is addressed to (#2089):\nevery person whose roles resolve to it when they open the item, decided\nthen rather than when the share was made. Exclusive with the user and\nemail recipients.",
+                    "type": "string",
+                    "example": "finance"
+                },
+                "shared_with_user_id": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string",
+                    "example": "tk_a1b2c3d4e5f6"
+                }
+            }
+        },
         "portaldomain.ShareAccessMode": {
             "type": "string",
             "enum": [
@@ -37856,6 +38910,77 @@
                 },
                 "examined": {
                     "type": "integer"
+                }
+            }
+        },
+        "resourceshare.ShareList": {
+            "type": "object",
+            "properties": {
+                "shares": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.Share"
+                    }
+                }
+            }
+        },
+        "resourceshare.ShareRequest": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message is a plain-text note in the notification.",
+                    "type": "string"
+                },
+                "notify": {
+                    "description": "Notify is whether the recipient is told; omitted is yes.",
+                    "type": "boolean"
+                },
+                "permission": {
+                    "description": "Permission is viewer (the default) or editor. A person of an external\npersona opens it as viewer whatever it says.",
+                    "type": "string",
+                    "example": "viewer"
+                },
+                "shared_with_email": {
+                    "type": "string",
+                    "example": "colleague@example.com"
+                },
+                "shared_with_persona": {
+                    "type": "string",
+                    "example": "marketing"
+                }
+            }
+        },
+        "resourceshare.SharedList": {
+            "type": "object",
+            "properties": {
+                "resources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceshare.SharedResource"
+                    }
+                }
+            }
+        },
+        "resourceshare.SharedResource": {
+            "type": "object",
+            "properties": {
+                "permission": {
+                    "type": "string"
+                },
+                "resource": {
+                    "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
+                },
+                "share_id": {
+                    "type": "string"
+                },
+                "shared_at": {
+                    "type": "string"
+                },
+                "shared_by": {
+                    "type": "string"
+                },
+                "via_persona": {
+                    "type": "string"
                 }
             }
         },

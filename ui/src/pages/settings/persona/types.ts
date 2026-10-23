@@ -38,10 +38,7 @@ export interface PersonaDraft {
   allowSharing: boolean;
 }
 
-// Scope selects the axis the allow/deny editor and the explorer address:
-// tools, connections, or the operations of an api-kind connection.
-// StatusFilter narrows the explorer list.
-export type Scope = "tools" | "connections" | "api";
+// StatusFilter narrows the API-endpoint operation list.
 export type StatusFilter = "all" | "allowed" | "denied";
 
 // RouteFocus is the operation the pointer is on in the API-endpoint scope,
@@ -51,14 +48,4 @@ export interface RouteFocus {
   method: string;
   path: string;
   resolution: RouteResolution;
-}
-
-// Item is one row in the permissions explorer — a tool or a connection,
-// normalized to a common display shape.
-export interface Item {
-  key: string;
-  primary: string;
-  secondary: string;
-  tertiary: string;
-  kind: string;
 }
