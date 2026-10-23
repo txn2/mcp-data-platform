@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Share2, Trash2, Download, Copy } from "lucide-react";
+import { Share2, Trash2, Download, Copy, FolderPlus } from "lucide-react";
 import type { SharePermission } from "@/api/portal/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,9 @@ interface AssetViewerActionsProps {
   onDownload?: () => void;
   onCopyToMyAssets: () => void;
   onShare: () => void;
+  // onAddToCollection is absent when the reader has no collection to add to
+  // and cannot create one, and the action is not offered (#2260).
+  onAddToCollection?: () => void;
 }
 
 /** What the reader can do to this asset, for the viewer header's action slot.
@@ -34,6 +37,7 @@ export function AssetViewerActions({
   onDownload,
   onCopyToMyAssets,
   onShare,
+  onAddToCollection,
 }: AssetViewerActionsProps) {
   return (
     <>
@@ -62,6 +66,7 @@ export function AssetViewerActions({
           Download
         </Button>
       )}
+      <AddToCollectionButton onClick={onAddToCollection} />
       {copyMutation && (
         <Button
           variant="outline"
@@ -83,5 +88,16 @@ export function AssetViewerActions({
         </Button>
       )}
     </>
+  );
+}
+
+/** Add to collection (#2260), offered only when there is somewhere to add to. */
+function AddToCollectionButton({ onClick }: { onClick?: () => void }) {
+  if (!onClick) return null;
+  return (
+    <Button variant="outline" size="sm" onClick={onClick}>
+      <FolderPlus />
+      Add to collection
+    </Button>
   );
 }

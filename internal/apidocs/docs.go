@@ -13639,6 +13639,73 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/{id}/collection-targets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the collections the caller can edit (their own, those shared with them as Editor, and for an administrator every collection), most recently updated first, each with its sections and whether the asset is already in each. search narrows by name, description or owner address. At most 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Collections an asset can be added to",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrow by collection name, description or owner address",
+                        "name": "search",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.collectionTargetsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/content": {
             "get": {
                 "security": [
@@ -16519,7 +16586,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a new collection for the current user.",
+                "description": "Creates a new collection for the current user. With asset_id, the asset is the collection's first item, in one untitled section.",
                 "consumes": [
                     "application/json"
                 ],
@@ -17014,6 +17081,91 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections/{id}/items": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds one asset at the end of one section, leaving the collection's name, description, config, other sections and item order as they were. With no section_id the asset goes to the last section, or to a new untitled section when the collection has none. The owner, an admin, or a collection Editor, who must also be able to open the asset. 409 when the asset is already in the section, the section is full, or the section is no longer in the collection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Add an asset to a collection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The asset, and optionally the section",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.appendItemRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portaldomain.AppendedItem"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
                         }
@@ -21751,6 +21903,79 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/granthttp.grantListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/mail-actions": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "With mail_actions false (the default), a run that has called a mail_* tool is refused every later write-class tool call and every output, because a sender can steer what a message says. Turning it on lets the script act on mail; its contract then says so. Restricted to the script's owner and to administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Set whether a script may act on mail it reads",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The setting",
+                        "name": "mail_actions",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/mailactionshttp.mailActionsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/mailactionshttp.mailActionsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
@@ -34407,6 +34632,28 @@ const docTemplate = `{
                 }
             }
         },
+        "mailactionshttp.mailActionsRequest": {
+            "type": "object",
+            "properties": {
+                "mail_actions": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "mailactionshttp.mailActionsResponse": {
+            "type": "object",
+            "properties": {
+                "mail_actions": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Saved. This script reads mail and acts on it."
+                }
+            }
+        },
         "maps.Archive": {
             "type": "object",
             "properties": {
@@ -36268,6 +36515,20 @@ const docTemplate = `{
                 }
             }
         },
+        "portal.appendItemRequest": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "section_id": {
+                    "description": "SectionID names the section to add to. Empty adds to the last section,\nor to a new untitled section when the collection has none.",
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                }
+            }
+        },
         "portal.assetResponse": {
             "type": "object",
             "properties": {
@@ -36427,6 +36688,17 @@ const docTemplate = `{
                 }
             }
         },
+        "portal.collectionTargetsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.CollectionTarget"
+                    }
+                }
+            }
+        },
         "portal.contentURLResponse": {
             "type": "object",
             "properties": {
@@ -36478,6 +36750,11 @@ const docTemplate = `{
         "portal.createCollectionRequest": {
             "type": "object",
             "properties": {
+                "asset_id": {
+                    "description": "AssetID, when set, makes the asset the new collection's first item, in\none untitled section (#2260). The caller must be able to open it.",
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
                 "description": {
                     "type": "string",
                     "example": "Quarterly analysis collection"
@@ -37307,6 +37584,22 @@ const docTemplate = `{
                 }
             }
         },
+        "portaldomain.AppendedItem": {
+            "type": "object",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/portaldomain.CollectionItem"
+                },
+                "section_id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                },
+                "section_title": {
+                    "type": "string",
+                    "example": "Key Findings"
+                }
+            }
+        },
         "portaldomain.AssetCollectionRef": {
             "type": "object",
             "properties": {
@@ -37466,6 +37759,36 @@ const docTemplate = `{
                 "title": {
                     "type": "string",
                     "example": "Overview"
+                }
+            }
+        },
+        "portaldomain.CollectionTarget": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Analysis"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.SectionSummary"
+                    }
+                },
+                "shared": {
+                    "description": "Shared reports that the caller edits this collection through a share\nrather than owning it.",
+                    "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "string"
                 }
             }
         },
@@ -37672,6 +37995,27 @@ const docTemplate = `{
                 "tool_name": {
                     "type": "string",
                     "example": "trino_query"
+                }
+            }
+        },
+        "portaldomain.SectionSummary": {
+            "type": "object",
+            "properties": {
+                "has_asset": {
+                    "description": "HasAsset reports whether the asset the picker was opened on is an item\nof this section.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                },
+                "item_count": {
+                    "type": "integer",
+                    "example": 4
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Key Findings"
                 }
             }
         },
@@ -39197,6 +39541,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "mail_actions": {
+                    "description": "MailActions is set when the script reads mail and acts on it (#2247).",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string",
                     "example": "daily-sales-report"
@@ -39826,6 +40174,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "mail_actions": {
+                    "description": "MailActions is the owner's setting that the script may act on mail it\nreads (#2247). Off, a run that has called a mail_* tool is refused every\nlater write and output (internal/mailbarrier).",
+                    "type": "boolean"
                 },
                 "name": {
                     "type": "string",

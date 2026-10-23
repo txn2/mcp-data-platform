@@ -15,6 +15,8 @@ import { TrinoConfigForm } from "./TrinoConfigForm";
 import { S3ConfigForm } from "./S3ConfigForm";
 import { GatewayConfigForm } from "./GatewayConfigForm";
 import { ApiGatewayConfigForm } from "./ApiGatewayConfigForm";
+import { CalDAVConfigForm } from "./CalDAVConfigForm";
+import { IMAPConfigForm } from "./IMAPConfigForm";
 import { GraphQLConfigForm } from "./GraphQLConfigForm";
 
 interface EditorProps {
@@ -174,6 +176,10 @@ export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }
                 isCreate={isCreate}
               />
             )}
+            {kind === "caldav" && (
+              <CalDAVConfigForm config={configObj} onChange={updateConfig} connectionName={name} isCreate={isCreate} />
+            )}
+            {kind === "imap" && <IMAPConfigForm config={configObj} onChange={updateConfig} />}
             {kind === "graphql" && (
               <GraphQLConfigForm
                 config={configObj}

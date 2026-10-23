@@ -2776,6 +2776,8 @@ Curated groups of assets organized into ordered sections with markdown descripti
 Collection API endpoints:
 - CRUD: POST/GET/PUT/DELETE `/api/v1/portal/collections[/{id}]`
 - Sections: PUT `/api/v1/portal/collections/{id}/sections` (full replace)
+- Add one asset: POST `/api/v1/portal/collections/{id}/items` with `asset_id` and optional `section_id` (appends at the end of that section, or the last section, or a new untitled one; 409 for a duplicate, a full section or a stale section id), and POST `/api/v1/portal/collections` with `asset_id` for a new collection holding it (#2260)
+- Add-to-collection picker: GET `/api/v1/portal/assets/{id}/collection-targets` lists the collections the caller can edit, newest first, each with its sections and whether the asset is in each (`search` narrows); the asset viewer's **Add to collection** action reads it
 - Config: PUT `/api/v1/portal/collections/{id}/config`
 - Sharing: POST/GET `/api/v1/portal/collections/{id}/shares`
 - Shared with me: GET `/api/v1/portal/shared-collections`
@@ -4499,7 +4501,7 @@ Every declared `servers[]` entry is a candidate for that drop rule, not just the
 
 ## WebDAV operations (x-webdav-method)
 
-WebDAV verbs (`PROPFIND`, `MKCOL`, `MOVE`, `COPY`) are not representable as OpenAPI `PathItem` methods (limited to `GET`/`POST`/`PUT`/`DELETE`/`PATCH`/`HEAD`). A catalog documents a WebDAV operation under an unused carrier method sharing the path and adds an `x-webdav-method` extension naming the real verb (e.g. `post` carries `x-webdav-method: PROPFIND`, `patch` carries `MKCOL`, `head` carries `MOVE or COPY`); `GET`/`PUT`/`DELETE` WebDAV operations use their own standard method and need no extension. The value is free text: one verb or several in a string (`MOVE or COPY`), or a sequence (`[MOVE, COPY]`); any recognized WebDAV verb token is honored. A caller invokes with the real verb via `api_invoke_endpoint` (`method: PROPFIND`), which the gateway forwards upstream unchanged.
+WebDAV verbs (`PROPFIND`, `REPORT`, `MKCOL`, `MOVE`, `COPY`) are not representable as OpenAPI `PathItem` methods (limited to `GET`/`POST`/`PUT`/`DELETE`/`PATCH`/`HEAD`). A catalog documents a WebDAV operation under an unused carrier method sharing the path and adds an `x-webdav-method` extension naming the real verb (e.g. `post` carries `x-webdav-method: PROPFIND`, `patch` carries `MKCOL`, `head` carries `MOVE or COPY`); `GET`/`PUT`/`DELETE` WebDAV operations use their own standard method and need no extension. The value is free text: one verb or several in a string (`MOVE or COPY`), or a sequence (`[MOVE, COPY]`); any recognized WebDAV verb token is honored. A caller invokes with the real verb via `api_invoke_endpoint` (`method: PROPFIND`), which the gateway forwards upstream unchanged.
 
 Two consumers resolve a request against the carrier operation: the inbound-metrics `operation_id` label (so REST-shim WebDAV traffic from NiFi or cronjobs is attributed to `webdav-propfind` instead of the `unknown` bucket) and invoke-time `Content-Type` negotiation. Both honor the `x-webdav-method` mapping and match a slash-bearing subpath against the trailing `{path}` variable, so a nested resource path resolves the same as a single-segment one; the two share one matcher (`resolveWebDAVRoute`) so the metric label and the negotiated media type always come from the same operation. Nested-tail matching applies only to WebDAV-flavored path items, so a path genuinely absent from the catalog still records `unknown`.
 
@@ -4651,6 +4653,123 @@ A `graphql_query` or `graphql_export` call is cataloged as a `graphql` record: t
 Subscriptions are refused with a clear message. There is no auth mode for an upstream expecting a short-lived token the client signs itself. `graphql_export` walks pages exactly as `graphql_query` does, bounded by `max_pages`; there is no unbounded streaming export.
 
 ---
+
+# CalDAV Calendars
+
+A `caldav` connection reads one calendar account over CalDAV (RFC 4791), so the platform can answer which meetings happened, when, who attended and what they were about. Most mail servers that are not Google or Microsoft serve calendars only this way: Fastmail, iCloud, Nextcloud, Radicale, SOGo, Zimbra, Synology, and the CalDAV endpoint of most hosted mail.
+
+It is read-only by design. The kind sends PROPFIND, REPORT and GET and nothing else; there is no PUT, DELETE or MKCALENDAR for a model or a managed script to reach. Every caldav connection reports `read_only: true` in `list_connections`.
+
+## Tools
+
+| Tool | Does |
+|---|---|
+| `calendar_list` | The calendars on the account: name, href, color and the component types each holds |
+| `calendar_events` | The events in a time range on one calendar, or on every calendar that holds events, sorted by start, recurring events expanded into their occurrences |
+| `calendar_event` | One event in full by the href `calendar_events` reported: the event, and for a recurring one its master and every instance written apart from its rule |
+
+`calendar_events` takes `start` and `end` as an RFC 3339 time or a `YYYY-MM-DD` date (midnight in the connection's `time_zone`). A missing start is now, a missing end seven days after the start, and a range longer than `max_range_days` is refused. A calendar is named by its display name (any case) or its href.
+
+## What an event says
+
+Each event carries the platform's reading of it beside what its author wrote:
+
+- `start` and `end` in UTC, `time_zone` (the IANA zone the start was written in, `UTC`, or `floating` for a time with no zone, read in the connection's zone), `all_day` with `start_date` and `end_date` (exclusive, as iCalendar writes it), `status` (`confirmed`, `tentative`, `canceled`), `recurring` and `recurrence_id` (the original start of the occurrence, UTC), `last_modified`, `uid`, `calendar`, `href`.
+- Under `external`: `summary`, `description`, `location`, `url`, `organizer` and `attendees` (each with `email`, `name`, `role`, and `participation`: accepted, declined, tentative, delegated or needs-action).
+
+Recurrence is expanded by the platform rather than by the server, so the original zone is kept: RRULE, RDATE and EXDATE are applied in the zone the event was written in, across daylight-saving changes, and an instance the organizer moved or edited (a VEVENT with RECURRENCE-ID) replaces the occurrence it stands for, including one moved into the range from outside it. A zone name that is not an IANA name is mapped: Windows names as Exchange writes them (`W. Europe Standard Time`), a path ending in one (`/mozilla.org/.../Europe/Berlin`), or the VTIMEZONE's `X-LIC-LOCATION`. A name none of those resolves is read as UTC and named in `time_zone_unresolved`. `include_raw` returns each event's iCalendar text as well.
+
+## Untrusted text
+
+Anyone can send an invitation, so an event's title, description, location and attendee names are third-party text. They come back under `external`, never beside the platform's own fields, with zero-width, bidirectional and other invisible formatting characters and control characters removed, and every result carries a `notice` saying what `external` is. The separation is structural rather than a delimiter in a string, because a sender can write any delimiter.
+
+## Configuration
+
+```yaml
+toolkits:
+  caldav:
+    instances:
+      team:
+        url: "https://mail.example.com/dav/"
+        auth_mode: basic
+        username: "platform@example.com"
+        password: "{{secret:team-calendar}}"
+        time_zone: "Europe/Berlin"
+```
+
+| Key | Meaning |
+|---|---|
+| `url` | The account's address: the server root, its principal, or its calendar home. Discovery (`current-user-principal`, then `calendar-home-set`, then `/.well-known/caldav` from a bare root) finds the calendars from any of the three, once, and keeps them five minutes. Required |
+| `time_zone` | IANA zone a floating time and a date's midnight are read in. Default `UTC` |
+| `max_events` | Most occurrences one call returns (1-5000). Default 500; past it the result says `truncated` |
+| `max_range_days` | Longest range one call may ask about (1-3660). Default 366 |
+| `auth_mode`, `username`, `password`, `credential`, ... | The shared HTTP credential set (see [API Gateway](api-gateway.md)): basic with an app password for most servers, bearer, or the OAuth client_credentials grant. The authorization_code grant is not offered on this kind. `{{secret:<name>}}` names a stored secret and is read at every request |
+| `connect_timeout`, `call_timeout`, `tls_ca_bundle_pem`, `max_concurrent_calls`, `static_headers` | The shared transport settings |
+
+Connections are usually saved in the portal under Admin > Connections (kind CalDAV) or through `PUT /api/v1/admin/connection-instances/caldav/{name}`; the kind is enabled automatically. The connection test (`POST .../caldav/{name}/test`) runs discovery and reports the calendars it found.
+
+## Reading calendars through an API connection
+
+An `api` connection can also reach a CalDAV server: `api_invoke_endpoint` accepts `REPORT` beside `PROPFIND` (#2246), forwarded unchanged with its XML body and `Depth` header, honored on a catalog's `x-webdav-method` carrier operation, and classified as a read. `decode: "xml"` parses the multistatus. The `caldav` kind is what to use for events: it expands recurrence and time zones and separates third-party text, which a raw `calendar-query` leaves to the model.
+
+# IMAP Mailbox
+
+An `imap` connection reads a dedicated platform mailbox, for example `platform@company.example`, which people cc on the threads the platform should know about: client threads, vendor notices, automated reports. People can then ask about those threads, and managed scripts can process new mail on a schedule.
+
+Mail is the most hostile input the platform takes: anyone can send to the address, and a body reaches a model's context as it stands. Most of the kind is what it refuses, and everything below is enforced by the platform rather than left to a model's judgment.
+
+## What the platform shows
+
+1. **Folders.** A connection reads only the folders it names; there is no all-folders default. The intended setup is a server-side rule that files mail cc'd to the platform address from known senders into one folder.
+2. **Sender allowlist.** A message whose From address is not on `allow_senders` (addresses and `@domain` entries; a domain entry does not admit its subdomains) is never returned by any tool: not shown, summarized or quoted. `mail_search` reports how many it withheld (`hidden_not_allowed`), so an administrator knows mail is arriving.
+3. **Authenticated senders.** With `require_auth_pass` (the default), an allowed From is trusted only when the receiving mail server recorded an SPF or DKIM pass aligned with it (relaxed alignment under the public suffix list), or a DMARC pass. Only the topmost `Authentication-Results` header carrying `trusted_authserv_id` is read, never one a sender could have added under another id. Anything else counts as `hidden_unauthenticated`. This is what stops a forged `From: ap@vendor.example` from passing.
+4. **Body as data.** Every header and body field the sender controls is returned under `external`, apart from the platform's own fields (uid, folder, date, size, message id, thread references, `from_address`, `sender_auth`, attachments), and every result carries a `notice` saying what `external` is. HTML is converted to the text a reader sees: scripts, styles, comments and every element hidden from the reader (`hidden`, `aria-hidden`, `display:none`, `visibility:hidden`, zero font size, opacity, width or height) are dropped, images become their alt text, and no remote content is fetched or link followed. Zero-width, bidirectional and other invisible characters are removed from everything. Quoted history under a reply is collapsed unless `include_quoted` is set.
+5. **Read-only.** Folders are opened with EXAMINE and bodies fetched with `BODY.PEEK`, so nothing is marked seen, and there is no STORE, COPY, MOVE, EXPUNGE, APPEND or send. Plain IMAP is refused: the session is IMAPS or STARTTLS.
+6. **Limits.** `max_results` per call, `max_message_bytes` and `max_attachment_bytes`, at most 2,000 messages' headers read per search, and at most 500 mail calls per managed-script run.
+7. **Audit.** Every call is audited like any other tool call, with its folder and uid.
+
+## Tools
+
+| Tool | Does |
+|---|---|
+| `mail_search` | Search a folder (from, to, cc, subject, text, since, before, unseen) and return headers only, newest first. With `since_uid` and `uid_validity` from the last run it returns only newer mail, oldest first, and `highest_uid` is the next watermark; `uid_validity_changed` says the folder was renumbered and the watermark was ignored |
+| `mail_message` | One message: headers and the body as plain text, its attachment list. A message from a sender the connection does not trust is refused, saying why and nothing it contains |
+| `mail_thread` | The thread a message belongs to, by Message-ID, In-Reply-To and References, oldest first with bodies; withheld messages are counted |
+| `mail_attachment` | Save one attachment of a trusted message into the caller's resource library (default folder `mail/<connection>`), with its own content type, so the file tools (PDF text, table registration) read it. Offered only where the deployment has a resource library |
+
+## Managed scripts that act on mail
+
+A script that reads mail and then writes (a notification, an asset, an API POST, `trino_execute`, an output) is a script a sender can steer by what they write. A script's `mail_actions` setting says its owner meant that: with it off (the default), a run that has called any `mail_*` tool is refused every later write-class tool call (as `internal/toolwrite` classifies it) and every `platform.export` and `platform.publish_data`, and the refusal says what to turn on. A run that never reads mail is unaffected. The setting is set with `manage_script` `create` or `update` (`mail_actions: true`), rehearsed with `run_draft`, shown by `get` and in the script's contract, and toggled on the script's page under "Reads mail and acts on it" (`PUT /api/v1/portal/scripts/{id}/mail-actions`, owner or administrator). A draft that persists nothing is not refused.
+
+## Configuration
+
+```yaml
+toolkits:
+  imap:
+    instances:
+      platform-mail:
+        host: imap.example.com
+        username: platform@example.com
+        password: "{{secret:platform-mailbox}}"
+        folders: [Platform]
+        allow_senders: ["@vendor.example", "reports@partner.example"]
+        trusted_authserv_id: mx.example.com
+```
+
+| Key | Meaning |
+|---|---|
+| `host`, `port`, `tls` | `tls` (IMAPS, port 993, the default) or `starttls` (port 143). Plain IMAP is refused |
+| `username`, `password` | An app password; `{{secret:<name>}}` names a stored secret, read each time a session opens. Required |
+| `folders` | The folders the connection may read. Required |
+| `allow_senders` | Addresses and `@domain` entries whose mail is visible. Required |
+| `require_auth_pass` | Trust an allowed sender only on an aligned SPF, DKIM or DMARC pass. Default true |
+| `trusted_authserv_id` | The receiving server's authserv-id, the first word of the `Authentication-Results` header it adds. Required while `require_auth_pass` is on |
+| `max_results` | Most messages one call returns (1-500). Default 50 |
+| `max_message_bytes`, `max_attachment_bytes` | Default 10 MiB and 25 MiB |
+| `tls_ca_bundle_pem` | PEM certificates to trust for a private CA |
+| `connect_timeout`, `call_timeout` | Default 15s and 60s |
+
+Connections are usually saved in the portal under Admin > Connections (kind IMAP) or through `PUT /api/v1/admin/connection-instances/imap/{name}`; the kind is enabled automatically. The connection test logs in and opens each folder read-only, reporting how many messages each holds. Sending mail is out of scope: notification channels cover outbound.
 
 # API Operation Browser
 

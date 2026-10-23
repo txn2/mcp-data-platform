@@ -27,6 +27,13 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
+| CalDAV | `calendar_list` | The calendars on a CalDAV account (read-only) |
+| CalDAV | `calendar_events` | Events in a time range, recurrence expanded, start and end in UTC with their zone; author-written text under `external` |
+| CalDAV | `calendar_event` | One event in full, its rule's master and moved instances |
+| IMAP | `mail_search` | Search the platform mailbox's folders, headers only, mail from untrusted senders withheld and counted; `since_uid` watermark for scripts |
+| IMAP | `mail_message` | One message as plain text, hidden HTML removed, quoted history collapsed |
+| IMAP | `mail_thread` | A message's thread, oldest first |
+| IMAP | `mail_attachment` | Save an attachment of a trusted message into the caller's resource library |
 | Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, Markdown, CSV, etc.): every document an agent produces, whatever the user calls it |
 | Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
 | Portal | `manage_table` | Make a stored CSV or JSON-lines file queryable as a table and manage what is registered over it (register, list, unregister), or check that a table could be registered on a connection (check). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |

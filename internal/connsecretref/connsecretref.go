@@ -29,14 +29,18 @@ const (
 	kindMCP     = "mcp"
 	kindTrino   = "trino"
 	kindS3      = "s3"
+	kindCalDAV  = "caldav"
+	kindIMAP    = "imap"
 )
 
-// builtKeys are the keys of the kinds that read their credential once, as
-// they build their client (#1806), rather than as each request is sent; the
-// keys are pkg/toolkits/trino's and pkg/toolkits/s3's SecretKeys.
+// builtKeys are the keys of the kinds that fill their credential themselves
+// rather than through the HTTP upstream policy: trino and s3 once, as they
+// build their client (#1806), imap as each session is opened (#2247). The keys
+// are those toolkits' SecretKeys.
 var builtKeys = map[string]map[string]bool{
 	kindTrino: {keyPassword: true},
 	kindS3:    {"access_key_id": true, "secret_access_key": true, "session_token": true},
+	kindIMAP:  {keyPassword: true},
 }
 
 // The configuration keys read here, as the kinds spell them.
@@ -102,7 +106,7 @@ func Allowed(kind string, cfg map[string]any, path string) bool {
 }
 
 // fillsConfig are the kinds that fill a reference in their own configuration.
-var fillsConfig = map[string]bool{kindAPI: true, kindGraphQL: true, kindMCP: true}
+var fillsConfig = map[string]bool{kindAPI: true, kindGraphQL: true, kindMCP: true, kindCalDAV: true}
 
 // oauthClientKeys are the OAuth client's id and secret.
 var oauthClientKeys = map[string]bool{connoauth.ConfigKeyClientID: true, connoauth.ConfigKeyClientSecret: true}
@@ -132,7 +136,7 @@ func clientCredentialsGrant(cfg map[string]any) bool {
 func Fields(kind string) string {
 	const oauth = connoauth.ConfigKeyClientID + " and " + connoauth.ConfigKeyClientSecret + " under the client_credentials grant"
 	switch kind {
-	case kindAPI, kindGraphQL:
+	case kindAPI, kindGraphQL, kindCalDAV:
 		return strings.Join([]string{
 			keyCredential, keyUsername, keyPassword, keyPathSecret,
 			sessionlogin.ConfigKeyLoginBody, sessionlogin.ConfigKeyLoginSecret,
@@ -140,7 +144,7 @@ func Fields(kind string) string {
 		}, listSep)
 	case kindMCP:
 		return keyCredential + listSep + "and " + oauth
-	case kindTrino:
+	case kindTrino, kindIMAP:
 		return keyPassword
 	case kindS3:
 		return "access_key_id, secret_access_key and session_token"

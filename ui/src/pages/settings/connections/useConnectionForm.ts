@@ -55,6 +55,8 @@ export function useConnectionForm({
       case "mcp": return Boolean(configObj.endpoint);
       case "api": return Boolean(configObj.base_url);
       case "graphql": return Boolean(configObj.endpoint_url);
+      case "caldav": return Boolean(configObj.url);
+      case "imap": return Boolean(configObj.host);
       default: return true;
     }
   }, [kind, configObj]);

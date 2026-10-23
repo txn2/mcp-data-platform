@@ -42,6 +42,7 @@ type Kind string
 const (
 	KindAPI          Kind = "api"          // an API gateway connection's upstream
 	KindGraphQL      Kind = "graphql"      // a GraphQL connection's endpoint
+	KindCalDAV       Kind = "caldav"       // a CalDAV connection's calendar server (#2246)
 	KindMCP          Kind = "mcp"          // an MCP gateway connection's upstream server
 	KindUtil         Kind = "util"         // the util connection's public fetch
 	KindOAuth        Kind = "oauth"        // a token endpoint: client credentials, code exchange, refresh
@@ -210,7 +211,7 @@ func (t *transport) recorder() *observability.Metrics {
 // what its upstream answered is that connection's state (#1898).
 //
 //nolint:gochecknoglobals // a read-only lookup set.
-var connectionKinds = map[Kind]bool{KindAPI: true, KindGraphQL: true, KindMCP: true}
+var connectionKinds = map[Kind]bool{KindAPI: true, KindGraphQL: true, KindMCP: true, KindCalDAV: true}
 
 // RoundTrip sends the request through the chain and records it. The error
 // is returned as the layer below produced it, so a caller's errors.As on a

@@ -17,7 +17,7 @@ import (
 )
 
 func TestValidateMethod_AcceptsKnownAndRejectsOthers(t *testing.T) {
-	known := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"}
+	known := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "REPORT", "MKCOL", "MOVE", "COPY"}
 	for _, m := range known {
 		if got, err := validateMethod(m); err != nil || got != m {
 			t.Errorf("validateMethod(%q) = (%q, %v); want (%q, nil)", m, got, err, m)
@@ -34,7 +34,7 @@ func TestValidateMethod_AcceptsKnownAndRejectsOthers(t *testing.T) {
 }
 
 func TestNormalizeMethodLabel(t *testing.T) {
-	for _, m := range []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"} {
+	for _, m := range []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "REPORT", "MKCOL", "MOVE", "COPY"} {
 		if got := NormalizeMethodLabel(m); got != m {
 			t.Errorf("NormalizeMethodLabel(%q) = %q; want %q", m, got, m)
 		}
@@ -608,41 +608,60 @@ func TestInvoke_EndToEnd_PostBodySent(t *testing.T) {
 	}
 }
 
-func TestInvoke_EndToEnd_PropfindSendsBody(t *testing.T) {
-	var seenMethod string
-	var seenBody []byte
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seenMethod = r.Method
-		seenBody, _ = io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "application/xml")
-		w.WriteHeader(http.StatusMultiStatus)
-		_, _ = io.WriteString(w, `<multistatus/>`)
-	}))
-	defer srv.Close()
+// TestInvoke_EndToEnd_WebDAVReadsSendBody holds the two WebDAV reads to the
+// same contract: the verb, the XML body and the Depth header reach the
+// upstream unchanged. REPORT is how CalDAV asks for the events in a time range
+// (calendar-query) or many events at once (calendar-multiget) (#2246).
+func TestInvoke_EndToEnd_WebDAVReadsSendBody(t *testing.T) {
+	cases := []struct {
+		method, path, body string
+	}{
+		{"PROPFIND", "/dav/files/user/", `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:allprop/></d:propfind>`},
+		{"REPORT", "/dav/calendars/user/work/", `<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">` +
+			`<d:prop><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT">` +
+			`<c:time-range start="20261001T000000Z" end="20261101T000000Z"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method, func(t *testing.T) {
+			var seenMethod, seenDepth string
+			var seenBody []byte
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seenMethod = r.Method
+				seenDepth = r.Header.Get("Depth")
+				seenBody, _ = io.ReadAll(r.Body)
+				w.Header().Set("Content-Type", "application/xml")
+				w.WriteHeader(http.StatusMultiStatus)
+				_, _ = io.WriteString(w, `<multistatus/>`)
+			}))
+			defer srv.Close()
 
-	cfg := Config{
-		BaseURL: srv.URL, AuthMode: AuthModeNone,
-		ConnectTimeout: time.Second, CallTimeout: 5 * time.Second,
-		MaxResponseBytes: DefaultMaxResponseBytes,
-	}
-	auth, _ := NewAuthenticator(cfg)
-	xmlBody := `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:allprop/></d:propfind>`
-	out, err := invoke(context.Background(), invocation{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}, InvokeInput{
-		Connection: "x", Method: "PROPFIND", Path: "/dav/files/user/",
-		Body:    xmlBody,
-		Headers: map[string]string{"Depth": "1", "Content-Type": "application/xml"},
-	})
-	if err != nil {
-		t.Fatalf("invoke: %v", err)
-	}
-	if seenMethod != "PROPFIND" {
-		t.Errorf("upstream method = %q; want PROPFIND", seenMethod)
-	}
-	if string(seenBody) != xmlBody {
-		t.Errorf("upstream body = %q; want XML propfind", string(seenBody))
-	}
-	if out.Status != http.StatusMultiStatus {
-		t.Errorf("status = %d; want 207", out.Status)
+			cfg := Config{
+				BaseURL: srv.URL, AuthMode: AuthModeNone,
+				ConnectTimeout: time.Second, CallTimeout: 5 * time.Second,
+				MaxResponseBytes: DefaultMaxResponseBytes,
+			}
+			auth, _ := NewAuthenticator(cfg)
+			out, err := invoke(context.Background(), invocation{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}, InvokeInput{
+				Connection: "x", Method: tc.method, Path: tc.path,
+				Body:    tc.body,
+				Headers: map[string]string{"Depth": "1", "Content-Type": "application/xml"},
+			})
+			if err != nil {
+				t.Fatalf("invoke: %v", err)
+			}
+			if seenMethod != tc.method {
+				t.Errorf("upstream method = %q; want %s", seenMethod, tc.method)
+			}
+			if seenDepth != "1" {
+				t.Errorf("upstream Depth = %q; want 1", seenDepth)
+			}
+			if string(seenBody) != tc.body {
+				t.Errorf("upstream body = %q; want the XML body", string(seenBody))
+			}
+			if out.Status != http.StatusMultiStatus {
+				t.Errorf("status = %d; want 207", out.Status)
+			}
+		})
 	}
 }
 

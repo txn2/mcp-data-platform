@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	imapkit "github.com/txn2/mcp-data-platform/pkg/toolkits/imap"
 	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 
@@ -155,7 +156,7 @@ func TestNamesStoredSecret(t *testing.T) {
 // trino or s3 connection name a secret in to the keys those toolkits fill
 // as they build their client (#1806).
 func TestBuiltKeysAreTheOnesTheToolkitsFill(t *testing.T) {
-	for kind, keys := range map[string][]string{kindTrino: trinokit.SecretKeys, kindS3: s3kit.SecretKeys} {
+	for kind, keys := range map[string][]string{kindTrino: trinokit.SecretKeys, kindS3: s3kit.SecretKeys, kindIMAP: imapkit.SecretKeys} {
 		assert.Len(t, builtKeys[kind], len(keys), kind)
 		for _, k := range keys {
 			assert.True(t, builtKeys[kind][k], "%s %s", kind, k)

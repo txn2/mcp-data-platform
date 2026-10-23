@@ -12,8 +12,9 @@ import (
 
 // webdavTestSpec mirrors the shape of a real Nextcloud WebDAV catalog
 // spec (issue #876): a single resource path whose WebDAV verbs are
-// documented under carrier methods via x-webdav-method. POST->PROPFIND,
-// PATCH->MKCOL, HEAD->MOVE/COPY (two verbs in one free-text value);
+// documented under carrier methods via x-webdav-method. POST->PROPFIND and
+// REPORT (#2246), PATCH->MKCOL, HEAD->MOVE/COPY (two verbs in one free-text
+// value);
 // GET/PUT/DELETE are their own real verbs and carry no extension. The
 // literal /remote.php/dav/files/shared/index.html path exercises
 // most-specific-wins: an exact literal must not be shadowed by the
@@ -32,7 +33,7 @@ const webdavTestSpec = `{
       "delete": { "operationId": "webdav-delete", "responses": { "204": { "description": "deleted" } } },
       "post": {
         "operationId": "webdav-propfind",
-        "x-webdav-method": "PROPFIND",
+        "x-webdav-method": "PROPFIND or REPORT",
         "responses": { "207": { "description": "multistatus" } }
       },
       "patch": {
@@ -87,6 +88,7 @@ func TestResolveOperationID_WebDAV(t *testing.T) {
 		{"propfind single segment", "PROPFIND", "/remote.php/dav/files/alice/report.pdf", "webdav-propfind"},
 		{"propfind nested", "PROPFIND", "/remote.php/dav/files/alice/reports/2026/q1/report.pdf", "webdav-propfind"},
 		{"propfind trailing slash dir", "PROPFIND", "/remote.php/dav/files/alice/reports/", "webdav-propfind"},
+		{"report nested", "REPORT", "/remote.php/dav/files/alice/calendars/work/", "webdav-propfind"},
 		{"mkcol nested", "MKCOL", "/remote.php/dav/files/alice/reports/2026", "webdav-mkcol"},
 		{"move nested", "MOVE", "/remote.php/dav/files/alice/a/b.pdf", "webdav-move-copy"},
 		{"copy nested", "COPY", "/remote.php/dav/files/alice/a/b.pdf", "webdav-move-copy"},
@@ -186,7 +188,8 @@ func TestWebdavMethodsFromExtension(t *testing.T) {
 		{"json array value", `{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/p":{"head":{"operationId":"a","x-webdav-method":["MOVE","COPY"],"responses":{"200":{"description":"ok"}}}}}}`, []string{"MOVE", "COPY"}},
 		{"lowercase value", `{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/p":{"patch":{"operationId":"a","x-webdav-method":"mkcol","responses":{"200":{"description":"ok"}}}}}}`, []string{"MKCOL"}},
 		{"no extension", `{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/p":{"get":{"operationId":"a","responses":{"200":{"description":"ok"}}}}}}`, nil},
-		{"unknown verb ignored", `{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/p":{"post":{"operationId":"a","x-webdav-method":"REPORT","responses":{"200":{"description":"ok"}}}}}}`, nil},
+		{"unknown verb ignored", `{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/p":{"post":{"operationId":"a","x-webdav-method":"LOCK","responses":{"200":{"description":"ok"}}}}}}`, nil},
+		{"report recognized", `{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/p":{"post":{"operationId":"a","x-webdav-method":"REPORT","responses":{"200":{"description":"ok"}}}}}}`, []string{"REPORT"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

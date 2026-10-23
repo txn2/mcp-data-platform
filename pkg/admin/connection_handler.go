@@ -92,14 +92,14 @@ func (h *Handler) validateConnectionCatalog(ctx context.Context, kind string, co
 	return "", true
 }
 
-// knownConnectionKinds lists the toolkit kinds that support multiple configurable
-// connection instances.
+// knownConnectionKinds lists the toolkit kinds with configurable connection instances.
 var knownConnectionKinds = map[string]bool{
 	connectionKindTrino: true,
 	connectionKindS3:    true,
 	connectionKindMCP:   true,
 	connectionKindAPI:   true,
 	connectionKindGQL:   true,
+	"caldav":            true, "imap": true, // #2246, #2247
 }
 
 // registerConnectionRoutes registers connection instance CRUD endpoints.

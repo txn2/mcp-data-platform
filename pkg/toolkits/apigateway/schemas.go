@@ -123,7 +123,7 @@ var apiExportInputSchema = json.RawMessage(`{
     },
     "method": {
       "type": "string",
-      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"],
+      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "REPORT", "MKCOL", "MOVE", "COPY"],
       "description": "HTTP method. Required unless operation_id is supplied."
     },
     "path": {
@@ -206,7 +206,7 @@ var invokeEndpointSchema = json.RawMessage(`{
     },
     "method": {
       "type": "string",
-      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"],
+      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "REPORT", "MKCOL", "MOVE", "COPY"],
       "description": "HTTP method. Required unless operation_id is supplied. Use for raw or uncataloged calls."
     },
     "path": {
@@ -229,7 +229,7 @@ var invokeEndpointSchema = json.RawMessage(`{
     "decode": {
       "type": "string",
       "enum": ["auto", "json", "xml", "text"],
-      "description": "How to read the response body. Default \"auto\": JSON when the response declares JSON, a parsed XML tree when the connection's catalog declares an XML media type on the operation's success response, and raw text otherwise. \"xml\" parses the body as XML whatever it declares — use it for a SOAP, WebDAV PROPFIND, RSS or Atom response on a connection with no catalog. An XML tree is nested objects of {tag, ns, attrs, text, children}: tag and attribute names are local names, so the upstream's namespace prefix does not matter, text is the element's own character data, and children are the child elements in document order. \"json\" and \"text\" force those readings. A body that does not parse under a decode you passed is returned as text with the reason in hint; \"auto\" falls back to text silently."
+      "description": "How to read the response body. Default \"auto\": JSON when the response declares JSON, a parsed XML tree when the connection's catalog declares an XML media type on the operation's success response, and raw text otherwise. \"xml\" parses the body as XML whatever it declares — use it for a SOAP, WebDAV PROPFIND or REPORT, RSS or Atom response on a connection with no catalog. An XML tree is nested objects of {tag, ns, attrs, text, children}: tag and attribute names are local names, so the upstream's namespace prefix does not matter, text is the element's own character data, and children are the child elements in document order. \"json\" and \"text\" force those readings. A body that does not parse under a decode you passed is returned as text with the reason in hint; \"auto\" falls back to text silently."
     },
     "timeout_seconds": {
       "type": "integer",

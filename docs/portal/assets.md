@@ -194,6 +194,12 @@ All content types are rendered inline:
 
     ![CSV Asset](../images/screenshots/light/user-asset-csv-light.webp#only-light)![CSV Asset](../images/screenshots/dark/user-asset-csv-dark.webp#only-dark)
 
+## Adding an asset to a collection
+
+**Add to collection** in the viewer's toolbar files the asset you are looking at into a collection without leaving it (#2260). The picker lists the collections you can edit (your own, those shared with you as Editor, and for an administrator every collection), most recently updated first, with a search box; a collection that already holds the asset says which sections, and one whose every section holds it cannot be chosen. Choosing a collection with one section adds the asset at once; with several, you pick the section, the last one you have not used preselected and the ones already holding the asset disabled. **New collection** creates a collection with the asset as its first item, in one step. The confirmation names the collection and section and opens the collection. Adding puts the asset at the end of the section and changes nothing else: the name, description, settings, other sections and the order of the items already there.
+
+The action is shown to a persona that creates collections, and otherwise only when there is a collection to add to. The routes are `GET /api/v1/portal/assets/{id}/collection-targets` (`search` narrows by name, description or owner), `POST /api/v1/portal/collections/{id}/items` with `asset_id` and an optional `section_id` (no section adds to the last, or to a new untitled section in a collection with none; `409` for an asset already in the section, a full section, or a section the collection no longer has), and `POST /api/v1/portal/collections` with an `asset_id`.
+
 ## Requesting access
 
 A signed-in person who follows a link to an asset, collection or prompt they cannot open is shown **You do not have access to this item**, its owner, and **Request access** with an optional message (#2090). The owner is notified by their notification preferences, and answers with **Approve as viewer**, **Approve as editor** or **Decline**: in the email, under **Access requests** at the top of the Inbox, or in the item's share dialog. Approving shares the item with the requester, so the link they followed opens with no further step; either answer is emailed to the requester.

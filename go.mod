@@ -104,6 +104,11 @@ require (
 	github.com/docker/go-connections v0.7.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
+	github.com/emersion/go-ical v0.0.0-20250609112844-439c63cef608 // indirect
+	github.com/emersion/go-imap/v2 v2.0.0-beta.8 // indirect
+	github.com/emersion/go-message v0.18.2 // indirect
+	github.com/emersion/go-msgauth v0.7.0 // indirect
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -163,6 +168,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.6 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/swaggo/files/v2 v2.0.0 // indirect
+	github.com/teambition/rrule-go v1.8.2 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect

@@ -94,6 +94,11 @@ func (c *client) tested(save, args map[string]any) map[string]any {
 	if declared {
 		draft["params"] = params
 	}
+	// A script that acts on mail is drafted under the setting it is saved
+	// with, as its author would (#2247).
+	if mailActions, ok := save["mail_actions"]; ok {
+		draft["mail_actions"] = mailActions
+	}
 	if args == nil {
 		args = draftArgs(params)
 	}

@@ -157,6 +157,14 @@ var readOnlyTools = map[string]bool{
 	// graphql_query are ruled on by what they send.
 	"api_discover":     true,
 	"graphql_discover": true,
+	// The calendar and mail kinds read and nothing else (#2246, #2247): they
+	// send PROPFIND, REPORT and GET, and EXAMINE and BODY.PEEK.
+	"calendar_list":   true,
+	"calendar_events": true,
+	"calendar_event":  true,
+	"mail_search":     true,
+	"mail_message":    true,
+	"mail_thread":     true,
 }
 
 // writeTools is every tool whose every call persists something. They are named
@@ -179,6 +187,8 @@ var writeTools = map[string]bool{
 	"trino_export":   true,
 	"api_export":     true,
 	"graphql_export": true,
+	// A mail attachment saved into the caller's resource library (#2247).
+	"mail_attachment": true,
 }
 
 // actionRule classifies one tool by the value of one argument.
@@ -355,10 +365,11 @@ func sortedKeys(m map[string]actionRule) []string {
 	return keys
 }
 
-// readMethods are the HTTP methods that read. PROPFIND is WebDAV's read, and
-// belongs here for the same reason GET does; MKCOL, MOVE and COPY are its
-// writes and are absent.
-var readMethods = map[string]bool{"GET": true, "HEAD": true, "PROPFIND": true}
+// readMethods are the HTTP methods that read. PROPFIND and REPORT are WebDAV's
+// reads (RFC 3253 defines REPORT as safe; CalDAV's calendar-query and
+// calendar-multiget are REPORTs), and belong here for the same reason GET does;
+// MKCOL, MOVE and COPY are its writes and are absent.
+var readMethods = map[string]bool{"GET": true, "HEAD": true, "PROPFIND": true, "REPORT": true}
 
 // classifyInvoke classifies an api gateway call by the method it sends.
 //

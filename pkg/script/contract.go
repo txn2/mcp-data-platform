@@ -42,6 +42,8 @@ type Contract struct {
 	// Exclusive is whether the script's runs may overlap: off, refuse or
 	// queue (#1986, #2209).
 	Exclusive runstate.ExclusiveMode `json:"exclusive"`
+	// MailActions is set when the script reads mail and acts on it (#2247).
+	MailActions bool `json:"mail_actions"`
 
 	// Params is the typed parameter contract a run binds against: the live
 	// record's, which is the latest saved version's.
@@ -376,6 +378,7 @@ func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 		Status:      sc.Status,
 		Enabled:     sc.Enabled,
 		Exclusive:   sc.Exclusive,
+		MailActions: sc.MailActions,
 		Params:      sc.Params,
 		Version:     sc.Version,
 		Refusal:     refusalText(RefuseRun(sc)),

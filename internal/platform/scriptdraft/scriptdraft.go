@@ -32,6 +32,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/mailbarrier"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
@@ -381,6 +382,8 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		// persona.
 		Tokens: r.tokens.Bind(scripttoken.Binding{ScriptID: draftScriptID(req)}, req.Identity.Roles),
 	}
+	// A draft that persists nothing has nothing for the mail barrier to stop.
+	opts.Caller, opts.Exporter = mailbarrier.Guard(!req.AllowWrites || (req.Script != nil && req.Script.MailActions), r.classifier, opts.Caller, opts.Exporter)
 	if req.Long.Timeout > scriptrun.DraftTimeout {
 		// A long draft is held to a platform run's step budget, which is what
 		// lets it get as far as its time limit does.

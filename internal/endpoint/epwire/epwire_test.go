@@ -34,9 +34,9 @@ func TestBuild_AssemblesOverOneDatabase(t *testing.T) {
 	mock.ExpectQuery("FROM scripts").WillReturnRows(sqlmock.NewRows([]string{
 		"id", "name", "display_name", "description", "category", "source_code", "params",
 		"owner_email", "tags", "enabled", "status", "superseded_by", "deprecated_at", "version",
-		"created_at", "updated_at", "library", "library_loads", "exclusive",
+		"created_at", "updated_at", "library", "library_loads", "exclusive", "mail_actions",
 	}).AddRow("s1", "lookup", "", "", "", "def handle(req):\n    return {}\n", []byte("[]"),
-		"jane@example.com", "{}", true, "active", "", nil, 1, now, now, false, "{}", "off"))
+		"jane@example.com", "{}", true, "active", "", nil, 1, now, now, false, "{}", "off", false))
 	assert.Equal(t, "lookup", e.Commands.ScriptName(context.Background(), "s1"))
 
 	mock.ExpectQuery("FROM gateway_secrets").WillReturnError(sqlmock.ErrCancelled)

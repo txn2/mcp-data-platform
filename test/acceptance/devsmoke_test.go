@@ -165,3 +165,30 @@ func TestDevSmoke_TheRendererDrawsATile(t *testing.T) {
 		return intField1787(row, "thumbnail_version") >= intField1787(row, "current_version")
 	})
 }
+
+// The CalDAV server answers through a caldav connection: a calendar made
+// for the check is listed by calendar_list.
+func TestDevSmoke_TheCalDAVServerListsACalendar(t *testing.T) {
+	t.Parallel()
+	requireCalDAV(t)
+	c := connect(t)
+	href := issue2246Calendar(t, "Smoke "+smokeStamp())
+	name := issue2246Connect(t, c)
+	out := c.call("calendar_list", map[string]any{"connection": name, "purpose": "Dev smoke: the CalDAV server answers."})
+	if !strings.Contains(fmt.Sprint(out["calendars"]), href) {
+		t.Fatalf("calendar_list did not list %s: %v", href, out)
+	}
+}
+
+// The IMAP server answers through an imap connection: a message appended for
+// the check is found by mail_search.
+func TestDevSmoke_TheIMAPServerFindsAMessage(t *testing.T) {
+	t.Parallel()
+	c := connect(t)
+	folder := issue2247Folder(t)
+	name := issue2247Connect(t, c, folder)
+	out := c.call("mail_search", map[string]any{"connection": name, "folder": folder, "purpose": "Dev smoke: the IMAP server answers."})
+	if msgs, _ := out["messages"].([]any); len(msgs) == 0 {
+		t.Fatalf("mail_search found nothing in %s: %v", folder, out)
+	}
+}

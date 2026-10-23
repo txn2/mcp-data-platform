@@ -1363,6 +1363,17 @@ refused. A connection that takes a limited number of calls is better served by
 its own `max_concurrent_calls`, which holds every caller to it, not only one
 script's runs ([GraphQL gateway](../server/graphql-gateway.md#upstreams-that-take-one-call-at-a-time)).
 
+A script that reads mail and then writes sets `mail_actions` (#2247;
+`manage_script create` or `update` with `mail_actions=true`, rehearsed with
+`run_draft`, shown by `get` and in the contract; in the portal, **Mail: Reads
+mail and acts on it** above the run history). A message is written by whoever
+sent it, so with `mail_actions` off (the default) a run that has called any
+`mail_*` tool is refused every later write-class tool call and every
+`platform.export` and `platform.publish_data`, naming the setting to turn on.
+A run that never reads mail pays nothing for it, a draft that persists nothing
+is not refused, and one run makes at most 500 mail calls. See
+[IMAP Mailbox](../server/imap.md).
+
 **Misfire policy: fire once, for the latest.** After a gap the platform was not
 materializing through — a stopped worker deployment, a restored database — one
 run materializes, for the most recent fire that has come due, and the fires

@@ -93,6 +93,7 @@ type manageScriptInput struct {
 	// Exclusive is a pointer for the same reason: an update that does not
 	// send it leaves the setting alone (#1986).
 	Exclusive    *runstate.ExclusiveMode `json:"exclusive,omitempty"`
+	MailActions  *bool                   `json:"mail_actions,omitempty"` // #2247, pointer as Enabled
 	Status       string                  `json:"status,omitempty"`
 	SupersededBy string                  `json:"superseded_by,omitempty"`
 
@@ -378,6 +379,7 @@ func manageScriptSchema() any {
 			"queue: another run is accepted and stays pending until no other run of the script is running, then runs; use it to start several runs by hand against an upstream that takes one request at a time. " +
 			"off (the default): runs of one script may overlap (a run_script run beside a scheduled one, or two run_script runs), and the state check at save time is the only guard: the later run fails with state_conflict after its side effects have happened. " +
 			"true and false are read as refuse and off."},
+		"mail_actions":  map[string]any{keyType: valBoolean, keyDescription: "Set with create or update, or with run_draft to rehearse it: whether the script may act on mail it reads (#2247). Off (the default), a run that has called a mail_* tool is refused every later write and output, since a sender can steer what a message says. Turn it on only for a script built to act on mail."},
 		fieldStatus:     map[string]any{keyType: valString, keyEnum: []string{script.StatusActive, script.StatusDeprecated, script.StatusSuperseded}, keyDescription: "Lifecycle transition to apply."},
 		"superseded_by": map[string]any{keyType: valString, keyDescription: "Name of the replacing script when superseding."},
 		"search":        map[string]any{keyType: valString, keyDescription: "Substring filter for list."},

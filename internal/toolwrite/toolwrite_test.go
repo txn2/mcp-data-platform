@@ -124,6 +124,7 @@ func TestClassify_InvokeEndpointByMethod(t *testing.T) {
 		{"get", false},
 		{"HEAD", false},
 		{"PROPFIND", false},
+		{"REPORT", false},
 		{"POST", true},
 		{"PUT", true},
 		{"PATCH", true},

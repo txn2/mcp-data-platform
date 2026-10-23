@@ -32,6 +32,8 @@ This starts:
 | dev-mcp-mock | `:9180` (OAuth) / `:9181` (MCP) | In-process mock — exercises the MCP gateway + OAuth grants |
 | mcp-test fixture | `http://localhost:9281/` | `ghcr.io/plexara/mcp-test` — 12-tool deterministic MCP upstream + portal at `/portal/` |
 | GraphQL fixture | `http://localhost:9286/graphql` | `graphile/postgraphile` over the `gql_fixture` database (`dev/seed-graphql.sql`) — introspection, Relay connections, mutations |
+| CalDAV server | `http://localhost:5232/` | Radicale (`dev/radicale`), account `dana` / `calendar-pw`; the caldav kind's acceptance criteria make and remove their own calendars |
+| IMAP server | `imaps://localhost:9993` | Dovecot (`dev/dovecot`), account `platform` / `app-password`, IMAPS only, certificate in `dev/.tls/dovecot`; the imap kind's acceptance criteria make their own folders and append their own mail |
 | api-test fixture | `http://localhost:9282` | `ghcr.io/plexara/api-test` — 12 deterministic `/v1/*` paths (17 operations — `/echo` accepts all 6 HTTP methods) + OpenAPI at `/openapi.yaml` + portal at `/portal/` |
 | OpenTelemetry Collector | `:4317` (OTLP/gRPC) | Receives every trace both replicas export (tracing on at sampler 1.0), their metrics (`OTEL_METRICS_EXPORTER=both`, every two seconds) and their log records (`OTEL_LOGS_EXPORTER=otlp`), and writes each to `dev/.otel/{traces,metrics,logs}.jsonl` (`dev/otel-collector.yml`); the acceptance suite reads them back from there (#1892, #1893, #1894). The stack names its deployment `acme-dev` in environment `dev`, and records each replica's stderr path (`DEV_AIR_LOG`, `DEV_AIR_B_LOG`) in `dev/.dev-ports.env` |
 

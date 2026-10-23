@@ -43,7 +43,7 @@ func (t *Toolkit) ResolveOperationID(ctx context.Context, connection, method, pa
 		return id
 	}
 	// WebDAV + nested-path fallback (issue #876). A router miss above can
-	// mean the caller sent a real WebDAV verb (PROPFIND/MKCOL/MOVE/COPY),
+	// mean the caller sent a real WebDAV verb (PROPFIND/REPORT/MKCOL/MOVE/COPY),
 	// which the catalog documents under a carrier method via
 	// x-webdav-method and the router therefore has no route for, or a
 	// nested resource path whose slash-bearing tail exceeds the router's

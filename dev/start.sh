@@ -398,6 +398,24 @@ if [ ! -f dev/.tls/seaweedfs/public.crt ] || [ ! -f dev/.tls/seaweedfs/private.k
     || fail "Could not generate the SeaweedFS TLS certificate (is openssl installed?)"
   ok "SeaweedFS dev certificate generated (dev/.tls/seaweedfs, 397 days)"
 fi
+
+# Dovecot's certificate (#2247), generated like the store's and for the same
+# reasons. The imap connection the acceptance criteria save trusts it through
+# tls_ca_bundle_pem.
+if [ ! -f dev/.tls/dovecot/tls.crt ] || [ ! -f dev/.tls/dovecot/tls.key ]; then
+  info "Generating the Dovecot dev certificate..."
+  mkdir -p dev/.tls/dovecot
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 397 -nodes \
+    -keyout dev/.tls/dovecot/tls.key -out dev/.tls/dovecot/tls.crt \
+    -subj "/CN=localhost" \
+    -addext "subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:dovecot" \
+    -addext "basicConstraints=critical,CA:FALSE" \
+    -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+    -addext "extendedKeyUsage=serverAuth" > /dev/null 2>&1 \
+    || fail "Could not generate the Dovecot TLS certificate (is openssl installed?)"
+  chmod 644 dev/.tls/dovecot/tls.key
+  ok "Dovecot dev certificate generated (dev/.tls/dovecot, 397 days)"
+fi
 # The AWS SDK reads this, and it is the only way the platform trusts the
 # certificate above: Go on macOS ignores SSL_CERT_FILE, so a self-signed
 # certificate is otherwise unusable without installing it in the keychain.
@@ -578,6 +596,30 @@ for i in $(seq 1 60); do
   sleep 1
 done
 ok "GraphQL fixture ready on :9286 (/graphql)"
+
+info "Waiting for the CalDAV server..."
+for i in $(seq 1 60); do
+  if [ "$(curl -s -o /dev/null -w '%{http_code}' -X PROPFIND "http://localhost:${DEV_RADICALE_PORT:-5232}/")" = "401" ]; then
+    break
+  fi
+  if [ "$i" -eq 60 ]; then
+    fail "Radicale did not answer on :${DEV_RADICALE_PORT:-5232} within 60s (docker logs acme-dev-radicale)"
+  fi
+  sleep 1
+done
+ok "CalDAV server ready on :${DEV_RADICALE_PORT:-5232} (dana / calendar-pw)"
+
+info "Waiting for the IMAP server..."
+for i in $(seq 1 60); do
+  if printf 'a LOGOUT\r\n' | openssl s_client -quiet -connect "127.0.0.1:${DEV_IMAPS_PORT:-9993}" 2>/dev/null | grep -q 'Dovecot ready'; then
+    break
+  fi
+  if [ "$i" -eq 60 ]; then
+    fail "Dovecot did not answer on :${DEV_IMAPS_PORT:-9993} within 60s (docker logs acme-dev-dovecot)"
+  fi
+  sleep 1
+done
+ok "IMAP server ready on :${DEV_IMAPS_PORT:-9993} (platform / app-password, IMAPS)"
 
 # Wait for Ollama (the embedding provider for semantic indexing). The platform
 # degrades to lexical-only without it, so a failure here WARNS rather than aborts
@@ -1326,6 +1368,8 @@ echo -e "                    ${CYAN}API key: $MCPTEST_DEV_KEY_VAL${NC}"
 echo -e "  api-test (HTTP):  ${CYAN}http://localhost:9282/v1${NC}  portal: ${CYAN}http://localhost:9282/portal/${NC}"
 echo -e "                    ${CYAN}API key: $APITEST_DEV_KEY_VAL${NC}"
 echo -e "  graphql fixture:  ${CYAN}http://localhost:9286/graphql${NC} (PostGraphile over gql_fixture)"
+echo -e "  caldav server:    ${CYAN}http://localhost:${DEV_RADICALE_PORT:-5232}/${NC} (Radicale, dana / calendar-pw)"
+echo -e "  imap server:      ${CYAN}imaps://localhost:${DEV_IMAPS_PORT:-9993}${NC} (Dovecot, platform / app-password)"
 echo -e "  mailpit (SMTP):   ${CYAN}http://localhost:${DEV_MAILPIT_HTTP_PORT:-8025}${NC} — every email the platform sends lands here"
 echo -e "  mattermost:       ${CYAN}http://localhost:${DEV_MATTERMOST_PORT:-8065}${NC} — admin@example.com / Dev-Password-1"
 

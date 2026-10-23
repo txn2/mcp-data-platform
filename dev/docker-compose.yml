@@ -190,6 +190,38 @@ services:
       timeout: 3s
       retries: 20
 
+  # radicale: the CalDAV server the caldav connection kind's acceptance
+  # criteria read (#2246). One account (dana / calendar-pw, dev/radicale);
+  # each criterion makes the calendars it reads and removes them after.
+  radicale:
+    image: tomsquest/docker-radicale:3.5.4.0@sha256:99a1145aafab55f211389a303a553109d06ff2c00f634847a52b8561bd01f172
+    container_name: acme-dev-radicale
+    ports:
+      - "127.0.0.1:${DEV_RADICALE_PORT:-5232}:5232"
+    volumes:
+      - ./radicale/config:/config/config:ro
+      - ./radicale/users:/config/users:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' -X PROPFIND http://127.0.0.1:5232/ | grep -q 401"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # dovecot: the IMAP server the imap connection kind's acceptance criteria
+  # read (#2247), over IMAPS only. One account (platform / app-password); each
+  # criterion makes the folder it reads and appends the mail it needs. The
+  # unprivileged image listens on 31993 for IMAPS.
+  dovecot:
+    image: dovecot/dovecot:2.4.1@sha256:1296e0f1029cdd95e6849fb82f5d142a6e2a46218451773316cea678de75254b
+    container_name: acme-dev-dovecot
+    environment:
+      USER_PASSWORD: app-password
+    ports:
+      - "127.0.0.1:${DEV_IMAPS_PORT:-9993}:31993"
+    volumes:
+      - ./.tls/dovecot:/etc/dovecot/ssl:ro
+      - ./dovecot:/etc/dovecot/conf.d:ro
+
   # platform-lb: the two platform processes dev/start.sh runs, round-robined
   # behind one address with no session affinity, the way two pods behind a
   # service are (#1708). It also replaces origin 502 and 504 bodies the way the

@@ -113,6 +113,7 @@ internal/bgloop -> pkg/observability
 internal/botcheck -> internal/outbound
 internal/botcheck -> internal/platform/settingsjson
 internal/botcheck -> pkg/portal/shareguest
+internal/caldav -> internal/untrusted
 internal/catalogfake -> pkg/catalog
 internal/conncatchup -> internal/logsan
 internal/connlimit -> internal/advisorylock
@@ -121,6 +122,7 @@ internal/connsecretref -> internal/secretref
 internal/connsecretref -> internal/secretstore
 internal/connsecretref -> internal/upstreamauth/sessionlogin
 internal/connsecretref -> pkg/connoauth
+internal/connset -> internal/conncatchup
 internal/dbobs -> internal/sqltables
 internal/dbobs -> pkg/observability
 internal/docread -> pkg/contenttype
@@ -140,6 +142,7 @@ internal/endpoint/eprefusal -> internal/bgloop
 internal/endpoint/eprefusal -> internal/logsan
 internal/endpoint/eprun -> internal/endpoint/epbinding
 internal/endpoint/eprun -> internal/logsan
+internal/endpoint/eprun -> internal/mailbarrier
 internal/endpoint/eprun -> internal/platform/scriptdialect
 internal/endpoint/eprun -> internal/platform/scriptguard
 internal/endpoint/eprun -> internal/platform/scriptlib
@@ -148,6 +151,7 @@ internal/endpoint/eprun -> internal/platform/scriptsession
 internal/endpoint/eprun -> internal/platform/starlarkconv
 internal/endpoint/eprun -> internal/producedby
 internal/endpoint/eprun -> internal/scripttoken
+internal/endpoint/eprun -> internal/toolwrite
 internal/endpoint/eprun -> pkg/audit
 internal/endpoint/eprun -> pkg/middleware
 internal/endpoint/eprun -> pkg/observability
@@ -480,6 +484,7 @@ internal/httpserver/scripthttp -> internal/httpserver/scripthttp/draftview
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/exclusivehttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/fireshttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/granthttp
+internal/httpserver/scripthttp -> internal/httpserver/scripthttp/mailactionshttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/outputshttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/runpage
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/scriptlist
@@ -535,6 +540,8 @@ internal/httpserver/scripthttp/flowhttp -> pkg/script
 internal/httpserver/scripthttp/granthttp -> internal/httpjson
 internal/httpserver/scripthttp/granthttp -> internal/logsan
 internal/httpserver/scripthttp/granthttp -> internal/platform/scriptgrant
+internal/httpserver/scripthttp/mailactionshttp -> internal/httpjson
+internal/httpserver/scripthttp/mailactionshttp -> pkg/script
 internal/httpserver/scripthttp/outputshttp -> internal/httpjson
 internal/httpserver/scripthttp/outputshttp -> pkg/script
 internal/httpserver/scripthttp/postshttp -> internal/httpjson
@@ -620,10 +627,14 @@ internal/httpserver/webhookwire -> pkg/persona
 internal/httpserver/webhookwire -> pkg/platform
 internal/httpserver/webhookwire -> pkg/platform/fieldcrypt
 internal/httpserver/webhookwire -> pkg/resource
+internal/imapmail -> internal/untrusted
 internal/indexpolicy -> pkg/contenttype
 internal/inlinefit -> pkg/toolkit
 internal/inproc -> internal/portal/viewerlimit
 internal/listcut -> internal/pagenext
+internal/mailbarrier -> internal/platform/scriptrun
+internal/mailbarrier -> internal/toolwrite
+internal/mailbarrier -> pkg/script
 internal/maps -> internal/advisorylock
 internal/maps -> internal/bgloop
 internal/maps -> internal/logsan
@@ -856,6 +867,11 @@ internal/platform/levelalert -> pkg/notification
 internal/platform/listchanged -> pkg/session
 internal/platform/listenbridge -> internal/logsan
 internal/platform/listenbridge -> pkg/session
+internal/platform/mailcalwiring -> internal/platform/connrecords
+internal/platform/mailcalwiring -> internal/platform/resourcewrite
+internal/platform/mailcalwiring -> pkg/registry
+internal/platform/mailcalwiring -> pkg/toolkits/caldav
+internal/platform/mailcalwiring -> pkg/toolkits/imap
 internal/platform/memoryindex -> pkg/indexjobs
 internal/platform/memorylayer -> internal/platform/configwarn
 internal/platform/memorylayer -> internal/platform/embedyield
@@ -1072,6 +1088,7 @@ internal/platform/scriptbgdraft -> internal/platform/scriptrun
 internal/platform/scriptbgdraft -> pkg/session
 internal/platform/scriptcontract -> pkg/script
 internal/platform/scriptdialect -> internal/scriptprintf
+internal/platform/scriptdraft -> internal/mailbarrier
 internal/platform/scriptdraft -> internal/platform/scriptlib
 internal/platform/scriptdraft -> internal/platform/scriptlive
 internal/platform/scriptdraft -> internal/platform/scriptrec
@@ -1088,6 +1105,7 @@ internal/platform/scriptdraft -> pkg/script
 internal/platform/scriptdraft -> pkg/session
 internal/platform/scriptexec -> internal/bgloop
 internal/platform/scriptexec -> internal/logsan
+internal/platform/scriptexec -> internal/mailbarrier
 internal/platform/scriptexec -> internal/notification/notifyalert
 internal/platform/scriptexec -> internal/notification/notifychannel
 internal/platform/scriptexec -> internal/notification/notifyprefs
@@ -1111,6 +1129,7 @@ internal/platform/scriptexec -> internal/producedby
 internal/platform/scriptexec -> internal/runstate
 internal/platform/scriptexec -> internal/scriptcallsite
 internal/platform/scriptexec -> internal/scripttoken
+internal/platform/scriptexec -> internal/toolwrite
 internal/platform/scriptexec -> pkg/audit
 internal/platform/scriptexec -> pkg/contenttype
 internal/platform/scriptexec -> pkg/middleware
@@ -1468,6 +1487,7 @@ internal/portal/assetrefstore -> internal/portal/assetrefs
 internal/portal/callapi -> internal/httpjson
 internal/portal/callapi -> internal/platform/callrecord
 internal/portal/callapi -> internal/portal/access
+internal/portal/collitems -> internal/portal/portaldomain
 internal/portal/contentrefs -> pkg/contenttype
 internal/portal/contentrefs -> pkg/portal/knowledgepage
 internal/portal/contentrefs -> pkg/resource
@@ -1487,6 +1507,7 @@ internal/portal/portalnoop -> internal/portal/portaldomain
 internal/portal/portalperm -> pkg/persona
 internal/portal/portalpurge -> internal/logsan
 internal/portal/portalpurge -> internal/portal/portaldomain
+internal/portal/portalstore -> internal/portal/collitems
 internal/portal/portalstore -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/producedby
 internal/portal/portalstore -> internal/thumbdue
@@ -1838,6 +1859,7 @@ pkg/platform -> internal/platform/indexqueue
 pkg/platform -> internal/platform/knowledgelayer
 pkg/platform -> internal/platform/limitsinfo
 pkg/platform -> internal/platform/listchanged
+pkg/platform -> internal/platform/mailcalwiring
 pkg/platform -> internal/platform/mcpapps
 pkg/platform -> internal/platform/memorylayer
 pkg/platform -> internal/platform/mwchain
@@ -2010,8 +2032,10 @@ pkg/query/trino -> pkg/query
 pkg/registry -> pkg/query
 pkg/registry -> pkg/semantic
 pkg/registry -> pkg/toolkits/apigateway
+pkg/registry -> pkg/toolkits/caldav
 pkg/registry -> pkg/toolkits/gateway
 pkg/registry -> pkg/toolkits/graphql
+pkg/registry -> pkg/toolkits/imap
 pkg/registry -> pkg/toolkits/s3
 pkg/registry -> pkg/toolkits/trino
 pkg/resource -> internal/exporttrunc
@@ -2086,6 +2110,17 @@ pkg/toolkits/apigateway/catalog -> internal/swagger2
 pkg/toolkits/apigateway/catalogindex -> internal/logsan
 pkg/toolkits/apigateway/catalogindex -> pkg/indexjobs
 pkg/toolkits/apigateway/catalogindex -> pkg/toolkits/apigateway/catalog
+pkg/toolkits/caldav -> internal/caldav
+pkg/toolkits/caldav -> internal/cfgmap
+pkg/toolkits/caldav -> internal/conncatchup
+pkg/toolkits/caldav -> internal/connprobe
+pkg/toolkits/caldav -> internal/connset
+pkg/toolkits/caldav -> internal/untrusted
+pkg/toolkits/caldav -> internal/upstreamauth
+pkg/toolkits/caldav -> pkg/connoauth
+pkg/toolkits/caldav -> pkg/query
+pkg/toolkits/caldav -> pkg/semantic
+pkg/toolkits/caldav -> pkg/toolkit
 pkg/toolkits/gateway -> internal/cfgmap
 pkg/toolkits/gateway -> internal/connprobe
 pkg/toolkits/gateway -> internal/logsan
@@ -2124,6 +2159,18 @@ pkg/toolkits/graphql -> pkg/observability
 pkg/toolkits/graphql -> pkg/query
 pkg/toolkits/graphql -> pkg/semantic
 pkg/toolkits/graphql -> pkg/toolkit
+pkg/toolkits/imap -> internal/cfgmap
+pkg/toolkits/imap -> internal/conncatchup
+pkg/toolkits/imap -> internal/connprobe
+pkg/toolkits/imap -> internal/connset
+pkg/toolkits/imap -> internal/connstate
+pkg/toolkits/imap -> internal/imapmail
+pkg/toolkits/imap -> internal/mailtrust
+pkg/toolkits/imap -> internal/secretref
+pkg/toolkits/imap -> internal/untrusted
+pkg/toolkits/imap -> pkg/query
+pkg/toolkits/imap -> pkg/semantic
+pkg/toolkits/imap -> pkg/toolkit
 pkg/toolkits/knowledge -> internal/agentinstructions
 pkg/toolkits/knowledge -> internal/logsan
 pkg/toolkits/knowledge -> internal/opsobs

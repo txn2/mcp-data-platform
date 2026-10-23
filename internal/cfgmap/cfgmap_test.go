@@ -119,7 +119,10 @@ func TestInt64(t *testing.T) {
 		{"int", 5, 5},
 		{"int64", int64(6), 6},
 		{"float64 from JSON", float64(1048576), 1048576},
-		{"wrong type falls back", "8", 99},
+		{"an integer string, as an env-filled YAML value arrives", "8", 8},
+		{"an integer string with spaces", " 9993 ", 9993},
+		{"a string that is not an integer falls back", "eight", 99},
+		{"wrong type falls back", true, 99},
 		{"absent falls back", nil, 99},
 	}
 	for _, tc := range cases {

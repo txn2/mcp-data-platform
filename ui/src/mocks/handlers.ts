@@ -3160,6 +3160,59 @@ export const handlers = [
     return HttpResponse.json({ ...col, updated_at: new Date().toISOString() });
   }),
 
+  // Add to collection from the asset viewer (#2260): the collections the
+  // reader can edit, with the sections the asset is already in marked.
+  http.get(`${PORTAL_BASE}/assets/:id/collection-targets`, ({ params, request }) => {
+    const search = (new URL(request.url).searchParams.get("search") ?? "").toLowerCase();
+    const data = mockCollections
+      .filter((c) => !search || c.name.toLowerCase().includes(search))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        owner_email: c.owner_email,
+        updated_at: c.updated_at,
+        shared: false,
+        sections: c.sections.map((s) => ({
+          id: s.id,
+          title: s.title,
+          item_count: s.items.length,
+          has_asset: s.items.some((i) => i.asset_id === params.id),
+        })),
+      }));
+    return HttpResponse.json({ data });
+  }),
+
+  http.post(`${PORTAL_BASE}/collections/:id/items`, async ({ params, request }) => {
+    const col = mockCollections.find((c) => c.id === params.id);
+    if (!col) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    const body = (await request.json()) as { asset_id: string; section_id?: string };
+    const section = body.section_id
+      ? col.sections.find((s) => s.id === body.section_id)
+      : col.sections[col.sections.length - 1];
+    if (!section) {
+      return HttpResponse.json({ detail: "section not found in this collection" }, { status: 409 });
+    }
+    if (section.items.some((i) => i.asset_id === body.asset_id)) {
+      return HttpResponse.json({ detail: "the asset is already in this section" }, { status: 409 });
+    }
+    return HttpResponse.json(
+      {
+        item: {
+          id: `item-mock-${Date.now()}`,
+          section_id: section.id,
+          asset_id: body.asset_id,
+          position: section.items.length,
+          created_at: new Date().toISOString(),
+        },
+        section_id: section.id,
+        section_title: section.title,
+      },
+      { status: 201 },
+    );
+  }),
+
   http.put(`${PORTAL_BASE}/collections/:id/config`, ({ params }) => {
     const col = mockCollections.find((c) => c.id === params.id);
     if (!col) {

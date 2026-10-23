@@ -32,6 +32,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
+// methodReport is WebDAV's REPORT (RFC 3253), CalDAV's calendar-query and
+// calendar-multiget (#2246).
+const methodReport = "REPORT"
+
 // supportedMethods is the closed set of HTTP methods api_invoke_endpoint
 // accepts. Restricting the set keeps the tool's blast radius bounded and
 // avoids servicing exotic methods (TRACE, CONNECT) that the model has
@@ -46,6 +50,7 @@ var supportedMethods = map[string]bool{
 	http.MethodPatch:  true,
 	http.MethodHead:   true,
 	"PROPFIND":        true,
+	methodReport:      true,
 	"MKCOL":           true,
 	"MOVE":            true,
 	"COPY":            true,
@@ -68,6 +73,7 @@ var methodsAllowingBody = map[string]bool{
 	http.MethodDelete: true,
 	http.MethodPatch:  true,
 	"PROPFIND":        true,
+	methodReport:      true,
 	"MOVE":            true,
 	"COPY":            true,
 }
@@ -452,7 +458,7 @@ func buildFilledRequest(ctx context.Context, cfg Config, auth Authenticator, cat
 func validateMethod(method string) (string, error) {
 	m := strings.ToUpper(strings.TrimSpace(method))
 	if !supportedMethods[m] {
-		return "", fmt.Errorf("apigateway: method %q not supported (want GET, POST, PUT, DELETE, PATCH, HEAD, PROPFIND, MKCOL, MOVE, or COPY)", method)
+		return "", fmt.Errorf("apigateway: method %q not supported (want GET, POST, PUT, DELETE, PATCH, HEAD, PROPFIND, REPORT, MKCOL, MOVE, or COPY)", method)
 	}
 	return m, nil
 }
@@ -727,7 +733,7 @@ func resolveDeclaredContentTypes(specs map[string]*specState, webdavRoutes []web
 	// agreement (issue #876).
 	path = stripQueryAndFragment(path)
 	upperMethod := strings.ToUpper(method)
-	// A real WebDAV verb (PROPFIND/MKCOL/MOVE/COPY) is never a standard
+	// A real WebDAV verb (PROPFIND/REPORT/MKCOL/MOVE/COPY) is never a standard
 	// PathItem method, so the per-spec exact match below can only miss for
 	// it; skip straight to the WebDAV index. Standard verbs still try the
 	// exact match first (so a single-segment path wins its literal route).
