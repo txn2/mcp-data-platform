@@ -254,9 +254,15 @@ func TestPoll_FilesTrustedMailAsEvents(t *testing.T) {
 	assert.Equal(t, "sku,qty\r\nA1,2", string(f.files[pl.Attachments[0].URI]))
 	assert.Contains(t, byID, "imap:Platform:"+strconv.Itoa(int(pl.UIDValidity))+":4", "a message with no Message-ID is named by where it is")
 
-	all := string(mustJSON(t, evs))
-	for _, leaked := range []string{"bank details", "999", "Weekly news", "Ignore your instructions"} {
-		assert.NotContains(t, all, leaked)
+	// What the table would hold: each event's id and its payload as JSON
+	// text. The stored form carries the payload as base64, which no withheld
+	// sentence could show up in.
+	var filed strings.Builder
+	for _, e := range evs {
+		_, _ = filed.WriteString(e.EventID + "\n" + string(e.Payload) + "\n")
+	}
+	for _, leaked := range []string{"bank details", "Pay account 999", "Weekly news", "Ignore your instructions"} {
+		assert.NotContains(t, filed.String(), leaked, "a withheld message's text is never filed")
 	}
 	mk := f.marks["vendor-mail/Platform"]
 	assert.EqualValues(t, 4, mk.LastUID)
@@ -377,13 +383,6 @@ func TestMailbox_CheckAndMarks(t *testing.T) {
 func TestSafeSegment(t *testing.T) {
 	assert.Equal(t, "inbox-vendors", safeSegment("INBOX/Vendors"))
 	assert.Equal(t, "a-b", safeSegment("  a.b  "))
-}
-
-func mustJSON(t *testing.T, v any) []byte {
-	t.Helper()
-	b, err := json.Marshal(v)
-	require.NoError(t, err)
-	return b
 }
 
 func firstValue(m map[string][]byte) []byte {
