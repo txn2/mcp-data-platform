@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/admin/webhookapi"
+	"github.com/txn2/mcp-data-platform/internal/advisorylock"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
@@ -38,6 +39,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whalert"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whspool"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
@@ -65,6 +67,9 @@ type Webhooks struct {
 
 	receiver  *receiver.Receiver
 	compactor *compactor.Worker
+	// imap polls the sources whose input is a mailbox (#2247); nil where the
+	// compactor does not run.
+	imap *whimap.Poller
 	// spool is the receiver's local spool, closed after the receiver stops;
 	// nil when the receiver does not spool.
 	spool    *whspool.Spool
@@ -255,6 +260,11 @@ func assemble(pt parts) (*Webhooks, error) {
 			Windows: windows, Sources: sources, Objects: pt.objects, Bucket: pt.bucket,
 			Tables: pt.tables, Resources: pt.resources, Metrics: pt.metrics,
 		})
+		w.imap = whimap.New(whimap.Config{
+			Sources: sources, Objects: pt.objects, Bucket: pt.bucket, Recorder: windows,
+			RawWindows: rawWindows{tables: pt.tables}, Marks: whimap.NewMarks(db), Files: pt.resources,
+			Lock: imapLock(db), Replica: pt.replica, Logger: slog.Default(),
+		})
 	}
 	registrations := pt.registrations
 	if registrations == nil {
@@ -272,6 +282,7 @@ func assemble(pt parts) (*Webhooks, error) {
 		Windows: windows, Objects: pt.objects, Resources: pt.resources, Bucket: pt.bucket,
 		Changed: w.receiver.Reload, NewID: newRegistrationID, Logger: slog.Default(),
 		PersonaExists: pt.personaExists, MemoryLimit: procload.MemoryLimit,
+		Mailbox: whimap.NewMailbox(whimap.NewMarks(db)),
 	})
 	return w, nil
 }
@@ -349,6 +360,7 @@ func (w *Webhooks) Start(ctx context.Context) {
 	}
 	w.receiver.Start(ctx)
 	w.compactor.Start(ctx)
+	w.imap.Start(ctx)
 	w.alerts.Start(ctx)
 	if w.receiver == nil || w.address == "" {
 		return
@@ -385,7 +397,16 @@ func (w *Webhooks) Stop() {
 		}
 	}
 	w.compactor.Stop()
+	w.imap.Stop()
 	w.alerts.Stop()
+}
+
+// imapLock holds an imap source's poll to one replica at a time.
+func imapLock(db *sql.DB) whimap.Lock {
+	return func(ctx context.Context, source string) (func(), bool, error) {
+		//nolint:wrapcheck // the lock package names itself
+		return advisorylock.Try(ctx, db, advisorylock.Pair(whimap.LockKeyspace, whimap.LockKey(source)))
+	}
 }
 
 // MountAdmin registers the webhook source routes behind the admin API's

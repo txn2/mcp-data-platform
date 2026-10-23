@@ -86,6 +86,7 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
       // section, which shows it to its owner and to an administrator and
       // answers everybody else not-found -- the same rule its page applies.
       scriptPath={(id) => `/automations/${encodeURIComponent(id)}`}
+      collectable
       versions={seesHistory ? versionsData?.data : undefined}
       versionsLoading={seesHistory && versionsLoading}
       revertMutation={revertMutation}

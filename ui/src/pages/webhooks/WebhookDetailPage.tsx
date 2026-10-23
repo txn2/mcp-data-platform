@@ -2,7 +2,7 @@ import { INDEX_POLICY_LABELS } from "@/pages/resources/parts/IndexPolicyField";
 import { useState } from "react";
 import { AlertTriangle, Pencil, RefreshCw, Trash2, Webhook } from "lucide-react";
 import { useDeleteWebhookSource, useSyncWebhookPartitions, useWebhookSource } from "@/api/admin/hooks";
-import type { WebhookAckLatency, WebhookSource, WebhookStatus } from "@/api/admin/types";
+import type { WebhookAckLatency, WebhookSource, WebhookSourceDetail, WebhookStatus } from "@/api/admin/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { PageHeader } from "@/components/patterns/PageHeader";
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MODE_LABELS, senderURL, windowLength } from "./webhookForm";
+import { MailboxSection } from "./MailboxSection";
 import { RejectionsTable } from "./RejectionsTable";
 import { OUTCOMES, formatMs } from "./webhookOverview";
 
@@ -49,7 +50,7 @@ export function WebhookDetailPage({
       </div>
     );
   }
-  const { source, status } = data;
+  const { source } = data;
   return (
     <div className="space-y-4">
       <PageHeader
@@ -80,10 +81,23 @@ export function WebhookDetailPage({
         }
       />
 
+      <SourceAlerts source={source} status={data.status} />
+      <SourceSections detail={data} />
+    </div>
+  );
+}
+
+/** SourceAlerts say a source is off, or that windows are failing to compact. */
+function SourceAlerts({ source, status }: { source: WebhookSource; status: WebhookStatus }) {
+  const mailbox = source.config.input === "imap";
+  return (
+    <>
       {!source.enabled && (
         <Alert className="py-2">
           <AlertDescription>
-            This source is disabled: requests to it are answered 404 and nothing is stored.
+            {mailbox
+              ? "This source is disabled: its mailbox is not checked."
+              : "This source is disabled: requests to it are answered 404 and nothing is stored."}
           </AlertDescription>
         </Alert>
       )}
@@ -97,13 +111,30 @@ export function WebhookDetailPage({
           </AlertDescription>
         </Alert>
       )}
+    </>
+  );
+}
 
+/** SourceSections are a source's sections: a mailbox source shows its mailbox
+ * where a posted source shows its address, requests and rejections. */
+function SourceSections({ detail }: { detail: WebhookSourceDetail }) {
+  const { source, status } = detail;
+  if (source.config.input === "imap") {
+    return (
+      <>
+        <MailboxSection source={source} folders={detail.imap ?? []} lastFiledAt={status.last_segment_at} />
+        <StorageSection source={source} status={status} />
+      </>
+    );
+  }
+  return (
+    <>
       <SenderSection source={source} />
       <ActivitySection status={status} />
       <ResponseTimeSection status={status} />
       <StorageSection source={source} status={status} />
       <RejectionsSection status={status} />
-    </div>
+    </>
   );
 }
 

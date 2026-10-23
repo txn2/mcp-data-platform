@@ -590,6 +590,7 @@ func (h *Handler) registerRoutes() {
 		h.mux.HandleFunc("POST /api/v1/portal/collections/{id}/shares", h.createCollectionShare)
 		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}/shares", h.listCollectionShares)
 		h.mux.HandleFunc("GET /api/v1/portal/shared-collections", h.listSharedCollections)
+		h.registerCollectionItemRoutes()
 	}
 
 	// Prompt routes

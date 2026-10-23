@@ -7415,6 +7415,18 @@ definitions:
       shared_by:
         type: string
     type: object
+  portal.appendItemRequest:
+    properties:
+      asset_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      section_id:
+        description: |-
+          SectionID names the section to add to. Empty adds to the last section,
+          or to a new untitled section when the collection has none.
+        example: sec_01HK7R9C
+        type: string
+    type: object
   portal.assetResponse:
     properties:
       collections:
@@ -7569,6 +7581,13 @@ definitions:
           $ref: '#/definitions/knowledgepage.PageRef'
         type: array
     type: object
+  portal.collectionTargetsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/portaldomain.CollectionTarget'
+        type: array
+    type: object
   portal.contentURLResponse:
     properties:
       expires_at:
@@ -7607,6 +7626,12 @@ definitions:
     type: object
   portal.createCollectionRequest:
     properties:
+      asset_id:
+        description: |-
+          AssetID, when set, makes the asset the new collection's first item, in
+          one untitled section (#2260). The caller must be able to open it.
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
       description:
         example: Quarterly analysis collection
         type: string
@@ -8245,6 +8270,17 @@ definitions:
         example: Updated Collection Name
         type: string
     type: object
+  portaldomain.AppendedItem:
+    properties:
+      item:
+        $ref: '#/definitions/portaldomain.CollectionItem'
+      section_id:
+        example: sec_01HK7R9C
+        type: string
+      section_title:
+        example: Key Findings
+        type: string
+    type: object
   portaldomain.AssetCollectionRef:
     properties:
       id:
@@ -8364,6 +8400,29 @@ definitions:
         type: integer
       title:
         example: Overview
+        type: string
+    type: object
+  portaldomain.CollectionTarget:
+    properties:
+      id:
+        example: col_01HK7R8Z
+        type: string
+      name:
+        example: Q4 Analysis
+        type: string
+      owner_email:
+        example: alice@example.com
+        type: string
+      sections:
+        items:
+          $ref: '#/definitions/portaldomain.SectionSummary'
+        type: array
+      shared:
+        description: |-
+          Shared reports that the caller edits this collection through a share
+          rather than owning it.
+        type: boolean
+      updated_at:
         type: string
     type: object
   portaldomain.Provenance:
@@ -8558,6 +8617,23 @@ definitions:
         type: string
       tool_name:
         example: trino_query
+        type: string
+    type: object
+  portaldomain.SectionSummary:
+    properties:
+      has_asset:
+        description: |-
+          HasAsset reports whether the asset the picker was opened on is an item
+          of this section.
+        type: boolean
+      id:
+        example: sec_01HK7R9C
+        type: string
+      item_count:
+        example: 4
+        type: integer
+      title:
+        example: Key Findings
         type: string
     type: object
   portaldomain.Share:
@@ -13695,6 +13771,13 @@ definitions:
     type: object
   webhookapi.SourceDetail:
     properties:
+      imap:
+        description: |-
+          IMAP is each folder of an imap source as its polls left it: the
+          watermark, the messages stored and withheld, the last poll's error.
+        items:
+          $ref: '#/definitions/whimap.Mark'
+        type: array
       source:
         $ref: '#/definitions/webhookapi.SourceView'
       status:
@@ -14086,6 +14169,28 @@ definitions:
       updated_by:
         type: string
     type: object
+  whimap.Mark:
+    properties:
+      folder:
+        type: string
+      hidden_not_allowed:
+        description: |-
+          HiddenNotAllowed and HiddenUnauthenticated count the messages the
+          sender rules withheld. Nothing else of them is kept.
+        type: integer
+      hidden_unauthenticated:
+        type: integer
+      last_error:
+        type: string
+      last_polled_at:
+        type: string
+      last_uid:
+        type: integer
+      stored:
+        type: integer
+      uid_validity:
+        type: integer
+    type: object
   whsource.Config:
     properties:
       buffer_limit:
@@ -14115,12 +14220,19 @@ definitions:
         type: integer
       handshake:
         type: string
+      imap:
+        $ref: '#/definitions/whsource.IMAP'
       index:
         description: |-
           Index is how search indexes the source's compacted windows (#2111):
           "full", "metadata" or "none". Empty leaves it to the operator's
           resources.index rules, which can match these writes by origin webhook.
           It applies to windows written from the next compaction on.
+        type: string
+      input:
+        description: |-
+          Input is "http" (the default, posted to) or "imap" (a polled mailbox,
+          configured under IMAP).
         type: string
       key_path:
         type: string
@@ -14152,6 +14264,49 @@ definitions:
           is objects the raw table and retention list (#2134).
         type: integer
       split:
+        type: string
+    type: object
+  whsource.IMAP:
+    properties:
+      allow_senders:
+        description: |-
+          AllowSenders are the addresses and @domain entries whose mail becomes
+          an event. Mail from anyone else is counted and never stored.
+        items:
+          type: string
+        type: array
+      folders:
+        description: |-
+          Folders are the folders read, each with its own watermark. Required:
+          there is no all-folders default.
+        items:
+          type: string
+        type: array
+      host:
+        type: string
+      max_attachment_bytes:
+        type: integer
+      max_message_bytes:
+        type: integer
+      poll_seconds:
+        type: integer
+      port:
+        type: integer
+      require_auth_pass:
+        description: |-
+          RequireAuthPass trusts an allowed sender only when the receiving
+          server recorded an aligned SPF, DKIM or DMARC pass. Nil is true.
+        type: boolean
+      tls:
+        description: TLS is "tls" (IMAPS, the default) or "starttls".
+        type: string
+      tls_ca_bundle_pem:
+        description: TLSCABundlePEM are certificates to trust for a private CA.
+        type: string
+      trusted_authserv_id:
+        description: |-
+          TrustedAuthServID is the receiving server's authserv-id; only an
+          Authentication-Results header carrying it is read.
         type: string
     type: object
   whstore.AckLatency:
@@ -23510,6 +23665,51 @@ paths:
       summary: Share an asset to a channel
       tags:
       - Shares
+  /portal/assets/{id}/collection-targets:
+    get:
+      description: Lists the collections the caller can edit (their own, those shared
+        with them as Editor, and for an administrator every collection), most recently
+        updated first, each with its sections and whether the asset is already in
+        each. search narrows by name, description or owner address. At most 100.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Narrow by collection name, description or owner address
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.collectionTargetsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Collections an asset can be added to
+      tags:
+      - Collections
   /portal/assets/{id}/content:
     get:
       description: Downloads the asset's binary content from S3.
@@ -25479,7 +25679,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates a new collection for the current user.
+      description: Creates a new collection for the current user. With asset_id, the
+        asset is the collection's first item, in one untitled section.
       parameters:
       - description: Collection details
         in: body
@@ -25762,6 +25963,65 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update collection config
+      tags:
+      - Collections
+  /portal/collections/{id}/items:
+    post:
+      consumes:
+      - application/json
+      description: Adds one asset at the end of one section, leaving the collection's
+        name, description, config, other sections and item order as they were. With
+        no section_id the asset goes to the last section, or to a new untitled section
+        when the collection has none. The owner, an admin, or a collection Editor,
+        who must also be able to open the asset. 409 when the asset is already in
+        the section, the section is full, or the section is no longer in the collection.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The asset, and optionally the section
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.appendItemRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portaldomain.AppendedItem'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add an asset to a collection
       tags:
       - Collections
   /portal/collections/{id}/sections:

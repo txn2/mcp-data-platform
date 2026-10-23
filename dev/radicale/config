@@ -1,0 +1,15 @@
+# Radicale, the CalDAV server the acceptance criterion for REPORT on an api
+# connection runs against (#2246). One account, dana, whose calendars live under /dana/.
+[server]
+hosts = 0.0.0.0:5232
+
+[auth]
+type = htpasswd
+htpasswd_filename = /config/users
+htpasswd_encryption = plain
+
+[rights]
+type = owner_only
+
+[storage]
+filesystem_folder = /data/collections

@@ -16,6 +16,8 @@ import type {
   CollectionResponse,
   SharedCollection,
   CreateShareBody,
+  CollectionTarget,
+  AppendedItem,
 } from "../types";
 
 // --- Collections ---
@@ -87,12 +89,54 @@ export function useCollection(id: string) {
 export function useCreateCollection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; description?: string }) =>
+    // asset_id makes the asset the new collection's first item (#2260).
+    mutationFn: (body: { name: string; description?: string; asset_id?: string }) =>
       apiFetch<Collection>("/collections", {
         method: "POST",
         body: JSON.stringify(body),
       }),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["collections"] });
+      void qc.invalidateQueries({ queryKey: ["collection-targets"] });
+    },
+  });
+}
+
+// useCollectionTargets lists the collections the caller can edit, each with its
+// sections and whether the asset is already in each (#2260). search narrows by
+// name on the server.
+export function useCollectionTargets(assetId: string, search: string, enabled = true) {
+  const q = search.trim();
+  const sp = new URLSearchParams();
+  if (q) sp.set("search", q);
+  const qs = sp.toString();
+  return useQuery({
+    queryKey: ["collection-targets", assetId, q],
+    enabled: enabled && !!assetId,
+    queryFn: () =>
+      apiFetch<{ data: CollectionTarget[] }>(
+        `/assets/${encodeURIComponent(assetId)}/collection-targets${qs ? `?${qs}` : ""}`,
+      ),
+  });
+}
+
+// useAddToCollection appends one asset to one section of a collection without
+// rewriting its other sections (#2260). No section_id adds to the last section.
+export function useAddToCollection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ collectionId, assetId, sectionId }: {
+      collectionId: string;
+      assetId: string;
+      sectionId?: string;
+    }) =>
+      apiFetch<AppendedItem>(`/collections/${encodeURIComponent(collectionId)}/items`, {
+        method: "POST",
+        body: JSON.stringify({ asset_id: assetId, section_id: sectionId }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["collection-targets"] });
+      void qc.invalidateQueries({ queryKey: ["collection"] });
       void qc.invalidateQueries({ queryKey: ["collections"] });
     },
   });

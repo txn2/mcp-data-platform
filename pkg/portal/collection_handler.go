@@ -24,12 +24,15 @@ const (
 type createCollectionRequest struct {
 	Name        string `json:"name" example:"Q4 Analysis"`
 	Description string `json:"description,omitempty" example:"Quarterly analysis collection"`
+	// AssetID, when set, makes the asset the new collection's first item, in
+	// one untitled section (#2260). The caller must be able to open it.
+	AssetID string `json:"asset_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
 }
 
 // createCollection handles POST /api/v1/portal/collections.
 //
 // @Summary      Create collection
-// @Description  Creates a new collection for the current user.
+// @Description  Creates a new collection for the current user. With asset_id, the asset is the collection's first item, in one untitled section.
 // @Tags         Collections
 // @Accept       json
 // @Produce      json
@@ -63,6 +66,13 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.AssetID != "" {
+		if status, msg := h.assetAddable(r.Context(), req.AssetID, user); status != 0 {
+			writeError(w, status, msg)
+			return
+		}
+	}
+
 	coll := Collection{
 		ID:          uuid.New().String(),
 		OwnerID:     user.UserID,
@@ -73,6 +83,10 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.deps.CollectionStore.Insert(r.Context(), coll); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create collection")
+		return
+	}
+	if err := h.seedCollection(r.Context(), coll.ID, req.AssetID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to add the asset to the new collection")
 		return
 	}
 

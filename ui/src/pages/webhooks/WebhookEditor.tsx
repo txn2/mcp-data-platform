@@ -19,10 +19,12 @@ import {
   ConfigSelect,
   ConfigToggle,
 } from "@/pages/settings/connections/fields";
+import { MailboxGroup } from "./MailboxGroup";
 import {
   EMPTY_FORM,
   fromSource,
   COMPACT_EVERY_MINUTES,
+  HTTP_MODES,
   MODE_LABELS,
   problems,
   toInput,
@@ -116,8 +118,14 @@ function EditorForm({
       <EditorHeader source={source} onBack={onBack} />
 
       <SourceGroup form={form} creating={creating} set={set} />
-      <AuthGroup form={form} creating={creating} set={set} />
-      <EventsGroup form={form} set={set} />
+      {form.input === "imap" ? (
+        <MailboxGroup form={form} creating={creating} set={set} />
+      ) : (
+        <>
+          <AuthGroup form={form} creating={creating} set={set} />
+          <EventsGroup form={form} set={set} />
+        </>
+      )}
       <LimitsGroup form={form} set={set} />
 
       <Refusals shown={shown} error={error} />
@@ -175,7 +183,7 @@ function EditorHeader({ source, onBack }: { source?: WebhookSource; onBack: () =
       subtitle={
         source
           ? "The name, connection and persona were fixed when the source was created."
-          : "An address an external system posts events to. Its events are queryable as a table as soon as they are acknowledged."
+          : "Events posted by an external system, or the mail a mailbox receives, queryable as a table."
       }
     />
   );
@@ -221,7 +229,17 @@ function SourceGroup({ form, creating, set }: { form: WebhookForm; creating: boo
             value={form.name}
             onChange={set("name")}
             placeholder="email-events"
-            help="The sender posts to /hooks/<name>. The table is webhook_<name>, with each - as _."
+            help="The table is webhook_<name>, with each - as _. A posted source receives at /hooks/<name>."
+          />
+          <ConfigSelect
+            label="Events come from"
+            value={form.input}
+            onChange={(v) => set("input")(v as WebhookForm["input"])}
+            options={[
+              { value: "http", label: "Requests posted to the source" },
+              { value: "imap", label: "A mailbox the platform checks (IMAP)" },
+            ]}
+            help="A mailbox source files each message from an allowed sender as one event, its attachments as resources the event names."
           />
           <ConfigSelect
             label="Connection"
@@ -253,7 +271,11 @@ function SourceGroup({ form, creating, set }: { form: WebhookForm; creating: boo
       ) : null}
       <ConfigToggle
         label="Enabled"
-        help="A disabled source answers 404, the same answer as a name that is not a source."
+        help={
+          form.input === "imap"
+            ? "A disabled source's mailbox is not checked."
+            : "A disabled source answers 404, the same answer as a name that is not a source."
+        }
         checked={form.enabled}
         onChange={set("enabled")}
       />
@@ -268,7 +290,7 @@ function AuthGroup({ form, creating, set }: { form: WebhookForm; creating: boole
         label="How a request proves it came from the sender"
         value={form.mode}
         onChange={(v) => set("mode")(v as WebhookAuthMode)}
-        options={(Object.keys(MODE_LABELS) as WebhookAuthMode[]).map((m) => ({ value: m, label: MODE_LABELS[m] }))}
+        options={HTTP_MODES.map((m) => ({ value: m, label: MODE_LABELS[m] }))}
       />
       <ConfigField
         label={creating ? "Secret" : "New secret"}
@@ -456,12 +478,7 @@ function LimitsGroup({ form, set }: { form: WebhookForm; set: Setter }) {
         help="Events are grouped into windows of this length, and each window becomes one Parquet file once it has ended. Every event is queryable as soon as it is accepted either way; a shorter window compacts sooner, into more files."
       />
       <div className="grid gap-3 sm:grid-cols-3">
-        <ConfigField label="Largest body (bytes)" type="number" value={form.maxBodyBytes} onChange={set("maxBodyBytes")} placeholder="1048576" />
-        <ConfigField label="Buffer limit (events)" type="number" value={form.bufferLimit} onChange={set("bufferLimit")} placeholder="50000" />
-        <ConfigField label="Write every (ms)" type="number" value={form.flushMaxIntervalMs} onChange={set("flushMaxIntervalMs")} placeholder="1000" />
-        <ConfigField label="Or every (events)" type="number" value={form.flushMaxEvents} onChange={set("flushMaxEvents")} placeholder="5000" />
-        <ConfigField label="Requests per minute" type="number" value={form.rateLimitPerMinute} onChange={set("rateLimitPerMinute")} placeholder="No limit" />
-        <ConfigField label="Burst" type="number" value={form.rateLimitBurst} onChange={set("rateLimitBurst")} />
+        {form.input !== "imap" && <RequestLimits form={form} set={set} />}
         <ConfigField
           label="Keep raw events (days)"
           type="number"
@@ -491,5 +508,19 @@ function LimitsGroup({ form, set }: { form: WebhookForm; set: Setter }) {
         help="How search indexes each compacted file, from the next compaction on. Default leaves it to this deployment's resources.index rules."
       />
     </ConfigGroup>
+  );
+}
+
+/** RequestLimits bound what a posted source accepts; a mailbox source has none. */
+function RequestLimits({ form, set }: { form: WebhookForm; set: Setter }) {
+  return (
+    <>
+      <ConfigField label="Largest body (bytes)" type="number" value={form.maxBodyBytes} onChange={set("maxBodyBytes")} placeholder="1048576" />
+      <ConfigField label="Buffer limit (events)" type="number" value={form.bufferLimit} onChange={set("bufferLimit")} placeholder="50000" />
+      <ConfigField label="Write every (ms)" type="number" value={form.flushMaxIntervalMs} onChange={set("flushMaxIntervalMs")} placeholder="1000" />
+      <ConfigField label="Or every (events)" type="number" value={form.flushMaxEvents} onChange={set("flushMaxEvents")} placeholder="5000" />
+      <ConfigField label="Requests per minute" type="number" value={form.rateLimitPerMinute} onChange={set("rateLimitPerMinute")} placeholder="No limit" />
+      <ConfigField label="Burst" type="number" value={form.rateLimitBurst} onChange={set("rateLimitBurst")} />
+    </>
   );
 }

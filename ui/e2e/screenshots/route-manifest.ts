@@ -8,6 +8,7 @@ import { scratchTableRoutes } from "./route-scratch-tables";
 import { apiBrowserAdminRoutes, apiBrowserUserRoutes } from "./route-apis";
 import { sectionIntroRoutes } from "./route-section-intros";
 import { adminCatalogRoutes, knowledgeCatalogRoutes } from "./route-catalog";
+import { adminWebhookRoutes } from "./route-webhooks";
 import { adminConnectionRoutes } from "./route-connections";
 import { adminPersonaRoutes } from "./route-personas";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
@@ -476,24 +477,7 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/secrets/new",
     category: "admin",
   },
-  {
-    // Inbound webhook sources (#1870): the list, one source with its address,
-    // request counts, compaction and rejections, and the form a source is
-    // created with.
-    slug: "admin-webhooks",
-    path: "/portal/admin/webhooks",
-    category: "admin",
-  },
-  {
-    slug: "admin-webhook-detail",
-    path: "/portal/admin/webhooks/email-events",
-    category: "admin",
-  },
-  {
-    slug: "admin-webhook-new",
-    path: "/portal/admin/webhooks/new",
-    category: "admin",
-  },
+  ...adminWebhookRoutes,
   ...adminCatalogRoutes,
   {
     slug: "admin-changelog",

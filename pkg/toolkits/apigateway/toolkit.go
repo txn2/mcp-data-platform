@@ -408,7 +408,7 @@ type conn struct {
 	operationRawPaths map[string]string
 	// operationWebDAVRoutes carries the WebDAV-flavored path templates in
 	// this connection's catalog (those with an x-webdav-method carrier
-	// operation). WebDAV verbs (PROPFIND/MKCOL/MOVE/COPY) are not
+	// operation). WebDAV verbs (PROPFIND/REPORT/MKCOL/MOVE/COPY) are not
 	// representable as OpenAPI PathItem methods and nested resource paths
 	// exceed a single-segment path variable, so both miss the gorillamux
 	// operationRouter; ResolveOperationID falls back to matching against
@@ -537,7 +537,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"api_discover returns, with any path template values " +
 			"passed in path_params) or by method+path directly; supply one form, not both. " +
 			"Method is restricted to GET, POST, PUT, DELETE, PATCH, HEAD, " +
-			"PROPFIND, MKCOL, MOVE, COPY; " +
+			"PROPFIND, REPORT, MKCOL, MOVE, COPY; " +
 			"path is joined to the connection's base_url. Every response reports body_bytes, the size " +
 			"of the body read; a result past this client's context budget (tools.result_budget, default 32 KiB, a " +
 			"budget on the rendered tool result) is re-encoded compactly. A list body still past it is cut on " +

@@ -1,9 +1,11 @@
 import type {
   WebhookAuthMode,
   WebhookConfig,
+  WebhookInput,
   WebhookSource,
   WebhookSourceInput,
 } from "@/api/admin/types";
+import { EMPTY_IMAP, fromIMAP, imapOf, imapProblems, type IMAPForm } from "./imapForm";
 
 // The form a webhook source is created and edited through (#1870). Every
 // field is held as the text the input shows, so a number an administrator is
@@ -12,6 +14,9 @@ import type {
 // leaving the rest for the platform's defaults.
 
 export interface WebhookForm {
+  /** Where events come from: posted to the source, or a polled mailbox. */
+  input: WebhookInput;
+  imap: IMAPForm;
   name: string;
   connection: string;
   persona: string;
@@ -49,6 +54,8 @@ export interface WebhookForm {
 }
 
 export const EMPTY_FORM: WebhookForm = {
+  input: "http",
+  imap: EMPTY_IMAP,
   name: "",
   connection: "",
   persona: "",
@@ -109,6 +116,8 @@ export function fromSource(s: WebhookSource): WebhookForm {
     enabled: s.enabled,
     ...authFields(s.auth),
     ...configFields(s.config),
+    input: s.config.input ?? "http",
+    imap: fromIMAP(s.config.imap),
   };
 }
 
@@ -174,7 +183,45 @@ function str(v: string): string | undefined {
 /** toInput renders the form as the request body. creating says whether the
  * name, connection and persona are sent: they are fixed once a source exists. */
 export function toInput(f: WebhookForm, creating: boolean): WebhookSourceInput {
-  const config: WebhookConfig = {
+  const config: WebhookConfig = f.input === "imap" ? mailConfigOf(f) : httpConfigOf(f);
+  const input: WebhookSourceInput = {
+    enabled: f.enabled,
+    auth: authOf(f),
+    config,
+  };
+  if (creating) {
+    input.name = f.name.trim();
+    input.connection = f.connection;
+    config.persona = str(f.persona);
+  } else if (f.secret !== "" && f.input === "http") {
+    input.rotation_overlap_seconds = Math.round((num(f.rotationOverlapHours) ?? 0) * 3600);
+  }
+  return input;
+}
+
+/** mailConfigOf is an imap source's config: the mailbox, and the settings
+ * after the input that every source shares. A polled mailbox is not posted
+ * to, so nothing about a request is sent. */
+function mailConfigOf(f: WebhookForm): WebhookConfig {
+  return {
+    input: "imap",
+    imap: imapOf(f.imap),
+    ...storageConfigOf(f),
+  };
+}
+
+/** storageConfigOf are the settings after the input: windows, retention, search. */
+function storageConfigOf(f: WebhookForm): WebhookConfig {
+  return {
+    compact_every_minutes: num(f.compactEveryMinutes),
+    raw_retention_days: num(f.rawRetentionDays),
+    compacted_retention_days: num(f.compactedRetentionDays),
+    index: f.index === "default" ? undefined : (f.index as WebhookConfig["index"]),
+  };
+}
+
+function httpConfigOf(f: WebhookForm): WebhookConfig {
+  return {
     handshake: f.handshake as WebhookConfig["handshake"],
     split: str(f.split),
     event_id_path: str(f.eventIdPath),
@@ -186,29 +233,16 @@ export function toInput(f: WebhookForm, creating: boolean): WebhookSourceInput {
     buffer_limit: num(f.bufferLimit),
     rate_limit_per_minute: num(f.rateLimitPerMinute),
     rate_limit_burst: num(f.rateLimitBurst),
-    compact_every_minutes: num(f.compactEveryMinutes),
-    raw_retention_days: num(f.rawRetentionDays),
-    compacted_retention_days: num(f.compactedRetentionDays),
-    index: f.index === "default" ? undefined : (f.index as WebhookConfig["index"]),
+    ...storageConfigOf(f),
   };
-  const input: WebhookSourceInput = {
-    enabled: f.enabled,
-    auth: authOf(f),
-    config,
-  };
-  if (creating) {
-    input.name = f.name.trim();
-    input.connection = f.connection;
-    config.persona = str(f.persona);
-  } else if (f.secret !== "") {
-    input.rotation_overlap_seconds = Math.round((num(f.rotationOverlapHours) ?? 0) * 3600);
-  }
-  return input;
 }
 
 /** authOf sends only the settings the chosen mode reads. */
 function authOf(f: WebhookForm): WebhookSourceInput["auth"] {
   const secret = f.secret === "" ? undefined : f.secret;
+  if (f.input === "imap") {
+    return { mode: "imap", secret, username: str(f.username) };
+  }
   switch (f.mode) {
     case "hmac":
       return hmacAuthOf(f, secret);
@@ -250,7 +284,8 @@ function hmacAuthOf(f: WebhookForm, secret: string | undefined): WebhookSourceIn
  * acts on. The platform checks everything again; these are the ones worth
  * saying before a round trip. */
 export function problems(f: WebhookForm, creating: boolean): string[] {
-  return [...(creating ? createProblems(f) : []), ...modeProblems(f)];
+  const input = f.input === "imap" ? imapProblems(f.imap, f.username) : modeProblems(f);
+  return [...(creating ? createProblems(f) : []), ...input];
 }
 
 /** createProblems are the fields only a new source sets. */
@@ -263,7 +298,9 @@ function createProblems(f: WebhookForm): string[] {
     out.push("The name new is reserved.");
   }
   if (f.connection === "") out.push("Choose the connection the source's table is created on.");
-  if (f.secret === "") out.push("Enter the secret the sender uses.");
+  if (f.secret === "") {
+    out.push(f.input === "imap" ? "Enter the mailbox's password." : "Enter the secret the sender uses.");
+  }
   return out;
 }
 
@@ -288,12 +325,17 @@ export const MODE_LABELS: Record<WebhookAuthMode, string> = {
   header_token: "Token in a header",
   basic: "Basic credentials",
   path_token: "Token in the URL",
+  imap: "Mailbox login",
 };
+
+/** HTTP_MODES are the modes an http source chooses between. */
+export const HTTP_MODES: WebhookAuthMode[] = ["hmac", "header_token", "basic", "path_token"];
 
 /** senderURL is the address to give the sender. A path_token source's token
  * is a further path segment, shown as a placeholder: the secret is never read
  * back. */
 export function senderURL(origin: string, s: WebhookSource): string {
+  if (s.config.input === "imap") return "";
   const url = origin.replace(/\/$/, "") + s.path;
   return s.auth.mode === "path_token" ? `${url}/<token>` : url;
 }

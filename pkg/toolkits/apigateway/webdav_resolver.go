@@ -10,7 +10,7 @@ import (
 
 // extWebDAVMethod is the OpenAPI extension a catalog uses to declare the
 // real HTTP verb a carrier operation stands in for. WebDAV verbs
-// (PROPFIND, MKCOL, MOVE, COPY) are not representable as OpenAPI PathItem
+// (PROPFIND, REPORT, MKCOL, MOVE, COPY) are not representable as OpenAPI PathItem
 // methods, so a spec documents them under an unused standard method
 // (POST/PATCH/HEAD) and records the true verb here. The value is
 // free-text and may name more than one verb (e.g. "MOVE or COPY"); see
@@ -28,6 +28,7 @@ const extWebDAVMethod = "x-webdav-method"
 //nolint:gochecknoglobals // intentionally a package-level constant set
 var webdavVerbs = map[string]bool{
 	"PROPFIND": true,
+	"REPORT":   true,
 	"MKCOL":    true,
 	"MOVE":     true,
 	"COPY":     true,

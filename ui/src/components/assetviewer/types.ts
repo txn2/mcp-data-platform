@@ -38,6 +38,12 @@ export interface AssetViewerProps {
   isOwner?: boolean;
   sharePermission?: SharePermission;
   toolbarExtra?: ReactNode;
+  /**
+   * The reader may put this asset into a collection from the viewer (#2260).
+   * The portal's own viewer sets it; the admin viewer reads assets it does not
+   * file.
+   */
+  collectable?: boolean;
   detailRows?: { label: string; value: ReactNode }[];
   /**
    * Where the session that produced this asset opens, if the reader can open

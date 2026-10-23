@@ -170,10 +170,20 @@ func (f *fakeWriter) Delete(_ context.Context, id string, _ resource.Claims) (*r
 type fakeByURI struct {
 	found *resource.Resource
 	err   error
+	// list answers a listing; nil lists nothing.
+	list func(resource.Filter) ([]resource.Resource, error)
 }
 
 func (f fakeByURI) GetByURI(context.Context, string) (*resource.Resource, error) {
 	return f.found, f.err
+}
+
+func (f fakeByURI) List(_ context.Context, filter resource.Filter) ([]resource.Resource, int, error) {
+	if f.list == nil {
+		return nil, 0, nil
+	}
+	rows, err := f.list(filter)
+	return rows, len(rows), err
 }
 
 func newWindowResources(byURI fakeByURI) (windowResources, *fakeWriter) {

@@ -19,6 +19,7 @@ package cfgmap
 import (
 	"maps"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -70,7 +71,10 @@ func Duration(cfg map[string]any, key string, defaultVal time.Duration) time.Dur
 }
 
 // Int64 reads an integer. float64 is accepted because encoding/json
-// decodes every JSON number into one.
+// decodes every JSON number into one, and a string holding an integer
+// because a YAML value filled from the environment (port: ${IMAP_PORT})
+// arrives as one; a string that is not an integer is the default, as an
+// absent key is.
 func Int64(cfg map[string]any, key string, defaultVal int64) int64 {
 	raw, ok := cfg[key]
 	if !ok {
@@ -83,6 +87,10 @@ func Int64(cfg map[string]any, key string, defaultVal int64) int64 {
 		return v
 	case float64:
 		return int64(v)
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return int64(n)
+		}
 	}
 	return defaultVal
 }

@@ -13639,6 +13639,73 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/{id}/collection-targets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the collections the caller can edit (their own, those shared with them as Editor, and for an administrator every collection), most recently updated first, each with its sections and whether the asset is already in each. search narrows by name, description or owner address. At most 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Collections an asset can be added to",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrow by collection name, description or owner address",
+                        "name": "search",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.collectionTargetsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/content": {
             "get": {
                 "security": [
@@ -16519,7 +16586,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a new collection for the current user.",
+                "description": "Creates a new collection for the current user. With asset_id, the asset is the collection's first item, in one untitled section.",
                 "consumes": [
                     "application/json"
                 ],
@@ -17014,6 +17081,91 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections/{id}/items": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds one asset at the end of one section, leaving the collection's name, description, config, other sections and item order as they were. With no section_id the asset goes to the last section, or to a new untitled section when the collection has none. The owner, an admin, or a collection Editor, who must also be able to open the asset. 409 when the asset is already in the section, the section is full, or the section is no longer in the collection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Add an asset to a collection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The asset, and optionally the section",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.appendItemRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portaldomain.AppendedItem"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
                         }
@@ -36268,6 +36420,20 @@ const docTemplate = `{
                 }
             }
         },
+        "portal.appendItemRequest": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "section_id": {
+                    "description": "SectionID names the section to add to. Empty adds to the last section,\nor to a new untitled section when the collection has none.",
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                }
+            }
+        },
         "portal.assetResponse": {
             "type": "object",
             "properties": {
@@ -36427,6 +36593,17 @@ const docTemplate = `{
                 }
             }
         },
+        "portal.collectionTargetsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.CollectionTarget"
+                    }
+                }
+            }
+        },
         "portal.contentURLResponse": {
             "type": "object",
             "properties": {
@@ -36478,6 +36655,11 @@ const docTemplate = `{
         "portal.createCollectionRequest": {
             "type": "object",
             "properties": {
+                "asset_id": {
+                    "description": "AssetID, when set, makes the asset the new collection's first item, in\none untitled section (#2260). The caller must be able to open it.",
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
                 "description": {
                     "type": "string",
                     "example": "Quarterly analysis collection"
@@ -37307,6 +37489,22 @@ const docTemplate = `{
                 }
             }
         },
+        "portaldomain.AppendedItem": {
+            "type": "object",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/portaldomain.CollectionItem"
+                },
+                "section_id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                },
+                "section_title": {
+                    "type": "string",
+                    "example": "Key Findings"
+                }
+            }
+        },
         "portaldomain.AssetCollectionRef": {
             "type": "object",
             "properties": {
@@ -37466,6 +37664,36 @@ const docTemplate = `{
                 "title": {
                     "type": "string",
                     "example": "Overview"
+                }
+            }
+        },
+        "portaldomain.CollectionTarget": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Analysis"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.SectionSummary"
+                    }
+                },
+                "shared": {
+                    "description": "Shared reports that the caller edits this collection through a share\nrather than owning it.",
+                    "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "string"
                 }
             }
         },
@@ -37672,6 +37900,27 @@ const docTemplate = `{
                 "tool_name": {
                     "type": "string",
                     "example": "trino_query"
+                }
+            }
+        },
+        "portaldomain.SectionSummary": {
+            "type": "object",
+            "properties": {
+                "has_asset": {
+                    "description": "HasAsset reports whether the asset the picker was opened on is an item\nof this section.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                },
+                "item_count": {
+                    "type": "integer",
+                    "example": 4
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Key Findings"
                 }
             }
         },
@@ -43780,6 +44029,13 @@ const docTemplate = `{
         "webhookapi.SourceDetail": {
             "type": "object",
             "properties": {
+                "imap": {
+                    "description": "IMAP is each folder of an imap source as its polls left it: the\nwatermark, the messages stored and withheld, the last poll's error.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whimap.Mark"
+                    }
+                },
                 "source": {
                     "$ref": "#/definitions/webhookapi.SourceView"
                 },
@@ -44283,6 +44539,36 @@ const docTemplate = `{
                 }
             }
         },
+        "whimap.Mark": {
+            "type": "object",
+            "properties": {
+                "folder": {
+                    "type": "string"
+                },
+                "hidden_not_allowed": {
+                    "description": "HiddenNotAllowed and HiddenUnauthenticated count the messages the\nsender rules withheld. Nothing else of them is kept.",
+                    "type": "integer"
+                },
+                "hidden_unauthenticated": {
+                    "type": "integer"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_polled_at": {
+                    "type": "string"
+                },
+                "last_uid": {
+                    "type": "integer"
+                },
+                "stored": {
+                    "type": "integer"
+                },
+                "uid_validity": {
+                    "type": "integer"
+                }
+            }
+        },
         "whsource.Config": {
             "type": "object",
             "properties": {
@@ -44315,8 +44601,15 @@ const docTemplate = `{
                 "handshake": {
                     "type": "string"
                 },
+                "imap": {
+                    "$ref": "#/definitions/whsource.IMAP"
+                },
                 "index": {
                     "description": "Index is how search indexes the source's compacted windows (#2111):\n\"full\", \"metadata\" or \"none\". Empty leaves it to the operator's\nresources.index rules, which can match these writes by origin webhook.\nIt applies to windows written from the next compaction on.",
+                    "type": "string"
+                },
+                "input": {
+                    "description": "Input is \"http\" (the default, posted to) or \"imap\" (a polled mailbox,\nconfigured under IMAP).",
                     "type": "string"
                 },
                 "key_path": {
@@ -44341,6 +44634,56 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "split": {
+                    "type": "string"
+                }
+            }
+        },
+        "whsource.IMAP": {
+            "type": "object",
+            "properties": {
+                "allow_senders": {
+                    "description": "AllowSenders are the addresses and @domain entries whose mail becomes\nan event. Mail from anyone else is counted and never stored.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "folders": {
+                    "description": "Folders are the folders read, each with its own watermark. Required:\nthere is no all-folders default.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "host": {
+                    "type": "string"
+                },
+                "max_attachment_bytes": {
+                    "type": "integer"
+                },
+                "max_message_bytes": {
+                    "type": "integer"
+                },
+                "poll_seconds": {
+                    "type": "integer"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "require_auth_pass": {
+                    "description": "RequireAuthPass trusts an allowed sender only when the receiving\nserver recorded an aligned SPF, DKIM or DMARC pass. Nil is true.",
+                    "type": "boolean"
+                },
+                "tls": {
+                    "description": "TLS is \"tls\" (IMAPS, the default) or \"starttls\".",
+                    "type": "string"
+                },
+                "tls_ca_bundle_pem": {
+                    "description": "TLSCABundlePEM are certificates to trust for a private CA.",
+                    "type": "string"
+                },
+                "trusted_authserv_id": {
+                    "description": "TrustedAuthServID is the receiving server's authserv-id; only an\nAuthentication-Results header carrying it is read.",
                     "type": "string"
                 }
             }

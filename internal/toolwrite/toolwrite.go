@@ -355,10 +355,11 @@ func sortedKeys(m map[string]actionRule) []string {
 	return keys
 }
 
-// readMethods are the HTTP methods that read. PROPFIND is WebDAV's read, and
-// belongs here for the same reason GET does; MKCOL, MOVE and COPY are its
-// writes and are absent.
-var readMethods = map[string]bool{"GET": true, "HEAD": true, "PROPFIND": true}
+// readMethods are the HTTP methods that read. PROPFIND and REPORT are WebDAV's
+// reads (RFC 3253 defines REPORT as safe; CalDAV's calendar-query and
+// calendar-multiget are REPORTs), and belong here for the same reason GET does;
+// MKCOL, MOVE and COPY are its writes and are absent.
+var readMethods = map[string]bool{"GET": true, "HEAD": true, "PROPFIND": true, "REPORT": true}
 
 // classifyInvoke classifies an api gateway call by the method it sends.
 //

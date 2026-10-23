@@ -100,6 +100,7 @@ internal/admin/tablesapi -> internal/platform/tablereconcile
 internal/admin/tablesapi -> internal/platform/tableregister
 internal/admin/webhookapi -> internal/httpjson
 internal/admin/webhookapi -> internal/webhook/whadmin
+internal/admin/webhookapi -> internal/webhook/whimap
 internal/admin/webhookapi -> internal/webhook/whsource
 internal/admin/webhookapi -> internal/webhook/whstore
 internal/admin/webhookapi -> internal/webhook/whtable
@@ -592,6 +593,7 @@ internal/httpserver/userkeywire -> pkg/portal
 internal/httpserver/versionhttp -> internal/wirejson
 internal/httpserver/versionhttp -> pkg/prompt
 internal/httpserver/webhookwire -> internal/admin/webhookapi
+internal/httpserver/webhookwire -> internal/advisorylock
 internal/httpserver/webhookwire -> internal/bgloop
 internal/httpserver/webhookwire -> internal/httpobs
 internal/httpserver/webhookwire -> internal/httpserver/catalogwire
@@ -610,6 +612,7 @@ internal/httpserver/webhookwire -> internal/webhook/compactor
 internal/httpserver/webhookwire -> internal/webhook/receiver
 internal/httpserver/webhookwire -> internal/webhook/whadmin
 internal/httpserver/webhookwire -> internal/webhook/whalert
+internal/httpserver/webhookwire -> internal/webhook/whimap
 internal/httpserver/webhookwire -> internal/webhook/whlayout
 internal/httpserver/webhookwire -> internal/webhook/whsource
 internal/httpserver/webhookwire -> internal/webhook/whspool
@@ -620,6 +623,7 @@ internal/httpserver/webhookwire -> pkg/persona
 internal/httpserver/webhookwire -> pkg/platform
 internal/httpserver/webhookwire -> pkg/platform/fieldcrypt
 internal/httpserver/webhookwire -> pkg/resource
+internal/imapmail -> internal/untrusted
 internal/indexpolicy -> pkg/contenttype
 internal/inlinefit -> pkg/toolkit
 internal/inproc -> internal/portal/viewerlimit
@@ -1468,6 +1472,7 @@ internal/portal/assetrefstore -> internal/portal/assetrefs
 internal/portal/callapi -> internal/httpjson
 internal/portal/callapi -> internal/platform/callrecord
 internal/portal/callapi -> internal/portal/access
+internal/portal/collitems -> internal/portal/portaldomain
 internal/portal/contentrefs -> pkg/contenttype
 internal/portal/contentrefs -> pkg/portal/knowledgepage
 internal/portal/contentrefs -> pkg/resource
@@ -1487,6 +1492,7 @@ internal/portal/portalnoop -> internal/portal/portaldomain
 internal/portal/portalperm -> pkg/persona
 internal/portal/portalpurge -> internal/logsan
 internal/portal/portalpurge -> internal/portal/portaldomain
+internal/portal/portalstore -> internal/portal/collitems
 internal/portal/portalstore -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/producedby
 internal/portal/portalstore -> internal/thumbdue
@@ -1584,6 +1590,7 @@ internal/webhook/receiver -> pkg/ratelimit
 internal/webhook/whadmin -> internal/logsan
 internal/webhook/whadmin -> internal/platform/tableregister
 internal/webhook/whadmin -> internal/webhook/whevent
+internal/webhook/whadmin -> internal/webhook/whimap
 internal/webhook/whadmin -> internal/webhook/whlayout
 internal/webhook/whadmin -> internal/webhook/whsource
 internal/webhook/whadmin -> internal/webhook/whstore
@@ -1599,6 +1606,14 @@ internal/webhook/whconfig -> internal/webhook/compactor
 internal/webhook/whconfig -> internal/webhook/receiver
 internal/webhook/whevent -> internal/webhook/jsonpath
 internal/webhook/whevent -> internal/webhook/whsource
+internal/webhook/whimap -> internal/bgloop
+internal/webhook/whimap -> internal/imapmail
+internal/webhook/whimap -> internal/logsan
+internal/webhook/whimap -> internal/mailtrust
+internal/webhook/whimap -> internal/untrusted
+internal/webhook/whimap -> internal/webhook/whevent
+internal/webhook/whimap -> internal/webhook/whlayout
+internal/webhook/whimap -> internal/webhook/whsource
 internal/webhook/whsource -> internal/hmacsig
 internal/webhook/whsource -> internal/indexpolicy
 internal/webhook/whsource -> internal/webhook/jsonpath

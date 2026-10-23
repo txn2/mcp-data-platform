@@ -244,8 +244,15 @@ func (f *fakeObjects) DeleteObject(_ context.Context, _, key string) error {
 }
 
 type fakeResources struct {
-	deleted []string
-	err     error
+	deleted     []string
+	err         error
+	attachments []string
+	attachErr   error
+}
+
+func (f *fakeResources) DeleteAttachments(_ context.Context, src whsource.Source) error {
+	f.attachments = append(f.attachments, src.Name)
+	return f.attachErr
 }
 
 func (f *fakeResources) Delete(_ context.Context, id string) error {

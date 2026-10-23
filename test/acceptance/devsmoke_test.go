@@ -165,3 +165,39 @@ func TestDevSmoke_TheRendererDrawsATile(t *testing.T) {
 		return intField1787(row, "thumbnail_version") >= intField1787(row, "current_version")
 	})
 }
+
+// The IMAP server: saving a mailbox webhook source signs in to the dev
+// account and opens its inbox, and is refused when it cannot.
+func TestDevSmoke_AMailboxSourceSignsInToTheIMAPServer(t *testing.T) {
+	t.Parallel()
+	c := connect(t)
+	name := "smoke-mail-" + smokeStamp()[10:]
+	issue1870Create(t, c, issue2247Source(t, name, "INBOX", issue2247Password))
+}
+
+// The CalDAV server: an api connection to it is answered the multistatus a
+// PROPFIND of dana's home asks for.
+func TestDevSmoke_AnAPIConnectionReachesTheCalDAVServer(t *testing.T) {
+	t.Parallel()
+	requireCalDAV(t)
+	c := connect(t)
+	name := "smoke-caldav-" + smokeStamp()
+	status := c.restJSON(http.MethodPut, "/api/v1/admin/connection-instances/api/"+name, map[string]any{
+		"config": map[string]any{
+			"base_url": issue2246URL(), "auth_mode": "basic", "username": issue2246User, "password": issue2246Password,
+			"connection_name": name, "trust_level": "untrusted",
+		},
+		"description": "dev smoke: Radicale as an api connection",
+	})
+	if status != http.StatusCreated && status != http.StatusOK {
+		t.Fatalf("saving the api connection: HTTP %d", status)
+	}
+	t.Cleanup(func() { c.rest(http.MethodDelete, "/api/v1/admin/connection-instances/api/"+name, http.NoBody) })
+	out := c.call("api_invoke_endpoint", map[string]any{
+		"connection": name, "method": "PROPFIND", "path": "/" + issue2246User + "/",
+		"headers": map[string]any{"Depth": "0"}, "purpose": "dev smoke: the CalDAV server answers",
+	})
+	if fmt.Sprint(out["status"]) != "207" {
+		t.Fatalf("PROPFIND answered %v: %v", out["status"], out)
+	}
+}

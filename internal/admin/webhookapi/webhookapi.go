@@ -15,6 +15,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
@@ -40,6 +41,7 @@ type Service interface {
 	Overview(ctx context.Context, source string, span whadmin.Span) (whadmin.Overview, error)
 	SyncPartitions(ctx context.Context, name string) error
 	Warnings(ctx context.Context, src whsource.Source) []string
+	Marks(ctx context.Context, name string) ([]whimap.Mark, error)
 }
 
 // Config carries the service and the parent-owned helpers.
@@ -124,7 +126,14 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	httpjson.WriteJSON(w, http.StatusOK, SourceDetail{Source: viewOf(src), Status: st})
+	detail := SourceDetail{Source: viewOf(src), Status: st}
+	if src.IsIMAP() {
+		if detail.IMAP, err = h.cfg.Service.Marks(r.Context(), src.Name); err != nil {
+			writeServiceError(w, err)
+			return
+		}
+	}
+	httpjson.WriteJSON(w, http.StatusOK, detail)
 }
 
 // create handles POST /api/v1/admin/webhooks/sources.
@@ -280,8 +289,12 @@ func viewOf(s whsource.Source) SourceView {
 		until := a.PreviousUntil.UTC()
 		view.PreviousUntil = &until
 	}
+	path := "/hooks/" + s.Name
+	if s.IsIMAP() {
+		path = "" // a polled mailbox is not posted to
+	}
 	return SourceView{
-		Name: s.Name, Enabled: s.Enabled, Connection: s.Connection, Path: "/hooks/" + s.Name,
+		Name: s.Name, Enabled: s.Enabled, Connection: s.Connection, Path: path,
 		Table: s.TableName(), Auth: view, Config: s.Config, CreatedBy: s.CreatedBy,
 		CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 	}

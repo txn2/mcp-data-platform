@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
@@ -50,4 +51,11 @@ type Windows interface {
 	ResourceIDs(ctx context.Context, source string) ([]string, error)
 	// SpoolStates reads every receiver's spool state (#2121).
 	SpoolStates(ctx context.Context) ([]whstore.SpoolState, error)
+}
+
+// Mailbox is the imap input's admin side (#2247): the check a source's
+// mailbox passes when it is saved, and its folders' polls.
+type Mailbox interface {
+	Check(ctx context.Context, src whsource.Source) error
+	Marks(ctx context.Context, source string) ([]whimap.Mark, error)
 }

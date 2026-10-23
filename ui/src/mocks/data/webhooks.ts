@@ -1,4 +1,5 @@
 import type {
+  WebhookIMAPFolder,
   WebhookAckLatency,
   WebhookHealth,
   WebhookHistory,
@@ -131,7 +132,52 @@ export const mockWebhookSources: WebhookSource[] = [
     created_at: hoursAgo(24 * 3),
     updated_at: hoursAgo(24 * 3),
   },
+  {
+    name: "meeting-summaries",
+    enabled: true,
+    connection: "acme-scratch-resources",
+    path: "",
+    table: "webhook_meeting_summaries",
+    auth: { mode: "imap", secret_set: true, username: "platform@acme.example" },
+    config: {
+      input: "imap",
+      imap: {
+        host: "imap.acme.example",
+        port: 993,
+        tls: "tls",
+        folders: ["INBOX"],
+        allow_senders: ["no-reply@zoom.example"],
+        require_auth_pass: true,
+        trusted_authserv_id: "mx.acme.example",
+        poll_seconds: 60,
+        max_message_bytes: 10485760,
+        max_attachment_bytes: 26214400,
+      },
+      persona: "analyst",
+      compact_every_minutes: 60,
+      raw_retention_days: 7,
+      compacted_retention_days: 400,
+    },
+    created_by: "admin@example.com",
+    created_at: hoursAgo(24 * 10),
+    updated_at: hoursAgo(24 * 10),
+  },
 ];
+
+/** mockWebhookFolders are each imap source's folders as their last check left them. */
+export const mockWebhookFolders: Record<string, WebhookIMAPFolder[]> = {
+  "meeting-summaries": [
+    {
+      folder: "INBOX",
+      uid_validity: 1730000000,
+      last_uid: 46,
+      stored: 41,
+      hidden_not_allowed: 4,
+      hidden_unauthenticated: 1,
+      last_polled_at: hoursAgo(0.01),
+    },
+  ],
+};
 
 /** NO_ACKS is the latency of a source that accepted nothing. */
 const NO_ACKS: WebhookAckLatency = { count: 0, p50_ms: 0, p99_ms: 0, max_ms: 0, slowest: null };
@@ -212,6 +258,20 @@ export const mockWebhookStatus: Record<string, WebhookStatus> = {
     segments_open_window: 38,
     segments_per_window_p95: 120,
     rejections: [{ at: hoursAgo(0.5), first_at: hoursAgo(0.6), count: 5, outcome: "invalid_body", reason: "the body is not JSON", request_hash: "", event_ids: [] }],
+  },
+  "meeting-summaries": {
+    last_hour: {},
+    last_day: {},
+    last_segment_at: hoursAgo(5),
+    last_compacted_window: hourStart(6),
+    pending: 1,
+    failing: 0,
+    oldest_window: hourStart(24 * 7),
+    ack_last_hour: NO_ACKS,
+    ack_last_day: NO_ACKS,
+    segments_open_window: 0,
+    segments_per_window_p95: 1,
+    rejections: [],
   },
 };
 

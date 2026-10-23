@@ -232,6 +232,33 @@ export interface CollectionItem {
   created_at: string;
 }
 
+/** One section of a collection as the add-to-collection picker reads it (#2260). */
+export interface SectionSummary {
+  id: string;
+  title: string;
+  item_count: number;
+  /** The asset the picker was opened on is already in this section. */
+  has_asset: boolean;
+}
+
+/** A collection the caller can edit, offered by the add-to-collection picker (#2260). */
+export interface CollectionTarget {
+  id: string;
+  name: string;
+  owner_email?: string;
+  updated_at: string;
+  sections: SectionSummary[];
+  /** The caller edits it through a share (or as an administrator) rather than owning it. */
+  shared: boolean;
+}
+
+/** What adding an asset to a collection wrote (#2260). */
+export interface AppendedItem {
+  item: CollectionItem;
+  section_id: string;
+  section_title: string;
+}
+
 export interface CollectionResponse extends Collection {
   is_owner: boolean;
   share_permission?: SharePermission;

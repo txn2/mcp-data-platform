@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
@@ -30,6 +31,12 @@ type fakeService struct {
 	span     time.Duration
 	step     time.Duration
 	asked    whadmin.Span
+	marks    []whimap.Mark
+	marksErr error
+}
+
+func (f *fakeService) Marks(_ context.Context, _ string) ([]whimap.Mark, error) {
+	return f.marks, f.marksErr
 }
 
 func (f *fakeService) Overview(_ context.Context, source string, span whadmin.Span) (whadmin.Overview, error) {
@@ -253,4 +260,40 @@ func TestSaveAnswersWithWarnings(t *testing.T) {
 
 	rec = do(mux, http.MethodGet, base, "")
 	assert.NotContains(t, rec.Body.String(), "warnings")
+}
+
+func TestGet_IMAPSourceCarriesItsFolders(t *testing.T) {
+	inbox := whsource.Source{
+		Name: "inbox", Enabled: true, Connection: "scratch",
+		Auth:   whsource.Auth{Mode: whsource.AuthIMAP, Username: "platform", Secret: "pw"},
+		Config: whsource.Config{Input: whsource.InputIMAP, IMAP: &whsource.IMAP{Host: "mail.example.com", Folders: []string{"INBOX"}}},
+	}
+	svc := &fakeService{
+		sources: map[string]whsource.Source{"inbox": inbox, "esp": stored},
+		marks:   []whimap.Mark{{Folder: "INBOX", LastUID: 7, Stored: 5, HiddenNotAllowed: 2}},
+	}
+	mux := newMux(svc)
+
+	rec := do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/inbox", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var detail map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detail))
+	assert.Empty(t, detail["path"], "a polled mailbox has no receiving path")
+	folders, ok := detail["imap"].([]any)
+	require.True(t, ok, rec.Body.String())
+	require.Len(t, folders, 1)
+	assert.Equal(t, map[string]any{
+		"folder": "INBOX", "uid_validity": float64(0), "last_uid": float64(7), "stored": float64(5),
+		"hidden_not_allowed": float64(2), "hidden_unauthenticated": float64(0),
+	}, folders[0])
+	assert.NotContains(t, rec.Body.String(), `"pw"`, "the mailbox password is never read back")
+
+	rec = do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/esp", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), `"imap"`, "an http source has no folders")
+	assert.Contains(t, rec.Body.String(), `"/hooks/esp"`)
+
+	svc.marksErr = errors.New("db down")
+	rec = do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/inbox", "")
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

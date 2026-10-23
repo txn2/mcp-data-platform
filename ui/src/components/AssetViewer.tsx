@@ -18,6 +18,7 @@ import {
   type RetentionMode,
 } from "./assetviewer/AssetRetentionField";
 import { AssetViewerModals } from "./assetviewer/AssetViewerModals";
+import { AddToCollection, useAddToCollectionAction } from "./assetviewer/AddToCollectionDialog";
 import { ViewerLayout } from "./viewer/ViewerLayout";
 import { IncompleteBadge } from "@/components/IncompleteBadge";
 import { isTruncated } from "@/lib/truncation";
@@ -42,6 +43,7 @@ export function AssetViewer({
   isOwner = true,
   sharePermission,
   toolbarExtra,
+  collectable,
   detailRows,
   sessionPath,
   resourcePath,
@@ -77,6 +79,8 @@ export function AssetViewer({
   const isSharedEditor = !isOwner && sharePermission === "editor";
   const canShare = useAuthStore((s) => s.canShare());
   const portal = usePortalAccess();
+
+  const addToCollection = useAddToCollectionAction(asset?.id, !!collectable);
 
   const canEditSource =
     !!contentUpdateMutation && !!asset && isEditableContent(asset.content_type, asset.name);
@@ -246,6 +250,7 @@ export function AssetViewer({
             onDownload={handleDownload}
             onCopyToMyAssets={handleCopyToMyAssets}
             onShare={() => setShareOpen(true)}
+            onAddToCollection={addToCollection.onOpen}
           />
         }
         sidebar={
@@ -311,6 +316,7 @@ export function AssetViewer({
       </ViewerLayout>
 
       <ShareDialog assetId={asset.id} open={shareOpen} onOpenChange={setShareOpen} />
+      <AddToCollection action={addToCollection} assetId={asset.id} onNavigate={onNavigate} />
 
       <AssetViewerModals
         asset={asset}

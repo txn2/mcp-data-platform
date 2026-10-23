@@ -173,7 +173,7 @@ The queue model collapses all three to a single design: enqueue is fast and sync
 
 ## WebDAV operations (`x-webdav-method`)
 
-WebDAV verbs (`PROPFIND`, `MKCOL`, `MOVE`, `COPY`) are not representable as OpenAPI `PathItem` methods, which are limited to `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, and `HEAD`. To document a WebDAV operation, declare it under an unused carrier method sharing the same path and add an `x-webdav-method` extension naming the real verb. A caller then invokes with the real verb via `api_invoke_endpoint` (e.g. `method: PROPFIND`), which the gateway forwards upstream unchanged.
+WebDAV verbs (`PROPFIND`, `REPORT`, `MKCOL`, `MOVE`, `COPY`) are not representable as OpenAPI `PathItem` methods, which are limited to `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, and `HEAD`. To document a WebDAV operation, declare it under an unused carrier method sharing the same path and add an `x-webdav-method` extension naming the real verb. A caller then invokes with the real verb via `api_invoke_endpoint` (e.g. `method: PROPFIND`), which the gateway forwards upstream unchanged.
 
 ```yaml
 paths:
