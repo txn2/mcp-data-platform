@@ -325,6 +325,7 @@ func (m *memStore) GetVersion(_ context.Context, scriptID string, version int) (
 func callerCtx(email, persona string) context.Context {
 	pc := middleware.NewPlatformContext("req_1")
 	pc.UserID, pc.UserEmail, pc.PersonaName = "user-"+email, email, persona
+	pc.IsAdmin = persona == "admin"
 	pc.Roles = []string{persona}
 	return middleware.WithPlatformContext(context.Background(), pc)
 }
@@ -335,7 +336,7 @@ func adminCtx() context.Context  { return callerCtx("admin@example.com", "admin"
 // newHandle builds a Handle over an in-memory store.
 func newHandle() (*Handle, *memStore) {
 	store := newMemStore()
-	return New(Config{Store: store, AdminPersona: "admin"}), store
+	return New(Config{Store: store}), store
 }
 
 // resultText returns a tool result's first text block.

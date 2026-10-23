@@ -134,8 +134,16 @@ export interface PersonaDetail {
    * not added to Calls, and the records it already wrote are removed.
    */
   service_account: boolean;
-  /** What the persona's people may do in the portal, every area resolved (#2225). */
+  /**
+   * The persona's portal block, every area resolved (#2225), as stored: the
+   * limits External sets are not applied, so the editor saves back what the
+   * administrator chose (#2257).
+   */
   portal: PortalAccess;
+  /** What the persona's people get in the portal, External's limits applied. */
+  effective_portal?: PortalAccess;
+  /** The areas External lowered from portal. */
+  capped_by_external?: string[];
   /** A persona for people outside the organization (#2092). */
   external?: boolean;
   /** The persona's people may share what they own (#2241). */

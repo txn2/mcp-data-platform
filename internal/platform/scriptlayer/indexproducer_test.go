@@ -19,13 +19,13 @@ func TestIndexProducer(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	h := New(Config{DB: db, AdminPersona: "admin"})
+	h := New(Config{DB: db})
 	require.NotNil(t, h.IndexProducer())
 	assert.Equal(t, scriptindex.SourceKind, h.IndexProducer().Kind())
 
-	assert.Nil(t, New(Config{AdminPersona: "admin"}).IndexProducer(),
+	assert.Nil(t, New(Config{}).IndexProducer(),
 		"no database means no store to notify for")
-	assert.Nil(t, New(Config{Store: newMemStore(), AdminPersona: "admin"}).IndexProducer(),
+	assert.Nil(t, New(Config{Store: newMemStore()}).IndexProducer(),
 		"an injected store owns its own indexing arrangements")
 
 	var nilHandle *Handle

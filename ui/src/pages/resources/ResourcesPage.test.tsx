@@ -184,14 +184,14 @@ afterEach(() => {
 });
 
 describe("the folder tree", () => {
-  it("lists My Resources, Global and each readable persona as top-level folders", () => {
+  it("lists My Resources, Shared with me, Global and each readable persona as top-level folders", () => {
     renderPage();
     const tree = screen.getByRole("tree", { name: "Folders" });
     const tops = within(tree)
       .getAllByRole("treeitem")
       .filter((n) => n.getAttribute("aria-level") === "1")
       .map((n) => n.textContent);
-    expect(tops.map((t) => t?.replace(/\d+$/, ""))).toEqual(["My Resources", "Global", "analyst"]);
+    expect(tops.map((t) => t?.replace(/\d+$/, ""))).toEqual(["My Resources", "Shared with me", "Global", "analyst"]);
   });
 
   it("highlights the current folder with its ancestors open", () => {
@@ -217,6 +217,8 @@ describe("the folder tree", () => {
     fireEvent.keyDown(node("global", ""), { key: "ArrowRight" });
     expect(node("global", "").getAttribute("aria-expanded")).toBe("true");
     fireEvent.keyDown(node("global", ""), { key: "ArrowUp" });
+    expect(document.activeElement?.textContent).toContain("Shared with me");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
     expect(document.activeElement?.textContent).toContain("My Resources");
     fireEvent.keyDown(document.activeElement!, { key: "Enter" });
     expect(last(navigations)).toBe("/resources");

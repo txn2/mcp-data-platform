@@ -9,12 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/txn2/mcp-data-platform/internal/admin/resindexapi"
-	"github.com/txn2/mcp-data-platform/internal/admin/secretapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
-	"github.com/txn2/mcp-data-platform/internal/secretstore"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -889,20 +886,5 @@ func citedScripts(lookup func(context.Context, string) (*scriptstore.Citation, e
 			return "", false, nil
 		}
 		return c.Label, true, nil
-	}
-}
-
-// mountDatabaseAdminAPIs registers the admin routes over database rows, behind
-// the admin API's authentication: the stored secrets (#2051), and how managed
-// resources are indexed (#2111) where there are resources. There is nothing to
-// mount without a database.
-func mountDatabaseAdminAPIs(mux *http.ServeMux, p *platform.Platform) {
-	if p == nil || p.DB() == nil || !p.Config().Admin.IsEnabled() {
-		return
-	}
-	secretapi.Register(mux, buildAdminAuth(p), secretapi.Config{Store: secretstore.NewStore(p.DB(), p.RestEncryptor()), Author: adminEmail})
-	slog.Info("Stored secret admin API enabled on /api/v1/admin/secrets")
-	if p.ResourceStore() != nil {
-		resindexapi.Mount(mux, buildAdminAuth(p), p.DB(), p.Config().Resources.Index.Resolver())
 	}
 }

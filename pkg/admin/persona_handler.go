@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/personaaccess"
 	"github.com/txn2/mcp-data-platform/internal/admin/personarules"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
@@ -78,10 +79,15 @@ type personaDetail struct {
 	// ServiceAccount marks the persona an automated caller signs in under:
 	// its calls are audited but not added to the call catalog (#1980).
 	ServiceAccount bool `json:"service_account" example:"false"`
-	// Portal is what the persona's people may do in the portal, every area
-	// resolved (#2225): a field the persona leaves unset reads as what its
-	// tools reached before the setting existed.
+	// Portal is the persona's portal block, every area resolved (#2225), as
+	// stored: an external persona's limits are not applied, so the editor
+	// saves back what the administrator chose (#2257).
 	Portal persona.PortalAccess `json:"portal"`
+	// EffectivePortal is what the persona's people may do in the portal,
+	// with the limits External sets applied.
+	EffectivePortal persona.PortalAccess `json:"effective_portal"`
+	// CappedByExternal names the areas External lowered from Portal.
+	CappedByExternal []string `json:"capped_by_external"`
 	// External marks the persona for people outside the organization, whose
 	// accounts the platform creates (#2092).
 	External bool `json:"external" example:"false"`
@@ -108,6 +114,9 @@ func (p personaDetail) MarshalJSON() ([]byte, error) {
 	}
 	if v.APIRoutes == nil {
 		v.APIRoutes = []persona.APIRouteRule{}
+	}
+	if v.CappedByExternal == nil {
+		v.CappedByExternal = []string{}
 	}
 	return json.Marshal(v) //nolint:wrapcheck // value struct of basic types cannot fail to marshal
 }
@@ -275,7 +284,7 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 	p.Source = platform.SourceDatabase
 	// The registry validates these rules too, but it runs AFTER the store
 	// write below — a rule Register would refuse would already be persisted.
-	if err := personarules.Validate(p); err != nil {
+	if err := personarules.Validate(p, h.adminPersonaName()); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -341,7 +350,7 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 	} else {
 		p.Source = platform.SourceDatabase
 	}
-	if err := personarules.Validate(p); err != nil {
+	if err := personarules.Validate(p, h.adminPersonaName()); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -373,13 +382,14 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 // deletePersona handles DELETE /api/v1/admin/personas/{name}.
 //
 // @Summary      Delete persona
-// @Description  Deletes a persona. Only available in database config mode. Cannot delete the admin persona.
+// @Description  Deletes a persona. Only available in database config mode. Cannot delete the admin persona. While stored secrets, script grants or versions, prompts, shares, webhook sources, external accounts or API keys still name the persona, answers 409 listing them unless confirm=true: a persona created later under the name would inherit them (#2257).
 // @Tags         Personas
 // @Produce      json
-// @Param        name  path  string  true  "Persona name"
+// @Param        name     path   string  true   "Persona name"
+// @Param        confirm  query  bool    false  "Delete although other objects still name the persona"
 // @Success      200  {object}  statusResponse
 // @Failure      404  {object}  problemDetail
-// @Failure      409  {object}  problemDetail
+// @Failure      409  {object}  personaDeleteConflict
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/personas/{name} [delete]
@@ -387,7 +397,7 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
 	// Block deletion of the admin persona.
-	if h.deps.Config != nil && name == h.deps.Config.Admin.Persona {
+	if name == h.adminPersonaName() && name != "" {
 		writeError(w, http.StatusConflict, "cannot delete the admin persona")
 		return
 	}
@@ -396,6 +406,12 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 	if h.isFileOnlyPersona(name) {
 		writeError(w, http.StatusConflict,
 			"this persona is defined in the config file and cannot be deleted via the admin API")
+		return
+	}
+
+	if refs, ok := h.unconfirmedReferences(r, name); ok {
+		const detail = "other objects still name this persona; delete with confirm=true to leave them"
+		writeJSON(w, http.StatusConflict, personaDeleteConflict{problemDetail{"about:blank", http.StatusText(http.StatusConflict), http.StatusConflict, detail}, refs})
 		return
 	}
 
@@ -428,6 +444,32 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})
+}
+
+// personaDeleteConflict is the 409 a delete answers while other objects
+// still name the persona.
+type personaDeleteConflict struct {
+	problemDetail
+	References personaaccess.References `json:"references"`
+}
+
+// unconfirmedReferences are the references naming the persona when the
+// delete was not confirmed and there are any. References that cannot be read
+// do not hold the delete up.
+func (h *Handler) unconfirmedReferences(r *http.Request, name string) (personaaccess.References, bool) {
+	if h.deps.PersonaReferences == nil || r.URL.Query().Get("confirm") == queryTrue {
+		return personaaccess.References{}, false
+	}
+	refs, err := h.deps.PersonaReferences(r.Context(), name)
+	return refs, err == nil && !refs.Empty()
+}
+
+// adminPersonaName is the configured administrator persona, "" without a configuration.
+func (h *Handler) adminPersonaName() string {
+	if h.deps.Config == nil {
+		return ""
+	}
+	return h.deps.Config.Admin.Persona
 }
 
 // isFileOnlyPersona returns true if the persona exists in the file config
@@ -588,9 +630,12 @@ func toPersonaDetail(p *persona.Persona, tools []string) personaDetail {
 		Source:           p.Source,
 		APIRoutes:        p.APIRoutes,
 		ServiceAccount:   p.ServiceAccount,
-		Portal:           p.PortalPermissions(tools),
+		Portal:           p.StoredPortal(tools),
+		EffectivePortal:  p.PortalPermissions(tools),
+		CappedByExternal: persona.Differs(p.StoredPortal(tools), p.PortalPermissions(tools)),
 		External:         p.External,
-		AllowSharing:     p.SharingAllowed(),
+		// The stored choice, which External overrides without changing.
+		AllowSharing: p.AllowSharing == nil || *p.AllowSharing,
 	}
 }
 

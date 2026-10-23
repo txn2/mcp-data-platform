@@ -561,7 +561,7 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 		{"region": "east", "total": float64(80)},
 	}}
 
-	h := New(Config{Store: store, Runs: runs, AdminPersona: "admin"})
+	h := New(Config{Store: store, Runs: runs})
 	server := mcp.NewServer(&mcp.Implementation{Name: "script-exec-integration", Version: "v0"}, nil)
 	h.RegisterTool(server)
 

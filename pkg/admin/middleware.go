@@ -176,8 +176,9 @@ func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) (*User, 
 	if err != nil || info == nil {
 		return nil, nil //nolint:nilnil,nilerr // cookie auth failure falls back to token, not a fatal error
 	}
-	resolved, ok := pa.registry.GetForRoles(info.Roles)
-	if !ok || resolved.Name != pa.adminPersona {
+	// The one admin rule (#2228): an external persona carrying the
+	// administrator's name administers nothing (#2257).
+	if !pa.registry.AdminRule(pa.adminPersona)(info.Roles) {
 		return nil, nil //nolint:nilnil // cookie user is not admin persona
 	}
 	// The request is authenticated by a cookie the browser attached
@@ -209,9 +210,7 @@ func (pa *PlatformAuthenticator) authenticateViaToken(r *http.Request) (*User, e
 		return nil, nil //nolint:nilnil // authenticator rejected
 	}
 
-	// Resolve persona from roles
-	resolved, ok := pa.registry.GetForRoles(info.Roles)
-	if !ok || resolved.Name != pa.adminPersona {
+	if !pa.registry.AdminRule(pa.adminPersona)(info.Roles) {
 		return nil, nil //nolint:nilnil // user authenticated but not admin persona
 	}
 

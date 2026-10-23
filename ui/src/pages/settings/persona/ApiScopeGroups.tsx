@@ -54,6 +54,7 @@ export function ApiScopeGroups({
   handlers,
   isLoading,
   governedBy,
+  blocked,
 }: {
   connections: APIRouteConnection[];
   resolve: (connection: string, op: APIRouteOperation) => RouteResolution;
@@ -66,6 +67,12 @@ export function ApiScopeGroups({
   isLoading: boolean;
   /** Whether the rule the pointer is on in the rail governs this operation. */
   governedBy: (connection: string, op: APIRouteOperation) => boolean;
+  /**
+   * Why an operation is not callable whatever its rules say (#2257): its
+   * connection, api_invoke_endpoint, or External. Undefined when nothing
+   * outside the rules blocks it.
+   */
+  blocked?: (connection: string, op: APIRouteOperation) => string | undefined;
 }) {
   const q = search.toLowerCase();
 
@@ -132,6 +139,7 @@ export function ApiScopeGroups({
                   onHover={(h) => setHovered(h ? operationKey(conn.name, op) : null)}
                   handlers={handlers}
                   highlighted={governedBy(conn.name, op)}
+                  blockedBy={blocked?.(conn.name, op)}
                 />
               ))}
             </div>
@@ -208,6 +216,7 @@ function OperationRow({
   onHover,
   handlers,
   highlighted,
+  blockedBy,
 }: {
   connection: string;
   op: APIRouteOperation;
@@ -217,6 +226,7 @@ function OperationRow({
   onHover: (hovered: boolean) => void;
   handlers: ApiScopeHandlers;
   highlighted: boolean;
+  blockedBy?: string;
 }) {
   const { decision, rule } = resolution;
   const denied = decision === "deny";
@@ -255,6 +265,11 @@ function OperationRow({
       {op.summary && (
         <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted-foreground lg:inline">
           {op.summary}
+        </span>
+      )}
+      {blockedBy && (
+        <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+          {blockedBy}
         </span>
       )}
       {decision === "deny" && !rule && (

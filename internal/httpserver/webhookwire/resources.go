@@ -51,6 +51,11 @@ type windowResources struct {
 	// findable by them: search shows a caller the libraries of the personas
 	// they belong to, never another principal's own.
 	adminPersona string
+	// external reports whether a persona is external. The administrator
+	// persona never is, but one written to the store as external would give
+	// the windows to the people the platform created accounts for, so they
+	// land in the platform's own folder instead (#2257).
+	external func(name string) bool
 }
 
 // systemClaims are the platform's authority to write the windows: an
@@ -78,11 +83,23 @@ func (h windowResources) personaOf(src whsource.Source) string {
 	return defaultAdminPersona
 }
 
+// libraryOf is the scope a source's windows are written to: its persona's
+// library, or the platform's own folder, which only administrators read, when
+// a source naming no persona would otherwise write to an administrator
+// persona marked external.
+func (h windowResources) libraryOf(src whsource.Source) (scope resource.Scope, scopeID string) {
+	name := h.personaOf(src)
+	if src.Config.Persona == "" && h.external != nil && h.external(name) {
+		return resource.ScopeUser, systemPrincipal
+	}
+	return resource.ScopePersona, name
+}
+
 // Put writes a window's file: a new version of the window's resource when it has
 // one, and a new resource otherwise.
 func (h windowResources) Put(ctx context.Context, src whsource.Source, start time.Time, existingID string, content []byte) (stored compactor.StoredWindow, err error) {
 	source := src.Name
-	scope, scopeID := resource.ScopePersona, h.personaOf(src)
+	scope, scopeID := h.libraryOf(src)
 	id := existingID
 	if id == "" {
 		folder, filename := address(source, start)

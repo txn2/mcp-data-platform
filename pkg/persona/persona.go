@@ -1,6 +1,8 @@
 // Package persona provides persona-based access control and customization.
 package persona
 
+import "errors"
+
 // defaultPersonaPriority is the default priority for built-in personas.
 const defaultPersonaPriority = 100
 
@@ -264,6 +266,40 @@ func AdminPersona() *Persona {
 		Context:  ContextOverrides{},
 		Priority: defaultPersonaPriority,
 	}
+}
+
+// Account-type refusals ValidateAccount returns (#2257).
+var (
+	// ErrExternalAdmin refuses marking the administrator persona external:
+	// the admin API would otherwise admit people the platform created
+	// accounts for.
+	ErrExternalAdmin = errors.New("the administrator persona cannot be external")
+	// ErrAccountType refuses a persona that is both external and an
+	// automated caller: the account type is one of internal people,
+	// external people or an automated caller.
+	ErrAccountType = errors.New("a persona is for internal people, external people or an automated caller, not more than one")
+	// ErrUploadsInternal refuses an uploads setting on an internal persona,
+	// whose people upload by their Resources level.
+	ErrUploadsInternal = errors.New("portal.uploads applies only to an external persona")
+)
+
+// ValidateAccount refuses an account type the platform cannot honor: an
+// external administrator persona, a persona that is both external and an
+// automated caller, and uploads on an internal persona (#2257, #2258).
+// adminPersona is the configured administrator persona's name.
+func ValidateAccount(p *Persona, adminPersona string) error {
+	if p == nil {
+		return nil
+	}
+	switch {
+	case p.External && adminPersona != "" && p.Name == adminPersona:
+		return ErrExternalAdmin
+	case p.External && p.ServiceAccount:
+		return ErrAccountType
+	case !p.External && p.Portal != nil && p.Portal.Uploads != nil:
+		return ErrUploadsInternal
+	}
+	return nil
 }
 
 // SharingAllowed reports whether the persona's people may share what they

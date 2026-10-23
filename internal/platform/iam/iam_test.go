@@ -113,7 +113,9 @@ func TestAuthority_ResolvesThePersonaTheAuthorizerResolves(t *testing.T) {
 	reg := persona.NewRegistry()
 	require.NoError(t, reg.Register(&persona.Persona{Name: "admin", Roles: []string{"dp_admin"}}))
 	require.NoError(t, reg.Register(&persona.Persona{Name: "analyst", Roles: []string{"dp_analyst"}}))
-	authority := iam.Authority(iam.NewAuthorizer(iam.Input{PersonaRegistry: reg}), "admin")
+	authority := iam.Authority(iam.NewAuthorizer(iam.Input{PersonaRegistry: reg}), func(name string) bool {
+		return reg.IsAdminName(name, "admin")
+	})
 	require.NotNil(t, authority)
 
 	name, admin := authority([]string{"dp_admin"})
@@ -125,5 +127,12 @@ func TestAuthority_ResolvesThePersonaTheAuthorizerResolves(t *testing.T) {
 	_, admin = authority(nil)
 	assert.False(t, admin, "roles that map to nothing are no administrator")
 
-	assert.Nil(t, iam.Authority(nil, "admin"), "no authorizer resolves nothing")
+	assert.Nil(t, iam.Authority(nil, nil), "no authorizer resolves nothing")
+
+	// An external persona carrying the administrator's name is no
+	// administrator (#2257).
+	require.NoError(t, reg.Register(&persona.Persona{Name: "admin", Roles: []string{"dp_admin"}, External: true}))
+	name, admin = authority([]string{"dp_admin"})
+	assert.Equal(t, "admin", name)
+	assert.False(t, admin)
 }

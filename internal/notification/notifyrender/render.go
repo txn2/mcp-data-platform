@@ -405,6 +405,8 @@ func subjectFor(n notification.Notification) string {
 	switch n.Payload.Kind {
 	case notification.KindAsset, notification.KindCollection, notification.KindPrompt:
 		return fmt.Sprintf("%s shared the %s %q with you", n.Payload.Actor, n.Payload.Kind, n.Payload.ItemTitle)
+	case notification.KindResource:
+		return fmt.Sprintf("%s shared the file %q with you", n.Payload.Actor, n.Payload.ItemTitle)
 	case notification.KindFeedback:
 		return fmt.Sprintf("%s left feedback on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	case notification.KindMention:

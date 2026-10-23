@@ -77,7 +77,7 @@ func (f *failingStore) UpdateWithVersion(ctx context.Context, sc *script.Script,
 // newFailingHandle builds a Handle over a store that can be made to fail.
 func newFailingHandle() (*Handle, *failingStore) {
 	store := &failingStore{memStore: newMemStore()}
-	return New(Config{Store: store, AdminPersona: "admin"}), store
+	return New(Config{Store: store}), store
 }
 
 // TestStoreFailuresAreReportedWithoutLeakingDetail pins the error contract: a

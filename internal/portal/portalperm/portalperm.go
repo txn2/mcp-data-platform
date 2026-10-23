@@ -27,7 +27,12 @@ const (
 	AreaAutomations = "automations"
 	AreaSearch      = "search"
 	AreaMemory      = "memory"
-	AreaDownload    = "download"
+	// AreaResources is managed resources: refused here only on the table
+	// routes over a resource, which sit outside the resources API's own
+	// level check (#2257).
+	AreaResources = "resources"
+	// AreaScratchTables is the scratch-table routes (#2257).
+	AreaScratchTables = "scratch_tables"
 	// AreaExternal names what an external persona's people never reach.
 	AreaExternal = "external"
 )
@@ -35,6 +40,12 @@ const (
 const (
 	portalPrefix = "/api/v1/portal/"
 	apisPrefix   = "/api/v1/apis"
+	// The scratch-table routes outside /api/v1/portal/ (#2257): the
+	// cross-source listing, the connection picker, and a resource's tables.
+	tablesPrefix    = "/api/v1/tables"
+	tableConnsPath  = "/api/v1/table-connections"
+	resourcesPrefix = "/api/v1/resources/"
+	tablesSegment   = "tables"
 )
 
 // externalWithheld are the routes a person of an external persona never
@@ -70,6 +81,9 @@ func Refused(a persona.PortalAccess, method, path string) string {
 	if strings.HasPrefix(path, apisPrefix) {
 		return refuseBelow(a.APIs, persona.PortalBrowse, AreaAPIs)
 	}
+	if area, ok := refusedTables(a, method, path); ok {
+		return area
+	}
 	rest, ok := strings.CutPrefix(path, portalPrefix)
 	if !ok {
 		return ""
@@ -93,18 +107,51 @@ func Refused(a persona.PortalAccess, method, path string) string {
 	return ""
 }
 
+// refusedTables decides the scratch-table routes, reporting ok when path is
+// one: listing needs the list level and registering or unregistering the
+// register level, and a resource's tables need a Resources level above none
+// as well, since registering publishes the file's rows (#2257).
+func refusedTables(a persona.PortalAccess, method, path string) (area string, ok bool) {
+	write := isWrite(method)
+	scratch := func() string {
+		if write {
+			return refuseBelow(a.ScratchTables, persona.PortalRegister, AreaScratchTables)
+		}
+		return refuseBelow(a.ScratchTables, persona.PortalList, AreaScratchTables)
+	}
+	if path == tableConnsPath || path == tablesPrefix || strings.HasPrefix(path, tablesPrefix+"/") {
+		return scratch(), true
+	}
+	if rest, found := strings.CutPrefix(path, resourcesPrefix); found && hasTablesSegment(rest) {
+		if a.Resources == persona.PortalNone {
+			return AreaResources, true
+		}
+		return scratch(), true
+	}
+	if rest, found := strings.CutPrefix(path, portalPrefix+"assets/"); found && hasTablesSegment(rest) {
+		return scratch(), true
+	}
+	return "", false
+}
+
+// hasTablesSegment reports whether the path after a collection names an
+// item's tables: {id}/tables or {id}/tables/{regID}.
+func hasTablesSegment(rest string) bool {
+	segments := strings.Split(rest, "/")
+	return len(segments) >= 2 && segments[1] == tablesSegment
+}
+
 // refusedItem is the assets area: creating an asset or collection, or copying
-// one, needs the own level; a PDF needs download; sign-off is feedback. Every
-// other route of an item is decided by the item's own sharing, which a person
-// at the shared level reads through.
+// one, needs the own level; sign-off is feedback. Every other route of an item
+// is decided by the item's own sharing, which a person at the shared level
+// reads through. A PDF is not decided here: its routes are mounted apart from
+// the portal's and check PDF export themselves (internal/httpserver/pdfhttp).
 func refusedItem(a persona.PortalAccess, method string, segments []string) string {
 	last := segments[len(segments)-1]
 	creates := method == http.MethodPost && (len(segments) == 1 || last == "copy")
 	switch {
 	case creates:
 		return refuseBelow(a.Assets, persona.PortalOwn, AreaAssets)
-	case last == "pdf" && !persona.On(a.Download):
-		return AreaDownload
 	case last == "signoff" && !persona.On(a.Feedback):
 		return AreaFeedback
 	}

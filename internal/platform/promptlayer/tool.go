@@ -949,13 +949,12 @@ func resolveEmail(ctx context.Context) string {
 	return "anonymous"
 }
 
-// isAdminPersona checks if the current user has the admin persona.
+// isAdminPersona checks if the current user has the admin persona: the
+// tool-call middleware's one admin rule, never the persona's name alone
+// (#2257).
 func (h *Handle) isAdminPersona(ctx context.Context) bool {
 	pc := middleware.GetPlatformContext(ctx)
-	if pc == nil {
-		return false
-	}
-	return pc.PersonaName == h.adminPersona
+	return pc != nil && pc.IsAdmin
 }
 
 // promptErrorDetail builds a tool error for a failed store or internal

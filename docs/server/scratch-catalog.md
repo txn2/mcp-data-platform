@@ -263,6 +263,8 @@ A connection with no `scratch:` block cannot hold a table, and the surfaces do
 not offer one on it. Both keys are required: a block naming only one is ignored
 with a warning, because a table built on it would fail at the DDL.
 
+Who may list and register tables in the portal is a persona's `portal.scratch_tables` level (`none`, `list`, `register`), on top of its connection rules; an external persona has none (#2257). It does not govern SQL: a persona that can call `trino_execute` on the scratch connection can drop or replace any registered table, whoever registered it, because the connection's Trino user holds every privilege on the scratch catalog, and a persona that can call `trino_query` on a connection whose Trino user reads the scratch catalog reads every registered table. The persona editor's access summary says both for each scratch connection a persona reaches.
+
 `read_only: false` on the scratch connection is not decoration either. A
 scratch target says *where* a table is written; it grants nothing. The
 statement that creates the table is write SQL, so a `read_only: true`

@@ -12,10 +12,14 @@ import (
 
 // Validate refuses the API route rules and portal levels the registry would
 // refuse, before the store write: a rule refused after it would already be
-// persisted.
-func Validate(p *persona.Persona) error {
+// persisted. It also refuses the account types the platform cannot honor
+// (#2257): adminPersona is the configured administrator persona's name.
+func Validate(p *persona.Persona, adminPersona string) error {
 	if err := persona.ValidateAPIRoutes(p.APIRoutes); err != nil {
 		return err //nolint:wrapcheck // the rule's own message is the 400 detail
+	}
+	if err := persona.ValidateAccount(p, adminPersona); err != nil {
+		return err //nolint:wrapcheck // the refusal's own message is the 400 detail
 	}
 	return p.Portal.Validate() //nolint:wrapcheck // the level's own message is the 400 detail
 }

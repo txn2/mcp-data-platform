@@ -460,7 +460,7 @@ func TestHandlePromptList_StoreError(t *testing.T) {
 }
 
 func TestPromptErrorDetail(t *testing.T) {
-	h := &Handle{adminPersona: "admin"}
+	h := &Handle{}
 	cause := fmt.Errorf("pq: null value in column \"tags\" (23502)")
 
 	t.Run("admin sees underlying detail", func(t *testing.T) {
@@ -602,12 +602,12 @@ func TestResolveEmail_FromContext(t *testing.T) {
 }
 
 func TestIsAdminPersona_NoContext(t *testing.T) {
-	h := &Handle{adminPersona: "admin"}
+	h := &Handle{}
 	assert.False(t, h.isAdminPersona(t.Context()))
 }
 
 func TestIsAdminPersona_AdminContext(t *testing.T) {
-	h := &Handle{adminPersona: "admin"}
+	h := &Handle{}
 	assert.True(t, h.isAdminPersona(adminCtx()))
 }
 

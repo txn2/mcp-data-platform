@@ -49,7 +49,7 @@ func (s *Store) Lookup(ctx context.Context, connection, persona string) secretre
 		if err := kindMatches(sec, wantCode); err != nil {
 			return "", err
 		}
-		if persona != "" && persona == s.admin {
+		if persona != "" && s.admin != nil && s.admin(persona) {
 			sec.AllowPersonas = nil
 		}
 		if err := Allowed(sec, connection, persona); err != nil {

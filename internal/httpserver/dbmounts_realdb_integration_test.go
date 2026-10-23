@@ -136,7 +136,7 @@ func TestMountResourcesAPI_RealDB(t *testing.T) {
 	require.NotNil(t, p.ResourceStore(), "resource store must be wired from the real DB")
 
 	mux := http.NewServeMux()
-	mountResourcesAPI(mux, p)
+	mountResourcesAPI(mux, p, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources", http.NoBody)
 	w := httptest.NewRecorder()

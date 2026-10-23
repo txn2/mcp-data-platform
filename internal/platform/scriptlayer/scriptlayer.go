@@ -54,9 +54,6 @@ type Config struct {
 	// run commands read. nil leaves run_script unregistered, which is the
 	// correct shape for a deployment that cannot execute scripts at all.
 	Runs script.RunStore
-	// AdminPersona is the persona name that grants authority over every
-	// script; matched against the caller's persona in each command.
-	AdminPersona string
 	// PortalURL is the deployment's public portal address, used by show_scripts
 	// to name where the script pages are. Empty leaves the tool registered and
 	// linkless: a deployment that has not been told its own address cannot be
@@ -116,9 +113,8 @@ type Handle struct {
 	// states is the same store narrowed to its state contract (#1537), nil
 	// where the deployment has no database and so nothing to carry between
 	// runs.
-	states       script.StateStore
-	runs         script.RunStore
-	adminPersona string
+	states script.StateStore
+	runs   script.RunStore
 	// portalURL is the public portal address show_scripts points the human at,
 	// empty when the deployment has not been configured with one.
 	portalURL string
@@ -152,7 +148,7 @@ type Handle struct {
 // New assembles the script layer.
 func New(cfg Config) *Handle {
 	h := &Handle{
-		store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona,
+		store: cfg.Store, runs: cfg.Runs,
 		portalURL: cfg.PortalURL, destinations: cfg.Destinations,
 		toolkits: cfg.Toolkits, draftExports: cfg.DraftExports,
 		runLimits: cfg.RunLimits.WithDefaults(),
@@ -251,13 +247,12 @@ func callerAuthor(ctx context.Context) script.Author {
 	return author
 }
 
-// isAdminPersona reports whether the caller holds the admin persona.
+// isAdminPersona reports whether the caller holds the admin persona: the
+// tool-call middleware's one admin rule, never the persona's name alone
+// (#2257).
 func (h *Handle) isAdminPersona(ctx context.Context) bool {
 	pc := middleware.GetPlatformContext(ctx)
-	if pc == nil {
-		return false
-	}
-	return pc.PersonaName == h.adminPersona
+	return pc != nil && pc.IsAdmin
 }
 
 // errNotYours refuses a command that acts on a script, or reads its runs or

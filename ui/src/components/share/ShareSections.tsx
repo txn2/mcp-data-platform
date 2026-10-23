@@ -207,6 +207,8 @@ export interface UserShareSectionProps {
   onClearError: () => void;
   onShare: () => void;
   isPending: boolean;
+  /** A file opens only for a signed-in person: it has no emailed link (#2258). */
+  isFile?: boolean;
 }
 
 /**
@@ -219,6 +221,17 @@ export interface UserShareSectionProps {
  * both live here together: notification on by default, and the note shown
  * only while it has somewhere to go.
  */
+/** recipientHelp says who a share to the recipient chosen opens for. */
+function recipientHelp(byPersona: boolean, isFile: boolean): string {
+  if (byPersona) {
+    return "Everyone in the persona can open it while they are in it, and the share lasts until you revoke it.";
+  }
+  if (isFile) {
+    return "Only this person can open the file, and their access lasts until you revoke it. They open it signed in.";
+  }
+  return "Only this person can open the link, and their access lasts until you revoke it. With an account they sign in and get the permission you grant; without one they can view (not edit) through single-use links emailed to them.";
+}
+
 export function UserShareSection({
   recipientKind,
   setRecipientKind,
@@ -237,6 +250,7 @@ export function UserShareSection({
   onClearError,
   onShare,
   isPending,
+  isFile = false,
 }: UserShareSectionProps) {
   const byPersona = recipientKind === "personas";
   const hasRecipient = byPersona ? Boolean(persona) : email.trim() !== "";
@@ -255,9 +269,7 @@ export function UserShareSection({
         }
       />
       <p className="mb-2 text-xs text-muted-foreground">
-        {byPersona
-          ? "Everyone in the persona can open it while they are in it, and the share lasts until you revoke it."
-          : "Only this person can open the link, and their access lasts until you revoke it. With an account they sign in and get the permission you grant; without one they can view (not edit) through single-use links emailed to them."}
+        {recipientHelp(byPersona, isFile)}
       </p>
       <div className="flex gap-2">
         {byPersona ? (

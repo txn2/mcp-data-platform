@@ -41,6 +41,11 @@ type Deps struct {
 	CanOpen func(ctx context.Context, user *access.User, targetType, id string) bool
 	// IsAdmin is the platform's administrator rule.
 	IsAdmin func(user *access.User) bool
+	// CanShare reports whether the user's persona lets them share what they
+	// own (persona.SharingAllowed): an approval writes a share, so an owner
+	// whose persona withholds sharing cannot approve (#2257). An
+	// administrator always can. Nil admits every owner.
+	CanShare func(user *access.User) bool
 	// Share creates the person share an approval grants and returns its id.
 	Share func(ctx context.Context, targetType, id, createdBy, recipientEmail, permission string) (string, error)
 	// NotifyOwner tells the owner a request is waiting; NotifyRequester tells
@@ -52,7 +57,9 @@ type Deps struct {
 }
 
 // plural maps the route segment to the target type.
-var plural = map[string]string{"assets": TargetAsset, "collections": TargetCollection, "prompts": TargetPrompt}
+var plural = map[string]string{
+	"assets": TargetAsset, "collections": TargetCollection, "prompts": TargetPrompt, "resources": TargetResource,
+}
 
 const (
 	maxBody     = 8 << 10
@@ -68,9 +75,11 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, d Deps) 
 	mux.Handle("GET /api/v1/portal/assets/{id}/access-request", wrap(http.HandlerFunc(h.page)))
 	mux.Handle("GET /api/v1/portal/collections/{id}/access-request", wrap(http.HandlerFunc(h.page)))
 	mux.Handle("GET /api/v1/portal/prompts/{id}/access-request", wrap(http.HandlerFunc(h.page)))
+	mux.Handle("GET /api/v1/portal/resources/{id}/access-request", wrap(http.HandlerFunc(h.page)))
 	mux.Handle("POST /api/v1/portal/assets/{id}/access-requests", wrap(http.HandlerFunc(h.open)))
 	mux.Handle("POST /api/v1/portal/collections/{id}/access-requests", wrap(http.HandlerFunc(h.open)))
 	mux.Handle("POST /api/v1/portal/prompts/{id}/access-requests", wrap(http.HandlerFunc(h.open)))
+	mux.Handle("POST /api/v1/portal/resources/{id}/access-requests", wrap(http.HandlerFunc(h.open)))
 	mux.Handle("GET /api/v1/portal/access-requests", wrap(http.HandlerFunc(h.list)))
 	mux.Handle("POST /api/v1/portal/access-requests/{id}/approve", wrap(http.HandlerFunc(h.approve)))
 	mux.Handle("POST /api/v1/portal/access-requests/{id}/decline", wrap(http.HandlerFunc(h.decline)))
@@ -102,7 +111,7 @@ func (h *handler) target(w http.ResponseWriter, r *http.Request) *item {
 	return &item{targetType: targetType, id: id, Target: t}
 }
 
-// page handles GET /api/v1/portal/{assets|collections|prompts}/{id}/access-request.
+// page handles GET /api/v1/portal/{assets|collections|prompts|resources}/{id}/access-request.
 //
 // @Summary      Read the request-access page
 // @Description  What the page shown to a signed-in person who cannot open an item says (#2090): whether they already open it, the item's owner, the item's name when the access_requests setting reveals names, and their pending request for it if they have one.
@@ -116,6 +125,7 @@ func (h *handler) target(w http.ResponseWriter, r *http.Request) *item {
 // @Router       /portal/assets/{id}/access-request [get]
 // @Router       /portal/collections/{id}/access-request [get]
 // @Router       /portal/prompts/{id}/access-request [get]
+// @Router       /portal/resources/{id}/access-request [get]
 func (h *handler) page(w http.ResponseWriter, r *http.Request) {
 	user := access.GetUser(r.Context())
 	if user == nil {
@@ -136,7 +146,7 @@ func (h *handler) page(w http.ResponseWriter, r *http.Request) {
 	httpjson.WriteJSON(w, http.StatusOK, page)
 }
 
-// open handles POST /api/v1/portal/{assets|collections|prompts}/{id}/access-requests.
+// open handles POST /api/v1/portal/{assets|collections|prompts|resources}/{id}/access-requests.
 //
 // @Summary      Request access to an item
 // @Description  Asks the owner of an asset, collection or prompt for access (#2090), with an optional message. The owner is notified by their notification preferences with Approve as viewer, Approve as editor and Decline. A second request while one is pending answers 200 with that request and notifies nobody; a person who already opens the item is refused with 409, and one who has asked three times for it in a day with 429.
@@ -155,6 +165,7 @@ func (h *handler) page(w http.ResponseWriter, r *http.Request) {
 // @Router       /portal/assets/{id}/access-requests [post]
 // @Router       /portal/collections/{id}/access-requests [post]
 // @Router       /portal/prompts/{id}/access-requests [post]
+// @Router       /portal/resources/{id}/access-requests [post]
 func (h *handler) open(w http.ResponseWriter, r *http.Request) {
 	user := access.GetUser(r.Context())
 	if user == nil {
@@ -265,7 +276,7 @@ func (h *handler) decided(w http.ResponseWriter, r *http.Request) *answering {
 // approve handles POST /api/v1/portal/access-requests/{id}/approve.
 //
 // @Summary      Approve an access request
-// @Description  Creates a person share of the item for the requester with the permission given, viewer or editor, recorded with origin access_request (#2090), and tells the requester. The item's owner or an administrator.
+// @Description  Creates a person share of the item for the requester with the permission given, viewer or editor, recorded with origin access_request (#2090), and tells the requester. The item's owner or an administrator; 403 when the owner's persona withholds sharing.
 // @Tags         Access requests
 // @Accept       json
 // @Produce      json
@@ -273,6 +284,7 @@ func (h *handler) decided(w http.ResponseWriter, r *http.Request) *answering {
 // @Param        body  body  DecideRequest  true  "The permission"
 // @Success      200  {object}  Request
 // @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
 // @Failure      409  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
@@ -289,6 +301,10 @@ func (h *handler) approve(w http.ResponseWriter, r *http.Request) {
 	}
 	a := h.decided(w, r)
 	if a == nil {
+		return
+	}
+	if h.d.CanShare != nil && !h.d.IsAdmin(a.user) && !h.d.CanShare(a.user) {
+		httpjson.WriteError(w, http.StatusForbidden, access.ErrSharingNotAllowed)
 		return
 	}
 	shareID, err := h.d.Share(r.Context(), a.req.TargetType, a.req.TargetID, a.user.Email, a.req.RequesterEmail, in.Permission)

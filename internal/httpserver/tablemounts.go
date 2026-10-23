@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/admin/tablesapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcesharewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/storagewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablesource"
@@ -369,8 +370,11 @@ func wireTableLookup(p *platform.Platform, lookup *tablelookup.Lookup) {
 // platformTableSubjects reads the two stores off the platform and builds the
 // resolvers over them.
 func platformTableSubjects(p *platform.Platform) map[string]tableregister.Subject {
-	return tablesource.Subjects(
-		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore())
+	subjects := tablesource.Subjects(p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore())
+	if shared := resourcesharewire.TablePermission(p); shared != nil && p.ResourceStore() != nil {
+		subjects[tableregister.KindResource] = tablesource.ResourceSubjectShared(p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, shared)
+	}
+	return subjects
 }
 
 // platformTableLocator reads the two stores off the platform and builds the

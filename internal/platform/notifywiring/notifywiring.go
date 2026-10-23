@@ -58,8 +58,6 @@ type Deps struct {
 	// PortalURL is the deployment's public address, for the link a published
 	// document carries.
 	PortalURL string
-	// AdminPersona is the persona whose reach is unrestricted.
-	AdminPersona string
 	// Toolkits is the live toolkit registry the chat channels' api
 	// connections are found in, for listing a bot's channels (#2241). nil
 	// lists none.
@@ -91,7 +89,6 @@ func Wire(deps Deps) {
 		Access:         assetAccessOf(deps),
 		Resources:      resourcesOf(deps.Resources),
 		PortalURL:      deps.PortalURL,
-		AdminPersona:   deps.AdminPersona,
 		Targets:        targetsOf(deps.Toolkits),
 		Shares:         sharesOf(deps.Shares),
 		SharingAllowed: sharingOf(deps.Personas),

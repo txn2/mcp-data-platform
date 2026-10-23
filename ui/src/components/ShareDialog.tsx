@@ -21,6 +21,11 @@ import { ActiveShares } from "@/components/share/ActiveShares";
 import { AccessRequestsList } from "@/components/access/AccessRequestsList";
 import { ChannelShareSection } from "@/components/share/ChannelShareSection";
 import {
+  useResourceShares,
+  useCreateResourceShare,
+  useRevokeResourceShare,
+} from "@/api/resources/shares";
+import {
   LinkShareSection,
   UserShareSection,
   type LinkAccessMode,
@@ -30,7 +35,16 @@ import {
 export type ShareTarget =
   | { type: "asset"; id: string }
   | { type: "collection"; id: string }
-  | { type: "prompt"; id: string };
+  | { type: "prompt"; id: string }
+  // A managed resource, which people see as a file (#2258).
+  | { type: "resource"; id: string };
+
+const TITLES: Record<ShareTarget["type"], string> = {
+  asset: "Share Asset",
+  collection: "Share Collection",
+  prompt: "Share Prompt",
+  resource: "Share File",
+};
 
 interface Props {
   /** @deprecated Use `target` instead. */
@@ -45,6 +59,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const resolved: ShareTarget = target ?? { type: "asset", id: assetId ?? "" };
   const isCollection = resolved.type === "collection";
   const isPrompt = resolved.type === "prompt";
+  const isFile = resolved.type === "resource";
 
   const { data: assetShares = [] } = useShares(
     resolved.type === "asset" ? resolved.id : "",
@@ -55,16 +70,21 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const { data: promptShares = [] } = usePromptShares(
     isPrompt ? resolved.id : "",
   );
+  const { data: fileShares = [] } = useResourceShares(isFile ? resolved.id : "");
   const shares = isCollection
     ? collectionShares
     : isPrompt
       ? promptShares
-      : assetShares;
+      : isFile
+        ? fileShares
+        : assetShares;
 
   const createAssetShare = useCreateShare();
   const createCollShare = useCreateCollectionShare();
   const createPromptShare = useCreatePromptShare();
   const revokeShare = useRevokeShare();
+  const createFileShare = useCreateResourceShare();
+  const revokeFileShare = useRevokeResourceShare(isFile ? resolved.id : "");
   const [ttl, setTtl] = useState("24h");
   const [email, setEmail] = useState("");
   // A share can name a persona instead of a person (#2089).
@@ -88,7 +108,8 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const isPending =
     createAssetShare.isPending ||
     createCollShare.isPending ||
-    createPromptShare.isPending;
+    createPromptShare.isPending ||
+    createFileShare.isPending;
 
   // A public link is a bearer credential and must expire; a link only
   // signed-in users can open ends when it is revoked, like a share addressed
@@ -163,7 +184,9 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
         err instanceof Error ? err.message : "Failed to create the share.",
       );
 
-    if (isPrompt) {
+    if (isFile) {
+      createFileShare.mutate({ resourceId: resolved.id, ...opts }, { onError });
+    } else if (isPrompt) {
       createPromptShare.mutate({ promptId: resolved.id, ...opts }, { onError });
     } else if (isCollection) {
       createCollShare.mutate(
@@ -208,17 +231,12 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
     >
       <DialogContent aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle className="text-lg">
-            {isPrompt
-              ? "Share Prompt"
-              : isCollection
-                ? "Share Collection"
-                : "Share Asset"}
-          </DialogTitle>
+          <DialogTitle className="text-lg">{TITLES[resolved.type]}</DialogTitle>
         </DialogHeader>
 
-        {/* Link shares are not offered for prompts, which are run, not viewed via a public page */}
-        {!isPrompt && (
+        {/* Link shares are not offered for prompts, which are run, not viewed
+            via a public page, nor for files, which have no public page. */}
+        {!isPrompt && !isFile && (
           <LinkShareSection
             linkAccess={linkAccess}
             setLinkAccess={setLinkAccess}
@@ -255,12 +273,13 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
           onClearError={() => setShareError(null)}
           onShare={handleShareWithUser}
           isPending={isPending}
+          isFile={isFile}
         />
 
         {/* An asset alone goes to a channel: a collection or a prompt has no
             content to post (#2241). */}
-        {resolved.type === "asset" && resolved.id && (
-          <ChannelShareSection assetId={resolved.id} open={open} />
+        {(resolved.type === "asset" || isFile) && resolved.id && (
+          <ChannelShareSection target={{ type: resolved.type, id: resolved.id }} open={open} />
         )}
 
         <AccessRequestsList target={{ type: resolved.type, id: resolved.id }} />
@@ -271,7 +290,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
           confirmRevoke={confirmRevoke}
           setConfirmRevoke={setConfirmRevoke}
           onCopy={handleCopy}
-          onRevoke={(id) => revokeShare.mutate(id)}
+          onRevoke={(id) => (isFile ? revokeFileShare.mutate(id) : revokeShare.mutate(id))}
         />
       </DialogContent>
     </Dialog>

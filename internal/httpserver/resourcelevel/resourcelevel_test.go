@@ -47,3 +47,33 @@ func TestApplyResourceLevel(t *testing.T) {
 	require.NoError(t, err, "an administrator is held to none of it")
 	assert.Equal(t, []string{"none"}, got.Personas)
 }
+
+// A person of an external persona never reads Global (#2257), and writes
+// only when the persona lets its people upload (#2258).
+func TestApplyExternalPersona(t *testing.T) {
+	pr := persona.NewRegistry()
+	require.NoError(t, pr.Register(&persona.Persona{Name: "vendors", Roles: []string{"vendor"}, External: true}))
+	require.NoError(t, pr.Register(&persona.Persona{
+		Name: "agency", Roles: []string{"agency"}, External: true,
+		Portal: &persona.PortalAccess{Uploads: &persona.PortalUploads{SharePersonas: []string{"marketing"}}},
+	}))
+	claims := func(role string) *resource.Claims {
+		return &resource.Claims{Sub: "ext:1", Roles: []string{role}, Personas: []string{role}}
+	}
+
+	got, err := Apply(claims("vendor"), pr, http.MethodGet)
+	require.NoError(t, err)
+	assert.True(t, got.NoGlobal)
+	scopes := resource.VisibleScopes(*got)
+	assert.NotContains(t, scopes, resource.ScopeFilter{Scope: resource.ScopeGlobal})
+	assert.Contains(t, scopes, resource.ScopeFilter{Scope: resource.ScopeUser, ScopeID: "ext:1"})
+	assert.False(t, resource.CanReadResource(*got, &resource.Resource{Scope: resource.ScopeGlobal}))
+	_, err = Apply(claims("vendor"), pr, http.MethodPost)
+	assert.True(t, errors.Is(err, resource.ErrForbidden), "no uploads setting, no upload")
+
+	got, err = Apply(claims("agency"), pr, http.MethodPost)
+	require.NoError(t, err, "uploads let the person write to their own folder")
+	assert.True(t, got.NoGlobal)
+	assert.False(t, resource.CanWriteScope(*got, resource.ScopePersona, "agency"), "never the persona folder")
+	assert.True(t, resource.CanWriteScope(*got, resource.ScopeUser, "ext:1"))
+}

@@ -67,8 +67,8 @@ export function ContentRenderer({ contentType, content, fileName, contentUrl, si
     [contentType, fileName, content],
   );
 
-  // Export PDF is offered only to a persona with Download (#2225); the PDF
-  // route refuses the rest.
+  // Export PDF is offered only to a persona with PDF export (#2225, #2257);
+  // the PDF route refuses the rest.
   const { download } = usePortalAccess();
 
   if (entry.source === "url") {

@@ -61,7 +61,7 @@ func (s *stubRuns) ListRuns(ctx context.Context, filter script.RunFilter) ([]scr
 func runnableHandle(t *testing.T) (*Handle, *memStore, *stubRuns) {
 	t.Helper()
 	store, runs := newMemStore(), newStubRuns()
-	h := New(Config{Store: store, Runs: runs, AdminPersona: "admin"})
+	h := New(Config{Store: store, Runs: runs})
 
 	res := call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
@@ -297,7 +297,7 @@ func TestRunCommands_Failures(t *testing.T) {
 	t.Run("reading that script fails", func(t *testing.T) {
 		store := &brokenScriptReads{memStore: newMemStore()}
 		runs := newStubRuns()
-		h := New(Config{Store: store, Runs: runs, AdminPersona: "admin"})
+		h := New(Config{Store: store, Runs: runs})
 		require.NoError(t, runs.Enqueue(context.Background(), &script.Run{ID: "dpx_1", ScriptID: "script_1"}))
 
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdGetRun, RunID: "dpx_1"})
@@ -358,7 +358,7 @@ func TestRunScript_ExecutesTheCurrentVersion(t *testing.T) {
 // all.
 func TestRunScript_WithoutAVersionStoreIsUnavailable(t *testing.T) {
 	store := &unversionedStore{inner: newMemStore()}
-	h := New(Config{Store: store, Runs: newStubRuns(), AdminPersona: "admin"})
+	h := New(Config{Store: store, Runs: newStubRuns()})
 	require.Nil(t, h.versions)
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n"))})
@@ -499,7 +499,7 @@ func TestGetRun_ReadableByWhoeverAskedForIt(t *testing.T) {
 // email for: an OIDC token carrying a subject and no email claim.
 func callerCtxWithoutEmail(userID, persona string) context.Context {
 	pc := middleware.NewPlatformContext("req_1")
-	pc.UserID, pc.PersonaName = userID, persona
+	pc.UserID, pc.PersonaName, pc.IsAdmin = userID, persona, persona == "admin"
 	pc.Roles = []string{persona}
 	return middleware.WithPlatformContext(context.Background(), pc)
 }
@@ -511,7 +511,7 @@ func callerCtxWithoutEmail(userID, persona string) context.Context {
 // other's work.
 func TestEmaillessCallersAreDistinctOwners(t *testing.T) {
 	store := newMemStore()
-	h := New(Config{Store: store, Runs: newStubRuns(), AdminPersona: "admin"})
+	h := New(Config{Store: store, Runs: newStubRuns()})
 
 	sarah := callerCtxWithoutEmail("oidc|sarah", "analyst")
 	marcus := callerCtxWithoutEmail("oidc|marcus", "analyst")
@@ -538,7 +538,7 @@ func TestEmaillessCallersAreDistinctOwners(t *testing.T) {
 // that caller owns their scripts under the "anonymous" name.
 func TestUnidentifiedCallerIsStillAnOwner(t *testing.T) {
 	store := newMemStore()
-	h := New(Config{Store: store, Runs: newStubRuns(), AdminPersona: "admin"})
+	h := New(Config{Store: store, Runs: newStubRuns()})
 	ctx := middleware.WithPlatformContext(context.Background(), middleware.NewPlatformContext("req_1"))
 
 	res := call(t, h, ctx, manageScriptInput{Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n"))})
@@ -595,7 +595,7 @@ func TestRunScript_OffersADraftRunOnlyWhereOneWouldBeAdmitted(t *testing.T) {
 // fails, and a store that refuses the cancel.
 func TestCancelRun_Refusals(t *testing.T) {
 	t.Run("no run store", func(t *testing.T) {
-		h := New(Config{Store: newMemStore(), AdminPersona: "admin"})
+		h := New(Config{Store: newMemStore()})
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCancelRun, RunID: "dpx_1"})
 		assert.Contains(t, resultText(res), "keeps no script runs")
 	})
@@ -645,7 +645,7 @@ func TestCancelRun_Refusals(t *testing.T) {
 // claim cannot run the script.
 func TestRunScript_ABoundParameterIsTheCallers(t *testing.T) {
 	store, runs := newMemStore(), newStubRuns()
-	h := New(Config{Store: store, Runs: runs, AdminPersona: "admin"})
+	h := New(Config{Store: store, Runs: runs})
 	res := call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "tenant-report", Source: tested(inMain("print(run.params.get(\"tenant\", \"\"))\n")),
 		Params: []script.Param{{Name: "tenant", Type: script.ParamTypeString, Bind: "caller.tenant"}},

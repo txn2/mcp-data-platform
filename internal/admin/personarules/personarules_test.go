@@ -54,9 +54,12 @@ func TestNormalize(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	assert.NoError(t, Validate(&persona.Persona{Name: "a"}))
-	assert.Error(t, Validate(&persona.Persona{Name: "a", APIRoutes: []persona.APIRouteRule{{Connection: "crm", Action: "audit"}}}),
+	assert.NoError(t, Validate(&persona.Persona{Name: "a"}, "admin"))
+	assert.Error(t, Validate(&persona.Persona{Name: "a", APIRoutes: []persona.APIRouteRule{{Connection: "crm", Action: "audit"}}}, "admin"),
 		"an action the registry refuses")
-	assert.Error(t, Validate(&persona.Persona{Name: "a", Portal: &persona.PortalAccess{Knowledge: "everything"}}),
+	assert.Error(t, Validate(&persona.Persona{Name: "a", Portal: &persona.PortalAccess{Knowledge: "everything"}}, "admin"),
 		"a portal level the registry refuses")
+	assert.ErrorIs(t, Validate(&persona.Persona{Name: "admin", External: true}, "admin"), persona.ErrExternalAdmin,
+		"the administrator persona is never external (#2257)")
+	assert.NoError(t, Validate(&persona.Persona{Name: "vendors", External: true}, "admin"))
 }

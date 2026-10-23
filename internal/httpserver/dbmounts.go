@@ -28,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personashare"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcelevel"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcesharewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
@@ -454,39 +455,12 @@ func promptVersionDeps(p *platform.Platform) (versionhttp.Deps, bool) {
 }
 
 // mountResourcesAPI registers the managed resources REST API on the mux if enabled.
-func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
+func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydelivery.Handle) {
 	if p == nil || p.ResourceStore() == nil {
 		return
 	}
 
-	var portalAuthOpts []portal.AuthenticatorOption
-	if p.BrowserSessionAuth() != nil {
-		portalAuthOpts = append(portalAuthOpts, portal.WithBrowserAuth(p.BrowserSessionAuth()))
-	}
-	portalAuth := portal.NewAuthenticator(p.Authenticator(), portalAuthOpts...)
-
-	pr := p.PersonaRegistry()
-	adminPersona := p.Config().Admin.Persona
-	extractClaims := func(r *http.Request) (*resource.Claims, error) {
-		user, err := portalAuth.Authenticate(r)
-		if err != nil {
-			// Surface a CSRF rejection as resource.ErrForbidden so the handler
-			// responds 403 (recoverable) instead of 401 (force-logout), matching
-			// the admin/portal surfaces.
-			if errors.Is(err, browsersession.ErrCSRFInvalid) {
-				return nil, resource.ErrForbidden
-			}
-			return nil, errors.New("authentication required")
-		}
-		if user == nil {
-			return nil, errors.New("authentication required")
-		}
-		claims, err := buildResourceClaims(user, pr, adminPersona)
-		if err != nil {
-			return nil, err
-		}
-		return resourcelevel.Apply(claims, pr, r.Method)
-	}
+	extractClaims := resourceClaimsExtractor(p)
 
 	// A deleted resource must not leave a table serving its file (#1327), and
 	// a revision of one moves the tables that follow it (#1536).
@@ -541,10 +515,48 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		deps.MoveRecorder = rec
 	}
 
-	handler := resource.NewHandler(deps, extractClaims, nil)
+	// Shared files (#2258): the claims carry the caller's share lookup.
+	shares := resourcesharewire.New(p, notify)
+	claims := shares.Bind(extractClaims)
+	deps.OnUploaded = shares.Uploaded()
+	handler := resource.NewHandler(deps, claims, nil)
+	shares.Register(mux)
 	mux.Handle("/api/v1/resources/", handler)
 	mux.Handle("/api/v1/resources", handler)
 	slog.Info("Managed resources API enabled on /api/v1/resources")
+}
+
+// resourceClaimsExtractor authenticates a resources API request and returns
+// the caller's claims narrowed to their persona's portal level.
+func resourceClaimsExtractor(p *platform.Platform) func(*http.Request) (*resource.Claims, error) {
+	var portalAuthOpts []portal.AuthenticatorOption
+	if p.BrowserSessionAuth() != nil {
+		portalAuthOpts = append(portalAuthOpts, portal.WithBrowserAuth(p.BrowserSessionAuth()))
+	}
+	portalAuth := portal.NewAuthenticator(p.Authenticator(), portalAuthOpts...)
+
+	pr := p.PersonaRegistry()
+	adminPersona := p.Config().Admin.Persona
+	return func(r *http.Request) (*resource.Claims, error) {
+		user, err := portalAuth.Authenticate(r)
+		if err != nil {
+			// Surface a CSRF rejection as resource.ErrForbidden so the handler
+			// responds 403 (recoverable) instead of 401 (force-logout), matching
+			// the admin/portal surfaces.
+			if errors.Is(err, browsersession.ErrCSRFInvalid) {
+				return nil, resource.ErrForbidden
+			}
+			return nil, errors.New("authentication required")
+		}
+		if user == nil {
+			return nil, errors.New("authentication required")
+		}
+		claims, err := buildResourceClaims(user, pr, adminPersona)
+		if err != nil {
+			return nil, err
+		}
+		return resourcelevel.Apply(claims, pr, r.Method)
+	}
 }
 
 // mountMentionAPI registers the people and mention routes with the portal's

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -183,7 +184,7 @@ func TestGetOrAuthenticatePC(t *testing.T) {
 	t.Run("returns existing PlatformContext", func(t *testing.T) {
 		existing := &PlatformContext{UserID: "existing"}
 		ctx := context.WithValue(context.Background(), platformContextKey, existing)
-		got := getOrAuthenticatePC(ctx, nil, nil, nil, "")
+		got := getOrAuthenticatePC(ctx, nil, nil, nil, nil)
 		if got != existing {
 			t.Error("should return existing PlatformContext")
 		}
@@ -195,14 +196,14 @@ func TestGetOrAuthenticatePC(t *testing.T) {
 		}
 		cfg := ManagedResourceConfig{
 			Authenticator:    auth,
-			AdminPersona:     "admin",
+			AdminRule:        func(roles []string) bool { return slices.Contains(roles, "dp_admin") },
 			PersonasForRoles: func(_ []string) []string { return []string{"admin"} },
 		}
 		// Pass a request so bridgeAuthToken is exercised.
 		req := &mcp.ServerRequest[*mcp.ReadResourceParams]{
 			Params: &mcp.ReadResourceParams{URI: "mcp://global/test/file.txt"},
 		}
-		got := getOrAuthenticatePC(context.Background(), req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
+		got := getOrAuthenticatePC(context.Background(), req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminRule)
 		if got == nil {
 			t.Fatal("expected non-nil PlatformContext")
 		}
@@ -214,17 +215,30 @@ func TestGetOrAuthenticatePC(t *testing.T) {
 		}
 	})
 
+	// A person whose roles make them a member of the admin persona without
+	// resolving to it is not an administrator (#2257): membership was the
+	// rule here, and it differed from every other surface's.
+	t.Run("membership of the admin persona is not admin", func(t *testing.T) {
+		auth := &mockManagedAuth{user: &UserInfo{UserID: "u3", Roles: []string{"dp_analyst", "shared"}}}
+		got := getOrAuthenticatePC(context.Background(), nil, auth,
+			func(_ []string) []string { return []string{"analyst", "admin"} },
+			func(roles []string) bool { return slices.Contains(roles, "dp_admin") })
+		if got == nil || got.IsAdmin {
+			t.Fatalf("IsAdmin should follow the admin rule, got %+v", got)
+		}
+	})
+
 	t.Run("returns nil when auth fails", func(t *testing.T) {
 		auth := &mockManagedAuth{err: fmt.Errorf("unauthorized")}
 		cfg := ManagedResourceConfig{Authenticator: auth}
-		got := getOrAuthenticatePC(context.Background(), nil, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
+		got := getOrAuthenticatePC(context.Background(), nil, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminRule)
 		if got != nil {
 			t.Error("expected nil when auth fails")
 		}
 	})
 
 	t.Run("returns nil when no authenticator", func(t *testing.T) {
-		got := getOrAuthenticatePC(context.Background(), nil, nil, nil, "")
+		got := getOrAuthenticatePC(context.Background(), nil, nil, nil, nil)
 		if got != nil {
 			t.Error("expected nil when no authenticator configured")
 		}
@@ -236,10 +250,10 @@ func TestGetOrAuthenticatePC(t *testing.T) {
 		}
 		cfg := ManagedResourceConfig{
 			Authenticator:    auth,
-			AdminPersona:     "admin",
+			AdminRule:        func(roles []string) bool { return slices.Contains(roles, "dp_admin") },
 			PersonasForRoles: func(_ []string) []string { return []string{"analyst"} },
 		}
-		got := getOrAuthenticatePC(context.Background(), nil, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
+		got := getOrAuthenticatePC(context.Background(), nil, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminRule)
 		if got == nil {
 			t.Fatal("expected non-nil PlatformContext")
 		}
@@ -336,7 +350,7 @@ func TestMCPManagedResourceMiddleware_ListAuthenticatesFallback(t *testing.T) {
 		Authenticator: &mockManagedAuth{
 			user: &UserInfo{UserID: "u1", Email: "u1@example.com", Roles: []string{"dp_admin"}},
 		},
-		AdminPersona:     "admin",
+		AdminRule:        func(roles []string) bool { return slices.Contains(roles, "dp_admin") },
 		PersonasForRoles: func(_ []string) []string { return []string{"admin"} },
 	}
 

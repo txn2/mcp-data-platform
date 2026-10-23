@@ -31,6 +31,8 @@ const (
 	TargetAsset      = "asset"
 	TargetCollection = "collection"
 	TargetPrompt     = "prompt"
+	// TargetResource is a managed resource, a file (#2258).
+	TargetResource = "resource"
 )
 
 // SettingsSection is the platform_settings section holding Settings.
@@ -90,11 +92,6 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("expire_days must be between 1 and %d", maxExpireDays)
 	}
 	return nil
-}
-
-// ValidTarget reports whether t is a target type.
-func ValidTarget(t string) bool {
-	return t == TargetAsset || t == TargetCollection || t == TargetPrompt
 }
 
 // CleanMessage trims a requester's note and refuses one too long.

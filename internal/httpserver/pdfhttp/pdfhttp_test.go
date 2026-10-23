@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/headless"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
 const deck = `<!DOCTYPE html><html><head><title>Q3</title></head><body>` +
@@ -348,5 +350,77 @@ func TestPDFRouteReportsItsOwnDeadline(t *testing.T) {
 	rec := serve(t, New(Deps{Routes: mux, Printer: p, Timeout: time.Millisecond}), mux, "/api/v1/portal/assets/a1/pdf", true)
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "in time") {
 		t.Fatalf("HTTP %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+// A persona with PDF export off is refused on the portal and resources PDF
+// routes before anything is printed (#2257); a public share link and the
+// admin console are not asked.
+func TestPDFRouteHoldsTheCallerToPDFExport(t *testing.T) {
+	mux := routes(t)
+	mux.HandleFunc("GET /portal/view/{token}/content", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(deck))
+	})
+	p := &fakePrinter{pdf: []byte("%PDF")}
+	var asked []string
+	h := New(Deps{Routes: mux, Printer: p, Exports: func(r *http.Request) bool {
+		asked = append(asked, r.URL.Path)
+		return false
+	}})
+	h.Mount(mux)
+	for _, path := range []string{"/api/v1/portal/assets/a1/pdf", "/api/v1/portal/assets/a1/versions/2/pdf", "/api/v1/resources/r1/pdf"} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "PDF export") {
+			t.Errorf("%s: HTTP %d %q, want the persona's refusal", path, rec.Code, rec.Body.String())
+		}
+	}
+	if len(p.pages) != 0 {
+		t.Error("a refused print was printed")
+	}
+	asked = nil
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/portal/view/tok/pdf", http.NoBody)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || len(asked) != 0 {
+		t.Errorf("public share link: HTTP %d, asked %v", rec.Code, asked)
+	}
+	if gated(Route{Pattern: "GET /api/v1/admin/assets/{id}/pdf"}) {
+		t.Error("the admin console's route is held to a persona")
+	}
+}
+
+type fakeCallerAuth struct {
+	user *portal.User
+	err  error
+}
+
+func (f fakeCallerAuth) Authenticate(*http.Request) (*portal.User, error) { return f.user, f.err }
+
+func TestExportsReadsThePersonasPDFExportSwitch(t *testing.T) {
+	off := false
+	reg := persona.NewRegistry()
+	_ = reg.Register(&persona.Persona{Name: "admin", Roles: []string{"admin"}, Portal: &persona.PortalAccess{Download: &off}})
+	_ = reg.Register(&persona.Persona{Name: "viewers", Roles: []string{"viewer"}, Portal: &persona.PortalAccess{Download: &off}})
+	_ = reg.Register(&persona.Persona{Name: "staff", Roles: []string{"staff"}})
+	isAdmin := reg.AdminRule("admin")
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/resources/r1/pdf", http.NoBody)
+	for _, c := range []struct {
+		name string
+		auth fakeCallerAuth
+		want bool
+	}{
+		{"signed out is left to the content route", fakeCallerAuth{err: errors.New("no")}, true},
+		{"no user", fakeCallerAuth{}, true},
+		{"switch off", fakeCallerAuth{user: &portal.User{Roles: []string{"viewer"}}}, false},
+		{"switch unset", fakeCallerAuth{user: &portal.User{Roles: []string{"staff"}}}, true},
+		{"administrator", fakeCallerAuth{user: &portal.User{Roles: []string{"admin"}}}, true},
+		{"no persona", fakeCallerAuth{user: &portal.User{Roles: []string{"nobody"}}}, true},
+	} {
+		if got := exports(c.auth, reg, isAdmin)(req); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
 	}
 }

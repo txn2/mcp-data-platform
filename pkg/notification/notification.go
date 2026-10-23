@@ -113,6 +113,9 @@ const (
 	KindCollection = "collection"
 	// KindPrompt marks a shared prompt.
 	KindPrompt = "prompt"
+	// KindResource marks a shared managed resource, which people see as a
+	// file (#2258).
+	KindResource = "resource"
 	// KindComment marks a thread comment.
 	KindComment = "comment"
 	// KindFeedback marks a thread feedback event.

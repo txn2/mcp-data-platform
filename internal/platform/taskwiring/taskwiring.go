@@ -151,7 +151,7 @@ func resolver(d Deps) mcptask.Resolver {
 		personas = iam.PersonasForRoles(d.Personas)
 	}
 	return func(ctx context.Context, req mcp.Request) context.Context {
-		if pc := middleware.ResolvePlatformContext(ctx, req, d.Authenticator, personas, d.AdminPersona); pc != nil {
+		if pc := middleware.ResolvePlatformContext(ctx, req, d.Authenticator, personas, d.Personas.AdminRule(d.AdminPersona)); pc != nil {
 			return middleware.WithPlatformContext(ctx, pc)
 		}
 		return ctx

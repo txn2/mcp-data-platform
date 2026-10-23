@@ -484,7 +484,7 @@ func uploadedThenMoved(
 
 // TestARunRefreshesAFileMovedIntoAPersonaTheAuthorBelongsTo is criterion 1. The
 // person moves the CSV their own scheduled script refreshes into a persona
-// library they are a member of -- a move CanMoveToLibrary deliberately permits
+// library they are a member of -- a move canMoveToLibrary deliberately permits
 // without persona-admin authority -- and the next run has to go on refreshing
 // it.
 func TestARunRefreshesAFileMovedIntoAPersonaTheAuthorBelongsTo(t *testing.T) {

@@ -277,9 +277,8 @@ var _ ShareLister = (*stubShareLister)(nil)
 func newTestHandle() (*Handle, *mockPromptStore) {
 	store := newMockPromptStore()
 	h := &Handle{
-		store:        store,
-		adminPersona: "admin",
-		registry:     registry.NewRegistry(),
+		store:    store,
+		registry: registry.NewRegistry(),
 	}
 	return h, store
 }
@@ -289,9 +288,8 @@ func newTestHandle() (*Handle, *mockPromptStore) {
 func newTestCollectionHandle() (*Handle, *mockCollectionStore) {
 	store := newMockCollectionStore()
 	h := &Handle{
-		store:        store,
-		adminPersona: "admin",
-		registry:     registry.NewRegistry(),
+		store:    store,
+		registry: registry.NewRegistry(),
 	}
 	return h, store
 }
@@ -306,14 +304,14 @@ func testCommandNames() []string {
 
 func adminCtx() context.Context {
 	pc := middleware.NewPlatformContext("")
-	pc.PersonaName = "admin"
+	pc.PersonaName, pc.IsAdmin = "admin", true
 	pc.UserEmail = "admin@example.com"
 	return middleware.WithPlatformContext(context.Background(), pc)
 }
 
 func userCtx(email, persona string) context.Context {
 	pc := middleware.NewPlatformContext("")
-	pc.PersonaName = persona
+	pc.PersonaName, pc.IsAdmin = persona, persona == "admin"
 	pc.UserEmail = email
 	return middleware.WithPlatformContext(context.Background(), pc)
 }

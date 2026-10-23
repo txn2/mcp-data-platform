@@ -1,6 +1,4 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { MarkdownEditor } from "@/components/MarkdownEditor";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
@@ -84,56 +82,5 @@ export function Field({
       </Label>
       {children}
     </div>
-  );
-}
-
-export function CtxField({
-  label,
-  value,
-  onChange,
-  minHeight = "80px",
-  readOnly = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  minHeight?: string;
-  readOnly?: boolean;
-}) {
-  return (
-    <div>
-      <Label className={labelClass}>{label}</Label>
-      <MarkdownEditor
-        value={value}
-        onChange={onChange}
-        minHeight={minHeight}
-        readOnly={readOnly}
-      />
-    </div>
-  );
-}
-
-export function TemplateRow({
-  name,
-  hint,
-  onApply,
-}: {
-  name: string;
-  hint: string;
-  onApply: () => void;
-}) {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      onClick={onApply}
-      className="h-auto w-full justify-between px-2.5 py-1.5 text-left font-normal hover:border-primary/40 hover:bg-muted/40"
-    >
-      <span className="block">
-        <span className="block text-[11px] font-semibold">{name}</span>
-        <span className="mt-0.5 block text-[10px] text-muted-foreground">{hint}</span>
-      </span>
-      <ChevronRight className="text-muted-foreground" />
-    </Button>
   );
 }

@@ -155,9 +155,10 @@ type Encryptor interface {
 type Store struct {
 	db  *sql.DB
 	enc Encryptor
-	// admin is the administrator persona, which allow_personas never
-	// refuses: the administrator is not limited (WithAdmin).
-	admin string
+	// admin reports whether a persona is the administrator persona, which
+	// allow_personas never refuses: the administrator is not limited
+	// (WithAdmin).
+	admin func(persona string) bool
 	// now and sleep are the clock a one-time code is issued by and the wait
 	// for the next period (WithClock).
 	now   func() time.Time
@@ -192,10 +193,12 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// WithAdmin names the administrator persona the lookup lets through
-// allow_personas, and returns the store.
-func (s *Store) WithAdmin(persona string) *Store {
-	s.admin = persona
+// WithAdmin installs the rule for the administrator persona the lookup lets
+// through allow_personas, and returns the store. It is the persona
+// registry's rule, never a name alone: an external persona carrying the
+// administrator's name is held to allow_personas like any other (#2257).
+func (s *Store) WithAdmin(isAdmin func(persona string) bool) *Store {
+	s.admin = isAdmin
 	return s
 }
 

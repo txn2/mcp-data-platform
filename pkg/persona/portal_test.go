@@ -128,3 +128,65 @@ func TestPortalAccessResolve(t *testing.T) {
 		t.Errorf("external block resolved %+v, want knowledge none and external", ext)
 	}
 }
+
+// External takes scratch tables away and keeps the uploads it names; an
+// internal persona's uploads setting is dropped (#2257, #2258).
+func TestPortalScratchTablesAndUploads(t *testing.T) {
+	got := (&Persona{Name: "p"}).PortalPermissions(nil)
+	assert.Equal(t, PortalRegister, got.ScratchTables, "unset keeps what every persona had before #2257")
+	assert.Nil(t, got.Uploads)
+
+	up := &PortalUploads{SharePersonas: []string{"marketing"}}
+	ext := &Persona{Name: "vendors", External: true, Portal: &PortalAccess{ScratchTables: PortalRegister, Uploads: up}}
+	eff := ext.PortalPermissions(nil)
+	assert.Equal(t, PortalNone, eff.ScratchTables)
+	assert.Equal(t, up, eff.Uploads)
+
+	internal := &Persona{Name: "staff", Portal: &PortalAccess{Uploads: up}}
+	assert.Nil(t, internal.PortalPermissions(nil).Uploads, "uploads are an external persona's setting")
+
+	assert.Equal(t, PortalRegister, FullPortalAccess().ScratchTables)
+	assert.True(t, AtLeast(PortalRegister, PortalList))
+	assert.False(t, AtLeast(PortalNone, PortalList))
+
+	require.NoError(t, (&PortalAccess{ScratchTables: PortalList}).Validate())
+	require.Error(t, (&PortalAccess{ScratchTables: PortalWrite}).Validate())
+	require.Error(t, (&PortalAccess{Uploads: &PortalUploads{}}).Validate(), "uploads shared with nobody")
+}
+
+// Differs names what an external persona's limits took from its stored
+// levels, which the editor shows beside each locked row (#2257).
+func TestPortalDiffers(t *testing.T) {
+	stored := (&Persona{Name: "p", Portal: &PortalAccess{Knowledge: PortalWrite}}).PortalPermissions(nil)
+	eff := (&Persona{Name: "p", External: true, Portal: &PortalAccess{Knowledge: PortalWrite}}).PortalPermissions(nil)
+	got := Differs(stored, eff)
+	assert.Contains(t, got, "knowledge")
+	assert.Contains(t, got, "scratch_tables")
+	assert.Contains(t, got, "search")
+	assert.NotContains(t, got, "feedback")
+	assert.Empty(t, Differs(stored, stored))
+}
+
+func TestValidateAccount(t *testing.T) {
+	require.NoError(t, ValidateAccount(nil, "admin"))
+	require.NoError(t, ValidateAccount(&Persona{Name: "admin"}, "admin"))
+	require.ErrorIs(t, ValidateAccount(&Persona{Name: "admin", External: true}, "admin"), ErrExternalAdmin)
+	require.NoError(t, ValidateAccount(&Persona{Name: "admin", External: true}, ""), "no administrator configured")
+	require.ErrorIs(t, ValidateAccount(&Persona{Name: "x", External: true, ServiceAccount: true}, "admin"), ErrAccountType)
+	require.ErrorIs(t, ValidateAccount(&Persona{Name: "x", Portal: &PortalAccess{Uploads: &PortalUploads{ShareEmails: []string{"a@example.com"}}}}, "admin"), ErrUploadsInternal)
+}
+
+// IsAdminName is AdminRule for a resolved persona's name: an external
+// persona carrying the administrator's name is not the administrator.
+func TestRegistryIsAdminName(t *testing.T) {
+	r := NewRegistry()
+	require.NoError(t, r.Register(&Persona{Name: "admin", Roles: []string{"admin"}}))
+	assert.True(t, r.IsAdminName("admin", "admin"))
+	assert.False(t, r.IsAdminName("admin", ""))
+	assert.False(t, r.IsAdminName("analyst", "admin"))
+	assert.False(t, r.IsAdminName("other", "other"), "not registered")
+	require.NoError(t, r.Register(&Persona{Name: "admin", Roles: []string{"admin"}, External: true}))
+	assert.False(t, r.IsAdminName("admin", "admin"))
+	var none *Registry
+	assert.False(t, none.IsAdminName("admin", "admin"))
+}

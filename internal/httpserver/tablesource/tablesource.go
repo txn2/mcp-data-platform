@@ -60,6 +60,18 @@ func Subjects(
 // here would let anyone who can see a persona-scoped file widen its audience.
 // This matches the asset rule below, so one sentence describes both kinds.
 func ResourceSubject(store resource.Store, bucket string) tableregister.Subject {
+	return ResourceSubjectShared(store, bucket, nil)
+}
+
+// SharePermission is the permission a share gives the caller on a resource:
+// "editor", "viewer" or "" (#2258).
+type SharePermission func(ctx context.Context, resourceID string, caller tableregister.Caller) string
+
+// ResourceSubjectShared is ResourceSubject that also admits an editor share
+// of the resource (resource.CanEditResource, #2258): the person it was shared
+// with to edit may register a table over it, as its owner may. nil shared is
+// ResourceSubject.
+func ResourceSubjectShared(store resource.Store, bucket string, shared SharePermission) tableregister.Subject {
 	return func(ctx context.Context, id string, caller tableregister.Caller) (tableregister.Source, bool) {
 		res, ok := readResource(ctx, store, id)
 		if !ok {
@@ -67,7 +79,10 @@ func ResourceSubject(store resource.Store, bucket string) tableregister.Subject 
 		}
 		claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin).
 			ActingFor(caller.OnBehalfOf, caller.OnBehalfOfSub)
-		if !resource.CanModifyResource(claims, res) {
+		if shared != nil {
+			claims.Shared = func(resourceID string) string { return shared(ctx, resourceID, caller) }
+		}
+		if !resource.CanEditResource(claims, res) {
 			return tableregister.Source{}, false
 		}
 		return resourceSource(res, bucket), true

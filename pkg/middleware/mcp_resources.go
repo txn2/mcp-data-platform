@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -64,7 +63,11 @@ type ManagedResourceConfig struct {
 	URIScheme        string
 	PersonasForRoles PersonasForRoles // resolves roles → persona names
 	Authenticator    Authenticator    // authenticates users for resources/list and resources/read
-	AdminPersona     string           // persona name that grants platform admin
+	// AdminRule reports whether roles resolve to the administrator persona:
+	// the persona registry's one admin rule (persona.Registry.AdminRule), so
+	// an external persona carrying the administrator's name, and a person who
+	// merely shares a role with it, is not one (#2257).
+	AdminRule func(roles []string) bool
 	// ReadRecorder audits content served through resources/read. Nil when
 	// audit is disabled, which silences the events without affecting reads.
 	// Listing is not recorded: only content served counts as a read (#1014).
@@ -81,7 +84,6 @@ func MCPManagedResourceMiddleware(cfg ManagedResourceConfig) mcp.Middleware {
 		"s3_nil", cfg.S3Client == nil,
 		"auth_nil", cfg.Authenticator == nil,
 		"scheme", cfg.URIScheme,
-		"admin_persona", cfg.AdminPersona,
 	)
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -179,7 +181,7 @@ func containsManagedResources(resources []*mcp.Resource, prefix string) bool {
 // authorized the filter so callers can include user/persona attribution in
 // their log lines. Returns (nil, nil) when auth fails.
 func resolveVisibleManagedURIsWithPC(ctx context.Context, req mcp.Request, cfg ManagedResourceConfig) (pc *PlatformContext, visible map[string]bool) {
-	pc = getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
+	pc = getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminRule)
 	if pc == nil {
 		return nil, nil
 	}
@@ -241,7 +243,7 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 	}
 	slog.DebugContext(ctx, "managed resources read: found in store", logKeyURI, uri, "scope", res.Scope, "id", res.ID)
 
-	pc := getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
+	pc := getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminRule)
 	if pc == nil {
 		slog.WarnContext(ctx, "managed resources read: auth failed, falling through to SDK", logKeyURI, uri)
 		return next(ctx, method, req)
@@ -391,15 +393,15 @@ func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claim
 // is configured. It is exported so facade-internal seams (e.g. the completion
 // handler) resolve identity through the same token-bridge path as the resource
 // and prompt middleware rather than duplicating it.
-func ResolvePlatformContext(ctx context.Context, req mcp.Request, auth Authenticator, personasForRoles PersonasForRoles, adminPersona string) *PlatformContext {
-	return getOrAuthenticatePC(ctx, req, auth, personasForRoles, adminPersona)
+func ResolvePlatformContext(ctx context.Context, req mcp.Request, auth Authenticator, personasForRoles PersonasForRoles, isAdmin func([]string) bool) *PlatformContext {
+	return getOrAuthenticatePC(ctx, req, auth, personasForRoles, isAdmin)
 }
 
 // getOrAuthenticatePC returns the PlatformContext from the context if available
 // (set by MCPToolCallMiddleware for tools/call), or authenticates the user
 // directly for resources/list and resources/read methods. Returns nil if
 // authentication fails or no authenticator is configured.
-func getOrAuthenticatePC(ctx context.Context, req mcp.Request, auth Authenticator, personasForRoles PersonasForRoles, adminPersona string) *PlatformContext {
+func getOrAuthenticatePC(ctx context.Context, req mcp.Request, auth Authenticator, personasForRoles PersonasForRoles, isAdmin func([]string) bool) *PlatformContext {
 	if pc := GetPlatformContext(ctx); pc != nil {
 		slog.DebugContext(ctx, "getOrAuthenticatePC: using existing PlatformContext", logKeyUserID, pc.UserID)
 		return pc
@@ -425,14 +427,15 @@ func getOrAuthenticatePC(ctx context.Context, req mcp.Request, auth Authenticato
 		UserEmail: userInfo.Email,
 		Roles:     userInfo.Roles,
 	}
-	// Resolve persona for admin status.
 	if personasForRoles != nil {
 		personas := personasForRoles(userInfo.Roles)
 		if len(personas) > 0 {
 			pc.PersonaName = personas[0]
 		}
-		pc.IsAdmin = adminPersona != "" && slices.Contains(personas, adminPersona)
 	}
+	// Admin is the persona the roles resolve to, never a membership the roles
+	// share with it (#2257).
+	pc.IsAdmin = isAdmin != nil && isAdmin(userInfo.Roles)
 	return pc
 }
 

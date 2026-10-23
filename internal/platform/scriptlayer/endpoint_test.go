@@ -116,7 +116,7 @@ def test_handle():
 func endpointHandle(t *testing.T, public bool) (*Handle, *memBindings) {
 	t.Helper()
 	bindings := &memBindings{byScript: map[string]epbinding.Binding{}}
-	h := New(Config{Store: newMemStore(), AdminPersona: "admin", Endpoints: &epwire.Endpoints{Commands: &epcmd.Handler{
+	h := New(Config{Store: newMemStore(), Endpoints: &epwire.Endpoints{Commands: &epcmd.Handler{
 		Store: bindings, BaseURL: "https://data.example.com",
 		PublicAllowed: func(context.Context) (bool, error) { return public, nil },
 	}}})

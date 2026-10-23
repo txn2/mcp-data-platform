@@ -101,6 +101,7 @@ type fixture struct {
 	requester []string
 	shared    []string
 	reveal    bool
+	noSharing bool
 }
 
 func newFixture() *fixture {
@@ -117,7 +118,8 @@ func newFixture() *fixture {
 		CanOpen: func(_ context.Context, u *access.User, _, id string) bool {
 			return u.UserID == "owner" || id == "open"
 		},
-		IsAdmin: func(u *access.User) bool { return u.UserID == "admin" },
+		IsAdmin:  func(u *access.User) bool { return u.UserID == "admin" },
+		CanShare: func(*access.User) bool { return !f.noSharing },
 		Share: func(_ context.Context, tt, id, _, to, perm string) (string, error) {
 			f.shared = append(f.shared, tt+":"+id+":"+to+":"+perm)
 			return "share-1", nil
@@ -218,9 +220,25 @@ func TestRequestDeclineAndRefusals(t *testing.T) {
 func TestSettingsValidateAndExpiry(t *testing.T) {
 	require.NoError(t, Defaults().Validate())
 	assert.Error(t, Settings{ExpireDays: 0}.Validate())
-	assert.True(t, ValidTarget(TargetPrompt))
-	assert.False(t, ValidTarget("page"))
 	r := Request{Status: StatusPending, ExpiresAt: time.Now().Add(-time.Minute)}
 	r.reported(time.Now())
 	assert.Equal(t, StatusExpired, r.Status)
+}
+
+// An approval writes a share, so an owner whose persona withholds sharing is
+// refused and nothing is written (#2257); an administrator approves whatever
+// their persona says.
+func TestRequestApproveNeedsSharing(t *testing.T) {
+	f := newFixture()
+	f.noSharing = true
+	w, req := f.do("reader", http.MethodPost, "/api/v1/portal/assets/a1/access-requests", `{}`)
+	require.Equal(t, http.StatusCreated, w.Code)
+	id, _ := req["id"].(string)
+	w, _ = f.do("owner", http.MethodPost, "/api/v1/portal/access-requests/"+id+"/approve", `{"permission":"viewer"}`)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), access.ErrSharingNotAllowed)
+	assert.Empty(t, f.shared)
+	w, _ = f.do("admin", http.MethodPost, "/api/v1/portal/access-requests/"+id+"/approve", `{"permission":"viewer"}`)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Len(t, f.shared, 1)
 }

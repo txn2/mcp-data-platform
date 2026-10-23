@@ -64,9 +64,6 @@ type Config struct {
 	// PortalURL is the deployment's public base URL, used to build the link
 	// a published document carries. Empty omits the link.
 	PortalURL string
-	// AdminPersona is the persona name whose reach is unrestricted, as it is
-	// everywhere else in the product. Empty means no persona is lifted.
-	AdminPersona string
 	// Targets lists the chat channels a slack or mattermost channel's bot is
 	// in (#2241). nil lists none, and a send naming a target is refused.
 	Targets TargetLister

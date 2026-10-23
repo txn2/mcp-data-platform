@@ -21,10 +21,9 @@ func newIngestTestHandle(platformInfos, toolkitInfos []registry.PromptInfo) (*Ha
 		prompts:     toolkitInfos,
 	})
 	h := &Handle{
-		store:        store,
-		adminPersona: "admin",
-		registry:     reg,
-		promptInfos:  platformInfos,
+		store:       store,
+		registry:    reg,
+		promptInfos: platformInfos,
 	}
 	return h, store
 }

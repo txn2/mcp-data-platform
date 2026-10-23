@@ -214,6 +214,28 @@ func TestWindowResourcesInTheConfiguredAdminPersona(t *testing.T) {
 	assert.Equal(t, "platform-admins", w.created[0].ScopeID)
 }
 
+// An administrator persona marked external in the store would give the
+// windows to the people the platform created accounts for (#2257), so they
+// land in the platform's own folder, which only administrators read; a
+// source that names a persona keeps it.
+func TestWindowResourcesNeverInAnExternalAdminPersona(t *testing.T) {
+	reg := persona.NewRegistry()
+	require.NoError(t, reg.Register(&persona.Persona{Name: "admin", Roles: []string{"admin"}, External: true}))
+	require.NoError(t, reg.Register(&persona.Persona{Name: "vendors", Roles: []string{"vendor"}, External: true}))
+	h, w := newWindowResources(fakeByURI{err: sql.ErrNoRows})
+	h.external = externalPersona(reg)
+	_, err := h.Put(ctx, esp, start, "", []byte("x"))
+	require.NoError(t, err)
+	assert.Equal(t, resource.ScopeUser, w.created[0].Scope)
+	assert.Equal(t, systemPrincipal, w.created[0].ScopeID)
+
+	src := whsource.Source{Name: "esp", Config: whsource.Config{Persona: "vendors"}}
+	_, err = h.Put(ctx, src, start, "", []byte("x"))
+	require.NoError(t, err)
+	assert.Equal(t, resource.ScopePersona, w.created[1].Scope, "a persona the source names is the operator's choice")
+	assert.Nil(t, externalPersona(nil))
+}
+
 func TestWindowResourcesInThePersonaLibrary(t *testing.T) {
 	h, w := newWindowResources(fakeByURI{err: sql.ErrNoRows})
 	src := whsource.Source{Name: "esp", Config: whsource.Config{Persona: "marketing"}}

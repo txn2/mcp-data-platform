@@ -13,7 +13,7 @@ import (
 // that cannot execute them: seeing what exists does not depend on a worker.
 func TestRegisterTool_RegistersShowScripts(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
-	New(Config{Store: newMemStore(), AdminPersona: "admin"}).RegisterTool(server)
+	New(Config{Store: newMemStore()}).RegisterTool(server)
 
 	tools := listToolNames(t, server)
 	assert.Contains(t, tools, ToolNameShowScripts)
@@ -26,7 +26,7 @@ func TestRegisterTool_RegistersShowScripts(t *testing.T) {
 func TestShowScripts_CalledOverASession(t *testing.T) {
 	ctx := context.Background()
 	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
-	New(Config{Store: newMemStore(), AdminPersona: "admin", PortalURL: "https://portal.example.com"}).
+	New(Config{Store: newMemStore(), PortalURL: "https://portal.example.com"}).
 		RegisterTool(server)
 
 	t1, t2 := mcp.NewInMemoryTransports()

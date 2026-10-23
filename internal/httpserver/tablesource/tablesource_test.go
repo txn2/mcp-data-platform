@@ -114,6 +114,25 @@ func TestResourceSubject_RequiresAuthorityToChangeTheFile(t *testing.T) {
 	assert.False(t, ok, "the administrator of some other persona")
 }
 
+// A person a file was shared with to edit may register a table over it, as
+// its owner may; a viewer share is not enough (#2258).
+func TestResourceSubjectShared_AdmitsAnEditorShare(t *testing.T) {
+	res := &resource.Resource{ID: "res_1", Scope: resource.ScopeUser, ScopeID: "owner", UploaderSub: "owner", S3Key: "k"}
+	perms := map[string]string{"editor@example.com": "editor", "viewer@example.com": "viewer"}
+	subject := ResourceSubjectShared(stubResourceStore{res: res}, "b", func(_ context.Context, id string, c tableregister.Caller) string {
+		if id != "res_1" {
+			return ""
+		}
+		return perms[c.Email]
+	})
+	_, ok := subject(context.Background(), "res_1", tableregister.Caller{UserID: "e", Email: "editor@example.com"})
+	assert.True(t, ok)
+	_, ok = subject(context.Background(), "res_1", tableregister.Caller{UserID: "v", Email: "viewer@example.com"})
+	assert.False(t, ok)
+	_, ok = subject(context.Background(), "res_1", tableregister.Caller{UserID: "owner"})
+	assert.True(t, ok, "the owner still")
+}
+
 // TestResourceSubject_AGlobalResourceIsStillItsUploadersToRegister: a global
 // resource is readable by every authenticated user, and the rule does not
 // soften for it -- one sentence describes who may register either kind.

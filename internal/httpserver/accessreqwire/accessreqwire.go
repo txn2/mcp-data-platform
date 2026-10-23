@@ -9,14 +9,18 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/iam"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/accessreq"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/resourceshare"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
 // Deps is what the routes are mounted with: the portal's authentication
@@ -40,13 +44,20 @@ func Mount(mux *http.ServeMux, p *platform.Platform, d Deps) {
 	}
 	register(mux, p.DB(), stores{
 		assets: p.PortalAssetStore(), collections: p.PortalCollectionStore(),
-		prompts: p.PromptStore(), shares: p.PortalShareStore(),
+		prompts: p.PromptStore(), shares: p.PortalShareStore(), personas: p.PersonaRegistry(),
+		resources: resourcesOf(p), resourceShares: resourceshare.NewStore(p.DB()),
 	}, p.Config().Portal.PublicBaseURL, d)
+}
+
+// resourcesOf is the platform's resource store, nil without one.
+func resourcesOf(p *platform.Platform) resourceReader {
+	return p.ResourceStore()
 }
 
 // register mounts the routes over the database and the stores, with the
 // emails linking to base.
 func register(mux *http.ServeMux, db *sql.DB, st stores, base string, d Deps) {
+	st.isAdmin = d.IsAdmin
 	st.checker = access.New(access.Config{
 		Assets: st.assets, Collections: st.collections, Shares: st.shares, Prompts: st.prompts, AdminRule: d.IsAdmin,
 	})
@@ -56,6 +67,7 @@ func register(mux *http.ServeMux, db *sql.DB, st stores, base string, d Deps) {
 		Resolve:  st.resolve,
 		CanOpen:  st.canOpen,
 		IsAdmin:  func(u *access.User) bool { return u != nil && d.IsAdmin(u.Roles) },
+		CanShare: canShare(st.personas),
 		Settings: settings.Read,
 		Share:    st.sharer(),
 	}
@@ -68,6 +80,15 @@ func register(mux *http.ServeMux, db *sql.DB, st stores, base string, d Deps) {
 	}
 }
 
+// canShare is Deps.CanShare over the persona registry: the persona the
+// user's roles resolve to lets its people share.
+func canShare(reg *persona.Registry) func(u *access.User) bool {
+	return func(u *access.User) bool {
+		per, ok := reg.GetForRoles(u.Roles)
+		return ok && per.SharingAllowed()
+	}
+}
+
 // stores are the item stores a request reads and the share store an
 // approval writes, with the checker that says whether a person opens an item.
 type stores struct {
@@ -76,6 +97,25 @@ type stores struct {
 	prompts     prompt.Store
 	shares      portaldomain.ShareStore
 	checker     *access.Checker
+	// personas resolves the persona whose sharing an approval is held to.
+	personas *persona.Registry
+	// resources and resourceShares are the files a request can name and the
+	// shares an approval of one writes (#2258); nil resources names none.
+	resources      resourceReader
+	resourceShares resourceShares
+	// isAdmin is the administrator rule, for whether a person opens a file.
+	isAdmin func([]string) bool
+}
+
+// resourceReader reads a file.
+type resourceReader interface {
+	Get(ctx context.Context, id string) (*resource.Resource, error)
+}
+
+// resourceShares is what a request for a file reads and writes.
+type resourceShares interface {
+	Insert(ctx context.Context, share *portaldomain.Share) error
+	Permission(ctx context.Context, resourceID string, rcpt resourceshare.Recipient) (string, error)
 }
 
 var errNoItem = errors.New("no such item")
@@ -91,6 +131,8 @@ func (s stores) resolve(ctx context.Context, targetType, id string) (accessreq.T
 		t = s.collection(ctx, id)
 	case accessreq.TargetPrompt:
 		t = s.prompt(ctx, id)
+	case accessreq.TargetResource:
+		t = s.resource(ctx, id)
 	}
 	if t == nil {
 		return accessreq.Target{}, errNoItem
@@ -112,6 +154,36 @@ func (s stores) collection(ctx context.Context, id string) *accessreq.Target {
 		return nil
 	}
 	return &accessreq.Target{Name: c.Name, OwnerID: c.OwnerID, OwnerEmail: c.OwnerEmail}
+}
+
+func (s stores) resource(ctx context.Context, id string) *accessreq.Target {
+	if s.resources == nil {
+		return nil
+	}
+	r, err := s.resources.Get(ctx, id)
+	if err != nil || r == nil {
+		return nil
+	}
+	return &accessreq.Target{Name: r.DisplayName, OwnerID: r.UploaderSub, OwnerEmail: r.UploaderEmail}
+}
+
+// resourceOpens reports whether the person already reaches the file: through
+// a folder they see, authority over its folder, or a share.
+func (s stores) resourceOpens(ctx context.Context, u *access.User, id string) bool {
+	r, err := s.resources.Get(ctx, id)
+	if err != nil || r == nil {
+		return false
+	}
+	name := ""
+	if per, ok := s.personas.GetForRoles(u.Roles); ok {
+		name = per.Name
+	}
+	if perm, err := s.resourceShares.Permission(ctx, id, resourceshare.Recipient{UserID: u.UserID, Email: u.Email, Persona: name}); err == nil && perm != "" {
+		return true
+	}
+	claims := resource.BuildClaims(u.UserID, u.Email, name, u.Roles, s.isAdmin != nil && s.isAdmin(u.Roles))
+	claims.Personas = iam.PersonasForRoles(s.personas)(u.Roles)
+	return resource.CanAccessResource(claims, r)
 }
 
 func (s stores) prompt(ctx context.Context, id string) *accessreq.Target {
@@ -141,6 +213,8 @@ func (s stores) canOpen(ctx context.Context, u *access.User, targetType, id stri
 	case accessreq.TargetPrompt:
 		pr, err := s.prompts.GetByID(ctx, id)
 		return err == nil && pr != nil && s.checker.CanViewPrompt(ctx, u, pr)
+	case accessreq.TargetResource:
+		return s.resources != nil && s.resourceOpens(ctx, u, id)
 	}
 	return false
 }
@@ -156,7 +230,11 @@ func (s stores) sharer() func(ctx context.Context, targetType, id, createdBy, re
 			return "", err //nolint:wrapcheck // the caller reports it
 		}
 		share.Origin = portaldomain.OriginAccessRequest
-		if err := s.shares.Insert(ctx, &share); err != nil {
+		insert := s.shares.Insert
+		if targetType == accessreq.TargetResource {
+			insert = s.resourceShares.Insert
+		}
+		if err := insert(ctx, &share); err != nil {
 			return "", err //nolint:wrapcheck // the caller reports it
 		}
 		return share.ID, nil
@@ -169,6 +247,8 @@ func shareTarget(targetType, id string) portaldomain.ShareTarget {
 		return portaldomain.ShareTarget{CollectionID: id}
 	case accessreq.TargetPrompt:
 		return portaldomain.ShareTarget{PromptID: id}
+	case accessreq.TargetResource:
+		return portaldomain.ShareTarget{ResourceID: id}
 	default:
 		return portaldomain.ShareTarget{AssetID: id}
 	}

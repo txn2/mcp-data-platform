@@ -14,7 +14,9 @@ An uploaded resource is also **discoverable through `search`**, the front door a
 
 The page is a file manager (#1872): a folder tree on the left, one listing of the folder you are in, and a preview pane on the right. It behaves like the file managers people already know (Finder, Explorer, the list view of Google Drive or the S3 console), and the rest of this page describes what it does.
 
-The tree's top-level folders are **My Resources**, **Global**, and one folder per persona you can read: the personas you belong to and the ones you administer, or, for a platform administrator, every persona the deployment defines. A platform administrator also has a **People** folder holding one folder per person whose resources exist, named by their address and read when it is opened, which is how an administrator browses somebody else's resources. Every folder beneath a top-level folder expands with a chevron and shows how many files it holds at every depth; the folder you are in is highlighted and its ancestors are open. The tree follows the WAI-ARIA tree pattern: Up and Down move between folders, Right opens one or steps into it, Left closes one or steps out, and Enter opens the folder. A location is written as a path from its top-level folder, `/Global/data/weekly`, in the path bar, the preview pane, the move dialog, the upload destination and each search hit. Internally each top-level folder is a scope (a person, a persona, or global); the page never calls it anything but a folder.
+The tree's top-level folders are **My Resources**, **Shared with me**, **Global**, and one folder per persona you can read: the personas you belong to and the ones you administer, or, for a platform administrator, every persona the deployment defines. A platform administrator also has a **People** folder holding one folder per person whose resources exist, named by their address and read when it is opened, which is how an administrator browses somebody else's resources. Every folder beneath a top-level folder expands with a chevron and shows how many files it holds at every depth; the folder you are in is highlighted and its ancestors are open. The tree follows the WAI-ARIA tree pattern: Up and Down move between folders, Right opens one or steps into it, Left closes one or steps out, and Enter opens the folder. A location is written as a path from its top-level folder, `/Global/data/weekly`, in the path bar, the preview pane, the move dialog, the upload destination and each search hit. Internally each top-level folder is a scope (a person, a persona, or global); the page never calls it anything but a folder.
+
+**Shared with me** lists the files other people have shared with you, directly or through your persona (#2258): each with who shared it, when, and whether you can view or edit it. A row opens the file. It has no folders and takes no upload. A person of an [external persona](../personas/overview.md#external-personas) has no Global folder.
 
 The page opens on My Resources. The All view the page used to open on had no place in a tree and was retired; a search across a top-level folder replaces it, and a link to the old All view opens My Resources.
 
@@ -145,6 +147,24 @@ A file uploaded before this shipped shows no panel rather than a guessed writer.
 Opening a file (double-click, Enter, or **Open** in the preview pane) shows the resource at `/resources/{id}` — `/admin/resources/{id}` in the administrator's section — so a resource can be linked to, bookmarked, reloaded and opened in a second tab, and Back returns to the folder and the search it was left on. The page takes the same shape a portal asset takes, because a resource is the same kind of object: the content at the full width of the page, and what the resource is beside it — its library, its folder path as a clickable trail back into the library, metadata, canonical URI, tags, read activity, revision trail, table registration, and the prompts that attach it. Download, Edit and Delete are in the page header, so a long document or a deep revision trail never pushes them off the screen. Editing and deleting are still dialogs; they are bounded forms.
 
 ![Resource detail](../images/screenshots/light/admin-resource-detail-light.webp#only-light)![Resource detail](../images/screenshots/dark/admin-resource-detail-dark.webp#only-dark)
+
+## Sharing a file
+
+A file is shared the way an asset is (#2258). **Share** on a file's page shares it with a person by address or with a persona, as **Viewer** or **Editor**, and lists who it is already shared with:
+
+![Sharing a file](../images/screenshots/light/admin-resource-share-light.webp#only-light)![Sharing a file](../images/screenshots/dark/admin-resource-share-dark.webp#only-dark)
+
+- A viewer opens the file at its own page and reads its content; an editor also renames it, edits its details and writes new versions, and may register a scratch table over it. Neither moves nor deletes it: that stays with whoever uploaded it and whoever may add to its folder.
+- A person of an external persona opens a file shared with them as a viewer, whatever the share says.
+- Sharing takes the same things sharing an asset does: someone who can change the file, and a persona that allows sharing. The recipient is told by the share email, unless you turn it off. A file has no public link.
+- **Share to a Channel** posts the file's page to one of the deployment's notification channels with an optional line above it. **Signed-in users** shares the file with every signed-in person of an internal persona, as viewer, recorded as posted to the channel; **People who can already open it** posts the link and shares nothing.
+- **Upload and share...**, under **Upload**, uploads one file to your own folder and opens the share dialog on it.
+- A person who opens a file they cannot read is offered **Request access**, which asks the file's uploader, as for an asset.
+- Deleting a file removes its shares.
+
+`GET /api/v1/resources/{id}/shares`, `POST /api/v1/resources/{id}/shares` (`shared_with_email` or `shared_with_persona`, `permission`, `message`, `notify`), `DELETE /api/v1/resources/{id}/shares/{shareID}`, `GET /api/v1/resources/shared-with-me` and `POST /api/v1/resources/{id}/channel-shares` (`channel`, `target`, `access_mode` `authenticated` or `existing`, `message`) are the routes behind it.
+
+An external persona can be set to let its people upload: each upload lands in the uploader's own folder and is shared on arrival with the people and personas the persona names. See [Uploads by external people](../personas/overview.md#uploads-by-external-people).
 
 ## Moving a resource to another library
 

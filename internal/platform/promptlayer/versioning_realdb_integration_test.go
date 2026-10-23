@@ -28,7 +28,7 @@ import (
 
 func TestVersioning_RealDB_DraftNotServedUntilApproved(t *testing.T) {
 	db := testdb.New(t)
-	h := New(Config{Store: pgstore.New(db), AdminPersona: "admin", Registry: registry.NewRegistry()})
+	h := New(Config{Store: pgstore.New(db), Registry: registry.NewRegistry()})
 	ctx := context.Background()
 
 	// Seed an approved global prompt through the real store.

@@ -74,6 +74,9 @@ func (n *PortalNotifier) NotifyShare(ctx context.Context, share *portal.Share, e
 	switch {
 	case ev.Kind == notification.KindPrompt:
 		link = notification.PortalLink(n.baseURL, "/prompts/"+ev.ItemID)
+	case ev.Kind == notification.KindResource:
+		// A resource has no token viewer either; its page reads the share.
+		link = notification.PortalLink(n.baseURL, "/resources/"+ev.ItemID)
 	case share.Token != "" && n.baseURL != "":
 		link = notification.PortalLink(n.baseURL, "/view/"+share.Token)
 	}

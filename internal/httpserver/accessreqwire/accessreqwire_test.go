@@ -17,8 +17,11 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/accessreq"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/resourceshare"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
 type fakeAssets struct {
@@ -270,4 +273,79 @@ func TestMount(t *testing.T) {
 	none := http.NewServeMux()
 	Mount(none, p, Deps{Wrap: pass})
 	assert.False(t, routed(none, http.MethodGet, "/api/v1/portal/access-requests"))
+}
+
+func TestCanShareReadsThePersona(t *testing.T) {
+	off := false
+	reg := persona.NewRegistry()
+	require.NoError(t, reg.Register(&persona.Persona{Name: "staff", Roles: []string{"staff"}}))
+	require.NoError(t, reg.Register(&persona.Persona{Name: "quiet", Roles: []string{"quiet"}, AllowSharing: &off}))
+	can := canShare(reg)
+	assert.True(t, can(&access.User{Roles: []string{"staff"}}))
+	assert.False(t, can(&access.User{Roles: []string{"quiet"}}))
+	assert.False(t, can(&access.User{Roles: []string{"nobody"}}))
+}
+
+type fakeResources map[string]*resource.Resource
+
+func (f fakeResources) Get(_ context.Context, id string) (*resource.Resource, error) {
+	if r, ok := f[id]; ok {
+		return r, nil
+	}
+	return nil, errors.New("not found")
+}
+
+type fakeResourceShares struct {
+	inserted []portaldomain.Share
+	perm     map[string]string
+}
+
+func (f *fakeResourceShares) Insert(_ context.Context, s *portaldomain.Share) error {
+	f.inserted = append(f.inserted, *s)
+	return nil
+}
+
+func (f *fakeResourceShares) Permission(_ context.Context, _ string, r resourceshare.Recipient) (string, error) {
+	return f.perm[r.Email], nil
+}
+
+// A file is a target too (#2258): read with its name and uploader, opened by
+// its uploader, by a share, or by an administrator, and an approval writes a
+// share of the file.
+func TestResourceTarget(t *testing.T) {
+	reg := persona.NewRegistry()
+	require.NoError(t, reg.Register(&persona.Persona{Name: "staff", Roles: []string{"staff"}}))
+	rs := &fakeResourceShares{perm: map[string]string{"shared@example.com": "viewer"}}
+	st := newStores(&fakeShares{})
+	st.personas, st.resourceShares = reg, rs
+	st.isAdmin = func(roles []string) bool { return len(roles) > 0 && roles[0] == "admin" }
+	st.resources = fakeResources{"r1": {
+		ID: "r1", DisplayName: "extract.csv", Scope: resource.ScopeUser, ScopeID: "o1", UploaderSub: "o1", UploaderEmail: "owner@example.com",
+	}}
+	ctx := context.Background()
+
+	got, err := st.resolve(ctx, accessreq.TargetResource, "r1")
+	require.NoError(t, err)
+	assert.Equal(t, "extract.csv", got.Name)
+	assert.Equal(t, "owner@example.com", got.OwnerEmail)
+	_, err = st.resolve(ctx, accessreq.TargetResource, "none")
+	assert.ErrorIs(t, err, errNoItem)
+
+	assert.True(t, st.canOpen(ctx, &access.User{UserID: "o1", Email: "owner@example.com", Roles: []string{"staff"}}, accessreq.TargetResource, "r1"))
+	assert.True(t, st.canOpen(ctx, &access.User{UserID: "x", Email: "shared@example.com", Roles: []string{"staff"}}, accessreq.TargetResource, "r1"))
+	assert.True(t, st.canOpen(ctx, &access.User{UserID: "a", Email: "a@example.com", Roles: []string{"admin"}}, accessreq.TargetResource, "r1"))
+	assert.False(t, st.canOpen(ctx, &access.User{UserID: "s", Email: "s@example.com", Roles: []string{"staff"}}, accessreq.TargetResource, "r1"))
+	assert.False(t, st.canOpen(ctx, &access.User{UserID: "s", Email: "s@example.com"}, accessreq.TargetResource, "none"))
+
+	id, err := st.sharer()(ctx, accessreq.TargetResource, "r1", "owner@example.com", "reader@example.com", "viewer")
+	require.NoError(t, err)
+	require.Len(t, rs.inserted, 1)
+	assert.Equal(t, id, rs.inserted[0].ID)
+	assert.Equal(t, "r1", rs.inserted[0].ResourceID)
+	assert.Equal(t, portaldomain.OriginAccessRequest, rs.inserted[0].Origin)
+
+	none := newStores(&fakeShares{})
+	_, err = none.resolve(ctx, accessreq.TargetResource, "r1")
+	assert.ErrorIs(t, err, errNoItem, "no resource store names no file")
+	assert.False(t, none.canOpen(ctx, &access.User{UserID: "o1"}, accessreq.TargetResource, "r1"))
 }

@@ -129,7 +129,7 @@ func TestGet_ListsTheScriptsLiveRuns(t *testing.T) {
 // lists none.
 func TestGet_ListsNoLiveRunsWithoutARunStore(t *testing.T) {
 	store := newMemStore()
-	h := New(Config{Store: store, AdminPersona: "admin"})
+	h := New(Config{Store: store})
 	require.False(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n"))}).IsError)
 	got := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "daily"}))
 	listed, ok := got["live_runs"].([]any)

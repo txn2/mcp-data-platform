@@ -126,9 +126,10 @@ function RootNode({
   const id = nodeID(root.key, "");
   const isOpen = ctx.open.has(id);
   const here = ctx.current.root === root.key;
-  const facets = useFacets(root.params, Boolean(eager || isOpen || here));
-  const folders = facets.data?.folders;
-  const total = count ?? topCount(folders);
+  // The files shared with the caller have no folders: the node opens their
+  // list and holds nothing beneath it (#2258).
+  const facets = useFacets(root.params, !root.shared && Boolean(eager || isOpen || here));
+  const { folders, total } = rootFolders(root, facets.data?.folders, count);
   return (
     <>
       <TreeRow
@@ -143,6 +144,12 @@ function RootNode({
       {isOpen && folders && <Children root={root} folders={folders} at="" depth={depth + 1} ctx={ctx} />}
     </>
   );
+}
+
+/** rootFolders is what a top-level node holds and counts: nothing for the files shared with the caller. */
+function rootFolders(root: ResourceRoot, folders: FolderRow[] | undefined, count: number | undefined) {
+  if (root.shared) return { folders: [] as FolderRow[], total: count };
+  return { folders, total: count ?? topCount(folders) };
 }
 
 /** Every resource sits in a folder, so the top-level count is the sum of the first level. */

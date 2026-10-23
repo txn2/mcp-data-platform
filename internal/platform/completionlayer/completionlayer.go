@@ -169,7 +169,7 @@ func (h *Handle) Handler() func(context.Context, *mcp.CompleteRequest) (*mcp.Com
 		if req == nil || req.Params == nil || req.Params.Ref == nil {
 			return emptyResult(), nil
 		}
-		pc := middleware.ResolvePlatformContext(ctx, req, h.deps.Authenticator, h.deps.PersonasForRoles, h.deps.AdminPersona)
+		pc := middleware.ResolvePlatformContext(ctx, req, h.deps.Authenticator, h.deps.PersonasForRoles, h.deps.PersonaRegistry.AdminRule(h.deps.AdminPersona))
 		if pc == nil {
 			// Completions leak names; an unauthenticated session gets nothing.
 			return emptyResult(), nil

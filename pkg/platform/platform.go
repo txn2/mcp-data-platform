@@ -663,7 +663,9 @@ func (p *Platform) WireGatewayIntegrations() {
 	p.WireAPIGatewayEmbeddingProvider()
 	p.WireAPIGatewayCatalogStoreFromDB()
 	p.WireAPIGatewayEmbedJobsFromDB()
-	apigwwiring.Secrets(p.toolkitRegistry, p.db, p.restEncryptor, p.config.Admin.Persona)
+	apigwwiring.Secrets(p.toolkitRegistry, p.db, p.restEncryptor, func(name string) bool {
+		return p.personaRegistry.IsAdminName(name, p.config.Admin.Persona)
+	})
 }
 
 // WireGatewayTokenStore attaches the unified connoauth.Store to every
@@ -916,7 +918,6 @@ func (p *Platform) initPromptStore() {
 		PromptsDir:        p.config.Tuning.PromptsDir,
 		ServerName:        p.config.Server.Name,
 		ServerDescription: describe,
-		AdminPersona:      p.config.Admin.Persona,
 		OperatorPrompts:   promptSpecsFromConfig(p.config.Server.Prompts),
 		BuiltinPrompts:    p.config.Server.BuiltinPrompts,
 		Registry:          p.toolkitRegistry,
@@ -2399,7 +2400,7 @@ func (p *Platform) addManagedResourceMiddleware() {
 		S3Bucket:      p.config.Resources.Managed.S3Bucket,
 		URIScheme:     p.resources.URIScheme(),
 		Authenticator: p.authenticator,
-		AdminPersona:  p.config.Admin.Persona,
+		AdminRule:     p.personaRegistry.AdminRule(p.config.Admin.Persona),
 		ReadRecorder:  p.resources.ReadRecorder(),
 	}
 	// Resolve all persona memberships from roles.
@@ -2747,6 +2748,9 @@ func (p *Platform) loadPersonas() error {
 	for name, def := range p.config.Personas.Definitions {
 		personaDef := def.ToPersona(name, SourceFile)
 		p.filePersonaNames[name] = true
+		if err := persona.ValidateAccount(personaDef, p.config.Admin.Persona); err != nil {
+			return fmt.Errorf("persona %s: %w", name, err)
+		}
 		if err := p.personaRegistry.Register(personaDef); err != nil {
 			return fmt.Errorf("registering persona %s: %w", name, err)
 		}
@@ -2830,8 +2834,10 @@ func (p *Platform) Start(ctx context.Context) error {
 		S3: p.portalStore.ScriptS3Client(), Bucket: p.config.Portal.S3Bucket,
 		Prefix: p.config.Portal.S3Prefix, FollowTables: p.portalStore.FollowAssetTables,
 		Lander: p.portalStore.ResourceLanding(), Sources: p.portalStore.ResourceSources(), Audit: p.audit.Logger(),
-		Authority: iam.Authority(p.authorizer, p.config.Admin.Persona),
-		Subjects:  p.users.Subjects(), Metrics: p.obs.Metrics(),
+		Authority: iam.Authority(p.authorizer, func(name string) bool {
+			return p.personaRegistry.IsAdminName(name, p.config.Admin.Persona)
+		}),
+		Subjects: p.users.Subjects(), Metrics: p.obs.Metrics(),
 		Destinations: p.config.Scripts.ScriptDestinations(),
 		RunRetention: p.config.Scripts.RunRetention(),
 		Worker:       p.config.Scripts.Worker.Config,
@@ -2839,11 +2845,11 @@ func (p *Platform) Start(ctx context.Context) error {
 		WorkerEnabled:        p.config.Scripts.IsWorkerEnabled(),
 		NotificationsEnabled: p.config.Notifications.IsEnabled(),
 		DigestHourUTC:        p.config.Notifications.DigestHour(),
-		PortalURL:            p.config.Portal.PublicBaseURL, AdminPersona: p.config.Admin.Persona,
-		Toolkits:    p.toolkitRegistry,
-		BotCheckKey: botcheck.Key(p.config.Auth.BrowserSession.Enabled, p.config.Auth.BrowserSession.SigningKey),
-		Encryptor:   p.restEncryptor,
-		Bind:        func(h *scriptlayer.Handle) { p.scripts = h },
+		PortalURL:            p.config.Portal.PublicBaseURL,
+		Toolkits:             p.toolkitRegistry,
+		BotCheckKey:          botcheck.Key(p.config.Auth.BrowserSession.Enabled, p.config.Auth.BrowserSession.SigningKey),
+		Encryptor:            p.restEncryptor,
+		Bind:                 func(h *scriptlayer.Handle) { p.scripts = h },
 	})
 	p.lifecycle.OnComponent(scriptRuns.Start, scriptRuns.Stop)
 	p.lifecycle.OnDrain(scriptRuns.Drain)
@@ -2858,8 +2864,8 @@ func (p *Platform) Start(ctx context.Context) error {
 		DB: p.db, Server: p.mcpServer, Enabled: p.config.Notifications.IsEnabled(),
 		Personas: p.personaRegistry, Assets: p.portalStore.AssetStore(),
 		Blobs: p.portalStore.S3Client(), Shares: p.portalStore.ShareStore(),
-		Collections: p.portalStore.CollectionStore(),
-		PortalURL:   p.config.Portal.PublicBaseURL, AdminPersona: p.config.Admin.Persona,
+		Collections:   p.portalStore.CollectionStore(),
+		PortalURL:     p.config.Portal.PublicBaseURL,
 		DigestHourUTC: p.config.Notifications.DigestHour(), Resources: p.resources.Store(), Toolkits: p.toolkitRegistry,
 	})
 

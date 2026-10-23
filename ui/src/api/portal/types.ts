@@ -96,6 +96,8 @@ export type ShareAccessMode = "restricted" | "authenticated" | "public";
 export interface Share {
   id: string;
   asset_id: string;
+  /** The managed resource a share is for (#2258). */
+  resource_id?: string;
   token: string;
   created_by: string;
   shared_with_user_id?: string;

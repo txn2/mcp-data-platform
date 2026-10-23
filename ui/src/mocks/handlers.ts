@@ -37,6 +37,7 @@ import { callHandlers } from "./handlers/calls";
 import { assetRefHandlers, rewriteRefs } from "./handlers/assetRefs";
 import { producerHandlers } from "./handlers/producers";
 import { secretHandlers } from "./handlers/secrets";
+import { personaAccessHandlers } from "./handlers/personaAccess";
 import { webhookHandlers } from "./handlers/webhooks";
 import { endpointHandlers } from "./handlers/endpoints";
 import { storageHandlers } from "./handlers/storage";
@@ -1257,6 +1258,10 @@ function serveResourceTile(
 }
 
 export const handlers = [
+  // Persona effective access and file shares (#2257, #2258). First, because
+  // /api/v1/resources/shared-with-me would otherwise be read as a resource id.
+  ...personaAccessHandlers,
+
   // =========================================================================
   // Public (unauthenticated)
   // =========================================================================

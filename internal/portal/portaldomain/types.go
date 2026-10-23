@@ -451,10 +451,12 @@ const (
 // Share represents a share link for an asset, collection, or prompt.
 // Exactly one of AssetID, CollectionID, or PromptID is set.
 type Share struct {
-	ID               string `json:"id" example:"share_01HK7R9B"`
-	AssetID          string `json:"asset_id,omitempty" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
-	CollectionID     string `json:"collection_id,omitempty"`
-	PromptID         string `json:"prompt_id,omitempty"`
+	ID           string `json:"id" example:"share_01HK7R9B"`
+	AssetID      string `json:"asset_id,omitempty" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	CollectionID string `json:"collection_id,omitempty"`
+	PromptID     string `json:"prompt_id,omitempty"`
+	// ResourceID is a managed resource the share is for (#2258).
+	ResourceID       string `json:"resource_id,omitempty"`
 	Token            string `json:"token" example:"tk_a1b2c3d4e5f6"`
 	CreatedBy        string `json:"created_by" example:"alice@example.com"`
 	SharedWithUserID string `json:"shared_with_user_id,omitempty"`
