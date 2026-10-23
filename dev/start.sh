@@ -156,6 +156,25 @@ PROBE
 # 127.0.0.1:PORT, and Vite and the fixtures are reached there too.
 port_free() { probe_bind 127.0.0.1 "$1"; }
 
+# http_status prints the HTTP status a URL answers with, or 000 when nothing
+# answers within five seconds. curl already writes 000 for a request that got
+# no answer; a fallback after it (`|| echo "000"`) made that 000000, which a
+# wait for "anything but 000" took as an answer (#2264).
+http_status() {
+  curl -s --max-time 5 -o /dev/null -w "%{http_code}" "$@" 2>/dev/null || true
+}
+
+# store_key_readable lets the managed-resource store read its private key.
+# openssl writes the key mode 600 for the user who ran it, and the SeaweedFS
+# image drops to its own user (uid 1000) before starting weed, so on Linux
+# the HTTPS listener cannot load a 600 key and never answers; macOS hides
+# this, because Docker Desktop's file sharing does not enforce the mode
+# (#2264). It is a self-signed key for a loopback-only dev store. Applied on
+# every start, so a key an earlier run left at 600 is corrected too.
+store_key_readable() {
+  chmod 644 "$1"
+}
+
 # api_port_free asks it for the API port, which the Go server takes on the
 # WILDCARD (dev/platform.yaml server.address ":${DEV_API_PORT}"). The two
 # probes answer different questions: a holder on 0.0.0.0:8080 takes :8080 away
@@ -398,6 +417,7 @@ if [ ! -f dev/.tls/seaweedfs/public.crt ] || [ ! -f dev/.tls/seaweedfs/private.k
     || fail "Could not generate the SeaweedFS TLS certificate (is openssl installed?)"
   ok "SeaweedFS dev certificate generated (dev/.tls/seaweedfs, 397 days)"
 fi
+store_key_readable dev/.tls/seaweedfs/private.key
 
 # Dovecot's certificate (#2247), generated like the store's and for the same
 # reasons. A webhook source's imap input trusts it through tls_ca_bundle_pem.
@@ -434,7 +454,7 @@ docker compose -f dev/docker-compose.yml up -d 2>&1 | grep -v "^$" | sed 's/^/  
 # Wait for SeaweedFS (S3 returns 403 on GET /, so check for any HTTP response)
 info "Waiting for SeaweedFS..."
 for i in $(seq 1 30); do
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$DEV_S3_PORT/ 2>/dev/null || echo "000")
+  HTTP_CODE=$(http_status "http://localhost:$DEV_S3_PORT/")
   if [ "$HTTP_CODE" != "000" ]; then
     break
   fi
@@ -451,8 +471,7 @@ ok "SeaweedFS ready on :$DEV_S3_PORT"
 # fails here rather than at the first upload.
 info "Waiting for the managed-resource store (SeaweedFS, TLS)..."
 for i in $(seq 1 60); do
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --cacert dev/.tls/seaweedfs/public.crt \
-    "https://localhost:$DEV_S3_TLS_PORT/" 2>/dev/null || echo "000")
+  HTTP_CODE=$(http_status --cacert dev/.tls/seaweedfs/public.crt "https://localhost:$DEV_S3_TLS_PORT/")
   if [ "$HTTP_CODE" != "000" ]; then
     break
   fi
@@ -676,11 +695,25 @@ if which aws > /dev/null 2>&1; then
   ok "S3 bucket dev-scratch ready (Trino scratch metastore)"
   # Managed resources live on the SeaweedFS served over TLS, so the upload path
   # is exercised over HTTPS, the transport #1631's streaming write is for.
-  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
-    aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 ls s3://managed-resources > /dev/null 2>&1 || \
-  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
-    aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 mb s3://managed-resources > /dev/null 2>&1 || \
-    fail "Could not create the managed-resources S3 bucket on the TLS store"
+  # Retried like portal-assets above: the store answers before its filer is
+  # ready to take a bucket. The last refusal is printed, since it is the only
+  # word on why (#2264).
+  for i in $(seq 1 30); do
+    if AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+         aws --cli-connect-timeout 5 --cli-read-timeout 10 --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" \
+         s3 ls s3://managed-resources > /dev/null 2>&1; then
+      break
+    fi
+    if MB_ERR=$(AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+         aws --cli-connect-timeout 5 --cli-read-timeout 10 --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" \
+         s3 mb s3://managed-resources 2>&1); then
+      break
+    fi
+    if [ "$i" -eq 30 ]; then
+      fail "Could not create the managed-resources S3 bucket on the TLS store: $MB_ERR (docker logs acme-dev-seaweedfs-resources)"
+    fi
+    sleep 1
+  done
   ok "S3 bucket managed-resources ready (SeaweedFS, TLS)"
   # The scratch_resources catalog keeps its own file metastore, on the same
   # endpoint as the data it describes: a Hive catalog reads its metastore and
@@ -916,7 +949,7 @@ DEVMOCK_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$DEVMOCK_BODY" \
-  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/mcp/dev-mock || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/mcp/dev-mock || true)
 if [ "$DEVMOCK_HTTP" = "200" ] || [ "$DEVMOCK_HTTP" = "201" ]; then
   ok "dev-mock gateway connection registered (tools: dev-mock__echo, dev-mock__add, dev-mock__now)"
 else
@@ -951,7 +984,7 @@ MCPTEST_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$MCPTEST_BODY" \
-  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/mcp/mcp-test-fixture || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/mcp/mcp-test-fixture || true)
 if [ "$MCPTEST_HTTP" = "200" ] || [ "$MCPTEST_HTTP" = "201" ]; then
   ok "mcp-test fixture connection registered (tools: mcp-test-fixture__*)"
 else
@@ -1007,7 +1040,7 @@ print(json.dumps({
     -H "X-API-Key: acme-dev-key-2024" \
     -H "Content-Type: application/json" \
     -d "$APITEST_CATALOG_BODY" \
-    http://localhost:$DEV_API_PORT/api/v1/admin/api-catalogs || echo "000")
+    http://localhost:$DEV_API_PORT/api/v1/admin/api-catalogs || true)
   case "$CATALOG_HTTP" in
     200|201) ok "api-test-fixture catalog created" ;;
     409)     ok "api-test-fixture catalog already exists (reusing)" ;;
@@ -1027,7 +1060,7 @@ print(json.dumps({
       -H "X-API-Key: acme-dev-key-2024" \
       -H "Content-Type: application/json" \
       -d "$APITEST_SPEC_BODY" \
-      "http://localhost:$DEV_API_PORT/api/v1/admin/api-catalogs/${APITEST_CATALOG_ID}/specs/default" || echo "000")
+      "http://localhost:$DEV_API_PORT/api/v1/admin/api-catalogs/${APITEST_CATALOG_ID}/specs/default" || true)
     case "$SPEC_HTTP" in
       200|201|204)
         ok "default spec upserted into api-test-fixture catalog"
@@ -1070,7 +1103,7 @@ APITEST_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$APITEST_BODY" \
-  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/api-test-fixture || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/api-test-fixture || true)
 if [ "$APITEST_HTTP" = "200" ] || [ "$APITEST_HTTP" = "201" ]; then
   if [ "$APITEST_CATALOG_READY" = "1" ]; then
     ok "api-test fixture connection registered with catalog ${APITEST_CATALOG_ID} (api_discover will resolve)"
@@ -1125,7 +1158,7 @@ APITEST_TLS_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$APITEST_TLS_BODY" \
-  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/api-test-fixture-tls || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/api-test-fixture-tls || true)
 if [ "$APITEST_TLS_HTTP" = "200" ] || [ "$APITEST_TLS_HTTP" = "201" ]; then
   ok "api-test fixture connection behind TLS registered (api-test-fixture-tls on :9284)"
 else
@@ -1138,7 +1171,7 @@ OAUTH_MCP_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$OAUTH_MCP_BODY" \
-  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/mcp/oauth-mcp-dev || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/mcp/oauth-mcp-dev || true)
 if [ "$OAUTH_MCP_HTTP" = "200" ] || [ "$OAUTH_MCP_HTTP" = "201" ]; then
   ok "oauth-mcp-dev connection registered (kind=mcp, authorization_code, IdP :9180)"
 else
@@ -1177,7 +1210,7 @@ OAUTH_API_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$OAUTH_API_BODY" \
-  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/oauth-api-dev || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/oauth-api-dev || true)
 if [ "$OAUTH_API_HTTP" = "200" ] || [ "$OAUTH_API_HTTP" = "201" ]; then
   ok "oauth-api-dev connection registered (kind=api, authorization_code, IdP :9180)"
 else
@@ -1227,7 +1260,7 @@ print(json.dumps({"config": cfg, "description": "Dev demo: %s (api-test fixture)
 ')
   code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
     -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
-    -d "$body" "http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/$name" || echo "000")
+    -d "$body" "http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/$name" || true)
   case "$code" in
     200|201) ok "demo connection '$name' registered" ;;
     *) echo -e "  ${YELLOW}⚠${NC} demo connection '$name' register returned HTTP $code" ;;
@@ -1270,7 +1303,7 @@ gw_burst() { # conn
       code=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" -X POST \
         -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
         -d '{"method":"GET","path":"/v1/whoami"}' \
-        "http://localhost:$DEV_API_PORT/api/v1/gateway/$c/invoke" 2>/dev/null || echo "000")
+        "http://localhost:$DEV_API_PORT/api/v1/gateway/$c/invoke" 2>/dev/null || true)
       [ "$code" = "200" ] && break
       sleep 1
     done
@@ -1385,7 +1418,7 @@ SMTP_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$SMTP_BODY" \
-  http://localhost:$DEV_API_PORT/api/v1/admin/settings/smtp || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/settings/smtp || true)
 if [ "$SMTP_HTTP" = "200" ]; then
   ok "SMTP points at mailpit (read it at http://localhost:${DEV_MAILPIT_HTTP_PORT:-8025})"
 else
@@ -1415,7 +1448,7 @@ print(json.dumps({
     -H "X-API-Key: acme-dev-key-2024" \
     -H "Content-Type: application/json" \
     -d "$MM_CONN_BODY" \
-    http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/mattermost-dev || echo "000")
+    http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/mattermost-dev || true)
   if [ "$MM_HTTP" = "200" ] || [ "$MM_HTTP" = "201" ]; then
     CH_BODY=$(MM_CHANNEL="$MATTERMOST_CHANNEL_ID" python3 -c '
 import json, os
@@ -1446,7 +1479,7 @@ STORAGE_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "{\"seaweedfs\":{\"master_url\":\"http://localhost:$DEV_SEAWEEDFS_MASTER_PORT\",\"volume_urls\":[\"http://localhost:$DEV_SEAWEEDFS_VOLUME_PORT\"]}}" \
-  http://localhost:$DEV_API_PORT/api/v1/admin/settings/storage || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/settings/storage || true)
 if [ "$STORAGE_HTTP" = "200" ]; then
   ok "Storage settings name the dev SeaweedFS cluster"
 else
@@ -1477,7 +1510,7 @@ print(json.dumps({
     -H "X-API-Key: acme-dev-key-2024" \
     -H "Content-Type: application/json" \
     -d "$SLACK_CONN_BODY" \
-    http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/slack-dev || echo "000")
+    http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/slack-dev || true)
   if [ "$SLACK_HTTP" = "200" ] || [ "$SLACK_HTTP" = "201" ]; then
     SLACK_CH_BODY=$(SLACK_CHANNEL="$SLACK_TEST_CHANNEL_ID" python3 -c '
 import json, os
