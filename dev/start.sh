@@ -400,8 +400,7 @@ if [ ! -f dev/.tls/seaweedfs/public.crt ] || [ ! -f dev/.tls/seaweedfs/private.k
 fi
 
 # Dovecot's certificate (#2247), generated like the store's and for the same
-# reasons. The imap connection the acceptance criteria save trusts it through
-# tls_ca_bundle_pem.
+# reasons. A webhook source's imap input trusts it through tls_ca_bundle_pem.
 if [ ! -f dev/.tls/dovecot/tls.crt ] || [ ! -f dev/.tls/dovecot/tls.key ]; then
   info "Generating the Dovecot dev certificate..."
   mkdir -p dev/.tls/dovecot

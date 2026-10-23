@@ -14,6 +14,12 @@ them, and readers come and go without the source changing: a script that reads
 yesterday once a night, a script that picks up new events every minute, an
 analyst running a query.
 
+A source can also take its events from a mailbox instead of from requests: the
+platform checks the mailbox and files each message from an allowed sender as
+one event, its attachments as resources the event names. See [A mailbox as a
+source](#a-mailbox-as-a-source). Everything after that, the table, compaction,
+retention and alerts, is the same for both.
+
 Events never go into the platform database. The database holds the source
 definitions and the record of which windows are compacted.
 
@@ -149,6 +155,127 @@ A script then posts with
 `platform.call("api_invoke_endpoint", {"connection": "...", "method": "POST", "path": "/hooks/email-events", "body": {...}})`
 and is answered `202`. A [notification channel](notifications.md) of the
 webhook kind with `format: json` delivers through such a connection, signed.
+
+## A mailbox as a source
+
+A source with `config.input: imap` is not posted to. The platform signs in to a
+mailbox over IMAP, reads the folders the source names, and files each new
+message from an allowed sender as one event (#2247). A dedicated address, for
+example `platform@company.example`, that people and systems send or forward
+mail to (meeting summaries, vendor notices, reports a system emails out) becomes
+a table and a folder of files, with no person or model reading the mailbox.
+
+```bash
+curl -X POST https://platform.example.com/api/v1/admin/webhooks/sources \
+  -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{
+    "name": "meeting-summaries",
+    "connection": "scratch",
+    "auth": { "mode": "imap", "username": "platform@company.example", "secret": "app-password" },
+    "config": {
+      "input": "imap",
+      "imap": {
+        "host": "imap.company.example",
+        "folders": ["INBOX"],
+        "allow_senders": ["no-reply@zoom.example"],
+        "trusted_authserv_id": "mx.company.example"
+      },
+      "persona": "analyst"
+    }
+  }'
+```
+
+The mailbox's login is the source's `auth`: mode `imap`, the `username`, and the
+password as `secret`, stored encrypted and never read back like every source
+secret. Saving the source signs in and opens each folder; a mailbox the platform
+cannot read is refused with the server's answer rather than failing every check
+after.
+
+| Field | Meaning |
+|---|---|
+| `config.input` | `http` (the default) or `imap`. Fixed when the source is created. |
+| `config.imap.host`, `port`, `tls` | The server. `tls` is `tls` (IMAPS, port 993, the default) or `starttls` (port 143). Plain IMAP is refused: the password would cross the network in the clear. |
+| `config.imap.tls_ca_bundle_pem` | PEM certificates to trust, for a server whose certificate a private CA signed. |
+| `config.imap.folders` | The folders read. Required; there is no all-folders default. Each keeps its own place. |
+| `config.imap.allow_senders` | Required. Addresses and `@domain` entries (a domain entry does not admit its subdomains) whose mail becomes an event. Mail from anyone else is counted and never stored. |
+| `config.imap.require_auth_pass` | Default `true`: an allowed sender's message is kept only when the receiving server recorded an SPF, DKIM or DMARC pass aligned with the From domain. |
+| `config.imap.trusted_authserv_id` | Required while `require_auth_pass` is on. The id the receiving server writes at the start of its `Authentication-Results` header. Only the topmost header carrying it is read, since a sender can write that header too. |
+| `config.imap.poll_seconds` | How often the mailbox is checked. Default 60, between 15 and 86,400. |
+| `config.imap.max_message_bytes` | Default 10 MiB. A larger message is filed with its headers and no body or attachments, and says why. |
+| `config.imap.max_attachment_bytes` | Default 25 MiB. A larger attachment is listed on the event and not saved. |
+
+The request settings (`handshake`, `split`, the JSON paths, `max_body_bytes`,
+the flush and buffer settings and the rate limit) do not apply to a mailbox
+source. `compact_every_minutes`, the retention settings, `index` and `persona`
+do.
+
+### What is read and what is kept
+
+Each folder is opened read-only (`EXAMINE`) and each message fetched with
+`BODY.PEEK`: the platform never marks a message seen, moves, deletes or sends
+anything. A folder's place is the highest UID read and the folder's
+UIDVALIDITY; a server that renumbers the folder is read again from the start,
+and the event id keeps those messages from being filed twice once a window is
+compacted. One check of one folder files at most 200 messages, oldest first; the
+rest wait for the next. A check that fails leaves the folder's place where it
+was. Each source is checked by one replica at a time, under an advisory lock.
+
+A message from a sender `allow_senders` does not name, or one without the
+required authentication, is counted on its folder and nothing else of it is
+kept: not its subject, its sender or its size.
+
+Each kept message is one event, written to the source's raw segments exactly as
+the HTTP receiver writes a request's events:
+
+| Column | For a message |
+|---|---|
+| `received_at` | When the mail server received it |
+| `event_id` | Its `Message-ID`, or `imap:{folder}:{uidvalidity}:{uid}` for a message with none |
+| `event_type` | `mail` |
+| `key` | The folder |
+| `payload` | The message, below |
+
+The payload holds what the platform read of the message (`folder`, `uid`,
+`uid_validity`, `message_id`, `in_reply_to`, `references`, `date`, `arrived`,
+`from_address`, `sender_auth`, `size`, `body_format`, `body_skipped`,
+`attachments`) and, under `external`, what its sender wrote (`from`, `to`, `cc`,
+`subject`, `body`) beside a `notice` saying so. Sender-written text has
+invisible, bidirectional and control characters removed; an HTML body is reduced
+to its visible text, hidden elements dropped. A reader that hands `external` to a model should treat it as what a
+stranger wrote, which is what it is.
+
+```sql
+SELECT received_at,
+       json_extract_scalar(payload, '$.external.subject') AS subject,
+       json_extract_scalar(payload, '$.external.body')    AS body
+  FROM webhook_meeting_summaries
+ WHERE dt = '2026-10-21'
+```
+
+### Attachments
+
+Each attachment is saved as a managed resource in the source's library (the
+`persona`'s, or the administrators'), at
+
+```
+webhooks/{source}/attachments/{YYYY-MM-DD}/{folder}-{uidvalidity}-{uid}/{filename}
+```
+
+tagged `webhook`, `mail` and the source's name, and indexed for search by the
+source's `index` setting. The event's `attachments` list names each one with its
+`uri` and `resource_id`, or with `skipped` saying why it was not saved. Reading
+the same message again replaces the file with a new version rather than adding a
+second one. Attachments are not removed by `compacted_retention_days`: they stay
+until someone deletes them or the source is deleted, which removes the whole
+attachments folder with the source's tables and windows.
+
+### The source's page
+
+A mailbox source's page shows the server, the login, the allowed senders and, for
+each folder, the messages stored, the ones withheld because the sender is not
+allowed and because the sender was not authenticated, when it was last checked
+and the last error. `GET /api/v1/admin/webhooks/sources/{name}` returns the same
+under `imap`, one entry per folder checked.
 
 ## What a sender is answered
 

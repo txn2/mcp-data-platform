@@ -5,10 +5,8 @@ import (
 	"fmt"
 
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
-	caldavkit "github.com/txn2/mcp-data-platform/pkg/toolkits/caldav"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
-	imapkit "github.com/txn2/mcp-data-platform/pkg/toolkits/imap"
 	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -20,20 +18,6 @@ func RegisterBuiltinFactories(r *Registry) {
 	r.RegisterAggregateFactory(gatewaykit.Kind, GatewayAggregateFactory)
 	r.RegisterAggregateFactory(apigatewaykit.Kind, APIGatewayAggregateFactory)
 	r.RegisterAggregateFactory(graphqlkit.Kind, GraphQLAggregateFactory)
-	r.RegisterAggregateFactory(caldavkit.Kind, CalDAVAggregateFactory)
-	r.RegisterAggregateFactory(imapkit.Kind, IMAPAggregateFactory)
-}
-
-// CalDAVAggregateFactory creates the one caldav toolkit from all configured
-// instances (#2246). An instance that does not parse is logged and skipped.
-func CalDAVAggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
-	return caldavkit.NewMulti(caldavkit.ParseMultiConfig(defaultName, instances)), nil
-}
-
-// IMAPAggregateFactory creates the one imap toolkit from all configured
-// instances (#2247). An instance that does not parse is logged and skipped.
-func IMAPAggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
-	return imapkit.NewMulti(imapkit.ParseMultiConfig(defaultName, instances)), nil
 }
 
 // TrinoAggregateFactory creates a single multi-connection Trino toolkit
@@ -133,10 +117,6 @@ func ConnectionConfigSchema(kind string) json.RawMessage {
 		return json.RawMessage(apigatewaykit.ConfigSchemaJSON)
 	case graphqlkit.Kind:
 		return json.RawMessage(graphqlkit.ConfigSchemaJSON)
-	case caldavkit.Kind:
-		return json.RawMessage(caldavkit.ConfigSchemaJSON)
-	case imapkit.Kind:
-		return json.RawMessage(imapkit.ConfigSchemaJSON)
 	default:
 		return nil
 	}
@@ -164,10 +144,6 @@ func ValidateConnectionConfig(kind string, cfg map[string]any) error {
 		_, err = apigatewaykit.ParseConfig(cfg)
 	case graphqlkit.Kind:
 		_, err = graphqlkit.ParseConfig(cfg)
-	case caldavkit.Kind:
-		_, err = caldavkit.ParseConfig(cfg)
-	case imapkit.Kind:
-		_, err = imapkit.ParseConfig(cfg)
 	default:
 		return nil
 	}

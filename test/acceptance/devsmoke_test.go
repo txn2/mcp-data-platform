@@ -166,29 +166,38 @@ func TestDevSmoke_TheRendererDrawsATile(t *testing.T) {
 	})
 }
 
-// The CalDAV server answers through a caldav connection: a calendar made
-// for the check is listed by calendar_list.
-func TestDevSmoke_TheCalDAVServerListsACalendar(t *testing.T) {
+// The IMAP server: saving a mailbox webhook source signs in to the dev
+// account and opens its inbox, and is refused when it cannot.
+func TestDevSmoke_AMailboxSourceSignsInToTheIMAPServer(t *testing.T) {
+	t.Parallel()
+	c := connect(t)
+	name := "smoke-mail-" + smokeStamp()[10:]
+	issue1870Create(t, c, issue2247Source(t, name, "INBOX", issue2247Password))
+}
+
+// The CalDAV server: an api connection to it is answered the multistatus a
+// PROPFIND of dana's home asks for.
+func TestDevSmoke_AnAPIConnectionReachesTheCalDAVServer(t *testing.T) {
 	t.Parallel()
 	requireCalDAV(t)
 	c := connect(t)
-	href := issue2246Calendar(t, "Smoke "+smokeStamp())
-	name := issue2246Connect(t, c)
-	out := c.call("calendar_list", map[string]any{"connection": name, "purpose": "Dev smoke: the CalDAV server answers."})
-	if !strings.Contains(fmt.Sprint(out["calendars"]), href) {
-		t.Fatalf("calendar_list did not list %s: %v", href, out)
+	name := "smoke-caldav-" + smokeStamp()
+	status := c.restJSON(http.MethodPut, "/api/v1/admin/connection-instances/api/"+name, map[string]any{
+		"config": map[string]any{
+			"base_url": issue2246URL(), "auth_mode": "basic", "username": issue2246User, "password": issue2246Password,
+			"connection_name": name, "trust_level": "untrusted",
+		},
+		"description": "dev smoke: Radicale as an api connection",
+	})
+	if status != http.StatusCreated && status != http.StatusOK {
+		t.Fatalf("saving the api connection: HTTP %d", status)
 	}
-}
-
-// The IMAP server answers through an imap connection: a message appended for
-// the check is found by mail_search.
-func TestDevSmoke_TheIMAPServerFindsAMessage(t *testing.T) {
-	t.Parallel()
-	c := connect(t)
-	folder := issue2247Folder(t)
-	name := issue2247Connect(t, c, folder)
-	out := c.call("mail_search", map[string]any{"connection": name, "folder": folder, "purpose": "Dev smoke: the IMAP server answers."})
-	if msgs, _ := out["messages"].([]any); len(msgs) == 0 {
-		t.Fatalf("mail_search found nothing in %s: %v", folder, out)
+	t.Cleanup(func() { c.rest(http.MethodDelete, "/api/v1/admin/connection-instances/api/"+name, http.NoBody) })
+	out := c.call("api_invoke_endpoint", map[string]any{
+		"connection": name, "method": "PROPFIND", "path": "/" + issue2246User + "/",
+		"headers": map[string]any{"Depth": "0"}, "purpose": "dev smoke: the CalDAV server answers",
+	})
+	if fmt.Sprint(out["status"]) != "207" {
+		t.Fatalf("PROPFIND answered %v: %v", out["status"], out)
 	}
 }

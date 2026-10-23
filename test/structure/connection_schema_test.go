@@ -63,13 +63,6 @@ var kindSources = map[string][]string{
 		"internal/upstreamauth/signedjwt.go",
 		"pkg/connoauth/parse.go",
 	},
-	"caldav": {
-		"pkg/toolkits/caldav/config.go",
-		"internal/upstreamauth/config.go",
-		"internal/upstreamauth/signedjwt.go",
-		"pkg/connoauth/parse.go",
-	},
-	"imap": {"pkg/toolkits/imap/config.go"},
 }
 
 // notConfigKeys are strings the patterns recover that are not connection-config

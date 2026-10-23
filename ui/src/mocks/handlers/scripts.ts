@@ -413,22 +413,6 @@ export const scriptHandlers = [
     },
   ),
 
-  // Whether the script may act on mail it reads (#2247).
-  http.put(`${PORTAL_BASE}/scripts/:id/mail-actions`, async ({ params, request }) => {
-    const contract = contracts[String(params.id)];
-    if (!contract) {
-      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
-    }
-    const body = (await request.json()) as { mail_actions?: boolean };
-    contract.mail_actions = body.mail_actions === true;
-    return HttpResponse.json({
-      mail_actions: contract.mail_actions,
-      message: contract.mail_actions
-        ? "Saved. This script reads mail and acts on it."
-        : "Saved. A run that reads mail cannot write anything afterwards.",
-    });
-  }),
-
   // Documenting the script (#1369). It applies at once; the record and the
   // contract both move, because the page reads the contract and the listing
   // reads the record.

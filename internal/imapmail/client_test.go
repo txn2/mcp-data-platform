@@ -135,17 +135,9 @@ func TestSession_ReadsWithoutChangingTheMailbox(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, 2)
 
-	bySubject, err := s.Search(Criteria{Subject: "Re:"})
-	require.NoError(t, err)
-	assert.Equal(t, all[1:], bySubject)
-
 	after, err := s.Search(Criteria{SinceUID: all[0]})
 	require.NoError(t, err)
 	assert.Equal(t, all[1:], after, "a watermark returns only newer mail")
-
-	thread, err := s.Search(Criteria{HeaderIDs: []string{"inv-4411@vendor.example"}})
-	require.NoError(t, err)
-	assert.Equal(t, all, thread, "the original and the reply that names it")
 
 	envs, err := s.Headers(all)
 	require.NoError(t, err)
@@ -165,10 +157,6 @@ func TestSession_ReadsWithoutChangingTheMailbox(t *testing.T) {
 	assert.ErrorContains(t, err, "over the connection's max_message_bytes")
 	_, err = s.Whole(9999, 0)
 	assert.ErrorIs(t, err, ErrNoSuchMessage)
-
-	unseen, err := s.Search(Criteria{Unseen: true})
-	require.NoError(t, err)
-	assert.Equal(t, all, unseen, "reading a message never marks it seen")
 
 	none, err := s.Headers(nil)
 	require.NoError(t, err)
@@ -202,14 +190,4 @@ func TestOpen_Refusals(t *testing.T) {
 	closed.Port = 1
 	_, err = Open(ctx, closed)
 	assert.ErrorContains(t, err, "connecting to")
-}
-
-func TestCriteria_Imap(t *testing.T) {
-	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	sc := Criteria{From: "vendor", To: "platform", Cc: "dana", Text: "invoice", Since: since, Unseen: true}.imap()
-	assert.Len(t, sc.Header, 3)
-	assert.Equal(t, []string{"invoice"}, sc.Text)
-	assert.Equal(t, []imap.Flag{imap.FlagSeen}, sc.NotFlag)
-	assert.Equal(t, since, sc.Since)
-	assert.Nil(t, idCriteria(nil))
 }

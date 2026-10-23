@@ -8,7 +8,7 @@ Where a deployment's downstream systems are declared, and the OpenAPI catalogs i
 
 ## Connections
 
-The Connections page manages toolkit backend instances (Trino, S3, MCP gateway, API gateway, GraphQL, CalDAV, IMAP) using a split-pane layout.
+The Connections page manages toolkit backend instances (Trino, S3, MCP gateway, API gateway, GraphQL) using a split-pane layout.
 
 ![Connections](../images/screenshots/light/admin-admin-connections-light.webp#only-light)![Connections](../images/screenshots/dark/admin-admin-connections-dark.webp#only-dark)
 

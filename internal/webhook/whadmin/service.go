@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
@@ -58,6 +59,9 @@ type Deps struct {
 	// MemoryLimit is the memory this replica may use, which the webhooks
 	// page sets the largest window against (#2150). Nil reports none.
 	MemoryLimit func() int64
+	// Mailbox checks an imap source's mailbox when it is saved and reports
+	// its folders' polls (#2247); nil leaves both out.
+	Mailbox Mailbox
 }
 
 // Service manages sources.
@@ -104,6 +108,28 @@ func (s *Service) Get(ctx context.Context, name string) (whsource.Source, whstor
 	return src.WithDefaults(), st, nil
 }
 
+// Marks reports how each folder of an imap source's polls are going; an HTTP
+// source has none.
+func (s *Service) Marks(ctx context.Context, name string) ([]whimap.Mark, error) {
+	if s.deps.Mailbox == nil {
+		return []whimap.Mark{}, nil
+	}
+	return s.deps.Mailbox.Marks(ctx, name) //nolint:wrapcheck // the store names itself
+}
+
+// checkMailbox signs in to an imap source's mailbox and opens each of its
+// folders, so a source the poller could never read is refused when it is
+// saved rather than failing every poll.
+func (s *Service) checkMailbox(ctx context.Context, src whsource.Source) error {
+	if !src.IsIMAP() || s.deps.Mailbox == nil {
+		return nil
+	}
+	if err := s.deps.Mailbox.Check(ctx, src); err != nil {
+		return whsource.Refusal("%s", err.Error()) //nolint:wrapcheck // ErrInvalid is what a surface renders
+	}
+	return nil
+}
+
 // Create makes a source: its tables, the proof its connection can hold them,
 // its record and its registration. A failure part-way removes what was made.
 func (s *Service) Create(ctx context.Context, src whsource.Source) (whsource.Source, error) {
@@ -137,6 +163,9 @@ func (s *Service) admit(ctx context.Context, src whsource.Source) (whtable.Targe
 	}
 	if p := src.Config.Persona; p != "" && s.deps.PersonaExists != nil && !s.deps.PersonaExists(p) {
 		return whtable.Target{}, whsource.Refusal("config.persona names no persona: %s", p) //nolint:wrapcheck // ErrInvalid is what a surface renders
+	}
+	if err := s.checkMailbox(ctx, src); err != nil {
+		return whtable.Target{}, err
 	}
 	tg, err := s.deps.Tables.TargetFor(src.Connection)
 	if err != nil {
@@ -238,9 +267,13 @@ func (s *Service) Update(ctx context.Context, name string, u Update) (whsource.S
 	next.Auth = auth.Rotate(u.Auth.Secret, u.RotationOverlap, s.deps.Now())
 	next.Config = u.Config
 	next.Config.Persona = cur.Config.Persona
+	next.Config.Input = cur.WithDefaults().Config.Input
 	next = next.WithDefaults()
 	if err := whsource.Validate(next); err != nil {
 		return whsource.Source{}, err //nolint:wrapcheck // ErrInvalid is what a surface renders
+	}
+	if err := s.checkMailbox(ctx, next); err != nil {
+		return whsource.Source{}, err
 	}
 	updatedAt, err := s.deps.Sources.Update(ctx, next)
 	if err != nil {
@@ -266,6 +299,11 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 	for _, step := range []func(context.Context, string) error{s.deleteWindows, s.deleteSegments, s.deleteRegistrations} {
 		if err := step(ctx, name); err != nil {
 			return err
+		}
+	}
+	if src.IsIMAP() {
+		if err := s.deps.Resources.DeleteAttachments(ctx, src); err != nil {
+			return fmt.Errorf("deleting the source's attachments: %w", err)
 		}
 	}
 	if err := s.deps.Sources.Delete(ctx, name); err != nil {

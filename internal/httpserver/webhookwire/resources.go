@@ -11,6 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/tableparquet"
 	"github.com/txn2/mcp-data-platform/internal/webhook/compactor"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -35,16 +36,18 @@ type resourceWriter interface {
 	Delete(ctx context.Context, id string, claims resource.Claims) (*resource.Resource, error)
 }
 
-// uriLookup finds a resource by its address.
-type uriLookup interface {
+// resourceIndex finds a resource by its address and lists a folder of a
+// library. resource.Store satisfies it.
+type resourceIndex interface {
 	GetByURI(ctx context.Context, uri string) (*resource.Resource, error)
+	List(ctx context.Context, filter resource.Filter) ([]resource.Resource, int, error)
 }
 
 // windowResources writes each compacted window as a managed resource in the
 // folder webhooks/{source}/{dt}, named {window}.parquet.
 type windowResources struct {
 	w         resourceWriter
-	byURI     uriLookup
+	byURI     resourceIndex
 	uriScheme string
 	// adminPersona is the library a source that names no persona writes its
 	// windows to, which is what keeps them to administrators while leaving them
@@ -161,4 +164,72 @@ func (h windowResources) Delete(ctx context.Context, id string) error {
 		return nil
 	}
 	return err //nolint:wrapcheck // the writer's message names the resource
+}
+
+// PutFile writes a file of a source into its library at folder/filename: a
+// new version of the file at that address when there is one, a new resource
+// otherwise. An imap source's attachments are written this way (#2247).
+func (h windowResources) PutFile(ctx context.Context, src whsource.Source, f whimap.File) (uri, id string, err error) {
+	scope, scopeID := h.libraryOf(src)
+	address := resource.BuildURI(h.uriScheme, scope, scopeID, f.Folder, f.Name)
+	found, err := h.byURI.GetByURI(ctx, address)
+	if err != nil && !resource.IsNotFound(err) {
+		return "", "", fmt.Errorf("looking up %s: %w", address, err)
+	}
+	if found != nil {
+		res, _, err := h.w.Replace(ctx, found.ID, resource.RevisionUpload{
+			Content: bytes.NewReader(f.Data), MIMEType: f.ContentType, ChangeSummary: "Read again from the mailbox", Index: src.Config.Index,
+		}, systemClaims())
+		if err != nil {
+			return "", "", err //nolint:wrapcheck // the writer's message names the resource
+		}
+		return res.URI, res.ID, nil
+	}
+	res, err := h.w.Create(ctx, resource.NewResource{
+		Scope: scope, ScopeID: scopeID, Path: f.Folder, Filename: f.Name,
+		DisplayName: f.Name,
+		Description: "An attachment of a message the " + src.Name + " source read from its mailbox.",
+		Tags:        []string{"webhook", "mail", src.Name},
+		Content:     bytes.NewReader(f.Data),
+		MIMEType:    f.ContentType,
+		Index:       src.Config.Index,
+		Origin:      indexpolicy.OriginWebhook,
+	}, systemClaims())
+	if err != nil {
+		return "", "", err //nolint:wrapcheck // the writer's message names the resource
+	}
+	return res.URI, res.ID, nil
+}
+
+// attachmentsPage is how many attachments one listing removes.
+const attachmentsPage = 200
+
+// DeleteAttachments removes every attachment an imap source saved: the
+// resources under its attachments folder in its library (#2247). Each page is
+// listed again from the start, since what the last one held is gone.
+func (h windowResources) DeleteAttachments(ctx context.Context, src whsource.Source) error {
+	scope, scopeID := h.libraryOf(src)
+	filter := resource.Filter{
+		Scopes: []resource.ScopeFilter{{Scope: scope, ScopeID: scopeID}},
+		Path:   whimap.AttachmentsFolder(src.Name), Limit: attachmentsPage,
+	}
+	removed := map[string]bool{}
+	for {
+		page, _, err := h.byURI.List(ctx, filter)
+		if err != nil {
+			return fmt.Errorf("listing the attachments of %s: %w", src.Name, err)
+		}
+		for _, r := range page {
+			if removed[r.ID] {
+				return fmt.Errorf("attachment %s of %s is still listed after its delete", r.ID, src.Name)
+			}
+			if err := h.Delete(ctx, r.ID); err != nil {
+				return err
+			}
+			removed[r.ID] = true
+		}
+		if len(page) < attachmentsPage {
+			return nil
+		}
+	}
 }

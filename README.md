@@ -124,8 +124,6 @@ Each feature links to its full documentation.
 |---------|-------------|
 | [MCP gateway](https://mcp-data-platform.txn2.com/server/gateway/) | Re-expose any third-party MCP server through the platform's auth, persona, and audit pipeline |
 | [API gateway](https://mcp-data-platform.txn2.com/server/api-gateway/) | Proxy REST/HTTP APIs (Salesforce, Google, GitHub, Stripe) with four tools instead of one tool per endpoint |
-| [CalDAV calendars](https://mcp-data-platform.txn2.com/server/caldav/) | Read a calendar account over CalDAV: events in a range with recurrence and time zones resolved, invitation text kept apart as third-party content |
-| [IMAP mailbox](https://mcp-data-platform.txn2.com/server/imap/) | Read a dedicated platform mailbox: only allowlisted, authenticated senders shown, hidden HTML removed, and scripts that act on mail declared |
 | [API catalogs](https://mcp-data-platform.txn2.com/server/api-catalogs/) | Versioned OpenAPI bundles shared across connections, with semantic endpoint ranking |
 | [REST invoke shim](https://mcp-data-platform.txn2.com/server/api-gateway/#rest-gateway-for-non-mcp-clients) | Call gateway endpoints from NiFi, Airflow, or `curl` under the same auth and audit pipeline |
 | [Self-configuration](https://mcp-data-platform.txn2.com/server/self-configuration/) | Admins manage personas, connections, and prompts by asking the agent instead of clicking |

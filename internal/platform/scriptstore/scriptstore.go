@@ -61,7 +61,7 @@ func New(db *sql.DB, opts ...indexjobs.StoreOption) *Store {
 // place so the scan order in scanScript cannot drift from the query.
 const scriptColumns = `id, name, display_name, description, category, source_code, params,
 	owner_email, tags, enabled, status, superseded_by,
-	deprecated_at, version, created_at, updated_at, library, library_loads, exclusive_mode, mail_actions`
+	deprecated_at, version, created_at, updated_at, library, library_loads, exclusive_mode`
 
 // scriptSelect is the base SELECT for the script columns.
 // scriptsTable is the one place the table's name is written. Every statement
@@ -84,7 +84,7 @@ func scanScript(sc rowScanner) (*script.Script, error) {
 	err := sc.Scan(&s.ID, &s.Name, &s.DisplayName, &s.Description, &s.Category, &s.Source, &paramsJSON,
 		&s.OwnerEmail, pq.Array(&s.Tags), &s.Enabled,
 		&s.Status, &s.SupersededBy, &s.DeprecatedAt, &s.Version,
-		&s.CreatedAt, &s.UpdatedAt, &s.Library, pq.Array(&s.Loads), &s.Exclusive, &s.MailActions)
+		&s.CreatedAt, &s.UpdatedAt, &s.Library, pq.Array(&s.Loads), &s.Exclusive)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script row: %w", err)
 	}
@@ -157,12 +157,12 @@ func (s *Store) Create(ctx context.Context, sc *script.Script, author script.Aut
 		row := tx.QueryRowContext(ctx, `
 			INSERT INTO scripts (name, display_name, description, category, source_code, params,
 			                     owner_email, tags, enabled, status, version, library, library_loads, exclusive_mode,
-			                     index_text_hash, mail_actions)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13, $14, $15)
+			                     index_text_hash)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13, $14)
 			RETURNING id, created_at, updated_at`,
 			sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
 			sc.OwnerEmail, pq.Array(sc.Tags), sc.Enabled, sc.Status, sc.Library, pq.Array(sc.Loads), sc.Exclusive.Or(),
-			indexjobs.TextHash(scriptindex.Corpus(sc)), sc.MailActions)
+			indexjobs.TextHash(scriptindex.Corpus(sc)))
 		if err := row.Scan(&sc.ID, &sc.CreatedAt, &sc.UpdatedAt); err != nil {
 			return fmt.Errorf("insert script: %w", err)
 		}
@@ -241,7 +241,7 @@ const updateScriptQuery = `
 		       source_code = $6, params = $7,
 		       owner_email = $8, tags = $9, enabled = $10, status = $11,
 		       superseded_by = $12, deprecated_at = $13, version = $14,
-		       library_loads = $16, exclusive_mode = $17, mail_actions = $18, index_text_hash = $15, updated_at = NOW()
+		       library_loads = $16, exclusive_mode = $17, index_text_hash = $15, updated_at = NOW()
 		  FROM (SELECT id, index_text_hash AS prev FROM scripts WHERE id = $1 FOR UPDATE) p
 		 WHERE s.id = $1 AND p.id = s.id
 		 RETURNING p.prev IS DISTINCT FROM $15`
@@ -258,7 +258,7 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 		sc.ID, sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
 		sc.OwnerEmail, pq.Array(sc.Tags),
 		sc.Enabled, sc.Status, sc.SupersededBy, sc.DeprecatedAt, sc.Version,
-		indexjobs.TextHash(scriptindex.Corpus(sc)), pq.Array(libraryLoads(sc.Source)), sc.Exclusive.Or(), sc.MailActions).Scan(&changed)
+		indexjobs.TextHash(scriptindex.Corpus(sc)), pq.Array(libraryLoads(sc.Source)), sc.Exclusive.Or()).Scan(&changed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("script %s not found", sc.ID)
 	}

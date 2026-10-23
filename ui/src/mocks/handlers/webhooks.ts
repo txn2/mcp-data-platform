@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 import type { WebhookSource, WebhookSourceInput, WebhookStatusRange } from "@/api/admin/types";
-import { mockWebhookOverview, mockWebhookSources, mockWebhookStatus } from "../data/webhooks";
+import { mockWebhookFolders, mockWebhookOverview, mockWebhookSources, mockWebhookStatus } from "../data/webhooks";
 
 // Webhook source admin routes (#1870, #1979):
 //   GET    /webhooks/status           (every source's status, volume, rejections)
@@ -59,7 +59,7 @@ export const webhookHandlers = [
       name,
       enabled: body.enabled ?? true,
       connection: body.connection ?? "",
-      path: `/hooks/${name}`,
+      path: body.config.input === "imap" ? "" : `/hooks/${name}`,
       table: `webhook_${name.replace(/-/g, "_")}`,
       auth: { ...body.auth, secret: undefined, secret_set: true } as WebhookSource["auth"],
       config: { raw_retention_days: 1, compacted_retention_days: 400, ...body.config },
@@ -88,7 +88,8 @@ export const webhookHandlers = [
   http.get(`${ADMIN_BASE}/webhooks/sources/:name`, ({ params }) => {
     const source = sources.find((s) => s.name === params.name);
     if (!source) return notFound();
-    return HttpResponse.json({ source, status: mockWebhookStatus[source.name] });
+    const imap = source.config.input === "imap" ? { imap: mockWebhookFolders[source.name] ?? [] } : {};
+    return HttpResponse.json({ source, status: mockWebhookStatus[source.name], ...imap });
   }),
 
   http.put(`${ADMIN_BASE}/webhooks/sources/:name`, async ({ params, request }) => {

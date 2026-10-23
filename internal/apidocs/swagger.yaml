@@ -5998,21 +5998,6 @@ definitions:
         description: Total is the number of items in the list.
         type: integer
     type: object
-  mailactionshttp.mailActionsRequest:
-    properties:
-      mail_actions:
-        example: true
-        type: boolean
-    type: object
-  mailactionshttp.mailActionsResponse:
-    properties:
-      mail_actions:
-        example: true
-        type: boolean
-      message:
-        example: Saved. This script reads mail and acts on it.
-        type: string
-    type: object
   maps.Archive:
     properties:
       bounds:
@@ -9926,10 +9911,6 @@ definitions:
         items:
           type: string
         type: array
-      mail_actions:
-        description: MailActions is set when the script reads mail and acts on it
-          (#2247).
-        type: boolean
       name:
         example: daily-sales-report
         type: string
@@ -10527,12 +10508,6 @@ definitions:
         items:
           type: string
         type: array
-      mail_actions:
-        description: |-
-          MailActions is the owner's setting that the script may act on mail it
-          reads (#2247). Off, a run that has called a mail_* tool is refused every
-          later write and output (internal/mailbarrier).
-        type: boolean
       name:
         example: daily-sales-report
         type: string
@@ -13796,6 +13771,13 @@ definitions:
     type: object
   webhookapi.SourceDetail:
     properties:
+      imap:
+        description: |-
+          IMAP is each folder of an imap source as its polls left it: the
+          watermark, the messages stored and withheld, the last poll's error.
+        items:
+          $ref: '#/definitions/whimap.Mark'
+        type: array
       source:
         $ref: '#/definitions/webhookapi.SourceView'
       status:
@@ -14187,6 +14169,28 @@ definitions:
       updated_by:
         type: string
     type: object
+  whimap.Mark:
+    properties:
+      folder:
+        type: string
+      hidden_not_allowed:
+        description: |-
+          HiddenNotAllowed and HiddenUnauthenticated count the messages the
+          sender rules withheld. Nothing else of them is kept.
+        type: integer
+      hidden_unauthenticated:
+        type: integer
+      last_error:
+        type: string
+      last_polled_at:
+        type: string
+      last_uid:
+        type: integer
+      stored:
+        type: integer
+      uid_validity:
+        type: integer
+    type: object
   whsource.Config:
     properties:
       buffer_limit:
@@ -14216,12 +14220,19 @@ definitions:
         type: integer
       handshake:
         type: string
+      imap:
+        $ref: '#/definitions/whsource.IMAP'
       index:
         description: |-
           Index is how search indexes the source's compacted windows (#2111):
           "full", "metadata" or "none". Empty leaves it to the operator's
           resources.index rules, which can match these writes by origin webhook.
           It applies to windows written from the next compaction on.
+        type: string
+      input:
+        description: |-
+          Input is "http" (the default, posted to) or "imap" (a polled mailbox,
+          configured under IMAP).
         type: string
       key_path:
         type: string
@@ -14253,6 +14264,49 @@ definitions:
           is objects the raw table and retention list (#2134).
         type: integer
       split:
+        type: string
+    type: object
+  whsource.IMAP:
+    properties:
+      allow_senders:
+        description: |-
+          AllowSenders are the addresses and @domain entries whose mail becomes
+          an event. Mail from anyone else is counted and never stored.
+        items:
+          type: string
+        type: array
+      folders:
+        description: |-
+          Folders are the folders read, each with its own watermark. Required:
+          there is no all-folders default.
+        items:
+          type: string
+        type: array
+      host:
+        type: string
+      max_attachment_bytes:
+        type: integer
+      max_message_bytes:
+        type: integer
+      poll_seconds:
+        type: integer
+      port:
+        type: integer
+      require_auth_pass:
+        description: |-
+          RequireAuthPass trusts an allowed sender only when the receiving
+          server recorded an aligned SPF, DKIM or DMARC pass. Nil is true.
+        type: boolean
+      tls:
+        description: TLS is "tls" (IMAPS, the default) or "starttls".
+        type: string
+      tls_ca_bundle_pem:
+        description: TLSCABundlePEM are certificates to trust for a private CA.
+        type: string
+      trusted_authserv_id:
+        description: |-
+          TrustedAuthServID is the receiving server's authserv-id; only an
+          Authentication-Results header carrying it is read.
         type: string
     type: object
   whstore.AckLatency:
@@ -29050,56 +29104,6 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Withdraw a script run grant
-      tags:
-      - Scripts
-  /portal/scripts/{id}/mail-actions:
-    put:
-      consumes:
-      - application/json
-      description: With mail_actions false (the default), a run that has called a
-        mail_* tool is refused every later write-class tool call and every output,
-        because a sender can steer what a message says. Turning it on lets the script
-        act on mail; its contract then says so. Restricted to the script's owner and
-        to administrators.
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: The setting
-        in: body
-        name: mail_actions
-        required: true
-        schema:
-          $ref: '#/definitions/mailactionshttp.mailActionsRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/mailactionshttp.mailActionsResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Set whether a script may act on mail it reads
       tags:
       - Scripts
   /portal/scripts/{id}/metadata:

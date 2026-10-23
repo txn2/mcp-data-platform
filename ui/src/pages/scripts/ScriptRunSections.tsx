@@ -2,7 +2,6 @@ import type { ProducedTargetKind } from "@/api/portal/hooks/producers";
 import type { ScriptContract } from "@/api/portal/hooks/scripts";
 import { ScriptExclusiveSetting } from "./ScriptExclusiveSetting";
 import { ScriptGrantsCard } from "./ScriptGrantsCard";
-import { ScriptMailActionsSetting } from "./ScriptMailActionsSetting";
 import { ScriptProducedPanel } from "./ScriptProducedPanel";
 import { ScriptLiveRuns } from "./ScriptRunAttempts";
 import { ScriptRunHistory } from "./ScriptRunHistory";
@@ -32,12 +31,7 @@ export function ScriptRunSections({ scriptId, contract, openRunId, onNavigate, f
         scriptId={scriptId}
         openRunId={openRunId}
         onNavigate={onNavigate}
-        setting={
-          <>
-            <ScriptExclusiveSetting scriptId={scriptId} contract={contract} />
-            <ScriptMailActionsSetting scriptId={scriptId} contract={contract} />
-          </>
-        }
+        setting={<ScriptExclusiveSetting scriptId={scriptId} contract={contract} />}
       />
       {/* Everything the runs above have written, as one list rather than
           per-run output lines (#1569). It reads after the history for the

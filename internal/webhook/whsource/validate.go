@@ -45,8 +45,20 @@ func Validate(s Source) error {
 	if strings.TrimSpace(s.Connection) == "" {
 		return invalid("connection is required: the Trino connection whose scratch catalog holds the source's table")
 	}
-	if err := validateAuth(s.Auth); err != nil {
-		return err
+	switch s.Config.Input {
+	case InputIMAP:
+		if s.Auth.Secret == "" {
+			return invalid("auth.secret is required: the mailbox's password")
+		}
+		if err := validateIMAP(s.Config.IMAP, s.Auth); err != nil {
+			return err
+		}
+	case InputHTTP:
+		if err := validateAuth(s.Auth); err != nil {
+			return err
+		}
+	default:
+		return invalid("config.input must be http or imap")
 	}
 	return validateConfig(s.Config)
 }

@@ -136,66 +136,19 @@ func (s *Session) Examine(folder string) (uidValidity, messages uint32, err erro
 	return data.UIDValidity, data.NumMessages, nil
 }
 
-// Criteria is what mail_search narrows by. Every field set must match.
+// Criteria is what a search narrows by.
 type Criteria struct {
-	From    string
-	To      string
-	Cc      string
-	Subject string
-	// Text matches anywhere in the headers or body.
-	Text   string
-	Since  time.Time
-	Before time.Time
-	Unseen bool
-	// SinceUID returns only messages with a UID above it: a script's
+	// SinceUID returns only messages with a UID above it: a folder's
 	// watermark.
 	SinceUID uint32
-	// HeaderIDs matches a message whose Message-ID, In-Reply-To or
-	// References names any of the ids: a thread.
-	HeaderIDs []string
 }
 
 func (c Criteria) imap() *imap.SearchCriteria {
-	sc := &imap.SearchCriteria{Since: c.Since, Before: c.Before}
-	for _, h := range [][2]string{{"From", c.From}, {"To", c.To}, {"Cc", c.Cc}, {"Subject", c.Subject}} {
-		if h[1] != "" {
-			sc.Header = append(sc.Header, imap.SearchCriteriaHeaderField{Key: h[0], Value: h[1]})
-		}
-	}
-	if c.Text != "" {
-		sc.Text = []string{c.Text}
-	}
-	if c.Unseen {
-		sc.NotFlag = []imap.Flag{imap.FlagSeen}
-	}
+	sc := &imap.SearchCriteria{}
 	if c.SinceUID > 0 {
 		sc.UID = []imap.UIDSet{{imap.UIDRange{Start: imap.UID(c.SinceUID + 1), Stop: 0}}}
 	}
-	if ors := idCriteria(c.HeaderIDs); ors != nil {
-		sc.And(ors)
-	}
 	return sc
-}
-
-// threadHeaders are the headers a thread member's id can be in.
-var threadHeaders = []string{"Message-ID", "In-Reply-To", "References"} //nolint:gochecknoglobals // fixed protocol table
-
-// idCriteria is an OR over every header that can carry a thread member's id.
-func idCriteria(ids []string) *imap.SearchCriteria {
-	leaves := make([]imap.SearchCriteria, 0, len(ids))
-	for _, id := range ids {
-		for _, key := range threadHeaders {
-			leaves = append(leaves, imap.SearchCriteria{Header: []imap.SearchCriteriaHeaderField{{Key: key, Value: id}}})
-		}
-	}
-	if len(leaves) == 0 {
-		return nil
-	}
-	acc := leaves[0]
-	for _, l := range leaves[1:] {
-		acc = imap.SearchCriteria{Or: [][2]imap.SearchCriteria{{acc, l}}}
-	}
-	return &acc
 }
 
 // Search returns the UIDs in the examined folder that match, ascending.
@@ -217,8 +170,10 @@ func (s *Session) Search(c Criteria) ([]uint32, error) {
 
 // Envelope is what a header fetch returns for one message.
 type Envelope struct {
-	UID         uint32
-	Size        int64
+	UID  uint32
+	Size int64
+	// Arrived is when the server received the message (INTERNALDATE).
+	Arrived     time.Time
 	Header      []byte
 	Attachments []Attachment
 }
@@ -235,6 +190,7 @@ func (s *Session) Headers(uids []uint32) ([]Envelope, error) {
 	msgs, err := s.c.Fetch(set, &imap.FetchOptions{
 		UID:           true,
 		RFC822Size:    true,
+		InternalDate:  true,
 		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
 		BodySection:   []*imap.FetchItemBodySection{headerSection},
 	}).Collect()
@@ -246,6 +202,7 @@ func (s *Session) Headers(uids []uint32) ([]Envelope, error) {
 		out = append(out, Envelope{
 			UID:         uint32(m.UID),
 			Size:        m.RFC822Size,
+			Arrived:     m.InternalDate,
 			Header:      m.FindBodySection(headerSection),
 			Attachments: attachmentsOf(m.BodyStructure),
 		})

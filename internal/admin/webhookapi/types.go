@@ -3,6 +3,7 @@ package webhookapi
 import (
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 )
@@ -52,6 +53,9 @@ type SourceView struct {
 type SourceDetail struct {
 	Source SourceView     `json:"source"`
 	Status whstore.Status `json:"status"`
+	// IMAP is each folder of an imap source as its polls left it: the
+	// watermark, the messages stored and withheld, the last poll's error.
+	IMAP []whimap.Mark `json:"imap,omitempty"`
 }
 
 // SourceList is the collection response.

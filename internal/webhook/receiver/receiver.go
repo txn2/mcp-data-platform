@@ -294,6 +294,11 @@ func (r *Receiver) refresh(ctx context.Context) error {
 	next := make(map[string]served, len(list))
 	for _, s := range list {
 		s = s.WithDefaults()
+		if s.IsIMAP() {
+			// A polled mailbox is not posted to; a request naming it is
+			// answered as for an unknown source (#2247).
+			continue
+		}
 		paths, err := whevent.ParsePaths(s.Config)
 		if err != nil {
 			r.cfg.Logger.Warn("webhooks: source not served", "source", logsan.SanitizeForLog(s.Name),

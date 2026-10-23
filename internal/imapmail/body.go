@@ -1,7 +1,6 @@
 package imapmail
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 
@@ -212,34 +211,4 @@ func voidElement(a atom.Atom) bool {
 		return true
 	}
 	return false
-}
-
-// quoteHeader matches the line a mail client writes above a quoted reply.
-var quoteHeader = regexp.MustCompile(`(?i)^(on .{4,200} wrote:|-{2,} ?original message ?-{2,}|from: .+ sent: .+|_{20,})\s*$`)
-
-// CollapseQuoted replaces the quoted history under a reply with one line saying
-// how much was left out: every line starting with ">", and everything from a
-// line such as "On <date>, <name> wrote:" or "-----Original Message-----" to
-// the end. The reply's own text is what the reader wants; the history is in
-// the earlier messages of the thread.
-func CollapseQuoted(body string) (text string, collapsed int) {
-	lines := strings.Split(body, newline)
-	out := make([]string, 0, len(lines))
-	for i, l := range lines {
-		t := strings.TrimSpace(l)
-		if quoteHeader.MatchString(t) {
-			collapsed += len(lines) - i
-			break
-		}
-		if strings.HasPrefix(t, ">") {
-			collapsed++
-			continue
-		}
-		out = append(out, l)
-	}
-	text = strings.TrimRight(strings.Join(out, newline), "\n ")
-	if collapsed > 0 {
-		text += fmt.Sprintf("\n\n[%d quoted lines collapsed]", collapsed)
-	}
-	return text, collapsed
 }

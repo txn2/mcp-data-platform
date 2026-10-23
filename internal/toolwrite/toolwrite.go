@@ -157,14 +157,6 @@ var readOnlyTools = map[string]bool{
 	// graphql_query are ruled on by what they send.
 	"api_discover":     true,
 	"graphql_discover": true,
-	// The calendar and mail kinds read and nothing else (#2246, #2247): they
-	// send PROPFIND, REPORT and GET, and EXAMINE and BODY.PEEK.
-	"calendar_list":   true,
-	"calendar_events": true,
-	"calendar_event":  true,
-	"mail_search":     true,
-	"mail_message":    true,
-	"mail_thread":     true,
 }
 
 // writeTools is every tool whose every call persists something. They are named
@@ -187,8 +179,6 @@ var writeTools = map[string]bool{
 	"trino_export":   true,
 	"api_export":     true,
 	"graphql_export": true,
-	// A mail attachment saved into the caller's resource library (#2247).
-	"mail_attachment": true,
 }
 
 // actionRule classifies one tool by the value of one argument.

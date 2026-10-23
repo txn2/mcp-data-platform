@@ -26,7 +26,6 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
-	"github.com/txn2/mcp-data-platform/internal/mailbarrier"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
@@ -34,7 +33,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
-	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -223,7 +221,6 @@ func (r *Runner) run(ctx context.Context, t *Target, req Request, sessionID stri
 	opts.ClampStatementTimeout = t.Version.PredatesStatementCap
 	opts.FireTime = time.Now().UTC()
 	opts.Caller, opts.Destinations, opts.Exporter = caller, r.Destinations, refuseExports{}
-	opts.Caller, opts.Exporter = mailbarrier.Guard(t.Script.MailActions, toolwrite.Classifier{}, opts.Caller, opts.Exporter)
 	opts.Tokens = r.Tokens.Bind(scripttoken.Binding{Endpoint: t.Binding.Name}, t.Version.AuthorRoles)
 	if r.Libraries != nil {
 		if opts.Libraries, err = r.Libraries(ctx, t.Version); err != nil {

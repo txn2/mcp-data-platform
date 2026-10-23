@@ -43,21 +43,3 @@ func TestHTMLToText_NestedHiddenAndUnclosed(t *testing.T) {
 	assert.Equal(t, "shown\n\nalso", got)
 	assert.Empty(t, HTMLToText(""))
 }
-
-func TestCollapseQuoted(t *testing.T) {
-	body := "Approved, go ahead.\n\n> Can we pay invoice 4411?\n> Thanks\n\nDana"
-	got, n := CollapseQuoted(body)
-	assert.Equal(t, 2, n)
-	assert.Equal(t, "Approved, go ahead.\n\n\nDana\n\n[2 quoted lines collapsed]", got)
-
-	got, n = CollapseQuoted("Sounds good.\n\nOn Tue, 20 Oct 2026 at 09:14, Sam Chen <sam@vendor.example> wrote:\nOld text\nmore")
-	assert.Equal(t, 3, n)
-	assert.Equal(t, "Sounds good.\n\n[3 quoted lines collapsed]", got)
-
-	got, n = CollapseQuoted("No quotes here.")
-	assert.Zero(t, n)
-	assert.Equal(t, "No quotes here.", got)
-
-	_, n = CollapseQuoted("Reply\n-----Original Message-----\nFrom: x")
-	assert.Equal(t, 2, n)
-}

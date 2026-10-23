@@ -1,6 +1,10 @@
 package whadmin
 
-import "context"
+import (
+	"context"
+
+	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+)
 
 // The ports for what a source wrote to object storage.
 
@@ -10,7 +14,9 @@ type Objects interface {
 	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
-// Resources deletes a compacted window's resource.
+// Resources deletes a compacted window's resource, and the attachments an
+// imap source saved (#2247).
 type Resources interface {
 	Delete(ctx context.Context, id string) error
+	DeleteAttachments(ctx context.Context, src whsource.Source) error
 }

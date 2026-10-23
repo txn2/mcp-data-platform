@@ -66,12 +66,6 @@ vi.mock("@/api/portal/hooks/scriptOwner", () => ({
   useTransferScriptOwner: vi.fn(),
 }));
 
-// Whether the script acts on mail (#2247) has its own tests; here the hook
-// only has to answer.
-vi.mock("@/api/portal/hooks/scriptMailActions", () => ({
-  useSetScriptMailActions: () => ({ mutate: vi.fn(), isPending: false }),
-}));
-
 // Removing the script (#1575) has its own tests; here the hook only has to
 // answer, so the page composes with the section that offers the delete.
 vi.mock("@/api/portal/hooks/scriptDelete", () => ({

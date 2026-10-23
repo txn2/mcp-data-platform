@@ -48,7 +48,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/listchanged"
-	"github.com/txn2/mcp-data-platform/internal/platform/mailcalwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/mcpapps"
 	"github.com/txn2/mcp-data-platform/internal/platform/memorylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
@@ -1770,7 +1769,6 @@ func (p *Platform) initPortal() error {
 	// leaves the name in the toolkit's Tools() list and the tool unknown to
 	// the server (#1675).
 	wireGraphQLExport(p)
-	mailcalwiring.Wire(p.toolkitRegistry, p.portalStore.ResourceLanding(), p.savedConnections)
 
 	return nil
 }

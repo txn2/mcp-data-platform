@@ -194,9 +194,6 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	if errResult := runnable(sc); errResult != nil {
 		return errResult, nil, nil
 	}
-	if input.MailActions != nil { // a draft rehearses the setting the save will carry (#2247)
-		sc.MailActions = *input.MailActions
-	}
 	source := script.DraftSource(input.Source, sc)
 	if errResult := refuseDraftSource(source, h.destinations); errResult != nil {
 		return errResult, nil, nil

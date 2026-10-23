@@ -190,9 +190,9 @@ services:
       timeout: 3s
       retries: 20
 
-  # radicale: the CalDAV server the caldav connection kind's acceptance
-  # criteria read (#2246). One account (dana / calendar-pw, dev/radicale);
-  # each criterion makes the calendars it reads and removes them after.
+  # radicale: the CalDAV server the acceptance criterion for REPORT on an api
+  # connection sends to (#2246). One account (dana / calendar-pw,
+  # dev/radicale); the criterion makes the calendar it reads and removes it.
   radicale:
     image: tomsquest/docker-radicale:3.5.4.0@sha256:99a1145aafab55f211389a303a553109d06ff2c00f634847a52b8561bd01f172
     container_name: acme-dev-radicale
@@ -207,10 +207,10 @@ services:
       timeout: 3s
       retries: 20
 
-  # dovecot: the IMAP server the imap connection kind's acceptance criteria
-  # read (#2247), over IMAPS only. One account (platform / app-password); each
-  # criterion makes the folder it reads and appends the mail it needs. The
-  # unprivileged image listens on 31993 for IMAPS.
+  # dovecot: the IMAP server a webhook source's imap input polls in the
+  # acceptance criteria (#2247), over IMAPS only. One account (platform /
+  # app-password); each criterion makes the folder it reads and appends the
+  # mail it needs. The unprivileged image listens on 31993 for IMAPS.
   dovecot:
     image: dovecot/dovecot:2.4.1@sha256:1296e0f1029cdd95e6849fb82f5d142a6e2a46218451773316cea678de75254b
     container_name: acme-dev-dovecot

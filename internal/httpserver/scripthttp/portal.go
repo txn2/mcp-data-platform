@@ -16,7 +16,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/exclusivehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/granthttp"
-	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/mailactionshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/outputshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/runpage"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/scriptlist"
@@ -132,7 +131,6 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// Whether its runs may overlap is the owner's as well, and it is about what
 	// the script does rather than what it says (#1986).
 	exclusivehttp.New(exclusivehttp.Deps{Edit: h.editOwned}).Register(mux, wrap)
-	mailactionshttp.New(mailactionshttp.Deps{Edit: h.editOwned}).Register(mux, wrap)
 	// Moving it to somebody else is an administrator's, and the handler is what
 	// refuses everybody else: it is mounted here because it is the same detail
 	// page, not because every caller of that page may use it (#1404).

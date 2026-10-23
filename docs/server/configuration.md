@@ -1030,37 +1030,6 @@ auth modes (`none`/`bearer`/`api_key`/`oauth`), OAuth grant types
 (`client_credentials` and `authorization_code` + PKCE), and the
 cross-enrichment rule schema.
 
-### CalDAV and IMAP
-
-The `caldav` kind reads a calendar account over CalDAV (`calendar_list`,
-`calendar_events`, `calendar_event`) and the `imap` kind reads a dedicated
-platform mailbox (`mail_search`, `mail_message`, `mail_thread`,
-`mail_attachment`). Both are read-only, both are enabled automatically and
-usually saved under Admin > Connections, and both return third-party text
-under an `external` object kept apart from the platform's own fields. The
-keys are on [CalDAV Calendars](caldav.md) and [IMAP Mailbox](imap.md).
-
-```yaml
-toolkits:
-  caldav:
-    instances:
-      team:
-        url: "https://mail.example.com/dav/"
-        auth_mode: basic
-        username: platform@example.com
-        password: "{{secret:team-calendar}}"
-        time_zone: Europe/Berlin
-  imap:
-    instances:
-      platform-mail:
-        host: imap.example.com
-        username: platform@example.com
-        password: "{{secret:platform-mailbox}}"
-        folders: [Platform]
-        allow_senders: ["@vendor.example"]
-        trusted_authserv_id: mx.example.com
-```
-
 ### GraphQL
 
 The `graphql` toolkit kind reaches a GraphQL endpoint: one URL every

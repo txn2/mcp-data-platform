@@ -8,12 +8,11 @@ import (
 
 func TestAllowlist(t *testing.T) {
 	a := NewAllowlist([]string{" AP@Vendor.example ", "@partner.example", ""})
-	assert.False(t, a.Empty())
 	assert.True(t, a.Allows("ap@vendor.example"))
 	assert.False(t, a.Allows("sales@vendor.example"), "an address entry admits that address only")
 	assert.True(t, a.Allows("Anyone@PARTNER.example"))
 	assert.False(t, a.Allows("x@mail.partner.example"), "a domain entry does not admit subdomains")
-	assert.True(t, NewAllowlist(nil).Empty())
+	assert.False(t, NewAllowlist(nil).Allows("ap@vendor.example"), "an empty list admits no one")
 }
 
 const mx = "mx.company.example"

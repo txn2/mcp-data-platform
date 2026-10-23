@@ -44,7 +44,6 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 		Category: derefOr(input.Category), Source: input.Source, Params: input.Params,
 		Tags:       orEmpty(input.Tags),
 		OwnerEmail: resolveEmail(ctx), Enabled: true, Status: script.StatusActive,
-		MailActions: input.MailActions != nil && *input.MailActions,
 	}
 	if err := sc.Validate(); err != nil {
 		return errorResult(err.Error()), nil, nil
@@ -178,9 +177,6 @@ func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input mana
 	}
 	if input.Exclusive != nil {
 		sc.Exclusive = *input.Exclusive
-	}
-	if input.MailActions != nil {
-		sc.MailActions = *input.MailActions
 	}
 	if errResult := h.applyStatus(ctx, sc, input); errResult != nil {
 		return nil, errResult
@@ -366,7 +362,7 @@ func scriptFields(sc *script.Script) map[string]any {
 		"description": sc.Description, fieldSource: sc.Source, "params": sc.Params,
 		"owner_email": sc.OwnerEmail,
 		"category":    sc.Category, "tags": sc.Tags, "enabled": sc.Enabled, fieldStatus: sc.Status,
-		"exclusive": sc.Exclusive, "mail_actions": sc.MailActions,
+		"exclusive":       sc.Exclusive,
 		fieldVersion:      sc.Version,
 		"executable_note": script.ExecutionNote(sc),
 		"created_at":      sc.CreatedAt, "updated_at": sc.UpdatedAt,

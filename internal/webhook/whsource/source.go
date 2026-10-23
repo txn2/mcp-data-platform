@@ -146,6 +146,11 @@ type Auth struct {
 
 // Config is everything about a source other than its authentication.
 type Config struct {
+	// Input is "http" (the default, posted to) or "imap" (a polled mailbox,
+	// configured under IMAP).
+	Input string `json:"input,omitempty"`
+	IMAP  *IMAP  `json:"imap,omitempty"`
+
 	Handshake     string `json:"handshake,omitempty"`
 	MaxBodyBytes  int64  `json:"max_body_bytes,omitempty"`
 	Split         string `json:"split,omitempty"`
@@ -221,6 +226,13 @@ func (s Source) WithDefaults() Source {
 
 // withDefaults fills the zero settings of a config.
 func (c Config) withDefaults() Config {
+	if c.Input == "" {
+		c.Input = InputHTTP
+	}
+	if c.IMAP != nil {
+		m := c.IMAP.withDefaults()
+		c.IMAP = &m
+	}
 	if c.Handshake == "" {
 		c.Handshake = HandshakeNone
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
-	"github.com/txn2/mcp-data-platform/internal/mailbarrier"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptincident"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
@@ -25,7 +24,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
-	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -140,7 +138,6 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	}
 	opts.RunURL = r.runURL(sc.ID, run.ID)
 	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v, subject: subject}, caller)
-	opts.Caller, opts.Exporter = mailbarrier.Guard(sc.MailActions, toolwrite.Classifier{}, opts.Caller, opts.Exporter)
 	opts.Live = scriptlive.New(opts.MaxLogBytes, r.limits.ResultMaxBytes)
 	rec := r.record(&opts)
 	reads := r.lineage.Begin()

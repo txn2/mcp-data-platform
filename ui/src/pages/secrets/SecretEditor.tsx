@@ -314,9 +314,8 @@ function Actions({
 // SECRET_KINDS are the connection kinds a stored secret can be used by: an
 // api connection's requests fill it (#2051), an api, graphql or mcp
 // connection's own configuration may name it (#2066), and so may a trino
-// connection's password and an s3 connection's keys (#1806), a caldav
-// connection's credentials (#2246) and an imap connection's password (#2247).
-const SECRET_KINDS = ["api", "graphql", "mcp", "trino", "s3", "caldav", "imap"];
+// connection's password and an s3 connection's keys (#1806).
+const SECRET_KINDS = ["api", "graphql", "mcp", "trino", "s3"];
 
 function ConnectionsGroup({
   chosen,
@@ -333,7 +332,7 @@ function ConnectionsGroup({
     <ConfigGroup title="Connections">
       <p className="text-xs text-muted-foreground">
         The connections the secret may be used by: in an API connection&apos;s requests, and in the
-        configuration of an API, GraphQL, MCP, CalDAV or IMAP connection that names it. Any other use is refused
+        configuration of an API, GraphQL or MCP connection that names it. Any other use is refused
         before anything is sent.
       </p>
       <Checklist

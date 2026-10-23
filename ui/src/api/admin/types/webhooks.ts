@@ -3,7 +3,41 @@
 // stored, and `previous_secret_until` how long the one before a rotation is
 // still accepted.
 
-export type WebhookAuthMode = "hmac" | "header_token" | "basic" | "path_token";
+export type WebhookAuthMode = "hmac" | "header_token" | "basic" | "path_token" | "imap";
+
+/** WebhookInput is where a source's events come from: posted to it, or read
+ * from a mailbox the platform polls, each message one event (#2247). */
+export type WebhookInput = "http" | "imap";
+
+/** WebhookIMAP is the mailbox an imap source polls. The login is the source's
+ * auth: mode imap, its username, and its password as the write-only secret. */
+export interface WebhookIMAP {
+  host: string;
+  port?: number;
+  tls?: "tls" | "starttls";
+  folders: string[];
+  /** Addresses and @domain entries whose mail becomes an event; anyone else's is counted and never stored. */
+  allow_senders: string[];
+  /** Absent is on: an allowed sender's mail is kept only with an aligned SPF, DKIM or DMARC pass. */
+  require_auth_pass?: boolean;
+  trusted_authserv_id?: string;
+  tls_ca_bundle_pem?: string;
+  poll_seconds?: number;
+  max_message_bytes?: number;
+  max_attachment_bytes?: number;
+}
+
+/** WebhookIMAPFolder is one folder of an imap source as its polls left it. */
+export interface WebhookIMAPFolder {
+  folder: string;
+  uid_validity: number;
+  last_uid: number;
+  stored: number;
+  hidden_not_allowed: number;
+  hidden_unauthenticated: number;
+  last_polled_at?: string;
+  last_error?: string;
+}
 
 export interface WebhookAuthView {
   mode: WebhookAuthMode;
@@ -23,6 +57,9 @@ export interface WebhookAuthView {
 }
 
 export interface WebhookConfig {
+  /** Absent is http. */
+  input?: WebhookInput;
+  imap?: WebhookIMAP;
   handshake?: "none" | "cloudevents";
   max_body_bytes?: number;
   split?: string;
@@ -48,7 +85,7 @@ export interface WebhookSource {
   name: string;
   enabled: boolean;
   connection: string;
-  /** Where the sender posts, relative to the platform's address. */
+  /** Where the sender posts, relative to the platform's address; empty for an imap source. */
   path: string;
   /** What readers query, in the connection's scratch schema. */
   table: string;
@@ -119,6 +156,8 @@ export interface WebhookStatus {
 export interface WebhookSourceDetail {
   source: WebhookSource;
   status: WebhookStatus;
+  /** An imap source's folders; absent for an http source. */
+  imap?: WebhookIMAPFolder[];
 }
 
 export interface WebhookAuthInput {

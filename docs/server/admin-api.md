@@ -1673,8 +1673,6 @@ What each kind asks:
 | `trino` | `SELECT 1` against the coordinator; on a scratch connection that accepts writes, also a call of each partition procedure on a table that does not exist (see below) |
 | `s3` | a bucket listing |
 | `graphql` | an introspection query at the endpoint |
-| `caldav` | discovery of the account's calendars (principal, calendar home, the calendars in it), reporting their names |
-| `imap` | a login and an EXAMINE of each configured folder, reporting how many messages each holds |
 | `api` | `GET /` at the base URL, through the connection's own client and credential |
 | `mcp` | a `tools/list` over the live upstream session |
 

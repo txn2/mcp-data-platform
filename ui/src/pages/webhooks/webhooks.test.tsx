@@ -481,3 +481,72 @@ describe("WebhooksPage ranges (#2150)", () => {
     expect(h.customs.length).toBeGreaterThanOrEqual(before);
   });
 });
+
+describe("mailbox sources (#2247)", () => {
+  const mailbox = mockWebhookSources.find((s) => s.config.input === "imap")!;
+  const folders = [
+    {
+      folder: "INBOX",
+      uid_validity: 7,
+      last_uid: 46,
+      stored: 41,
+      hidden_not_allowed: 4,
+      hidden_unauthenticated: 1,
+      last_error: "logging in as platform: authentication failed",
+    },
+  ];
+
+  it("shows the mailbox and each folder's counts in place of a sender address", () => {
+    h.detail = {
+      data: { source: mailbox, status: mockWebhookStatus[mailbox.name], imap: folders },
+      isLoading: false,
+      error: null,
+    };
+    render(<WebhookDetailPage name={mailbox.name} onBack={vi.fn()} onNavigate={vi.fn()} />);
+    expect(screen.getByText("imap.acme.example:993 (TLS)")).toBeInTheDocument();
+    expect(screen.getByText("no-reply@zoom.example")).toBeInTheDocument();
+    expect(screen.getByText("Required, read from mx.acme.example")).toBeInTheDocument();
+    const inbox = screen.getByText("INBOX").closest("tr")!;
+    expect(within(inbox).getByText("41")).toBeInTheDocument();
+    expect(within(inbox).getByText("4")).toBeInTheDocument();
+    expect(within(inbox).getByText("1")).toBeInTheDocument();
+    expect(within(inbox).getByText("logging in as platform: authentication failed")).toBeInTheDocument();
+    expect(screen.getByText(/Last message filed/)).toBeInTheDocument();
+    expect(screen.queryByText("Give this to the sender")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rejected requests")).not.toBeInTheDocument();
+  });
+
+  it("says a folder no check has reached yet", () => {
+    h.detail = {
+      data: { source: mailbox, status: { ...mockWebhookStatus[mailbox.name]!, last_segment_at: null } },
+      isLoading: false,
+      error: null,
+    };
+    render(<WebhookDetailPage name={mailbox.name} onBack={vi.fn()} onNavigate={vi.fn()} />);
+    expect(screen.getByText("Not yet")).toBeInTheDocument();
+    expect(screen.getByText("No message has been filed yet.")).toBeInTheDocument();
+  });
+
+  it("edits a mailbox source with the mailbox fields and saves it as one", () => {
+    h.detail = { data: { source: mailbox, status: mockWebhookStatus[mailbox.name] }, isLoading: false, error: null };
+    render(<WebhookEditor name={mailbox.name} onBack={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByText("Mail server")).toBeInTheDocument();
+    expect(screen.queryByText("Events")).not.toBeInTheDocument();
+    expect(screen.queryByText("Largest body (bytes)")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Allowed senders"), { target: { value: "no-reply@zoom.example\n@acme.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(h.update).toHaveBeenCalledTimes(1);
+    const body = h.update.mock.calls[0]![0];
+    expect(body.auth.mode).toBe("imap");
+    expect(body.config.imap.allow_senders).toEqual(["no-reply@zoom.example", "@acme.example"]);
+  });
+
+  it("refuses a mailbox source with no allowed sender", () => {
+    h.detail = { data: { source: mailbox, status: mockWebhookStatus[mailbox.name] }, isLoading: false, error: null };
+    render(<WebhookEditor name={mailbox.name} onBack={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Allowed senders"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByText("Name the addresses or @domains whose mail becomes events.")).toBeInTheDocument();
+    expect(h.update).not.toHaveBeenCalled();
+  });
+});

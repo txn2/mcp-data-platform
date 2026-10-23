@@ -258,7 +258,6 @@ export interface ScriptContract {
   enabled: boolean;
   // exclusive is off, refuse or queue (#1986, #2209); absent from an older server.
   exclusive?: ExclusiveMode;
-  mail_actions?: boolean; // set when the script reads mail and acts on it (#2247)
   params: ScriptParam[];
   // version is the version a run executes: the latest saved one.
   version: number;
@@ -354,7 +353,11 @@ export {
 } from "./scriptGrants";
 
 // Editing what a script says about itself (#1369) lives in scriptMetadata.ts.
-export { useSaveScriptMetadata, type ScriptMetadataInput, type ScriptMetadataOutcome } from "./scriptMetadata";
+export {
+  useSaveScriptMetadata,
+  type ScriptMetadataInput,
+  type ScriptMetadataOutcome,
+} from "./scriptMetadata";
 
 // Whether a script's runs may overlap (#1986, #2209) lives in scriptExclusive.ts.
 export {

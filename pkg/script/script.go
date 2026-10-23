@@ -161,10 +161,6 @@ type Script struct {
 	// no other run of the script is running. Under off runs may overlap and
 	// the state check is the only guard.
 	Exclusive runstate.ExclusiveMode `json:"exclusive"`
-	// MailActions is the owner's setting that the script may act on mail it
-	// reads (#2247). Off, a run that has called a mail_* tool is refused every
-	// later write and output (internal/mailbarrier).
-	MailActions bool `json:"mail_actions"`
 
 	// Lifecycle.
 	Status       string     `json:"status" example:"active"`

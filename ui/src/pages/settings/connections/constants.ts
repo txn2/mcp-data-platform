@@ -3,7 +3,7 @@
 // import only what they render.
 
 // Connection kinds the create form offers. Kind is immutable after creation.
-export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api", "graphql", "caldav", "imap"];
+export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api", "graphql"];
 
 // Kind badge colors for the list and viewer header.
 const KIND_COLORS: Record<string, string> = {
@@ -12,8 +12,6 @@ const KIND_COLORS: Record<string, string> = {
   mcp: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
   api: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",
   graphql: "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400",
-  caldav: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400",
-  imap: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
 };
 
 export function kindColor(kind: string): string {
@@ -172,33 +170,5 @@ export const CONFIG_LABELS: Record<string, Record<string, string>> = {
     mtls_cert_not_after: "mTLS Cert Expiry",
     tls_ca_bundle_pem: "TLS CA Bundle",
     static_headers: "Static Headers",
-  },
-  caldav: {
-    url: "Account URL",
-    auth_mode: "Auth Mode",
-    username: "Username",
-    password: "Password",
-    credential: "Credential",
-    time_zone: "Time Zone",
-    max_events: "Max Events",
-    max_range_days: "Max Range (days)",
-    connect_timeout: "Connect Timeout",
-    call_timeout: "Call Timeout",
-    tls_ca_bundle_pem: "TLS CA Bundle",
-  },
-  imap: {
-    host: "Host",
-    port: "Port",
-    tls: "TLS",
-    username: "Username",
-    password: "Password",
-    folders: "Folders",
-    allow_senders: "Allowed Senders",
-    require_auth_pass: "Require Authenticated Sender",
-    trusted_authserv_id: "Receiving Server Id",
-    max_results: "Max Results",
-    max_message_bytes: "Max Message Bytes",
-    max_attachment_bytes: "Max Attachment Bytes",
-    tls_ca_bundle_pem: "TLS CA Bundle",
   },
 };

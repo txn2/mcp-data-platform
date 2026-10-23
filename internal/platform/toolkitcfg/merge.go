@@ -154,12 +154,11 @@ type StoredInstance struct {
 // dynamicKinds are the kinds whose connections are added through the admin API
 // rather than declared in the configuration file, and which therefore have to
 // exist as a live toolkit before there is anything to add to: the MCP gateway
-// (#338), the HTTP API gateway (#364), the graphql kind (#1277), and the
-// caldav and imap kinds (#2246, #2247).
-var dynamicKinds = []string{"mcp", "api", "graphql", "caldav", "imap"}
+// (#338), the HTTP API gateway (#364) and the graphql kind (#1277).
+var dynamicKinds = []string{"mcp", "api", "graphql"}
 
 // storedKinds are the kinds a connection can be saved under.
-var storedKinds = map[string]bool{"trino": true, "s3": true, "mcp": true, "api": true, "graphql": true, "caldav": true, "imap": true}
+var storedKinds = map[string]bool{"trino": true, "s3": true, "mcp": true, "api": true, "graphql": true}
 
 // MergeStored folds the saved connections into the toolkit configuration the
 // loader builds from, so a process starts serving them rather than taking each

@@ -58,6 +58,7 @@ const (
 	NameWebhookStats        = "webhook_stats_flush"
 	NameWebhookRawWindows   = "webhook_raw_windows"
 	NameWebhookSpoolDrain   = "webhook_spool_drain"
+	NameWebhookIMAPPoll     = "webhook_imap_poll"
 	NameWebhookSpoolSegment = "webhook_spool_segment"
 	NameMapFetch            = "map_fetch"
 	NameMapFetchRegion      = "map_fetch_region"

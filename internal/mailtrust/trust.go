@@ -48,9 +48,6 @@ func NewAllowlist(entries []string) Allowlist {
 	return a
 }
 
-// Empty reports whether the list admits no one.
-func (a Allowlist) Empty() bool { return len(a.addresses) == 0 && len(a.domains) == 0 }
-
 // Allows reports whether addr is on the list.
 func (a Allowlist) Allows(addr string) bool {
 	addr = strings.ToLower(strings.TrimSpace(addr))

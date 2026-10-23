@@ -18,7 +18,7 @@ import { Plug } from "lucide-react";
 // TESTABLE_KINDS are the kinds the test endpoint serves. It mirrors the
 // server's own knownConnectionKinds minus mcp, which keeps the richer gateway
 // test.
-const TESTABLE_KINDS = ["trino", "s3", "api", "graphql", "caldav", "imap"];
+const TESTABLE_KINDS = ["trino", "s3", "api", "graphql"];
 
 // canTestConnection reports whether this kind can be opened on request.
 export function canTestConnection(kind: string): boolean {
