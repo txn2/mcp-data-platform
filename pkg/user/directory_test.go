@@ -146,3 +146,34 @@ func TestDirectory_Observe_NilSafe(_ *testing.T) {
 	d2 := &Directory{} // zero value, nil store
 	d2.Observe("a@b.io", "X", "Y", nil)
 }
+
+// Record writes before it returns and reports the store's failure, and leaves
+// the throttle alone so the next Observe still writes (#2279).
+func TestDirectory_Record_WritesBeforeReturning(t *testing.T) {
+	store := newFakeObserveStore()
+	d := NewDirectory(store)
+	if err := d.Record(context.Background(), " Jane@Example.com ", "Jane", "Doe", []string{"analyst"}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if store.count() != 1 || store.calls[0][0] != "jane@example.com" {
+		t.Fatalf("calls %v; want one write for jane@example.com before Record returned", store.calls)
+	}
+	<-store.signal
+	d.Observe("jane@example.com", "Jane", "Doe", []string{"analyst"})
+	waitForSignal(t, store)
+	if store.count() != 2 {
+		t.Errorf("Observe after Record wrote %d time(s) in all; Record must not throttle it", store.count())
+	}
+
+	store.failN = 1
+	if err := d.Record(context.Background(), "jane@example.com", "", "", nil); err == nil {
+		t.Error("a failed store write was not reported")
+	}
+	if err := d.Record(context.Background(), "not an address", "", "", nil); err == nil {
+		t.Error("an invalid address was accepted")
+	}
+	var none *Directory
+	if err := none.Record(context.Background(), "jane@example.com", "", "", nil); err != nil {
+		t.Errorf("a nil directory: %v", err)
+	}
+}

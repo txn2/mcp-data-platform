@@ -88,6 +88,11 @@ type API struct {
 	// keys these are, and the auth type says whether they may manage keys at
 	// all. It answers "" for an unauthenticated request.
 	Caller func(*http.Request) (email, authType string)
+	// Settle writes the caller's sign-in record before a key is bound to it.
+	// The record is otherwise written in the background, and a key issued in
+	// the moments after signing in was refused as bound to nobody (#2279).
+	// Nil skips it.
+	Settle func(*http.Request) error
 }
 
 // keyResponse is one of the caller's keys. It never carries a key value: the
@@ -221,6 +226,11 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a.Settle != nil {
+		if err := a.Settle(r); err != nil {
+			slog.Warn("user api key: recording the caller before issuing failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		}
+	}
 	issued, err := a.Issuer.Issue(r.Context(), apikeyissue.Request{
 		Name:        storedName(name, email),
 		Description: req.Description,

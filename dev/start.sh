@@ -164,6 +164,27 @@ http_status() {
   curl -s --max-time 5 -o /dev/null -w "%{http_code}" "$@" 2>/dev/null || true
 }
 
+# pull_images pulls the compose images a machine lacks, retrying a failed
+# pull. A registry answering one request 503 used to stop the stack inside
+# `docker compose up`,
+# which failed a whole nightly group before any criterion ran (#2278). Five
+# attempts, each waiting DEV_PULL_RETRY_DELAY seconds (default 10) longer than
+# the last.
+pull_images() {
+  local attempt out status delay="${DEV_PULL_RETRY_DELAY:-10}"
+  for attempt in 1 2 3 4 5; do
+    # docker's own status, not the indenting sed's: a pipe would report sed's.
+    status=0
+    out=$(docker compose -f dev/docker-compose.yml pull --quiet --policy missing 2>&1) || status=$?
+    [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  /'
+    [ "$status" = 0 ] && return 0
+    [ "$attempt" = 5 ] && break
+    echo "  pulling the images failed (attempt $attempt of 5); trying again in $((attempt * delay))s"
+    sleep $((attempt * delay))
+  done
+  return 1
+}
+
 # store_key_readable lets the managed-resource store read its private key.
 # openssl writes the key mode 600 for the user who ran it, and the SeaweedFS
 # image drops to its own user (uid 1000) before starting weed, so on Linux
@@ -339,6 +360,7 @@ fi
 # ─── Start Docker services ──────────────────────────────────────────
 
 echo -e "${BOLD}Starting Docker services${NC}"
+pull_images || fail "pulling the dev stack's images failed five times; see the lines above"
 # Bring up Postgres first so we can ensure auxiliary databases (keycloak)
 # exist before dependent services boot. The fixture init script handles
 # this on a fresh volume, but reused volumes from prior `make dev` runs
