@@ -129,6 +129,8 @@ func TestCreateResourceStartsTheVersionTrailAtTheUpload(t *testing.T) {
 	assert.Equal(t, res.ID, versions.recorded[0].ResourceID)
 	assert.Equal(t, res.S3Key, versions.recorded[0].S3Key)
 	assert.Equal(t, "analyst@example.com", versions.recorded[0].UploaderEmail)
+	assert.True(t, versions.recorded[0].Initial,
+		"version 1 records the head the create wrote; moving it again owes a second tile and index pass (#2286)")
 }
 
 func TestCreateResourceSurvivesAnUnrecordableFirstVersion(t *testing.T) {

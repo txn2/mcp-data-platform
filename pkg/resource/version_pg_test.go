@@ -104,6 +104,40 @@ func TestAddRevision(t *testing.T) {
 		}
 	})
 
+	// A create's version 1 writes the version row alone (#2286): no UPDATE of
+	// the head, which already points at the blob, so updated_at is not stamped
+	// a second time.
+	for name, commitErr := range map[string]error{"commits": nil, "reports a failed commit": errors.New("connection reset")} {
+		t.Run("an initial version leaves the head alone: "+name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			store, _ := NewPostgresStore(db).(*postgresStore)
+
+			mock.ExpectBegin()
+			mock.ExpectQuery("SELECT id FROM resources WHERE id = \\$1 FOR UPDATE").
+				WithArgs("r1").
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
+			mock.ExpectQuery("INSERT INTO resource_versions").
+				WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(12), "k", "sub", "", nil, "", nil, []byte(`{}`), time.Now()))
+			mock.ExpectCommit().WillReturnError(commitErr)
+
+			v, err := store.AddRevision(context.Background(), Revision{ResourceID: "r1", S3Key: "k", Initial: true})
+			if commitErr != nil {
+				if err == nil {
+					t.Fatal("AddRevision reported success on a failed commit")
+				}
+			} else if err != nil || v.Version != 1 {
+				t.Fatalf("AddRevision = %v, %v; want version 1", v, err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+
 	t.Run("a head that vanished mid-revision rolls the trail back", func(t *testing.T) {
 		db, mock, err := sqlmock.New()
 		if err != nil {

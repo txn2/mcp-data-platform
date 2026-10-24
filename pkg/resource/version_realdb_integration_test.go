@@ -307,3 +307,48 @@ func TestResourceVersions_RealDB_MetadataRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, true, got.Metadata["truncated"])
 }
+
+// A create's version 1 is recorded without moving the head (#2286): the row
+// keeps the updated_at the insert gave it, so a tile drawn from the insert is
+// not owed again, and the index text the create's job extracted is kept.
+func TestResourceVersions_RealDB_InitialVersionLeavesTheHeadAlone(t *testing.T) {
+	db := testdb.New(t)
+	store := NewPostgresStore(db)
+	ctx := context.Background()
+	id := "res_rev_initial"
+	key := "resources/global/global/" + id + "/etl.md"
+	require.NoError(t, store.Insert(ctx, Resource{
+		ID: id, Scope: ScopeGlobal, Path: "runbooks",
+		Filename: "etl.md", DisplayName: "ETL Runbook", Description: "d",
+		MIMEType: "text/markdown", SizeBytes: 10, S3Key: key,
+		URI: "mcp://global/runbooks/" + id + ".md", UploaderSub: "sub-1",
+	}))
+	_, err := db.ExecContext(ctx, `UPDATE resources SET content_text = 'extracted', content_indexed_at = now() WHERE id = $1`, id)
+	require.NoError(t, err)
+	before, err := store.Get(ctx, id)
+	require.NoError(t, err)
+
+	versions := store.(VersionStore)
+	v, err := versions.AddRevision(ctx, Revision{
+		ResourceID: id, MIMEType: "text/markdown", SizeBytes: 10, S3Key: key,
+		UploaderSub: "sub-1", Initial: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, v.Version)
+
+	after, err := store.Get(ctx, id)
+	require.NoError(t, err)
+	assert.True(t, after.UpdatedAt.Equal(before.UpdatedAt),
+		"updated_at moved from %s to %s; a tile drawn from the insert would be owed again", before.UpdatedAt, after.UpdatedAt)
+	var text string
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT content_text FROM resources WHERE id = $1`, id).Scan(&text))
+	assert.Equal(t, "extracted", text, "the index text the create's job extracted is kept")
+
+	// A revision after it still moves the head.
+	_, err = versions.AddRevision(ctx, Revision{ResourceID: id, MIMEType: "text/plain", SizeBytes: 4, S3Key: key + ".v2"})
+	require.NoError(t, err)
+	moved, err := store.Get(ctx, id)
+	require.NoError(t, err)
+	assert.True(t, moved.UpdatedAt.After(before.UpdatedAt), "a revision stamps a new updated_at")
+	assert.Equal(t, key+".v2", moved.S3Key)
+}
