@@ -18,16 +18,20 @@ import (
 //
 // The monitor here is a managed script run through run_script rather than
 // waited for on a schedule: the post goes through the same platform.notify
-// and the same notify tool either way, and the channel's window is two
-// seconds, so the criterion takes seconds rather than minutes.
+// and the same notify tool either way, and the channel's window is twenty
+// seconds: long enough that three runs on a slow runner all fall inside it, short
+// enough that waiting it out costs seconds rather than minutes.
 //
 // Wire forms. notify's key is a typed string, sent present (by the script)
 // and absent (the plain send that follows). repeat_after is a duration
-// string, sent as "3s" -- longer than the channel's 2s window -- by the second
+// string, sent as "30s" -- longer than the channel's 1s window -- by the second
 // criterion, and the channel's own repeat_after and max_per_hour are sent as
 // the string and integer the admin route declares.
 
 const chanSuppress = "acc-1722-mattermost"
+
+// suppressWindow1722 is the channel's repeat_after in the central criterion.
+const suppressWindow1722 = 20 * time.Second
 
 // monitorScript posts one alert under a fixed key.
 func monitorScript(channel, marker string) string {
@@ -50,7 +54,7 @@ func TestIssue1722_ARepeatingAlertPostsOnceThenSaysWhatItHeldBack(t *testing.T) 
 	c := connect(t)
 	putChannel(t, c, chanSuppress, map[string]any{
 		"kind": "mattermost", "connection": "mattermost-dev", "target": env.channelID,
-		"repeat_after": "2s", "max_per_hour": 60,
+		"repeat_after": suppressWindow1722.String(), "max_per_hour": 60,
 	})
 	t.Cleanup(func() { deleteChannel(t, c, chanSuppress) })
 
@@ -72,10 +76,16 @@ func TestIssue1722_ARepeatingAlertPostsOnceThenSaysWhatItHeldBack(t *testing.T) 
 	before := countPostsWith(t, env, marker)
 
 	// Three runs inside the window: the first posts, the next two are held.
+	// The window opened during the first run, so it closes no later than
+	// suppressWindow1722 after that run returned.
+	var windowEnd time.Time
 	for i := range 3 {
 		run := c.call("run_script", map[string]any{"name": name})
 		if status, _ := run["status"].(string); status != "succeeded" {
 			t.Fatalf("run %d: %v", i+1, run)
+		}
+		if i == 0 {
+			windowEnd = time.Now().Add(suppressWindow1722)
 		}
 	}
 	waitFor(t, "the first run's post", func() (bool, string) {
@@ -100,7 +110,7 @@ func TestIssue1722_ARepeatingAlertPostsOnceThenSaysWhatItHeldBack(t *testing.T) 
 	}
 
 	// Past the window the next run posts, saying how many were held back.
-	time.Sleep(2500 * time.Millisecond)
+	time.Sleep(time.Until(windowEnd) + time.Second)
 	run := c.call("run_script", map[string]any{"name": name})
 	if s, _ := run["status"].(string); s != "succeeded" {
 		t.Fatalf("the run after the window: %v", run)
@@ -126,14 +136,14 @@ func TestIssue1722_ALongerRepeatAfterHoldsTheKeyAndAnUnkeyedSendIsNeverHeld(t *t
 	t.Cleanup(func() { deleteChannel(t, c, chanSuppress) })
 
 	key := fmt.Sprintf("acc-1722-k-%d", time.Now().UnixNano())
-	first := c.call("notify", map[string]any{"action": "send", "channel": chanSuppress, "title": "t", "key": key, "repeat_after": "3s"})
+	first := c.call("notify", map[string]any{"action": "send", "channel": chanSuppress, "title": "t", "key": key, "repeat_after": "30s"})
 	if number(t, first, "queued") != 1 {
 		t.Fatalf("first keyed send: %v", first)
 	}
 	time.Sleep(1500 * time.Millisecond)
 	held := c.call("notify", map[string]any{"action": "send", "channel": chanSuppress, "title": "t", "key": key})
 	if s, _ := held["suppressed"].(bool); !s {
-		t.Errorf("a send 1.5s into a 3s window went through: %v", held)
+		t.Errorf("a send 1.5s into a 30s window went through: %v", held)
 	}
 	for range 2 {
 		plain := c.call("notify", map[string]any{"action": "send", "channel": chanSuppress, "title": "no key"})

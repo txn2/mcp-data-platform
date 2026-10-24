@@ -54,3 +54,19 @@ func TestDevStartPullsBeforeStarting(t *testing.T) {
 		t.Fatalf("dev/start.sh must call pull_images before its first `docker compose up` (pull at %d, up at %d)", pull, up)
 	}
 }
+
+// The server is compiled before air starts, so the health wait after it
+// measures startup alone and not a cold build on a loaded runner.
+func TestDevStartCompilesBeforeTheHealthWait(t *testing.T) {
+	src, err := os.ReadFile(devStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+	build := strings.Index(s, "if ! go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform")
+	air := strings.Index(s, "air -c dev/.air.toml > \"$AIR_LOG\"")
+	wait := strings.Index(s, "Go server did not become healthy within 60s")
+	if build < 0 || air < 0 || wait < 0 || build > air || air > wait {
+		t.Fatalf("dev/start.sh must compile the server before air starts and the health wait begins (build at %d, air at %d, wait at %d)", build, air, wait)
+	}
+}

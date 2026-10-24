@@ -42,7 +42,9 @@ const (
 	// connections, so a session per slot would hold every one of them.
 	issue2169Slots = 15
 	// issue2169Hold is how long each call holds its slot, in milliseconds.
-	issue2169Hold = 6000
+	// The criterion needs every slot taken within half of it, so it is long
+	// enough that fifteen calls starting on a slow runner all land inside.
+	issue2169Hold = 15000
 	// issue2169Answer bounds a request the replica serves while the slots are
 	// held.
 	issue2169Answer = 3 * time.Second
