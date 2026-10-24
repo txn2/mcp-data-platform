@@ -687,6 +687,11 @@ endif
 ## ACCEPTANCE_SHARD=i/N runs group i of N of the plain stack's criteria, split
 ## by ticket number, which is how the E2E Nightly runs the suite in N jobs at
 ## once (#2218).
+# The recipe sets pipefail so a failed `go test` is not hidden by the evidence
+# splitter it pipes into. Make runs recipes with /bin/sh, which is bash on
+# macOS and dash on the Ubuntu runners, and dash has no pipefail, so every
+# nightly group refused to start the suite (#2266).
+acceptance: SHELL := /bin/bash
 acceptance:
 	@# dev/start.sh relocates the stack when the default ports are busy and
 	@# records where it went; the suite follows it unless MCP_BASE_URL is set.
