@@ -4,6 +4,7 @@
 package userkeywire
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -73,5 +74,23 @@ func Wire(deps *portal.Deps, p *platform.Platform) {
 			return "", ""
 		},
 	}
+	if rec, ok := manager.Principals().(callerRecorder); ok {
+		api.Settle = func(r *http.Request) error { return settle(r, rec) }
+	}
 	deps.APIKeyRegistrar = api.Register
+}
+
+// callerRecorder writes a person's sign-in record now. The user directory the
+// key manager resolves bound keys through is one (#2279).
+type callerRecorder interface {
+	Record(ctx context.Context, subject, email, authType string, roles []string) error
+}
+
+// settle records the request's caller, as the authenticator saw them.
+func settle(r *http.Request, rec callerRecorder) error {
+	user := portal.GetUser(r.Context())
+	if user == nil {
+		return nil
+	}
+	return rec.Record(r.Context(), user.UserID, user.Email, user.AuthType, user.Roles) //nolint:wrapcheck // the recorder names its own failure
 }

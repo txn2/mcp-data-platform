@@ -101,12 +101,19 @@ func TestIssue2209_AWaitPastTheCallsTimeoutNamesTheLimit(t *testing.T) {
 		_, _ = issue2209Slow(c, name, 4000, 20)
 	}()
 	// A short call made before the held one took the slot is answered; the
-	// first one made after it waits past its own one-second timeout.
+	// first one made after it waits past its own one-second timeout. Short
+	// calls are made until one is refused or the held call ends: three were
+	// not enough on a loaded runner, where the held call had not yet reached
+	// the slot when all three had been answered (nightly 40064652039).
 	text, ok := "", true
-	for range 3 {
-		if text, ok = issue2209Slow(c, name, 10, 1); !ok {
-			break
+	for ok {
+		select {
+		case <-held:
+		default:
+			text, ok = issue2209Slow(c, name, 10, 1)
+			continue
 		}
+		break
 	}
 	<-held
 	if ok || !strings.Contains(text, "max_concurrent_calls") || !strings.Contains(text, "waited") {

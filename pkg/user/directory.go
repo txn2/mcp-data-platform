@@ -90,6 +90,22 @@ func (d *Directory) Observe(email, firstName, lastName string, roles []string) {
 	}()
 }
 
+// Record writes a person to the store now and reports a failure, where Observe
+// writes in the background and swallows it. It is for a request that reads the
+// row back at once: a key issued against the caller is refused when their row
+// is missing, and the row Observe wrote at sign-in may not have landed yet
+// (#2279). The throttle is left alone, so Observe still does its own write.
+func (d *Directory) Record(ctx context.Context, email, firstName, lastName string, roles []string) error {
+	if d == nil || d.store == nil {
+		return nil
+	}
+	normalized, err := NormalizeEmail(email)
+	if err != nil {
+		return err
+	}
+	return d.store.Observe(ctx, normalized, SanitizeName(firstName), SanitizeName(lastName), roles) //nolint:wrapcheck // the store names its own failure
+}
+
 // shouldWrite returns true if key has not been observed within the TTL,
 // recording the attempt time when it returns true. It prunes expired entries
 // when the map grows large so it stays bounded by the active set.

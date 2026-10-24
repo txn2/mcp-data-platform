@@ -435,3 +435,20 @@ func TestSubject_ABoundKeyRecordsThePersonsOwnSubject(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sub-jane", got)
 }
+
+// Record writes the pair before it returns, reports the store's failure and
+// skips what is not a person (#2279).
+func TestRecord_WritesThePairBeforeReturning(t *testing.T) {
+	store := newFakeStore()
+	b := New(store)
+	require.NoError(t, b.Record(context.Background(), person(middleware.AuthTypeOIDC, " Jane.Doe@Example.com ", "sub-1")))
+	store.mu.Lock()
+	assert.Equal(t, "sub-1", store.pairs["jane.doe@example.com"])
+	store.mu.Unlock()
+
+	require.NoError(t, b.Record(context.Background(), &middleware.UserInfo{UserID: "x", Email: "a@example.com"}))
+	require.NoError(t, b.Record(context.Background(), nil))
+
+	store.fail = errors.New("db down")
+	assert.Error(t, b.Record(context.Background(), person(middleware.AuthTypeOIDC, "jane.doe@example.com", "sub-2")))
+}

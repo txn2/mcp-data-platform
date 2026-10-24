@@ -555,3 +555,27 @@ func TestASignedInSessionMayManageKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestCreateRecordsTheCallerBeforeIssuing is #2279: a person who has just
+// signed in has no directory row yet unless the route writes it, and the key
+// is resolved against that row. Settle runs before the key is bound, and a
+// Settle that fails leaves the issue to say what it found.
+func TestCreateRecordsTheCallerBeforeIssuing(t *testing.T) {
+	const carol = "carol@example.com"
+	api, mux, _ := newTestAPI(carol)
+	principals, _ := api.Issuer.Principals.(*fakePrincipals)
+	api.Settle = func(*http.Request) error {
+		principals.people[carol] = auth.BoundPrincipal{Subject: "sub-carol", Email: carol, Roles: []string{"analyst"}}
+		return nil
+	}
+	if w := serve(mux, http.MethodPost, "/api/v1/portal/api-keys", `{"name":"laptop"}`); w.Code != http.StatusCreated {
+		t.Fatalf("a caller recorded by Settle: status %d, want 201: %s", w.Code, w.Body)
+	}
+
+	const dave = "dave@example.com"
+	api, mux, _ = newTestAPI(dave)
+	api.Settle = func(*http.Request) error { return errors.New("db down") }
+	if w := serve(mux, http.MethodPost, "/api/v1/portal/api-keys", `{"name":"laptop"}`); w.Code != http.StatusInternalServerError {
+		t.Fatalf("a caller Settle could not record: status %d, want the issue's own 500: %s", w.Code, w.Body)
+	}
+}

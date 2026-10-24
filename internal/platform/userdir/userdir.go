@@ -152,6 +152,30 @@ func (h *Handle) ObserveBrowserLogin(email, firstName, lastName, subject string,
 	})
 }
 
+// Record writes the caller's directory row and subject pair now, where
+// ObserveAuthenticated writes them in the background. Issuing a key against
+// the caller reads both back in the same request, and on a deployment of more
+// than one replica the background write from their sign-in has often not
+// landed (#2279). Somebody who is not a person is skipped. No name is
+// written: the upsert fills a blank name and keeps a stored one, and the
+// background write from the same sign-in still runs and carries the name.
+func (h *Handle) Record(ctx context.Context, subject, email, authType string, roles []string) error {
+	if h == nil || h.directory == nil {
+		return nil
+	}
+	info := &middleware.UserInfo{UserID: subject, Email: email, AuthType: authType, Roles: roles}
+	if err := h.subjects.Record(ctx, info); err != nil {
+		return err //nolint:wrapcheck // subjects names its own failure
+	}
+	if info.AuthType != authTypeLabelOIDC && info.AuthType != authTypeLabelOAuth {
+		return nil
+	}
+	if err := h.directory.Record(ctx, info.Email, "", "", info.Roles); err != nil {
+		return fmt.Errorf("recording the account a key is bound to: %w", err)
+	}
+	return nil
+}
+
 // BoundPrincipal resolves the person an API key is issued against: the subject
 // their own sessions authenticate as, their address as the directory holds it,
 // and the roles the identity provider last said they hold (#1759).

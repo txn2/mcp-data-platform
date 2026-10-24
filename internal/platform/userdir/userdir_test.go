@@ -380,3 +380,39 @@ func newFakeSubjects(pairs map[string]string) *fakeSubjectStore {
 	}
 	return &fakeSubjectStore{pairs: pairs, byPerson: byPerson, signal: make(chan struct{}, 8)}
 }
+
+// TestRecord_WritesTheCallerBeforeReturning is #2279: a key issued against the
+// caller reads their row and subject back in the same request, so Record has
+// written both by the time it returns, the subject for any person and the row
+// only for somebody who signed in through the identity provider.
+func TestRecord_WritesTheCallerBeforeReturning(t *testing.T) {
+	fake := newFakeUserStore()
+	pairs := &fakeSubjectStore{pairs: map[string]string{}, signal: make(chan struct{}, 8)}
+	h := handleWith(fake)
+	h.subjects = subjects.New(pairs)
+
+	if err := h.Record(context.Background(), "sub-1", "Ana@Example.com", "oidc", []string{"analyst"}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	fake.mu.Lock()
+	if fake.last != [3]string{"ana@example.com", "", ""} || len(fake.lastRoles) != 1 {
+		t.Errorf("directory row %v %v; want ana@example.com with its roles written before Record returned", fake.last, fake.lastRoles)
+	}
+	fake.mu.Unlock()
+	if got, _ := pairs.LookupPerson(context.Background(), "ana@example.com"); got != "sub-1" {
+		t.Errorf("subject %q; want sub-1 written before Record returned", got)
+	}
+
+	fake.last = [3]string{}
+	if err := h.Record(context.Background(), "apikey:x", "key@example.com", "apikey", nil); err != nil {
+		t.Fatalf("Record for an API key: %v", err)
+	}
+	if fake.last != ([3]string{}) {
+		t.Errorf("an API key reached the people directory: %v", fake.last)
+	}
+
+	var none *Handle
+	if err := none.Record(context.Background(), "s", "a@example.com", "oidc", nil); err != nil {
+		t.Errorf("a nil handle: %v", err)
+	}
+}

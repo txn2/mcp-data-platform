@@ -130,6 +130,24 @@ func (b *Book) Observe(info *middleware.UserInfo) {
 	}()
 }
 
+// Record writes the pair now and reports a failure, where Observe writes in the
+// background and swallows it: a key issued against the caller reads the pair
+// back in the same request (#2279). Somebody who is not a person is skipped.
+// The throttle is left alone, so Observe still writes and folds the library.
+func (b *Book) Record(ctx context.Context, info *middleware.UserInfo) error {
+	if b == nil || info == nil || !isPerson(info) {
+		return nil
+	}
+	key := normalize(strings.TrimSpace(info.Email))
+	if key == "" || info.UserID == "" {
+		return nil
+	}
+	if err := b.store.Record(ctx, key, info.UserID, isSelf(info)); err != nil {
+		return fmt.Errorf("recording the subject an address authenticates as: %w", err)
+	}
+	return nil
+}
+
 // Subject is the subject this address authenticates as in its own sessions, or
 // "" when the platform has not seen that person sign in themselves.
 //

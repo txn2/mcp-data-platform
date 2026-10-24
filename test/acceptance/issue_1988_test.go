@@ -150,12 +150,36 @@ func TestIssue1988_ATableOfValuesIsEmbeddedOnItsMetadata(t *testing.T) {
 		"purpose": "Acceptance #1988: a value inside a document is found by search.",
 	})
 	raw, _ := json.Marshal(out)
-	if !strings.Contains(string(raw), md) {
-		t.Errorf("search for a value inside the markdown document did not return it: %s", raw)
+	mdScore, mdFound := issue1988Score(out, md)
+	if !mdFound {
+		t.Fatalf("search for a value inside the markdown document did not return it: %s", raw)
 	}
-	if strings.Contains(string(raw), csv) {
-		t.Errorf("search found the CSV by a value inside it, which is read for no file under metadata: %s", raw)
+	// The CSV carries the markdown's description, so it may come back as a
+	// semantic neighbor of it, as the seeded resources do; what it must never
+	// be is a match for the value inside it (nightly 40064652039: the document
+	// scored 1, the CSV 0.037 beside seeded resources at 0.02).
+	if csvScore, found := issue1988Score(out, csv); found && csvScore >= mdScore/2 {
+		t.Errorf("search ranked the CSV (%.3f) beside the document (%.3f) for a value inside it, which is read for no file under metadata: %s",
+			csvScore, mdScore, raw)
 	}
+}
+
+// issue1988Score is the score search gave the resource whose reference ends in
+// id, and whether it returned that resource at all.
+func issue1988Score(out map[string]any, id string) (float64, bool) {
+	groups, _ := out["groups"].([]any)
+	for _, g := range groups {
+		group, _ := g.(map[string]any)
+		hits, _ := group["hits"].([]any)
+		for _, h := range hits {
+			hit, _ := h.(map[string]any)
+			if ref, _ := hit["reference"].(string); strings.HasSuffix(ref, id) {
+				score, _ := hit["score"].(float64)
+				return score, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // issue1988TimeSearch times one search, which embeds its intent on the request
