@@ -187,6 +187,7 @@ func recordInitialVersion(ctx context.Context, deps Deps, res *Resource, claims 
 		UploaderEmail: PersonAddress(*claims),
 		ContentSHA256: v.sha,
 		Metadata:      v.metadata,
+		Initial:       true,
 	}); err != nil {
 		slog.Warn("resource upload: recording initial version failed", msgError, err,
 			logKeyResourceID, res.ID) // #nosec G706 -- server-generated ID

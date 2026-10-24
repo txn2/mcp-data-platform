@@ -85,6 +85,12 @@ type Revision struct {
 	// after the revision (#2111). Empty keeps the one the resource has.
 	IndexPolicy   string
 	IndexExplicit bool
+	// Initial records the version a create just wrote the head with. The head
+	// already points at the blob and the create already enqueued its index
+	// job, so only the version row is written: moving the head again would
+	// stamp a second updated_at, clear the index signals the create's job
+	// fills, and owe the tile worker a second draw of the same bytes (#2286).
+	Initial bool
 }
 
 // VersionStore persists the content-revision trail of a resource and moves the
@@ -228,6 +234,13 @@ func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version
 		rev.UploaderSub, rev.UploaderEmail, restoredFrom, rev.ChangeSummary, rev.ContentSHA256, metadata))
 	if err != nil {
 		return nil, fmt.Errorf("recording resource revision: %w", err)
+	}
+
+	if rev.Initial {
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("committing resource version: %w", err)
+		}
+		return v, nil
 	}
 
 	target := indexTarget{id: rev.ResourceID}
