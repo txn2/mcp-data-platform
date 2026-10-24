@@ -161,7 +161,9 @@ type issue1996Captured struct {
 // the capture is the request as signed), then after the tolerance (401).
 func TestIssue1996_AReplayAfterTheToleranceIsRefused(t *testing.T) {
 	c := connect(t)
-	const tolerance = 2
+	// Ten seconds, so the signed call, its capture and the first replay fall
+	// inside the tolerance on a slow runner as well.
+	const tolerance = 10
 	source := issue1996Source(t, c, tolerance)
 
 	var mu sync.Mutex

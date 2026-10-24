@@ -63,11 +63,17 @@ async function artifact(page: Page): Promise<Frame> {
  */
 async function mapDrawn(frame: Frame) {
   // The document declares the map as a top-level `const map`, a global
-  // binding but not a property of window (window.map is the #map element),
-  // so it is read by a predicate evaluated in the frame's global scope.
+  // binding but not a property of window (window.map is the #map element);
+  // a function predicate resolves it in the frame's global scope. The
+  // predicate is a function, never a string: Playwright re-evaluates a string
+  // with eval on every poll after the first, which the share's policy refuses
+  // (no 'unsafe-eval'), so a map not drawn at the first check failed.
   await frame.waitForFunction(
-    `typeof map === "object" && typeof map.loaded === "function" &&
-     map.loaded() && map.areTilesLoaded() && !!map.getLayer("route")`,
+    () => {
+      // @ts-expect-error -- `map` is the document's own top-level const.
+      const m = typeof map === "object" ? map : undefined;
+      return !!m && typeof m.loaded === "function" && m.loaded() && m.areTilesLoaded() && !!m.getLayer("route");
+    },
     undefined,
     { timeout: 30_000 },
   );

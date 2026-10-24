@@ -237,7 +237,22 @@ func TestIssue2257_AnExternalAdministratorInTheStoreAdministersNothing(t *testin
 			_, _ = db.ExecContext(ctx, `DELETE FROM persona_definitions WHERE name = 'admin'`)
 		}
 		announce()
-		time.Sleep(2 * time.Second)
+		// The next criterion in this group runs as the administrator, so the
+		// cleanup ends only once the key reads the admin API again, four times
+		// running so that both replicas are seen to have re-read the persona.
+		deadline := time.Now().Add(30 * time.Second)
+		for ok := 0; ok < 4; {
+			if status, _ := holder.rest(http.MethodGet, "/api/v1/admin/personas", http.NoBody); status == http.StatusOK {
+				ok++
+				continue
+			}
+			ok = 0
+			if time.Now().After(deadline) {
+				t.Errorf("the administrator persona was not restored on every replica within 30s")
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
 	})
 	if _, err := db.ExecContext(t.Context(), `INSERT INTO persona_definitions
 		(name, display_name, roles, tools_allow, connections_allow, priority, external)

@@ -853,6 +853,15 @@ export MCP_PLATFORM_REVIEW_ALERT_INTERVAL="${MCP_PLATFORM_REVIEW_ALERT_INTERVAL:
 # seconds rather than every thirty, so those criteria wait seconds (#2232).
 export MCP_PLATFORM_CONNECTION_ALERT_INTERVAL="${MCP_PLATFORM_CONNECTION_ALERT_INTERVAL:-2s}"
 export MCP_PLATFORM_SCRIPT_SCHEDULER_INTERVAL="${MCP_PLATFORM_SCRIPT_SCHEDULER_INTERVAL:-2s}"
+# The server is compiled here, before air starts, so the 60-second health
+# wait below measures startup alone: air's first build of the same output is
+# then up to date. On a loaded CI runner the cold build took most of the
+# window and the nightly failed with a server still starting.
+info "Compiling the server..."
+if ! go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform > "$AIR_LOG" 2>&1; then
+  tail -20 "$AIR_LOG" 2>/dev/null | sed 's/^/    /'
+  fail "The server did not compile"
+fi
 air -c dev/.air.toml > "$AIR_LOG" 2>&1 &
 PIDS+=($!)
 

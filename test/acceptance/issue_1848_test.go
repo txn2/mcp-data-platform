@@ -137,7 +137,12 @@ func TestIssue1848_ASignedURLServesTheVersionUntilItExpires(t *testing.T) {
 	_, id := save1848(t, c)
 	assetID, version := outputAsset(t, c, id)
 
-	status, minted := c.rest(http.MethodGet, fmt.Sprintf("/api/v1/portal/assets/%s/content-url?ttl=2&version=%d", assetID, version), http.NoBody)
+	// Ten seconds, so the download below falls inside the link's life on a slow
+	// runner; the expiry is signed in whole seconds, so a shorter link can last
+	// little more than one second less than asked.
+	const ttl = 10 * time.Second
+	status, minted := c.rest(http.MethodGet, fmt.Sprintf("/api/v1/portal/assets/%s/content-url?ttl=%d&version=%d", assetID, int(ttl.Seconds()), version), http.NoBody)
+	expired := time.Now().Add(ttl + time.Second)
 	if status != http.StatusOK {
 		t.Fatalf("minting answered %d %v", status, minted)
 	}
@@ -145,7 +150,7 @@ func TestIssue1848_ASignedURLServesTheVersionUntilItExpires(t *testing.T) {
 	if body := getAnonymously(t, c.base, path); !strings.Contains(body, "n\n1\n2") {
 		t.Errorf("the signed URL downloaded %q; want the CSV version", body)
 	}
-	time.Sleep(3 * time.Second)
+	time.Sleep(time.Until(expired))
 	res, err := http.Get(c.base + path) //nolint:noctx // a bare GET is the point: no session
 	if err != nil {
 		t.Fatal(err)
