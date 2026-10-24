@@ -122,7 +122,12 @@ func TestIssue1870_WindowsCompactOnceAndRetentionFollows(t *testing.T) {
 		}
 	})
 
-	firstWindow := windows[0]
+	// The late segment goes into the window the burst filled most, and its
+	// duplicates are events that window holds. A burst that starts at the end
+	// of a minute leaves the first window with "first-seen" alone, and a
+	// duplicate of an event in another window is new to this one (nightly
+	// 40072214581: 16 events where 11 were wanted).
+	firstWindow := issue1870FullestWindow(t, c, burst, windows)
 	inFirst := issue1870InWindow(firstWindow.start)
 
 	t.Run("criteria 14 and 20: the window is a resource, found by search with its table", func(t *testing.T) {
@@ -135,7 +140,8 @@ func TestIssue1870_WindowsCompactOnceAndRetentionFollows(t *testing.T) {
 
 	t.Run("criterion 8: a segment written after compaction is compacted in", func(t *testing.T) {
 		before := issue1870Rows(t, c, burst, inFirst)
-		issue1870WriteLateSegment(t, db, store, burst, firstWindow.start)
+		dupes := issue1870EventIDs(t, c, burst, inFirst+" AND event_id LIKE 'evt-%'", issue1870LateDupes)
+		issue1870WriteLateSegment(t, db, store, burst, firstWindow.start, dupes)
 		issue1870WaitCompacted(t, db, burst, firstWindow.start, 2*time.Minute)
 		if n := issue1870Rows(t, c, burst, inFirst); n != before+issue1870LateNew {
 			t.Fatalf("after the late segment the window returns %d events, want %d", n, before+issue1870LateNew)
@@ -407,15 +413,13 @@ func issue1870MarkSegment(t *testing.T, db *sql.DB, source string, start time.Ti
 // issue1870WriteLateSegment writes, for a one-minute window already compacted,
 // the segment a replica that stalled past the window writes: ten new events
 // and five the burst already holds.
-func issue1870WriteLateSegment(t *testing.T, db *sql.DB, store *s3client.Client, source string, start time.Time) {
+func issue1870WriteLateSegment(t *testing.T, db *sql.DB, store *s3client.Client, source string, start time.Time, dupes []string) {
 	t.Helper()
-	ids := make([]string, 0, issue1870LateNew+issue1870LateDupes)
+	ids := make([]string, 0, issue1870LateNew+len(dupes))
 	for i := range issue1870LateNew {
 		ids = append(ids, fmt.Sprintf("late-%d", i))
 	}
-	for i := range issue1870LateDupes {
-		ids = append(ids, fmt.Sprintf("evt-%06d", i*997))
-	}
+	ids = append(ids, dupes...)
 	key := whlayout.SegmentKey(source, start, "acceptance-late-replica", 1)
 	issue1870Put(t, store, key, issue1870Segment(t, ids, start.Add(50*time.Second), "acceptance-late-replica"))
 	issue1870MarkSegment(t, db, source, start, time.Minute)
@@ -432,6 +436,40 @@ func issue1870WriteOldHour(t *testing.T, db *sql.DB, store *s3client.Client, sou
 	issue1870MarkSegment(t, db, source, hour, time.Hour)
 	issue1870WaitCompacted(t, db, source, hour, 2*time.Minute)
 	return hour
+}
+
+// issue1870FullestWindow is the window of source holding the most events.
+func issue1870FullestWindow(t *testing.T, c *client, source string, windows []issue1870Window) issue1870Window {
+	t.Helper()
+	best, most := windows[0], -1
+	for _, w := range windows {
+		if n := issue1870Rows(t, c, source, issue1870InWindow(w.start)); n > most {
+			best, most = w, n
+		}
+	}
+	return best
+}
+
+// issue1870EventIDs is up to limit event ids of source matching where, failing
+// unless there are that many.
+func issue1870EventIDs(t *testing.T, c *client, source, where string, limit int) []string {
+	t.Helper()
+	got := c.call("trino_query", map[string]any{
+		"connection": issue1870Conn, "purpose": issue1870Purpose,
+		"sql": fmt.Sprintf("SELECT event_id FROM %s WHERE %s ORDER BY event_id LIMIT %d", issue1870Table(source), where, limit),
+	})
+	rows, _ := got["rows"].([]any)
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		row, _ := r.(map[string]any)
+		if id, _ := row["event_id"].(string); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) != limit {
+		t.Fatalf("the window holds %d burst events to duplicate, want %d: %v", len(ids), limit, got)
+	}
+	return ids
 }
 
 // issue1870WaitCompacted waits until a window's latest segment is in its
