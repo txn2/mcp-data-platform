@@ -30,7 +30,8 @@
 #
 # Environment: MCP_BASE_URL (as `make acceptance` reads it), ISSUE,
 # ACCEPTANCE_ENV and ACCEPTANCE_SHARD (passed through), RELEASE_DEV_TIMEOUT seconds to wait for the
-# stack (default 900).
+# stack (default 900), RELEASE_INDEX_DRAIN_TIMEOUT seconds to wait for a fresh
+# stack's first index pass (default 1800).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -144,14 +145,19 @@ done
 # A stack started on new volumes indexes everything it seeded at once, and a
 # criterion waiting on the index job of a file it just wrote waits behind all
 # of it: on a CPU-only runner that took longer than the criterion waits
-# (#2276). The criteria start once the first pass has drained, or after ten
-# minutes, saying so.
+# (#2276). The criteria start once the first pass has drained, or after
+# RELEASE_INDEX_DRAIN_TIMEOUT seconds (default 1800), saying so. Ten minutes
+# was not enough: the same suite drained in under ten on some runners and left
+# 530 and 1048 jobs on others, whose criteria then searched for what was not
+# indexed yet (#2284). The nightly job's 100 minutes hold the stack's start, a
+# full wait and the criteria.
 pending=""
-for _ in $(seq 1 120); do
+drain_waits=$(( ${RELEASE_INDEX_DRAIN_TIMEOUT:-1800} / 5 ))
+for _ in $(seq 1 "$drain_waits"); do
   pending="$(docker exec acme-dev-postgres psql -U platform -d mcp_platform -tAc \
     "SELECT count(*) FROM index_jobs WHERE status IN ('pending', 'running')" 2> /dev/null || true)"
   [ "$pending" = 0 ] && break
   sleep 5
 done
-echo "release-acceptance: index jobs pending or running before the criteria: ${pending:-unknown}."
+echo "release-acceptance: index jobs pending or running before the criteria: ${pending:-unknown} (waited up to ${RELEASE_INDEX_DRAIN_TIMEOUT:-1800}s)."
 run_suite
