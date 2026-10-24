@@ -79,6 +79,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		DSN:               p.config.Database.DSN,
 		CatalogStore:      p.APIGatewayCatalogStore(),
 		ToolkitRegistry:   p.toolkitRegistry,
+		Peers:             p.sessions,
 		ToolEnumerator:    platformToolEnumerator{p: p},
 		DiscoveryToolName: platformFindToolsName,
 		Consumers: indexqueue.Consumers{

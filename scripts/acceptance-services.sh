@@ -22,6 +22,11 @@ export DOCKER_DEFAULT_PLATFORM=""
 
 BUNDLE="deployments/observability/clickstack"
 CLICKSTACK_ENV="$ROOT/build/acceptance/clickstack.env"
+# The edge collector reads the dev stack's PostgreSQL and SeaweedFS metrics.
+# Both publish on the host's 127.0.0.1 only, which host.docker.internal
+# reaches on Docker Desktop and not on Linux, where it is the bridge address
+# (#2275). The collector joins the dev stack's network and names them there.
+DEV_NETWORK="$ROOT/build/acceptance/clickstack.dev-network.yaml"
 
 usage() {
   echo "usage: $0 up|down|env <service>; the services are: clickstack" >&2
@@ -29,7 +34,7 @@ usage() {
 }
 
 clickstack_compose() {
-  docker compose --env-file "$CLICKSTACK_ENV" -f "$BUNDLE/compose.yaml" -f "$BUNDLE/compose.substrate.yaml" "$@"
+  docker compose --env-file "$CLICKSTACK_ENV" -f "$BUNDLE/compose.yaml" -f "$BUNDLE/compose.substrate.yaml" -f "$DEV_NETWORK" "$@"
 }
 
 # clickstack_settings writes the bundle's settings for this run: the dev
@@ -59,14 +64,23 @@ CLICKSTACK_API_PORT=18000
 CLICKSTACK_CLICKHOUSE_PORT=18123
 EDGE_OTLP_GRPC_PORT=14317
 EDGE_OTLP_HTTP_PORT=14318
-SUBSTRATE_PG_HOST=host.docker.internal
-SUBSTRATE_PG_PORT=${DEV_PG_PORT:-5432}
+SUBSTRATE_PG_HOST=acme-dev-postgres
+SUBSTRATE_PG_PORT=5432
 SUBSTRATE_PG_USER=otel_monitor
 SUBSTRATE_PG_PASSWORD=otel_monitor_dev
 SUBSTRATE_PG_DATABASE=mcp_platform
 SUBSTRATE_PG_SSLMODE=disable
 SUBSTRATE_PG_TLS_INSECURE=true
-SUBSTRATE_SEAWEEDFS_METRICS=host.docker.internal:${DEV_SEAWEEDFS_METRICS_PORT:-9327}
+SUBSTRATE_SEAWEEDFS_METRICS=acme-dev-seaweedfs:9327
+EOF
+  cat > "$DEV_NETWORK" << 'EOF'
+services:
+  edge-collector:
+    networks: [default, dev]
+networks:
+  dev:
+    external: true
+    name: dev_default
 EOF
 }
 

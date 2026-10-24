@@ -451,6 +451,10 @@ func (t *Toolkit) loadVectors(ctx context.Context, connection, hash string) map[
 	return vectors
 }
 
+// VectorsReloadOp is the reload-bus op a replica announces a connection's
+// finished embed with, so every peer calls ReloadVectors too (#2276).
+const VectorsReloadOp = "vectors"
+
 // ReloadVectors re-reads a connection's persisted embeddings. The
 // index-jobs consumer calls it after a successful pass so a connection
 // that was ranking lexically starts ranking semantically without a

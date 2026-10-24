@@ -169,9 +169,27 @@ func TestCatalogSource_OnSucceeded_NilRegistryIsNoOp(_ *testing.T) {
 // TestCatalogSource_OnSucceeded_MalformedSourceIDIsNoOp covers the decode guard
 // on the reload path: a source_id without the delimiter cannot be attributed to
 // a catalog, so OnSucceeded returns without touching the registry.
-func TestCatalogSource_OnSucceeded_MalformedSourceIDIsNoOp(_ *testing.T) {
-	s := &catalogSource{registry: registry.NewRegistry()}
+func TestCatalogSource_OnSucceeded_MalformedSourceIDIsNoOp(t *testing.T) {
+	announced := 0
+	s := &catalogSource{registry: registry.NewRegistry(), peers: func(string) { announced++ }}
 	s.OnSucceeded("no-delimiter")
+	if announced != 0 {
+		t.Errorf("a source id naming no catalog was announced %d time(s)", announced)
+	}
+}
+
+// TestCatalogSource_OnSucceeded_AnnouncesTheCatalogToPeers: the replica that
+// ran the embed asks the others to reload the catalog's connections, whether
+// or not it holds a toolkit registry itself (#2276).
+func TestCatalogSource_OnSucceeded_AnnouncesTheCatalogToPeers(t *testing.T) {
+	for _, reg := range []*registry.Registry{nil, registry.NewRegistry()} {
+		var announced []string
+		s := &catalogSource{registry: reg, peers: func(id string) { announced = append(announced, id) }}
+		s.OnSucceeded(catalogindex.EncodeSourceID("cat", "spec"))
+		if len(announced) != 1 || announced[0] != "cat" {
+			t.Errorf("registry %v: announced %v; want cat once", reg != nil, announced)
+		}
+	}
 }
 
 // TestCatalogSource_OnSucceeded_WithRegistry covers the reload path: with a

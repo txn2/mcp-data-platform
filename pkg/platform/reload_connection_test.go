@@ -387,7 +387,7 @@ func TestReloadConnectionLocal_SchemaOpInstallsTheStoredSchema(t *testing.T) {
 }
 
 func TestConnectionReloadOpRoundTripsOnTheWire(t *testing.T) {
-	for _, op := range []ConnectionReloadOp{ReloadUpsert, ReloadDelete, ReloadSchema} {
+	for _, op := range []ConnectionReloadOp{ReloadUpsert, ReloadDelete, ReloadSchema, ReloadVectors} {
 		if got := parseConnectionReloadOp(op.String()); got != op {
 			t.Errorf("parse(%q) = %v, want %v", op.String(), got, op)
 		}
@@ -434,4 +434,22 @@ func TestReloadConnectionLocal_DeleteOpRemoveFailureWarns(t *testing.T) {
 	if bytes.Contains(buf.Bytes(), []byte("level=ERROR")) {
 		t.Errorf("delete-path removal failure must not log at ERROR, got: %q", buf.String())
 	}
+}
+
+// TestVectorsOpIsTheOneTheIndexAnnounces: the op the graphql index publishes is
+// the one this replica parses as ReloadVectors.
+func TestVectorsOpIsTheOneTheIndexAnnounces(t *testing.T) {
+	if got := parseConnectionReloadOp(graphqlkit.VectorsReloadOp); got != ReloadVectors {
+		t.Errorf("parse(%q) = %v, want ReloadVectors", graphqlkit.VectorsReloadOp, got)
+	}
+}
+
+// TestReloadConnectionLocal_VectorsOpReadsNoStore: a peer's finished embed
+// re-reads the connection's vectors and never the connection store (#2276).
+func TestReloadConnectionLocal_VectorsOpReadsNoStore(t *testing.T) {
+	p := &Platform{
+		toolkitRegistry: registry.NewRegistry(),
+		connectionStore: storeReadForbidden{t: t}, // Get would fail the test
+	}
+	p.reloadConnectionLocal(graphqlkit.Kind, "erp", ReloadVectors.String())
 }

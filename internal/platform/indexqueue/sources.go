@@ -35,6 +35,11 @@ type ToolEnumerator interface {
 type catalogSource struct {
 	store    apigatewaycatalog.Store
 	registry *registry.Registry
+	// peers asks every other replica to reload the catalog's connections. The
+	// job runs on one replica and the vectors are held in each replica's
+	// memory, so without it the others rank lexically until they restart
+	// (#2276). nil on a single process.
+	peers func(catalogID string)
 }
 
 // Kind reports the api-catalog source kind.
@@ -91,15 +96,18 @@ func graphQLSpecItems(spec apigatewaycatalog.SpecEntry) ([]indexjobs.Item, error
 	return items, nil
 }
 
-// OnSucceeded asks every registered api-gateway toolkit to rebuild connections
-// that mount the catalog so their in-memory vector map picks up the
-// freshly-written rows.
+// OnSucceeded asks every registered api-gateway toolkit, here and on every
+// peer replica, to rebuild connections that mount the catalog so their
+// in-memory vector map picks up the freshly-written rows.
 func (s *catalogSource) OnSucceeded(sourceID string) {
-	if s.registry == nil {
-		return
-	}
 	catalogID, _, ok := catalogindex.DecodeSourceID(sourceID)
 	if !ok {
+		return
+	}
+	if s.peers != nil {
+		s.peers(catalogID)
+	}
+	if s.registry == nil {
 		return
 	}
 	for _, tk := range s.registry.All() {

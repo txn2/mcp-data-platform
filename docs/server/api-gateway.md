@@ -373,7 +373,7 @@ The connection store is what a replica answers from, not the announcement that f
 
 On a connection name a replica does not hold, it now reads the connection store before answering "not found", and serves what the store holds. A connection the store does not hold is answered exactly as before. The read is the exception rather than the path: a connection the replica already holds is answered from memory, and the requests that arrive for one name while a read is in flight share that read. A connection deleted on another replica while this one was reading it is taken back out rather than served until a restart.
 
-Nothing about a connection is derived per replica, so there is nothing to reconcile beyond the read: a connection's specs and operation embeddings are keyed on its catalog, not on the connection, and every replica reads the same catalog rows. This is the same resolution the `graphql` kind has had since #1714, in one shared implementation rather than two.
+Nothing about a connection is derived per replica, so there is nothing to reconcile beyond the read: a connection's specs and operation embeddings are keyed on its catalog, not on the connection, and every replica reads the same catalog rows. This is the same resolution the `graphql` kind has had since #1714, in one shared implementation rather than two. Each replica holds those embeddings in memory, read when it builds the connection, and an embed pass runs on one replica: when it finishes, that replica reloads the catalog's connections and announces it over the reload bus, so every replica ranks semantically from then on rather than only the one that ran the pass (#2276).
 
 ### Auth modes
 

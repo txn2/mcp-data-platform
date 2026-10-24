@@ -119,6 +119,16 @@ func ReloadStoredSchema(ctx context.Context, reg *registry.Registry, name string
 	}
 }
 
+// ReloadVectors re-reads a connection's operation vectors on every live
+// toolkit holding it: a peer finished embedding them (#2276).
+func ReloadVectors(ctx context.Context, reg *registry.Registry, name string) {
+	for _, tk := range Toolkits(reg) {
+		if tk.HasConnection(name) {
+			tk.ReloadVectors(ctx, name)
+		}
+	}
+}
+
 // AttachExport enables graphql_export on every live graphql toolkit. A nil
 // deps leaves the tool unregistered, which is what a deployment with no
 // portal wants.

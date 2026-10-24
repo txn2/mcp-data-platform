@@ -267,7 +267,9 @@ type webhookFixture struct {
 
 func startWebhookFixture(t *testing.T) *webhookFixture {
 	t.Helper()
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	// HyperDX calls it from its container through host.docker.internal, which
+	// on Linux is the bridge address, not loopback (#2275).
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +416,12 @@ func TestIssue1901_PromtoolPassesOnTheRuleFiles(t *testing.T) {
 	if out, err := test.CombinedOutput(); err != nil {
 		t.Fatalf("alert rule tests: %v\n%s", err, out)
 	}
+	// Prometheus's image reads the rules as nobody, and Linux holds a bind
+	// mount to its modes where Docker Desktop does not (#2275).
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil { //nolint:gosec // read by the container's nobody user
+		t.Fatal(err)
+	}
 	for _, f := range []string{"alert-rules.yaml", "recording-rules.yaml"} {
 		extract := exec.CommandContext(t.Context(), "python3", "-c", `
 import sys
@@ -430,7 +437,7 @@ for l in lines[start:]:
 		if err != nil {
 			t.Fatalf("extracting %s: %v", f, err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, f), out, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, f), out, 0o644); err != nil { //nolint:gosec // read by the container's nobody user
 			t.Fatal(err)
 		}
 	}

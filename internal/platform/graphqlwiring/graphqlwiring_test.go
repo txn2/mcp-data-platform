@@ -352,3 +352,39 @@ func TestWireAttachesEveryOptionalDependency(t *testing.T) {
 		t.Errorf("info = %+v", info)
 	}
 }
+
+// countingVectorReader records the connections whose vectors were read.
+type countingVectorReader struct{ read []string }
+
+func (r *countingVectorReader) LoadVectors(_ context.Context, connection, _ string) (map[string][]float32, error) {
+	r.read = append(r.read, connection)
+	return map[string][]float32{}, nil
+}
+
+// TestReloadVectorsRereadsWhatAPeerEmbedded: a peer's finished embed makes
+// every graphql toolkit holding the connection read its vectors again, and no
+// other (#2276).
+func TestReloadVectorsRereadsWhatAPeerEmbedded(t *testing.T) {
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":[{"message":"introspection disabled"}]}`))
+	}))
+	defer refusing.Close()
+	reg := newRegistry(t, refusing.URL)
+	Wire(context.Background(), Deps{Registry: reg})
+	tk := Toolkits(reg)[0]
+	tk.SetSchemaStore(&memoryStore{schemas: map[string]graphqlkit.StoredSchema{}})
+	if err := tk.SetSchema(context.Background(), "gql", []byte("schema { query: Query } type Query { health: String }")); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	reader := &countingVectorReader{}
+	tk.SetVectorReader(reader)
+
+	ReloadVectors(context.Background(), reg, "gql")
+	ReloadVectors(context.Background(), reg, "absent")
+	ReloadVectors(context.Background(), nil, "gql")
+
+	if len(reader.read) != 1 || reader.read[0] != "gql" {
+		t.Errorf("vectors read for %v; want gql once", reader.read)
+	}
+}

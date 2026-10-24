@@ -16,3 +16,4 @@
 
 worker-off  ^TestIssue1897_AStoppedSchedulerShowsItsDueSchedulesAging$  DEV_SCRIPT_WORKER_ENABLED=false
 clickstack  ^TestIssue(1900|1901)_  DEV_OTLP_ENDPOINT=localhost:14317 DEV_DEPLOYMENT_ID_B=acme-dev-b  +clickstack
+slack  ^TestIssue(1824_|2241_(TheChannelListIsTheBotsChannels|SlackShowsThePreviewInTheChannelAndTheShareURL)$)  manual
