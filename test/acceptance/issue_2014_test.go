@@ -107,6 +107,10 @@ func startPlatform(t *testing.T, config string) *platformProcess {
 	}
 	p := &platformProcess{out: &syncBuffer{}, base: "http://" + addr, done: make(chan error, 1)}
 	p.cmd = exec.Command(platformBinary(t), "--config", path, "--transport", "http", "--address", addr) // #nosec G204 -- the binary this suite built
+	// Its metrics listener gets a free address too: the dev stack's Keycloak
+	// publishes 127.0.0.1:9090, which Linux refuses the default :9090 beside
+	// (macOS allows it), and the platform does not start without it (#2275).
+	p.cmd.Env = append(os.Environ(), "OTEL_METRICS_ADDR="+freeAddress(t))
 	p.cmd.Stdout, p.cmd.Stderr = p.out, p.out
 	if err := p.cmd.Start(); err != nil {
 		t.Fatalf("starting the platform: %v", err)

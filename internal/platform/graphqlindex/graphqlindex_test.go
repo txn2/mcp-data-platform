@@ -101,6 +101,17 @@ func TestOnSucceededRereadsTheConnectionsVectors(t *testing.T) {
 	source.OnSucceeded("absent")
 }
 
+// TestOnSucceededAnnouncesTheConnectionToPeers: the replica that ran the pass
+// asks the others to re-read the connection's vectors (#2276).
+func TestOnSucceededAnnouncesTheConnectionToPeers(t *testing.T) {
+	var announced []string
+	source := NewSource(lister(newToolkit(t, "gql", "flat"))).AnnounceTo(func(c string) { announced = append(announced, c) })
+	source.OnSucceeded("gql")
+	if len(announced) != 1 || announced[0] != "gql" {
+		t.Errorf("announced %v; want gql once", announced)
+	}
+}
+
 func TestSinkAddressesTheConnectionsCurrentSchemaVersion(t *testing.T) {
 	tk := newToolkit(t, "gql", "flat")
 	source := NewSource(lister(tk))

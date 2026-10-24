@@ -144,6 +144,8 @@ Four components run alongside the admin server:
 - **Reaper** — sweeps every 30 seconds: any row in status=running with `lease_expires_at <= NOW()` flips back to pending. Multiple pods, fast lease recovery.
 - **Reconciler** — periodic gap detector. Walks every registered kind's `Sink.FindGaps`; for api-catalog that compares `api_catalog_specs.operation_count` (set at write time) against the actual count of rows in `api_catalog_operation_embeddings` and enqueues jobs for any spec where they disagree. Runs once on pod boot and every 5 minutes thereafter. This is the convergence backstop: a spec written before an embedder was configured, vectors lost to a partial restore, or any other gap is filled in without operator action.
 
+A job that succeeds reloads the connections mounting its catalog on the replica that ran it and announces the reload over the reload bus, so every replica's in-memory vectors pick up the new rows rather than only that replica's (#2276).
+
 Failure handling: retryable provider errors back off exponentially (5s, 10s, 20s, 40s, 80s) up to 5 attempts. After that the job moves to `failed` with the last error message on the row; the catalog editor surfaces this with a red "failed" badge and an explicit Retry button that enqueues a fresh job. Notification of newly enqueued work flows over `LISTEN/NOTIFY` on the `index_jobs` channel; workers also poll at 30s intervals as a backstop for missed notifications.
 
 ### Operator view

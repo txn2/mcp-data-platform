@@ -34,6 +34,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
+	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 )
 
@@ -114,6 +115,10 @@ type Config struct {
 	// new rows; may be nil.
 	CatalogStore    apigatewaycatalog.Store
 	ToolkitRegistry *registry.Registry
+	// Peers announces a finished api-catalog or graphql embed to the other
+	// replicas, which reload what it wrote as this one does (#2276); may be
+	// nil.
+	Peers Peers
 
 	// ToolEnumerator supplies the live, globally-visible tool corpus the tools
 	// source embeds. DiscoveryToolName is the discovery tool's own name, excluded
@@ -288,7 +293,7 @@ func (h *Handle) bindProducers(producers []*indexjobs.Producer) {
 func (h *Handle) registerConsumers(cfg Config) {
 	if cfg.CatalogStore != nil {
 		if err := h.registry.Register(
-			&catalogSource{store: cfg.CatalogStore, registry: cfg.ToolkitRegistry},
+			&catalogSource{store: cfg.CatalogStore, registry: cfg.ToolkitRegistry, peers: cfg.catalogPeers()},
 			catalogindex.NewSink(cfg.CatalogStore),
 		); err != nil {
 			slog.Error("index jobs: api-catalog registration failed", logKeyError, err)
@@ -409,7 +414,7 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 	// caller asking for what they want done reaches the operation that does
 	// it, rather than needing the schema author's vocabulary (#1277).
 	tryRegister(cfg.Consumers.GraphQLOperations && cfg.GraphQLToolkits != nil, "graphql operations", func() error {
-		source := graphqlindex.NewSource(cfg.GraphQLToolkits)
+		source := graphqlindex.NewSource(cfg.GraphQLToolkits).AnnounceTo(cfg.graphqlPeers())
 		return h.registry.Register(source, graphqlindex.NewSink(graphqlindex.NewStore(cfg.DB), source))
 	})
 }
@@ -545,5 +550,31 @@ func boundedStop(ctx context.Context, component string, fn func()) error {
 		slog.WarnContext(ctx, "shutdown: bounded stop deadline reached; abandoning in-flight work",
 			"component", component, logKeyError, ctx.Err())
 		return ctx.Err() //nolint:wrapcheck // ctx.Err() is the expected sentinel; lifecycle aggregates it
+	}
+}
+
+// Peers is the cross-replica reload bus, as the session layer publishes on it.
+type Peers interface {
+	PublishCatalogReload(ctx context.Context, catalogID string)
+	PublishConnectionReload(ctx context.Context, kind, name, op string)
+}
+
+// catalogPeers is the announcement a finished api-catalog embed makes, nil
+// with no bus.
+func (cfg Config) catalogPeers() func(string) {
+	if cfg.Peers == nil {
+		return nil
+	}
+	return func(catalogID string) { cfg.Peers.PublishCatalogReload(context.Background(), catalogID) }
+}
+
+// graphqlPeers is the announcement a finished graphql embed makes, nil with no
+// bus.
+func (cfg Config) graphqlPeers() func(string) {
+	if cfg.Peers == nil {
+		return nil
+	}
+	return func(connection string) {
+		cfg.Peers.PublishConnectionReload(context.Background(), graphqlkit.Kind, connection, graphqlkit.VectorsReloadOp)
 	}
 }

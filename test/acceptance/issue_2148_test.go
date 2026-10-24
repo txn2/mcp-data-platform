@@ -140,8 +140,12 @@ func TestIssue2148_SettingsKeepWhatAWriteLeavesOut(t *testing.T) {
 // issue2148RAMDisk makes a 32 MiB volume and returns its mount point.
 func issue2148RAMDisk(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS != "darwin" {
-		t.Fatalf("the spool volume criterion fills a RAM disk made with hdiutil, on darwin; this is %s", runtime.GOOS)
+	switch runtime.GOOS {
+	case "darwin":
+	case "linux":
+		return issue2148Tmpfs(t)
+	default:
+		t.Fatalf("the spool volume criterion makes its volume with hdiutil on darwin or tmpfs on linux; this is %s", runtime.GOOS)
 	}
 	out, err := exec.Command("hdiutil", "attach", "-nomount", "ram://65536").Output()
 	if err != nil {
@@ -155,6 +159,19 @@ func issue2148RAMDisk(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = exec.Command("hdiutil", "detach", "-force", dev).Run() })
 	return "/Volumes/" + name
+}
+
+// issue2148Tmpfs mounts a 32 MiB tmpfs owned by this user. Mounting needs
+// root, which the CI runners give through passwordless sudo.
+func issue2148Tmpfs(t *testing.T) string {
+	t.Helper()
+	mount := t.TempDir()
+	opts := fmt.Sprintf("size=32m,uid=%d,gid=%d", os.Getuid(), os.Getgid())
+	if b, err := exec.Command("sudo", "-n", "mount", "-t", "tmpfs", "-o", opts, "tmpfs", mount).CombinedOutput(); err != nil { //nolint:gosec // fixed command; the mount point is this test's own
+		t.Fatalf("mounting a tmpfs (needs passwordless sudo): %v %s", err, b)
+	}
+	t.Cleanup(func() { _ = exec.Command("sudo", "-n", "umount", "-l", mount).Run() }) //nolint:gosec // as above
+	return mount
 }
 
 // issue2148FillTo writes a file on the volume until it is pct used.

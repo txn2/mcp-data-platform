@@ -34,10 +34,20 @@ type ToolkitLister func() []*graphqlkit.Toolkit
 // items.
 type Source struct {
 	lister ToolkitLister
+	peers  func(connection string)
 }
 
 // NewSource builds the source over the live toolkits.
 func NewSource(lister ToolkitLister) *Source { return &Source{lister: lister} }
+
+// AnnounceTo has a finished pass also ask every other replica to re-read the
+// connection's vectors. The pass runs on one replica and each replica holds
+// the vectors in memory, so without it the others rank lexically until they
+// restart (#2276). Returns s.
+func (s *Source) AnnounceTo(peers func(connection string)) *Source {
+	s.peers = peers
+	return s
+}
 
 // Compile-time interface check.
 var _ indexjobs.Source = (*Source)(nil)
@@ -57,9 +67,13 @@ func (s *Source) LoadItems(_ context.Context, sourceID string) ([]indexjobs.Item
 	return items, nil
 }
 
-// OnSucceeded re-reads the connection's vectors so a schema that was
-// ranking lexically starts ranking semantically without a restart.
+// OnSucceeded re-reads the connection's vectors, here and on every peer
+// replica, so a schema that was ranking lexically starts ranking semantically
+// without a restart.
 func (s *Source) OnSucceeded(sourceID string) {
+	if s.peers != nil {
+		s.peers(sourceID)
+	}
 	for _, tk := range s.lister() {
 		if tk.HasConnection(sourceID) {
 			tk.ReloadVectors(context.Background(), sourceID)

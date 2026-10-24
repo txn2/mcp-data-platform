@@ -37,11 +37,13 @@ const (
 	// the schema store holds, without reading the connection store and
 	// without touching the endpoint (#1676).
 	ReloadSchema
+	// ReloadVectors marks a connection a peer finished embedding (#2276).
+	ReloadVectors
 )
 
 // reloadOpNames is each op's spelling on the wire, which a peer's handler
 // parses it back from.
-var reloadOpNames = map[ConnectionReloadOp]string{ReloadUpsert: "upsert", ReloadDelete: "delete", ReloadSchema: "schema"}
+var reloadOpNames = map[ConnectionReloadOp]string{ReloadUpsert: "upsert", ReloadDelete: "delete", ReloadSchema: "schema", ReloadVectors: "vectors"}
 
 // String renders the op for the reload-bus wire payload and logs.
 func (o ConnectionReloadOp) String() string { return reloadOpNames[o] }
@@ -64,12 +66,9 @@ func parseConnectionReloadOp(s string) ConnectionReloadOp {
 // internal/platform/storeresync; the bus itself is internal/platform/sessionsync,
 // which the handlers are injected into (#843).
 
-// reloadConnectionLocal applies a peer's reload broadcast to one connection
-// on this replica. op carries the peer's intent: a delete is applied without a
-// store read (storeresync.Removed), a schema change installs what the schema
-// store holds without rebuilding anything, and an upsert, or a legacy event
-// without an op, reads the store and decides (storeresync.Upserted, #885).
-// Neither removal applies to a connection this replica's file declares (#1400).
+// reloadConnectionLocal applies a peer's reload of one connection: a delete with no
+// store read (never of a file-declared one, #1400), a schema or vectors change from
+// its store, an upsert or op-less event by reading the store (storeresync, #885).
 func (p *Platform) reloadConnectionLocal(kind, name, op string) {
 	switch parseConnectionReloadOp(op) {
 	case ReloadDelete:
@@ -77,6 +76,9 @@ func (p *Platform) reloadConnectionLocal(kind, name, op string) {
 		return
 	case ReloadSchema:
 		graphqlwiring.ReloadStoredSchema(context.Background(), p.toolkitRegistry, name)
+		return
+	case ReloadVectors:
+		graphqlwiring.ReloadVectors(context.Background(), p.toolkitRegistry, name)
 		return
 	case ReloadUpsert:
 	}

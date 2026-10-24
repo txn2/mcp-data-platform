@@ -140,4 +140,18 @@ for service in $services; do
     export "${assignment?}"
   done
 done
+
+# A stack started on new volumes indexes everything it seeded at once, and a
+# criterion waiting on the index job of a file it just wrote waits behind all
+# of it: on a CPU-only runner that took longer than the criterion waits
+# (#2276). The criteria start once the first pass has drained, or after ten
+# minutes, saying so.
+pending=""
+for _ in $(seq 1 120); do
+  pending="$(docker exec acme-dev-postgres psql -U platform -d mcp_platform -tAc \
+    "SELECT count(*) FROM index_jobs WHERE status IN ('pending', 'running')" 2> /dev/null || true)"
+  [ "$pending" = 0 ] && break
+  sleep 5
+done
+echo "release-acceptance: index jobs pending or running before the criteria: ${pending:-unknown}."
 run_suite
