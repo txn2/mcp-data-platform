@@ -339,9 +339,11 @@ client:
 | `search` | `true`, `false` | The portal's unified search. |
 | `memory` | `true`, `false` | Memory and insights. |
 | `download` | `true`, `false` | PDF export: the Export PDF action and the PDF routes (`GET /api/v1/portal/assets/{id}/pdf`, `GET /api/v1/resources/{id}/pdf` and their versions), which answer `403` when it is off. The editor calls it **PDF export**. Downloading a file reads the same bytes viewing does, so it is not governed by this. |
-| `uploads` | `share_personas`, `share_emails` | An external persona only: its people may upload files to their own folder, each shared on arrival as viewer with every person of each persona named and each address named (#2258). Absent is no uploads. Saving it on an internal persona is refused. |
+| `history` | `true`, `false` | Earlier versions (#2290): `true` lets the persona's people read the earlier versions of an asset shared with them, whether the share is viewer or editor; `false`, the default, shows them the current version only, with no history, and `GET /api/v1/portal/assets/{id}/versions`, an earlier version's content, a signed URL for one and `manage_asset` `list_versions` and `diff` answer `403`. The asset's owner and administrators always read its history. The editor calls it **Earlier versions**. |
+| `external_files` | `none`, `view`, `manage` | External files (#2290): every external person's own folder. `view` lists the folders (`GET /api/v1/resources/external-folders`, the **External files** folder of the Resources page) and opens the files in them; `manage` also renames them, adds versions, moves, deletes and shares them, and uploads into the folders. Default `none`; an external persona always has `none`, and administrators have `manage`. |
+| `uploads` | `true`, `false` | An external persona only: its people may upload files to their own folder (#2258, #2290). Default `false`. Saving it on an internal persona is refused. |
 
-An area the block leaves unset, and every area of a persona with no block, resolves to what the persona reached before the setting existed: `assets: own`, `resources: persona`, `apis: browse`, `scratch_tables: register` and every switch on; `knowledge: write` when the persona's tools include `apply_knowledge` and `read` otherwise; `catalog: write` when they include `apply_knowledge` and `fetch`, `read` with `fetch` alone, `none` without it. `GET /api/v1/portal/me` reports the caller's block with every area resolved.
+An area the block leaves unset, and every area of a persona with no block, resolves to what the persona reached before the setting existed: `assets: own`, `resources: persona`, `apis: browse`, `scratch_tables: register`, `external_files: none`, `history: false` and every other switch on; `knowledge: write` when the persona's tools include `apply_knowledge` and `read` otherwise; `catalog: write` when they include `apply_knowledge` and `fetch`, `read` with `fetch` alone, `none` without it. `GET /api/v1/portal/me` reports the caller's block with every area resolved.
 
 The portal's persona editor shows the block in its **Portal access** section, and saving there writes every area. `GET /api/v1/admin/personas/{name}` returns the block as stored in `portal`, the block the persona's people get in `effective_portal`, and the areas External lowered in `capped_by_external`, so saving an external persona leaves its stored levels where they were.
 
@@ -366,48 +368,45 @@ The portal's persona editor shows the setting as the **Sharing** checkbox in its
 
 ## External personas
 
-A persona marked `external: true` is for people outside the organization (#2092). Its people are given accounts by an administrator rather than by the identity provider, sign in with a one-time link emailed to them, and see only what is shared with them:
+A persona marked `external: true` is for people outside the organization (#2290). An external person is an account in the organization's identity provider like any other, given a role there; the role resolves to an external persona, and the mark is what tells them apart from employees. A deployment can have many external personas, typically one per client organization, each with one or more people:
 
 ```yaml
-client-review:
-  display_name: "Client review"
-  roles: ["client_review"]
+client-a:
+  display_name: "Client A"
+  roles: ["client-a"]
   external: true
   portal:
     feedback: true
     download: false
+    uploads: true
+client-b:
+  display_name: "Client B"
+  roles: ["client-b"]
+  external: true
 ```
 
 Whatever the rest of the persona says, an external persona:
 
-- is denied every MCP tool, so an external person has no agent access;
-- has `assets: shared`, `resources: shared` (or `none`), `knowledge`, `catalog`, `apis` and `scratch_tables` at `none`, and `search`, `prompts`, `automations` and `memory` off. `feedback`, `download` and `uploads` stay as the block sets them;
-- reads its people's own folders and its persona's folder, never Global (#2257);
-- registers and lists no scratch table, whatever its connection rules allow;
-- opens what is shared with its people as a viewer, whatever permission the share carries;
-- cannot share, has no API keys, no people directory and no mentions, and reaches no admin route. An external person may share their own upload with a person who has shared something with them, and nothing else (#2258).
+- is denied every MCP tool, so an external person has no agent access, `search` and `fetch` included;
+- has `assets: shared`, `resources: shared` (or `none`), `knowledge`, `catalog`, `apis`, `scratch_tables` and `external_files` at `none`, and `search`, `prompts`, `automations` and `memory` off. `feedback`, `download`, `history` and `uploads` stay as the block sets them;
+- reads its people's own folders and nothing else in Resources: no persona folder and no Global (#2257, #2290);
+- opens the assets, collections and files shared with its people, one by one or with the persona, as a viewer, whatever permission the share carries;
+- cannot share, has no API keys, no people directory and no mentions, reaches no admin route and no signed-in endpoint (`/endpoints/`);
+- reaches only these portal routes under `/api/v1/portal/`: `me`, `assets`, `collections`, `shared-with-me`, `shared-collections`, `threads`, `worklist`, `feedback`, `notification-prefs` and `notifications`. Every other one, a route added later included, answers `403`.
+
+On a thread, an external person sees and writes only threads shared with them (#2227), is not mentioned in an internal thread, and is not notified of one.
+
+Sharing with an external persona reaches every person whose role resolves to it, and only them. Anyone who can share may address a share to any persona (#2290); naming one grants nothing to anyone outside it. The share dialog, Admin > Users and the audit drawer mark each external person and persona **External**: `GET /api/v1/portal/users` reports `external` on each person, `GET /api/v1/portal/share-personas` on each persona, and `GET /api/v1/admin/users` reports each person's `persona` and `external`.
 
 The administrator persona is never external: the admin API refuses saving it so with `400`, a configuration file that marks it so is refused at startup, and one written to the store directly is still not an administrator anywhere (the admin API, the MCP tools, stored secrets, managed resources, script runs). Every surface asks the persona registry's one administrator rule rather than comparing a persona's name.
 
-The portal's persona editor shows the setting as the **External people** account type in its Identity section. The accounts are listed and managed under [Admin > Users](../portal/admin-access.md#external-users).
+The portal's persona editor shows the setting as the **External people** account type in its Identity section, and the persona's access summary lists how many people it has.
 
 ### Uploads by external people
 
-An external persona can let its people deliver files (#2258):
+An external persona with `uploads: true` lets its people send files: a person of the persona uploads through `POST /api/v1/resources` to their own folder, and an upload to any other folder answers `403`. The upload is shared with no one on arrival. The people who see it are those whose persona has [External files](#portal-permissions) at `view` or `manage`, and administrators, under the **External files** folder of the Resources page, one folder per external person named for them and their persona. The deployment's `resources.managed.max_upload_bytes` and content-type detection apply as to every upload. Without `uploads`, `POST /api/v1/resources` answers `403`.
 
-```yaml
-agency:
-  display_name: "Agency"
-  roles: ["agency"]
-  external: true
-  portal:
-    resources: shared
-    uploads:
-      share_personas: ["marketing"]
-      share_emails: ["lead@example.com"]
-```
-
-A person of the persona uploads through `POST /api/v1/resources` to their own folder. Each upload is shared at once, as viewer, with every person of `marketing` and with `lead@example.com`, and they are told who uploaded it and under which persona. The uploader sees their own uploads and what is shared with them, never the recipients' folders or Global. The deployment's `resources.managed.max_upload_bytes` and content-type detection apply as to every upload. Removing `uploads` stops new uploads; files already shared stay shared until their owner or an administrator removes the share. Without `uploads`, `POST /api/v1/resources` answers `403`.
+The `share_personas` and `share_emails` lists #2258 named under `uploads` are gone. Migration 000219 reads a persona stored with them as `uploads: true`. A configuration file that still names them under `uploads` is logged as an unrecognized key (`config_validation_warnings_total{code="unrecognized_keys"}`) and its persona's uploads are off until the file says `uploads: true`; with `config.strict: true` the platform refuses to start.
 
 ## What a persona reaches
 
@@ -428,7 +427,7 @@ A person's persona folder and persona-scoped prompts follow role overlap, not th
 
 ## Sharing with a persona
 
-A share can be addressed to a persona instead of a person (#2089). Everyone who resolves to that persona when they open the item opens it, so a person who joins the persona afterwards gains it and one who leaves loses it, with no change to the share. The share dialog offers **People** or **Personas**; anyone may share with their own persona, and an administrator with any persona. Each current member is notified by their own notification preferences, and the share is listed once on the item, as **Persona:** and the persona's name. `POST .../shares` takes `shared_with_persona` in place of `shared_with_email`, and a share naming both is refused.
+A share can be addressed to a persona instead of a person (#2089). Everyone who resolves to that persona when they open the item opens it, so a person who joins the persona afterwards gains it and one who leaves loses it, with no change to the share. The share dialog offers **People** or **Personas**; anyone who can share may share with any persona (#2290), and an external persona is marked **External** in the list. Each current member is notified by their own notification preferences, and the share is listed once on the item, as **Persona:** and the persona's name. `POST .../shares` takes `shared_with_persona` in place of `shared_with_email`, and a share naming both is refused.
 
 ## Connection Access Control
 

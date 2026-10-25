@@ -5052,258 +5052,6 @@
                 }
             }
         },
-        "/admin/external-users": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns every account the platform created for a person outside the organization, newest first: the address, name, external persona, expiry, when it was suspended, its last sign-in, when the person's first identity-provider sign-in converted it, its status (active, suspended, expired or converted) and the live shares to its address.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "External users"
-                ],
-                "summary": "List external users",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/extaccountapi.UserList"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Creates an account for a person outside the organization under an external persona and emails them an invitation holding a one-time sign-in link, valid for the invite_hours setting. The persona must be external and its own roles must resolve to it. An address that already has an account is refused with 409, and so is one that already signs in through the identity provider. expires_at is optional; after it the account's sessions end and it cannot sign in.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "External users"
-                ],
-                "summary": "Add an external user",
-                "parameters": [
-                    {
-                        "description": "The account",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/extaccount.NewAccount"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/extaccountapi.UserView"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/external-users/{id}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Deletes the account, ends its sessions on their next request, and revokes every share to its address, so no guest link reopens what was shared.",
-                "tags": [
-                    "External users"
-                ],
-                "summary": "Remove an external user",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Account id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/external-users/{id}/extend": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Sets the account's expiry to expires_at, which must be in the future, or removes it when expires_at is null.",
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "External users"
-                ],
-                "summary": "Extend an external user",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Account id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "The new expiry",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/extaccountapi.ExtendRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/external-users/{id}/resume": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Lets a suspended account sign in again.",
-                "tags": [
-                    "External users"
-                ],
-                "summary": "Resume an external user",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Account id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/external-users/{id}/suspend": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Stops the account signing in and ends its sessions on their next request. Its shares stay; Resume restores it.",
-                "tags": [
-                    "External users"
-                ],
-                "summary": "Suspend an external user",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Account id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
         "/admin/gateway/connections/{name}/enrichment-rules": {
             "get": {
                 "security": [
@@ -10170,80 +9918,6 @@
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/settingsapi.problemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/settings/external-accounts": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns how long an external user's signed-in session lasts (session_hours, default 12), how long the invitation email's link can be used (invite_hours, default 168), and how long a link asked for on the sign-in screen can be used (link_minutes, default 15).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Settings"
-                ],
-                "summary": "Get the external account settings",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/extaccount.Settings"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Sets the three durations. session_hours and invite_hours are 1 to 720, link_minutes 1 to 1440. A session already signed in keeps the length it was signed with.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Settings"
-                ],
-                "summary": "Update the external account settings",
-                "parameters": [
-                    {
-                        "description": "The settings",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/extaccount.Settings"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/extaccount.Settings"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -23534,7 +23208,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the personas a share may be addressed to by the caller: every persona for an administrator, the caller's own for everyone else (#2089). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.",
+                "description": "Returns every persona a share may be addressed to, each marked when it is for people outside the organization (#2089, #2290). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.",
                 "produces": [
                     "application/json"
                 ],
@@ -24542,7 +24216,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the known-users directory so a user can pick a teammate to share with. Includes admin-added people who have not logged in yet (confirmed=false). Any authenticated user may call this.",
+                "description": "Returns the known-users directory so a user can pick a teammate to share with. Includes admin-added people who have not logged in yet (confirmed=false), and marks each person outside the organization (external, #2290). Any authenticated user may call this; a person of an external persona is refused.",
                 "produces": [
                     "application/json"
                 ],
@@ -24980,6 +24654,46 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/external-folders": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The personal folder of every person whose role resolves to an external persona (#2290), for a caller whose persona has External files at view or manage; an administrator has manage. List a folder's files with scope=user and its scope_id.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List external people's folders",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/externalfiles.folderList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -29103,6 +28817,10 @@
                     "type": "string",
                     "example": "marcus.johnson@example.com"
                 },
+                "external": {
+                    "type": "boolean",
+                    "example": false
+                },
                 "first_name": {
                     "type": "string",
                     "example": "Marcus"
@@ -29113,6 +28831,11 @@
                 },
                 "last_seen_at": {
                     "type": "string"
+                },
+                "persona": {
+                    "description": "Persona is the persona Roles resolve to, and External marks it one for\npeople outside the organization (#2290).",
+                    "type": "string",
+                    "example": "analyst"
                 },
                 "roles": {
                     "description": "Roles is the role set the identity provider last said this person holds,\nrecorded at every real sign-in (#1759). It grants nothing on its own: it\nis what an API key issued against this account carries, which is why the\nkey form fills its roles from here. Empty for somebody who has never\nsigned in.",
@@ -33047,106 +32770,45 @@
                 }
             }
         },
-        "extaccount.NewAccount": {
+        "externalfiles.Folder": {
             "type": "object",
             "properties": {
                 "email": {
-                    "type": "string"
-                },
-                "expires_at": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "dana@client-a.example.com"
                 },
                 "name": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "Dana Reyes"
                 },
                 "persona": {
-                    "type": "string"
-                }
-            }
-        },
-        "extaccount.Settings": {
-            "type": "object",
-            "properties": {
-                "invite_hours": {
-                    "description": "InviteHours is how long the invitation email's link can be used.",
-                    "type": "integer",
-                    "example": 168
+                    "description": "Persona is the external persona the person resolves to.",
+                    "type": "string",
+                    "example": "client-a"
                 },
-                "link_minutes": {
-                    "description": "LinkMinutes is how long a link asked for on the sign-in screen can be\nused.",
-                    "type": "integer",
-                    "example": 15
+                "persona_display_name": {
+                    "type": "string",
+                    "example": "Client A"
                 },
-                "session_hours": {
-                    "description": "SessionHours is how long a signed-in session lasts.",
-                    "type": "integer",
-                    "example": 12
+                "scope_id": {
+                    "description": "ScopeID is the user library the folder is: list it with\nscope=user&scope_id=<scope_id>.",
+                    "type": "string",
+                    "example": "6f1c2a9e-3b7d-4e1a-9c55-0d2f8b7a1e44"
                 }
             }
         },
-        "extaccountapi.ExtendRequest": {
+        "externalfiles.folderList": {
             "type": "object",
             "properties": {
-                "expires_at": {
-                    "description": "ExpiresAt is the new expiry; null removes it.",
-                    "type": "string"
-                }
-            }
-        },
-        "extaccountapi.UserList": {
-            "type": "object",
-            "properties": {
-                "users": {
+                "folders": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/extaccountapi.UserView"
+                        "$ref": "#/definitions/externalfiles.Folder"
                     }
-                }
-            }
-        },
-        "extaccountapi.UserView": {
-            "type": "object",
-            "properties": {
-                "converted_at": {
-                    "description": "ConvertedAt is when the person first signed in through the identity\nprovider, which closed the account.",
-                    "type": "string"
                 },
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "expires_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "last_sign_in_at": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "persona": {
-                    "type": "string"
-                },
-                "shared_items": {
-                    "description": "SharedItems is the live shares to the account's address.",
-                    "type": "integer",
-                    "example": 3
-                },
-                "status": {
-                    "description": "Status is active, suspended, expired or converted.",
-                    "type": "string",
-                    "example": "active"
-                },
-                "suspended_at": {
-                    "type": "string"
+                "manage": {
+                    "description": "Manage reports whether the caller also changes what is in them.",
+                    "type": "boolean"
                 }
             }
         },
@@ -34944,6 +34606,11 @@
                     "type": "string",
                     "example": "marcus.johnson@example.com"
                 },
+                "external": {
+                    "description": "External marks a person outside the organization (#2290), which the\nshare picker shows beside their name.",
+                    "type": "boolean",
+                    "example": false
+                },
                 "first_name": {
                     "type": "string",
                     "example": "Marcus"
@@ -35348,8 +35015,16 @@
                     "description": "External is reported, never set: the persona is external (#2092), so\nthe portal offers its people no people directory and no API keys.",
                     "type": "boolean"
                 },
+                "external_files": {
+                    "description": "ExternalFiles is every external person's personal folder: none, view\nor manage (#2290). Unset is none; an external persona has none.",
+                    "type": "string"
+                },
                 "feedback": {
                     "description": "Feedback is threads, comments, activity, worklists and sign-off.",
+                    "type": "boolean"
+                },
+                "history": {
+                    "description": "History lets the persona's people read an asset's earlier versions\n(#2290). Unset is off: only the owner and an administrator read them,\nwhatever a share grants.",
                     "type": "boolean"
                 },
                 "knowledge": {
@@ -35377,31 +35052,8 @@
                     "type": "boolean"
                 },
                 "uploads": {
-                    "description": "Uploads lets the people of an external persona upload files, each one\nshared on arrival with the recipients it names (#2258). nil is no\nuploads; an internal persona's people upload by their Resources level\nand this is dropped from its resolved block.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/persona.PortalUploads"
-                        }
-                    ]
-                }
-            }
-        },
-        "persona.PortalUploads": {
-            "type": "object",
-            "properties": {
-                "share_emails": {
-                    "description": "ShareEmails are addresses that read each upload.",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "share_personas": {
-                    "description": "SharePersonas are personas whose people read each upload.",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
+                    "description": "Uploads lets the people of an external persona upload files to their\nown folder (#2258, #2290), which staff reach through ExternalFiles. Unset\nis off; an internal persona's people upload by their Resources level\nand this is dropped from its resolved block.",
+                    "type": "boolean"
                 }
             }
         },
@@ -35638,8 +35290,12 @@
                 "api_keys": {
                     "type": "integer"
                 },
-                "external_accounts": {
-                    "type": "integer"
+                "people": {
+                    "description": "People are the addresses of the signed-in people whose recorded roles\nresolve to the persona (#2290).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "prompts": {
                     "type": "integer"
@@ -36342,6 +35998,10 @@
                 "display_name": {
                     "type": "string",
                     "example": "Finance"
+                },
+                "external": {
+                    "type": "boolean",
+                    "example": false
                 },
                 "name": {
                     "type": "string",

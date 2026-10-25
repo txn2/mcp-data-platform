@@ -48,6 +48,7 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
   return {
     ...actual,
     useToolSchemas: () => ({ data: { schemas: { trino_query: TRINO_SCHEMA } } }),
+    usePersonas: () => ({ data: undefined }),
     useTools: () => ({ data: { tools: TOOLS }, isLoading: false }),
     useToolDetail: (name: string | null) => ({
       data: name === "trino_query" ? TRINO_DETAIL : undefined,

@@ -127,6 +127,21 @@ export interface PeopleResponse {
   people: Person[];
 }
 
+/** One external person's own folder, which External files reaches (#2290). */
+export interface ExternalFolder {
+  scope_id: string;
+  email: string;
+  name?: string;
+  persona: string;
+  persona_display_name?: string;
+}
+
+export interface ExternalFoldersResponse {
+  folders: ExternalFolder[];
+  /** Whether the caller also changes what is in them. */
+  manage: boolean;
+}
+
 // ResourceSort is the order the listing asks the server for. A folder is paged,
 // so a column header sorts on the server or it sorts only what has arrived.
 export type ResourceSort =

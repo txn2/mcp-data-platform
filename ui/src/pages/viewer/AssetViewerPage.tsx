@@ -9,6 +9,7 @@ import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { SharedPageLink } from "@/components/share/SharedPageLink";
 import { mySessionPath } from "@/pages/activity/routes";
 import { useAuthStore } from "@/stores/auth";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 
 interface Props {
   assetId: string;
@@ -24,9 +25,11 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
   const contentUpdateMutation = useUpdateAssetContent();
   const copyMutation = useCopyAsset();
   const isAdmin = useAuthStore((s) => s.isAdmin());
-  // A reader whose access is viewer sees the current version only: no
-  // history, no version number and no comparison (#2226).
-  const seesHistory = asset != null && (asset.is_owner !== false || asset.share_permission === "editor" || isAdmin);
+  // A reader the asset is shared with sees its earlier versions only when
+  // their persona's Earlier versions setting is on; otherwise the current
+  // version only, with no version number and no comparison (#2226, #2290).
+  const { history } = usePortalAccess();
+  const seesHistory = asset != null && (asset.is_owner !== false || isAdmin || history);
   const { data: versionsData, isLoading: versionsLoading } = useAssetVersions(assetId, seesHistory);
   const revertMutation = useRevertVersion();
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);

@@ -43,7 +43,8 @@ export async function openAssetRefs(page: Page): Promise<void> {
  */
 export async function openAssetRefPicker(page: Page): Promise<void> {
   await openAssetRefs(page);
-  await page.getByRole("button", { name: "Add" }).first().click({ timeout: 3_000 });
+  // Scoped to the panel: the asset's toolbar has its own Add to collection.
+  await page.getByTestId("asset-refs").getByRole("button", { name: "Add", exact: true }).click({ timeout: 3_000 });
   await page.getByTestId("asset-ref-picker").waitFor({ timeout: 3_000 });
   await page.waitForTimeout(500);
 }

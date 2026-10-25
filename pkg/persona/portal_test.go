@@ -129,20 +129,25 @@ func TestPortalAccessResolve(t *testing.T) {
 	}
 }
 
-// External takes scratch tables away and keeps the uploads it names; an
-// internal persona's uploads setting is dropped (#2257, #2258).
+// External takes scratch tables away and keeps its uploads switch, unset
+// reading off; an internal persona's uploads setting is dropped (#2257,
+// #2258, #2290).
 func TestPortalScratchTablesAndUploads(t *testing.T) {
 	got := (&Persona{Name: "p"}).PortalPermissions(nil)
 	assert.Equal(t, PortalRegister, got.ScratchTables, "unset keeps what every persona had before #2257")
 	assert.Nil(t, got.Uploads)
 
-	up := &PortalUploads{SharePersonas: []string{"marketing"}}
-	ext := &Persona{Name: "vendors", External: true, Portal: &PortalAccess{ScratchTables: PortalRegister, Uploads: up}}
+	on := true
+	ext := &Persona{Name: "vendors", External: true, Portal: &PortalAccess{ScratchTables: PortalRegister, Uploads: &on}}
 	eff := ext.PortalPermissions(nil)
 	assert.Equal(t, PortalNone, eff.ScratchTables)
-	assert.Equal(t, up, eff.Uploads)
+	require.NotNil(t, eff.Uploads)
+	assert.True(t, *eff.Uploads)
+	unset := (&Persona{Name: "v", External: true}).PortalPermissions(nil)
+	require.NotNil(t, unset.Uploads)
+	assert.False(t, *unset.Uploads, "an external persona uploads only when it says so")
 
-	internal := &Persona{Name: "staff", Portal: &PortalAccess{Uploads: up}}
+	internal := &Persona{Name: "staff", Portal: &PortalAccess{Uploads: &on}}
 	assert.Nil(t, internal.PortalPermissions(nil).Uploads, "uploads are an external persona's setting")
 
 	assert.Equal(t, PortalRegister, FullPortalAccess().ScratchTables)
@@ -151,7 +156,37 @@ func TestPortalScratchTablesAndUploads(t *testing.T) {
 
 	require.NoError(t, (&PortalAccess{ScratchTables: PortalList}).Validate())
 	require.Error(t, (&PortalAccess{ScratchTables: PortalWrite}).Validate())
-	require.Error(t, (&PortalAccess{Uploads: &PortalUploads{}}).Validate(), "uploads shared with nobody")
+}
+
+// Earlier versions reads off unless a persona turns it on, and an
+// administrator has it; External files reads none, an external persona never
+// has it, and an administrator manages (#2290).
+func TestPortalHistoryAndExternalFiles(t *testing.T) {
+	got := (&Persona{Name: "p"}).PortalPermissions(nil)
+	require.NotNil(t, got.History)
+	assert.False(t, *got.History)
+	assert.Equal(t, PortalNone, got.ExternalFiles)
+
+	on := true
+	staff := (&Persona{Name: "s", Portal: &PortalAccess{History: &on, ExternalFiles: PortalView}}).PortalPermissions(nil)
+	assert.True(t, *staff.History)
+	assert.Equal(t, PortalView, staff.ExternalFiles)
+
+	ext := (&Persona{Name: "c", External: true, Portal: &PortalAccess{History: &on, ExternalFiles: PortalManage}}).PortalPermissions(nil)
+	assert.True(t, *ext.History, "an external persona's earlier versions are its own setting")
+	assert.Equal(t, PortalNone, ext.ExternalFiles)
+
+	full := FullPortalAccess()
+	assert.True(t, *full.History)
+	assert.Equal(t, PortalManage, full.ExternalFiles)
+
+	assert.True(t, AtLeast(PortalManage, PortalView))
+	assert.False(t, AtLeast(PortalView, PortalManage))
+	require.NoError(t, (&PortalAccess{ExternalFiles: PortalManage}).Validate())
+	require.Error(t, (&PortalAccess{ExternalFiles: PortalWrite}).Validate())
+
+	stored := (&Persona{Name: "c", Portal: &PortalAccess{ExternalFiles: PortalView}}).StoredPortal(nil)
+	assert.Contains(t, Differs(stored, ext), "external_files")
 }
 
 // Differs names what an external persona's limits took from its stored
@@ -173,7 +208,9 @@ func TestValidateAccount(t *testing.T) {
 	require.ErrorIs(t, ValidateAccount(&Persona{Name: "admin", External: true}, "admin"), ErrExternalAdmin)
 	require.NoError(t, ValidateAccount(&Persona{Name: "admin", External: true}, ""), "no administrator configured")
 	require.ErrorIs(t, ValidateAccount(&Persona{Name: "x", External: true, ServiceAccount: true}, "admin"), ErrAccountType)
-	require.ErrorIs(t, ValidateAccount(&Persona{Name: "x", Portal: &PortalAccess{Uploads: &PortalUploads{ShareEmails: []string{"a@example.com"}}}}, "admin"), ErrUploadsInternal)
+	on, off := true, false
+	require.ErrorIs(t, ValidateAccount(&Persona{Name: "x", Portal: &PortalAccess{Uploads: &on}}, "admin"), ErrUploadsInternal)
+	require.NoError(t, ValidateAccount(&Persona{Name: "x", Portal: &PortalAccess{Uploads: &off}}, "admin"), "uploads off is every internal persona's")
 }
 
 // IsAdminName is AdminRule for a resolved persona's name: an external

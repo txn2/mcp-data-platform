@@ -42,7 +42,7 @@ function renderPage() {
   render(<AssetViewerPage assetId="a1" onNavigate={vi.fn()} onBack={vi.fn()} />);
 }
 
-describe("AssetViewerPage history (#2226)", () => {
+describe("AssetViewerPage history (#2226, #2290)", () => {
   beforeEach(() => {
     versionsCalls.length = 0;
     received.versions = undefined;
@@ -56,11 +56,18 @@ describe("AssetViewerPage history (#2226)", () => {
     expect(received.versions).toBeUndefined();
   });
 
-  it("gives the owner and an editor the history", () => {
+  it("gives the owner the history, and an editor none while their persona withholds it", () => {
     asset.value = { id: "a1", is_owner: true, current_version: 3 };
     renderPage();
     expect(received.versions).toHaveLength(2);
     asset.value = { id: "a1", is_owner: false, share_permission: "editor", current_version: 3 };
+    renderPage();
+    expect(received.versions).toBeUndefined();
+  });
+
+  it("gives a viewer the history when their persona's Earlier versions is on", () => {
+    useAuthStore.setState({ user: { user_id: "u", roles: [], is_admin: false, portal: { history: true } } });
+    asset.value = { id: "a1", is_owner: false, share_permission: "viewer", current_version: 3 };
     renderPage();
     expect(received.versions).toHaveLength(2);
   });

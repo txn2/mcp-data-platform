@@ -167,6 +167,34 @@ export const mockDirectoryUsers: DirectoryUser[] = [
     created_at: "2025-01-27T09:33:00Z",
     updated_at: "2025-01-27T09:33:00Z",
   },
+  // Two people of a client organization, signed in through the identity
+  // provider under its external persona (#2290).
+  {
+    email: "dana.reyes@client-a.example.com",
+    first_name: "Dana",
+    last_name: "Reyes",
+    source: "auth",
+    confirmed: true,
+    last_seen_at: "2025-01-28T11:10:00Z",
+    roles: ["client-a"],
+    persona: "client-a",
+    external: true,
+    created_at: "2025-01-20T10:00:00Z",
+    updated_at: "2025-01-28T11:10:00Z",
+  },
+  {
+    email: "sam.ortiz@client-a.example.com",
+    first_name: "Sam",
+    last_name: "Ortiz",
+    source: "auth",
+    confirmed: true,
+    last_seen_at: "2025-01-27T15:40:00Z",
+    roles: ["client-a"],
+    persona: "client-a",
+    external: true,
+    created_at: "2025-01-21T10:00:00Z",
+    updated_at: "2025-01-27T15:40:00Z",
+  },
 ];
 
 // Portal share-picker directory shape is a subset of the admin shape; map from

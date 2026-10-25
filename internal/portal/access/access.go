@@ -332,11 +332,12 @@ func (c *Checker) ResolveAssetPermission(ctx context.Context, assetID string, us
 }
 
 // SeesAssetHistory reports whether the user may read an asset's earlier
-// versions (#2226): its owner, an administrator, and an editor, by a direct
-// share or a collection's. Anyone whose access is viewer reads only the
-// current version, so sharing an asset does not hand out every draft before
-// the one the owner meant to share. A store error answers false: history is
-// withheld rather than shown on an access check that did not complete.
+// versions (#2226, #2290): its owner and an administrator always; anyone else
+// who reaches it by a share, direct or a collection's, only when their
+// persona's Earlier versions setting is on. It is off unless a persona turns
+// it on, so sharing an asset does not hand out every draft before the one
+// the owner meant to share. A store error answers false: history is withheld
+// rather than shown on an access check that did not complete.
 func (c *Checker) SeesAssetHistory(ctx context.Context, asset *portaldomain.Asset, user *User) bool {
 	if asset == nil || user == nil {
 		return false
@@ -344,8 +345,11 @@ func (c *Checker) SeesAssetHistory(ctx context.Context, asset *portaldomain.Asse
 	if c.CanManageAsset(asset, user) {
 		return true
 	}
+	if !persona.On(c.Portal(user).History) {
+		return false
+	}
 	perm, err := c.ResolveAssetPermission(ctx, asset.ID, user)
-	return err == nil && GrantsEdit(perm)
+	return err == nil && perm != ""
 }
 
 // CanViewAsset reports whether the user may view the asset (owner, a direct
@@ -560,6 +564,6 @@ func (c *Checker) CanModerateThread(ctx context.Context, user *User, thread *thr
 // sharing gets from every share-creating route and tool action (#2241).
 const ErrSharingNotAllowed = "sharing is not available to your persona"
 
-// ErrHistoryNotShared is the refusal a reader whose access to an asset is
-// viewer gets for its earlier versions (#2226).
-const ErrHistoryNotShared = "this asset is shared with you to view its current version; its earlier versions are its owner's and editors'"
+// ErrHistoryNotShared is the refusal a reader who is not the owner gets for an
+// asset's earlier versions when their persona withholds them (#2226, #2290).
+const ErrHistoryNotShared = "this asset's earlier versions are its owner's; your persona does not show them to people it is shared with"

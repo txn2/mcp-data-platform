@@ -4,19 +4,41 @@ package acceptance
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 )
 
 // Issue #2227: internal and shared feedback threads. A person of an external
-// persona (#2092) never sees an internal thread: not in the list, the
+// persona (#2290: signed in through the identity provider) never sees an internal thread: not in the list, the
 // sign-off count, or by its id. A thread marked shared reaches them, and a
 // thread they open is shared.
 //
 // Wire forms: the thread create body's visibility as the strings "internal"
 // and "shared" and absent; the thread PATCH body's visibility as the string
 // "shared"; the reply body as a JSON object with a body string.
+
+// issue2227Setup is an external person signed in through the identity
+// provider, with feedback on, and three assets the administrator shared with
+// them as editor.
+type issue2227Setup struct {
+	session externalSession
+	shared  []string
+}
+
+func newIssue2227(t *testing.T) issue2227Setup {
+	t.Helper()
+	admin := connect(t)
+	_, email, s := issue2257ExternalAccount(t, admin, "2227", map[string]any{"portal": map[string]any{"feedback": true}})
+	out := issue2227Setup{session: s}
+	for i := range 3 {
+		id := issue2290Asset(t, admin, fmt.Sprintf("2227 item %d", i))
+		issue2290Share(t, admin, id, map[string]any{"shared_with_email": email, "permission": "editor"})
+		out.shared = append(out.shared, id)
+	}
+	return out
+}
 
 func issue2227Threads(t *testing.T, raw map[string]any) string {
 	t.Helper()
@@ -27,7 +49,7 @@ func issue2227Threads(t *testing.T, raw map[string]any) string {
 // An internal thread on an asset shared with an external person is hidden
 // from them; marked shared, they see it and reply to it.
 func TestIssue2227_AnInternalThreadIsHiddenUntilItIsShared(t *testing.T) {
-	s := newIssue2092(t, true)
+	s := newIssue2227(t)
 	admin := connect(t)
 	assetID := s.shared[0]
 
@@ -75,7 +97,7 @@ func TestIssue2227_AnInternalThreadIsHiddenUntilItIsShared(t *testing.T) {
 // A thread the external person opens is shared, whatever they ask, and the
 // asset's owner sees it.
 func TestIssue2227_AThreadAnExternalUserOpensIsShared(t *testing.T) {
-	s := newIssue2092(t, true)
+	s := newIssue2227(t)
 	admin := connect(t)
 	assetID := s.shared[1]
 	status, created := s.session.do(t, http.MethodPost, "/api/v1/portal/threads", map[string]any{
@@ -95,7 +117,7 @@ func TestIssue2227_AThreadAnExternalUserOpensIsShared(t *testing.T) {
 // An internal user chooses shared when opening a thread; the external user
 // sees it at once.
 func TestIssue2227_AThreadOpenedSharedReachesTheExternalUser(t *testing.T) {
-	s := newIssue2092(t, true)
+	s := newIssue2227(t)
 	admin := connect(t)
 	assetID := s.shared[2]
 	_, created := admin.rest(http.MethodPost, "/api/v1/portal/threads", jsonBody(t, map[string]any{

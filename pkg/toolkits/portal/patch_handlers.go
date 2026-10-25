@@ -339,29 +339,29 @@ func (t *Toolkit) loadReadableAsset(ctx context.Context, assetID string) (*porta
 }
 
 // seesHistory reports whether the caller may read the asset's earlier
-// versions (#2226): an administrator, the owner, and an editor, by a direct
-// share or a collection's. A caller whose access is viewer reads only the
-// current version, as on the asset's page.
+// versions (#2226, #2290): an administrator and the owner always; anyone else
+// whose persona lets its people read them and who reaches the asset by a
+// direct share or a collection's, as on the asset's page.
 func (t *Toolkit) seesHistory(ctx context.Context, asset *portal.Asset) bool {
 	if t.isAdmin(ctx) || ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
 		return true
 	}
-	if t.shareStore == nil {
+	pc := middleware.GetPlatformContext(ctx)
+	if t.shareStore == nil || t.historyAllowed == nil || pc == nil || !t.historyAllowed(pc.PersonaName) {
 		return false
 	}
 	ctx, userID, email := shareIdentity(ctx)
-	if share, err := t.shareStore.GetActiveShareForTarget(ctx, threadTargetAsset, asset.ID, userID, email); err == nil &&
-		share != nil && share.Permission == portal.PermissionEditor {
+	if share, err := t.shareStore.GetActiveShareForTarget(ctx, threadTargetAsset, asset.ID, userID, email); err == nil && share != nil {
 		return true
 	}
 	perm, _ := t.shareStore.GetUserAssetPermissionViaCollection(ctx, asset.ID, userID, email)
-	return perm == portal.PermissionEditor
+	return perm != ""
 }
 
 // historyRefusal is what a viewer asking for an asset's history is told.
 func historyRefusal() *mcp.CallToolResult {
 	return middleware.UnauthorizedResult(access.ErrHistoryNotShared,
-		"Read the current version with action=get_content, or ask the owner for editor access.")
+		"Read the current version with action=get_content.")
 }
 
 // canReadAsset reports whether the caller owns the asset or holds any share

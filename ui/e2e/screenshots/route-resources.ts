@@ -50,6 +50,18 @@ export const userResourceRoutes: ScreenshotRoute[] = [
     },
   },
   {
+    // External files (#2290): one folder per external person, named for them
+    // and their persona, opened on the first.
+    slug: "resources-external-files",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: async (page) => {
+      await page.getByTestId("tree-external-files").click({ timeout: 3_000 });
+      await page.getByTestId("tree-node-external:sub-dana:").click({ timeout: 5_000 });
+      await page.getByTestId("path-bar").getByText("Dana Reyes (Client A)").waitFor({ timeout: 5_000 });
+    },
+  },
+  {
     // The Global top-level folder on the reader's own Resources page, where a
     // platform administrator is offered New folder and Upload (#1527). The
     // controls follow the caller's authority rather than which section the

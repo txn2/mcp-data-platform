@@ -39,7 +39,7 @@ issued against their account carries.
 
 Features:
 
-- **User table** — Name, email, status badge, and last-seen date
+- **User table** — Name (with **External** for a person outside the organization), email, persona, status badge, and last-seen date
 - **Status badge** — **Active** (green) for someone seen via a real sign-in, or **Invited** (amber) for someone an admin pre-added who has not logged in yet
 - **+ Add User** — Pre-add a person by email (with optional first and last name) so they are selectable for sharing before they have ever signed in
 - **Edit** — Change a person's first and last name. Admin-entered names take precedence: a later sign-in only fills blank name fields, it never overwrites a name an admin set
@@ -52,14 +52,7 @@ dialog falls back to free-typed email only.
 
 ### External users
 
-Under the directory, **External users** lists the accounts the platform created for people outside the organization (#2092): their email, name, [external persona](../personas/overview.md#external-personas), how many items are shared with them, their last sign-in and when the account expires. The section appears only on a deployment with a database.
+An external user is a person outside the organization: an account in the identity provider given a role that resolves to an [external persona](../personas/overview.md#external-personas) (#2290). They sign in like anyone else and are recorded in the directory on their first sign-in. The **Persona** column shows the persona each person's recorded roles resolve to, and an external person is marked **External** beside their name, as they are in the share dialog's person picker and in the audit drawer.
 
-- **Add external user** takes an email, a name, an external persona and an optional expiry, creates the account and emails the person an invitation with a sign-in link. An address that has already signed in through the identity provider is refused: that person is internal.
-- **Extend** sets a new expiry, **Suspend** stops the account signing in until **Resume**, and **Remove** deletes the account and revokes every share to its address.
-- The person signs in with the invitation link, or asks for a new link with **Email me a sign-in link** on the sign-in screen (`/portal/?login=email`). Each link works once. The answer to a request is the same whether or not the address has an account.
-- An account whose address later signs in through the identity provider is **Converted**: the account is closed, its links stop working, and what was shared with the address stays shared with the person, who is now internal.
-
-An external person reads only what is shared with them and their persona's folder, never Global, and registers no scratch table. When their persona allows [uploads](../personas/overview.md#uploads-by-external-people), they upload files to their own folder, each shared on arrival with the people and personas the persona names; they may share their own upload with someone who has shared something with them.
-
-How long a session, an invitation link and a sign-in link last is set under [Settings > External accounts](admin-settings.md#settings): 12 hours, 7 days and 15 minutes by default.
+An external person sees only what is shared with them or with their persona, and their own folder; they leave feedback on shared threads, change their own notification settings, and, when their persona allows [uploads](../personas/overview.md#uploads-by-external-people), upload files to their own folder. People whose persona has External files at **View** or **Manage** reach those folders under **External files** on the Resources page.
 

@@ -427,6 +427,8 @@ export interface DirectoryUser {
   first_name?: string;
   last_name?: string;
   confirmed: boolean;
+  /** A person outside the organization (#2290). */
+  external?: boolean;
 }
 
 export interface DirectoryUsersResponse {

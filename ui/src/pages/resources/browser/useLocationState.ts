@@ -20,10 +20,15 @@ interface Section {
  * It also keeps the page's own Back and Forward (#1872): the places this page
  * has been, which the path bar's buttons step through.
  */
-export function useLocationState(section: Section, roots: ResourceRoot[], emailOf: (id: string) => string) {
+export function useLocationState(
+  section: Section,
+  roots: ResourceRoot[],
+  emailOf: (id: string) => string,
+  externalOf?: (id: string) => ResourceRoot | undefined,
+) {
   const { basePath, location, onNavigate } = section;
   const view = readLibraryView(location, basePath, DEFAULT_ROOT);
-  const root = rootFor(view.tab, roots, emailOf);
+  const root = rootFor(view.tab, roots, emailOf, externalOf);
 
   const [searchInput, setSearchInput] = useState(view.q);
   const settled = useDebounced(searchInput);

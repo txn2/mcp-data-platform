@@ -150,31 +150,3 @@ func TestStoreRevoke(t *testing.T) {
 	mock.ExpectExec(revokeQuery).WithArgs("s3", "r1").WillReturnError(errDown)
 	assert.ErrorIs(t, s.Revoke(context.Background(), "r1", "s3"), errDown)
 }
-
-func TestStoreSharers(t *testing.T) {
-	s, mock := mockStore(t)
-	rcpt := Recipient{UserID: "u1", Email: "u1@example.com", Persona: "partner"}
-	mock.ExpectQuery(sharersQuery).WithArgs("u1", "u1@example.com", "partner").
-		WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("owner@example.com").AddRow("other@example.com"))
-	got, err := s.Sharers(context.Background(), rcpt)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"owner@example.com", "other@example.com"}, got)
-
-	mock.ExpectQuery(sharersQuery).WillReturnRows(sqlmock.NewRows([]string{"email"}))
-	got, err = s.Sharers(context.Background(), rcpt)
-	require.NoError(t, err)
-	assert.NotNil(t, got)
-	assert.Empty(t, got)
-
-	mock.ExpectQuery(sharersQuery).WillReturnError(errDown)
-	_, err = s.Sharers(context.Background(), rcpt)
-	assert.ErrorIs(t, err, errDown)
-
-	mock.ExpectQuery(sharersQuery).WillReturnRows(sqlmock.NewRows([]string{"email", "extra"}).AddRow("a", "b"))
-	_, err = s.Sharers(context.Background(), rcpt)
-	assert.Error(t, err)
-
-	mock.ExpectQuery(sharersQuery).WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("a").RowError(0, errDown))
-	_, err = s.Sharers(context.Background(), rcpt)
-	assert.ErrorIs(t, err, errDown)
-}

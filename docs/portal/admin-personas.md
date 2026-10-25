@@ -12,7 +12,7 @@ Creating or editing a persona opens one page of sections, grouped by the surface
 
 | Section | Group | Governs |
 |---|---|---|
-| Identity | | Who gets the persona: name, display name, roles, the roles role mapping assigns it (read-only), priority, description, and account type (Internal people, External people, Automated caller). Grants nothing. |
+| Identity | | Who gets the persona: name, display name, roles, the roles role mapping assigns it (read-only), priority, description, and account type (Internal people; External people, signed in through the identity provider and limited to what is shared with them; Automated caller). Grants nothing. |
 | Access summary | | What the persona reaches, computed by the server from the page as it stands, saved or not, with what is granted to it elsewhere and what no persona setting governs. |
 | Tools | AI assistant (MCP) | The MCP tools its people can list and call, and the REST gateway that runs through them. |
 | Connections | AI assistant (MCP) | The data sources tool calls reach, and what search, the catalog and scratch tables show. |
@@ -22,7 +22,7 @@ Creating or editing a persona opens one page of sections, grouped by the surface
 
 ![Access summary](../images/screenshots/light/admin-admin-persona-summary-light.webp#only-light)![Access summary](../images/screenshots/dark/admin-admin-persona-summary-dark.webp#only-dark)
 
-The **Identity** section warns when another persona lists one of the persona's roles (and which wins for a person holding it), when an external persona's role is one internal people hold, and that a role shared with another persona reads that persona's folder and prompts either way. On the administrator persona it shows an **Administrator persona** badge, External is not offered, and Delete is not offered.
+The **Identity** section warns when another persona lists one of the persona's roles (and which wins for a person holding it), and that a role shared with another persona reads that persona's folder and prompts either way. On the administrator persona it shows an **Administrator persona** badge, External is not offered, and Delete is not offered.
 
 **Tools** and **Connections** list every tool and connection with the server's decision on it, and three controls per row, **Allow**, **No rule** and **Deny**, which write the row's own name to the persona's lists. A deny pattern still wins over an allow: on a row a deny pattern matches, Allow is disabled and names the pattern. The patterns themselves are edited in the collapsed **Pattern rules** panel above the rows. Tools offers four starting points: **All tools**, **Read only**, **Analyst** and **Clear**; none makes anyone an administrator, which only the administrator persona does. A scratch connection carries its catalog and schema, and a warning when the persona can drop any registered table on it through SQL. On an external persona the rows are shown but locked: its rules are kept for if it becomes internal again.
 
@@ -34,7 +34,7 @@ The **Identity** section warns when another persona lists one of the persona's r
 
 **Instructions** holds two texts, **Tool descriptions** and **Agent instructions**, each either added to the platform's text or replacing it.
 
-**Portal access** sets one level per portal area. Each control's help names the AI-side tool that is governed elsewhere. On an external persona the rows External sets are locked, each with the saved choice beside what applies ("Set by External: None. Saved choice: Edit."), Resources offers None or the persona's own folder, and an **Uploads** setting names who each upload is shared with. On the administrator persona every row is locked: administrators have every area.
+**Portal access** sets one level per portal area. Each control's help names the AI-side tool that is governed elsewhere. On an external persona the rows External sets are locked, each with the saved choice beside what applies ("Set by External: None. Saved choice: Edit."), Resources offers None or **Their own folder**, and an **Uploads** checkbox lets its people upload files to their own folder (#2290). **Earlier versions** shows the persona's people the earlier versions of an asset shared with them, off by default, and **External files** (None, View, Manage) reaches every external person's own folder under **External files** on the Resources page. On the administrator persona every row is locked: administrators have every area.
 
 ![External persona](../images/screenshots/light/admin-admin-persona-external-light.webp#only-light)![External persona](../images/screenshots/dark/admin-admin-persona-external-dark.webp#only-dark)
 

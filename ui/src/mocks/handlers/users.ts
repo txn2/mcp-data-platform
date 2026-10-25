@@ -102,6 +102,7 @@ export const userHandlers = [
       first_name: u.first_name,
       last_name: u.last_name,
       confirmed: u.confirmed,
+      ...(u.external ? { external: true } : {}),
     }));
     const body: DirectoryUsersResponse = { users, total: matched.length };
     return HttpResponse.json(body);

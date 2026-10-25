@@ -41,9 +41,18 @@ type Claims struct {
 	// human caller, whose own Sub is the same thing.
 	OnBehalfOfSub string
 	// NoGlobal withholds the Global library: the caller is a person of an
-	// external persona, who reads their own folder and their persona's and
-	// nothing every signed-in person reads (#2257).
+	// external persona, who reads their own folder and nothing every
+	// signed-in person reads (#2257, #2290).
 	NoGlobal bool
+	// ExternalFolder reports whether a user library belongs to a person of
+	// an external persona, for a caller whose persona has External files at
+	// view or manage (#2290). nil is none: the caller reaches no external
+	// person's folder through it.
+	ExternalFolder func(scopeID string) bool
+	// ManageExternalFiles is External files at manage: the caller also
+	// writes the folders ExternalFolder names, so renames, versions, moves,
+	// deletes and shares what is in them.
+	ManageExternalFiles bool
 	// Shared reports the permission a share gives the caller on a resource:
 	// "editor", "viewer", or "" for none (#2258). nil is no share. A viewer
 	// share reaches the resource as CanAccessResource, an editor share as
@@ -129,7 +138,8 @@ func CanWriteScope(c Claims, scope Scope, scopeID string) bool {
 		// an administrator scoping a resource to somebody by email, and a
 		// script filing one into its author's library, both produce a row its
 		// owner is refused. Read and write name the same person here.
-		return isOwnScope(c, scopeID) || isPlatformAdmin(c)
+		return isOwnScope(c, scopeID) || isPlatformAdmin(c) ||
+			(c.ManageExternalFiles && externalFolder(c, scope, scopeID))
 	case ScopePersona:
 		return isPlatformAdmin(c) || isPersonaAdmin(c, scopeID)
 	case ScopeGlobal:
@@ -215,7 +225,14 @@ func CanModifyResource(c Claims, r *Resource) bool {
 // is a wider set than this, and deliberately so; a surface that authorizes on
 // CanModifyResource alone is granting that wider set (#1576).
 func CanAccessResource(c Claims, r *Resource) bool {
-	return CanReadResource(c, r) || CanWriteScope(c, r.Scope, r.ScopeID) || uploadedBy(c, r) || shared(c, r) != ""
+	return CanReadResource(c, r) || CanWriteScope(c, r.Scope, r.ScopeID) || uploadedBy(c, r) || shared(c, r) != "" ||
+		externalFolder(c, r.Scope, r.ScopeID)
+}
+
+// externalFolder reports whether a user library is an external person's
+// folder the caller's External files level reaches (#2290).
+func externalFolder(c Claims, scope Scope, scopeID string) bool {
+	return scope == ScopeUser && scopeID != "" && c.ExternalFolder != nil && c.ExternalFolder(scopeID)
 }
 
 // CanEditResource reports whether the caller may rename the resource, change
@@ -270,7 +287,7 @@ func CanSeeLibrary(c Claims, lib ScopeFilter) bool {
 			return true
 		}
 	}
-	return CanWriteScope(c, lib.Scope, lib.ScopeID)
+	return CanWriteScope(c, lib.Scope, lib.ScopeID) || externalFolder(c, lib.Scope, lib.ScopeID)
 }
 
 // narrowScopes keeps the visible scopes matching the caller-requested scope and

@@ -56,7 +56,7 @@ func TestEvaluateExternalReachesNothing(t *testing.T) {
 	assert.Empty(t, r.Scratch)
 	assert.NotNil(t, r.Scratch, "an empty list, never null")
 	assert.False(t, r.Sharing)
-	assert.Equal(t, []string{"user", "persona:vendors"}, r.ResourceScopes, "no Global")
+	assert.Equal(t, []string{"user"}, r.ResourceScopes, "their own folder alone: no persona folder, no Global (#2290)")
 	assert.Contains(t, r.Portal.CappedByExternal, "scratch_tables")
 }
 
@@ -175,6 +175,8 @@ func TestResourceScopes(t *testing.T) {
 	assert.Equal(t, []string{"user", "global"}, resourceScopes("p", persona.PortalOwn, false, false))
 	assert.Equal(t, []string{}, resourceScopes("p", persona.PortalNone, false, false))
 	assert.Equal(t, []string{"user", "persona:p", "global"}, resourceScopes("p", persona.PortalPersonaFolders, false, false))
+	assert.Equal(t, []string{"user"}, resourceScopes("p", persona.PortalShared, true, false), "external: their own folder")
+	assert.Equal(t, []string{}, resourceScopes("p", persona.PortalNone, true, false), "external at none: nothing")
 }
 
 func TestReferencesEmpty(t *testing.T) {
@@ -187,7 +189,7 @@ func TestReferencesEmpty(t *testing.T) {
 		{Prompts: 1},
 		{Shares: 1},
 		{WebhookSources: []string{"stripe"}},
-		{ExternalAccounts: 1},
+		{People: []string{"ann@example.com"}},
 		{APIKeys: 1},
 	} {
 		assert.False(t, r.Empty(), "%+v", r)

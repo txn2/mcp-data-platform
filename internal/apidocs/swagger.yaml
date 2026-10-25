@@ -1670,6 +1670,9 @@ definitions:
       email:
         example: marcus.johnson@example.com
         type: string
+      external:
+        example: false
+        type: boolean
       first_name:
         example: Marcus
         type: string
@@ -1677,6 +1680,12 @@ definitions:
         example: Johnson
         type: string
       last_seen_at:
+        type: string
+      persona:
+        description: |-
+          Persona is the persona Roles resolve to, and External marks it one for
+          people outside the organization (#2290).
+        example: analyst
         type: string
       roles:
         description: |-
@@ -4845,80 +4854,37 @@ definitions:
           waits its turn.
         type: string
     type: object
-  extaccount.NewAccount:
+  externalfiles.Folder:
     properties:
       email:
-        type: string
-      expires_at:
+        example: dana@client-a.example.com
         type: string
       name:
+        example: Dana Reyes
         type: string
       persona:
+        description: Persona is the external persona the person resolves to.
+        example: client-a
         type: string
-    type: object
-  extaccount.Settings:
-    properties:
-      invite_hours:
-        description: InviteHours is how long the invitation email's link can be used.
-        example: 168
-        type: integer
-      link_minutes:
+      persona_display_name:
+        example: Client A
+        type: string
+      scope_id:
         description: |-
-          LinkMinutes is how long a link asked for on the sign-in screen can be
-          used.
-        example: 15
-        type: integer
-      session_hours:
-        description: SessionHours is how long a signed-in session lasts.
-        example: 12
-        type: integer
-    type: object
-  extaccountapi.ExtendRequest:
-    properties:
-      expires_at:
-        description: ExpiresAt is the new expiry; null removes it.
+          ScopeID is the user library the folder is: list it with
+          scope=user&scope_id=<scope_id>.
+        example: 6f1c2a9e-3b7d-4e1a-9c55-0d2f8b7a1e44
         type: string
     type: object
-  extaccountapi.UserList:
+  externalfiles.folderList:
     properties:
-      users:
+      folders:
         items:
-          $ref: '#/definitions/extaccountapi.UserView'
+          $ref: '#/definitions/externalfiles.Folder'
         type: array
-    type: object
-  extaccountapi.UserView:
-    properties:
-      converted_at:
-        description: |-
-          ConvertedAt is when the person first signed in through the identity
-          provider, which closed the account.
-        type: string
-      created_at:
-        type: string
-      created_by:
-        type: string
-      email:
-        type: string
-      expires_at:
-        type: string
-      id:
-        type: string
-      last_sign_in_at:
-        type: string
-      name:
-        type: string
-      persona:
-        type: string
-      shared_items:
-        description: SharedItems is the live shares to the account's address.
-        example: 3
-        type: integer
-      status:
-        description: Status is active, suspended, expired or converted.
-        example: active
-        type: string
-      suspended_at:
-        type: string
+      manage:
+        description: Manage reports whether the caller also changes what is in them.
+        type: boolean
     type: object
   feedbackapi.appendEventRequest:
     properties:
@@ -6291,6 +6257,12 @@ definitions:
       email:
         example: marcus.johnson@example.com
         type: string
+      external:
+        description: |-
+          External marks a person outside the organization (#2290), which the
+          share picker shows beside their name.
+        example: false
+        type: boolean
       first_name:
         example: Marcus
         type: string
@@ -6607,8 +6579,19 @@ definitions:
           External is reported, never set: the persona is external (#2092), so
           the portal offers its people no people directory and no API keys.
         type: boolean
+      external_files:
+        description: |-
+          ExternalFiles is every external person's personal folder: none, view
+          or manage (#2290). Unset is none; an external persona has none.
+        type: string
       feedback:
         description: Feedback is threads, comments, activity, worklists and sign-off.
+        type: boolean
+      history:
+        description: |-
+          History lets the persona's people read an asset's earlier versions
+          (#2290). Unset is off: only the owner and an administrator read them,
+          whatever a share grants.
         type: boolean
       knowledge:
         description: 'Knowledge is knowledge pages: none, read or write.'
@@ -6632,26 +6615,12 @@ definitions:
         description: Search is the portal's unified search.
         type: boolean
       uploads:
-        allOf:
-        - $ref: '#/definitions/persona.PortalUploads'
         description: |-
-          Uploads lets the people of an external persona upload files, each one
-          shared on arrival with the recipients it names (#2258). nil is no
-          uploads; an internal persona's people upload by their Resources level
+          Uploads lets the people of an external persona upload files to their
+          own folder (#2258, #2290), which staff reach through ExternalFiles. Unset
+          is off; an internal persona's people upload by their Resources level
           and this is dropped from its resolved block.
-    type: object
-  persona.PortalUploads:
-    properties:
-      share_emails:
-        description: ShareEmails are addresses that read each upload.
-        items:
-          type: string
-        type: array
-      share_personas:
-        description: SharePersonas are personas whose people read each upload.
-        items:
-          type: string
-        type: array
+        type: boolean
     type: object
   personaaccess.Assignment:
     properties:
@@ -6812,8 +6781,13 @@ definitions:
     properties:
       api_keys:
         type: integer
-      external_accounts:
-        type: integer
+      people:
+        description: |-
+          People are the addresses of the signed-in people whose recorded roles
+          resolve to the persona (#2290).
+        items:
+          type: string
+        type: array
       prompts:
         type: integer
       script_grants:
@@ -7368,6 +7342,9 @@ definitions:
       display_name:
         example: Finance
         type: string
+      external:
+        example: false
+        type: boolean
       name:
         example: finance
         type: string
@@ -18012,171 +17989,6 @@ paths:
       summary: Get one endpoint with its traffic
       tags:
       - Endpoints
-  /admin/external-users:
-    get:
-      description: 'Returns every account the platform created for a person outside
-        the organization, newest first: the address, name, external persona, expiry,
-        when it was suspended, its last sign-in, when the person''s first identity-provider
-        sign-in converted it, its status (active, suspended, expired or converted)
-        and the live shares to its address.'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/extaccountapi.UserList'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: List external users
-      tags:
-      - External users
-    post:
-      consumes:
-      - application/json
-      description: Creates an account for a person outside the organization under
-        an external persona and emails them an invitation holding a one-time sign-in
-        link, valid for the invite_hours setting. The persona must be external and
-        its own roles must resolve to it. An address that already has an account is
-        refused with 409, and so is one that already signs in through the identity
-        provider. expires_at is optional; after it the account's sessions end and
-        it cannot sign in.
-      parameters:
-      - description: The account
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/extaccount.NewAccount'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/extaccountapi.UserView'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Add an external user
-      tags:
-      - External users
-  /admin/external-users/{id}:
-    delete:
-      description: Deletes the account, ends its sessions on their next request, and
-        revokes every share to its address, so no guest link reopens what was shared.
-      parameters:
-      - description: Account id
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Remove an external user
-      tags:
-      - External users
-  /admin/external-users/{id}/extend:
-    post:
-      consumes:
-      - application/json
-      description: Sets the account's expiry to expires_at, which must be in the future,
-        or removes it when expires_at is null.
-      parameters:
-      - description: Account id
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: The new expiry
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/extaccountapi.ExtendRequest'
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Extend an external user
-      tags:
-      - External users
-  /admin/external-users/{id}/resume:
-    post:
-      description: Lets a suspended account sign in again.
-      parameters:
-      - description: Account id
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Resume an external user
-      tags:
-      - External users
-  /admin/external-users/{id}/suspend:
-    post:
-      description: Stops the account signing in and ends its sessions on their next
-        request. Its shares stay; Resume restores it.
-      parameters:
-      - description: Account id
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Suspend an external user
-      tags:
-      - External users
   /admin/gateway/connections/{name}/enrichment-rules:
     get:
       parameters:
@@ -21371,55 +21183,6 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update connection-revocation alert settings
-      tags:
-      - Settings
-  /admin/settings/external-accounts:
-    get:
-      description: Returns how long an external user's signed-in session lasts (session_hours,
-        default 12), how long the invitation email's link can be used (invite_hours,
-        default 168), and how long a link asked for on the sign-in screen can be used
-        (link_minutes, default 15).
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/extaccount.Settings'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Get the external account settings
-      tags:
-      - Settings
-    put:
-      consumes:
-      - application/json
-      description: Sets the three durations. session_hours and invite_hours are 1
-        to 720, link_minutes 1 to 1440. A session already signed in keeps the length
-        it was signed with.
-      parameters:
-      - description: The settings
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/extaccount.Settings'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/extaccount.Settings'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Update the external account settings
       tags:
       - Settings
   /admin/settings/maps:
@@ -30362,10 +30125,10 @@ paths:
       - Sessions
   /portal/share-personas:
     get:
-      description: 'Returns the personas a share may be addressed to by the caller:
-        every persona for an administrator, the caller''s own for everyone else (#2089).
-        A share addressed to a persona opens for everyone whose roles resolve to it
-        when they open the item.'
+      description: 'Returns every persona a share may be addressed to, each marked
+        when it is for people outside the organization (#2089, #2290). A share addressed
+        to a persona opens for everyone whose roles resolve to it when they open the
+        item.'
       produces:
       - application/json
       responses:
@@ -31009,9 +30772,10 @@ paths:
       - Feedback
   /portal/users:
     get:
-      description: Returns the known-users directory so a user can pick a teammate
-        to share with. Includes admin-added people who have not logged in yet (confirmed=false).
-        Any authenticated user may call this.
+      description: 'Returns the known-users directory so a user can pick a teammate
+        to share with. Includes admin-added people who have not logged in yet (confirmed=false),
+        and marks each person outside the organization (external, #2290). Any authenticated
+        user may call this; a person of an external persona is refused.'
       parameters:
       - description: Case-insensitive match on email or name
         in: query
@@ -32164,6 +31928,33 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Restore a resource version
+      tags:
+      - Resources
+  /resources/external-folders:
+    get:
+      description: The personal folder of every person whose role resolves to an external
+        persona (#2290), for a caller whose persona has External files at view or
+        manage; an administrator has manage. List a folder's files with scope=user
+        and its scope_id.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/externalfiles.folderList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List external people's folders
       tags:
       - Resources
   /resources/facets:

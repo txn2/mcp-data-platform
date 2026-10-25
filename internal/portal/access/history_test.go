@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
 // sharesFor is a share store answering one direct permission and one through
@@ -25,26 +26,34 @@ func (s sharesFor) GetUserAssetPermissionViaCollection(context.Context, string, 
 	return s.viaCollection, nil
 }
 
-// TestSeesAssetHistory: the owner, an administrator and an editor read an
-// asset's earlier versions; a viewer and nobody do not (#2226).
+// TestSeesAssetHistory: the owner and an administrator read an asset's
+// earlier versions always; anyone it is shared with, viewer or editor, only
+// when their persona's Earlier versions setting is on (#2226, #2290).
 func TestSeesAssetHistory(t *testing.T) {
 	asset := &portaldomain.Asset{ID: "a1", OwnerID: "owner"}
-	reader := &User{UserID: "reader"}
+	reader := &User{UserID: "reader", Roles: []string{"r"}}
+	on := true
+	history := func([]string) persona.PortalAccess { return persona.PortalAccess{History: &on} }
 	for _, tc := range []struct {
 		name   string
 		shares sharesFor
 		user   *User
 		rule   func([]string) bool
+		portal func([]string) persona.PortalAccess
 		want   bool
 	}{
-		{"the owner", sharesFor{}, &User{UserID: "owner"}, nil, true},
-		{"an administrator", sharesFor{}, &User{UserID: "x", Roles: []string{"root"}}, func(r []string) bool { return len(r) == 1 && r[0] == "root" }, true},
-		{"a direct editor", sharesFor{direct: portaldomain.PermissionEditor}, reader, nil, true},
-		{"an editor through a collection", sharesFor{viaCollection: portaldomain.PermissionEditor}, reader, nil, true},
-		{"a viewer", sharesFor{direct: portaldomain.PermissionViewer}, reader, nil, false},
-		{"nobody", sharesFor{}, nil, nil, false},
+		{"the owner", sharesFor{}, &User{UserID: "owner"}, nil, nil, true},
+		{"an administrator", sharesFor{}, &User{UserID: "x", Roles: []string{"root"}}, func(r []string) bool { return len(r) == 1 && r[0] == "root" }, nil, true},
+		{"a direct editor, setting off", sharesFor{direct: portaldomain.PermissionEditor}, reader, nil, nil, false},
+		{"a direct editor, setting on", sharesFor{direct: portaldomain.PermissionEditor}, reader, nil, history, true},
+		{"an editor through a collection, setting on", sharesFor{viaCollection: portaldomain.PermissionEditor}, reader, nil, history, true},
+		{"a viewer, setting off", sharesFor{direct: portaldomain.PermissionViewer}, reader, nil, nil, false},
+		{"a viewer, setting on", sharesFor{direct: portaldomain.PermissionViewer}, reader, nil, history, true},
+		{"a viewer through a collection, setting on", sharesFor{viaCollection: portaldomain.PermissionViewer}, reader, nil, history, true},
+		{"no share, setting on", sharesFor{}, reader, nil, history, false},
+		{"nobody", sharesFor{}, nil, nil, history, false},
 	} {
-		c := New(Config{Shares: tc.shares, AdminRule: tc.rule})
+		c := New(Config{Shares: tc.shares, AdminRule: tc.rule, PortalPermissions: tc.portal})
 		if got := c.SeesAssetHistory(context.Background(), asset, tc.user); got != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}

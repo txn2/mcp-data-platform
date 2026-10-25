@@ -40,6 +40,7 @@ export function FileManager(props: FileManagerProps) {
         <FolderTree
           roots={fm.roots}
           people={fm.admin}
+          externalFiles={fm.externalLevel !== "none"}
           ownIDs={[fm.user?.user_id ?? "", fm.user?.email ?? ""].filter(Boolean)}
           current={{ root: fm.root.key, path: fm.path, searching: fm.data.flat }}
           onOpen={(r, p) => fm.loc.go(r.key, p)}

@@ -296,7 +296,7 @@ func ValidateAccount(p *Persona, adminPersona string) error {
 		return ErrExternalAdmin
 	case p.External && p.ServiceAccount:
 		return ErrAccountType
-	case !p.External && p.Portal != nil && p.Portal.Uploads != nil:
+	case !p.External && p.Portal != nil && p.Portal.Uploads != nil && *p.Portal.Uploads:
 		return ErrUploadsInternal
 	}
 	return nil

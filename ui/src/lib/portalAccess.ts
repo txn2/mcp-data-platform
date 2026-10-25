@@ -11,12 +11,8 @@ export type ResourcesLevel = "none" | "shared" | "own" | "persona";
 export type ReadWriteLevel = "none" | "read" | "write";
 export type APIsLevel = "none" | "browse";
 export type ScratchTablesLevel = "none" | "list" | "register";
-
-/** Who an external persona's uploads are shared with (#2258). */
-export interface PortalUploads {
-  share_personas?: string[];
-  share_emails?: string[];
-}
+/** Every external person's personal folder (#2290). */
+export type ExternalFilesLevel = "none" | "view" | "manage";
 
 export interface PortalAccess {
   assets?: AssetsLevel;
@@ -35,11 +31,15 @@ export interface PortalAccess {
   download?: boolean;
   /** The caller's persona is external (#2092): no people directory or keys. */
   external?: boolean;
-  /** An external persona's uploads, absent when it has none (#2258). */
-  uploads?: PortalUploads | null;
+  /** An external persona's people upload to their own folder (#2258, #2290). */
+  uploads?: boolean;
+  /** An asset's earlier versions, for people it is shared with (#2290). */
+  history?: boolean;
+  /** Every external person's personal folder (#2290). */
+  external_files?: ExternalFilesLevel;
 }
 
-export type ResolvedPortal = Required<Omit<PortalAccess, "uploads">> & { uploads: PortalUploads | null };
+export type ResolvedPortal = Required<PortalAccess>;
 
 /** Every area at its highest level: what an administrator has. */
 export const FULL_PORTAL: ResolvedPortal = {
@@ -56,11 +56,17 @@ export const FULL_PORTAL: ResolvedPortal = {
   memory: true,
   download: true,
   external: false,
-  uploads: null,
+  uploads: false,
+  history: true,
+  external_files: "manage",
 };
 
+// What a setting added after the portal had every area reads when a server
+// does not report it: what the server resolves it to unset (#2290).
+const UNSET_LATER: Pick<ResolvedPortal, "history" | "external_files"> = { history: false, external_files: "none" };
+
 export function resolvePortal(p?: PortalAccess | null): ResolvedPortal {
-  return { ...FULL_PORTAL, ...stripUndefined(p ?? {}) };
+  return { ...FULL_PORTAL, ...UNSET_LATER, ...stripUndefined(p ?? {}) };
 }
 
 function stripUndefined(p: PortalAccess): PortalAccess {

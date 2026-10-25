@@ -1737,7 +1737,7 @@ func (p *Platform) initPortal() error {
 		MaxRefs:           p.config.Portal.AssetRefs.Resolved(),
 		CaptureProvenance: p.captureProvenance,
 		Directory:         p.UserStore(),
-		SharingAllowed:    p.personaRegistry.SharingAllowed,
+		Personas:          p.personaRegistry,
 	})
 
 	// Registration stays a Platform/registry concern.

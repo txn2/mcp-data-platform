@@ -13,18 +13,23 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
-// A caller whose access to an asset is viewer reads its current version and
-// not its history (#2226): list_versions and diff refuse, an editor's share
-// and the owner are answered.
-func TestHistory_AViewerIsRefusedListVersionsAndDiff(t *testing.T) {
+// A caller an asset is shared with reads its history only when their persona
+// lets its people read earlier versions (#2226, #2290): with it off,
+// list_versions and diff refuse a viewer and an editor alike; with it on, both
+// are answered. The owner always is.
+func TestHistory_ThePersonaSettingDecides(t *testing.T) {
 	store := newInMemoryAssetStore()
 	vs := newInMemoryVersionStore()
 	shares := &fakeShareStore{}
-	tk := New(Config{Name: "test", AssetStore: store, VersionStore: vs, ShareStore: shares, S3Client: &mockS3Client{}, S3Bucket: "b"})
+	allowed := false
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: vs, ShareStore: shares, S3Client: &mockS3Client{}, S3Bucket: "b",
+		HistoryAllowed: func(p string) bool { return allowed && p == "readers" },
+	})
 	owner := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "owner"})
 	require.NoError(t, store.Insert(owner, portal.Asset{ID: "a1", OwnerID: "owner", CurrentVersion: 2, ContentType: "text/markdown"}))
 
-	reader := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "reader", UserEmail: "r@example.com"})
+	reader := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "reader", UserEmail: "r@example.com", PersonaName: "readers"})
 	call := func(ctx context.Context, action string) *mcp.CallToolResult {
 		res, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: action, AssetID: "a1"})
 		require.NoError(t, err)
@@ -43,11 +48,16 @@ func TestHistory_AViewerIsRefusedListVersionsAndDiff(t *testing.T) {
 	}
 
 	shares.assetShare.Permission = portal.PermissionEditor
+	assert.True(t, call(reader, "list_versions").IsError, "an editor is refused while the setting is off")
+
+	allowed = true
 	assert.False(t, call(reader, "list_versions").IsError, "an editor lists the versions")
+	shares.assetShare.Permission = portal.PermissionViewer
+	assert.False(t, call(reader, "list_versions").IsError, "so does a viewer")
 
 	shares.assetShare = nil
-	shares.assetViaColl = portal.PermissionEditor
-	assert.False(t, call(reader, "list_versions").IsError, "an editor through a collection lists them")
+	shares.assetViaColl = portal.PermissionViewer
+	assert.False(t, call(reader, "list_versions").IsError, "a viewer through a collection lists them")
 
 	shares.assetViaColl = ""
 	res := call(reader, "list_versions")

@@ -64,8 +64,6 @@ const (
 		CASE WHEN $3 <> '' AND shared_with_persona = $3 THEN shared_with_persona ELSE '' END
 		FROM portal_shares WHERE resource_id IS NOT NULL AND ` + active + ` AND ` + recipientAt1 + `
 		ORDER BY resource_id, ` + editorFirst + `, created_at DESC`
-	sharersQuery = `SELECT DISTINCT LOWER(created_by) FROM portal_shares
-		WHERE created_by <> '' AND ` + active + ` AND ` + recipientAt1
 )
 
 // ErrNotFound is a share that is not on the resource or is already revoked.
@@ -184,28 +182,4 @@ func (s *Store) Revoke(ctx context.Context, resourceID, shareID string) error {
 		return ErrNotFound
 	}
 	return nil
-}
-
-// Sharers are the addresses of the people who have shared anything, asset,
-// collection, prompt or resource, with the recipient: who an external
-// uploader may share their own upload back with, having no people directory
-// (#2258).
-func (s *Store) Sharers(ctx context.Context, rcpt Recipient) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, sharersQuery, rcpt.UserID, rcpt.Email, rcpt.Persona)
-	if err != nil {
-		return nil, fmt.Errorf("listing who shared with the caller: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	out := []string{}
-	for rows.Next() {
-		var email string
-		if err := rows.Scan(&email); err != nil {
-			return nil, fmt.Errorf("listing who shared with the caller: %w", err)
-		}
-		out = append(out, email)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("listing who shared with the caller: %w", err)
-	}
-	return out, nil
 }

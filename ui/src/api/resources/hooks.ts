@@ -8,6 +8,7 @@ import { resourceFetch, resourceFetchRaw } from "./client";
 import type {
   FacetsResponse,
   PeopleResponse,
+  ExternalFoldersResponse,
   Resource,
   ResourceListResponse,
   ResourceSort,
@@ -84,6 +85,18 @@ export function usePeople(enabled: boolean) {
   return useQuery({
     queryKey: ["resources", "people"],
     queryFn: () => resourceFetch<PeopleResponse>("/people"),
+    enabled,
+  });
+}
+
+/**
+ * useExternalFolders lists every external person's own folder, for a caller
+ * whose persona has External files (#2290).
+ */
+export function useExternalFolders(enabled: boolean) {
+  return useQuery({
+    queryKey: ["resources", "external-folders"],
+    queryFn: () => resourceFetch<ExternalFoldersResponse>("/external-folders"),
     enabled,
   });
 }

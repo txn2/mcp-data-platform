@@ -57,7 +57,7 @@ function report(over: Partial<EffectiveAccess> = {}): EffectiveAccess {
     portal: { stored: {}, effective: {}, capped_by_external: [] },
     sharing: true,
     resource_scopes: ["user", "persona:analyst", "global"],
-    references: { secrets: { named: [], unrestricted: 0 }, script_grants: 0, script_versions: 0, prompts: 0, shares: 0, webhook_sources: [], external_accounts: 0, api_keys: 0 },
+    references: { secrets: { named: [], unrestricted: 0 }, script_grants: 0, script_versions: 0, prompts: 0, shares: 0, webhook_sources: [], api_keys: 0, people: [] },
     unscoped: { signed_in_endpoints: 0 },
     ...over,
   };
@@ -122,7 +122,7 @@ describe("identity", () => {
     });
     const w = roleWarnings(draft({ external: true }), r);
     expect(w[0]).toContain("engineer (priority 20) also lists analyst; engineer wins");
-    expect(w[1]).toContain("internal people included, and loses every AI tool");
+    expect(w).toHaveLength(1);
     render(<IdentitySection draft={draft()} onUpdate={vi.fn()} isCreate={false} isReadOnly={false} report={r} />);
     expect(screen.getByText("oidc-analysts")).toBeTruthy();
   });
@@ -146,15 +146,30 @@ describe("portal access", () => {
     render(<PortalAccessSection draft={draft({ external: true })} onUpdate={vi.fn()} report={r} isReadOnly={false} />);
     expect(screen.getByText("Set by External: None. Saved choice: Edit.")).toBeTruthy();
     expect(screen.getByLabelText("Knowledge pages")).toBeDisabled();
-    expect(screen.getByText("Upload files, shared with:")).toBeTruthy();
+    expect(screen.getByText("Their own folder")).toBeTruthy();
   });
 
-  it("names the uploads' recipients", () => {
+  it("turns an external persona's uploads on (#2290)", () => {
     const onUpdate = vi.fn();
-    const d = draft({ external: true, portal: { ...resolvePortal(), uploads: { share_personas: [], share_emails: [] } } });
+    const d = draft({ external: true, portal: { ...resolvePortal(), uploads: false } });
     render(<PortalAccessSection draft={d} onUpdate={onUpdate} report={report()} isReadOnly={false} />);
-    fireEvent.click(screen.getByLabelText("Marketing"));
-    expect(onUpdate.mock.calls[0]?.[0].portal.uploads).toEqual({ share_personas: ["marketing"], share_emails: [] });
+    fireEvent.click(screen.getByLabelText(/^Uploads/));
+    expect(onUpdate.mock.calls[0]?.[0].portal.uploads).toBe(true);
+  });
+
+  it("offers no uploads setting to an internal persona", () => {
+    render(<PortalAccessSection draft={draft()} onUpdate={vi.fn()} report={report()} isReadOnly={false} />);
+    expect(screen.queryByLabelText(/^Uploads/)).toBeNull();
+  });
+
+  it("sets earlier versions and External files (#2290)", () => {
+    const onUpdate = vi.fn();
+    const d = draft({ portal: { ...resolvePortal(), history: false, external_files: "none" } });
+    render(<PortalAccessSection draft={d} onUpdate={onUpdate} report={report()} isReadOnly={false} />);
+    fireEvent.click(screen.getByLabelText(/^Earlier versions/));
+    expect(onUpdate.mock.calls[0]?.[0].portal.history).toBe(true);
+    expect(screen.getByLabelText("External files")).toBeTruthy();
+    expect(screen.getByText(/View lists and opens them; Manage also renames/)).toBeTruthy();
   });
 });
 
@@ -185,7 +200,7 @@ describe("access summary", () => {
 
 describe("the saved persona", () => {
   it("sends uploads only for an external persona, and one account type", () => {
-    const up = { share_personas: ["marketing"] };
+    const up = true;
     const internal = toPayload(draft({ serviceAccount: true, portal: { ...resolvePortal(), uploads: up } }));
     expect(internal.portal).not.toHaveProperty("uploads");
     expect(internal.service_account).toBe(true);

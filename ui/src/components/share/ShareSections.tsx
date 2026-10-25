@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { ExternalBadge } from "@/components/ExternalBadge";
 import { Link, ChevronDown, ChevronRight, TriangleAlert } from "lucide-react";
 import type { SharePermission, ShareAccessMode } from "@/api/portal/types";
 import { UserPicker } from "@/components/UserPicker";
@@ -194,7 +195,7 @@ export interface UserShareSectionProps {
   setRecipientKind?: (v: RecipientKind) => void;
   persona?: string;
   setPersona?: (v: string) => void;
-  personas?: { name: string; display_name: string }[];
+  personas?: { name: string; display_name: string; external?: boolean }[];
   email: string;
   setEmail: (v: string) => void;
   permission: SharePermission;
@@ -391,7 +392,7 @@ function PersonaPicker({
   onChange,
 }: {
   value?: string;
-  personas?: { name: string; display_name: string }[];
+  personas?: { name: string; display_name: string; external?: boolean }[];
   onChange?: (v: string) => void;
 }) {
   return (
@@ -403,6 +404,7 @@ function PersonaPicker({
         {(personas ?? []).map((p) => (
           <SelectItem key={p.name} value={p.name}>
             {p.display_name || p.name}
+            {p.external && <ExternalBadge />}
           </SelectItem>
         ))}
       </SelectContent>

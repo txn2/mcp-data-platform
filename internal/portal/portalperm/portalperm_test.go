@@ -71,6 +71,28 @@ func TestRefusedWithholdsTheDirectoryFromAnExternalPersona(t *testing.T) {
 	}
 }
 
+// A person of an external persona reaches only the routes named for them
+// (#2290): what is shared with them, feedback on it and their own settings.
+// Every other segment is refused, one no list names included.
+func TestRefusedHoldsAnExternalPersonaToItsRoutes(t *testing.T) {
+	ext := (&persona.Persona{Name: "client-a", External: true}).PortalPermissions(nil)
+	for _, path := range []string{
+		"/api/v1/portal/me", "/api/v1/portal/assets/a1", "/api/v1/portal/collections/c1", "/api/v1/portal/shared-with-me",
+		"/api/v1/portal/shared-collections", "/api/v1/portal/threads", "/api/v1/portal/worklist", "/api/v1/portal/feedback",
+		"/api/v1/portal/notification-prefs", "/api/v1/portal/notifications",
+	} {
+		assert.Empty(t, Refused(ext, http.MethodGet, path), path)
+	}
+	for _, path := range []string{
+		"/api/v1/portal/calls", "/api/v1/portal/sessions", "/api/v1/portal/events/e1", "/api/v1/portal/activity/overview",
+		"/api/v1/portal/access-requests", "/api/v1/portal/share-personas", "/api/v1/portal/resources/r1/producers",
+		"/api/v1/portal/a-route-added-later",
+	} {
+		assert.Equal(t, AreaExternal, Refused(ext, http.MethodGet, path), path)
+		assert.NotEqual(t, AreaExternal, Refused(persona.FullPortalAccess(), http.MethodGet, path), path)
+	}
+}
+
 // The scratch-table routes sit outside /api/v1/portal/ and were refused
 // nothing (#2257): listing needs the list level, registering the register
 // level, and a resource's tables a Resources level above none.

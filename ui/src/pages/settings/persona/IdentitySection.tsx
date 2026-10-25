@@ -13,7 +13,7 @@ const ACCOUNT_TYPES: { value: AccountType; label: string; help: string }[] = [
   {
     value: "external",
     label: "External people",
-    help: "People outside the organization, signed in by an emailed link. They see only what is shared with them.",
+    help: "People outside the organization, signed in through your identity provider. They see only what is shared with them.",
   },
   {
     value: "automated",
@@ -46,11 +46,6 @@ export function roleWarnings(draft: PersonaDraft, report: EffectiveAccess | unde
       `${o.persona} (priority ${o.priority}) also lists ${o.role}; ${winner(draft, o)} wins for a person holding it. ` +
       `A person holding ${o.role} reads this persona's folder and prompts either way.`,
   );
-  if (draft.external) {
-    for (const role of draft.roles) {
-      out.push(`Anyone holding ${role} gets this persona, internal people included, and loses every AI tool.`);
-    }
-  }
   return out;
 }
 

@@ -41,14 +41,13 @@ func personaShareHandler(user *User, notifier Notifier) *Handler {
 	return h
 }
 
-// A person offers their own persona; an administrator offers every persona
-// (#2089).
-func TestSharePersonasAreTheCallersOwnOrEveryPersonaForAnAdministrator(t *testing.T) {
+// Everyone who shares is offered every persona (#2089, #2290).
+func TestSharePersonasAreEveryPersona(t *testing.T) {
 	for _, c := range []struct {
 		roles []string
 		want  []string
 	}{
-		{[]string{"analyst"}, []string{"analyst"}},
+		{[]string{"analyst"}, []string{"analyst", "finance"}},
 		{[]string{"admin"}, []string{"analyst", "finance"}},
 	} {
 		h := personaShareHandler(&User{UserID: "u1", Email: "u1@example.com", Roles: c.roles}, nil)
@@ -65,9 +64,9 @@ func TestSharePersonasAreTheCallersOwnOrEveryPersonaForAnAdministrator(t *testin
 	}
 }
 
-// A share addressed to the caller's persona is made and notifies each member;
-// a persona the caller may not name, and a share naming a persona and a
-// person, are refused.
+// A share addressed to a persona is made and notifies each member, the
+// caller's own persona or another (#2290); a persona that does not exist, and
+// a share naming a persona and a person, are refused.
 func TestSharingWithAPersona(t *testing.T) {
 	rec := &recordingNotifier{}
 	h := personaShareHandler(&User{UserID: "u1", Email: "u1@example.com", Roles: []string{"analyst"}}, rec)
@@ -84,7 +83,8 @@ func TestSharingWithAPersona(t *testing.T) {
 	assert.Equal(t, portaldomain.PermissionEditor, created.Share.Permission)
 	assert.Equal(t, 2, rec.shares, "each member is notified")
 
-	assert.Equal(t, http.StatusBadRequest, post(`{"shared_with_persona":"finance"}`).Code, "not the caller's persona")
+	assert.Equal(t, http.StatusCreated, post(`{"shared_with_persona":"finance"}`).Code, "another persona")
+	assert.Equal(t, http.StatusBadRequest, post(`{"shared_with_persona":"nobody"}`).Code, "no such persona")
 	assert.Equal(t, http.StatusBadRequest, post(`{"shared_with_persona":"analyst","shared_with_email":"x@example.com"}`).Code)
 }
 
@@ -104,9 +104,8 @@ func TestAPersonaShareMatchesTheCallersPersonaNow(t *testing.T) {
 	assert.Empty(t, perm, "a caller with no persona")
 }
 
-// With no session there is nothing to list; with no persona registry, no
-// resolver, or a caller who resolves to no persona, there is no persona to
-// share with.
+// With no session there is nothing to list; with no persona registry there
+// is no persona to share with.
 func TestSharePersonasWithoutWhatTheyNeed(t *testing.T) {
 	user := &User{UserID: "u1", Email: "u1@example.com", Roles: []string{"analyst"}}
 	h := personaShareHandler(user, nil)
@@ -115,10 +114,6 @@ func TestSharePersonasWithoutWhatTheyNeed(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
 	assert.Empty(t, h.sharePersonas(nil))
-	h.deps.PersonaResolver = func([]string) *PersonaInfo { return nil }
-	assert.Empty(t, h.sharePersonas(user))
-	h.deps.PersonaResolver = nil
-	assert.Empty(t, h.sharePersonas(user))
 	h.deps.Personas = nil
 	assert.Empty(t, h.sharePersonas(user))
 }

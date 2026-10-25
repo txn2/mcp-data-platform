@@ -1281,7 +1281,6 @@ export const handlers = [
       oidc_enabled: false,
       login_redirect: false,
       allow_api_key_login: true,
-      email_link_login: true,
     }),
   ),
 
@@ -2894,11 +2893,7 @@ export const handlers = [
     return HttpResponse.json({ status: "deleted" });
   }),
 
-  // Admin > Settings > External accounts (#2092) and Access requests (#2090).
-  http.get(`${ADMIN_BASE}/settings/external-accounts`, () =>
-    HttpResponse.json({ session_hours: 12, invite_hours: 168, link_minutes: 15 }),
-  ),
-  http.put(`${ADMIN_BASE}/settings/external-accounts`, async ({ request }) => HttpResponse.json(await request.json())),
+  // Admin > Settings > Access requests (#2090).
   http.get(`${ADMIN_BASE}/settings/access-requests`, () => HttpResponse.json({ reveal_names: false, expire_days: 14 })),
   http.put(`${ADMIN_BASE}/settings/access-requests`, async ({ request }) => HttpResponse.json(await request.json())),
 
@@ -2907,6 +2902,7 @@ export const handlers = [
     HttpResponse.json({
       personas: [
         { name: "analyst", display_name: "Data Analyst" },
+        { name: "client-a", display_name: "Client A", external: true },
         { name: "data-engineer", display_name: "Data Engineer" },
       ],
     }),
@@ -3381,6 +3377,17 @@ export const handlers = [
     if (keep.length === before) return HttpResponse.json({ error: "no folder at that path" }, { status: 404 });
     return new HttpResponse(null, { status: 204 });
   }),
+
+  // External files (#2290): every external person's own folder.
+  http.get("/api/v1/resources/external-folders", () =>
+    HttpResponse.json({
+      folders: [
+        { scope_id: "sub-dana", email: "dana.reyes@client-a.example.com", name: "Dana Reyes", persona: "client-a", persona_display_name: "Client A" },
+        { scope_id: "sub-sam", email: "sam.ortiz@client-a.example.com", name: "Sam Ortiz", persona: "client-a", persona_display_name: "Client A" },
+      ],
+      manage: true,
+    }),
+  ),
 
   http.get("/api/v1/resources/people", () => {
     const people = new Map<string, number>();

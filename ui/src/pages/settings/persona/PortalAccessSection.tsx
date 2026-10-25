@@ -1,14 +1,11 @@
-import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { usePersonas } from "@/api/admin/hooks";
 import type { EffectiveAccess } from "@/api/admin/types";
-import { resolvePortal, type ResolvedPortal, type PortalUploads } from "@/lib/portalAccess";
-import { ChipInput } from "../ChipInput";
+import { resolvePortal, type ResolvedPortal } from "@/lib/portalAccess";
 import { EditorSection } from "./sections";
 import type { PersonaDraft } from "./types";
 
-type Leveled = "assets" | "resources" | "knowledge" | "catalog" | "apis" | "scratch_tables";
-type Switch = "feedback" | "prompts" | "automations" | "search" | "memory" | "download";
+type Leveled = "assets" | "resources" | "knowledge" | "catalog" | "apis" | "scratch_tables" | "external_files";
+type Switch = "feedback" | "prompts" | "automations" | "search" | "memory" | "download" | "history";
 
 // The leveled areas, each with the choices its dropdown offers, lowest first,
 // and the line naming what governs the AI side of it (#2225, #2257).
@@ -71,6 +68,16 @@ const LEVELED: { key: Leveled; label: string; help?: string; options: { value: s
       { value: "register", label: "List and register" },
     ],
   },
+  {
+    key: "external_files",
+    label: "External files",
+    help: "Every external person's own folder. View lists and opens them; Manage also renames, adds versions, moves, deletes and shares their files.",
+    options: [
+      { value: "none", label: "None" },
+      { value: "view", label: "View" },
+      { value: "manage", label: "Manage" },
+    ],
+  },
 ];
 
 const SWITCHES: { key: Switch; label: string; help: string }[] = [
@@ -80,13 +87,18 @@ const SWITCHES: { key: Switch; label: string; help: string }[] = [
   { key: "search", label: "Search", help: "The portal's search" },
   { key: "memory", label: "Memory", help: "Memory and insights in the portal. memory_manage is a tool." },
   { key: "download", label: "PDF export", help: "Export an asset or a file as PDF" },
+  {
+    key: "history",
+    label: "Earlier versions",
+    help: "An asset's earlier versions, for people it is shared with. Its owner and administrators always see them.",
+  },
 ];
 
 // What External leaves an external persona's people choosing between for
-// Resources: none, or this persona's folder.
+// Resources: none, or their own folder (#2290).
 const EXTERNAL_RESOURCES = [
   { value: "none", label: "None" },
-  { value: "shared", label: "Read only: this persona's folder" },
+  { value: "shared", label: "Their own folder" },
 ];
 
 function optionLabel(key: Leveled, value: string): string {
@@ -137,7 +149,7 @@ export function PortalAccessSection({
           <SharingRow draft={draft} onUpdate={onUpdate} disabled={ctx.disabled} />
         </div>
         {draft.external && (
-          <UploadsSetting value={draft.portal.uploads} onChange={(uploads) => ctx.set({ uploads })} disabled={ctx.disabled} />
+          <UploadsRow on={draft.portal.uploads} onChange={(uploads) => ctx.set({ uploads })} disabled={ctx.disabled} />
         )}
       </fieldset>
     </EditorSection>
@@ -193,7 +205,7 @@ function LeveledRow({ area, ctx }: { area: (typeof LEVELED)[number]; ctx: RowCon
             ))}
           </SelectContent>
         </Select>
-        <RowNotes area={area} note={note ?? (externalResources ? "An external persona never reads Global." : undefined)} name={ctx.draft.name} />
+        <RowNotes area={area} note={note ?? (externalResources ? "An external persona's people read their own folder and what is shared with them." : undefined)} name={ctx.draft.name} />
       </div>
     </div>
   );
@@ -264,72 +276,24 @@ function SharingRow({
   );
 }
 
-// UploadsSetting is an external persona's uploads (#2258): none, or files its
-// people upload, each shared on arrival with the personas and people named.
-function UploadsSetting({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: PortalUploads | null;
-  onChange: (v: PortalUploads | null) => void;
-  disabled: boolean;
-}) {
-  const { data } = usePersonas();
-  const [emailDraft, setEmailDraft] = useState("");
-  const personas = (data?.personas ?? []).filter((p) => !p.external);
-  const on = value !== null;
-  const shareP = value?.share_personas ?? [];
-  const shareE = value?.share_emails ?? [];
+// UploadsRow is an external persona's uploads (#2258, #2290): whether its
+// people upload files to their own folder.
+function UploadsRow({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled: boolean }) {
   return (
-    <fieldset disabled={disabled} className="space-y-2 border-t pt-4">
-      <legend className="text-sm font-medium">Uploads</legend>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="radio" name="persona-uploads" checked={!on} onChange={() => onChange(null)} />
-        None
-      </label>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="radio" name="persona-uploads" checked={on} onChange={() => onChange({ share_personas: [], share_emails: [] })} />
-        Upload files, shared with:
-      </label>
-      {on && (
-        <div className="space-y-2 pl-6">
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {personas.map((p) => (
-              <label key={p.name} className="flex items-center gap-1.5 text-xs">
-                <input
-                  type="checkbox"
-                  checked={shareP.includes(p.name)}
-                  onChange={(e) =>
-                    onChange({
-                      share_personas: e.target.checked ? [...shareP, p.name] : shareP.filter((n) => n !== p.name),
-                      share_emails: shareE,
-                    })
-                  }
-                />
-                {p.display_name || p.name}
-              </label>
-            ))}
-          </div>
-          <ChipInput
-            values={shareE}
-            onAdd={(email) => {
-              const v = email.trim();
-              setEmailDraft("");
-              if (v && !shareE.includes(v)) onChange({ share_personas: shareP, share_emails: [...shareE, v] });
-            }}
-            onRemove={(email) => onChange({ share_personas: shareP, share_emails: shareE.filter((e) => e !== email) })}
-            draft={emailDraft}
-            onDraftChange={setEmailDraft}
-            placeholder="add an address + Enter"
-            label="Add address"
-          />
-          <p className="text-xs text-muted-foreground">
-            Each upload lands in the uploader's own folder and is shared with these as viewer. The uploader sees their
-            own uploads and nothing else of theirs.
-          </p>
-        </div>
-      )}
-    </fieldset>
+    <label className="flex items-start gap-2 border-t pt-4 text-sm">
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={on}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <span className="font-medium">Uploads</span>
+        <span className="block text-xs text-muted-foreground">
+          Upload files to their own folder. People whose persona has External files see them.
+        </span>
+      </span>
+    </label>
   );
 }

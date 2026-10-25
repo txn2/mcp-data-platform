@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
@@ -310,7 +311,7 @@ func TestUserRoutes_ReadOnlyInFileMode(t *testing.T) {
 // would have offered an empty set for somebody who holds several.
 func TestUserSummaryCarriesRecordedRoles(t *testing.T) {
 	seen := time.Now().UTC()
-	got := toUserSummary(user.User{
+	got := (&Handler{}).userSummary(user.User{
 		Email:       "analyst@example.com",
 		Roles:       []string{"dp_analyst"},
 		RolesSeenAt: &seen,
@@ -320,5 +321,29 @@ func TestUserSummaryCarriesRecordedRoles(t *testing.T) {
 	}
 	if got.RolesSeenAt == nil || !got.RolesSeenAt.Equal(seen) {
 		t.Errorf("RolesSeenAt = %v, want %v", got.RolesSeenAt, seen)
+	}
+	if got.Persona != "" || got.External {
+		t.Errorf("no resolver resolved %q external=%v", got.Persona, got.External)
+	}
+}
+
+// A person whose roles resolve to an external persona is marked so (#2290).
+func TestUserSummaryMarksExternalPeople(t *testing.T) {
+	reg := persona.NewRegistry()
+	if err := reg.Register(&persona.Persona{Name: "client-a", Roles: []string{"client-a"}, External: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Register(&persona.Persona{Name: "staff", Roles: []string{"staff"}}); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{deps: Deps{PersonaResolver: &persona.OIDCRoleMapper{Registry: reg}}}
+	if got := h.userSummary(user.User{Email: "dana@example.com", Roles: []string{"client-a"}}); got.Persona != "client-a" || !got.External {
+		t.Errorf("client: %q external=%v", got.Persona, got.External)
+	}
+	if got := h.userSummary(user.User{Email: "ann@example.com", Roles: []string{"staff"}}); got.Persona != "staff" || got.External {
+		t.Errorf("staff: %q external=%v", got.Persona, got.External)
+	}
+	if got := h.userSummary(user.User{Email: "pre@example.com"}); got.Persona != "" {
+		t.Errorf("nobody: %q", got.Persona)
 	}
 }

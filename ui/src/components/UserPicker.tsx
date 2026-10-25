@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDirectoryUsers } from "@/api/portal/hooks";
 import type { DirectoryUser } from "@/api/portal/types";
 import { Badge } from "@/components/ui/badge";
+import { ExternalBadge } from "@/components/ExternalBadge";
 import { Input } from "@/components/ui/input";
 import { parseEmailAddress } from "@/lib/emailAddress";
 
@@ -154,7 +155,10 @@ export function UserPicker({ value, onChange, placeholder }: Props) {
                       <span>{u.email}</span>
                     )}
                   </span>
-                  {!u.confirmed && <Badge variant="warning">Invited</Badge>}
+                  <span className="flex shrink-0 gap-1">
+                    {u.external && <ExternalBadge />}
+                    {!u.confirmed && <Badge variant="warning">Invited</Badge>}
+                  </span>
                 </button>
               </li>
             );

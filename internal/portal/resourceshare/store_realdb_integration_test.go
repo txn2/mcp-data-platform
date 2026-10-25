@@ -55,10 +55,6 @@ func TestRealDB_ResourceSharesRoundTrip(t *testing.T) {
 	assert.Equal(t, "editor", refs[0].Permission)
 	assert.Equal(t, "marketing", refs[0].ViaPersona)
 
-	sharers, err := s.Sharers(ctx, Recipient{Email: "reader@example.com"})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"owner@example.com"}, sharers)
-
 	require.NoError(t, s.Revoke(ctx, "r1", viewer.ID))
 	require.ErrorIs(t, s.Revoke(ctx, "r1", viewer.ID), ErrNotFound)
 	perm, err = s.Permission(ctx, "r1", Recipient{Email: "reader@example.com"})

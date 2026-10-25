@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 
@@ -93,33 +92,5 @@ func TestNew_UnsubscribeURLReachesRenderer(t *testing.T) {
 	}
 	if !strings.Contains(email.Text, "https://x/unsub?tok=bob@example.com") {
 		t.Error("configured UnsubscribeURL must reach rendered emails")
-	}
-}
-
-func TestSendExternalSignIn(t *testing.T) {
-	sender := &captureSender{}
-	h := &Handle{
-		settings: &fakeSettings{settings: &smtp.Settings{Enabled: true, Host: "smtp.example.com", Port: 587, From: "p@example.com"}},
-		renderer: testRenderer(t),
-		sender:   sender,
-	}
-	link := "https://platform.example.com/portal/auth/email-link/claim?token=abc"
-	if err := h.SendExternalSignIn(context.Background(), SignIn{To: "client@example.org", Name: "Dana", Link: link, Invitation: true, Valid: time.Hour}); err != nil {
-		t.Fatalf("SendExternalSignIn: %v", err)
-	}
-	if len(sender.sent) != 1 || !strings.Contains(sender.sent[0].HTML, link) {
-		t.Fatalf("unexpected sends: %+v", sender.sent)
-	}
-	var none *Handle
-	if err := none.SendExternalSignIn(context.Background(), SignIn{To: "a@b.io", Link: "https://x", Valid: time.Minute}); err == nil {
-		t.Error("nil handle must error")
-	}
-	off := &Handle{settings: &fakeSettings{settings: &smtp.Settings{}}, renderer: testRenderer(t), sender: &captureSender{}}
-	if err := off.SendExternalSignIn(context.Background(), SignIn{To: "a@b.io", Link: "https://x", Valid: time.Minute}); err == nil {
-		t.Error("unconfigured SMTP must error")
-	}
-	fails := &Handle{settings: h.settings, renderer: testRenderer(t), sender: &captureSender{err: errors.New("down")}}
-	if err := fails.SendExternalSignIn(context.Background(), SignIn{To: "a@b.io", Link: "https://x", Valid: time.Minute}); err == nil {
-		t.Error("a failed send must error")
 	}
 }

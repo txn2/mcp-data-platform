@@ -51,9 +51,6 @@ internal/admin/endpointapi -> internal/endpoint/eprefusal
 internal/admin/endpointapi -> internal/httpjson
 internal/admin/endpointapi -> internal/logsan
 internal/admin/endpointapi -> pkg/script
-internal/admin/extaccountapi -> internal/extaccount
-internal/admin/extaccountapi -> internal/httpjson
-internal/admin/extaccountapi -> internal/logsan
 internal/admin/graphqlapi -> internal/httpjson
 internal/admin/graphqlapi -> pkg/registry
 internal/admin/graphqlapi -> pkg/toolkits/graphql
@@ -172,9 +169,6 @@ internal/endpoint/epwire -> pkg/middleware
 internal/endpoint/epwire -> pkg/observability
 internal/endpoint/epwire -> pkg/script
 internal/exportasync -> internal/wirejson
-internal/extaccount -> internal/logsan
-internal/extaccount -> pkg/browsersession
-internal/extaccount -> pkg/persona
 internal/formdata -> internal/pagewalk
 internal/headless -> internal/egressguard
 internal/headless -> internal/outbound
@@ -186,7 +180,6 @@ internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/buildinfo
 internal/httpserver -> internal/exporttrunc
-internal/httpserver -> internal/extaccount
 internal/httpserver -> internal/httpobs
 internal/httpserver -> internal/httpserver/accessgate
 internal/httpserver -> internal/httpserver/accessreqwire
@@ -197,7 +190,6 @@ internal/httpserver -> internal/httpserver/attachhttp
 internal/httpserver -> internal/httpserver/catalogwire
 internal/httpserver -> internal/httpserver/corshttp
 internal/httpserver -> internal/httpserver/endpointwire
-internal/httpserver -> internal/httpserver/extaccountwire
 internal/httpserver -> internal/httpserver/gatewayhttp
 internal/httpserver -> internal/httpserver/health
 internal/httpserver -> internal/httpserver/httpauth
@@ -247,6 +239,7 @@ internal/httpserver -> internal/platform/tableregister
 internal/httpserver -> internal/platform/tableregister/regstore
 internal/httpserver -> internal/portal/assetrefs
 internal/httpserver -> internal/portal/contenturl
+internal/httpserver -> internal/portal/externalfiles
 internal/httpserver -> internal/portal/portaldomain
 internal/httpserver -> internal/portal/producerapi
 internal/httpserver -> internal/producedby
@@ -378,14 +371,6 @@ internal/httpserver/endpointwire -> internal/endpoint/epwire
 internal/httpserver/endpointwire -> internal/platform/scriptstore
 internal/httpserver/endpointwire -> pkg/platform
 internal/httpserver/endpointwire -> pkg/portal
-internal/httpserver/extaccountwire -> internal/admin/extaccountapi
-internal/httpserver/extaccountwire -> internal/extaccount
-internal/httpserver/extaccountwire -> internal/platform/notifydelivery
-internal/httpserver/extaccountwire -> internal/platform/settingsjson
-internal/httpserver/extaccountwire -> pkg/browsersession
-internal/httpserver/extaccountwire -> pkg/persona
-internal/httpserver/extaccountwire -> pkg/platform
-internal/httpserver/extaccountwire -> pkg/user
 internal/httpserver/gatewayhttp -> internal/inprocess
 internal/httpserver/gatewayhttp -> internal/wirejson
 internal/httpserver/gatewayhttp -> pkg/middleware
@@ -965,6 +950,7 @@ internal/platform/portalstore -> internal/unarchive
 internal/platform/portalstore -> pkg/embedding
 internal/platform/portalstore -> pkg/indexjobs
 internal/platform/portalstore -> pkg/observability
+internal/platform/portalstore -> pkg/persona
 internal/platform/portalstore -> pkg/portal
 internal/platform/portalstore -> pkg/portal/knowledgepage
 internal/platform/portalstore -> pkg/resource
@@ -1476,6 +1462,9 @@ internal/portal/collitems -> internal/portal/portaldomain
 internal/portal/contentrefs -> pkg/contenttype
 internal/portal/contentrefs -> pkg/portal/knowledgepage
 internal/portal/contentrefs -> pkg/resource
+internal/portal/externalfiles -> internal/httpjson
+internal/portal/externalfiles -> pkg/persona
+internal/portal/externalfiles -> pkg/resource
 internal/portal/feedbackapi -> internal/httpjson
 internal/portal/feedbackapi -> internal/logsan
 internal/portal/feedbackapi -> internal/portal/access
@@ -1511,7 +1500,6 @@ internal/portal/resourceshare -> internal/httpjson
 internal/portal/resourceshare -> internal/logsan
 internal/portal/resourceshare -> internal/portal/access
 internal/portal/resourceshare -> internal/portal/portaldomain
-internal/portal/resourceshare -> pkg/persona
 internal/portal/resourceshare -> pkg/resource
 internal/portal/sessionapi -> internal/httpjson
 internal/portal/sessionapi -> internal/platform/sessionview

@@ -23,7 +23,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessreqwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
-	"github.com/txn2/mcp-data-platform/internal/httpserver/extaccountwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personashare"
@@ -48,6 +47,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/contenturl"
+	"github.com/txn2/mcp-data-platform/internal/portal/externalfiles"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/internal/toolanswer"
@@ -156,15 +156,8 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	deps.OnAssetDeleted = hooks.AssetDeleted
 	deps.OnAssetRevised = hooks.AssetRevised
 
-	// External accounts first (#2092): the notifier, the feedback routes and
-	// the guest path all ask whether an address is one.
-	accounts := extaccountwire.MountPlatform(mux, p, notify, extaccountwire.Platform{
-		SigningKey: browserSessionSigningKey(p), AdminWrap: adminAuthIfEnabled(p), Author: adminEmail,
-	})
-	if accounts != nil {
-		deps.ExternalAddress = accounts.IsExternal
-	}
-
+	// The notifier, the feedback routes and the guest path ask whether an
+	// address is an external person's (#2290).
 	personashare.Wire(&deps, p.PersonaRegistry(), p.UserStore())
 
 	notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p))
@@ -180,7 +173,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// Guest access path for email shares (#1001): branded denial pages plus
 	// one-time view links for recipients without an account. The share store
 	// is present on this path (checked at the top of this function).
-	deps.ShareGuest = newShareGuestService(p, notify, p.PortalShareStore(), p.DB(), accounts)
+	deps.ShareGuest = newShareGuestService(p, notify, p.PortalShareStore(), p.DB(), deps.ExternalAddress)
 
 	// Authentication proves identity; the gate decides access. Every
 	// authenticated portal route runs through both, so an account the IdP will
@@ -517,10 +510,12 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform, notify *notifyd
 
 	// Shared files (#2258): the claims carry the caller's share lookup.
 	shares := resourcesharewire.New(p, notify)
-	claims := shares.Bind(extractClaims)
-	deps.OnUploaded = shares.Uploaded()
+	// External files (#2290): the caller's level reaches external folders.
+	external := externalfiles.New(externalfiles.NewStore(p.DB()), p.PersonaRegistry().GetForRoles)
+	claims := shares.Bind(external.Bind(extractClaims))
 	handler := resource.NewHandler(deps, claims, nil)
 	shares.Register(mux)
+	external.Register(mux)
 	mux.Handle("/api/v1/resources/", handler)
 	mux.Handle("/api/v1/resources", handler)
 	slog.Info("Managed resources API enabled on /api/v1/resources")
@@ -564,8 +559,9 @@ func resourceClaimsExtractor(p *platform.Platform) func(*http.Request) (*resourc
 // only when the dependency behind it exists.
 func mountMentionAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, isAdmin func([]string) bool) {
 	deps := mentionhttp.Deps{
-		Threads: p.PortalThreadStore(),
-		Caller:  mentionIdentityResolver(isAdmin),
+		Threads:  p.PortalThreadStore(),
+		Caller:   mentionIdentityResolver(isAdmin),
+		External: p.PersonaRegistry().IsExternalRoles,
 	}
 	// Assign only a live audience: a typed nil in the interface field would
 	// read as wired and panic on the first lookup.

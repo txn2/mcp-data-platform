@@ -6,10 +6,13 @@ import (
 	"slices"
 )
 
-// SharePersona is one persona a share can be addressed to (#2089).
+// SharePersona is one persona a share can be addressed to (#2089). External
+// marks a persona for people outside the organization (#2290), which the
+// share dialog shows beside its name.
 type SharePersona struct {
 	Name        string `json:"name" example:"finance"`
 	DisplayName string `json:"display_name" example:"Finance"`
+	External    bool   `json:"external,omitempty" example:"false"`
 }
 
 // sharePersonaList is the personas the caller may share with: the body of
@@ -19,37 +22,20 @@ type sharePersonaList struct {
 }
 
 // sharePersonas is the personas the caller may address a share to: every
-// persona for an administrator, their own for everyone else. A persona's
-// membership is decided when its people open the item, so naming one grants
-// nothing to anyone outside it.
+// persona, for anyone who may share (#2290). A persona's membership is decided
+// when its people open the item, so naming one grants nothing to anyone
+// outside it.
 func (h *Handler) sharePersonas(user *User) []SharePersona {
-	out := make([]SharePersona, 0)
 	if h.deps.Personas == nil || user == nil {
-		return out
+		return make([]SharePersona, 0)
 	}
-	all := h.deps.Personas()
-	if h.access.IsAdmin(user) {
-		return all
-	}
-	if h.deps.PersonaResolver == nil {
-		return out
-	}
-	info := h.deps.PersonaResolver(user.Roles)
-	if info == nil {
-		return out
-	}
-	for _, p := range all {
-		if p.Name == info.Name {
-			out = append(out, p)
-		}
-	}
-	return out
+	return h.deps.Personas()
 }
 
 // listSharePersonas handles GET /api/v1/portal/share-personas.
 //
 // @Summary      List the personas the caller may share with
-// @Description  Returns the personas a share may be addressed to by the caller: every persona for an administrator, the caller's own for everyone else (#2089). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.
+// @Description  Returns every persona a share may be addressed to, each marked when it is for people outside the organization (#2089, #2290). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.
 // @Tags         Shares
 // @Produce      json
 // @Success      200  {object}  sharePersonaList
@@ -73,7 +59,7 @@ func (h *Handler) allowedSharePersona(w http.ResponseWriter, user *User, req cre
 		return true
 	}
 	if !slices.ContainsFunc(h.sharePersonas(user), func(p SharePersona) bool { return p.Name == req.SharedWithPersona }) {
-		writeError(w, http.StatusBadRequest, "you can share with your own persona, or any persona as an administrator")
+		writeError(w, http.StatusBadRequest, "no persona of that name")
 		return false
 	}
 	return true

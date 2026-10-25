@@ -48,11 +48,13 @@ const (
 	tablesSegment   = "tables"
 )
 
-// externalWithheld are the routes a person of an external persona never
-// reaches (#2092): the people directory and mention candidates, API keys, and
-// the channels a share is posted to.
-var externalWithheld = map[string]bool{
-	"users": true, "mention-candidates": true, "api-keys": true, "channels": true,
+// externalAllowed are the only first segments a person of an external
+// persona reaches (#2290): who they are, what is shared with them, feedback
+// on it, and their own notification settings and history. Every other portal
+// route, one added later included, is refused them.
+var externalAllowed = map[string]bool{
+	"me": true, "assets": true, "collections": true, "shared-with-me": true, "shared-collections": true,
+	"threads": true, "worklist": true, "feedback": true, "notification-prefs": true, "notifications": true,
 }
 
 // segmentAreas maps the first path segment after /api/v1/portal/ to the
@@ -90,7 +92,7 @@ func Refused(a persona.PortalAccess, method, path string) string {
 	}
 	segments := strings.Split(rest, "/")
 	write := isWrite(method)
-	if a.External && externalWithheld[segments[0]] {
+	if a.External && !externalAllowed[segments[0]] {
 		return AreaExternal
 	}
 	switch segments[0] {

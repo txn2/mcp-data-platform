@@ -3,6 +3,9 @@ import type { UserProfile } from "@/stores/auth";
 import type { PortalAccess } from "@/lib/portalAccess";
 import {
   canWriteScope,
+  EXTERNAL_PREFIX,
+  externalFilesLevel,
+  externalRoot,
   currentLibrary,
   displayPath,
   libraryCopy,
@@ -373,16 +376,44 @@ describe("resources levels (#2225)", () => {
 });
 
 // A person of an external persona at Read writes nothing, unless the persona
-// lets its people upload, and then only to their own folder (#2258).
+// lets its people upload, and then only to their own folder (#2258, #2290).
 describe("uploads by external people", () => {
   const own = { scope: "user" as const, scope_id: "ext:1" };
   const ext = (uploads: PortalAccess["uploads"]) =>
-    reader({ user_id: "ext:1", email: "vendor@example.com", portal: { external: true, resources: "shared", uploads } });
+    reader({ user_id: "ext:1", email: "vendor@example.com", persona: "vendors", portal: { external: true, resources: "shared", uploads } });
   it("writes nothing without uploads", () => {
-    expect(canWriteScope(ext(null), own)).toBe(false);
+    expect(canWriteScope(ext(false), own)).toBe(false);
+    expect(canWriteScope(ext(undefined), own)).toBe(false);
   });
   it("writes their own folder with uploads", () => {
-    expect(canWriteScope(ext({ share_personas: ["marketing"] }), own)).toBe(true);
-    expect(canWriteScope(ext({ share_personas: ["marketing"] }), { scope: "persona", scope_id: "vendors" })).toBe(false);
+    expect(canWriteScope(ext(true), own)).toBe(true);
+    expect(canWriteScope(ext(true), { scope: "persona", scope_id: "vendors" })).toBe(false);
+  });
+  it("lists only their own folder and what is shared with them", () => {
+    expect(rootsFor(ext(true), ["vendors", "ops"]).map((r) => r.key)).toEqual(["user", "shared-with-me"]);
+  });
+});
+
+// External files (#2290): an administrator manages, anyone else has their
+// persona's level; an external person's folder is named for them and their
+// persona and reads under External files.
+describe("external files", () => {
+  it("reads the caller's level", () => {
+    expect(externalFilesLevel(null)).toBe("none");
+    expect(externalFilesLevel(reader({ is_admin: true }))).toBe("manage");
+    expect(externalFilesLevel(reader({ portal: { external_files: "view" } }))).toBe("view");
+    expect(externalFilesLevel(reader({ portal: {} }))).toBe("none");
+  });
+  it("names a folder and resolves its key", () => {
+    const f = { scope_id: "sub-dana", email: "dana@client-a.example.com", name: "Dana Reyes", persona: "client-a", persona_display_name: "Client A" };
+    const root = externalRoot(f);
+    expect(root.label).toBe("Dana Reyes (Client A)");
+    expect(root.params).toEqual({ scope: "user", scope_id: "sub-dana" });
+    expect(displayPath(root, "q3")).toBe("/External files/Dana Reyes (Client A)/q3");
+    expect(rootFor(EXTERNAL_PREFIX + "sub-dana", [], undefined, () => root)).toBe(root);
+    const unresolved = rootFor(EXTERNAL_PREFIX + "sub-x", []);
+    expect(unresolved.external).toBe(true);
+    expect(unresolved.params).toEqual({ scope: "user", scope_id: "sub-x" });
+    expect(externalRoot({ ...f, name: "", persona_display_name: "" }).label).toBe("dana@client-a.example.com (client-a)");
   });
 });

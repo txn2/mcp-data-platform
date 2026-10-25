@@ -55,8 +55,6 @@ export interface Branding {
   login_redirect?: boolean;
   /** Whether /portal/?login=api_key offers the API key form. */
   allow_api_key_login?: boolean;
-  /** External accounts sign in with an emailed link from /portal/?login=email (#2092). */
-  email_link_login?: boolean;
 }
 
 export function useBranding() {
@@ -337,6 +335,8 @@ export function useCreateShare() {
 export interface SharePersona {
   name: string;
   display_name: string;
+  /** A persona for people outside the organization (#2290). */
+  external?: boolean;
 }
 
 /** The personas the caller may share with: their own, or every one for an administrator. */

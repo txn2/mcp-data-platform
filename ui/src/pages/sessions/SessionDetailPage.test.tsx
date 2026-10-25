@@ -21,6 +21,7 @@ vi.mock("@/api/admin/hooks", () => ({
   }),
   useAuditEvent: (id: string | null) => ({ data: id ? state.event : undefined }),
   useToolSchemas: () => ({ data: { schemas: {} } }),
+  usePersonas: () => ({ data: undefined }),
   useToolTitleMap: () => ({}),
 }));
 

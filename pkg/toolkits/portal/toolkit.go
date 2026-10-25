@@ -320,6 +320,11 @@ type Config struct {
 	// they own (#2241); the share action refuses a persona it denies. Nil
 	// allows every persona.
 	SharingAllowed func(persona string) bool
+
+	// HistoryAllowed reports whether a persona lets its people read an
+	// asset's earlier versions (#2290). Nil refuses every persona: only the
+	// owner and an administrator read them.
+	HistoryAllowed func(persona string) bool
 }
 
 // DirectoryReader looks people up in the known-users directory. The share
@@ -356,6 +361,7 @@ type Toolkit struct {
 	captureProvenance portal.ProvenanceCapturer
 	directory         DirectoryReader
 	sharingAllowed    func(persona string) bool
+	historyAllowed    func(persona string) bool
 	// contentRefs declares the managed resources an asset's content names.
 	// Nil-safe: every method it is called through checks Available first.
 	contentRefs *assetrefs.Declarer
@@ -416,6 +422,7 @@ func New(cfg Config) *Toolkit {
 		captureProvenance: cfg.CaptureProvenance,
 		directory:         cfg.Directory,
 		sharingAllowed:    cfg.SharingAllowed,
+		historyAllowed:    cfg.HistoryAllowed,
 	}
 	tk.actions = tk.buildActions()
 	tk.feedbackActions = tk.buildFeedbackActions()

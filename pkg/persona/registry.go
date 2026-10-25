@@ -182,6 +182,30 @@ func (r *Registry) SharingAllowed(name string) bool {
 	return ok && p.SharingAllowed()
 }
 
+// HistoryAllowed reports whether the persona registered under name lets its
+// people read an asset's earlier versions (#2290), read from the registry as
+// it is now. An unknown name is refused, as SharingAllowed refuses one.
+func (r *Registry) HistoryAllowed(name string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	p, ok := r.personas[name]
+	return ok && On(p.PortalPermissions(nil).History)
+}
+
+// IsExternalRoles reports whether roles resolve to a persona marked external
+// (#2290).
+func (r *Registry) IsExternalRoles(roles []string) bool {
+	if r == nil {
+		return false
+	}
+	p, ok := r.GetForRoles(roles)
+	return ok && p.External
+}
+
 // ServiceAccountNames returns the names of every persona marked as a service
 // account, sorted. A nil registry returns an empty slice.
 func (r *Registry) ServiceAccountNames() []string {
