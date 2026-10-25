@@ -311,6 +311,7 @@ func issue1759ListsKey(body map[string]any, name string) bool {
 func TestIssue1759_AdminIssuesAKeyForAPerson(t *testing.T) {
 	token := issue1759SignIn(t, issue1759AnalystEmail, issue1759AnalystPass)
 	mine := issue1759Me(t, token)
+	awaitSignInRecorded(t, issue1759AnalystEmail)
 	admin := connect(t)
 
 	for _, form := range []struct {
@@ -338,6 +339,7 @@ func TestIssue1759_AdminIssuesAKeyForAPerson(t *testing.T) {
 func TestIssue1759_AdminMayNarrowABoundKey(t *testing.T) {
 	token := issue1759SignIn(t, issue1759AnalystEmail, issue1759AnalystPass)
 	mine := issue1759Me(t, token)
+	awaitSignInRecorded(t, issue1759AnalystEmail)
 	admin := connect(t)
 
 	name := issue1759Name("narrowed")
@@ -461,6 +463,7 @@ func issue1759BoundKeyName(body map[string]any, email, label string) string {
 func TestIssue1759_AKeyMayNotManageKeys(t *testing.T) {
 	token := issue1759SignIn(t, issue1759AnalystEmail, issue1759AnalystPass)
 	mine := issue1759Me(t, token)
+	awaitSignInRecorded(t, issue1759AnalystEmail)
 	admin := connect(t)
 
 	name := issue1759Name("narrowkey")
@@ -513,6 +516,7 @@ func TestIssue1759_AKeyMayNotManageKeys(t *testing.T) {
 func TestIssue1759_AServiceKeyCannotTakeOverAnAddress(t *testing.T) {
 	token := issue1759SignIn(t, issue1759AnalystEmail, issue1759AnalystPass)
 	mine := issue1759Me(t, token)
+	awaitSignInRecorded(t, issue1759AnalystEmail)
 	admin := connect(t)
 
 	// A service key configured with the analyst's address, as an operator may
@@ -540,5 +544,34 @@ func TestIssue1759_AServiceKeyCannotTakeOverAnAddress(t *testing.T) {
 	if got := issue1759Me(t, issue1759String(body, "key")); got.UserID != mine.UserID {
 		t.Fatalf("a bound key reported %q after a service key used the same address, want the person's %q",
 			got.UserID, mine.UserID)
+	}
+}
+
+// awaitSignInRecorded waits until the platform holds what a key bound to email
+// is resolved through: the person's directory row and the subject their own
+// sign-in recorded. A sign-in writes both in the background after it answers
+// (user.Directory.Observe, subjects.Book.Observe), so an administrator binding
+// a key the moment the person signs in can arrive before either lands.
+func awaitSignInRecorded(t *testing.T, email string) {
+	t.Helper()
+	db := devDB(t)
+	// A replica just started takes seconds to write it; a slow runner longer.
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		var recorded bool
+		err := db.QueryRowContext(t.Context(),
+			`SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)
+			    AND EXISTS (SELECT 1 FROM identity_subjects WHERE address = $1 AND from_person)`,
+			strings.ToLower(email)).Scan(&recorded)
+		if err != nil {
+			t.Fatalf("reading whether %s's sign-in is recorded: %v", email, err)
+		}
+		if recorded {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the platform never recorded %s's sign-in", email)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
