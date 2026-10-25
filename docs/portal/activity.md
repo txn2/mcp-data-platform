@@ -71,6 +71,8 @@ Two limits on the rule are worth stating, because their absence produced wrong o
 
 **Reuse** is the other column worth reading. It counts the later sessions that found the record and then ran what it holds: the same statement, or the same API resource, over the same connection. A session running its own query again does not count, and neither does an identical query written independently: without the sighting, nothing says this record led to it. It is the one signal on a record that a stranger, and not its author, found it worth running.
 
+`search` finds your successful calls by their words and by their meaning, scored as the other sources are: `0.6 * semantic + 0.4 * lexical`, the cosine mapped onto 0 to 1 and the lexical term 1 when the call's purpose, statement or request line matches the query. A call the embedding service has not reached yet is scored at a cosine of zero, so a word only it contains still ranks it above every call that matches none of the query's words, however near in meaning (#2251).
+
 The facets narrow by kind (SQL or API), connection, outcome, and free text over the purpose and the statement. **Awaiting review** keeps the records that answered something and have not been published or declined, most re-run first. There is no user facet and no user column: this list is always your own, and another person's record id is answered as not found.
 
 Click a row to open the record.

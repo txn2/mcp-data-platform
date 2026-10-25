@@ -94,28 +94,53 @@ func TestGetAndGetByName(t *testing.T) {
 	require.ErrorContains(t, err, "get endpoint binding")
 }
 
-func TestList_ScopesToTheScriptsGiven(t *testing.T) {
+func TestList_PagesFiltersAndCounts(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY name LIMIT $1")).WithArgs(defaultListLimit).
-		WillReturnRows(sqlmock.NewRows(bindingColumns).AddRow(bindingRow()...))
-	all, err := s.List(context.Background(), epbinding.Filter{})
+	withCount := append(append([]string{}, bindingColumns...), "count")
+	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY name LIMIT $1 OFFSET $5")).
+		WithArgs(MaxListLimit, nil, "", sql.NullBool{}, 0).
+		WillReturnRows(sqlmock.NewRows(withCount).AddRow(append(bindingRow(), int64(226))...))
+	all, total, err := s.List(context.Background(), epbinding.Filter{Limit: 5000})
 	require.NoError(t, err)
 	require.Len(t, all, 1)
+	assert.Equal(t, 226, total, "the total counts every match, not the page")
 
-	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = ANY($2)")).WithArgs(5, sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows(bindingColumns))
-	none, err := s.List(context.Background(), epbinding.Filter{ScriptIDs: []string{}, Limit: 5})
+	on := true
+	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY name LIMIT $1 OFFSET $5")).
+		WithArgs(5, sqlmock.AnyArg(), "public", sql.NullBool{Bool: true, Valid: true}, 10).
+		WillReturnRows(sqlmock.NewRows(withCount))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM script_endpoints")).
+		WithArgs(sqlmock.AnyArg(), "public", sql.NullBool{Bool: true, Valid: true}).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
+	none, total, err := s.List(context.Background(), epbinding.Filter{ScriptIDs: []string{}, AuthMode: "public", Enabled: &on, Limit: 5, Offset: 10})
 	require.NoError(t, err)
 	assert.Equal(t, []epbinding.Binding{}, none, "an empty listing is [] and never null")
+	assert.Equal(t, 7, total, "a page past the last still reports the total")
+
+	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY name")).WillReturnRows(sqlmock.NewRows(withCount))
+	_, total, err = s.List(context.Background(), epbinding.Filter{Offset: -3})
+	require.NoError(t, err)
+	assert.Zero(t, total, "the first page of nothing counts nothing without a second read")
+
+	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY name")).WillReturnRows(sqlmock.NewRows(withCount))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).WillReturnError(errors.New("boom"))
+	_, _, err = s.List(context.Background(), epbinding.Filter{Offset: 1})
+	require.ErrorContains(t, err, "count endpoint bindings")
 
 	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY name")).WillReturnError(errors.New("boom"))
-	_, err = s.List(context.Background(), epbinding.Filter{})
+	_, _, err = s.List(context.Background(), epbinding.Filter{})
 	require.ErrorContains(t, err, "list endpoint bindings")
 
 	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY name")).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("e1"))
-	_, err = s.List(context.Background(), epbinding.Filter{})
+	_, _, err = s.List(context.Background(), epbinding.Filter{})
 	require.ErrorContains(t, err, "scan endpoint binding")
+
+	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY name")).
+		WillReturnRows(sqlmock.NewRows(withCount).AddRow(append(bindingRow(), int64(1))...).RowError(0, errors.New("boom")))
+	_, _, err = s.List(context.Background(), epbinding.Filter{})
+	require.Error(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestSetEnabled(t *testing.T) {

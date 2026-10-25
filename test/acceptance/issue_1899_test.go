@@ -114,6 +114,39 @@ func waitForLoopPass(t *testing.T, loop string, after float64) float64 {
 	return 0
 }
 
+// flushPassOn waits until the storage usage flush has finished a pass after
+// the given Unix time on the replica whose metrics are at target, and returns
+// that pass's time.
+func flushPassOn(t *testing.T, target string, after float64) float64 {
+	t.Helper()
+	series := `background_loop_last_success_timestamp_seconds{loop="storage_usage_flush"}`
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		if v := scrapeScalar(scrapeOne(t, target), series); v > after {
+			return v
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("%s finished no storage usage flush after %s", target, time.Unix(int64(after), 0).Format(time.TimeOnly))
+	return 0
+}
+
+// awaitSettledUsage waits until every replica has added what it held to the
+// shared usage rows, and then until the replica oneReplica reads has read the
+// rows back. A delete or a put a replica made just before (an earlier
+// criterion's cleanup removing its upload) is pending in that replica until
+// its next flush, and would otherwise land in the same flush as this
+// criterion's upload and cancel it (#2299).
+func awaitSettledUsage(t *testing.T) {
+	t.Helper()
+	start := float64(time.Now().UnixNano()) / 1e9
+	last := start
+	for _, target := range metricsURLs() {
+		last = max(last, flushPassOn(t, target, start))
+	}
+	flushPassOn(t, metricsURLs()[0], last)
+}
+
 // waitForGauge polls one replica until pred holds for the named series, and
 // returns the last value read.
 func waitForGauge(t *testing.T, name string, labels map[string]string, within time.Duration, pred func(float64) bool) float64 {
@@ -151,11 +184,14 @@ func TestIssue1899_TheTableSamplerReportsSizesAndTheTransactionAge(t *testing.T)
 // resource raises the resources bytes and object count without waiting for the
 // full scan. The scan reports the objects it read; an upload whose count rose
 // while that figure stayed put was counted by the write, not the listing. A
-// listing that lands in between is retried once.
+// listing that lands in between is retried once. The count is read once every
+// replica has flushed what it held, so a delete made just before is not
+// netted against the upload.
 func TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing(t *testing.T) {
 	c := connect(t)
 	labels := map[string]string{"bucket": issue1899Bucket, "purpose": "resources"}
 	for attempt := 1; attempt <= 3; attempt++ {
+		awaitSettledUsage(t)
 		body := oneReplica(t)
 		objects := metricSeries(body, "storage_bucket_objects", labels)
 		bytes := metricSeries(body, "storage_bucket_bytes", labels)

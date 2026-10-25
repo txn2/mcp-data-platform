@@ -25,11 +25,13 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
   const contentUpdateMutation = useUpdateAssetContent();
   const copyMutation = useCopyAsset();
   const isAdmin = useAuthStore((s) => s.isAdmin());
-  // A reader the asset is shared with sees its earlier versions only when
-  // their persona's Earlier versions setting is on; otherwise the current
+  // An editor sees the asset's earlier versions; a viewer only when their
+  // persona's Earlier versions setting is on, and otherwise the current
   // version only, with no version number and no comparison (#2226, #2290).
+  // The server reports an external person's share as viewer.
   const { history } = usePortalAccess();
-  const seesHistory = asset != null && (asset.is_owner !== false || isAdmin || history);
+  const seesHistory =
+    asset != null && (asset.is_owner !== false || isAdmin || asset.share_permission === "editor" || history);
   const { data: versionsData, isLoading: versionsLoading } = useAssetVersions(assetId, seesHistory);
   const revertMutation = useRevertVersion();
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);

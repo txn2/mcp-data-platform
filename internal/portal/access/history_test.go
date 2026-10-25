@@ -26,14 +26,17 @@ func (s sharesFor) GetUserAssetPermissionViaCollection(context.Context, string, 
 	return s.viaCollection, nil
 }
 
-// TestSeesAssetHistory: the owner and an administrator read an asset's
-// earlier versions always; anyone it is shared with, viewer or editor, only
-// when their persona's Earlier versions setting is on (#2226, #2290).
+// TestSeesAssetHistory: the owner, an administrator and an editor read an
+// asset's earlier versions always; a viewer, and a person of an external
+// persona whatever the share says, only when their persona's Earlier versions
+// setting is on (#2226, #2290).
 func TestSeesAssetHistory(t *testing.T) {
 	asset := &portaldomain.Asset{ID: "a1", OwnerID: "owner"}
 	reader := &User{UserID: "reader", Roles: []string{"r"}}
-	on := true
+	on, off := true, false
 	history := func([]string) persona.PortalAccess { return persona.PortalAccess{History: &on} }
+	external := func([]string) persona.PortalAccess { return persona.PortalAccess{External: true, History: &off} }
+	externalHistory := func([]string) persona.PortalAccess { return persona.PortalAccess{External: true, History: &on} }
 	for _, tc := range []struct {
 		name   string
 		shares sharesFor
@@ -44,7 +47,10 @@ func TestSeesAssetHistory(t *testing.T) {
 	}{
 		{"the owner", sharesFor{}, &User{UserID: "owner"}, nil, nil, true},
 		{"an administrator", sharesFor{}, &User{UserID: "x", Roles: []string{"root"}}, func(r []string) bool { return len(r) == 1 && r[0] == "root" }, nil, true},
-		{"a direct editor, setting off", sharesFor{direct: portaldomain.PermissionEditor}, reader, nil, nil, false},
+		{"a direct editor, setting off", sharesFor{direct: portaldomain.PermissionEditor}, reader, nil, nil, true},
+		{"an editor through a collection, setting off", sharesFor{viaCollection: portaldomain.PermissionEditor}, reader, nil, nil, true},
+		{"an external editor, setting off", sharesFor{direct: portaldomain.PermissionEditor}, reader, nil, external, false},
+		{"an external editor, setting on", sharesFor{direct: portaldomain.PermissionEditor}, reader, nil, externalHistory, true},
 		{"a direct editor, setting on", sharesFor{direct: portaldomain.PermissionEditor}, reader, nil, history, true},
 		{"an editor through a collection, setting on", sharesFor{viaCollection: portaldomain.PermissionEditor}, reader, nil, history, true},
 		{"a viewer, setting off", sharesFor{direct: portaldomain.PermissionViewer}, reader, nil, nil, false},

@@ -13,10 +13,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
-// A caller an asset is shared with reads its history only when their persona
-// lets its people read earlier versions (#2226, #2290): with it off,
-// list_versions and diff refuse a viewer and an editor alike; with it on, both
-// are answered. The owner always is.
+// An editor reads an asset's history always, and a viewer only when their
+// persona lets its people read earlier versions (#2226, #2290): with it off,
+// list_versions and diff refuse a viewer; with it on, a viewer is answered.
+// The owner always is.
 func TestHistory_ThePersonaSettingDecides(t *testing.T) {
 	store := newInMemoryAssetStore()
 	vs := newInMemoryVersionStore()
@@ -48,12 +48,11 @@ func TestHistory_ThePersonaSettingDecides(t *testing.T) {
 	}
 
 	shares.assetShare.Permission = portal.PermissionEditor
-	assert.True(t, call(reader, "list_versions").IsError, "an editor is refused while the setting is off")
+	assert.False(t, call(reader, "list_versions").IsError, "an editor lists the versions while the setting is off")
 
 	allowed = true
-	assert.False(t, call(reader, "list_versions").IsError, "an editor lists the versions")
 	shares.assetShare.Permission = portal.PermissionViewer
-	assert.False(t, call(reader, "list_versions").IsError, "so does a viewer")
+	assert.False(t, call(reader, "list_versions").IsError, "with the setting on, so does a viewer")
 
 	shares.assetShare = nil
 	shares.assetViaColl = portal.PermissionViewer

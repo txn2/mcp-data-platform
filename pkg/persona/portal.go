@@ -97,9 +97,10 @@ type PortalAccess struct {
 	// is off; an internal persona's people upload by their Resources level
 	// and this is dropped from its resolved block.
 	Uploads *bool `json:"uploads,omitempty" yaml:"uploads,omitempty"`
-	// History lets the persona's people read an asset's earlier versions
-	// (#2290). Unset is off: only the owner and an administrator read them,
-	// whatever a share grants.
+	// History lets the persona's people read the earlier versions of an asset
+	// shared with them as viewer (#2226, #2290). Unset is off: the owner, an
+	// editor and an administrator read them, and a viewer reads the current
+	// version only.
 	History *bool `json:"history,omitempty" yaml:"history,omitempty"`
 	// ExternalFiles is every external person's personal folder: none, view
 	// or manage (#2290). Unset is none; an external persona has none.

@@ -149,14 +149,17 @@ func TestScanNowRecordsTheRequest(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// The loop scans at start and again on a request. Each scan is waited for
+// through AfterScan, which runs once its lock is released, so the request is
+// made with no scan in progress and every read of catalog_scan_state,
+// including the re-check before each lock is released, meets one expectation
+// in order (#2283).
 func TestLoopScansAtStartAndOnRequest(t *testing.T) {
-	asked := make(chan struct{})
+	asked := make(chan struct{}, 2)
 	l, mock := newLoopMock(t, Defaults(), signalSource{asked: asked})
 	l.poll = time.Hour
-	// The request is sent while the first scan may still be releasing its
-	// lock, as a request made during a scan is; only the statements are
-	// asserted, not how the two interleave.
-	mock.MatchExpectationsInOrder(false)
+	finished := make(chan struct{}, 2)
+	l.AfterScan(func(context.Context) { finished <- struct{}{} })
 	now := time.Now()
 
 	// The first check at start: never scanned, so due.
@@ -173,12 +176,13 @@ func TestLoopScansAtStartAndOnRequest(t *testing.T) {
 
 	l.Start(context.Background())
 	l.Start(context.Background())
-	<-asked
+	<-finished
 	require.NoError(t, l.ScanNow(context.Background(), "a"))
-	<-asked
+	<-finished
 	l.Stop()
 	l.Stop()
 	require.NoError(t, mock.ExpectationsWereMet())
+	assert.Len(t, asked, 2, "each scan read its sources")
 
 	var nilLoop *Loop
 	nilLoop.Start(context.Background())

@@ -5,10 +5,15 @@ import (
 	"time"
 )
 
-// Filter narrows a listing. A non-nil empty ScriptIDs matches nothing.
+// Filter narrows a listing. A non-nil empty ScriptIDs matches nothing. An
+// empty AuthMode and a nil Enabled match every binding. Limit is a page's
+// size, bounded by the store, and Offset how many to pass over (#2251).
 type Filter struct {
 	ScriptIDs []string
+	AuthMode  string
+	Enabled   *bool
 	Limit     int
+	Offset    int
 }
 
 // Failure is one request that failed, kept for the script's owner to read.
@@ -35,7 +40,9 @@ type Store interface {
 	Get(ctx context.Context, scriptID string) (*Binding, error)
 	// GetByName is the binding a name serves, ErrNotFound when none does.
 	GetByName(ctx context.Context, name string) (*Binding, error)
-	List(ctx context.Context, filter Filter) ([]Binding, error)
+	// List is one page of the bindings filter matches, by name, and how
+	// many it matches in all.
+	List(ctx context.Context, filter Filter) (page []Binding, total int, err error)
 	// SetEnabled turns a script's binding on or off.
 	SetEnabled(ctx context.Context, scriptID string, enabled bool, actor string) error
 	// RecordFailure keeps one failed request.

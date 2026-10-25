@@ -1,9 +1,14 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Globe } from "lucide-react";
 import { useAdminEndpoints } from "@/api/admin/hooks";
-import type { AdminEndpoint, EndpointRange } from "@/api/admin/types";
+import type {
+  AdminEndpoint,
+  AdminEndpointListParams,
+  EndpointRange,
+} from "@/api/admin/types";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { FilterSelect } from "@/components/patterns/FilterSelect";
+import { Pager } from "@/components/patterns/Pager";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +28,10 @@ import { ACCESS_LABELS, endpointPath, formatMs } from "./endpointLabels";
 // (#2208): what the deployment exposes, under whose automation, and who is
 // calling it, without opening automations one at a time. A public endpoint
 // answers anyone, so its access is marked plainly. A row opens the endpoint.
+// The server filters and pages the list, so a deployment with more endpoints
+// than a page holds reaches every one (#2251).
+
+export const ENDPOINTS_PER_PAGE = 50;
 
 export const RANGE_OPTIONS: { value: EndpointRange; label: string }[] = [
   { value: "day", label: "Last 24 hours" },
@@ -47,20 +56,23 @@ export function EndpointsTab({
   onNavigate: (path: string) => void;
 }) {
   const [range, setRange] = useState<EndpointRange>("day");
-  const [access, setAccess] = useState("");
-  const [status, setStatus] = useState("");
+  const [access, setAccess] = useState<NonNullable<AdminEndpointListParams["access"]>>("");
+  const [status, setStatus] = useState<NonNullable<AdminEndpointListParams["status"]>>("");
+  const [page, setPage] = useState(1);
   const [binding, setBinding] = useState(false);
-  const { data, isLoading, isError } = useAdminEndpoints(range);
-
-  const rows = useMemo(
-    () =>
-      (data?.endpoints ?? []).filter(
-        (e) =>
-          (access === "" || e.auth_mode === access) &&
-          (status === "" || (status === "on") === e.enabled),
-      ),
-    [data, access, status],
-  );
+  const { data, isLoading, isError } = useAdminEndpoints({
+    range,
+    access,
+    status,
+    page,
+    perPage: ENDPOINTS_PER_PAGE,
+  });
+  // A filter change starts again at the first page: page 4 of the old list
+  // is rarely a page of the new one.
+  const refilter = <T,>(set: (v: T) => void) => (v: T) => {
+    set(v);
+    setPage(1);
+  };
 
   return (
     <div className="space-y-3">
@@ -68,19 +80,19 @@ export function EndpointsTab({
         <FilterSelect
           label="Range"
           value={range}
-          onChange={(v) => setRange((v || "day") as EndpointRange)}
+          onChange={(v) => refilter(setRange)((v || "day") as EndpointRange)}
           options={RANGE_OPTIONS}
         />
         <FilterSelect
           label="Filter by access"
           value={access}
-          onChange={setAccess}
+          onChange={(v) => refilter(setAccess)(v as typeof access)}
           options={ACCESS_OPTIONS}
         />
         <FilterSelect
           label="Filter by status"
           value={status}
-          onChange={setStatus}
+          onChange={(v) => refilter(setStatus)(v as typeof status)}
           options={STATUS_OPTIONS}
         />
         <div className="ml-auto">
@@ -95,15 +107,13 @@ export function EndpointsTab({
         </Alert>
       )}
       {isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
-      {data && data.endpoints.length === 0 && (
-        <EmptyState icon={Globe}>
-          No automation answers HTTP requests yet. Bind one that defines
-          handle(req) to give it an address under /endpoints/.
-        </EmptyState>
-      )}
-      {data && data.endpoints.length > 0 && (
-        <EndpointTable
-          rows={rows}
+      {data && (
+        <EndpointPage
+          rows={data.endpoints}
+          total={data.total}
+          filtered={access !== "" || status !== ""}
+          page={page}
+          onPage={setPage}
           onOpen={(e) => onNavigate(endpointPath(e.name))}
         />
       )}
@@ -113,6 +123,44 @@ export function EndpointsTab({
         onNavigate={onNavigate}
       />
     </div>
+  );
+}
+
+/**
+ * EndpointPage is one page of the list: the table and, when the filters match
+ * more than a page holds, the pager; with nothing bound and no filter, the
+ * empty state.
+ */
+function EndpointPage({
+  rows,
+  total,
+  filtered,
+  page,
+  onPage,
+  onOpen,
+}: {
+  rows: AdminEndpoint[];
+  total: number;
+  filtered: boolean;
+  page: number;
+  onPage: (page: number) => void;
+  onOpen: (e: AdminEndpoint) => void;
+}) {
+  if (total === 0 && !filtered) {
+    return (
+      <EmptyState icon={Globe}>
+        No automation answers HTTP requests yet. Bind one that defines
+        handle(req) to give it an address under /endpoints/.
+      </EmptyState>
+    );
+  }
+  return (
+    <>
+      <EndpointTable rows={rows} onOpen={onOpen} />
+      {total > ENDPOINTS_PER_PAGE && (
+        <Pager page={page} perPage={ENDPOINTS_PER_PAGE} total={total} onPage={onPage} />
+      )}
+    </>
   );
 }
 

@@ -368,27 +368,41 @@ func TestSearchRanksLexically(t *testing.T) {
 func TestSearchFusesBothArms(t *testing.T) {
 	store, mock := newMock(t)
 	// The vector arm and the lexical arm run against the index each can use;
-	// a record both arms return outranks one either found alone.
+	// each hit carries its cosine, and a record whose words match gains the
+	// lexical term.
 	mock.ExpectQuery("embedding").WillReturnRows(recordRow(OutcomeRan, "", 0, 0.8))
-	mock.ExpectQuery("ts_rank_cd").WillReturnRows(recordRow(OutcomeRan, "", 0, 0.4))
+	mock.ExpectQuery("ts_rank_cd").WillReturnRows(recordRow(OutcomeRan, "", 0, 0.8))
 
 	got, err := store.Search(context.Background(), SearchQuery{
 		Text: "revenue", UserID: "u1", Embedding: []float32{0.1, 0.2},
 	})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	assert.InDelta(t, 0.8+lexicalWeight*0.4, got[0].Score, 0.001)
+	assert.InDelta(t, semanticWeight*0.9+(1-semanticWeight), got[0].Score, 0.001)
 }
 
-func TestFuseKeepsTheBestOfEachArm(t *testing.T) {
+func TestFuseBlendsOnOneCurve(t *testing.T) {
 	t.Parallel()
 
-	vector := []Scored{{Record: Record{ID: "a", ReuseCount: 1}, Score: 0.6}}
-	lexical := []Scored{{Record: Record{ID: "b"}, Score: 0.9}}
+	// A near neighbor in meaning, a record matched by its words and embedded,
+	// and a fresh record matched by an exact token and not embedded yet.
+	vector := []Scored{
+		{Record: Record{ID: "neighbor", ReuseCount: 3}, Score: 0.95},
+		{Record: Record{ID: "both"}, Score: 0.4},
+	}
+	lexical := []Scored{
+		{Record: Record{ID: "both"}, Score: 0.4},
+		{Record: Record{ID: "fresh"}, Score: 0},
+	}
 	got := fuse(vector, lexical, 10)
 
-	require.Len(t, got, 2)
-	assert.Equal(t, "a", got[0].Record.ID, "0.6 beats a lexical-only 0.9 scaled to 0.45")
+	require.Len(t, got, 3)
+	assert.Equal(t, "both", got[0].Record.ID)
+	assert.Equal(t, "fresh", got[1].Record.ID,
+		"an exact token match not embedded yet outranks a neighbor that matches none of the words (#2251)")
+	assert.Equal(t, "neighbor", got[2].Record.ID)
+	assert.InDelta(t, semanticWeight*0.5+(1-semanticWeight), got[1].Score, 0.001)
+	assert.InDelta(t, semanticWeight*0.975, got[2].Score, 0.001)
 	assert.Len(t, fuse(vector, lexical, 1), 1, "the limit bounds the fused set")
 }
 

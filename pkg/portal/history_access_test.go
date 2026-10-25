@@ -15,9 +15,9 @@ import (
 )
 
 // Who reads an asset's earlier versions (#2226, #2290): three versions,
-// shared with a person whose persona withholds earlier versions, read as
-// version 3 with no history whether the share is viewer or editor; with the
-// setting on, read in full either way. The owner always reads them.
+// shared as viewer with a person whose persona withholds earlier versions,
+// read as version 3 with no history; with the setting on, read in full. An
+// editor and the owner read them whatever the setting says.
 
 func historyHandler(perm SharePermission, user *User, history bool) *Handler {
 	asset := &Asset{ID: "a1", OwnerID: "owner", OwnerEmail: "owner@example.com", Name: "r.md", CurrentVersion: 3}
@@ -46,18 +46,17 @@ func historyGet(h *Handler, path string) int {
 
 func TestHistory_ThePersonaSettingDecides(t *testing.T) {
 	reader := &User{UserID: "reader", Email: "reader@example.com"}
-	for _, perm := range []SharePermission{PermissionViewer, PermissionEditor} {
-		off := historyHandler(perm, reader, false)
-		assert.Equal(t, http.StatusForbidden, historyGet(off, "/api/v1/portal/assets/a1/versions"), perm)
-		assert.Equal(t, http.StatusForbidden, historyGet(off, "/api/v1/portal/assets/a1/versions/1/content"), perm)
-		assert.Equal(t, http.StatusOK, historyGet(off, "/api/v1/portal/assets/a1/versions/3/content"), perm)
-		assert.Equal(t, http.StatusForbidden, historyGet(off, "/api/v1/portal/assets/a1/content-url?version=1"), perm)
-		assert.Equal(t, http.StatusOK, historyGet(off, "/api/v1/portal/assets/a1/content-url"), perm)
+	off := historyHandler(PermissionViewer, reader, false)
+	assert.Equal(t, http.StatusForbidden, historyGet(off, "/api/v1/portal/assets/a1/versions"))
+	assert.Equal(t, http.StatusForbidden, historyGet(off, "/api/v1/portal/assets/a1/versions/1/content"))
+	assert.Equal(t, http.StatusOK, historyGet(off, "/api/v1/portal/assets/a1/versions/3/content"))
+	assert.Equal(t, http.StatusForbidden, historyGet(off, "/api/v1/portal/assets/a1/content-url?version=1"))
+	assert.Equal(t, http.StatusOK, historyGet(off, "/api/v1/portal/assets/a1/content-url"))
 
-		on := historyHandler(perm, reader, true)
-		assert.Equal(t, http.StatusOK, historyGet(on, "/api/v1/portal/assets/a1/versions"), perm)
-		assert.Equal(t, http.StatusOK, historyGet(on, "/api/v1/portal/assets/a1/versions/1/content"), perm)
-		assert.Equal(t, http.StatusOK, historyGet(on, "/api/v1/portal/assets/a1/content-url?version=1"), perm)
+	for _, h := range []*Handler{historyHandler(PermissionViewer, reader, true), historyHandler(PermissionEditor, reader, false)} {
+		assert.Equal(t, http.StatusOK, historyGet(h, "/api/v1/portal/assets/a1/versions"))
+		assert.Equal(t, http.StatusOK, historyGet(h, "/api/v1/portal/assets/a1/versions/1/content"))
+		assert.Equal(t, http.StatusOK, historyGet(h, "/api/v1/portal/assets/a1/content-url?version=1"))
 	}
 
 	owner := historyHandler(PermissionViewer, &User{UserID: "owner", Email: "owner@example.com"}, false)

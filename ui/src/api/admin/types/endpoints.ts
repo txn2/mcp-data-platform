@@ -46,10 +46,24 @@ export interface AdminEndpoint {
   refused_by_reason: Record<string, number>;
 }
 
+// AdminEndpointList is one page of the endpoints the filters match; total is
+// how many match in all (#2251).
 export interface AdminEndpointList {
   range: EndpointRange;
   since: string;
   endpoints: AdminEndpoint[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+// AdminEndpointListParams narrows and pages the list on the server.
+export interface AdminEndpointListParams {
+  range: EndpointRange;
+  access?: "" | "public" | "signed_in";
+  status?: "" | "on" | "off";
+  page?: number;
+  perPage?: number;
 }
 
 export interface EndpointBucket extends EndpointStatusClasses {

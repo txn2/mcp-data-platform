@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,9 +50,9 @@ func (*store) GetByName(context.Context, string) (*epbinding.Binding, error) {
 	return nil, epbinding.ErrNotFound
 }
 
-func (s *store) List(_ context.Context, f epbinding.Filter) ([]epbinding.Binding, error) {
+func (s *store) List(_ context.Context, f epbinding.Filter) ([]epbinding.Binding, int, error) {
 	if s.listErr != nil {
-		return nil, s.listErr
+		return nil, 0, s.listErr
 	}
 	out := []epbinding.Binding{}
 	for id, b := range s.byScript {
@@ -59,7 +60,12 @@ func (s *store) List(_ context.Context, f epbinding.Filter) ([]epbinding.Binding
 			out = append(out, b)
 		}
 	}
-	return out, nil
+	slices.SortFunc(out, func(a, b epbinding.Binding) int { return strings.Compare(a.Name, b.Name) })
+	total := len(out)
+	if f.Limit > 0 && f.Limit < total {
+		out = out[:f.Limit]
+	}
+	return out, total, nil
 }
 
 func (s *store) SetEnabled(_ context.Context, id string, enabled bool, _ string) error {
@@ -203,6 +209,17 @@ func TestRun_List(t *testing.T) {
 	require.NoError(t, err)
 	items, _ = out["endpoints"].([]map[string]any)
 	assert.Equal(t, "by-id", items[0]["name"], "an administrator's listing names a script it was not handed")
+	assert.Equal(t, 1, out["total"])
+	assert.Nil(t, out["note"], "a listing that holds every endpoint says nothing more")
+
+	// A listing cut at its limit says how many exist (#2251).
+	s.byScript["other"] = epbinding.Binding{ID: "e2", ScriptID: "other", Name: "zz-other"}
+	out, err = h.Run(ctx, Request{Command: CmdList, Admin: true, Limit: 1})
+	require.NoError(t, err)
+	assert.Equal(t, 1, out["count"])
+	assert.Equal(t, 2, out["total"])
+	assert.Contains(t, out["note"], "1 of 2 endpoints listed")
+	delete(s.byScript, "other")
 
 	s.failuresErr = errors.New("boom")
 	_, err = h.Run(ctx, Request{Command: CmdList, Script: lookup})

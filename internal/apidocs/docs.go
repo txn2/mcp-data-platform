@@ -4951,7 +4951,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Every endpoint binding on the deployment, ordered by name: its script (id, name, owner), address, methods, path, access (public or signed_in), open_reads, whether it is on, its limits, and who last changed it and when. traffic is what it answered over the range: requests by status class, failures, p50 and p95 duration, distinct signed-in callers and the last request's time, read from each request's audit row. refused counts the requests it turned away before its handler ran, by reason: the bot check, the endpoint's or a caller's rate limit, the body limit, a missing or refused credential, an origin the binding does not list. A deployment with no bindings answers an empty list.",
+                "description": "The endpoint bindings on the deployment, ordered by name, a page at a time: total is how many match the filters, page and per_page the page answered (per_page defaults to 50, at most 200). Each endpoint carries its script (id, name, owner), address, methods, path, access (public or signed_in), open_reads, whether it is on, its limits, and who last changed it and when. traffic is what it answered over the range: requests by status class, failures, p50 and p95 duration, distinct signed-in callers and the last request's time, read from each request's audit row. refused counts the requests it turned away before its handler ran, by reason: the bot check, the endpoint's or a caller's rate limit, the body limit, a missing or refused credential, an origin the binding does not list. A deployment with no bindings answers an empty list.",
                 "produces": [
                     "application/json"
                 ],
@@ -4968,6 +4968,38 @@ const docTemplate = `{
                         "type": "string",
                         "description": "day (the default) or week",
                         "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "public",
+                            "signed_in"
+                        ],
+                        "type": "string",
+                        "description": "Only public or only signed_in endpoints",
+                        "name": "access",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "on",
+                            "off"
+                        ],
+                        "type": "string",
+                        "description": "Only endpoints that are on, or off",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based page (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Endpoints per page (default 50, at most 200)",
+                        "name": "per_page",
                         "in": "query"
                     }
                 ],
@@ -14885,7 +14917,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns paginated version history for an asset. A caller whose access is viewer is refused with 403: earlier versions are the owner's, an editor's and an administrator's (#2226).",
+                "description": "Returns paginated version history for an asset. A caller whose access is viewer is refused with 403 unless their persona's Earlier versions setting (portal.history) is on: earlier versions are the owner's, an editor's and an administrator's (#2226, #2290).",
                 "produces": [
                     "application/json"
                 ],
@@ -32932,11 +32964,20 @@ const docTemplate = `{
                         "$ref": "#/definitions/endpointapi.Endpoint"
                     }
                 },
+                "page": {
+                    "type": "integer"
+                },
+                "per_page": {
+                    "type": "integer"
+                },
                 "range": {
                     "type": "string"
                 },
                 "since": {
                     "type": "string"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -35425,7 +35466,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "history": {
-                    "description": "History lets the persona's people read an asset's earlier versions\n(#2290). Unset is off: only the owner and an administrator read them,\nwhatever a share grants.",
+                    "description": "History lets the persona's people read the earlier versions of an asset\nshared with them as viewer (#2226, #2290). Unset is off: the owner, an\neditor and an administrator read them, and a viewer reads the current\nversion only.",
                     "type": "boolean"
                 },
                 "knowledge": {

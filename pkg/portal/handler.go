@@ -1515,7 +1515,7 @@ func (h *Handler) cleanupOrphanedS3(ctx context.Context, bucket, key string) {
 // listVersions handles GET /api/v1/portal/assets/{id}/versions.
 //
 // @Summary      List asset versions
-// @Description  Returns paginated version history for an asset. A caller whose access is viewer is refused with 403: earlier versions are the owner's, an editor's and an administrator's (#2226).
+// @Description  Returns paginated version history for an asset. A caller whose access is viewer is refused with 403 unless their persona's Earlier versions setting (portal.history) is on: earlier versions are the owner's, an editor's and an administrator's (#2226, #2290).
 // @Tags         Assets
 // @Produce      json
 // @Param        id      path   string   true   "Asset ID"

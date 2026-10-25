@@ -9,7 +9,7 @@ import { mockAdminEndpoints, mockEndpointDetail } from "@/mocks/data/endpoints";
 const h = vi.hoisted(() => ({
   list: { data: undefined as unknown, isLoading: false, isError: false },
   detail: { data: undefined as unknown, isLoading: false, isError: false },
-  ranges: [] as string[],
+  params: [] as Record<string, unknown>[],
   setEnabled: vi.fn(),
 }));
 
@@ -17,8 +17,8 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/admin/hooks")>();
   return {
     ...actual,
-    useAdminEndpoints: (range: string) => {
-      h.ranges.push(range);
+    useAdminEndpoints: (params: Record<string, unknown>) => {
+      h.params.push(params);
       return h.list;
     },
     useAdminEndpoint: () => h.detail,
@@ -48,8 +48,12 @@ import { AdminScriptRoutes } from "../AdminScriptRoutes";
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
-  h.ranges.length = 0;
-  h.list = { data: { range: "day", since: "", endpoints: mockAdminEndpoints }, isLoading: false, isError: false };
+  h.params.length = 0;
+  h.list = {
+    data: { range: "day", since: "", endpoints: mockAdminEndpoints, total: mockAdminEndpoints.length, page: 1, per_page: 50 },
+    isLoading: false,
+    isError: false,
+  };
   h.detail = { data: mockEndpointDetail("contact", "day"), isLoading: false, isError: false };
 });
 
@@ -75,13 +79,48 @@ describe("EndpointsTab", () => {
   });
 
   it("reads an empty deployment as empty, and a failed read as failed", () => {
-    h.list = { data: { range: "day", since: "", endpoints: [] }, isLoading: false, isError: false };
+    h.list = { data: { range: "day", since: "", endpoints: [], total: 0, page: 1, per_page: 50 }, isLoading: false, isError: false };
     render(<EndpointsTab onNavigate={vi.fn()} />);
     expect(screen.getByText(/No automation answers HTTP requests yet/)).toBeInTheDocument();
     cleanup();
     h.list = { data: undefined, isLoading: false, isError: true };
     render(<EndpointsTab onNavigate={vi.fn()} />);
     expect(screen.getByText("The endpoints could not be read.")).toBeInTheDocument();
+  });
+
+  it("pages through more endpoints than a page holds, reading each page from the server (#2251)", () => {
+    h.list = {
+      data: { range: "day", since: "", endpoints: mockAdminEndpoints, total: 226, page: 1, per_page: 50 },
+      isLoading: false,
+      isError: false,
+    };
+    render(<EndpointsTab onNavigate={vi.fn()} />);
+    expect(screen.getByText(/of 226/)).toBeInTheDocument();
+    expect(h.params[h.params.length - 1]).toMatchObject({ range: "day", access: "", status: "", page: 1, perPage: 50 });
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    expect(h.params[h.params.length - 1]).toMatchObject({ page: 2 });
+  });
+
+  it("filters on the server and starts again at the first page (#2251)", () => {
+    h.list = {
+      data: { range: "day", since: "", endpoints: mockAdminEndpoints, total: 226, page: 1, per_page: 50 },
+      isLoading: false,
+      isError: false,
+    };
+    render(<EndpointsTab onNavigate={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Filter by access" }));
+    fireEvent.click(screen.getByRole("option", { name: "Public" }));
+    expect(h.params[h.params.length - 1]).toMatchObject({ access: "public", page: 1 });
+  });
+
+  it("says a filter matched nothing rather than that nothing is bound", () => {
+    render(<EndpointsTab onNavigate={vi.fn()} />);
+    h.list = { data: { range: "day", since: "", endpoints: [], total: 0, page: 1, per_page: 50 }, isLoading: false, isError: false };
+    fireEvent.click(screen.getByRole("combobox", { name: "Filter by status" }));
+    fireEvent.click(screen.getByRole("option", { name: "Off" }));
+    expect(screen.getByText("No endpoint matches these filters.")).toBeInTheDocument();
+    expect(screen.queryByText(/No automation answers HTTP requests yet/)).toBeNull();
   });
 
   it("picks an automation to bind on its own page", () => {

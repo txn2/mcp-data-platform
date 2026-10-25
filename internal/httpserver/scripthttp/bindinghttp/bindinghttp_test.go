@@ -45,8 +45,8 @@ func (*store) GetByName(context.Context, string) (*epbinding.Binding, error) {
 	return nil, epbinding.ErrNotFound
 }
 
-func (*store) List(context.Context, epbinding.Filter) ([]epbinding.Binding, error) {
-	return []epbinding.Binding{}, nil
+func (*store) List(context.Context, epbinding.Filter) ([]epbinding.Binding, int, error) {
+	return []epbinding.Binding{}, 0, nil
 }
 
 func (s *store) SetEnabled(_ context.Context, id string, enabled bool, _ string) error {

@@ -44,6 +44,12 @@ const (
 	maxCallers  = 10
 )
 
+// How many endpoints one page of the list holds (#2251).
+const (
+	defaultPerPage = 50
+	maxPerPage     = 200
+)
+
 // Config is what the routes read.
 type Config struct {
 	DB       *sql.DB
@@ -91,11 +97,15 @@ type Endpoint struct {
 	RefusedByReason map[string]int64 `json:"refused_by_reason"`
 }
 
-// List is the list route's answer.
+// List is the list route's answer: one page of the endpoints the filters
+// match, and how many match in all.
 type List struct {
 	Range     string     `json:"range"`
 	Since     time.Time  `json:"since"`
 	Endpoints []Endpoint `json:"endpoints"`
+	Total     int        `json:"total"`
+	Page      int        `json:"page"`
+	PerPage   int        `json:"per_page"`
 }
 
 // Detail is one endpoint's page: the binding and its totals, the request
@@ -134,10 +144,14 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 // list handles GET /api/v1/admin/endpoints.
 //
 // @Summary      List every endpoint with its traffic
-// @Description  Every endpoint binding on the deployment, ordered by name: its script (id, name, owner), address, methods, path, access (public or signed_in), open_reads, whether it is on, its limits, and who last changed it and when. traffic is what it answered over the range: requests by status class, failures, p50 and p95 duration, distinct signed-in callers and the last request's time, read from each request's audit row. refused counts the requests it turned away before its handler ran, by reason: the bot check, the endpoint's or a caller's rate limit, the body limit, a missing or refused credential, an origin the binding does not list. A deployment with no bindings answers an empty list.
+// @Description  The endpoint bindings on the deployment, ordered by name, a page at a time: total is how many match the filters, page and per_page the page answered (per_page defaults to 50, at most 200). Each endpoint carries its script (id, name, owner), address, methods, path, access (public or signed_in), open_reads, whether it is on, its limits, and who last changed it and when. traffic is what it answered over the range: requests by status class, failures, p50 and p95 duration, distinct signed-in callers and the last request's time, read from each request's audit row. refused counts the requests it turned away before its handler ran, by reason: the bot check, the endpoint's or a caller's rate limit, the body limit, a missing or refused credential, an origin the binding does not list. A deployment with no bindings answers an empty list.
 // @Tags         Endpoints
 // @Produce      json
-// @Param        range  query  string  false  "day (the default) or week"  Enums(day, week)
+// @Param        range     query  string  false  "day (the default) or week"  Enums(day, week)
+// @Param        access    query  string  false  "Only public or only signed_in endpoints"  Enums(public, signed_in)
+// @Param        status    query  string  false  "Only endpoints that are on, or off"  Enums(on, off)
+// @Param        page      query  int     false  "1-based page (default 1)"
+// @Param        per_page  query  int     false  "Endpoints per page (default 50, at most 200)"
 // @Success      200  {object}  List
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
@@ -149,8 +163,12 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	filter, page, ok := listFilter(w, r)
+	if !ok {
+		return
+	}
 	ctx := r.Context()
-	bindings, err := h.cfg.Bindings.List(ctx, epbinding.Filter{})
+	bindings, total, err := h.cfg.Bindings.List(ctx, filter)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -166,11 +184,44 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	byEndpoint := refusalsByEndpoint(refused)
-	out := List{Range: rng, Since: since, Endpoints: make([]Endpoint, 0, len(bindings))}
+	out := List{
+		Range: rng, Since: since, Endpoints: make([]Endpoint, 0, len(bindings)),
+		Total: total, Page: page, PerPage: filter.Limit,
+	}
 	for i := range bindings {
 		out.Endpoints = append(out.Endpoints, h.endpoint(ctx, &bindings[i], traffic[bindings[i].Name], byEndpoint[bindings[i].ID]))
 	}
 	httpjson.WriteJSON(w, http.StatusOK, out)
+}
+
+// listFilter reads the list's filters and page, answering 400 for an access
+// or status it does not know.
+func listFilter(w http.ResponseWriter, r *http.Request) (filter epbinding.Filter, page int, ok bool) {
+	q := r.URL.Query()
+	switch access := q.Get("access"); access {
+	case "", epbinding.AuthPublic, epbinding.AuthSignedIn:
+		filter.AuthMode = access
+	default:
+		httpjson.WriteError(w, http.StatusBadRequest, "access is public or signed_in")
+		return filter, 0, false
+	}
+	switch q.Get("status") {
+	case "":
+	case "on":
+		filter.Enabled = new(true)
+	case "off":
+		filter.Enabled = new(false)
+	default:
+		httpjson.WriteError(w, http.StatusBadRequest, "status is on or off")
+		return filter, 0, false
+	}
+	filter.Limit = httpjson.ParseLimit(q)
+	if filter.Limit <= 0 {
+		filter.Limit = defaultPerPage
+	}
+	filter.Limit = min(filter.Limit, maxPerPage)
+	filter.Offset = httpjson.ParsePageOffset(q, filter.Limit)
+	return filter, filter.Offset/filter.Limit + 1, true
 }
 
 // detail handles GET /api/v1/admin/endpoints/{name}.
