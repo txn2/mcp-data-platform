@@ -24,8 +24,13 @@ export interface LibraryView {
   tab: string;
   /** The folder inside it, "" for its root. */
   path: string;
-  /** The free-text filter, already debounced. It spans the whole top-level folder. */
+  /**
+   * The free-text filter, already debounced. It searches every library the
+   * caller reads (#2293), or the open folder and beneath it when within is set.
+   */
   q: string;
+  /** Narrows the search to the open folder and the folders beneath it. */
+  within: boolean;
   /** The single tag the view is narrowed to, or "" for every tag. */
   tag: string;
   sort: ResourceSort;
@@ -68,6 +73,7 @@ export function readLibraryView(
     tab,
     path,
     q: sp.get("q") ?? "",
+    within: sp.get("within") === "1",
     tag: sp.get("tag") ?? "",
     // An unrecognized order is the default one: this comes off the address bar,
     // where anything at all can be typed, and the sort feeds a query parameter
@@ -119,6 +125,7 @@ function readLocation(
 export function libraryPath(basePath: string, view: LibraryView, defaultTab: string): string {
   const sp = new URLSearchParams();
   if (view.q) sp.set("q", view.q);
+  if (view.within) sp.set("within", "1");
   if (view.tag) sp.set("tag", view.tag);
   if (view.sort !== DEFAULT_SORT) sp.set("sort", view.sort);
   const qs = sp.toString();

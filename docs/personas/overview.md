@@ -427,7 +427,7 @@ A person's persona folder and persona-scoped prompts follow role overlap, not th
 
 ## Sharing with a persona
 
-A share can be addressed to a persona instead of a person (#2089). Everyone who resolves to that persona when they open the item opens it, so a person who joins the persona afterwards gains it and one who leaves loses it, with no change to the share. The share dialog offers **People** or **Personas**; anyone who can share may share with any persona (#2290), and an external persona is marked **External** in the list. Each current member is notified by their own notification preferences, and the share is listed once on the item, as **Persona:** and the persona's name. `POST .../shares` takes `shared_with_persona` in place of `shared_with_email`, and a share naming both is refused.
+A share can be addressed to a persona instead of a person (#2089). Everyone who resolves to that persona when they open the item opens it, so a person who joins the persona afterwards gains it and one who leaves loses it, with no change to the share. In the share dialog a persona is a group: typing its name in **Add people or groups** lists it under **Groups** with how many people it reaches now (#2291), counted as its members are notified; anyone who can share may share with any persona (#2290). Each current member is notified by their own notification preferences, and the share is listed once on the item under **People with access**, by the persona's name and its size. `GET /api/v1/portal/share-personas` answers each persona's `member_count`. `POST .../shares` takes `shared_with_persona` in place of `shared_with_email`, and a share naming both is refused.
 
 ## Connection Access Control
 

@@ -161,7 +161,7 @@ type Filter struct {
 	// (#1837). Ignored when Path is empty.
 	Direct bool
 	Tag    string // optional tag filter
-	Query  string // optional text search in display_name/description
+	Query  string // optional text search in display_name, description, path, filename and tags
 	Sort   Sort   // ordering; empty selects SortUpdated
 	Limit  int
 	Offset int

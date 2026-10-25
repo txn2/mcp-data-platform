@@ -38,7 +38,7 @@ test.describe("Resources positioning copy", () => {
     await searchBox(page).fill("zzz-no-such-resource");
 
     const empty = page.getByTestId("resources-empty");
-    await expect(empty).toContainText("No files in My Resources match");
+    await expect(empty).toContainText("No files match");
     await expect(empty).not.toContainText("This folder is empty");
     await expect(empty).not.toContainText(RESOURCE_POSITIONING);
     // Nothing to upload here: the file may well already be in the folder.

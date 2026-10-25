@@ -719,7 +719,7 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 	if !h.allowedSharePersona(w, user, req) {
 		return
 	}
-	share, buildErr := buildShare(shareTarget{CollectionID: id}, user.Email, req)
+	share, buildErr := h.buildGrant(r.Context(), shareTarget{CollectionID: id}, user.Email, req)
 	if buildErr != nil {
 		writeError(w, http.StatusBadRequest, buildErr.Error())
 		return

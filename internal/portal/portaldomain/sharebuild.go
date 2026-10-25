@@ -1,6 +1,7 @@
 package portaldomain
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -228,5 +229,152 @@ func applyExpiry(share *Share, mode shareaccess.Mode, expiresIn string) error {
 	}
 	exp := time.Now().Add(dur)
 	share.ExpiresAt = &exp
+	return nil
+}
+
+// IsGeneralLink reports whether a share is an item's general link (#2291): a
+// link addressed to nobody that was made from the share dialog rather than
+// posted to a channel, still in force at now. An item has one; a share made by
+// a post stays its own, so removing the post is what stops that link.
+func IsGeneralLink(s Share, now time.Time) bool {
+	if s.Revoked || s.SharedWithEmail != "" || s.SharedWithUserID != "" || s.SharedWithPersona != "" {
+		return false
+	}
+	if s.Origin == OriginChannelPost || s.PostedTo != "" {
+		return false
+	}
+	return s.ExpiresAt == nil || s.ExpiresAt.After(now)
+}
+
+// GeneralLink is the newest general link among shares, or nil. An item made
+// before #2291 can hold several; the newest is the one the dialog changes.
+func GeneralLink(shares []Share, now time.Time) *Share {
+	var found *Share
+	for i := range shares {
+		if !IsGeneralLink(shares[i], now) {
+			continue
+		}
+		if found == nil || shares[i].CreatedAt.After(found.CreatedAt) {
+			found = &shares[i]
+		}
+	}
+	return found
+}
+
+// LinkSpec is what the share dialog asks of an item's general link. An empty
+// field keeps what the link holds.
+type LinkSpec struct {
+	// AccessMode is "authenticated" or "public".
+	AccessMode string
+	// ExpiresIn is a Go duration, for a public link only. A link made public
+	// needs one; a public link kept public keeps its expiry without one.
+	ExpiresIn      string
+	NoticeText     *string
+	HideExpiration *bool
+}
+
+// LinkUpdate is the general link's new state: its mode, expiry, notice and
+// whether the viewer is shown the expiry. The token is not part of it, so a
+// link already handed out follows the new rule.
+type LinkUpdate struct {
+	AccessMode     ShareAccessMode
+	ExpiresAt      *time.Time
+	NoticeText     string
+	HideExpiration bool
+}
+
+// ErrLinkMode is a general link asked to be restricted, which names a
+// recipient a link has none of.
+var ErrLinkMode = errors.New("access_mode must be authenticated or public")
+
+// ApplyLinkSpec is the update spec makes to the general link cur at now. The
+// lifetime rule is BuildShare's: a public link expires, a link for signed-in
+// people is revoke-only.
+func ApplyLinkSpec(cur Share, spec LinkSpec, now time.Time) (LinkUpdate, error) {
+	u := LinkUpdate{AccessMode: cur.AccessMode, ExpiresAt: cur.ExpiresAt, NoticeText: cur.NoticeText, HideExpiration: cur.HideExpiration}
+	if spec.AccessMode != "" {
+		u.AccessMode = ShareAccessMode(spec.AccessMode)
+	}
+	if u.AccessMode != AccessModeAuthenticated && u.AccessMode != AccessModePublic {
+		return LinkUpdate{}, ErrLinkMode
+	}
+	if spec.NoticeText != nil {
+		if err := ValidateNoticeText(*spec.NoticeText); err != nil {
+			return LinkUpdate{}, err
+		}
+		u.NoticeText = *spec.NoticeText
+	}
+	if spec.HideExpiration != nil {
+		u.HideExpiration = *spec.HideExpiration
+	}
+	if u.AccessMode != AccessModePublic {
+		if spec.ExpiresIn != "" {
+			return LinkUpdate{}, ErrExpiryOnAuthenticatedShare
+		}
+		u.ExpiresAt = nil
+		return u, nil
+	}
+	expiry, err := publicExpiry(cur, spec.ExpiresIn, now)
+	if err != nil {
+		return LinkUpdate{}, err
+	}
+	u.ExpiresAt = expiry
+	return u, nil
+}
+
+// publicExpiry is when a link anyone can open stops working.
+func publicExpiry(cur Share, expiresIn string, now time.Time) (*time.Time, error) {
+	if expiresIn == "" {
+		if cur.AccessMode == AccessModePublic && cur.ExpiresAt != nil {
+			return cur.ExpiresAt, nil
+		}
+		return nil, ErrPublicShareNeedsExpiry
+	}
+	dur, err := time.ParseDuration(expiresIn)
+	if err != nil {
+		return nil, ErrInvalidExpiresIn
+	}
+	if dur <= 0 {
+		return nil, ErrNonPositiveExpiresIn
+	}
+	exp := now.Add(dur)
+	return &exp, nil
+}
+
+// ErrGuestEditor is an editor grant to an address with no account: a guest
+// opens an item through a link emailed to them, which only views (#2291).
+var ErrGuestEditor = errors.New("an address with no account can only view: grant viewer, or share once they have signed in")
+
+// ErrLinkPermission is a permission change asked of a link, which opens as
+// viewer for everyone its mode admits.
+var ErrLinkPermission = errors.New("a link opens as viewer; share with a person or a group to grant edit")
+
+// GrantPermission is the permission a grant may be changed to (#2291): viewer or
+// editor, for a share naming a person or a group, and viewer alone for an
+// address the directory does not hold. The file shares apply the same rule.
+func GrantPermission(ctx context.Context, share Share, requested string, hasAccount func(ctx context.Context, email string) bool) (SharePermission, error) {
+	if !ValidSharePermission(requested) {
+		return "", errors.New("invalid permission: must be viewer or editor")
+	}
+	perm := SharePermission(requested)
+	if share.SharedWithEmail == "" && share.SharedWithUserID == "" && share.SharedWithPersona == "" {
+		return "", ErrLinkPermission
+	}
+	if err := GuestCheck(ctx, share.SharedWithEmail, perm, hasAccount); err != nil {
+		return "", err
+	}
+	return perm, nil
+}
+
+// GuestCheck refuses an editor grant to an address the directory does not
+// hold (#2291). A grant to a person by user id or to a group, and any viewer
+// grant, passes.
+func GuestCheck(ctx context.Context, email string, perm SharePermission, hasAccount func(ctx context.Context, email string) bool) error {
+	if perm != PermissionEditor || email == "" || hasAccount == nil {
+		return nil
+	}
+	if !hasAccount(ctx, email) {
+		return ErrGuestEditor
+	}
 	return nil
 }

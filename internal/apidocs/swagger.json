@@ -13691,6 +13691,132 @@
                 }
             }
         },
+        "/portal/assets/{id}/link": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates the asset's one general link, or changes the one it has in place: its mode, expiry, banner and whether the expiry is shown (#2291). The token is kept, so a link already handed out follows the new rule. A link a post to a channel created stays its own. The owner or an admin.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "Set an asset's general link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The link",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sharelink.LinkRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The link was changed",
+                        "schema": {
+                            "$ref": "#/definitions/sharelink.LinkResponse"
+                        }
+                    },
+                    "201": {
+                        "description": "The link was created",
+                        "schema": {
+                            "$ref": "#/definitions/sharelink.LinkResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes the asset's general link, leaving only the people and groups it is shared with and its posts to channels (#2291). An asset with no general link is unchanged. The owner or an admin.",
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "Remove an asset's general link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/pdf": {
             "get": {
                 "security": [
@@ -16842,6 +16968,132 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/collections/{id}/link": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates the collection's one general link, or changes the one it has in place, keeping its token (#2291). The owner or an admin.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "Set a collection's general link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The link",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sharelink.LinkRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The link was changed",
+                        "schema": {
+                            "$ref": "#/definitions/sharelink.LinkResponse"
+                        }
+                    },
+                    "201": {
+                        "description": "The link was created",
+                        "schema": {
+                            "$ref": "#/definitions/sharelink.LinkResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes the collection's general link (#2291). A collection with no general link is unchanged. The owner or an admin.",
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "Remove a collection's general link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -23208,7 +23460,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every persona a share may be addressed to, each marked when it is for people outside the organization (#2089, #2290). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.",
+                "description": "Returns every persona a share may be addressed to, each marked when it is for people outside the organization (#2089, #2290), with how many people it reaches now (#2291). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.",
                 "produces": [
                     "application/json"
                 ],
@@ -23433,6 +23685,77 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes the permission of a share addressed to a person or a group, in place (#2291). A link opens as viewer and has no permission to change, and an address with no account can only view. The owner of the shared item, or an admin.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Shares"
+                ],
+                "summary": "Change a share's permission",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Share ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The permission",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sharelink.PermissionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portaldomain.Share"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -24462,7 +24785,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Search display_name and description",
+                        "description": "Search display_name, description, path, filename and tags",
                         "name": "q",
                         "in": "query"
                     },
@@ -25846,6 +26169,78 @@
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes the permission of one share of a managed resource in place (#2291). A link a post to a channel created opens as viewer and has none to change, and an address with no account can only view. Someone who can change the file.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Change a file share's permission",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Share ID",
+                        "name": "shareID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The permission",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resourceshare.PermissionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portaldomain.Share"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
                     },
                     "403": {
                         "description": "Forbidden",
@@ -36003,6 +36398,11 @@
                     "type": "boolean",
                     "example": false
                 },
+                "member_count": {
+                    "description": "MemberCount is how many people the persona reaches now (#2291).",
+                    "type": "integer",
+                    "example": 12
+                },
                 "name": {
                     "type": "string",
                     "example": "finance"
@@ -38819,6 +39219,16 @@
                 },
                 "examined": {
                     "type": "integer"
+                }
+            }
+        },
+        "resourceshare.PermissionRequest": {
+            "type": "object",
+            "properties": {
+                "permission": {
+                    "description": "Permission is \"viewer\" or \"editor\".",
+                    "type": "string",
+                    "example": "editor"
                 }
             }
         },
@@ -42130,6 +42540,53 @@
                 "type": {
                     "type": "string",
                     "example": "about:blank"
+                }
+            }
+        },
+        "sharelink.LinkRequest": {
+            "type": "object",
+            "properties": {
+                "access_mode": {
+                    "description": "AccessMode is \"authenticated\" (anyone who can sign in) or \"public\"\n(anyone with the link).",
+                    "type": "string",
+                    "example": "public"
+                },
+                "expires_in": {
+                    "description": "ExpiresIn is a Go duration, for a public link only: required to make a\nlink public, optional to keep one public.",
+                    "type": "string",
+                    "example": "24h"
+                },
+                "hide_expiration": {
+                    "description": "HideExpiration hides the date the link stops working from the viewer.",
+                    "type": "boolean",
+                    "example": false
+                },
+                "notice_text": {
+                    "description": "NoticeText is the banner on the shared page; \"\" hides it.",
+                    "type": "string",
+                    "example": "Proprietary & Confidential"
+                }
+            }
+        },
+        "sharelink.LinkResponse": {
+            "type": "object",
+            "properties": {
+                "share": {
+                    "$ref": "#/definitions/portaldomain.Share"
+                },
+                "share_url": {
+                    "type": "string",
+                    "example": "https://platform.example.com/portal/view/abc123"
+                }
+            }
+        },
+        "sharelink.PermissionRequest": {
+            "type": "object",
+            "properties": {
+                "permission": {
+                    "description": "Permission is \"viewer\" or \"editor\".",
+                    "type": "string",
+                    "example": "editor"
                 }
             }
         },

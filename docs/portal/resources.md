@@ -61,7 +61,7 @@ A folder's counts are exact and come from the server in one request (`GET /api/v
 
 ![A folder two levels in](../images/screenshots/light/admin-resource-folder-light.webp#only-light)![A folder two levels in](../images/screenshots/dark/admin-resource-folder-dark.webp#only-dark)
 
-Search spans the **whole top-level folder**, not the folder you are standing in, and each hit shows its location with **Show in folder**, which opens the hit's folder in the tree with the hit selected. A search that only looked in the open folder would make the tree worse than a flat list.
+Search looks in **every folder you can open** -- My Resources, Global and each persona's -- from wherever the file manager is open, because search is how you find a file you cannot place (#2293). It matches a file's name, description, folder, filename and tags, so a pipeline's files are found by the pipeline name their folder or tags carry. Each hit shows its folder from the top, with **Show in folder**, which opens that folder in the tree with the hit selected. **This folder only**, beside the box, keeps a search in the open folder and the folders beneath it; it is off until you turn it on. `GET /api/v1/resources?q=<word>` with no `scope` searches every library the caller can read.
 
 ![A search across a top-level folder, each hit naming where it is](../images/screenshots/light/admin-resource-search-light.webp#only-light)![A search across a top-level folder, each hit naming where it is](../images/screenshots/dark/admin-resource-search-dark.webp#only-dark)
 
@@ -150,19 +150,19 @@ Opening a file (double-click, Enter, or **Open** in the preview pane) shows the 
 
 ## Sharing a file
 
-A file is shared the way an asset is (#2258). **Share** on a file's page shares it with a person by address or with a persona, as **Viewer** or **Editor**, and lists who it is already shared with:
+A file is shared the way an asset is (#2258), in the same dialog (#2291). **Share** on a file's page shares it with a person by address or with a group, as **Can view** or **Can edit**, and lists who it is already shared with, each changeable in place. A file has no general link:
 
 ![Sharing a file](../images/screenshots/light/admin-resource-share-light.webp#only-light)![Sharing a file](../images/screenshots/dark/admin-resource-share-dark.webp#only-dark)
 
 - A viewer opens the file at its own page and reads its content; an editor also renames it, edits its details and writes new versions, and may register a scratch table over it. Neither moves nor deletes it: that stays with whoever uploaded it and whoever may add to its folder.
 - A person of an external persona opens a file shared with them as a viewer, whatever the share says.
 - Sharing takes the same things sharing an asset does: someone who can change the file, and a persona that allows sharing. The recipient is told by the share email, unless you turn it off. A file has no public link.
-- **Share to a Channel** posts the file's page to one of the deployment's notification channels with an optional line above it. **Signed-in users** shares the file with every signed-in person of an internal persona, as viewer, recorded as posted to the channel; **People who can already open it** posts the link and shares nothing.
+- **Post to a channel** posts the file's page to one of the deployment's notification channels with an optional message. **Anyone who can sign in** shares the file with every signed-in person of an internal persona, as viewer, listed under **Posted to channels**; **Only people with access** posts the link and shares nothing.
 - **Upload and share...**, under **Upload**, uploads one file to your own folder and opens the share dialog on it.
 - A person who opens a file they cannot read is offered **Request access**, which asks the file's uploader, as for an asset.
 - Deleting a file removes its shares.
 
-`GET /api/v1/resources/{id}/shares`, `POST /api/v1/resources/{id}/shares` (`shared_with_email` or `shared_with_persona`, `permission`, `message`, `notify`), `DELETE /api/v1/resources/{id}/shares/{shareID}`, `GET /api/v1/resources/shared-with-me` and `POST /api/v1/resources/{id}/channel-shares` (`channel`, `target`, `access_mode` `authenticated` or `existing`, `message`) are the routes behind it.
+`GET /api/v1/resources/{id}/shares`, `POST /api/v1/resources/{id}/shares` (`shared_with_email` or `shared_with_persona`, `permission`, `message`, `notify`), `PATCH /api/v1/resources/{id}/shares/{shareID}` (`permission`), `DELETE /api/v1/resources/{id}/shares/{shareID}`, `GET /api/v1/resources/shared-with-me` and `POST /api/v1/resources/{id}/channel-shares` (`channel`, `target`, `access_mode` `authenticated` or `existing`, `message`) are the routes behind it.
 
 An external persona can be set to let its people upload: each upload lands in the uploader's own folder and is shared on arrival with the people and personas the persona names. See [Uploads by external people](../personas/overview.md#uploads-by-external-people).
 

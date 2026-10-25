@@ -284,7 +284,12 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
 
       {/* Native prompt share dialog */}
       <ShareDialog
-        target={{ type: "prompt", id: prompt.id }}
+        target={{
+          type: "prompt",
+          id: prompt.id,
+          name: (prompt.display_name || prompt.name).trim(),
+          ownerEmail: prompt.owner_email ?? "",
+        }}
         open={shareOpen}
         onOpenChange={setShareOpen}
       />

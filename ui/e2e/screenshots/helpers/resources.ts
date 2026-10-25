@@ -51,8 +51,8 @@ export function searchBox(page: Page): Locator {
 
 /**
  * searchFor types a search into the file manager and waits for the hits. A
- * search spans the whole top-level folder in view, whichever folder it was
- * typed in, and each hit names where it is.
+ * search spans every folder the caller can open, whichever folder it was typed
+ * in, and each hit names where it is (#2293).
  */
 export async function searchFor(page: Page, query: string): Promise<void> {
   await searchBox(page).fill(query);

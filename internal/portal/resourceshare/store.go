@@ -48,6 +48,8 @@ const (
 		shared_with_persona, permission, origin, access_mode, posted_to, created_at
 		FROM portal_shares WHERE resource_id = $1 AND ` + active + ` ORDER BY created_at DESC`
 	revokeQuery = `UPDATE portal_shares SET revoked = TRUE WHERE id = $1 AND resource_id = $2 AND revoked = FALSE`
+	// permissionSetQuery changes a standing share's permission (#2291).
+	permissionSetQuery = `UPDATE portal_shares SET permission = $3 WHERE id = $1 AND resource_id = $2 AND revoked = FALSE`
 )
 
 const (
@@ -173,6 +175,18 @@ func (s *Store) SharedWith(ctx context.Context, rcpt Recipient) ([]Ref, error) {
 }
 
 // Revoke ends a share on a resource.
+// SetPermission changes one standing share's permission (#2291).
+func (s *Store) SetPermission(ctx context.Context, resourceID, shareID string, perm portaldomain.SharePermission) error {
+	res, err := s.db.ExecContext(ctx, permissionSetQuery, shareID, resourceID, string(perm))
+	if err != nil {
+		return fmt.Errorf("setting resource share permission: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) Revoke(ctx context.Context, resourceID, shareID string) error {
 	res, err := s.db.ExecContext(ctx, revokeQuery, shareID, resourceID)
 	if err != nil {

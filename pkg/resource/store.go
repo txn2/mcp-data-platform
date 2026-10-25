@@ -940,10 +940,14 @@ func buildScopeWhere(filter Filter) (where string, args []any) {
 		idx++
 	}
 	if filter.Query != "" {
+		// The five fields a file is named by, the ones resource_fts ranks on
+		// apart from its content: a pipeline's files carry the pipeline's name
+		// in their folder, file name and tags more often than in their display
+		// name (#2293).
 		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(filter.Query)
-		pattern := "%" + escaped + "%"
-		where += fmt.Sprintf(" AND (display_name ILIKE $%d OR description ILIKE $%d)", idx, idx+1)
-		args = append(args, pattern, pattern)
+		where += fmt.Sprintf(" AND (display_name ILIKE $%[1]d OR description ILIKE $%[1]d OR path ILIKE $%[1]d"+
+			" OR filename ILIKE $%[1]d OR array_to_string(tags, ' ') ILIKE $%[1]d)", idx)
+		args = append(args, "%"+escaped+"%")
 	}
 
 	return where, args

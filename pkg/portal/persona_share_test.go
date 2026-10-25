@@ -117,3 +117,30 @@ func TestSharePersonasWithoutWhatTheyNeed(t *testing.T) {
 	h.deps.Personas = nil
 	assert.Empty(t, h.sharePersonas(user))
 }
+
+// Each persona is listed with how many people it reaches (#2291), and an
+// address with no account is not made an editor at creation (#2291).
+func TestSharePersonaCountsAndGuestEditors(t *testing.T) {
+	h := personaShareHandler(&User{UserID: "u1", Email: "u1@example.com", Roles: []string{"analyst"}}, nil)
+	h.deps.PersonaMemberCounts = func(context.Context) map[string]int { return map[string]int{"analyst": 2} }
+	h.deps.HasAccount = func(_ context.Context, email string) bool { return email == "member@example.com" }
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/share-personas", http.NoBody))
+	require.Equal(t, http.StatusOK, w.Code)
+	var got sharePersonaList
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, []SharePersona{
+		{Name: "analyst", DisplayName: "Analyst", MemberCount: 2},
+		{Name: "finance", DisplayName: "Finance", MemberCount: 0},
+	}, got.Personas)
+
+	post := func(body string) int {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/assets/a1/shares", strings.NewReader(body)))
+		return w.Code
+	}
+	assert.Equal(t, http.StatusBadRequest, post(`{"shared_with_email":"guest@example.org","permission":"editor","notify":false}`))
+	assert.Equal(t, http.StatusCreated, post(`{"shared_with_email":"guest@example.org","notify":false}`))
+	assert.Equal(t, http.StatusCreated, post(`{"shared_with_email":"member@example.com","permission":"editor","notify":false}`))
+}

@@ -5,17 +5,17 @@ import type { ScreenshotRoute } from "./route-types";
 // failure alert live. Kept apart from route-manifest.ts for its size.
 export const channelRoutes: ScreenshotRoute[] = [
   {
-    // Share to a channel (#2241): the Share dialog with one of the bot's
-    // chat channels chosen, which is the state that says what the channel's
-    // readers see.
+    // Post to a channel (#2241, #2291): the dialog's channel view with one
+    // of the bot's chat channels chosen and the preview of what it will see.
     slug: "asset-share-to-channel",
     path: "/portal/assets/ast-001",
     category: "user",
     beforeCapture: async (page) => {
       await page.getByRole("button", { name: "Share", exact: true }).click();
+      await page.getByRole("button", { name: "Post to a channel" }).click();
       await page.getByRole("combobox", { name: "Channel" }).click();
-      await page.getByRole("option", { name: "#town-square (team-chat)" }).click();
-      await page.getByLabel("Message").fill("This week's numbers are in.");
+      await page.getByRole("option", { name: /#town-square · / }).click();
+      await page.getByLabel("Message (optional)").fill("This week's numbers are in.");
       await page.waitForTimeout(300);
     },
   },

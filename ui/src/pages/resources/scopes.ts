@@ -218,6 +218,30 @@ export function rootFor(
 }
 
 /**
+ * rootOfResource is the top-level folder a file is filed in, which is where a
+ * search hit shows it is and where Show in folder opens (#2293): a search runs
+ * over every library the caller reads, not the folder in view. The caller's own
+ * files are stored under their subject or their address; anyone else's personal
+ * file is that person's folder under People, or under External files when it
+ * is one.
+ */
+export function rootOfResource(
+  r: { scope: string; scope_id?: string },
+  user: UserProfile | null,
+  roots: ResourceRoot[],
+  emailOf?: (id: string) => string,
+  externalOf?: (id: string) => ResourceRoot | undefined,
+): ResourceRoot {
+  const id = r.scope_id ?? "";
+  if (r.scope === "global") return rootFor("global", roots);
+  if (r.scope === "persona") return rootFor(id, roots);
+  if (user && (id === user.user_id || (!!user.email && id === user.email))) return rootFor(DEFAULT_ROOT, roots);
+  const external = externalOf?.(id);
+  if (external) return external;
+  return rootFor(PERSON_PREFIX + id, roots, emailOf);
+}
+
+/**
  * displayPath writes a location the way the page shows it: a path from the
  * top-level folder, `/Global/data/weekly`, with a person's folder under People.
  */

@@ -4,28 +4,32 @@ import type { Folder, ResourceSort } from "@/api/resources/types";
 import type { ResourceRoot } from "../scopes";
 import { fileEntries, folderEntries, sortFolders, type Entry } from "./model";
 
+/** What the view is narrowed to: a search, whether it stays in the open folder, a tag. */
+export interface Narrowing {
+  query: string;
+  within: boolean;
+  tag: string;
+}
+
 /**
  * useFolderData is what the folder in view holds: its folders from the facets,
  * which count every depth, and its own files from the listing, paged (#1837).
  *
- * A search or a tag replaces the folder with hits from the whole top-level
- * folder, each carrying where it is, because a search that looked only in the
- * open folder would make the tree worse than a flat list (#1530). The root of a
- * top-level folder lists no files: every file is filed in a folder.
+ * A search or a tag replaces the folder with hits, each carrying where it is
+ * (#1530). A search looks in every library the caller reads, because search is
+ * how a person finds a file they cannot place (#2293); with within set it looks
+ * in the open folder and beneath it. A tag spans the whole top-level folder.
+ * The root of a top-level folder lists no files: every file is filed in a
+ * folder.
  */
-export function useFolderData(
-  root: ResourceRoot,
-  path: string,
-  query: string,
-  tag: string,
-  sort: ResourceSort,
-) {
+export function useFolderData(root: ResourceRoot, path: string, narrowing: Narrowing, sort: ResourceSort) {
+  const { query, tag } = narrowing;
   // The files shared with the caller have no folders to read; their view
   // lists the shares (#2258).
   const facets = useFacets(root.params, !root.shared);
   const flat = query !== "" || tag !== "";
-  const listing = listsFiles(root, path, flat);
-  const list = useInfiniteResources(listingParams(root, path, query, tag, sort), listing);
+  const listing = listsFiles(root, path, flat, searchesEverywhere(narrowing));
+  const list = useInfiniteResources(listingParams(root, path, narrowing, sort), listing);
 
   const folders = useMemo(() => facets.data?.folders ?? [], [facets.data]);
   const resources = useMemo(() => (listing ? (list.data?.data ?? []) : []), [listing, list.data]);
@@ -52,24 +56,32 @@ export function useFolderData(
 
 /**
  * listsFiles reports whether a view lists files: a folder below a library's
- * root, or a search; never the files shared with the caller, whose view lists
- * the shares.
+ * root, or a search; in the files shared with the caller, whose view lists the
+ * shares, only a search of every library.
  */
-function listsFiles(root: ResourceRoot, path: string, flat: boolean): boolean {
-  return (flat || path !== "") && !root.shared;
+function listsFiles(root: ResourceRoot, path: string, flat: boolean, everywhere: boolean): boolean {
+  if (root.shared) return everywhere;
+  return flat || path !== "";
 }
 
-/** The listing request a view makes: one folder's own files, or a search's hits. */
-function listingParams(root: ResourceRoot, path: string, query: string, tag: string, sort: ResourceSort) {
-  const flat = query !== "" || tag !== "";
-  return {
-    ...root.params,
-    path: flat || path === "" ? undefined : path,
-    direct: !flat,
-    q: query || undefined,
-    tag: tag || undefined,
-    sort,
-  };
+/** searchesEverywhere reports whether a view's search names no library. */
+function searchesEverywhere(n: Narrowing): boolean {
+  return n.query !== "" && !n.within;
+}
+
+/**
+ * The listing request a view makes: one folder's own files, a search of every
+ * library (no scope, which the server reads as every library the caller may
+ * read), a search of the open folder and beneath it, or a tag's hits in the
+ * top-level folder.
+ */
+export function listingParams(root: ResourceRoot, path: string, n: Narrowing, sort: ResourceSort) {
+  const flat = n.query !== "" || n.tag !== "";
+  const q = n.query || undefined;
+  const tag = n.tag || undefined;
+  if (searchesEverywhere(n)) return { direct: false, q, tag, sort };
+  if (n.query !== "") return { ...root.params, path: path || undefined, direct: false, q, tag, sort };
+  return { ...root.params, path: flat || path === "" ? undefined : path, direct: !flat, q, tag, sort };
 }
 
 /**

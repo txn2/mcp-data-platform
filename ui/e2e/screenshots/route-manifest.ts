@@ -21,6 +21,8 @@ import {
   openShareDialog,
   openShareDialogPublicLink,
   openShareDialogWithRecipient,
+  openShareDialogAccessMenu,
+  openShareDialogSearching,
 } from "./route-actions";
 import {
   runToolTryIt,
@@ -265,25 +267,38 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
-    // Share dialog (create link + share with users) on an asset, in its
-    // default state: a link for signed-in users, which carries no lifetime.
+    // The Share dialog as it opens (#2291): the box, who has access, General
+    // access, the posts, and the footer.
     slug: "asset-share",
     path: "/portal/assets/ast-001",
     category: "user",
     beforeCapture: openShareDialog,
   },
   {
-    // Share dialog switched to a public link, the only state showing the
-    // anonymous-access warning and the lifetime control (#1279).
+    // Two letters typed: the matching groups and people (#2291).
+    slug: "asset-share-search",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openShareDialogSearching,
+  },
+  {
+    // General access's menu, the three modes side by side (#2291).
+    slug: "asset-share-access-menu",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openShareDialogAccessMenu,
+  },
+  {
+    // An asset anyone with the link can open (#1279, #2291): the warning
+    // tint, the date it stops working and Copy link promoted.
     slug: "asset-share-public",
     path: "/portal/assets/ast-001",
     category: "user",
     beforeCapture: openShareDialogPublicLink,
   },
   {
-    // Share dialog with a recipient named, which is the only state that shows
-    // the notify checkbox and the sharer's message box (#1016). Captured
-    // separately because those controls are absent from the dialog above.
+    // Adding people: a person and a guest, the guest note, Send an email and
+    // the message (#1016, #2291).
     slug: "asset-share-recipient",
     path: "/portal/assets/ast-001",
     category: "user",

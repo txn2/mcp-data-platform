@@ -7345,6 +7345,10 @@ definitions:
       external:
         example: false
         type: boolean
+      member_count:
+        description: MemberCount is how many people the persona reaches now (#2291).
+        example: 12
+        type: integer
       name:
         example: finance
         type: string
@@ -9672,6 +9676,13 @@ definitions:
         type: integer
       examined:
         type: integer
+    type: object
+  resourceshare.PermissionRequest:
+    properties:
+      permission:
+        description: Permission is "viewer" or "editor".
+        example: editor
+        type: string
     type: object
   resourceshare.ShareList:
     properties:
@@ -12500,6 +12511,45 @@ definitions:
         type: string
       type:
         example: about:blank
+        type: string
+    type: object
+  sharelink.LinkRequest:
+    properties:
+      access_mode:
+        description: |-
+          AccessMode is "authenticated" (anyone who can sign in) or "public"
+          (anyone with the link).
+        example: public
+        type: string
+      expires_in:
+        description: |-
+          ExpiresIn is a Go duration, for a public link only: required to make a
+          link public, optional to keep one public.
+        example: 24h
+        type: string
+      hide_expiration:
+        description: HideExpiration hides the date the link stops working from the
+          viewer.
+        example: false
+        type: boolean
+      notice_text:
+        description: NoticeText is the banner on the shared page; "" hides it.
+        example: Proprietary & Confidential
+        type: string
+    type: object
+  sharelink.LinkResponse:
+    properties:
+      share:
+        $ref: '#/definitions/portaldomain.Share'
+      share_url:
+        example: https://platform.example.com/portal/view/abc123
+        type: string
+    type: object
+  sharelink.PermissionRequest:
+    properties:
+      permission:
+        description: Permission is "viewer" or "editor".
+        example: editor
         type: string
     type: object
   smtp.SettingsInput:
@@ -23680,6 +23730,90 @@ paths:
       summary: Copy asset
       tags:
       - Assets
+  /portal/assets/{id}/link:
+    delete:
+      description: Revokes the asset's general link, leaving only the people and groups
+        it is shared with and its posts to channels (#2291). An asset with no general
+        link is unchanged. The owner or an admin.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove an asset's general link
+      tags:
+      - Shares
+    put:
+      consumes:
+      - application/json
+      description: 'Creates the asset''s one general link, or changes the one it has
+        in place: its mode, expiry, banner and whether the expiry is shown (#2291).
+        The token is kept, so a link already handed out follows the new rule. A link
+        a post to a channel created stays its own. The owner or an admin.'
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The link
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sharelink.LinkRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: The link was changed
+          schema:
+            $ref: '#/definitions/sharelink.LinkResponse'
+        "201":
+          description: The link was created
+          schema:
+            $ref: '#/definitions/sharelink.LinkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set an asset's general link
+      tags:
+      - Shares
   /portal/assets/{id}/pdf:
     get:
       description: Prints the HTML document the route's .../content sibling serves,
@@ -25787,6 +25921,87 @@ paths:
       summary: Add an asset to a collection
       tags:
       - Collections
+  /portal/collections/{id}/link:
+    delete:
+      description: Revokes the collection's general link (#2291). A collection with
+        no general link is unchanged. The owner or an admin.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove a collection's general link
+      tags:
+      - Shares
+    put:
+      consumes:
+      - application/json
+      description: Creates the collection's one general link, or changes the one it
+        has in place, keeping its token (#2291). The owner or an admin.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The link
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sharelink.LinkRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: The link was changed
+          schema:
+            $ref: '#/definitions/sharelink.LinkResponse'
+        "201":
+          description: The link was created
+          schema:
+            $ref: '#/definitions/sharelink.LinkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set a collection's general link
+      tags:
+      - Shares
   /portal/collections/{id}/sections:
     put:
       consumes:
@@ -30126,9 +30341,9 @@ paths:
   /portal/share-personas:
     get:
       description: 'Returns every persona a share may be addressed to, each marked
-        when it is for people outside the organization (#2089, #2290). A share addressed
-        to a persona opens for everyone whose roles resolve to it when they open the
-        item.'
+        when it is for people outside the organization (#2089, #2290), with how many
+        people it reaches now (#2291). A share addressed to a persona opens for everyone
+        whose roles resolve to it when they open the item.'
       produces:
       - application/json
       responses:
@@ -30273,6 +30488,54 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Revoke share
+      tags:
+      - Shares
+    patch:
+      consumes:
+      - application/json
+      description: Changes the permission of a share addressed to a person or a group,
+        in place (#2291). A link opens as viewer and has no permission to change,
+        and an address with no account can only view. The owner of the shared item,
+        or an admin.
+      parameters:
+      - description: Share ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The permission
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sharelink.PermissionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portaldomain.Share'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Change a share's permission
       tags:
       - Shares
   /portal/threads:
@@ -30930,7 +31193,7 @@ paths:
         in: query
         name: tag
         type: string
-      - description: Search display_name and description
+      - description: Search display_name, description, path, filename and tags
         in: query
         name: q
         type: string
@@ -31520,6 +31783,55 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Stop sharing a file
+      tags:
+      - Resources
+    patch:
+      consumes:
+      - application/json
+      description: Changes the permission of one share of a managed resource in place
+        (#2291). A link a post to a channel created opens as viewer and has none to
+        change, and an address with no account can only view. Someone who can change
+        the file.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Share ID
+        in: path
+        name: shareID
+        required: true
+        type: string
+      - description: The permission
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resourceshare.PermissionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portaldomain.Share'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Change a file share's permission
       tags:
       - Resources
   /resources/{id}/tables:

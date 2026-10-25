@@ -669,7 +669,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 // @Param        path     query  string  false  "Filter by folder path; returns that folder and everything beneath it"
 // @Param        direct   query  bool    false  "With path, only the resources filed directly at it, none beneath it"
 // @Param        tag      query  string  false  "Filter by tag"
-// @Param        q        query  string  false  "Search display_name and description"
+// @Param        q        query  string  false  "Search display_name, description, path, filename and tags"
 // @Param        sort     query  string  false  "Ordering (default updated)"  Enums(updated, updated_asc, last_read, name, name_desc, size, size_desc)
 // @Param        limit    query  int     false  "Max results to return (default 100, max 200)"
 // @Param        offset   query  int     false  "Pagination offset (default 0)"

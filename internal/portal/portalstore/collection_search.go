@@ -14,12 +14,13 @@ import (
 // Compile-time check: the PostgreSQL collection store provides ranked search.
 var _ portaldomain.CollectionSearcher = (*postgresCollectionStore)(nil)
 
-// collectionFTSExpr is the full-text expression the lexical arm matches and
-// ranks against. It calls portal_collection_fts() (migration 000063) with the
-// same argument order so the planner uses idx_portal_collections_search_fts.
-// portal_collection_fts composes the same corpus as CollectionIndexText (name +
-// description + sections_text).
-const collectionFTSExpr = `portal_collection_fts(name, description, sections_text)`
+// collectionFTSExpr is the full-text vector the lexical arm matches and ranks
+// against: the stored column portal_collection_fts(name, description,
+// sections_text) is computed into when a collection is written (migration
+// 000220), so ranking reads it rather than computing it for each matching row
+// (#2292). portal_collection_fts composes the same corpus as
+// CollectionIndexText (name + description + sections_text).
+const collectionFTSExpr = `search_fts`
 
 // Parameterized tsquery for the lexical predicate. $2 binds the query text in
 // the hybrid arms; the lexical-only path rebinds it to $1.

@@ -13,6 +13,7 @@ describe("reading a library view out of an address", () => {
       tab: "user",
       path: "",
       q: "",
+      within: false,
       tag: "",
       // A folder opens by name, as a file manager lists one (#1872).
       sort: "name",
@@ -33,9 +34,17 @@ describe("reading a library view out of an address", () => {
       tab: "global",
       path: "data",
       q: "demand",
+      within: false,
       tag: "q3",
       sort: "last_read",
     });
+  });
+
+  it("reads a search narrowed to the open folder, and writes it back (#2293)", () => {
+    const at = "/resources/lib/global/data?q=demand&within=1";
+    const view = readLibraryView(at, "/resources", "user");
+    expect(view).toMatchObject({ q: "demand", within: true });
+    expect(libraryPath("/resources", view, "user")).toBe(at);
   });
 
   it("reads a library with no folder as that library's root", () => {
@@ -83,6 +92,7 @@ describe("writing a library view into an address", () => {
     tab: "user",
     path: "",
     q: "",
+    within: false,
     tag: "",
     sort: "name" as const,
     ...over,

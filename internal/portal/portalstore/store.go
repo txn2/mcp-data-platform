@@ -1256,6 +1256,25 @@ func (s *postgresShareStore) Revoke(ctx context.Context, id string) error { //no
 	return nil
 }
 
+func (s *postgresShareStore) SetPermission(ctx context.Context, id string, perm portaldomain.SharePermission) error { //nolint:revive // interface impl
+	if _, err := s.db.ExecContext(ctx, `UPDATE portal_shares SET permission = $2 WHERE id = $1`, id, string(perm)); err != nil {
+		return fmt.Errorf("setting share permission: %w", err)
+	}
+	return nil
+}
+
+func (s *postgresShareStore) UpdateLink(ctx context.Context, id string, u portaldomain.LinkUpdate) error { //nolint:revive // interface impl
+	var expiresAt sql.NullTime
+	if u.ExpiresAt != nil {
+		expiresAt = sql.NullTime{Time: *u.ExpiresAt, Valid: true}
+	}
+	query := `UPDATE portal_shares SET access_mode = $2, expires_at = $3, notice_text = $4, hide_expiration = $5 WHERE id = $1`
+	if _, err := s.db.ExecContext(ctx, query, id, string(u.AccessMode), expiresAt, u.NoticeText, u.HideExpiration); err != nil {
+		return fmt.Errorf("updating link share: %w", err)
+	}
+	return nil
+}
+
 func (s *postgresShareStore) IncrementAccess(ctx context.Context, id string) error { //nolint:revive // interface impl
 	query := `UPDATE portal_shares SET access_count = access_count + 1, last_accessed_at = $1 WHERE id = $2`
 	_, err := s.db.ExecContext(ctx, query, time.Now(), id)

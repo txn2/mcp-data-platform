@@ -134,29 +134,37 @@ Agents set the same thing through `manage_asset` action `update` with `max_versi
 
 The sidebar's **Session** row and the **Open session** action beneath the captured calls both open [the session that made this asset](activity.md#my-sessions): the panel shows only the calls captured at the moment the asset was saved, while the session holds every call that session made, before and after. Both appear only on your own assets — a session opens for the person who ran it, so on an asset shared with you there is nothing to link to. Administrators get the same walk on the admin asset viewer, into the admin sessions surface.
 
-The Share action opens a dialog to mint a link or a user-scoped share, with a copy-once token and a per-link access count. A public link takes an expiration, and must have one; every other share is now minted without one and grants access until the owner revokes it. Shares created before that rule keep the expiry they were given, whatever their mode, so an older link may still show a countdown. Every share carries an **access mode** that decides who the link opens for:
-
-| Mode | Who can open the link |
-|---|---|
-| `restricted` | Only the named recipient (and the person who created the share) |
-| `authenticated` | Any signed-in platform user |
-| `public` | Anyone with the link, without signing in |
-
-**Share to a Channel** posts the asset to a notification channel with a link that opens for the channel's readers: choose one of the chat channels a Slack or Mattermost bot is in, or another channel you reach, then **Signed-in users** or **Anyone with the link** with an expiration, and an optional message. Posting creates a link share in that mode, listed with the others as **Posted to** the channel; revoking it stops the posted link from opening. See [who can open a published link](../server/notifications.md#who-can-open-a-published-link). Share is the owner's, and offered only when their persona allows sharing ([Sharing](../personas/overview.md#sharing)).
-
-Sharing with a person makes the share `restricted`: the link resolves only for that recipient, signed in, so forwarding the email or the URL grants nothing. The **Share by Link** section mints a link for any signed-in user by default, with no lifetime control, because such a link resolves against who the viewer is and ends on revocation. Choosing **Anyone with the link** makes it `public`, shows a warning that the link opens without sign-in, and reveals the lifetime control: possession of a public URL is the whole of its access check, so it expires on a clock as well. A signed-in user who is not the recipient of a restricted share sees a branded page naming the account they are signed in as, with a sign-out-and-switch action, rather than a generic not-found.
-
-The dialog's **People** and **Personas** choice addresses a share to one person or to everyone in a persona; see [Sharing with a persona](../personas/overview.md#sharing-with-a-persona).
+**Share** opens one dialog that answers who can open the item (#2291). It opens on the **Share** view: a box to add people or groups, **People with access** (the owner, then each person and group in the order they were added), **General access**, the channels the item was **Posted to**, and a footer of **Copy link**, **Post to a channel** and **Done**.
 
 ![Share asset](../images/screenshots/light/user-asset-share-light.webp#only-light)![Share asset](../images/screenshots/dark/user-asset-share-dark.webp#only-dark)
 
-The same dialog with the link switched to **Anyone with the link**:
+Typing in **Add people or groups** lists the matching groups (personas, with how many people each reaches) and people from the directory. A full email address nobody in the directory has is offered as a **Guest**. Anyone who already has access is listed with **Has access** and cannot be picked again.
 
-![Share a public link](../images/screenshots/light/user-asset-share-public-light.webp#only-light)![Share a public link](../images/screenshots/dark/user-asset-share-public-dark.webp#only-dark)
+![Searching for people and groups](../images/screenshots/light/user-asset-share-search-light.webp#only-light)![Searching for people and groups](../images/screenshots/dark/user-asset-share-search-dark.webp#only-dark)
 
-Naming a recipient reveals two more controls. **Notify by email** is checked by default and can be cleared to share quietly — the share is created either way, only the email is suppressed. With notification on, an optional **Message** box attaches a short plain-text note to that email, quoted and attributed to the sharer; it travels only in the notification and is stored nowhere. The note takes text, not markup or links: a link inside a trusted platform email is a phishing vector, so one is refused rather than delivered. Addresses pasted in the `Example User <user@example.com>` form mail clients copy are reduced to the bare address as the field loses focus, so what is stored and mailed is what the sharer sees. See [Email Notifications](../server/notifications.md) for what the recipient receives and how they control it.
+Picking a result starts **Adding people**: a chip for each recipient, **Can view** or **Can edit** for all of them, **Send an email** (on by default), and an optional message of up to 500 characters that travels only in that email, quoted and attributed to the sharer. The message takes text, not markup or links: a link inside a trusted platform email is a phishing vector, so one is refused rather than delivered. **Share** creates one share per chip. A recipient the server refuses stays as a chip with the reason under it, and the others are shared. A guest can only view: they open the item through a single-use link emailed to them (below), so **Can edit** is disabled while a guest is among the chips, and the server refuses an editor grant to an address with no account.
 
-![Share with a recipient](../images/screenshots/light/user-asset-share-recipient-light.webp#only-light)![Share with a recipient](../images/screenshots/dark/user-asset-share-recipient-dark.webp#only-dark)
+![Adding people](../images/screenshots/light/user-asset-share-recipient-light.webp#only-light)![Adding people](../images/screenshots/dark/user-asset-share-recipient-dark.webp#only-dark)
+
+Each row's menu changes what that person or group can do, at once (`PATCH /api/v1/portal/shares/{id}` with `permission`), or removes their access. **Undo**, for five seconds after a removal, shares with them again without sending a second email. A grant made before shares stopped expiring keeps its countdown on its row.
+
+**General access** is who can open the item without being added, and an item has one general link:
+
+| General access | Access mode | Who can open the link |
+|---|---|---|
+| **Only people added** | (no link) | Only the people and groups listed |
+| **Anyone who can sign in** | `authenticated` | Any signed-in platform user |
+| **Anyone with the link** | `public` | Anyone with the link, without signing in, until it stops working |
+
+![General access](../images/screenshots/light/user-asset-share-access-menu-light.webp#only-light)![General access](../images/screenshots/dark/user-asset-share-access-menu-dark.webp#only-dark)
+
+Choosing a mode applies it at once. `PUT /api/v1/portal/assets/{id}/link` (and `/collections/{id}/link`) with `access_mode`, `expires_in`, `notice_text` and `hide_expiration` creates the item's general link or changes the one it has in place, keeping its token, so a link already handed out follows the new rule; `DELETE` on the same path is **Only people added**. A link anyone can open is a bearer credential, so it stops working after the time chosen (an hour, a day, the default, a week or thirty days); a link for signed-in people resolves against who is opening it and lasts until it is removed. While there is a link, the box under General access sets when it stops working and the **Banner on the shared page** (and, for a link anyone can open, whether the page also shows the date it stops working). An item that collected several links before it had one lists the older ones as **Other link** with **Remove**.
+
+![Anyone with the link](../images/screenshots/light/user-asset-share-public-light.webp#only-light)![Anyone with the link](../images/screenshots/dark/user-asset-share-public-dark.webp#only-dark)
+
+**Copy link** copies the general link, or the item's own portal page when there is none, which opens for the people with access. **Post to a channel** posts the item to a notification channel with a link that opens for the channel's readers: choose one of the chat channels a Slack or Mattermost bot is in, or another channel you reach, **Anyone who can sign in** or **Anyone with the link** with when it stops working, and an optional message, with a preview of what the channel will see. Each post is its own link share, listed under **Posted to channels** with how often it was opened; **Remove** there stops the posted link from opening. See [who can open a published link](../server/notifications.md#who-can-open-a-published-link). Share is the owner's, and offered only when their persona allows sharing ([Sharing](../personas/overview.md#sharing)).
+
+A share to a person or a group is `restricted`: the link resolves only for that recipient, signed in, so forwarding the email or the URL grants nothing. A signed-in user who is not the recipient of a restricted share sees a branded page naming the account they are signed in as, with a sign-out-and-switch action, rather than a generic not-found. Addresses pasted in the `Example User <user@example.com>` form mail clients copy are reduced to the bare address, so what is stored and mailed is what the sharer sees. See [Sharing with a persona](../personas/overview.md#sharing-with-a-persona) for groups and [Email Notifications](../server/notifications.md) for what a recipient receives and how they control it.
 
 A signed-in platform user who opens a share link lands on the item in their own portal rather than on the page built for people who have no account. That is where the version history, the feedback threads, the collections the asset belongs to, and editing where the share permits it all are, and the item is in their asset list from then on. The **Shared page** action in the viewer's toolbar opens the shared page as its recipient sees it, which is what someone who sent a link needs in order to check what arrived. An anonymous visitor, and a guest holding a one-time link, get the shared page unchanged.
 

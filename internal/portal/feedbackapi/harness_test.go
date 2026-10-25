@@ -56,6 +56,7 @@ func (m *mockAssetStore) List(_ context.Context, _ portaldomain.AssetFilter) ([]
 func (*mockAssetStore) Update(_ context.Context, _ string, _ portaldomain.AssetUpdate) error {
 	return nil
 }
+
 func (*mockAssetStore) AppendProvenanceCapture(context.Context, string, portaldomain.ProvenanceCapture) error {
 	return nil
 }
@@ -148,6 +149,13 @@ func (*mockShareStore) GetActiveShareForTarget(_ context.Context, _, _, _, _ str
 
 func (*mockShareStore) Revoke(_ context.Context, _ string) error          { return nil }
 func (*mockShareStore) IncrementAccess(_ context.Context, _ string) error { return nil }
+func (*mockShareStore) SetPermission(_ context.Context, _ string, _ portaldomain.SharePermission) error {
+	return nil
+}
+
+func (*mockShareStore) UpdateLink(_ context.Context, _ string, _ portaldomain.LinkUpdate) error {
+	return nil
+}
 
 type mockCollectionStore struct {
 	getResult  *portaldomain.Collection

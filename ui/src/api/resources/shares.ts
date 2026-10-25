@@ -55,6 +55,19 @@ export function useRevokeResourceShare(resourceId: string) {
   });
 }
 
+/** useSetResourceSharePermission changes a file share's permission in place (#2291). */
+export function useSetResourceSharePermission(resourceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shareId, permission }: { shareId: string; permission: SharePermission }) =>
+      resourceFetch<Share>(`/${encodeURIComponent(resourceId)}/shares/${encodeURIComponent(shareId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ permission }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["resources", resourceId, "shares"] }),
+  });
+}
+
 /** The files shared with the caller, directly or through their persona. */
 export function useSharedResources(enabled = true) {
   return useQuery({

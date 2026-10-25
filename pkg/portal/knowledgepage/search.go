@@ -37,10 +37,11 @@ type Searcher interface {
 	Search(ctx context.Context, q SearchQuery) ([]ScoredPage, error)
 }
 
-// ftsExpr is the full-text expression the lexical arm matches and
-// ranks against. It calls portal_knowledge_page_fts() (migration 000070) with the
-// same argument order so the planner uses idx_portal_knowledge_pages_search_fts.
-const ftsExpr = `portal_knowledge_page_fts(title, body, tags)`
+// ftsExpr is the full-text vector the lexical arm matches and ranks against:
+// the stored column portal_knowledge_page_fts(title, body, tags) is computed
+// into when a page is written (migration 000220), so ranking reads it rather
+// than parsing each matching page's body again (#2292).
+const ftsExpr = `search_fts`
 
 // ftsQueryLexical binds the lexical-only query text at $1 (no
 // vector parameter on that path). The hybrid arms inline the tsquery at $2.

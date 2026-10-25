@@ -7,7 +7,7 @@ import { formatBytes } from "@/lib/format";
 import { resourceThumbnailSrc } from "@/lib/thumbnailSupport";
 import { cn } from "@/lib/utils";
 import { useResolvedDark } from "@/stores/theme";
-import type { ResourceSort } from "@/api/resources/types";
+import type { Resource, ResourceSort } from "@/api/resources/types";
 import { displayPath, type ResourceRoot } from "../scopes";
 import { neverRead } from "../parts/groups";
 import { ExtBadge } from "./ExtBadge";
@@ -41,6 +41,8 @@ interface ListingProps {
   /** A search's hits, which name where each one is. */
   flat: boolean;
   root: ResourceRoot;
+  /** The library a file is filed in; a search's hits come from every library (#2293). */
+  rootOf?: (r: Resource) => ResourceRoot;
   admin: boolean;
   selection: FmSelection;
   sort: ResourceSort;
@@ -60,7 +62,7 @@ export function Listing(props: ListingProps) {
 
 const th = "sticky top-0 z-[1] h-[30px] border-b bg-card px-2 text-left text-xs font-medium whitespace-nowrap text-muted-foreground";
 
-function Rows({ entries, flat, root, admin, selection, sort, onSort, edit, handlers }: ListingProps) {
+function Rows({ entries, flat, root, rootOf, admin, selection, sort, onSort, edit, handlers }: ListingProps) {
   const keys = entries.map((e) => e.key);
   const all = keys.length > 0 && keys.every((k) => selection.has(k));
   return (
@@ -91,7 +93,7 @@ function Rows({ entries, flat, root, admin, selection, sort, onSort, edit, handl
             key={e.key}
             entry={e}
             flat={flat}
-            root={root}
+            root={e.kind === "file" && rootOf ? rootOf(e.resource) : root}
             admin={admin}
             selected={selection.has(e.key)}
             focused={selection.focus === e.key}
@@ -287,17 +289,21 @@ function LocationCell({ entry, root, onReveal }: { entry: Entry; root: ResourceR
   const path = entry.kind === "file" ? entry.resource.path : entry.path;
   return (
     <td className={cn(td, "font-mono text-[11.5px] text-muted-foreground")} title={displayPath(root, path)}>
-      {displayPath(root, path)}{" "}
-      <button
-        type="button"
-        className="text-primary hover:underline"
-        onClick={(e) => {
-          e.stopPropagation();
-          onReveal();
-        }}
-      >
-        Show in folder
-      </button>
+      {/* The path gives way to the button: a hit from a library with a long
+          name is still one click from its folder (#2293). */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="min-w-0 truncate">{displayPath(root, path)}</span>
+        <button
+          type="button"
+          className="shrink-0 font-sans text-primary hover:underline"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReveal();
+          }}
+        >
+          Show in folder
+        </button>
+      </div>
     </td>
   );
 }

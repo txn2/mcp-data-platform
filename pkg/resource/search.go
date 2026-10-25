@@ -107,10 +107,14 @@ var _ Searcher = (*postgresStore)(nil)
 // drift misaligns every search's scan rather than failing to compile.
 const searchColumns = selectColumns
 
-// ftsExpr is the full-text expression the lexical arm matches and ranks against.
-// It calls resource_fts() (migration 000091) with the same argument order so the
-// planner uses idx_resources_search_fts, the GIN index built on that same call.
-const ftsExpr = `resource_fts(display_name, description, path, filename, tags, content_text)`
+// ftsExpr is the full-text vector the lexical arm matches and ranks against:
+// the stored column resource_fts(display_name, description, path, filename,
+// tags, content_text) is computed into when a resource is written (migration
+// 000220). Ranking read the expression's index, which answers the match and
+// holds no vector, so it computed resource_fts again for every matching row: a
+// word in half of a 30,000-file library took 20.7 s against the search
+// provider's 5 s bound (#2292).
+const ftsExpr = `search_fts`
 
 // lexRankNormalization is the ts_rank_cd normalization bitmask for the lexical
 // relevance score: bit 1 divides the rank by 1 + log(document length) so a

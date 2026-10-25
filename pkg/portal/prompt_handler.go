@@ -672,7 +672,7 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 	if !h.allowedSharePersona(w, user, req) {
 		return
 	}
-	share, buildErr := buildShare(shareTarget{PromptID: id}, user.Email, req)
+	share, buildErr := h.buildGrant(r.Context(), shareTarget{PromptID: id}, user.Email, req)
 	if buildErr != nil {
 		writePortalError(w, http.StatusBadRequest, buildErr.Error())
 		return

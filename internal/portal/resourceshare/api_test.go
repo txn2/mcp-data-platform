@@ -75,6 +75,16 @@ func (m *memShares) Revoke(_ context.Context, id, shareID string) error {
 	return ErrNotFound
 }
 
+func (m *memShares) SetPermission(_ context.Context, id, shareID string, perm portaldomain.SharePermission) error {
+	for i := range m.rows {
+		if m.rows[i].ID == shareID && m.rows[i].ResourceID == id && !m.rows[i].Revoked {
+			m.rows[i].Permission = perm
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 type memResources map[string]*resource.Resource
 
 func (m memResources) Get(_ context.Context, id string) (*resource.Resource, error) {

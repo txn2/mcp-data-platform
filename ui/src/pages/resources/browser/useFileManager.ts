@@ -3,7 +3,15 @@ import { useExternalFolders, usePeople } from "@/api/resources/hooks";
 import type { ViewMode } from "@/components/listView";
 import { useAuthStore, type UserProfile } from "@/stores/auth";
 import type { Resource } from "@/api/resources/types";
-import { canWriteScope, EXTERNAL_PREFIX, externalFilesLevel, externalRoot, rootsFor, type ResourceRoot } from "../scopes";
+import {
+  canWriteScope,
+  EXTERNAL_PREFIX,
+  externalFilesLevel,
+  externalRoot,
+  rootOfResource,
+  rootsFor,
+  type ResourceRoot,
+} from "../scopes";
 import { fromDrop } from "../bulk/collect";
 import type { SourceFile } from "../bulk/plan";
 import { parentPath } from "../parts/tree";
@@ -112,7 +120,13 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
   );
   const loc = useLocationState({ basePath, location, onNavigate }, roots, emailOf, externalOf);
   const { root, path } = loc;
-  const data = useFolderData(root, path, loc.query, loc.tag, loc.sort);
+  const data = useFolderData(root, path, { query: loc.query, within: loc.within, tag: loc.tag }, loc.sort);
+  // Where a hit is filed: a search spans every library, so a file's own
+  // library, not the one in view (#2293).
+  const rootOf = useCallback(
+    (r: Resource) => rootOfResource(r, user, roots, emailOf, externalOf),
+    [user, roots, emailOf, externalOf],
+  );
   const selection = useFmSelection();
   const { toast, show, dismiss } = useToast();
   const actions = useActions(root, data.entries, show);
@@ -123,9 +137,20 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
   const pending = useRef<string[] | null>(null);
 
   // External files at manage writes an external person's folder (#2290).
-  const canWrite = !root.shared && (canWriteScope(user, root.target) || (!!root.external && externalLevel === "manage"));
+  const writable = useCallback(
+    (r: ResourceRoot) => !r.shared && (canWriteScope(user, r.target) || (!!r.external && externalLevel === "manage")),
+    [user, externalLevel],
+  );
+  const canWrite = writable(root);
   const picked = useMemo(() => data.entries.filter((e) => selection.has(e.key)), [data.entries, selection]);
-  const canAct = canWrite || (picked.length > 0 && picked.every((e) => ownFile(e, user)));
+  // A search hit is acted on as a file of its own library (#2293).
+  const canAct =
+    picked.length === 0
+      ? canWrite
+      : picked.every((e) => ownFile(e, user) || (e.kind === "file" ? writable(rootOf(e.resource)) : canWrite));
+  // A move names a folder of the library in view, so it carries only that
+  // library's files.
+  const canMove = canAct && picked.every((e) => e.kind !== "file" || rootOf(e.resource).key === root.key);
 
   // A new place starts with nothing selected, except the row a "Show in
   // folder" or a create asked to land on.
@@ -162,7 +187,7 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
   // A dialog already open keeps its selection: a second Delete while the
   // first is still counting would otherwise start a second count (#1887).
   const act = (kind: "move" | "tag" | "delete") => {
-    if (selection.keys.length === 0) return;
+    if (selection.keys.length === 0 || (kind === "move" && !canMove)) return;
     const picked = actions.pick(selection.keys);
     setDialog((open) => open ?? { kind, picked });
   };
@@ -206,6 +231,8 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
     pending,
     canWrite,
     canAct,
+    canMove,
+    rootOf,
     picked,
     openEntry,
     openFile,
@@ -257,7 +284,7 @@ function useDragDrop(fm: Base) {
 
   const accepts = (target: ResourceRoot, e: DragEvent, into?: Entry) => {
     if (e.dataTransfer.types.includes(DRAG_ROWS)) {
-      return target.key === root.key && fm.canAct && !(into && dragKeys.current.includes(into.key));
+      return target.key === root.key && fm.canMove && !(into && dragKeys.current.includes(into.key));
     }
     return (
       e.dataTransfer.types.includes("Files") &&
@@ -304,7 +331,7 @@ function useDragDrop(fm: Base) {
     onReveal: (entry) => {
       if (entry.kind !== "file") return;
       fm.pending.current = [entry.key];
-      fm.loc.go(root.key, entry.resource.path);
+      fm.loc.go(fm.rootOf(entry.resource).key, entry.resource.path);
     },
   };
   return { accepts, dropOn, handlers };
@@ -355,9 +382,8 @@ export function contextItems(fm: ReturnType<typeof useFileManager>): MenuItem[] 
   const one = fm.picked.length === 1;
   const items: MenuItem[] = [{ id: "open", label: "Open", shortcut: "Enter", run: () => first && fm.openEntry(first) }];
   if (fm.canAct && one) items.push({ id: "rename", label: "Rename", shortcut: "F2", run: () => first && fm.startRename(first.key) });
-  if (fm.canAct) {
-    items.push({ id: "move", label: "Move to...", run: () => fm.act("move") }, { id: "tag", label: "Tag...", run: () => fm.act("tag") });
-  }
+  if (fm.canMove) items.push({ id: "move", label: "Move to...", run: () => fm.act("move") });
+  if (fm.canAct) items.push({ id: "tag", label: "Tag...", run: () => fm.act("tag") });
   if (one && first) items.push(...singleItems(fm, first));
   if (fm.canAct) {
     items.push({ id: "delete", label: "Delete", shortcut: "\u2318\u232B", danger: true, separated: true, run: () => fm.act("delete") });
