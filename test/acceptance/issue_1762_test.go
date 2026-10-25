@@ -247,6 +247,7 @@ func TestIssue1762_AnAPIKeyBindsAKeyToAPerson(t *testing.T) {
 	if theirUserID == "" {
 		t.Fatalf("the signed-in session reported no user id: %v", mine)
 	}
+	awaitSignInRecorded(t, issue1762Person)
 
 	// Both forms that leave the roles out: the field omitted, and an empty
 	// array. Each issues a key carrying the person's own roles.
