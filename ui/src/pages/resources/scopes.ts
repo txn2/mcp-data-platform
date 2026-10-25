@@ -67,6 +67,8 @@ export interface ResourceRoot {
    * from the shares rather than by scope, and nothing can be written there.
    */
   shared?: boolean;
+  /** An external person's own folder, reached through External files (#2290). */
+  external?: boolean;
 }
 
 /** The key of the files shared with the caller. */
@@ -80,6 +82,33 @@ export const DEFAULT_ROOT = "user";
 
 /** The label of the administrator's folder of people. */
 export const PEOPLE_LABEL = "People";
+
+/** The key prefix of an external person's folder under External files. */
+export const EXTERNAL_PREFIX = "external:";
+
+/** The label of the folder of external people's folders (#2290). */
+export const EXTERNAL_FILES_LABEL = "External files";
+
+/**
+ * externalFilesLevel is the caller's External files level (#2290), as the
+ * server applies it: an administrator manages.
+ */
+export function externalFilesLevel(user: UserProfile | null): "none" | "view" | "manage" {
+  if (isPlatformAdmin(user)) return "manage";
+  if (!user) return "none";
+  return resolvePortal(user.portal).external_files;
+}
+
+/** externalRoot is one external person's folder, named by them and their persona. */
+export function externalRoot(f: { scope_id: string; email: string; name?: string; persona: string; persona_display_name?: string }): ResourceRoot {
+  return {
+    key: EXTERNAL_PREFIX + f.scope_id,
+    label: `${f.name || f.email} (${f.persona_display_name || f.persona})`,
+    target: { scope: "user", scope_id: f.scope_id },
+    params: { scope: "user", scope_id: f.scope_id },
+    external: true,
+  };
+}
 
 /**
  * personasFor is the personas a caller sees a folder for: the one they are
@@ -113,6 +142,7 @@ function personaRoot(name: string): ResourceRoot {
  * folder of folders, loaded when it is opened.
  */
 export function rootsFor(user: UserProfile | null, personaNames: string[]): ResourceRoot[] {
+  const external = resolvePortal(user?.portal).external;
   return [
     {
       key: "user",
@@ -128,7 +158,7 @@ export function rootsFor(user: UserProfile | null, personaNames: string[]): Reso
       shared: true,
     },
     // A person of an external persona never reads Global (#2257).
-    ...(resolvePortal(user?.portal).external
+    ...(external
       ? []
       : [
           {
@@ -138,8 +168,9 @@ export function rootsFor(user: UserProfile | null, personaNames: string[]): Reso
             params: { scope: "global" },
           },
         ]),
-    // A persona at the own level reaches no persona folder (#2225).
-    ...(resourcesLevel(user) === "own" ? [] : personasFor(user, personaNames).map(personaRoot)),
+    // A persona at the own level reaches no persona folder (#2225), and a
+    // person of an external persona reads only their own folder (#2290).
+    ...(resourcesLevel(user) === "own" || external ? [] : personasFor(user, personaNames).map(personaRoot)),
   ];
 }
 
@@ -167,9 +198,18 @@ export function personRoot(scopeID: string, email = ""): ResourceRoot {
  * is still resolved, because the persona list arrives after the page does and a
  * pasted link has to keep its place.
  */
-export function rootFor(key: string, roots: ResourceRoot[], emailOf?: (id: string) => string): ResourceRoot {
+export function rootFor(
+  key: string,
+  roots: ResourceRoot[],
+  emailOf?: (id: string) => string,
+  externalOf?: (id: string) => ResourceRoot | undefined,
+): ResourceRoot {
   const listed = roots.find((r) => r.key === key);
   if (listed) return listed;
+  if (key.startsWith(EXTERNAL_PREFIX)) {
+    const id = key.slice(EXTERNAL_PREFIX.length);
+    return externalOf?.(id) ?? { ...personRoot(id), key, external: true };
+  }
   if (key.startsWith(PERSON_PREFIX)) {
     const id = key.slice(PERSON_PREFIX.length);
     return personRoot(id, emailOf?.(id) ?? "");
@@ -182,7 +222,11 @@ export function rootFor(key: string, roots: ResourceRoot[], emailOf?: (id: strin
  * top-level folder, `/Global/data/weekly`, with a person's folder under People.
  */
 export function displayPath(root: ResourceRoot, path: string): string {
-  const head = root.key.startsWith(PERSON_PREFIX) ? `/${PEOPLE_LABEL}/${root.label}` : `/${root.label}`;
+  const head = root.key.startsWith(PERSON_PREFIX)
+    ? `/${PEOPLE_LABEL}/${root.label}`
+    : root.external
+      ? `/${EXTERNAL_FILES_LABEL}/${root.label}`
+      : `/${root.label}`;
   return path ? `${head}/${path}` : head;
 }
 
@@ -253,7 +297,7 @@ export function canWriteScope(user: UserProfile | null, target: ScopeTarget | nu
 /** uploads reports whether the caller's external persona lets them upload. */
 function uploads(user: UserProfile): boolean {
   const p = resolvePortal(user.portal);
-  return p.external && p.uploads !== null;
+  return p.external && p.uploads;
 }
 
 /**

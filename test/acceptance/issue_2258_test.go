@@ -15,14 +15,14 @@ import (
 )
 
 // Issue #2258: managed resources are shared through portal_shares like assets,
-// and an external persona can let its people upload, each upload shared on
-// arrival with the people and personas it names.
+// and an external persona can let its people upload to their own folder,
+// which #2290 leaves shared with no one on arrival.
 //
 // Wire forms: the share body as a JSON object with shared_with_email or
 // shared_with_persona strings and permission as "viewer" and "editor"; the
-// external persona's portal.uploads as a JSON object with share_personas as an
-// array of strings, and absent; the upload as a multipart form with the file
-// part last, sent with an API key and with a session cookie and CSRF token.
+// external persona's portal.uploads as the boolean true, and absent; the
+// upload as a multipart form with the file part last, sent with an API key and
+// with an identity-provider session cookie and CSRF token.
 
 // issue2258Share shares a file as c.
 func issue2258Share(t *testing.T, c *client, id string, body map[string]any) (int, map[string]any) {
@@ -32,7 +32,7 @@ func issue2258Share(t *testing.T, c *client, id string, body map[string]any) (in
 
 // issue2258SessionUpload uploads a CSV as the signed-in session to its own
 // folder.
-func issue2258SessionUpload(t *testing.T, s issue2092Session, label string) (int, map[string]any) {
+func issue2258SessionUpload(t *testing.T, s externalSession, label string) (int, map[string]any) {
 	t.Helper()
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
@@ -60,10 +60,9 @@ func issue2258SessionUpload(t *testing.T, s issue2092Session, label string) (int
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.AddCookie(s.cookie)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	req.Header.Set("X-CSRF-Token", s.csrf)
-	res, err := http.DefaultClient.Do(req)
+	res, err := s.hc.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,18 +155,16 @@ func TestIssue2258_SharingOffRefusesSharingAFile(t *testing.T) {
 	}
 }
 
-// An external persona whose uploads are shared with a persona: its person
-// uploads a CSV, a member of that persona reads it, the share names the
-// upload and the persona, the upload records the uploader, and a member of
-// another persona gets 404. The uploader lists their own uploads and what is
-// shared with them, never Global.
-func TestIssue2258_AnExternalUploadIsSharedOnArrival(t *testing.T) {
+// An external persona that lets its people upload: its person uploads a CSV
+// to their own folder, and it is shared with no one on arrival (#2290): a
+// member of another persona gets 404 and the file has no share. The uploader
+// lists their own uploads and what is shared with them, never Global.
+func TestIssue2258_AnExternalUploadIsSharedWithNoOne(t *testing.T) {
 	admin := connect(t)
-	marketing := newIssue2241Member(t, admin, "2258-mkt", nil)
 	other := newIssue2241Member(t, admin, "2258-other", nil)
 	globalID := issue2257Upload(t, admin, "global", "", "global")
 	_, email, s := issue2257ExternalAccount(t, admin, "2258-up", map[string]any{"portal": map[string]any{
-		"resources": "shared", "uploads": map[string]any{"share_personas": []any{marketing.persona}},
+		"resources": "shared", "uploads": true,
 	}})
 	status, up := issue2258SessionUpload(t, s, "delivery")
 	id, _ := up["id"].(string)
@@ -177,15 +174,12 @@ func TestIssue2258_AnExternalUploadIsSharedOnArrival(t *testing.T) {
 	if up["uploader_email"] != email {
 		t.Errorf("uploader_email = %v, want %s", up["uploader_email"], email)
 	}
-	if status, _ := rawGet(t, baseURL(), "/api/v1/resources/"+id+"/content", marketing.key); status != http.StatusOK {
-		t.Errorf("the marketing member reading the upload: %d", status)
-	}
 	if status, _ := rawGet(t, baseURL(), "/api/v1/resources/"+id, other.key); status != http.StatusNotFound {
 		t.Errorf("another persona's member: %d, want 404", status)
 	}
 	_, shares := admin.rest(http.MethodGet, "/api/v1/resources/"+id+"/shares", http.NoBody)
-	if text := stringOf(shares); !strings.Contains(text, marketing.persona) || !strings.Contains(text, id) {
-		t.Errorf("the shares on the upload: %v, want one naming %s", shares, marketing.persona)
+	if text := stringOf(shares); strings.Contains(text, "shared_with") {
+		t.Errorf("the upload was shared on arrival: %v", shares)
 	}
 
 	status, list := s.do(t, http.MethodGet, "/api/v1/resources", nil)

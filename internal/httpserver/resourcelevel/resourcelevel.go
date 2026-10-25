@@ -16,9 +16,10 @@ import (
 // administrator still sees), and persona leaves the claims as they were. An
 // administrator is held to none of it.
 //
-// A person of an external persona never reads Global (#2257), and writes to
-// their own folder only when the persona lets its people upload (#2258);
-// nothing gives them a persona folder's write, which takes persona-admin.
+// A person of an external persona reads only their own folder, never Global
+// or their persona's (#2257, #2290), and writes to it only when the persona
+// lets its people upload (#2258). What is shared with them they read through
+// their shares.
 func Apply(claims *resource.Claims, pr *persona.Registry, method string) (*resource.Claims, error) {
 	if claims.IsAdmin || pr == nil {
 		return claims, nil
@@ -29,11 +30,14 @@ func Apply(claims *resource.Claims, pr *persona.Registry, method string) (*resou
 	}
 	perms := per.PortalPermissions(nil)
 	claims.NoGlobal = per.External
+	if per.External {
+		claims.Personas, claims.AdminOfPersonas = nil, nil
+	}
 	switch perms.Resources {
 	case persona.PortalNone:
 		return nil, resource.ErrForbidden
 	case persona.PortalShared:
-		if isResourceWrite(method) && perms.Uploads == nil {
+		if isResourceWrite(method) && (perms.Uploads == nil || !*perms.Uploads) {
 			return nil, resource.ErrForbidden
 		}
 	case persona.PortalOwn:

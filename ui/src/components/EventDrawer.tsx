@@ -1,5 +1,6 @@
 import type { AuditEvent } from "@/api/admin/types";
-import { useToolSchemas } from "@/api/admin/hooks";
+import { usePersonas, useToolSchemas } from "@/api/admin/hooks";
+import { ExternalBadge } from "@/components/ExternalBadge";
 import { useInspectorStore } from "@/stores/inspector";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -29,6 +30,9 @@ export function EventDrawer({
   sessionPath?: (sessionId: string) => string;
 }) {
   const { data: schemasData } = useToolSchemas({ enabled: replayable });
+  // The persona list is an administrator's read, as the tool catalogue is.
+  const { data: personaList } = usePersonas(replayable && !!event.persona);
+  const external = personaList?.personas.some((p) => p.name === event.persona && p.external) ?? false;
   const setReplayIntent = useInspectorStore((s) => s.setReplayIntent);
 
   const schemas = schemasData?.schemas ?? {};
@@ -95,7 +99,10 @@ export function EventDrawer({
         </div>
         <div>
           <p className="text-xs text-muted-foreground">Persona</p>
-          <p>{event.persona || "-"}</p>
+          <p className="flex items-center gap-1.5">
+            {event.persona || "-"}
+            {external && <ExternalBadge />}
+          </p>
         </div>
         <div>
           <p className="text-xs text-muted-foreground">Tool</p>

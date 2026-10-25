@@ -7,15 +7,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
-	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -39,13 +36,10 @@ type Caller struct {
 	// is matched against.
 	Persona string
 	// External is a person of an external persona: shares to them are held
-	// to viewer, and they share only their own upload back to someone who
-	// shared with them.
+	// to viewer, and they share nothing (#2290).
 	External bool
 	// Sharing is persona.SharingAllowed.
 	Sharing bool
-	// Uploads is what an external persona shares its people's uploads with.
-	Uploads *persona.PortalUploads
 }
 
 // Resources reads a resource.
@@ -60,7 +54,6 @@ type Shares interface {
 	Permission(ctx context.Context, resourceID string, rcpt Recipient) (string, error)
 	SharedWith(ctx context.Context, rcpt Recipient) ([]Ref, error)
 	Revoke(ctx context.Context, resourceID, shareID string) error
-	Sharers(ctx context.Context, rcpt Recipient) ([]string, error)
 }
 
 // Deps is what the service is built from.
@@ -76,6 +69,9 @@ type Deps struct {
 	Notify func(ctx context.Context, share *portaldomain.Share, resourceID, title, message string)
 	// Members are the addresses of a persona's people.
 	Members func(ctx context.Context, persona string) []string
+	// PersonaExists reports whether a persona of that name is registered; nil
+	// accepts any name.
+	PersonaExists func(name string) bool
 }
 
 // Service serves resource shares.
@@ -238,7 +234,11 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if status, msg := s.refusal(r.Context(), req, in); status != 0 {
+	if in.SharedWithPersona != "" && s.d.PersonaExists != nil && !s.d.PersonaExists(in.SharedWithPersona) {
+		httpjson.WriteError(w, http.StatusBadRequest, "no persona of that name")
+		return
+	}
+	if status, msg := refusal(req, in); status != 0 {
 		httpjson.WriteError(w, status, msg)
 		return
 	}
@@ -302,44 +302,19 @@ func mayShare(req *request) (status int, msg string) {
 		return 0, ""
 	case !resource.CanModifyResource(*req.claims, req.res):
 		return http.StatusForbidden, errForbidden
-	case !req.caller.External && !req.caller.Sharing:
+	case !req.caller.Sharing:
 		return http.StatusForbidden, access.ErrSharingNotAllowed
 	}
 	return 0, ""
 }
 
 // refusal is why a share may not be made, as a status and message, or 0.
-func (s *Service) refusal(ctx context.Context, req *request, in ShareRequest) (status int, msg string) {
+// Anyone who may share names any person or persona (#2290).
+func refusal(req *request, in ShareRequest) (status int, msg string) {
 	if in.SharedWithEmail == "" && in.SharedWithPersona == "" {
 		return http.StatusBadRequest, "name a person or a persona to share with"
 	}
-	if status, msg = mayShare(req); status != 0 || req.claims.IsAdmin {
-		return status, msg
-	}
-	switch {
-	case req.caller.External:
-		return s.externalRefusal(ctx, req, in)
-	case in.SharedWithPersona != "" && in.SharedWithPersona != req.caller.Persona:
-		return http.StatusBadRequest, "you can share with your own persona, or any persona as an administrator"
-	}
-	return 0, ""
-}
-
-// externalRefusal holds a person of an external persona, who has no people
-// directory, to sharing their own upload with someone who shared with them.
-func (s *Service) externalRefusal(ctx context.Context, req *request, in ShareRequest) (status int, msg string) {
-	const refused = "you can share your own upload with someone who has shared with you"
-	if in.SharedWithPersona != "" || req.res.Scope != resource.ScopeUser {
-		return http.StatusForbidden, refused
-	}
-	sharers, err := s.d.Shares.Sharers(ctx, Recipient{UserID: req.claims.Sub, Email: req.claims.Email, Persona: req.caller.Persona})
-	if err != nil {
-		return http.StatusInternalServerError, "failed to read who shared with you"
-	}
-	if !slices.Contains(sharers, strings.ToLower(strings.TrimSpace(in.SharedWithEmail))) {
-		return http.StatusForbidden, refused
-	}
-	return 0, ""
+	return mayShare(req)
 }
 
 // revoke handles DELETE /api/v1/resources/{id}/shares/{shareID}.
@@ -408,38 +383,6 @@ func (s *Service) sharedWithMe(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	httpjson.WriteJSON(w, http.StatusOK, out)
-}
-
-// Uploaded shares a file a person of an external persona just uploaded with
-// every recipient their persona names, as viewer, and tells them (#2258). A
-// person of any other persona, or an external persona without uploads, shares
-// nothing.
-func (s *Service) Uploaded(ctx context.Context, claims resource.Claims, res *resource.Resource) {
-	c := s.d.Caller(claims.Roles)
-	if !c.External || c.Uploads == nil {
-		return
-	}
-	specs := make([]portaldomain.ShareSpec, 0, len(c.Uploads.SharePersonas))
-	for _, p := range c.Uploads.SharePersonas {
-		specs = append(specs, portaldomain.ShareSpec{RecipientPersona: p})
-	}
-	for _, e := range c.Uploads.ShareEmails {
-		specs = append(specs, portaldomain.ShareSpec{RecipientEmail: e})
-	}
-	note := "Uploaded by " + claims.Email + " (" + c.Persona + ")."
-	for _, spec := range specs {
-		spec.Permission = string(portaldomain.PermissionViewer)
-		share, err := portaldomain.BuildShare(portaldomain.ShareTarget{ResourceID: res.ID}, claims.Email, spec)
-		if err == nil {
-			share.Origin = portaldomain.OriginExplicit
-			err = s.d.Shares.Insert(ctx, &share)
-		}
-		if err != nil {
-			slog.WarnContext(ctx, "sharing an external upload failed", "error", logsan.SanitizeForLog(err.Error()))
-			continue
-		}
-		s.notify(ctx, &share, res, note)
-	}
 }
 
 // notify tells a share's recipients: the person it names, or each person of

@@ -80,7 +80,7 @@ function evaluate(p: PersonaCreateRequest): EffectiveAccess {
     portal: { stored, effective, capped_by_external: ext ? ["assets", "resources", "knowledge", "catalog", "apis", "scratch_tables", "search", "prompts", "automations", "memory"].filter((k) => JSON.stringify(stored[k as keyof typeof stored]) !== JSON.stringify(effective[k as keyof typeof effective])) : [] },
     sharing: admin || (!ext && p.allow_sharing !== false),
     resource_scopes: admin ? ["user", "persona:*", "global"] : ext ? ["user", `persona:${p.name}`] : ["user", `persona:${p.name}`, "global"],
-    references: { secrets: { named: p.name === "data-engineer" ? ["crm-token"] : [], unrestricted: 1 }, script_grants: p.name === "data-engineer" ? 2 : 0, script_versions: 0, prompts: 0, shares: 0, webhook_sources: [], external_accounts: 0, api_keys: 0 },
+    references: { secrets: { named: p.name === "data-engineer" ? ["crm-token"] : [], unrestricted: 1 }, script_grants: p.name === "data-engineer" ? 2 : 0, script_versions: 0, prompts: 0, shares: 0, webhook_sources: [], api_keys: 0, people: p.name === "analyst" ? ["ann@example.com", "bo@example.com"] : [] },
     unscoped: { signed_in_endpoints: 1 },
   };
 }

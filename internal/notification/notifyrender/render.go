@@ -16,7 +16,6 @@ import (
 	"io/fs"
 	"strings"
 	texttemplate "text/template"
-	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
@@ -203,62 +202,6 @@ func (r *Renderer) RenderGuestLink(to, link string) (*Email, error) {
 		}},
 	}
 	return r.execute(to, data)
-}
-
-// SignIn is an external user's sign-in email (#2092): the invitation when
-// Invitation is true, a link the person asked for otherwise. Valid is how long
-// the link works.
-type SignIn struct {
-	To, Name, Link string
-	Invitation     bool
-	Valid          time.Duration
-}
-
-// RenderExternalSignIn renders the email that holds an external user's
-// one-time sign-in link (#2092): their invitation, or a link they asked for on
-// the sign-in screen.
-func (r *Renderer) RenderExternalSignIn(m SignIn) (*Email, error) {
-	brand, again := r.branding.Name, signInScreen(r.branding.BaseURL)
-	subject, heading := fmt.Sprintf("%s: your sign-in link", brand), "Your sign-in link"
-	sentences := []string{
-		"Use this link to sign in", "It works once and expires in " + validFor(m.Valid),
-		"When you need to sign in again, ask for a new link at " + again,
-	}
-	if m.Invitation {
-		subject, heading = fmt.Sprintf("You have been invited to %s", brand), "You have been invited"
-		greeting := "You have been given access to what is shared with you on " + brand
-		if m.Name != "" {
-			greeting = m.Name + ", you have been given access to what is shared with you on " + brand
-		}
-		sentences = []string{
-			greeting, "This link signs you in", "It works once and expires in " + validFor(m.Valid),
-			"After that, ask for a new link at " + again,
-		}
-	}
-	return r.execute(m.To, emailData{
-		Brand: r.branding, Subject: subject, Heading: heading,
-		Items: []emailItem{{Message: strings.Join(sentences, ". ") + ".", Link: m.Link, LinkText: "Sign in"}},
-	})
-}
-
-// signInScreen is where an external user asks for a sign-in link.
-func signInScreen(base string) string {
-	return joinURL(base, "/portal/?login=email")
-}
-
-// validFor says how long a link works, in the largest whole unit.
-func validFor(d time.Duration) string {
-	const day = 24 * time.Hour
-	switch {
-	case d >= 2*day && d%day == 0:
-		return fmt.Sprintf("%d days", d/day)
-	case d >= 2*time.Hour && d%time.Hour == 0:
-		return fmt.Sprintf("%d hours", d/time.Hour)
-	case d >= time.Hour && d%time.Hour == 0:
-		return "1 hour"
-	default:
-		return fmt.Sprintf("%d minutes", d/time.Minute)
-	}
 }
 
 // RenderTest renders the admin "send test email" message used to verify a

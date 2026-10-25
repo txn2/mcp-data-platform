@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TableCell, TableRow } from "@/components/ui/table";
+import { ExternalBadge } from "@/components/ExternalBadge";
 
 function fullName(u: DirectoryUser): string {
   const name = [u.first_name, u.last_name].filter(Boolean).join(" ");
@@ -91,7 +92,7 @@ export function UserRow({
             </span>
           </div>
         </TableCell>
-        <TableCell className="px-5 py-2" colSpan={3}>
+        <TableCell className="px-5 py-2" colSpan={4}>
           <div className="flex items-center gap-1.5">
             <Button
               type="button"
@@ -123,8 +124,14 @@ export function UserRow({
 
   return (
     <TableRow>
-      <TableCell className="px-5 py-3 font-medium">{fullName(user)}</TableCell>
+      <TableCell className="px-5 py-3 font-medium">
+        <span className="flex items-center gap-1.5">
+          {fullName(user)}
+          {user.external && <ExternalBadge />}
+        </span>
+      </TableCell>
       <TableCell className="px-5 py-3 text-muted-foreground">{user.email}</TableCell>
+      <TableCell className="px-5 py-3 text-muted-foreground">{user.persona || "--"}</TableCell>
       <TableCell className="px-5 py-3">
         <UserStatus user={user} />
       </TableCell>

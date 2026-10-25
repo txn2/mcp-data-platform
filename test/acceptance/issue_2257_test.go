@@ -73,36 +73,16 @@ func issue2257Num(t *testing.T, m map[string]any, keys ...string) float64 {
 }
 
 // issue2257ExternalAccount creates an external persona with the portal block
-// given and an account under it, and signs the person in.
-func issue2257ExternalAccount(t *testing.T, admin *client, label string, extra map[string]any) (persona, email string, s issue2092Session) {
+// given and a person of it, who signs in through the identity provider.
+func issue2257ExternalAccount(t *testing.T, admin *client, label string, extra map[string]any) (persona, email string, s externalSession) {
 	t.Helper()
-	stamp := time.Now().UnixNano()
-	persona = fmt.Sprintf("acc-%s-%d", label, stamp)
-	email = fmt.Sprintf("acc-%s-%d@example.org", label, stamp)
-	body := map[string]any{
-		"name": persona, "display_name": "Acceptance " + label, "roles": []any{strings.ReplaceAll(persona, "-", "_")},
-		"allow_tools": []any{"*"}, "allow_connections": []any{"*"}, "external": true,
-	}
+	body := map[string]any{"external": true}
 	for k, v := range extra {
 		body[k] = v
 	}
-	if status, out := admin.rest(http.MethodPost, "/api/v1/admin/personas", jsonBody(t, body)); status != http.StatusCreated {
-		t.Fatalf("creating the external persona: %d %v", status, out)
-	}
-	t.Cleanup(func() { admin.rest(http.MethodDelete, "/api/v1/admin/personas/"+persona+"?confirm=true", http.NoBody) })
-	status, acct := admin.rest(http.MethodPost, "/api/v1/admin/external-users", jsonBody(t, map[string]any{
-		"email": email, "name": "Acceptance " + label, "persona": persona,
-	}))
-	if status != http.StatusCreated {
-		t.Fatalf("creating the external user: %d %v", status, acct)
-	}
-	id, _ := acct["id"].(string)
-	t.Cleanup(func() { admin.rest(http.MethodDelete, "/api/v1/admin/external-users/"+id, http.NoBody) })
-	s, location := issue2092Claim(t, issue2092MailLink(t, email, "You have been invited"))
-	if s.cookie == nil {
-		t.Fatalf("the invitation set no session; it redirected to %q", location)
-	}
-	return persona, email, s
+	p := newPersona2290(t, admin, label, body)
+	s = newPerson2290(t, admin, p, label)
+	return p.name, s.email, s
 }
 
 // issue2257Upload uploads a small CSV as c to the library named.
@@ -195,9 +175,9 @@ personas:
 }
 
 // An administrator persona marked external in the store directly administers
-// nothing: an external account under it is refused every admin route, and a
-// key whose roles resolve to it is refused the admin API and has no secret
-// filled.
+// nothing: a person who signs in through the identity provider under it is
+// refused every admin route, and a key whose roles resolve to it is refused
+// the admin API and has no secret filled.
 func TestIssue2257_AnExternalAdministratorInTheStoreAdministersNothing(t *testing.T) {
 	admin := connect(t)
 	db := issue2257DB(t)
@@ -214,7 +194,8 @@ func TestIssue2257_AnExternalAdministratorInTheStoreAdministersNothing(t *testin
 	// The session is opened while the key still resolves to the
 	// administrator: opening one calls platform_info.
 	holder := connectAs(t, key)
-	email := fmt.Sprintf("acc-2257-ext-%d@example.org", time.Now().UnixNano())
+	email := kcPerson2290(t, "dp_admin", "2257-admin")
+	t.Cleanup(func() { admin.rest(http.MethodDelete, "/api/v1/admin/users/"+email, http.NoBody) })
 
 	// The row is written as a store would hold it, then announced the way a
 	// peer replica announces a persona change; both replicas re-read it.
@@ -230,7 +211,6 @@ func TestIssue2257_AnExternalAdministratorInTheStoreAdministersNothing(t *testin
 	}
 	t.Cleanup(func() {
 		ctx := context.Background()
-		_, _ = db.ExecContext(ctx, `DELETE FROM external_accounts WHERE email = $1`, email)
 		if existed {
 			_, _ = db.ExecContext(ctx, `UPDATE persona_definitions SET external = FALSE WHERE name = 'admin'`)
 		} else {
@@ -258,10 +238,6 @@ func TestIssue2257_AnExternalAdministratorInTheStoreAdministersNothing(t *testin
 		(name, display_name, roles, tools_allow, connections_allow, priority, external)
 		VALUES ('admin', 'Administrator', '["admin","dp_admin"]', '["*"]', '["*"]', 100, TRUE)
 		ON CONFLICT (name) DO UPDATE SET external = TRUE`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(t.Context(), `INSERT INTO external_accounts (id, email, name, persona)
-		VALUES ($1, $2, 'Acceptance 2257', 'admin')`, "acc2257-"+unique1579(), email); err != nil {
 		t.Fatal(err)
 	}
 	announce()
@@ -292,16 +268,10 @@ func TestIssue2257_AnExternalAdministratorInTheStoreAdministersNothing(t *testin
 		t.Errorf("the call was answered, filling the secret: %s", text)
 	}
 
-	if status, _ := holder.rest(http.MethodPost, "/portal/auth/email-link", jsonBody(t, map[string]any{"email": email})); status != http.StatusAccepted {
-		t.Fatalf("asking for a sign-in link answered %d", status)
-	}
-	sess, location := issue2092Claim(t, issue2092MailLink(t, email, "your sign-in link"))
-	if sess.cookie == nil {
-		t.Fatalf("the external account under the administrator persona got no session; redirected to %q", location)
-	}
-	for _, path := range []string{"/api/v1/admin/personas", "/api/v1/admin/system/info", "/api/v1/admin/secrets", "/api/v1/admin/external-users"} {
+	sess := signIn2290(t, email)
+	for _, path := range []string{"/api/v1/admin/personas", "/api/v1/admin/system/info", "/api/v1/admin/secrets", "/api/v1/admin/users"} {
 		if status, _ := sess.do(t, http.MethodGet, path, nil); status != http.StatusUnauthorized && status != http.StatusForbidden {
-			t.Errorf("GET %s as the external account answered %d", path, status)
+			t.Errorf("GET %s as a person under the external administrator persona answered %d", path, status)
 		}
 	}
 }
@@ -558,7 +528,7 @@ func TestIssue2257_EffectiveAccessReportsWhatNamesThePersona(t *testing.T) {
 		{`INSERT INTO script_grants (script_id, principal_kind, principal) VALUES ($1, 'persona', $2)`, []any{scriptID, name}},
 		{`INSERT INTO prompts (id, name, scope, personas) VALUES ($1, $2, 'persona', ARRAY[$3])`, []any{promptID, "acc-2257-" + stamp, name}},
 		{`INSERT INTO webhook_sources (name, connection_name, config) VALUES ($1, 'acme-scratch', jsonb_build_object('persona', $2::text))`, []any{source, name}},
-		{`INSERT INTO external_accounts (id, email, persona) VALUES ($1, $2, $3)`, []any{"acc2257r-" + stamp, email, name}},
+		{`INSERT INTO users (email, source, confirmed, roles) VALUES ($1, 'auth', TRUE, jsonb_build_array($2::text))`, []any{email, strings.ReplaceAll(name, "-", "_")}},
 	} {
 		if _, err := db.ExecContext(t.Context(), stmt.q, stmt.args...); err != nil {
 			t.Fatalf("%s: %v", stmt.q, err)
@@ -569,7 +539,7 @@ func TestIssue2257_EffectiveAccessReportsWhatNamesThePersona(t *testing.T) {
 		_, _ = db.ExecContext(ctx, `DELETE FROM scripts WHERE id = $1`, scriptID)
 		_, _ = db.ExecContext(ctx, `DELETE FROM prompts WHERE id = $1`, promptID)
 		_, _ = db.ExecContext(ctx, `DELETE FROM webhook_sources WHERE name = $1`, source)
-		_, _ = db.ExecContext(ctx, `DELETE FROM external_accounts WHERE email = $1`, email)
+		_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE email = $1`, email)
 	})
 	out := issue2257Access(t, admin, map[string]any{
 		"name": name, "display_name": "Refs", "roles": []any{strings.ReplaceAll(name, "-", "_")},
@@ -580,7 +550,10 @@ func TestIssue2257_EffectiveAccessReportsWhatNamesThePersona(t *testing.T) {
 	if !strings.Contains(stringOf(secrets["named"]), secret) {
 		t.Errorf("secrets named = %v, want %s", secrets["named"], secret)
 	}
-	for key, want := range map[string]float64{"script_grants": 1, "prompts": 1, "external_accounts": 1} {
+	if !strings.Contains(stringOf(refs["people"]), email) {
+		t.Errorf("people = %v, want %s, whose recorded roles resolve to the persona", refs["people"], email)
+	}
+	for key, want := range map[string]float64{"script_grants": 1, "prompts": 1} {
 		if got := issue2257Num(t, refs, key); got != want {
 			t.Errorf("%s = %v, want %v", key, got, want)
 		}

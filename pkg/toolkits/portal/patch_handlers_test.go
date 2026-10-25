@@ -906,13 +906,14 @@ func TestCanReadAsset_APersonaShareReachesTheCallersPersona(t *testing.T) {
 	f := newPatchFixture(t, patchReport, "text/markdown")
 	shared := &portal.Asset{ID: "asset-shared", OwnerID: "someone-else", OwnerEmail: "other@example.com"}
 	f.tk.shareStore = &personaShareStore{persona: "finance"}
+	f.tk.historyAllowed = func(p string) bool { return p == "finance" }
 	caller := func(persona string, source string) context.Context {
 		return middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 			UserID: "user1", UserEmail: "user1@example.com", PersonaName: persona, Source: source,
 		})
 	}
 	assert.True(t, f.tk.canReadAsset(caller("finance", ""), shared))
-	assert.True(t, f.tk.seesHistory(caller("finance", ""), shared), "the share is an editor share")
+	assert.True(t, f.tk.seesHistory(caller("finance", ""), shared), "the persona shows earlier versions")
 	assert.False(t, f.tk.canReadAsset(caller("analyst", ""), shared))
 	assert.False(t, f.tk.canReadAsset(caller("finance", middleware.SourceScript), shared))
 }

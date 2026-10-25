@@ -20,6 +20,7 @@ vi.mock("@/api/resources/hooks", () => ({
   useFacets: vi.fn(),
   useInfiniteResources: vi.fn(),
   usePeople: vi.fn(),
+  useExternalFolders: vi.fn(() => ({ data: undefined })),
   useUploadResource: vi.fn(() => ({ mutateAsync: vi.fn() })),
   useInvalidateResources: vi.fn(() => async () => {}),
   useUpdateResource: vi.fn(() => ({ mutateAsync: vi.fn() })),
@@ -30,7 +31,7 @@ vi.mock("@/api/admin/hooks", () => ({
   usePersonas: vi.fn(() => ({ data: { personas: [{ name: "analyst" }, { name: "ops" }] } })),
 }));
 
-import { useFacets, useInfiniteResources, usePeople } from "@/api/resources/hooks";
+import { useExternalFolders, useFacets, useInfiniteResources, usePeople } from "@/api/resources/hooks";
 import type { Resource } from "@/api/resources/types";
 import { ResourcesPage } from "./ResourcesPage";
 
@@ -248,6 +249,46 @@ describe("the folder tree", () => {
   it("gives nobody else a People folder", () => {
     renderPage();
     expect(screen.queryByTestId("tree-people")).toBeNull();
+  });
+});
+
+// External files (#2290): a persona at view or manage gets a folder of every
+// external person's own folder, named for them and their persona; at view it
+// writes nothing there, at manage it does; at none there is no such folder.
+describe("External files", () => {
+  const folders = {
+    folders: [{ scope_id: "sub-dana", email: "dana@client-a.example.com", name: "Dana Reyes", persona: "client-a", persona_display_name: "Client A" }],
+    manage: false,
+  };
+  beforeEach(() => {
+    vi.mocked(useExternalFolders).mockImplementation(((enabled: boolean) => ({
+      data: enabled ? folders : undefined,
+    })) as unknown as typeof useExternalFolders);
+  });
+
+  it("lists each external person's folder and opens it", () => {
+    signIn({ portal: { external_files: "view" } });
+    renderPage();
+    fireEvent.click(screen.getByTestId("tree-external-files"));
+    fireEvent.click(node("external:sub-dana", ""));
+    expect(last(navigations)).toBe("/resources/lib/external%3Asub-dana");
+  });
+
+  it("writes nothing there at view, and writes at manage", () => {
+    signIn({ portal: { external_files: "view" } });
+    renderPage("/resources/lib/external%3Asub-dana");
+    expect(screen.getByTestId("path-bar").textContent).toContain("External files");
+    expect(screen.getByTestId("path-bar").textContent).toContain("Dana Reyes (Client A)");
+    expect(screen.queryByRole("button", { name: /upload/i })).toBeNull();
+    cleanup();
+    signIn({ portal: { external_files: "manage" } });
+    renderPage("/resources/lib/external%3Asub-dana");
+    expect(screen.getAllByRole("button", { name: /upload/i }).length).toBeGreaterThan(0);
+  });
+
+  it("has no such folder at none", () => {
+    renderPage();
+    expect(screen.queryByTestId("tree-external-files")).toBeNull();
   });
 });
 

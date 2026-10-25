@@ -19,7 +19,6 @@ import { Plus, Contact, ChevronUp, Search } from "lucide-react";
 import { PanelShell } from "./panels";
 import { AddUserForm } from "./users/AddUserForm";
 import { UserRow } from "./users/UserRow";
-import { ExternalUsersSection } from "./users/ExternalUsersSection";
 
 // ---------------------------------------------------------------------------
 // UsersPanel — directory of known people (#614)
@@ -91,7 +90,6 @@ export function UsersPanel() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <ExternalUsersSection isReadOnly={isReadOnly} />
         {isLoading ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
             Loading...
@@ -113,6 +111,7 @@ export function UsersPanel() {
               <TableRow className="bg-muted/30 text-xs text-muted-foreground hover:bg-muted/30">
                 <TableHead className="px-5">Name</TableHead>
                 <TableHead className="px-5">Email</TableHead>
+                <TableHead className="px-5">Persona</TableHead>
                 <TableHead className="px-5">Status</TableHead>
                 <TableHead className="px-5">Last Seen</TableHead>
                 {!isReadOnly && <TableHead className="w-28 px-5">Actions</TableHead>}

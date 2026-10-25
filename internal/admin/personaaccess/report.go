@@ -242,21 +242,23 @@ type SecretRefs struct {
 // persona deleted with them leaves them in place, and one created later under
 // the same name inherits them.
 type References struct {
-	Secrets          SecretRefs `json:"secrets"`
-	ScriptGrants     int        `json:"script_grants"`
-	ScriptVersions   int        `json:"script_versions"`
-	Prompts          int        `json:"prompts"`
-	Shares           int        `json:"shares"`
-	WebhookSources   []string   `json:"webhook_sources"`
-	ExternalAccounts int        `json:"external_accounts"`
-	APIKeys          int        `json:"api_keys"`
+	Secrets        SecretRefs `json:"secrets"`
+	ScriptGrants   int        `json:"script_grants"`
+	ScriptVersions int        `json:"script_versions"`
+	Prompts        int        `json:"prompts"`
+	Shares         int        `json:"shares"`
+	WebhookSources []string   `json:"webhook_sources"`
+	APIKeys        int        `json:"api_keys"`
+	// People are the addresses of the signed-in people whose recorded roles
+	// resolve to the persona (#2290).
+	People []string `json:"people"`
 }
 
 // Empty reports whether nothing names the persona. Secrets that name no
 // persona are not a reference to this one.
 func (r References) Empty() bool {
 	return len(r.Secrets.Named) == 0 && r.ScriptGrants == 0 && r.ScriptVersions == 0 && r.Prompts == 0 &&
-		r.Shares == 0 && len(r.WebhookSources) == 0 && r.ExternalAccounts == 0 && r.APIKeys == 0
+		r.Shares == 0 && len(r.WebhookSources) == 0 && len(r.People) == 0 && r.APIKeys == 0
 }
 
 // Unscoped is access no persona setting governs.
@@ -545,8 +547,9 @@ func resourceScopes(name, level string, external, admin bool) []string {
 	case persona.PortalOwn:
 		out = []string{user, global}
 	}
-	if external {
-		out = slices.DeleteFunc(out, func(s string) bool { return s == global })
+	if external && len(out) > 0 {
+		// An external person reads their own folder alone (#2290).
+		out = []string{user}
 	}
 	return nonNil(out)
 }

@@ -1,18 +1,16 @@
-package admin
+package configenv
 
 import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
 )
 
 // maxPlaceholderReport bounds how many offending keys one refusal lists, so a
 // pasted file's worth of placeholders does not answer with a wall of text.
 const maxPlaceholderReport = 10
 
-// checkNoPlaceholders refuses a database-managed connection config carrying a
+// CheckNoPlaceholders refuses a database-managed connection config carrying a
 // "${...}" placeholder.
 //
 // The platform expands ${VAR} in its configuration FILE, before that document
@@ -27,10 +25,10 @@ const maxPlaceholderReport = 10
 // It walks nested maps and slices because a connection config is not flat: an
 // api connection's static headers and a toolkit's per-tool settings are objects
 // of their own, and a placeholder in one of them is the same defect.
-func checkNoPlaceholders(config map[string]any) error {
+func CheckNoPlaceholders(config map[string]any) error {
 	offenders := map[string]string{}
 	walkConfigStrings(config, "", func(path, value string) {
-		if frags := configenv.Unexpanded(value); len(frags) > 0 {
+		if frags := Unexpanded(value); len(frags) > 0 {
 			if _, seen := offenders[path]; !seen {
 				offenders[path] = frags[0]
 			}

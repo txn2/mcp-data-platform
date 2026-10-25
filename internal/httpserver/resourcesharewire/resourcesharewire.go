@@ -45,6 +45,7 @@ func New(p *platform.Platform, notify *notifydelivery.Handle) *Shares {
 	d := &resourceshare.Deps{
 		Shares: resourceshare.NewStore(p.DB()), Resources: p.ResourceStore(),
 		Caller: CallerOf(reg), Members: membersOf(p),
+		PersonaExists: func(name string) bool { _, ok := reg.Get(name); return ok },
 	}
 	if bridge := notify.PortalNotifier(notifydelivery.PortalStores{}, p.Config().Portal.PublicBaseURL); bridge != nil {
 		d.Notify = func(ctx context.Context, share *portaldomain.Share, id, title, message string) {
@@ -77,14 +78,6 @@ func (s *Shares) Bind(base resource.ClaimsExtractor) resource.ClaimsExtractor {
 	return bound
 }
 
-// Uploaded is resource.Deps.OnUploaded; nil without a service.
-func (s *Shares) Uploaded() func(ctx context.Context, claims resource.Claims, res *resource.Resource) {
-	if s == nil {
-		return nil
-	}
-	return s.svc.Uploaded
-}
-
 // Register mounts the share routes on mux, and the channel route when the
 // deployment can post.
 func (s *Shares) Register(mux *http.ServeMux) {
@@ -106,7 +99,6 @@ func CallerOf(reg *persona.Registry) func(roles []string) resourceshare.Caller {
 		}
 		return resourceshare.Caller{
 			Persona: p.Name, External: p.External, Sharing: p.SharingAllowed(),
-			Uploads: p.PortalPermissions(nil).Uploads,
 		}
 	}
 }

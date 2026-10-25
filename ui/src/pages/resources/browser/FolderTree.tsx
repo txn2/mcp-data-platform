@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { ChevronRight, Folder, FolderOpen, Users } from "lucide-react";
-import { useFacets, usePeople } from "@/api/resources/hooks";
+import { useExternalFolders, useFacets, usePeople } from "@/api/resources/hooks";
 import type { Folder as FolderRow } from "@/api/resources/types";
 import { cn } from "@/lib/utils";
-import { PEOPLE_LABEL, personRoot, type ResourceRoot } from "../scopes";
+import { EXTERNAL_FILES_LABEL, EXTERNAL_PREFIX, externalRoot, PEOPLE_LABEL, personRoot, type ResourceRoot } from "../scopes";
 import { folderEntries } from "./model";
 
 /** Where the page is standing: a top-level folder and a path inside it. */
@@ -22,6 +22,7 @@ export interface TreeDrop {
 }
 
 const PEOPLE_ID = "people|";
+const EXTERNAL_ID = "external-files|";
 
 function nodeID(root: string, path: string): string {
   return `${root}|${path}`;
@@ -44,6 +45,7 @@ function ancestorIDs(place: Place): string[] {
 export function FolderTree({
   roots,
   people,
+  externalFiles = false,
   ownIDs,
   current,
   onOpen,
@@ -52,6 +54,8 @@ export function FolderTree({
   roots: ResourceRoot[];
   /** True for a platform administrator, who has a People folder. */
   people: boolean;
+  /** True for a caller whose persona has External files (#2290). */
+  externalFiles?: boolean;
   /** The caller's own keys, which People leaves out: they are My Resources. */
   ownIDs: string[];
   current: Place;
@@ -68,6 +72,7 @@ export function FolderTree({
       const next = new Set(prev);
       for (const id of ancestorIDs(current)) next.add(id);
       if (current.root.startsWith("person:")) next.add(PEOPLE_ID);
+      if (current.root.startsWith(EXTERNAL_PREFIX)) next.add(EXTERNAL_ID);
       return next.size === prev.size ? prev : next;
     });
   }, [current]);
@@ -95,6 +100,7 @@ export function FolderTree({
       {roots.map((root) => (
         <RootNode key={root.key} root={root} depth={0} ctx={ctx} eager />
       ))}
+      {externalFiles && <ExternalFilesNode ctx={ctx} />}
       {people && <PeopleNode ownIDs={ownIDs} ctx={ctx} />}
     </div>
   );
@@ -230,6 +236,36 @@ function PeopleNode({ ownIDs, ctx }: { ownIDs: string[]; ctx: NodeContext }) {
         ))}
       {isOpen && people.data && list.length === 0 && (
         <p className="py-1 pl-10 text-xs text-muted-foreground">Nobody else has files here.</p>
+      )}
+    </>
+  );
+}
+
+/** External files (#2290): one folder per external person, read when opened. */
+function ExternalFilesNode({ ctx }: { ctx: NodeContext }) {
+  const isOpen = ctx.open.has(EXTERNAL_ID);
+  const external = useExternalFolders(isOpen);
+  const list = external.data?.folders ?? [];
+  return (
+    <>
+      <div
+        role="treeitem"
+        aria-level={1}
+        aria-expanded={isOpen}
+        aria-selected={false}
+        tabIndex={-1}
+        data-node-id={EXTERNAL_ID}
+        data-testid="tree-external-files"
+        className="flex h-[26px] cursor-pointer items-center gap-1 rounded-[5px] pr-2 pl-1.5 select-none hover:bg-accent/60"
+        onClick={() => ctx.toggle(EXTERNAL_ID)}
+      >
+        <Twisty open={isOpen} show />
+        <Users className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate">{EXTERNAL_FILES_LABEL}</span>
+      </div>
+      {isOpen && list.map((f) => <RootNode key={f.scope_id} root={externalRoot(f)} depth={1} ctx={ctx} />)}
+      {isOpen && external.data && list.length === 0 && (
+        <p className="py-1 pl-10 text-xs text-muted-foreground">No external people yet.</p>
       )}
     </>
   );

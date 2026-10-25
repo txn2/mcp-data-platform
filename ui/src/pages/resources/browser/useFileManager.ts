@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
-import { usePeople } from "@/api/resources/hooks";
+import { useExternalFolders, usePeople } from "@/api/resources/hooks";
 import type { ViewMode } from "@/components/listView";
 import { useAuthStore, type UserProfile } from "@/stores/auth";
 import type { Resource } from "@/api/resources/types";
-import { canWriteScope, rootsFor, type ResourceRoot } from "../scopes";
+import { canWriteScope, EXTERNAL_PREFIX, externalFilesLevel, externalRoot, rootsFor, type ResourceRoot } from "../scopes";
 import { fromDrop } from "../bulk/collect";
 import type { SourceFile } from "../bulk/plan";
 import { parentPath } from "../parts/tree";
@@ -93,12 +93,24 @@ export function useFileManager(props: FileManagerProps) {
 /** Where the page stands, what it holds, and the state its controls share. */
 function useCore({ admin, user, personaNames, basePath, location, onNavigate }: FileManagerProps) {
   const roots = useMemo(() => rootsFor(user, personaNames), [user, personaNames]);
-  const people = usePeople(admin && location.includes("/lib/person:"));
+  // The address may carry the folder key encoded (person%3A...), as a pasted
+  // link does.
+  const place = safeDecode(location);
+  const people = usePeople(admin && place.includes("/lib/person:"));
   const emailOf = useCallback(
     (id: string) => people.data?.people.find((p) => p.scope_id === id)?.email ?? "",
     [people.data],
   );
-  const loc = useLocationState({ basePath, location, onNavigate }, roots, emailOf);
+  const externalLevel = externalFilesLevel(user);
+  const external = useExternalFolders(externalLevel !== "none" && place.includes("/lib/" + EXTERNAL_PREFIX));
+  const externalOf = useCallback(
+    (id: string) => {
+      const f = external.data?.folders.find((x) => x.scope_id === id);
+      return f ? externalRoot(f) : undefined;
+    },
+    [external.data],
+  );
+  const loc = useLocationState({ basePath, location, onNavigate }, roots, emailOf, externalOf);
   const { root, path } = loc;
   const data = useFolderData(root, path, loc.query, loc.tag, loc.sort);
   const selection = useFmSelection();
@@ -110,7 +122,8 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
   const [dialog, setDialog] = useState<FmDialog>(null);
   const pending = useRef<string[] | null>(null);
 
-  const canWrite = !root.shared && canWriteScope(user, root.target);
+  // External files at manage writes an external person's folder (#2290).
+  const canWrite = !root.shared && (canWriteScope(user, root.target) || (!!root.external && externalLevel === "manage"));
   const picked = useMemo(() => data.entries.filter((e) => selection.has(e.key)), [data.entries, selection]);
   const canAct = canWrite || (picked.length > 0 && picked.every((e) => ownFile(e, user)));
 
@@ -172,6 +185,7 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
     admin,
     user,
     personaNames,
+    externalLevel,
     roots,
     loc,
     root,
@@ -245,7 +259,10 @@ function useDragDrop(fm: Base) {
     if (e.dataTransfer.types.includes(DRAG_ROWS)) {
       return target.key === root.key && fm.canAct && !(into && dragKeys.current.includes(into.key));
     }
-    return e.dataTransfer.types.includes("Files") && canWriteScope(fm.user, target.target);
+    return (
+      e.dataTransfer.types.includes("Files") &&
+      (canWriteScope(fm.user, target.target) || (!!target.external && fm.externalLevel === "manage"))
+    );
   };
 
   const dropOn = (target: ResourceRoot, to: string, e: DragEvent) => {
@@ -346,4 +363,12 @@ export function contextItems(fm: ReturnType<typeof useFileManager>): MenuItem[] 
     items.push({ id: "delete", label: "Delete", shortcut: "\u2318\u232B", danger: true, separated: true, run: () => fm.act("delete") });
   }
   return items;
+}
+
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
 }

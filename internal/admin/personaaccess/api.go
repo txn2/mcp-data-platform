@@ -146,7 +146,7 @@ func (s *Service) resolvesTo(p *persona.Persona) func([]string) bool {
 }
 
 func emptyRefs() References {
-	return References{Secrets: SecretRefs{Named: []string{}}, WebhookSources: []string{}}
+	return References{Secrets: SecretRefs{Named: []string{}}, WebhookSources: []string{}, People: []string{}}
 }
 
 // Register mounts the route behind wrap, the admin API's authentication.

@@ -90,8 +90,9 @@ export interface PersonaReferences {
   prompts: number;
   shares: number;
   webhook_sources: string[];
-  external_accounts: number;
   api_keys: number;
+  /** The signed-in people whose roles resolve to the persona (#2290). */
+  people: string[];
 }
 
 export interface EffectiveAccess {
@@ -121,7 +122,7 @@ export function hasReferences(r: PersonaReferences): boolean {
     r.prompts > 0 ||
     r.shares > 0 ||
     r.webhook_sources.length > 0 ||
-    r.external_accounts > 0 ||
+    r.people.length > 0 ||
     r.api_keys > 0
   );
 }

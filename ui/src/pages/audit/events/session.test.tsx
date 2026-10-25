@@ -6,6 +6,7 @@ import type { AuditEvent } from "@/api/admin/types";
 // enabled; that lookup is irrelevant here, so it is stubbed to an empty catalog.
 vi.mock("@/api/admin/hooks", () => ({
   useToolSchemas: () => ({ data: { schemas: {} } }),
+  usePersonas: () => ({ data: undefined }),
 }));
 
 import { EventDrawer } from "@/components/EventDrawer";

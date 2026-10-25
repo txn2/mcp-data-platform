@@ -58,6 +58,9 @@ type Deps struct {
 	// Caller resolves the authenticated portal user, returning nil when the
 	// request carries none.
 	Caller func(*http.Request) *Identity
+	// External reports whether a person's recorded roles resolve to a
+	// persona for people outside the organization (#2290); nil marks no one.
+	External func(roles []string) bool
 }
 
 // Handler serves the people and mention routes.
@@ -110,6 +113,9 @@ type directoryUser struct {
 	FirstName string `json:"first_name,omitempty" example:"Marcus"`
 	LastName  string `json:"last_name,omitempty" example:"Johnson"`
 	Confirmed bool   `json:"confirmed" example:"true"`
+	// External marks a person outside the organization (#2290), which the
+	// share picker shows beside their name.
+	External bool `json:"external,omitempty" example:"false"`
 }
 
 // directoryUsersResponse wraps a page of directory users for the picker.
@@ -121,7 +127,7 @@ type directoryUsersResponse struct {
 // listDirectoryUsers handles GET /api/v1/portal/users.
 //
 // @Summary      List known users for the share picker
-// @Description  Returns the known-users directory so a user can pick a teammate to share with. Includes admin-added people who have not logged in yet (confirmed=false). Any authenticated user may call this.
+// @Description  Returns the known-users directory so a user can pick a teammate to share with. Includes admin-added people who have not logged in yet (confirmed=false), and marks each person outside the organization (external, #2290). Any authenticated user may call this; a person of an external persona is refused.
 // @Tags         User
 // @Produce      json
 // @Param        q          query  string   false  "Case-insensitive match on email or name"
@@ -159,6 +165,7 @@ func (h *Handler) listDirectoryUsers(w http.ResponseWriter, r *http.Request) {
 			FirstName: users[i].FirstName,
 			LastName:  users[i].LastName,
 			Confirmed: users[i].Confirmed,
+			External:  h.deps.External != nil && h.deps.External(users[i].Roles),
 		})
 	}
 	writeJSON(w, http.StatusOK, directoryUsersResponse{Users: out, Total: total})

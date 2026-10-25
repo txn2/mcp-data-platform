@@ -72,20 +72,39 @@ func TestShareReachesTheResource(t *testing.T) {
 	}
 }
 
-// An upload through the route is handed to OnUploaded with the uploader's
-// claims, which is where an external person's upload is shared (#2258).
-func TestOnUploadedSeesTheUpload(t *testing.T) {
-	store := newMockStore()
-	var got *Resource
-	var who string
-	h := NewHandler(Deps{
-		Store: store, S3Client: newMockS3(), S3Bucket: "b", URIScheme: "mcp",
-		OnUploaded: func(_ context.Context, c Claims, res *Resource) { got, who = res, c.Email },
-	}, okExtractor, nil)
-	req := buildMultipartRequest(t, map[string]string{"scope": "global", "path": "samples", "display_name": "Extract", "description": "d"}, []byte("a,b\n1,2\n"), "extract.csv")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusCreated || got == nil || who != testClaims().Email {
-		t.Fatalf("HTTP %d, uploaded %v by %q", rec.Code, got, who)
+// External files reaches an external person's folder: view opens and lists
+// it, manage also writes it, and neither reaches anyone else's (#2290).
+func TestExternalFiles(t *testing.T) {
+	theirs := &Resource{ID: "r", Scope: ScopeUser, ScopeID: "client-sub"}
+	staffs := &Resource{ID: "s", Scope: ScopeUser, ScopeID: "staff-sub"}
+	isExternal := func(id string) bool { return id == "client-sub" }
+	lib := ScopeFilter{Scope: ScopeUser, ScopeID: "client-sub"}
+
+	none := Claims{Sub: "me"}
+	if CanAccessResource(none, theirs) || CanSeeLibrary(none, lib) || CanWriteScope(none, ScopeUser, "client-sub") {
+		t.Error("no level reaches an external folder")
+	}
+	view := Claims{Sub: "me", ExternalFolder: isExternal}
+	if !CanAccessResource(view, theirs) || !CanSeeLibrary(view, lib) {
+		t.Error("view opens and lists an external folder")
+	}
+	if CanWriteScope(view, ScopeUser, "client-sub") || CanModifyResource(view, theirs) {
+		t.Error("view changes nothing")
+	}
+	if CanAccessResource(view, staffs) || CanSeeLibrary(view, ScopeFilter{Scope: ScopeUser, ScopeID: "staff-sub"}) {
+		t.Error("view reaches only external people's folders")
+	}
+	if CanAccessResource(view, &Resource{Scope: ScopePersona, ScopeID: "client-sub"}) {
+		t.Error("an external folder is a user library")
+	}
+	manage := Claims{Sub: "me", ExternalFolder: isExternal, ManageExternalFiles: true}
+	if !CanWriteScope(manage, ScopeUser, "client-sub") || !CanModifyResource(manage, theirs) || !CanEditResource(manage, theirs) {
+		t.Error("manage changes what is in an external folder")
+	}
+	if CanModifyResource(manage, staffs) {
+		t.Error("manage reaches only external people's folders")
+	}
+	if CanWriteScope(Claims{Sub: "me", ManageExternalFiles: true}, ScopeUser, "client-sub") {
+		t.Error("manage without the folder check reaches nothing")
 	}
 }

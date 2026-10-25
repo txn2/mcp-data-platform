@@ -64,8 +64,8 @@ export function referenceLines(r: PersonaReferences): { text: string; href?: str
   if (r.webhook_sources.length > 0) {
     out.push({ text: `Webhook sources writing to its folder: ${r.webhook_sources.join(", ")}`, href: adminHref("webhooks") });
   }
-  if (r.external_accounts > 0) out.push({ text: countLine(r.external_accounts, "external account", "external accounts"), href: adminHref("users") });
   if (r.api_keys > 0) out.push({ text: countLine(r.api_keys, "API key resolves here", "API keys resolve here"), href: adminHref("keys") });
+  if (r.people.length > 0) out.push({ text: countLine(r.people.length, "person", "people"), href: adminHref("users") });
   return out;
 }
 
@@ -237,10 +237,11 @@ function ExternalPanel() {
       <p className="font-medium">External takes away</p>
       <p className="mt-0.5">
         Every AI tool, API keys, the people directory, knowledge pages, the catalog, the API browser, scratch tables,
-        search, prompts, automations, memory, sharing, and the Global folder.
+        search, prompts, automations, memory, sharing, External files, signed-in endpoints, and every folder but
+        their own.
       </p>
       <p className="mt-2 font-medium">You still decide</p>
-      <p className="mt-0.5">Resources (none, or this persona's folder), Feedback, PDF export, and Uploads.</p>
+      <p className="mt-0.5">Resources (none, or their own folder), Feedback, PDF export, Earlier versions, and Uploads.</p>
     </div>
   );
 }

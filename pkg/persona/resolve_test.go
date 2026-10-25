@@ -91,3 +91,39 @@ func TestSharingAllowed_DefaultsOnAndReadsTheRegistry(t *testing.T) {
 		t.Error("a nil registry allowed sharing")
 	}
 }
+
+// Earlier versions are off unless the persona turns them on (#2290).
+func TestHistoryAllowed_DefaultsOffAndReadsTheRegistry(t *testing.T) {
+	on := true
+	r := NewRegistry()
+	if err := r.Register(&Persona{Name: "editors", Roles: []string{"e"}, Portal: &PortalAccess{History: &on}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Register(&Persona{Name: "analyst", Roles: []string{"a"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.HistoryAllowed("editors") || r.HistoryAllowed("analyst") || r.HistoryAllowed("unknown") {
+		t.Error("the registry read the setting wrong")
+	}
+	var nilReg *Registry
+	if nilReg.HistoryAllowed("editors") {
+		t.Error("a nil registry allowed earlier versions")
+	}
+}
+
+func TestIsExternalRoles(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(&Persona{Name: "client-a", Roles: []string{"client-a"}, External: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Register(&Persona{Name: "staff", Roles: []string{"staff"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.IsExternalRoles([]string{"client-a"}) || r.IsExternalRoles([]string{"staff"}) || r.IsExternalRoles(nil) {
+		t.Error("external read wrong")
+	}
+	var nilReg *Registry
+	if nilReg.IsExternalRoles([]string{"client-a"}) {
+		t.Error("a nil registry marked someone external")
+	}
+}

@@ -37,6 +37,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
@@ -72,9 +73,9 @@ type Config struct {
 	// resolves a recipient's name against (#1280). Nil leaves sharing working
 	// by email address only.
 	Directory portalkit.DirectoryReader
-	// SharingAllowed reports whether a persona lets its people share (#2241),
-	// passed straight through to the asset toolkit. Nil allows every persona.
-	SharingAllowed func(persona string) bool
+	// Personas answers whether a persona lets its people share (#2241) and
+	// read an asset's earlier versions (#2290), for the asset toolkit.
+	Personas *persona.Registry
 }
 
 // Handle owns the assembled portal store layer: the six stores, the S3 blob
@@ -213,7 +214,7 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 	// against, so an asset reference works on a deployment with no
 	// managed-resource layer at all; BindResources adds that layer when there
 	// is one (#1488).
-	h.sharingAllowed = cfg.SharingAllowed
+	h.sharingAllowed = cfg.Personas.SharingAllowed
 	h.declarer = assetrefs.NewDeclarer(h.contentRefs, h.assetStore).WithMax(cfg.MaxRefs)
 	h.toolkit = portalkit.New(portalkit.Config{
 		Name:            cfg.Name,
@@ -231,7 +232,8 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 
 		CaptureProvenance: cfg.CaptureProvenance,
 		Directory:         cfg.Directory,
-		SharingAllowed:    cfg.SharingAllowed,
+		SharingAllowed:    cfg.Personas.SharingAllowed,
+		HistoryAllowed:    cfg.Personas.HistoryAllowed,
 	})
 	h.toolkit.SetContentRefs(h.declarer)
 	return h

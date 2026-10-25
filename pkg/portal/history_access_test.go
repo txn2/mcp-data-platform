@@ -10,14 +10,16 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
-// Viewers of an asset see only its current version (#2226): three versions,
-// shared as viewer, read as version 3 with no history; shared as editor, read
-// in full.
+// Who reads an asset's earlier versions (#2226, #2290): three versions,
+// shared with a person whose persona withholds earlier versions, read as
+// version 3 with no history whether the share is viewer or editor; with the
+// setting on, read in full either way. The owner always reads them.
 
-func historyHandler(perm SharePermission, user *User) *Handler {
+func historyHandler(perm SharePermission, user *User, history bool) *Handler {
 	asset := &Asset{ID: "a1", OwnerID: "owner", OwnerEmail: "owner@example.com", Name: "r.md", CurrentVersion: 3}
 	shares := &mockShareStore{listByAsset: []Share{{
 		ID: "s1", AssetID: "a1", SharedWithUserID: "reader", Permission: perm, AccessMode: AccessModeRestricted,
@@ -29,6 +31,9 @@ func historyHandler(perm SharePermission, user *User) *Handler {
 		S3Client:     &mockS3Client{getData: []byte("v"), getCT: "text/markdown"}, S3Bucket: "b",
 		PublicBaseURL: "https://example.com", ContentURLKey: testContentURLKey,
 		RateLimit: RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+		PersonaResolver: func([]string) *PersonaInfo {
+			return &PersonaInfo{Name: "readers", Portal: persona.PortalAccess{History: &history}}
+		},
 	}
 	return NewHandler(deps, testAuthMiddleware(user))
 }
@@ -39,21 +44,23 @@ func historyGet(h *Handler, path string) int {
 	return w.Code
 }
 
-func TestHistory_AViewerReadsTheCurrentVersionOnly(t *testing.T) {
+func TestHistory_ThePersonaSettingDecides(t *testing.T) {
 	reader := &User{UserID: "reader", Email: "reader@example.com"}
-	viewer := historyHandler(PermissionViewer, reader)
-	assert.Equal(t, http.StatusForbidden, historyGet(viewer, "/api/v1/portal/assets/a1/versions"))
-	assert.Equal(t, http.StatusForbidden, historyGet(viewer, "/api/v1/portal/assets/a1/versions/1/content"))
-	assert.Equal(t, http.StatusOK, historyGet(viewer, "/api/v1/portal/assets/a1/versions/3/content"))
-	assert.Equal(t, http.StatusForbidden, historyGet(viewer, "/api/v1/portal/assets/a1/content-url?version=1"))
-	assert.Equal(t, http.StatusOK, historyGet(viewer, "/api/v1/portal/assets/a1/content-url"))
+	for _, perm := range []SharePermission{PermissionViewer, PermissionEditor} {
+		off := historyHandler(perm, reader, false)
+		assert.Equal(t, http.StatusForbidden, historyGet(off, "/api/v1/portal/assets/a1/versions"), perm)
+		assert.Equal(t, http.StatusForbidden, historyGet(off, "/api/v1/portal/assets/a1/versions/1/content"), perm)
+		assert.Equal(t, http.StatusOK, historyGet(off, "/api/v1/portal/assets/a1/versions/3/content"), perm)
+		assert.Equal(t, http.StatusForbidden, historyGet(off, "/api/v1/portal/assets/a1/content-url?version=1"), perm)
+		assert.Equal(t, http.StatusOK, historyGet(off, "/api/v1/portal/assets/a1/content-url"), perm)
 
-	editor := historyHandler(PermissionEditor, reader)
-	assert.Equal(t, http.StatusOK, historyGet(editor, "/api/v1/portal/assets/a1/versions"))
-	assert.Equal(t, http.StatusOK, historyGet(editor, "/api/v1/portal/assets/a1/versions/1/content"))
-	assert.Equal(t, http.StatusOK, historyGet(editor, "/api/v1/portal/assets/a1/content-url?version=1"))
+		on := historyHandler(perm, reader, true)
+		assert.Equal(t, http.StatusOK, historyGet(on, "/api/v1/portal/assets/a1/versions"), perm)
+		assert.Equal(t, http.StatusOK, historyGet(on, "/api/v1/portal/assets/a1/versions/1/content"), perm)
+		assert.Equal(t, http.StatusOK, historyGet(on, "/api/v1/portal/assets/a1/content-url?version=1"), perm)
+	}
 
-	owner := historyHandler(PermissionViewer, &User{UserID: "owner", Email: "owner@example.com"})
+	owner := historyHandler(PermissionViewer, &User{UserID: "owner", Email: "owner@example.com"}, false)
 	assert.Equal(t, http.StatusOK, historyGet(owner, "/api/v1/portal/assets/a1/versions"))
 }
 

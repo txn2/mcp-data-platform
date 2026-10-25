@@ -21,7 +21,6 @@ const refsQuery = `SELECT
 		AND (expires_at IS NULL OR expires_at > NOW())),
 	COALESCE((SELECT array_agg(name ORDER BY name) FROM webhook_sources
 		WHERE config->>'persona' = $1 OR ($2 AND COALESCE(config->>'persona', '') = '')), '{}'),
-	(SELECT count(*) FROM external_accounts WHERE persona = $1 AND converted_at IS NULL),
 	(SELECT count(*) FROM script_endpoints WHERE auth_mode = 'signed_in' AND enabled)`
 
 // scriptRolesQuery is the roles each script's latest applied version was
@@ -54,7 +53,7 @@ func readRefs(ctx context.Context, db *sql.DB, scope refScope) (References, Unsc
 	var secrets, sources pq.StringArray
 	err := db.QueryRowContext(ctx, refsQuery, scope.name, scope.admin).Scan(
 		&secrets, &refs.Secrets.Unrestricted, &refs.ScriptGrants, &refs.Prompts, &refs.Shares,
-		&sources, &refs.ExternalAccounts, &unscoped.SignedInEndpoints,
+		&sources, &unscoped.SignedInEndpoints,
 	)
 	if err != nil {
 		return refs, unscoped, fmt.Errorf("reading the persona's references: %w", err)
@@ -71,7 +70,43 @@ func readRefs(ctx context.Context, db *sql.DB, scope refScope) (References, Unsc
 			refs.APIKeys++
 		}
 	}
+	if refs.People, err = peopleResolving(ctx, db, scope.resolves); err != nil {
+		return refs, unscoped, err
+	}
 	return refs, unscoped, nil
+}
+
+// peopleQuery is every signed-in person and the roles the identity provider
+// last stated for them.
+const peopleQuery = `SELECT email, roles FROM users WHERE confirmed ORDER BY LOWER(email)`
+
+// peopleResolving lists the addresses of the signed-in people whose recorded
+// roles resolve to the persona (#2290).
+func peopleResolving(ctx context.Context, db *sql.DB, resolves func([]string) bool) ([]string, error) {
+	rows, err := db.QueryContext(ctx, peopleQuery)
+	if err != nil {
+		return nil, fmt.Errorf(errReadingRoles, err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]string, 0)
+	for rows.Next() {
+		var email string
+		var raw []byte
+		if err := rows.Scan(&email, &raw); err != nil {
+			return nil, fmt.Errorf(errReadingRoles, err)
+		}
+		var roles []string
+		if err := json.Unmarshal(raw, &roles); err != nil {
+			return nil, fmt.Errorf(errReadingRoles, err)
+		}
+		if resolves(roles) {
+			out = append(out, email)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(errReadingRoles, err)
+	}
+	return out, nil
 }
 
 // countResolving counts the rows of query, each one set of roles, that

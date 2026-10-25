@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ViewMode } from "@/components/listView";
 import { cn } from "@/lib/utils";
-import { PEOPLE_LABEL, PERSON_PREFIX, type ResourceRoot } from "../scopes";
+import { EXTERNAL_FILES_LABEL, PEOPLE_LABEL, PERSON_PREFIX, type ResourceRoot } from "../scopes";
 
 /** What a breadcrumb segment does with something dropped on it. */
 export interface CrumbDrop {
@@ -112,9 +112,9 @@ export function PathBar({
         data-testid="path-bar"
         className="order-last flex h-[30px] w-full min-w-0 items-center gap-0.5 overflow-hidden rounded-md border bg-muted/50 px-1.5 whitespace-nowrap sm:order-none sm:w-auto sm:flex-1"
       >
-        {root.key.startsWith(PERSON_PREFIX) && (
+        {(root.key.startsWith(PERSON_PREFIX) || root.external) && (
           <>
-            <span className="px-1 text-muted-foreground">{PEOPLE_LABEL}</span>
+            <span className="px-1 text-muted-foreground">{root.external ? EXTERNAL_FILES_LABEL : PEOPLE_LABEL}</span>
             <span className="text-muted-foreground/60">/</span>
           </>
         )}

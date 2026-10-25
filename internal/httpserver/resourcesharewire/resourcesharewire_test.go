@@ -16,17 +16,14 @@ import (
 )
 
 // The share routes see the persona a caller resolves to: whether it is
-// external, whether it shares, and what an external persona's uploads are
-// shared with.
+// external and whether it shares.
 func TestCallerOf(t *testing.T) {
 	off := false
-	up := &persona.PortalUploads{SharePersonas: []string{"marketing"}}
 	reg := persona.NewRegistry()
 	require.NoError(t, reg.Register(&persona.Persona{Name: "staff", Roles: []string{"staff"}}))
 	require.NoError(t, reg.Register(&persona.Persona{Name: "quiet", Roles: []string{"quiet"}, AllowSharing: &off}))
 	require.NoError(t, reg.Register(&persona.Persona{
 		Name: "vendors", Roles: []string{"vendor"}, External: true,
-		Portal: &persona.PortalAccess{Uploads: up},
 	}))
 	caller := CallerOf(reg)
 	assert.Equal(t, "staff", caller([]string{"staff"}).Persona)
@@ -35,7 +32,6 @@ func TestCallerOf(t *testing.T) {
 	v := caller([]string{"vendor"})
 	assert.True(t, v.External)
 	assert.False(t, v.Sharing)
-	assert.Equal(t, up, v.Uploads)
 	assert.Empty(t, caller([]string{"nobody"}).Persona)
 }
 
@@ -47,7 +43,6 @@ func TestNilSharesDoNothing(t *testing.T) {
 	got, err := s.Bind(base)(nil)
 	require.NoError(t, err)
 	assert.Nil(t, got.Shared)
-	assert.Nil(t, s.Uploaded())
 	s.Register(http.NewServeMux())
 }
 
@@ -69,7 +64,6 @@ func TestBindCarriesTheLookup(t *testing.T) {
 	require.NotNil(t, got.Shared)
 	assert.Equal(t, "editor", got.Shared("r1"))
 	assert.NotNil(t, s.deps.Claims)
-	assert.NotNil(t, s.Uploaded())
 	mux := http.NewServeMux()
 	s.Register(mux)
 

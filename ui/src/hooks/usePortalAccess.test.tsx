@@ -23,10 +23,10 @@ function signIn(portal?: Record<string, unknown>) {
 }
 
 describe("usePortalAccess", () => {
-  it("is every area at its highest level when /me sent no block", () => {
+  it("is every area at its highest level when /me sent no block, and the later settings unset", () => {
     signIn(undefined);
     const { result } = renderHook(() => usePortalAccess());
-    expect(result.current).toEqual(FULL_PORTAL);
+    expect(result.current).toEqual({ ...FULL_PORTAL, history: false, external_files: "none" });
   });
 
   it("takes each area /me sent and fills the rest", () => {

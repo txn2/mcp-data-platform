@@ -17,8 +17,8 @@ import (
 // the store wrote (#2257): a secret naming the persona and one naming none, a
 // persona script grant, the latest version of a script saved with roles that
 // resolve to it, a persona-scoped prompt, a share to the persona, a webhook
-// source writing to it, an external account under it, and an API key whose
-// roles resolve to it.
+// source writing to it, a signed-in person whose roles resolve to it, and an
+// API key whose roles resolve to it.
 func TestRealDB_ReferencesReadEveryTableThatNamesAPersona(t *testing.T) {
 	db := testdb.New(t)
 	ctx := context.Background()
@@ -38,7 +38,9 @@ func TestRealDB_ReferencesReadEveryTableThatNamesAPersona(t *testing.T) {
 			('s2', '00000000-0000-0000-0000-0000000000a1', 't2', 'owner@example.com', 'finance')`,
 		`INSERT INTO webhook_sources (name, connection_name, config) VALUES
 			('stripe-events', 'acme-trino', '{"persona":"analyst"}'), ('esp', 'acme-trino', '{}')`,
-		`INSERT INTO external_accounts (id, email, persona) VALUES ('ext1', 'vendor@example.com', 'analyst')`,
+		`INSERT INTO users (email, source, confirmed, roles) VALUES
+			('ann@example.com', 'auth', TRUE, '["analyst"]'), ('fin@example.com', 'auth', TRUE, '["finance"]'),
+			('pre@example.com', 'admin', FALSE, '["analyst"]')`,
 		`INSERT INTO api_keys (name, key_hash, roles) VALUES ('etl', 'h1', '["analyst"]'), ('ops', 'h2', '["finance"]')`,
 		`INSERT INTO table_registrations (id, source_kind, source_id, connection_name, catalog_name, schema_name, table_name, location, registered_by)
 			VALUES ('reg_1', 'resource', 'r1', 'acme-trino', 'scratch', 'uploads', 't', 's3://b/k', 'a@example.com')`,
@@ -61,7 +63,7 @@ func TestRealDB_ReferencesReadEveryTableThatNamesAPersona(t *testing.T) {
 	assert.Equal(t, 1, refs.Prompts, "a personal prompt carrying the name is not scoped to the persona")
 	assert.Equal(t, 1, refs.Shares)
 	assert.Equal(t, []string{"stripe-events"}, refs.WebhookSources)
-	assert.Equal(t, 1, refs.ExternalAccounts)
+	assert.Equal(t, []string{"ann@example.com"}, refs.People, "a pre-added person who never signed in is not one")
 	assert.Equal(t, 2, refs.APIKeys, "one stored key and one from the file")
 
 	admin := New(Config{Personas: reg, AdminPersona: "admin", DB: db})

@@ -29,8 +29,12 @@ type userSummary struct {
 	// RolesSeenAt is when Roles was last recorded, so a current role set can
 	// be told from a long-stale one.
 	RolesSeenAt *time.Time `json:"roles_seen_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	// Persona is the persona Roles resolve to, and External marks it one for
+	// people outside the organization (#2290).
+	Persona   string    `json:"persona,omitempty" example:"analyst"`
+	External  bool      `json:"external,omitempty" example:"false"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // userListResponse wraps a page of directory users.
@@ -101,7 +105,7 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	summaries := make([]userSummary, 0, len(users))
 	for i := range users {
-		summaries = append(summaries, toUserSummary(users[i]))
+		summaries = append(summaries, h.userSummary(users[i]))
 	}
 	writeJSON(w, http.StatusOK, userListResponse{Users: summaries, Total: total})
 }
@@ -132,7 +136,7 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get user")
 		return
 	}
-	writeJSON(w, http.StatusOK, toUserSummary(*u))
+	writeJSON(w, http.StatusOK, h.userSummary(*u))
 }
 
 // createUser handles POST /api/v1/admin/users.
@@ -190,10 +194,10 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 	created, err := h.deps.UserStore.Get(r.Context(), email)
 	if err != nil {
 		// The row was inserted; fall back to echoing the request.
-		writeJSON(w, http.StatusCreated, toUserSummary(u))
+		writeJSON(w, http.StatusCreated, h.userSummary(u))
 		return
 	}
-	writeJSON(w, http.StatusCreated, toUserSummary(*created))
+	writeJSON(w, http.StatusCreated, h.userSummary(*created))
 }
 
 // updateUser handles PUT /api/v1/admin/users/{email}.
@@ -240,7 +244,7 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load updated user")
 		return
 	}
-	writeJSON(w, http.StatusOK, toUserSummary(*updated))
+	writeJSON(w, http.StatusOK, h.userSummary(*updated))
 }
 
 // deleteUser handles DELETE /api/v1/admin/users/{email}.
@@ -336,9 +340,10 @@ func validateUserUpdate(req userUpdateRequest) error {
 	return nil
 }
 
-// toUserSummary converts a domain user to its admin API representation.
-func toUserSummary(u user.User) userSummary {
-	return userSummary{
+// userSummary converts a domain user to its admin API representation, with
+// the persona their recorded roles resolve to.
+func (h *Handler) userSummary(u user.User) userSummary {
+	out := userSummary{
 		Email:       u.Email,
 		FirstName:   u.FirstName,
 		LastName:    u.LastName,
@@ -351,4 +356,10 @@ func toUserSummary(u user.User) userSummary {
 		CreatedAt:   u.CreatedAt,
 		UpdatedAt:   u.UpdatedAt,
 	}
+	if h.deps.PersonaResolver != nil {
+		if p, ok := h.deps.PersonaResolver.Resolve(u.Roles); ok {
+			out.Persona, out.External = p.Name, p.External
+		}
+	}
+	return out
 }

@@ -303,6 +303,10 @@ export interface DirectoryUser {
   roles?: string[];
   /** When `roles` was last recorded. */
   roles_seen_at?: string;
+  /** The persona `roles` resolve to (#2290). */
+  persona?: string;
+  /** The persona is for people outside the organization (#2290). */
+  external?: boolean;
   created_at: string;
   updated_at: string;
 }

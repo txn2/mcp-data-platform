@@ -212,6 +212,24 @@ func TestListDirectoryUsers(t *testing.T) {
 	assert.Equal(t, 1, body.Total)
 }
 
+// The picker marks each person outside the organization (#2290).
+func TestListDirectoryUsers_MarksExternalPeople(t *testing.T) {
+	dir := &fakeDirectory{users: []userdir.User{
+		{Email: "dana@client-a.example.com", Confirmed: true, Roles: []string{"client-a"}},
+		{Email: "ann@example.com", Confirmed: true, Roles: []string{"staff"}},
+	}}
+	external := func(roles []string) bool { return len(roles) == 1 && roles[0] == "client-a" }
+	rec := serve(t, Deps{Directory: dir, Caller: callerIs(member), External: external}, "/api/v1/portal/users")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body directoryUsersResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, []directoryUser{
+		{Email: "dana@client-a.example.com", Confirmed: true, External: true},
+		{Email: "ann@example.com", Confirmed: true},
+	}, body.Users)
+}
+
 // The picker that hands a script over asks for the people who have actually
 // signed in, and that narrowing is the store's (#1407): filtering the answer
 // would let the row cap fill with people who never have.

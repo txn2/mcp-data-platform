@@ -7,6 +7,7 @@ package endpointwire
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -39,7 +40,7 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 	if p.Config().Admin.IsEnabled() {
 		settings = adminAuth()
 	}
-	mountOver(mux, e, portal.NewAuthenticator(p.Authenticator(), opts...), settings, author)
+	mountOver(mux, e, Authenticator(portal.NewAuthenticator(p.Authenticator(), opts...), p.PersonaRegistry().IsExternalRoles), settings, author)
 	if settings != nil && p.DB() != nil {
 		scripts := scriptstore.New(p.DB())
 		endpointapi.Register(mux, settings, endpointapi.Config{
@@ -51,8 +52,8 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 
 // mountOver registers the routes over the assembled feature; the settings
 // routes only when settings, the admin API's authentication, is not nil.
-func mountOver(mux *http.ServeMux, e *epwire.Endpoints, auth portalAuth, settings func(http.Handler) http.Handler, author func(*http.Request) string) {
-	h := &ephttp.Handler{Runner: e.Runner, Checker: e.Checker, Authenticate: Authenticator(auth)}
+func mountOver(mux *http.ServeMux, e *epwire.Endpoints, auth func(r *http.Request) (*eprun.Caller, error), settings func(http.Handler) http.Handler, author func(*http.Request) string) {
+	h := &ephttp.Handler{Runner: e.Runner, Checker: e.Checker, Authenticate: auth}
 	if e.Refusals != nil {
 		h.Refused = e.Refusals.Refused
 	}
@@ -73,8 +74,10 @@ type portalAuth interface {
 
 // Authenticator adapts the portal's authentication to an endpoint's caller.
 // The portal reports an error only for a browser session refused its CSRF
-// token, which is the caller's credential refused rather than absent.
-func Authenticator(a portalAuth) func(r *http.Request) (*eprun.Caller, error) {
+// token, which is the caller's credential refused rather than absent. A person
+// of an external persona is refused too (#2290): a signed-in endpoint runs a
+// script, which reaches far more than what is shared with them.
+func Authenticator(a portalAuth, external func(roles []string) bool) func(r *http.Request) (*eprun.Caller, error) {
 	return func(r *http.Request) (*eprun.Caller, error) {
 		u, err := a.Authenticate(r)
 		if err != nil {
@@ -82,6 +85,9 @@ func Authenticator(a portalAuth) func(r *http.Request) (*eprun.Caller, error) {
 		}
 		if u == nil {
 			return nil, nil
+		}
+		if external != nil && external(u.Roles) {
+			return nil, fmt.Errorf("an external persona reaches no endpoint: %w", ephttp.ErrForbidden)
 		}
 		return &eprun.Caller{UserID: u.UserID, Email: u.Email, AuthType: u.AuthType}, nil
 	}

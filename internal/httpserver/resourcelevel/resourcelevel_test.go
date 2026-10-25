@@ -48,14 +48,18 @@ func TestApplyResourceLevel(t *testing.T) {
 	assert.Equal(t, []string{"none"}, got.Personas)
 }
 
-// A person of an external persona never reads Global (#2257), and writes
-// only when the persona lets its people upload (#2258).
+// A person of an external persona reads only their own folder, never Global
+// or their persona's (#2257, #2290), and writes only when the persona lets its
+// people upload (#2258).
 func TestApplyExternalPersona(t *testing.T) {
+	on, off := true, false
 	pr := persona.NewRegistry()
 	require.NoError(t, pr.Register(&persona.Persona{Name: "vendors", Roles: []string{"vendor"}, External: true}))
 	require.NoError(t, pr.Register(&persona.Persona{
-		Name: "agency", Roles: []string{"agency"}, External: true,
-		Portal: &persona.PortalAccess{Uploads: &persona.PortalUploads{SharePersonas: []string{"marketing"}}},
+		Name: "closed", Roles: []string{"closed"}, External: true, Portal: &persona.PortalAccess{Uploads: &off},
+	}))
+	require.NoError(t, pr.Register(&persona.Persona{
+		Name: "agency", Roles: []string{"agency"}, External: true, Portal: &persona.PortalAccess{Uploads: &on},
 	}))
 	claims := func(role string) *resource.Claims {
 		return &resource.Claims{Sub: "ext:1", Roles: []string{role}, Personas: []string{role}}
@@ -67,9 +71,13 @@ func TestApplyExternalPersona(t *testing.T) {
 	scopes := resource.VisibleScopes(*got)
 	assert.NotContains(t, scopes, resource.ScopeFilter{Scope: resource.ScopeGlobal})
 	assert.Contains(t, scopes, resource.ScopeFilter{Scope: resource.ScopeUser, ScopeID: "ext:1"})
+	assert.NotContains(t, scopes, resource.ScopeFilter{Scope: resource.ScopePersona, ScopeID: "vendor"}, "no persona folder")
+	assert.Empty(t, got.Personas)
 	assert.False(t, resource.CanReadResource(*got, &resource.Resource{Scope: resource.ScopeGlobal}))
 	_, err = Apply(claims("vendor"), pr, http.MethodPost)
 	assert.True(t, errors.Is(err, resource.ErrForbidden), "no uploads setting, no upload")
+	_, err = Apply(claims("closed"), pr, http.MethodPost)
+	assert.True(t, errors.Is(err, resource.ErrForbidden), "uploads off, no upload")
 
 	got, err = Apply(claims("agency"), pr, http.MethodPost)
 	require.NoError(t, err, "uploads let the person write to their own folder")

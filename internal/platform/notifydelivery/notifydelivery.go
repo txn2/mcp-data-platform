@@ -240,31 +240,6 @@ func (h *Handle) SendGuestLink(ctx context.Context, to, link string) error {
 	return nil
 }
 
-// SignIn is an external user's sign-in email (#2092).
-type SignIn = notifyrender.SignIn
-
-// SendExternalSignIn delivers an external user's one-time sign-in link
-// (#2092), the invitation or a requested link, directly rather than through
-// the queue, as a guest link is: the person is waiting for it.
-func (h *Handle) SendExternalSignIn(ctx context.Context, m SignIn) error {
-	if h == nil {
-		return errors.New("notifications unavailable: no database configured")
-	}
-	settings, err := h.smtpSettings(ctx)
-	if err != nil {
-		return err
-	}
-	email, err := h.renderer.RenderExternalSignIn(m)
-	if err != nil {
-		return fmt.Errorf("rendering sign-in email: %w", err)
-	}
-	if err := h.sender.Send(ctx, *settings, *email); err != nil {
-		slog.ErrorContext(ctx, "notification: sign-in link send failed", logKeyError, err)
-		return err //nolint:wrapcheck // sender error already carries context
-	}
-	return nil
-}
-
 // smtpSettings loads the stored SMTP settings, refusing when the feature is
 // unconfigured or disabled. Shared by the direct (non-queued) send paths.
 func (h *Handle) smtpSettings(ctx context.Context) (*smtp.Settings, error) {

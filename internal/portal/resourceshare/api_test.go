@@ -13,15 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
-	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
 // memShares is the store as the routes use it, kept in memory.
 type memShares struct {
-	rows    []portaldomain.Share
-	sharers []string
-	err     error
+	rows []portaldomain.Share
+	err  error
 }
 
 func (m *memShares) Insert(_ context.Context, s *portaldomain.Share) error {
@@ -77,8 +75,6 @@ func (m *memShares) Revoke(_ context.Context, id, shareID string) error {
 	return ErrNotFound
 }
 
-func (m *memShares) Sharers(context.Context, Recipient) ([]string, error) { return m.sharers, m.err }
-
 type memResources map[string]*resource.Resource
 
 func (m memResources) Get(_ context.Context, id string) (*resource.Resource, error) {
@@ -98,7 +94,6 @@ var people = map[string]struct {
 	"reader@example.com": {resource.Claims{Sub: "reader", Email: "reader@example.com", Roles: []string{"sales"}}, Caller{Persona: "sales", Sharing: true}},
 	"vendor@example.com": {resource.Claims{Sub: "ext:1", Email: "vendor@example.com", Roles: []string{"vendor"}}, Caller{
 		Persona: "vendors", External: true,
-		Uploads: &persona.PortalUploads{SharePersonas: []string{"marketing"}, ShareEmails: []string{"lead@example.com"}},
 	}},
 	"admin@example.com": {resource.Claims{Sub: "admin", Email: "admin@example.com", IsAdmin: true}, Caller{Persona: "admin", Sharing: true}},
 }
@@ -118,6 +113,7 @@ func newFixture() *fixture {
 	}
 	f.svc = New(Deps{
 		Shares: f.shares, Resources: res,
+		PersonaExists: func(name string) bool { return name != "nobody" },
 		Claims: func(r *http.Request) (*resource.Claims, error) {
 			p, ok := people[r.Header.Get("X-As")]
 			if !ok {
@@ -204,7 +200,8 @@ func TestShareRefusals(t *testing.T) {
 	}{
 		{"quiet@example.com", `{"shared_with_email":"x@example.com"}`, http.StatusNotFound},
 		{"owner@example.com", `{}`, http.StatusBadRequest},
-		{"owner@example.com", `{"shared_with_persona":"finance"}`, http.StatusBadRequest},
+		{"owner@example.com", `{"shared_with_persona":"finance"}`, http.StatusCreated},
+		{"owner@example.com", `{"shared_with_persona":"nobody"}`, http.StatusBadRequest},
 		{"owner@example.com", `{"shared_with_email":"not an address"}`, http.StatusBadRequest},
 		{"owner@example.com", `{"shared_with_email":"x@example.com","bogus":1}`, http.StatusBadRequest},
 		{"owner@example.com", `{"shared_with_email":"x@example.com","message":"<b>x</b>"}`, http.StatusBadRequest},
@@ -232,9 +229,8 @@ func TestShareRefusals(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
-// An editor share is held to viewer for a person of an external persona, and
-// an external person shares their own upload only back to someone who shared
-// with them.
+// An editor share is held to viewer for a person of an external persona, who
+// shares nothing, their own upload included (#2290).
 func TestExternalPeople(t *testing.T) {
 	f := newFixture()
 	w := f.do("owner@example.com", http.MethodPost, "/api/v1/resources/r1/shares", `{"shared_with_email":"vendor@example.com","permission":"editor"}`)
@@ -247,44 +243,10 @@ func TestExternalPeople(t *testing.T) {
 	c := people["vendor@example.com"]
 	assert.Equal(t, "viewer", f.svc.Lookup(context.Background(), &c.claims, c.caller)("r1"))
 
-	w = f.do("vendor@example.com", http.MethodPost, "/api/v1/resources/upload/shares", `{"shared_with_email":"owner@example.com"}`)
-	assert.Equal(t, http.StatusForbidden, w.Code, "nobody has shared with them yet, as far as this store says")
-	f.shares.sharers = []string{"owner@example.com"}
-	w = f.do("vendor@example.com", http.MethodPost, "/api/v1/resources/upload/shares", `{"shared_with_email":"Owner@Example.com"}`)
-	assert.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-	w = f.do("vendor@example.com", http.MethodPost, "/api/v1/resources/upload/shares", `{"shared_with_persona":"vendors"}`)
-	assert.Equal(t, http.StatusForbidden, w.Code)
-	f.shares.err = errors.New("down")
-	w = f.do("vendor@example.com", http.MethodPost, "/api/v1/resources/upload/shares", `{"shared_with_email":"owner@example.com"}`)
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-// An external person's upload is shared on arrival with every recipient
-// their persona names, and each is told who uploaded it; anyone else's
-// upload shares nothing (#2258).
-func TestUploadedSharesAnExternalUpload(t *testing.T) {
-	f := newFixture()
-	res := &resource.Resource{ID: "upload", DisplayName: "delivery.csv"}
-	f.svc.Uploaded(context.Background(), people["vendor@example.com"].claims, res)
-	require.Len(t, f.shares.rows, 2)
-	assert.Equal(t, "marketing", f.shares.rows[0].SharedWithPersona)
-	assert.Equal(t, "lead@example.com", f.shares.rows[1].SharedWithEmail)
-	for _, s := range f.shares.rows {
-		assert.Equal(t, portaldomain.PermissionViewer, s.Permission)
-		assert.Equal(t, "vendor@example.com", s.CreatedBy)
+	for _, body := range []string{`{"shared_with_email":"owner@example.com"}`, `{"shared_with_persona":"vendors"}`} {
+		w = f.do("vendor@example.com", http.MethodPost, "/api/v1/resources/upload/shares", body)
+		assert.Equal(t, http.StatusForbidden, w.Code, body)
 	}
-	assert.Equal(t, []string{
-		"m1@example.com:upload:delivery.csv:Uploaded by vendor@example.com (vendors).",
-		"m2@example.com:upload:delivery.csv:Uploaded by vendor@example.com (vendors).",
-		"lead@example.com:upload:delivery.csv:Uploaded by vendor@example.com (vendors).",
-	}, f.notified)
-
-	f.svc.Uploaded(context.Background(), people["owner@example.com"].claims, res)
-	assert.Len(t, f.shares.rows, 2, "an internal person's upload is shared by them, not on arrival")
-
-	f.shares.err = errors.New("down")
-	f.svc.Uploaded(context.Background(), people["vendor@example.com"].claims, res)
-	assert.Len(t, f.shares.rows, 2)
 }
 
 func TestLookupFailureGrantsNothing(t *testing.T) {

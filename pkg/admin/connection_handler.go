@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/connsecretref"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
@@ -300,7 +301,7 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 
 	// Checked after the redaction merge, so a "[REDACTED]" placeholder that
 	// resolves to a stored value is judged on the value it resolves to.
-	if err := checkNoPlaceholders(req.Config); err != nil {
+	if err := configenv.CheckNoPlaceholders(req.Config); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
 		return
 	}

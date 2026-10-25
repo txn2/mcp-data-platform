@@ -1,7 +1,6 @@
 package persona
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 )
@@ -36,6 +35,11 @@ const (
 	PortalList = "list"
 	// PortalRegister lists them and registers a table over a file.
 	PortalRegister = "register"
+	// PortalView lists and opens every external person's personal folder and
+	// its files (#2290).
+	PortalView = "view"
+	// PortalManage also renames, versions, moves, deletes and shares them.
+	PortalManage = "manage"
 )
 
 // The tools a persona's portal defaults are read from: a persona with no
@@ -53,6 +57,7 @@ var (
 	catalogLevels   = []string{PortalNone, PortalRead, PortalWrite}
 	apiLevels       = []string{PortalNone, PortalBrowse}
 	scratchLevels   = []string{PortalNone, PortalList, PortalRegister}
+	externalLevels  = []string{PortalNone, PortalView, PortalManage}
 )
 
 // PortalAccess is a persona's portal permissions (#2225). An empty level or a
@@ -87,23 +92,21 @@ type PortalAccess struct {
 	// Download is exporting an asset or a resource as PDF; the portal names
 	// it PDF export (#2257). Reading content is the item's own sharing.
 	Download *bool `json:"download,omitempty" yaml:"download,omitempty"`
-	// Uploads lets the people of an external persona upload files, each one
-	// shared on arrival with the recipients it names (#2258). nil is no
-	// uploads; an internal persona's people upload by their Resources level
+	// Uploads lets the people of an external persona upload files to their
+	// own folder (#2258, #2290), which staff reach through ExternalFiles. Unset
+	// is off; an internal persona's people upload by their Resources level
 	// and this is dropped from its resolved block.
-	Uploads *PortalUploads `json:"uploads,omitempty" yaml:"uploads,omitempty"`
+	Uploads *bool `json:"uploads,omitempty" yaml:"uploads,omitempty"`
+	// History lets the persona's people read an asset's earlier versions
+	// (#2290). Unset is off: only the owner and an administrator read them,
+	// whatever a share grants.
+	History *bool `json:"history,omitempty" yaml:"history,omitempty"`
+	// ExternalFiles is every external person's personal folder: none, view
+	// or manage (#2290). Unset is none; an external persona has none.
+	ExternalFiles string `json:"external_files,omitempty" yaml:"external_files,omitempty"`
 	// External is reported, never set: the persona is external (#2092), so
 	// the portal offers its people no people directory and no API keys.
 	External bool `json:"external,omitempty" yaml:"-"`
-}
-
-// PortalUploads is who an external persona's uploads are shared with: every
-// person of each persona and each address, as viewers.
-type PortalUploads struct {
-	// SharePersonas are personas whose people read each upload.
-	SharePersonas []string `json:"share_personas,omitempty" yaml:"share_personas,omitempty"`
-	// ShareEmails are addresses that read each upload.
-	ShareEmails []string `json:"share_emails,omitempty" yaml:"share_emails,omitempty"`
 }
 
 // Resolve is the block with every area resolved as PortalPermissions
@@ -140,11 +143,13 @@ func (p *Persona) PortalPermissions(granted []string) PortalAccess {
 		Search:        switchOr(set.Search),
 		Memory:        switchOr(set.Memory),
 		Download:      switchOr(set.Download),
+		History:       offOr(set.History),
+		ExternalFiles: levelOr(set.ExternalFiles, PortalNone),
 	}
 	// A block resolved for an external persona carries External, so reading
 	// it again keeps the limits.
 	if (p != nil && p.External) || set.External {
-		out.Uploads = set.Uploads
+		out.Uploads = offOr(set.Uploads)
 		out = externalLimits(out)
 	}
 	return out
@@ -168,15 +173,16 @@ func (p *Persona) StoredPortal(granted []string) PortalAccess {
 // externalLimits holds an external persona's portal to what #2092 allows:
 // assets shared with its people, resources no more than shared (which for an
 // external persona leaves out Global, #2257), no knowledge, catalog, API
-// browser, scratch tables, search, prompts, automations or memory. Feedback,
-// PDF export and uploads stay as the persona sets them.
+// browser, scratch tables, search, prompts, automations, memory or other
+// external people's files (#2290). Feedback, PDF export, uploads and earlier
+// versions stay as the persona sets them.
 func externalLimits(a PortalAccess) PortalAccess {
 	off := func() *bool { v := false; return &v }
 	a.Assets = PortalShared
 	if a.Resources != PortalNone {
 		a.Resources = PortalShared
 	}
-	a.Knowledge, a.Catalog, a.APIs, a.ScratchTables = PortalNone, PortalNone, PortalNone, PortalNone
+	a.Knowledge, a.Catalog, a.APIs, a.ScratchTables, a.ExternalFiles = PortalNone, PortalNone, PortalNone, PortalNone, PortalNone
 	a.Search, a.Prompts, a.Automations, a.Memory = off(), off(), off(), off()
 	a.External = true
 	return a
@@ -190,6 +196,7 @@ func FullPortalAccess() PortalAccess {
 		Assets: PortalOwn, Resources: PortalPersonaFolders, Knowledge: PortalWrite,
 		Catalog: PortalWrite, APIs: PortalBrowse, ScratchTables: PortalRegister,
 		Feedback: on(), Prompts: on(), Automations: on(), Search: on(), Memory: on(), Download: on(),
+		History: on(), ExternalFiles: PortalManage,
 	}
 }
 
@@ -211,13 +218,11 @@ func (a *PortalAccess) Validate() error {
 		{"catalog", a.Catalog, catalogLevels},
 		{"apis", a.APIs, apiLevels},
 		{"scratch_tables", a.ScratchTables, scratchLevels},
+		{"external_files", a.ExternalFiles, externalLevels},
 	} {
 		if f.level != "" && !slices.Contains(f.levels, f.level) {
 			return fmt.Errorf("portal.%s: %q is not one of %v", f.area, f.level, f.levels)
 		}
-	}
-	if a.Uploads != nil && len(a.Uploads.SharePersonas)+len(a.Uploads.ShareEmails) == 0 {
-		return errors.New("portal.uploads: name at least one persona or address each upload is shared with")
 	}
 	return nil
 }
@@ -243,6 +248,7 @@ func Differs(stored, effective PortalAccess) []string {
 		{"search", onText(stored.Search), onText(effective.Search)},
 		{"memory", onText(stored.Memory), onText(effective.Memory)},
 		{"download", onText(stored.Download), onText(effective.Download)},
+		{"external_files", stored.ExternalFiles, effective.ExternalFiles},
 	} {
 		if f.a != f.b {
 			out = append(out, f.area)
@@ -261,7 +267,7 @@ func onText(v *bool) string {
 // AtLeast reports whether level reaches want in the order an area's levels
 // are listed. Both must be levels of the same area.
 func AtLeast(level, want string) bool {
-	for _, levels := range [][]string{assetLevels, resourceLevels, knowledgeLevels, catalogLevels, apiLevels, scratchLevels} {
+	for _, levels := range [][]string{assetLevels, resourceLevels, knowledgeLevels, catalogLevels, apiLevels, scratchLevels, externalLevels} {
 		have, need := slices.Index(levels, level), slices.Index(levels, want)
 		if have >= 0 && need >= 0 {
 			return have >= need
@@ -293,6 +299,12 @@ func levelOr(level, fallback string) string {
 		return fallback
 	}
 	return level
+}
+
+// offOr resolves a switch whose unset value is off.
+func offOr(v *bool) *bool {
+	out := v != nil && *v
+	return &out
 }
 
 func switchOr(v *bool) *bool {
