@@ -266,7 +266,7 @@ func (h *Handle) handleEndpoint(ctx context.Context, input manageScriptInput) (*
 	}
 	req := epcmd.Request{
 		Command: input.Command, Input: input.Input, TimeoutSeconds: input.TimeoutSeconds,
-		Admin: h.isAdminPersona(ctx), Actor: resolveEmail(ctx),
+		Admin: h.isAdminPersona(ctx), Actor: resolveEmail(ctx), Limit: input.Limit,
 	}
 	if input.Name != "" || input.Command != epcmd.CmdList {
 		sc, errResult := h.owned(ctx, input)

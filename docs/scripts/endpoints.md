@@ -42,7 +42,8 @@ With `manage_script`:
 ```
 
 `endpoint_list` reads a script's binding and its recent failed requests, or
-lists every binding the caller's scripts have. `endpoint_enable` and
+lists every binding the caller's scripts have, up to `limit` (at most 200),
+with `total`, and a `note` naming how many were left out when the list was cut. `endpoint_enable` and
 `endpoint_disable` turn an endpoint on and off without touching the script; a
 disabled endpoint answers 404. A script run may read a binding but not set
 or turn one on or off.
@@ -333,7 +334,8 @@ without opening automations one at a time: each endpoint's automation and
 owner, its methods and path, its access (a public endpoint is marked apart from
 a signed-in one), whether it is on, and over the last 24 hours or 7 days its
 requests, failures, refusals, p95 duration and last request. The list filters
-by access and by on or off, and a row opens the endpoint.
+by access and by on or off, shows 50 endpoints a page with the total that match
+and pages through the rest (#2251), and a row opens the endpoint.
 
 An endpoint's page charts its requests by status class (an hour a bar over a
 day, six hours over a week) beside the requests it refused before its handler
@@ -354,4 +356,7 @@ endpoint, hour and reason, so a flood refused at the bot check moves a counter
 rather than writing a row per request. The counts are kept 30 days.
 
 The page reads `GET /api/v1/admin/endpoints?range=day|week` and
-`GET /api/v1/admin/endpoints/{name}?range=day|week`, admin only.
+`GET /api/v1/admin/endpoints/{name}?range=day|week`, admin only. The list
+takes `access` (`public`, `signed_in`), `status` (`on`, `off`), `page` and
+`per_page` (default 50, at most 200), and answers `total`, `page` and
+`per_page` beside the page's `endpoints`.

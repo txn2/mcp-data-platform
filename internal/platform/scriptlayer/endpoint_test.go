@@ -62,7 +62,7 @@ func (*memBindings) GetByName(context.Context, string) (*epbinding.Binding, erro
 	return nil, epbinding.ErrNotFound
 }
 
-func (m *memBindings) List(_ context.Context, f epbinding.Filter) ([]epbinding.Binding, error) {
+func (m *memBindings) List(_ context.Context, f epbinding.Filter) ([]epbinding.Binding, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := []epbinding.Binding{}
@@ -72,7 +72,7 @@ func (m *memBindings) List(_ context.Context, f epbinding.Filter) ([]epbinding.B
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, nil
+	return out, len(out), nil
 }
 
 func (m *memBindings) SetEnabled(_ context.Context, scriptID string, enabled bool, actor string) error {

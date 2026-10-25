@@ -31,6 +31,31 @@ func issue2208Endpoint(list map[string]any, name string) map[string]any {
 	return nil
 }
 
+// issue2208AllPages reads every page of the list route with the query given,
+// per_page at a time, and returns the endpoints of all of them as one list
+// and the total the first page reported. The list is paged on the server
+// (#2251), so a deployment past one page is read to its end.
+func issue2208AllPages(t *testing.T, c *client, query string, perPage int) (all map[string]any, total int) {
+	t.Helper()
+	var rows []any
+	for page := 1; ; page++ {
+		path := fmt.Sprintf("/api/v1/admin/endpoints?%s&per_page=%d&page=%d", query, perPage, page)
+		status, list := c.rest(http.MethodGet, path, nil)
+		if status != http.StatusOK {
+			t.Fatalf("GET %s: %d %v", path, status, list)
+		}
+		if page == 1 {
+			total = int(number(t, list, "total"))
+		}
+		got, _ := list["endpoints"].([]any)
+		rows = append(rows, got...)
+		if len(got) < perPage || len(rows) >= total {
+			break
+		}
+	}
+	return map[string]any{"endpoints": rows}, total
+}
+
 // TestIssue2208_TheListAndThePageCountAnsweredAndRefusedRequests.
 func TestIssue2208_TheListAndThePageCountAnsweredAndRefusedRequests(t *testing.T) {
 	admin := connect(t)
@@ -58,10 +83,7 @@ func TestIssue2208_TheListAndThePageCountAnsweredAndRefusedRequests(t *testing.T
 	var pub, sig map[string]any
 	deadline := time.Now().Add(45 * time.Second)
 	for {
-		status, list := admin.rest(http.MethodGet, "/api/v1/admin/endpoints?range=day", nil)
-		if status != http.StatusOK {
-			t.Fatalf("GET /api/v1/admin/endpoints: %d %v", status, list)
-		}
+		list, _ := issue2208AllPages(t, admin, "range=day", 200)
 		pub, sig = issue2208Endpoint(list, public), issue2208Endpoint(list, signed)
 		if pub != nil && sig != nil && number(t, pub, "refused") >= 3 && number(t, sig, "refused") >= 1 {
 			break

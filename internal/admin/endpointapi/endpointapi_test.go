@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -25,10 +26,28 @@ type bindings struct {
 	list     []epbinding.Binding
 	listErr  error
 	failures []epbinding.Failure
+	filter   epbinding.Filter
 }
 
-func (b *bindings) List(context.Context, epbinding.Filter) ([]epbinding.Binding, error) {
-	return b.list, b.listErr
+// List models the store: the filter's matches by name, one page of them, and
+// how many match in all.
+func (b *bindings) List(_ context.Context, f epbinding.Filter) ([]epbinding.Binding, int, error) {
+	b.filter = f
+	if b.listErr != nil {
+		return nil, 0, b.listErr
+	}
+	matched := []epbinding.Binding{}
+	for _, e := range b.list {
+		if (f.AuthMode == "" || e.AuthMode == f.AuthMode) && (f.Enabled == nil || e.Enabled == *f.Enabled) {
+			matched = append(matched, e)
+		}
+	}
+	limit := f.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 200
+	}
+	lo := min(max(f.Offset, 0), len(matched))
+	return matched[lo:min(lo+limit, len(matched))], len(matched), nil
 }
 
 func (b *bindings) GetByName(_ context.Context, name string) (*epbinding.Binding, error) {
@@ -134,6 +153,67 @@ func TestList_NoBindingsIsAnEmptyList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `[]`, string(mustField(t, rec.Body.Bytes(), "endpoints")))
 	assert.JSONEq(t, `"day"`, string(mustField(t, rec.Body.Bytes(), "range")))
+}
+
+// TestList_PagesAndFiltersOnTheServer: more endpoints than a page holds are
+// reached a page at a time, with the total of every match; access and status
+// narrow the listing before it is paged, and an unknown one is refused (#2251).
+func TestList_PagesAndFiltersOnTheServer(t *testing.T) {
+	list := make([]epbinding.Binding, 0, 226)
+	for i := range 226 {
+		e := contactBinding()
+		e.ID, e.Name, e.Enabled = fmt.Sprint(i), fmt.Sprintf("ep-%03d", i), i%2 == 0
+		if i%3 == 0 {
+			e.AuthMode = epbinding.AuthSignedIn
+		}
+		list = append(list, e)
+	}
+	b := &bindings{list: list}
+	read := func(path string) List {
+		t.Helper()
+		rec := serve(t, b, path, func(mock sqlmock.Sqlmock) {
+			mock.ExpectQuery("SELECT substr").WillReturnRows(sqlmock.NewRows(trafficCols))
+			mock.ExpectQuery("FROM script_endpoint_refusals").WillReturnRows(sqlmock.NewRows([]string{"endpoint_id", "hour", "reason", "count"}))
+		})
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var out List
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		return out
+	}
+
+	first := read("/api/v1/admin/endpoints")
+	assert.Equal(t, 226, first.Total)
+	assert.Equal(t, 1, first.Page)
+	assert.Equal(t, defaultPerPage, first.PerPage)
+	assert.Len(t, first.Endpoints, defaultPerPage)
+
+	last := read("/api/v1/admin/endpoints?page=2&per_page=200")
+	assert.Equal(t, 2, last.Page)
+	require.Len(t, last.Endpoints, 26, "the endpoints past the first 200 are reached")
+	assert.Equal(t, "ep-225", last.Endpoints[25].Name)
+
+	capped := read("/api/v1/admin/endpoints?per_page=5000")
+	assert.Equal(t, maxPerPage, capped.PerPage)
+
+	public := read("/api/v1/admin/endpoints?access=public&status=on&per_page=200")
+	assert.Equal(t, epbinding.AuthPublic, b.filter.AuthMode)
+	require.NotNil(t, b.filter.Enabled)
+	assert.True(t, *b.filter.Enabled)
+	for _, e := range public.Endpoints {
+		assert.Equal(t, epbinding.AuthPublic, e.AuthMode)
+		assert.True(t, e.Enabled)
+	}
+	assert.Equal(t, len(public.Endpoints), public.Total)
+
+	off := read("/api/v1/admin/endpoints?access=signed_in&status=off")
+	require.NotNil(t, b.filter.Enabled)
+	assert.False(t, *b.filter.Enabled)
+	assert.Positive(t, off.Total)
+
+	for _, bad := range []string{"access=everyone", "status=maybe"} {
+		rec := serve(t, b, "/api/v1/admin/endpoints?"+bad, func(sqlmock.Sqlmock) {})
+		assert.Equal(t, http.StatusBadRequest, rec.Code, bad)
+	}
 }
 
 func mustField(t *testing.T, body []byte, key string) json.RawMessage {

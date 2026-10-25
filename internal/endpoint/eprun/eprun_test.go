@@ -64,8 +64,8 @@ func (m *memBindings) GetByName(_ context.Context, name string) (*epbinding.Bind
 	return nil, epbinding.ErrNotFound
 }
 
-func (*memBindings) List(context.Context, epbinding.Filter) ([]epbinding.Binding, error) {
-	return nil, nil
+func (*memBindings) List(context.Context, epbinding.Filter) ([]epbinding.Binding, int, error) {
+	return nil, 0, nil
 }
 
 func (*memBindings) SetEnabled(context.Context, string, bool, string) error { return nil }

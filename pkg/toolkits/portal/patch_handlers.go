@@ -339,29 +339,34 @@ func (t *Toolkit) loadReadableAsset(ctx context.Context, assetID string) (*porta
 }
 
 // seesHistory reports whether the caller may read the asset's earlier
-// versions (#2226, #2290): an administrator and the owner always; anyone else
-// whose persona lets its people read them and who reaches the asset by a
-// direct share or a collection's, as on the asset's page.
+// versions (#2226, #2290): an administrator, the owner, and an editor, by a
+// direct share or a collection's, always; a viewer only when their persona
+// lets its people read them, as on the asset's page.
 func (t *Toolkit) seesHistory(ctx context.Context, asset *portal.Asset) bool {
 	if t.isAdmin(ctx) || ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
 		return true
 	}
-	pc := middleware.GetPlatformContext(ctx)
-	if t.shareStore == nil || t.historyAllowed == nil || pc == nil || !t.historyAllowed(pc.PersonaName) {
+	if t.shareStore == nil {
 		return false
 	}
-	ctx, userID, email := shareIdentity(ctx)
-	if share, err := t.shareStore.GetActiveShareForTarget(ctx, threadTargetAsset, asset.ID, userID, email); err == nil && share != nil {
+	shareCtx, userID, email := shareIdentity(ctx)
+	share, err := t.shareStore.GetActiveShareForTarget(shareCtx, threadTargetAsset, asset.ID, userID, email)
+	direct := err == nil && share != nil
+	if direct && share.Permission == portal.PermissionEditor {
 		return true
 	}
-	perm, _ := t.shareStore.GetUserAssetPermissionViaCollection(ctx, asset.ID, userID, email)
-	return perm != ""
+	viaCollection, _ := t.shareStore.GetUserAssetPermissionViaCollection(shareCtx, asset.ID, userID, email)
+	if viaCollection == portal.PermissionEditor {
+		return true
+	}
+	pc := middleware.GetPlatformContext(ctx)
+	return (direct || viaCollection != "") && t.historyAllowed != nil && pc != nil && t.historyAllowed(pc.PersonaName)
 }
 
 // historyRefusal is what a viewer asking for an asset's history is told.
 func historyRefusal() *mcp.CallToolResult {
 	return middleware.UnauthorizedResult(access.ErrHistoryNotShared,
-		"Read the current version with action=get_content.")
+		"Read the current version with action=get_content, or ask the owner for editor access.")
 }
 
 // canReadAsset reports whether the caller owns the asset or holds any share

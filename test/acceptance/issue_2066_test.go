@@ -222,6 +222,10 @@ func TestIssue2066_AGraphQLConnectionSignsInWithAStoredSecret(t *testing.T) {
 	cfg["endpoint_url"] = base + "/api/metadata/graphql"
 	cfg["session_login_url"] = base + "/api/3.22/auth/signin"
 	cfg["session_logout_url"] = base + "/api/3.22/auth/signout"
+	// Saving the connection reads its schema, which signs in, and the test
+	// below may reuse that session: the count is taken before the save, so
+	// either sign-in proves the stored secret was sent (#2299).
+	before, _ := up.counts()
 	if status := c.restJSON(http.MethodPut, "/api/v1/admin/connection-instances/graphql/"+conn, map[string]any{
 		"config": cfg, "description": "Acceptance #2066: Tableau's Metadata API with a stored token.",
 	}); status != http.StatusOK && status != http.StatusCreated {
@@ -230,13 +234,12 @@ func TestIssue2066_AGraphQLConnectionSignsInWithAStoredSecret(t *testing.T) {
 	if got := readBack2066(t, c, "graphql", conn); got != issue2066Body(secret) {
 		t.Fatalf("the graphql body read back as %q, not as written", got)
 	}
-	before, _ := up.counts()
 	status, res := c.rest(http.MethodPost, "/api/v1/admin/connection-instances/graphql/"+conn+"/test", http.NoBody)
 	if status != http.StatusOK || res["ok"] != true {
 		t.Fatalf("the graphql connection test did not sign in: HTTP %d %v", status, res)
 	}
 	if after, _ := up.counts(); after <= before {
-		t.Error("the graphql connection test did not sign in")
+		t.Error("the graphql connection never signed in with the stored secret")
 	}
 }
 

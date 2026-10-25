@@ -1,0 +1,111 @@
+# One acceptance run on the dev stack, the definition both callers use (#2274):
+# the E2E Nightly runs one per group of the suite, and CI runs one on a pull
+# request that changes how the stack starts or how the suite is launched. A
+# change to the setup is made here once, so the pull request's check and the
+# nightly cannot drift apart.
+#
+# scripts/release-acceptance.sh starts the dev stack with the environment's
+# settings, starts what the environment runs beside it, runs its criteria (and,
+# with smoke, `make dev-smoke` first), and stops what it started.
+name: Acceptance run
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: An environment in test/acceptance/environments.txt, or dev for the plain stack.
+        required: true
+        type: string
+      shard:
+        description: The group of the plain stack's criteria, as N/M; empty for an environment.
+        required: false
+        type: string
+        default: ""
+      id:
+        description: Names the run's artifacts.
+        required: true
+        type: string
+      smoke:
+        description: Run make dev-smoke against the stack before the criteria.
+        required: false
+        type: boolean
+        default: false
+      timeout-minutes:
+        description: The job's limit.
+        required: false
+        type: number
+        default: 100
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: ${{ inputs.environment }}${{ inputs.shard && format(' {0}', inputs.shard) || '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: true
+
+      # The portal the binary embeds is built on the Node major the frontend
+      # is tested on (#1976).
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ui/.nvmrc
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+
+      # dev/start.sh runs each replica under air.
+      - name: Install air
+        run: go install github.com/air-verse/air@v1.64.5
+
+      # The criteria that hold the .semgrep/ rules to their fixtures run the
+      # tool make verify runs (#2275).
+      - name: Install semgrep
+        if: inputs.environment == 'dev'
+        run: pipx install semgrep==1.151.0
+
+      - name: Install the portal's dependencies and its test browser
+        run: |
+          npm ci --prefix ui
+          cd ui && npx playwright install --with-deps chromium
+
+      - name: Run the acceptance suite
+        shell: bash
+        env:
+          ACCEPTANCE_ENV: ${{ inputs.environment }}
+          ACCEPTANCE_SHARD: ${{ inputs.shard }}
+          ACCEPTANCE_SMOKE: ${{ inputs.smoke && '1' || '' }}
+          ACCEPTANCE_TIMEOUT: 75m
+        run: bash scripts/release-acceptance.sh 2>&1 | tee nightly-output-acceptance-${{ inputs.id }}.txt
+
+      - name: Keep the test output for the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nightly-output-acceptance-${{ inputs.id }}
+          path: nightly-output-acceptance-${{ inputs.id }}.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload the stack's logs and the run's evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: acceptance-logs-${{ inputs.id }}
+          path: |
+            build/release/
+            build/acceptance/
+            build/acceptance.jsonl
+          if-no-files-found: warn
+          retention-days: 14

@@ -289,3 +289,47 @@ jobs:
           config: >-
             p/golang
             .semgrep/
+
+  # A pull request that changes how the dev stack starts or how the acceptance
+  # suite is launched runs one acceptance group on the runner's OS before it
+  # merges (#2274): the suite otherwise runs on Linux only in the E2E Nightly,
+  # and #2264 and #2266 each passed every local run and failed every nightly
+  # group. scripts/acceptance-pr-paths.py names the paths.
+  stack-changes:
+    name: Stack changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Read the changed paths
+        id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          changed=$(git diff --name-only "$BASE_SHA"...HEAD | python3 scripts/acceptance-pr-paths.py)
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "The diff changes the dev stack or the suite's harness: $changed"
+
+  # The smallest group the nightly runs, one criterion on a stack started as
+  # the nightly starts it, with make dev-smoke first: the stack's start and the
+  # suite's launch are what this proves, not the criteria.
+  acceptance:
+    name: Acceptance (worker-off)
+    needs: stack-changes
+    if: needs.stack-changes.outputs.changed == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/acceptance-run.yml
+    with:
+      environment: worker-off
+      id: pr-worker-off
+      smoke: true
+      timeout-minutes: 60

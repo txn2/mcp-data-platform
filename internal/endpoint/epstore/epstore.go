@@ -19,7 +19,8 @@ var _ epbinding.Store = (*Store)(nil)
 
 // Listing bounds.
 const (
-	defaultListLimit    = 200
+	// MaxListLimit is the most bindings one page of a listing holds.
+	MaxListLimit        = 200
 	defaultFailureLimit = 50
 )
 
@@ -115,35 +116,78 @@ func (s *Store) one(ctx context.Context, query, arg string) (*epbinding.Binding,
 	return b, nil
 }
 
-// List returns bindings matching the filter, by name.
-func (s *Store) List(ctx context.Context, filter epbinding.Filter) ([]epbinding.Binding, error) {
+// listBindings is one page of the bindings a filter matches and how many it
+// matches in all. A NULL script id array matches every script and an empty
+// one none; an empty auth mode and a NULL enabled match every binding.
+const listBindings = "SELECT " + columns + `, COUNT(*) OVER () FROM script_endpoints
+ WHERE ($2::uuid[] IS NULL OR script_id = ANY($2::uuid[]))
+   AND ($3::text = '' OR auth_mode = $3::text)
+   AND ($4::boolean IS NULL OR enabled = $4::boolean)
+ ORDER BY name LIMIT $1 OFFSET $5`
+
+// List returns one page of the bindings matching the filter, by name, and
+// how many match in all. A page past the last answers no bindings and the
+// total, read with a second statement since no row carries it.
+func (s *Store) List(ctx context.Context, filter epbinding.Filter) ([]epbinding.Binding, int, error) {
 	limit := filter.Limit
-	if limit <= 0 || limit > defaultListLimit {
-		limit = defaultListLimit
+	if limit <= 0 || limit > MaxListLimit {
+		limit = MaxListLimit
 	}
-	query, args := selectBinding+` ORDER BY name LIMIT $1`, []any{limit}
-	if filter.ScriptIDs != nil {
-		// An empty array matches nothing, which is right for a caller who may
-		// see no scripts.
-		query, args = selectBinding+` WHERE script_id = ANY($2) ORDER BY name LIMIT $1`, append(args, pq.Array(filter.ScriptIDs))
-	}
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	offset := max(filter.Offset, 0)
+	ids, enabled := filterArgs(filter)
+	rows, err := s.db.QueryContext(ctx, listBindings, limit, ids, filter.AuthMode, enabled, offset)
 	if err != nil {
-		return nil, fmt.Errorf("list endpoint bindings: %w", err)
+		return nil, 0, fmt.Errorf("list endpoint bindings: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	out := []epbinding.Binding{}
+	total := 0
 	for rows.Next() {
-		b, err := scan(rows)
+		b, err := scan(withTotal{rows, &total})
 		if err != nil {
-			return nil, fmt.Errorf("scan endpoint binding: %w", err)
+			return nil, 0, fmt.Errorf("scan endpoint binding: %w", err)
 		}
 		out = append(out, *b)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate endpoint bindings: %w", err)
+		return nil, 0, fmt.Errorf("iterate endpoint bindings: %w", err)
 	}
-	return out, nil
+	if len(out) == 0 && offset > 0 {
+		if err := s.db.QueryRowContext(ctx, countBindings, ids, filter.AuthMode, enabled).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count endpoint bindings: %w", err)
+		}
+	}
+	return out, total, nil
+}
+
+// filterArgs is the filter's script ids and enabled as the listing binds them:
+// NULL for a filter that does not narrow by them.
+func filterArgs(filter epbinding.Filter) (ids any, enabled sql.NullBool) {
+	if filter.ScriptIDs != nil {
+		ids = pq.Array(filter.ScriptIDs)
+	}
+	if filter.Enabled != nil {
+		enabled = sql.NullBool{Bool: *filter.Enabled, Valid: true}
+	}
+	return ids, enabled
+}
+
+// countBindings is how many bindings a filter matches, for a page past the
+// last.
+const countBindings = `SELECT COUNT(*) FROM script_endpoints
+ WHERE ($1::uuid[] IS NULL OR script_id = ANY($1::uuid[]))
+   AND ($2::text = '' OR auth_mode = $2::text)
+   AND ($3::boolean IS NULL OR enabled = $3::boolean)`
+
+// withTotal scans a listing row, whose last column is the match count.
+type withTotal struct {
+	rows  *sql.Rows
+	total *int
+}
+
+// Scan reads the row's columns into dest and its count into total.
+func (w withTotal) Scan(dest ...any) error {
+	return w.rows.Scan(append(dest, w.total)...) //nolint:wrapcheck // scan's caller names the read
 }
 
 // SetEnabled turns a script's binding on or off.

@@ -83,6 +83,8 @@ type Request struct {
 	Visible map[string]*script.Script
 	Admin   bool
 	Actor   string
+	// Limit is how many bindings a listing returns, bounded by the store.
+	Limit int
 }
 
 // Handler carries the commands out.
@@ -185,14 +187,14 @@ func (h *Handler) one(ctx context.Context, sc *script.Script) (map[string]any, e
 }
 
 func (h *Handler) list(ctx context.Context, req Request) (map[string]any, error) {
-	filter := epbinding.Filter{}
+	filter := epbinding.Filter{Limit: req.Limit}
 	if req.Visible != nil {
 		filter.ScriptIDs = make([]string, 0, len(req.Visible))
 		for id := range req.Visible {
 			filter.ScriptIDs = append(filter.ScriptIDs, id)
 		}
 	}
-	bindings, err := h.Store.List(ctx, filter)
+	bindings, total, err := h.Store.List(ctx, filter)
 	if err != nil {
 		return nil, storeErr("failed to list endpoints", err)
 	}
@@ -206,8 +208,12 @@ func (h *Handler) list(ctx context.Context, req Request) (map[string]any, error)
 		}
 		items = append(items, h.fields(name, &bindings[i]))
 	}
-	count := len(items)
-	return map[string]any{"endpoints": items, "count": count}, nil
+	out := map[string]any{"endpoints": items, "count": len(items), "total": total}
+	if total > len(items) {
+		// A listing is one page; the caller is told the rest exist (#2251).
+		out["note"] = fmt.Sprintf("%d of %d endpoints listed; Admin > Automations > Endpoints pages through every one", len(items), total)
+	}
+	return out, nil
 }
 
 // Bound names the endpoint a script is bound to, "" when it is bound to

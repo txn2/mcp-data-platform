@@ -222,6 +222,19 @@ func TestIssue2148_FillingTheSpoolVolumeWalksWarningToCritical(t *testing.T) {
 	})
 	mount := issue2148RAMDisk(t)
 	store := issue2121NewStore(t)
+	// This process samples every store every two seconds into the database
+	// the dev replicas share. Registered before it starts, this cleanup runs
+	// after it stops and removes what it sampled, so a later criterion
+	// reading the replicas' history (#2203) does not read its ticks as theirs
+	// (#2251). A replica sample in the same minutes goes with them, which
+	// leaves a gap and nothing closer together.
+	db := devDB(t)
+	startedAt := time.Now()
+	t.Cleanup(func() {
+		if _, err := db.Exec(`DELETE FROM storage_samples WHERE sampled_at >= $1`, startedAt); err != nil {
+			t.Errorf("removing the samples this process wrote: %v", err)
+		}
+	})
 	r := issue2121Start(t, filepath.Join(mount, "spool"), store, "MCP_PLATFORM_STORAGE_HISTORY_INTERVAL=2s")
 	name := "Webhook spool on " + r.name
 

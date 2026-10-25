@@ -3,6 +3,7 @@ import { apiFetch } from "../client";
 import type {
   AdminEndpointDetail,
   AdminEndpointList,
+  AdminEndpointListParams,
   EndpointRange,
 } from "../types";
 import { REFETCH_INTERVAL } from "./shared";
@@ -11,11 +12,24 @@ import { REFETCH_INTERVAL } from "./shared";
 
 export const adminEndpointsKey = ["admin-endpoints"] as const;
 
-/** useAdminEndpoints lists every binding with its traffic over range. */
-export function useAdminEndpoints(range: EndpointRange) {
+/** endpointListQuery is the list route's query string for params. */
+export function endpointListQuery(params: AdminEndpointListParams): string {
+  const search = new URLSearchParams({ range: params.range });
+  if (params.access) search.set("access", params.access);
+  if (params.status) search.set("status", params.status);
+  if (params.page && params.page > 1) search.set("page", String(params.page));
+  if (params.perPage) search.set("per_page", String(params.perPage));
+  return search.toString();
+}
+
+/**
+ * useAdminEndpoints reads one page of the bindings the filters match, with
+ * their traffic over the range, and how many match in all (#2251).
+ */
+export function useAdminEndpoints(params: AdminEndpointListParams) {
   return useQuery({
-    queryKey: [...adminEndpointsKey, "list", range],
-    queryFn: () => apiFetch<AdminEndpointList>(`/endpoints?range=${range}`),
+    queryKey: [...adminEndpointsKey, "list", params],
+    queryFn: () => apiFetch<AdminEndpointList>(`/endpoints?${endpointListQuery(params)}`),
     refetchInterval: REFETCH_INTERVAL,
     placeholderData: keepPreviousData,
   });

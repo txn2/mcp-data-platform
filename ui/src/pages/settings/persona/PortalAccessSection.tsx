@@ -90,7 +90,7 @@ const SWITCHES: { key: Switch; label: string; help: string }[] = [
   {
     key: "history",
     label: "Earlier versions",
-    help: "An asset's earlier versions, for people it is shared with. Its owner and administrators always see them.",
+    help: "An asset's earlier versions, for people it is shared with as viewer. Its owner, its editors and administrators always see them.",
   },
 ];
 

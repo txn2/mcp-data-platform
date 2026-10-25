@@ -28,8 +28,12 @@
 # (scripts/acceptance-services.sh), and the run is that environment's criteria
 # alone. The live-stack Playwright suite runs with the plain stack only.
 #
+# ACCEPTANCE_SMOKE=1 runs `make dev-smoke` against the stack before the
+# criteria: one call through each service the stack runs, which says which
+# service did not come up in under a minute (#2274).
+#
 # Environment: MCP_BASE_URL (as `make acceptance` reads it), ISSUE,
-# ACCEPTANCE_ENV and ACCEPTANCE_SHARD (passed through), RELEASE_DEV_TIMEOUT seconds to wait for the
+# ACCEPTANCE_ENV and ACCEPTANCE_SHARD (passed through), ACCEPTANCE_SMOKE, RELEASE_DEV_TIMEOUT seconds to wait for the
 # stack (default 900), RELEASE_INDEX_DRAIN_TIMEOUT seconds to wait for a fresh
 # stack's first index pass (default 1800).
 set -euo pipefail
@@ -55,6 +59,9 @@ done
 # ACCEPTANCE_SHARD), and with the plain stack the live-stack browser suite
 # after them, in the first group only.
 run_suite() {
+  if [ "${ACCEPTANCE_SMOKE:-}" = 1 ]; then
+    make --no-print-directory dev-smoke
+  fi
   make --no-print-directory acceptance
   case "${ACCEPTANCE_SHARD:-1/}" in 1/*) ;; *) return 0 ;; esac
   if [ -z "$ACCEPTANCE_ENV" ] || [ "$ACCEPTANCE_ENV" = dev ]; then

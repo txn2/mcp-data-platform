@@ -98,13 +98,12 @@ jobs:
   # The plain stack's criteria run in eight groups at once, split by ticket
   # number, each job on a stack of its own (#2218): one after another they run
   # for well over an hour, and the tag check waits on this workflow. Each other
-  # environment in test/acceptance/environments.txt is one job.
+  # environment in test/acceptance/environments.txt is one job. The steps are
+  # acceptance-run.yml's, which CI's pull request check runs too (#2274).
   acceptance:
     name: Acceptance (${{ matrix.environment }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
-    runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
@@ -119,71 +118,11 @@ jobs:
           - {environment: dev, shard: 8/8, id: dev-8}
           - {environment: worker-off, shard: "", id: worker-off}
           - {environment: clickstack, shard: "", id: clickstack}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: "1.27.3"
-          cache: true
-
-      # The portal the binary embeds is built on the Node major the frontend
-      # is tested on (#1976).
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: ui/.nvmrc
-          cache: 'npm'
-          cache-dependency-path: ui/package-lock.json
-
-      # dev/start.sh runs each replica under air.
-      - name: Install air
-        run: go install github.com/air-verse/air@v1.64.5
-
-      # The criteria that hold the .semgrep/ rules to their fixtures run the
-      # tool make verify runs (#2275).
-      - name: Install semgrep
-        if: matrix.environment == 'dev'
-        run: pipx install semgrep==1.151.0
-
-      - name: Install the portal's dependencies and its test browser
-        run: |
-          npm ci --prefix ui
-          cd ui && npx playwright install --with-deps chromium
-
-      # release-acceptance.sh starts the dev stack with the environment's
-      # settings, starts what the environment runs beside it, runs its
-      # criteria, and stops what it started.
-      - name: Run the acceptance suite
-        shell: bash
-        env:
-          ACCEPTANCE_ENV: ${{ matrix.environment }}
-          ACCEPTANCE_SHARD: ${{ matrix.shard }}
-          ACCEPTANCE_TIMEOUT: 75m
-        run: bash scripts/release-acceptance.sh 2>&1 | tee nightly-output-acceptance-${{ matrix.id }}.txt
-
-      - name: Keep the test output for the report
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: nightly-output-acceptance-${{ matrix.id }}
-          path: nightly-output-acceptance-${{ matrix.id }}.txt
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload the stack's logs and the run's evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: acceptance-logs-${{ matrix.id }}
-          path: |
-            build/release/
-            build/acceptance/
-            build/acceptance.jsonl
-          if-no-files-found: warn
-          retention-days: 14
+    uses: ./.github/workflows/acceptance-run.yml
+    with:
+      environment: ${{ matrix.environment }}
+      shard: ${{ matrix.shard }}
+      id: ${{ matrix.id }}
 
   # A red night opens (or comments on) the one tracking issue, and a green one
   # closes it (#2036): a failure nobody reads is how the suite stayed red for

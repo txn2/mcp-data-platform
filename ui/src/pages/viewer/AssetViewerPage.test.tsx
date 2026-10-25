@@ -56,13 +56,13 @@ describe("AssetViewerPage history (#2226, #2290)", () => {
     expect(received.versions).toBeUndefined();
   });
 
-  it("gives the owner the history, and an editor none while their persona withholds it", () => {
+  it("gives the owner the history, and an editor too while their persona withholds it from viewers", () => {
     asset.value = { id: "a1", is_owner: true, current_version: 3 };
     renderPage();
     expect(received.versions).toHaveLength(2);
     asset.value = { id: "a1", is_owner: false, share_permission: "editor", current_version: 3 };
     renderPage();
-    expect(received.versions).toBeUndefined();
+    expect(received.versions).toHaveLength(2);
   });
 
   it("gives a viewer the history when their persona's Earlier versions is on", () => {

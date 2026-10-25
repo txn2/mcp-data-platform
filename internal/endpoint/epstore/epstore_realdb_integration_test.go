@@ -59,9 +59,24 @@ func TestRealDB_OneBindingPerScriptAndOneScriptPerName(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, got.Enabled)
 
-	listed, err := s.List(ctx, epbinding.Filter{ScriptIDs: []string{b.ID}})
+	listed, _, err := s.List(ctx, epbinding.Filter{ScriptIDs: []string{b.ID}})
 	require.NoError(t, err)
 	assert.Empty(t, listed)
+
+	// The listing pages, filters and counts every match (#2251).
+	off := false
+	page, total, err := s.List(ctx, epbinding.Filter{Enabled: &off, Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, page, 1)
+	assert.Equal(t, a.ID, page[0].ScriptID)
+	assert.Equal(t, 1, total)
+	page, total, err = s.List(ctx, epbinding.Filter{ScriptIDs: []string{a.ID, again.ScriptID}, Limit: 1, Offset: 5})
+	require.NoError(t, err)
+	assert.Empty(t, page)
+	assert.Positive(t, total, "a page past the last reports the total")
+	_, total, err = s.List(ctx, epbinding.Filter{AuthMode: "nobody-uses-this"})
+	require.NoError(t, err)
+	assert.Zero(t, total)
 }
 
 func TestRealDB_FailuresAreKeptAndSweptAndGoWithTheScript(t *testing.T) {

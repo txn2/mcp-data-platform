@@ -106,14 +106,23 @@ func (s *PostgresStore) Search(ctx context.Context, q SearchQuery) ([]Scored, er
 
 // searchLexical ranks by full-text relevance alone.
 func (s *PostgresStore) searchLexical(ctx context.Context, q SearchQuery) ([]Scored, error) {
+	return s.lexicalArm(ctx, q, "ts_rank_cd("+ftsExpr+", plainto_tsquery('english', ?))", q.Text)
+}
+
+// lexicalArm is the records whose words match the query, best ts_rank_cd
+// first, each scored by scoreExpr: its ts_rank_cd alone, or in a hybrid
+// search its cosine to the query.
+func (s *PostgresStore) lexicalArm(ctx context.Context, q SearchQuery, scoreExpr string, scoreArgs ...any) ([]Scored, error) {
 	if strings.TrimSpace(q.Text) == "" {
 		return nil, nil
 	}
 	limit := q.EffectiveLimit()
-	inner := derived(Filter{}).
-		Column("ts_rank_cd("+ftsExpr+", plainto_tsquery('english', ?)) AS score", q.Text).
+	inner := paged(derived(Filter{}).
+		Column(scoreExpr+" AS score", scoreArgs...).
 		Where(ftsExpr+" @@ plainto_tsquery('english', ?)", q.Text).
-		Where(searchScope, q.UserID)
+		Where(searchScope, q.UserID).
+		OrderByClause("ts_rank_cd("+ftsExpr+", plainto_tsquery('english', ?)) DESC", q.Text).
+		OrderBy("reuse_count DESC"), limit)
 
 	query, args, err := paged(psq.Select("o.*").
 		FromSelect(outcomeOver(inner), "o").
@@ -144,7 +153,9 @@ func (s *PostgresStore) searchHybrid(ctx context.Context, q SearchQuery) ([]Scor
 		return nil, err
 	}
 
-	lexical, err := s.searchLexical(ctx, q)
+	// The lexical arm reads each match's own cosine, zero for a record not
+	// embedded yet, so the blend scores every record on one curve.
+	lexical, err := s.lexicalArm(ctx, q, "COALESCE(1 - (r.embedding <=> ?), 0)", vec)
 	if err != nil {
 		return nil, err
 	}
@@ -160,27 +171,43 @@ func paged(qb sq.SelectBuilder, limit int) sq.SelectBuilder {
 	return qb.Limit(uint64(limit))
 }
 
-// lexicalWeight is how much a lexical match contributes to a fused score. The
-// vector arm's cosine already lands in (0,1); a lexical hit is scaled below it
-// so that when both arms return a record the fused score exceeds either alone,
-// and a lexical-only hit still ranks against semantic ones.
-const lexicalWeight = 0.5
+// semanticWeight is the alpha blending the two signals a hybrid hit has:
+// score = alpha*semantic + (1-alpha)*lexical, the cosine mapped onto [0,1]
+// and the lexical term 1 for a record whose words match the query and 0
+// otherwise. It is the curve the script, prompt, memory, api-gateway and
+// operation rankers score on (internal/opranking.SemanticWeight); keep them
+// in step if any is tuned. A record not embedded yet is blended at a cosine
+// of zero, so its exact match still outranks every record that matches none
+// of the query's words, however near in meaning (#2230, #2251).
+const semanticWeight = 0.6
 
-// fuse merges the two arms, keeping the better score per record.
+// The lexical term of the blend: whether the record's words match the query.
+const (
+	lexicalPresent = 1.0
+	lexicalAbsent  = 0.0
+)
+
+// fuse merges the two arms, each hit carrying its cosine to the query, into
+// one blended score per record.
 func fuse(vector, lexical []Scored, limit int) []Scored {
 	byID := make(map[string]Scored, len(vector)+len(lexical))
+	matched := make(map[string]bool, len(lexical))
 	for _, hit := range vector {
 		byID[hit.Record.ID] = hit
 	}
 	for _, hit := range lexical {
-		scaled := hit
-		scaled.Score = lexicalWeight * hit.Score
-		if existing, ok := byID[hit.Record.ID]; ok {
-			existing.Score += scaled.Score
-			byID[hit.Record.ID] = existing
-			continue
+		matched[hit.Record.ID] = true
+		if _, ok := byID[hit.Record.ID]; !ok {
+			byID[hit.Record.ID] = hit
 		}
-		byID[hit.Record.ID] = scaled
+	}
+	for id, hit := range byID {
+		lex := lexicalAbsent
+		if matched[id] {
+			lex = lexicalPresent
+		}
+		hit.Score = semanticWeight*(hit.Score+1)/2 + (1-semanticWeight)*lex
+		byID[id] = hit
 	}
 
 	fused := make([]Scored, 0, len(byID))

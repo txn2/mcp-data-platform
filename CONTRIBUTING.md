@@ -642,6 +642,14 @@ it may carry the fix. A red night opens one issue titled "E2E Nightly is
 failing" naming the failing tests, comments on it on each later red night, and
 a green night closes it.
 
+A pull request that changes how the dev stack starts or how the suite is
+launched (`dev/`, the `Makefile`, `scripts/acceptance*`,
+`scripts/release-acceptance.sh`, the harness files under `test/acceptance/`,
+or the two acceptance workflows) runs one acceptance group in CI on Linux
+before it merges: the `worker-off` environment, with `make dev-smoke` first
+(#2274). Its steps are `.github/workflows/acceptance-run.yml`, the workflow
+every nightly acceptance job calls, so the two cannot drift apart.
+
 ## Getting Help
 
 - Open an issue for bugs or feature requests

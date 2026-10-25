@@ -917,3 +917,51 @@ func TestCanReadAsset_APersonaShareReachesTheCallersPersona(t *testing.T) {
 	assert.False(t, f.tk.canReadAsset(caller("analyst", ""), shared))
 	assert.False(t, f.tk.canReadAsset(caller("finance", middleware.SourceScript), shared))
 }
+
+// historyShareStore answers one direct share permission and one through a
+// collection, for every caller.
+type historyShareStore struct {
+	portal.ShareStore
+	direct, viaCollection portal.SharePermission
+}
+
+func (s *historyShareStore) GetActiveShareForTarget(context.Context, string, string, string, string) (*portal.Share, error) {
+	if s.direct == "" {
+		return nil, nil //nolint:nilnil // models the real store: no active share is not an error
+	}
+	return &portal.Share{Permission: s.direct}, nil
+}
+
+func (s *historyShareStore) GetUserAssetPermissionViaCollection(context.Context, string, string, string) (portal.SharePermission, error) {
+	return s.viaCollection, nil
+}
+
+// An editor reads an asset's earlier versions whatever their persona says; a
+// viewer only when their persona shows them (#2226, #2290).
+func TestSeesHistory_AnEditorAlwaysAViewerByPersona(t *testing.T) {
+	f := newPatchFixture(t, patchReport, "text/markdown")
+	shared := &portal.Asset{ID: "asset-shared", OwnerID: "someone-else", OwnerEmail: "other@example.com"}
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "user1", UserEmail: "user1@example.com", PersonaName: "analyst",
+	})
+	for _, tc := range []struct {
+		name                  string
+		direct, viaCollection portal.SharePermission
+		setting, want         bool
+	}{
+		{"a direct editor, setting off", portal.PermissionEditor, "", false, true},
+		{"an editor through a collection, setting off", "", portal.PermissionEditor, false, true},
+		{"a direct editor beside a viewer collection", portal.PermissionEditor, portal.PermissionViewer, false, true},
+		{"a direct viewer, setting off", portal.PermissionViewer, "", false, false},
+		{"a direct viewer, setting on", portal.PermissionViewer, "", true, true},
+		{"a viewer through a collection, setting on", "", portal.PermissionViewer, true, true},
+		{"no share, setting on", "", "", true, false},
+	} {
+		f.tk.shareStore = &historyShareStore{direct: tc.direct, viaCollection: tc.viaCollection}
+		setting := tc.setting
+		f.tk.historyAllowed = func(string) bool { return setting }
+		assert.Equal(t, tc.want, f.tk.seesHistory(ctx, shared), tc.name)
+	}
+	f.tk.shareStore = nil
+	assert.False(t, f.tk.seesHistory(ctx, shared), "no share store")
+}
