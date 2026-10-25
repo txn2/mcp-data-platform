@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/feedbackapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/portal/producerapi"
+	"github.com/txn2/mcp-data-platform/internal/portal/sharelink"
 	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -303,6 +304,13 @@ type Deps struct {
 	// PersonaMembers lists the addresses of the people whose roles resolve to
 	// a persona, whom a share addressed to it notifies (#2089).
 	PersonaMembers func(ctx context.Context, persona string) []string
+	// PersonaMemberCounts is how many people each persona reaches, counted
+	// as PersonaMembers lists them, in one read of the directory (#2291).
+	PersonaMemberCounts func(ctx context.Context) map[string]int
+	// HasAccount reports whether the directory holds an address; one it does
+	// not is a guest, who can only view (#2291). nil treats every address as
+	// one.
+	HasAccount func(ctx context.Context, email string) bool
 	// NotificationRegistrar, when set, registers the self-scoped
 	// notification-preference REST routes onto the portal's authenticated
 	// mux (the CatalogRegistrar pattern): the feature lives with the
@@ -615,6 +623,14 @@ func (h *Handler) registerRoutes() {
 	feedback := feedbackapi.New(h.feedbackConfig())
 	feedback.Register(h.mux)
 	feedback.RegisterInsightCapture(h.mux)
+
+	// An item's general link and a grant's permission, changed in place
+	// (#2291), live in internal/portal/sharelink.
+	sharelink.New(sharelink.Config{
+		Shares: h.deps.ShareStore, Assets: h.deps.AssetStore, Collections: h.deps.CollectionStore,
+		Prompts: h.deps.PromptStore, Access: h.access, Sharing: h.sharingAllowed,
+		HasAccount: h.deps.HasAccount, PublicBaseURL: h.deps.PublicBaseURL,
+	}).Register(h.mux)
 
 	// The caller's own sessions: the individual runs behind the activity
 	// dashboard's aggregates, each openable.
@@ -1863,7 +1879,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	if !h.allowedSharePersona(w, user, req) {
 		return
 	}
-	share, buildErr := buildShare(shareTarget{AssetID: assetID}, user.Email, req)
+	share, buildErr := h.buildGrant(r.Context(), shareTarget{AssetID: assetID}, user.Email, req)
 	if buildErr != nil {
 		writeError(w, http.StatusBadRequest, buildErr.Error())
 		return
@@ -1920,6 +1936,20 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 	})
 	if err != nil {
 		return Share{}, err //nolint:wrapcheck // message is the verbatim 400 body the caller must act on
+	}
+	return share, nil
+}
+
+// buildGrant is buildShare with the rule that an address the directory does
+// not hold can only view (#2291), which the share dialog's permission change
+// applies too.
+func (h *Handler) buildGrant(ctx context.Context, target shareTarget, createdBy string, req createShareRequest) (Share, error) {
+	share, err := buildShare(target, createdBy, req)
+	if err != nil {
+		return Share{}, err
+	}
+	if err := portaldomain.GuestCheck(ctx, share.SharedWithEmail, share.Permission, h.deps.HasAccount); err != nil {
+		return Share{}, err //nolint:wrapcheck // message is the verbatim 400 body
 	}
 	return share, nil
 }

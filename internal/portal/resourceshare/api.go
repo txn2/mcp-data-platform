@@ -54,6 +54,7 @@ type Shares interface {
 	Permission(ctx context.Context, resourceID string, rcpt Recipient) (string, error)
 	SharedWith(ctx context.Context, rcpt Recipient) ([]Ref, error)
 	Revoke(ctx context.Context, resourceID, shareID string) error
+	SetPermission(ctx context.Context, resourceID, shareID string, perm portaldomain.SharePermission) error
 }
 
 // Deps is what the service is built from.
@@ -72,6 +73,9 @@ type Deps struct {
 	// PersonaExists reports whether a persona of that name is registered; nil
 	// accepts any name.
 	PersonaExists func(name string) bool
+	// HasAccount reports whether the directory holds an address; one it does
+	// not can only view (#2291). nil treats every address as one.
+	HasAccount func(ctx context.Context, email string) bool
 }
 
 // Service serves resource shares.
@@ -86,6 +90,7 @@ func (s *Service) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+sharesPath, s.list)
 	mux.HandleFunc("POST "+sharesPath, s.create)
 	mux.HandleFunc("DELETE "+sharesPath+"/{shareID}", s.revoke)
+	mux.HandleFunc("PATCH "+sharesPath+"/{shareID}", s.setPermission)
 	mux.HandleFunc("GET "+sharedWithPath, s.sharedWithMe)
 }
 
@@ -252,6 +257,10 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := portaldomain.GuestCheck(r.Context(), share.SharedWithEmail, share.Permission, s.d.HasAccount); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := s.d.Shares.Insert(r.Context(), &share); err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to create share")
 		return
@@ -344,6 +353,76 @@ func (s *Service) revoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// PermissionRequest is a file share's new permission.
+type PermissionRequest struct {
+	// Permission is "viewer" or "editor".
+	Permission string `json:"permission" example:"editor"`
+}
+
+// setPermission handles PATCH /api/v1/resources/{id}/shares/{shareID}.
+//
+// @Summary      Change a file share's permission
+// @Description  Changes the permission of one share of a managed resource in place (#2291). A link a post to a channel created opens as viewer and has none to change, and an address with no account can only view. Someone who can change the file.
+// @Tags         Resources
+// @Accept       json
+// @Produce      json
+// @Param        id       path  string             true  "Resource ID"
+// @Param        shareID  path  string             true  "Share ID"
+// @Param        body     body  PermissionRequest  true  "The permission"
+// @Success      200  {object}  portaldomain.Share
+// @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources/{id}/shares/{shareID} [patch]
+func (s *Service) setPermission(w http.ResponseWriter, r *http.Request) {
+	req, ok := s.resolve(w, r)
+	if !ok {
+		return
+	}
+	if !resource.CanModifyResource(*req.claims, req.res) {
+		httpjson.WriteError(w, http.StatusForbidden, errForbidden)
+		return
+	}
+	var in PermissionRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(&in); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	share, ok := s.standing(w, r, req.res.ID)
+	if !ok {
+		return
+	}
+	perm, err := portaldomain.GrantPermission(r.Context(), *share, in.Permission, s.d.HasAccount)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.d.Shares.SetPermission(r.Context(), req.res.ID, share.ID, perm); err != nil {
+		httpjson.WriteError(w, http.StatusNotFound, errNotFound)
+		return
+	}
+	share.Permission = perm
+	httpjson.WriteJSON(w, http.StatusOK, share)
+}
+
+// standing is the file's standing share the path names, or a 404.
+func (s *Service) standing(w http.ResponseWriter, r *http.Request, resourceID string) (*portaldomain.Share, bool) {
+	shares, err := s.d.Shares.List(r.Context(), resourceID)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read the shares")
+		return nil, false
+	}
+	for i := range shares {
+		if shares[i].ID == r.PathValue("shareID") && !shares[i].Revoked {
+			return &shares[i], true
+		}
+	}
+	httpjson.WriteError(w, http.StatusNotFound, errNotFound)
+	return nil, false
 }
 
 // sharedWithMe handles GET /api/v1/resources/shared-with-me.

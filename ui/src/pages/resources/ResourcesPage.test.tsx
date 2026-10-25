@@ -105,8 +105,13 @@ function seed(byScope: Record<string, Resource[]>, empty: Record<string, string[
   })) as unknown as typeof useFacets);
   vi.mocked(useInfiniteResources).mockImplementation(((params?: Record<string, unknown>, enabled = true) => {
     if (enabled) listings.push(params ?? {});
-    const rows = (held[scopeKey(params as { scope?: string })] ?? []).filter((r) => {
-      if (params?.q) return r.display_name.includes(params.q as string);
+    // A listing that names no scope reads every top-level folder (#2293).
+    const pool = params?.scope ? (held[scopeKey(params as { scope?: string })] ?? []) : Object.values(held).flat();
+    const rows = pool.filter((r) => {
+      if (params?.q) {
+        const under = !params.path || r.path === params.path || r.path.startsWith(`${params.path as string}/`);
+        return under && r.display_name.includes(params.q as string);
+      }
       if (params?.tag) return r.tags.includes(params.tag as string);
       if (!params?.path) return false;
       return params.direct ? r.path === params.path : r.path.startsWith(params.path as string);
@@ -676,7 +681,8 @@ describe("the context menu, inline rename and the keyboard", () => {
 });
 
 describe("search", () => {
-  it("searches the whole top-level folder from inside a folder, each hit with its location", async () => {
+  it("searches every top-level folder from inside a folder, each hit with its location (#2293)", async () => {
+    seed({ ...held, global: [...held.global!, file("g-plan", "plans", "plan-2026.pdf", { scope: "global", scope_id: "" })] });
     vi.useFakeTimers();
     try {
       renderPage("/resources/lib/user/data/weekly");
@@ -687,8 +693,34 @@ describe("search", () => {
     } finally {
       vi.useRealTimers();
     }
-    expect(last(listings)).toMatchObject({ scope: "user", q: "plan", path: undefined, direct: false });
-    expect(screen.getByTestId("search-note").textContent).toContain("Searching everything in My Resources");
+    const asked = last(listings)!;
+    expect(asked).toMatchObject({ q: "plan", direct: false });
+    expect(asked.scope).toBeUndefined();
+    expect(asked.path).toBeUndefined();
+    expect(screen.getByTestId("search-note").textContent).toContain("Searching every folder you can open");
+    expect(row("f-plan").textContent).toContain("/My Resources/drafts");
+    expect(row("g-plan").textContent).toContain("/Global/plans");
+    expect((screen.getByTestId("search-within") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("narrows a search to the open folder and beneath it when This folder only is on", () => {
+    renderPage("/resources/lib/user/drafts?q=plan");
+    fireEvent.click(screen.getByLabelText("This folder only"));
+    expect(last(navigations)).toBe("/resources/lib/user/drafts?q=plan&within=1");
+    expect(last(listings)).toMatchObject({ scope: "user", path: "drafts", q: "plan", direct: false });
+    expect(screen.getByTestId("search-note").textContent).toContain("Searching /My Resources/drafts and the folders in it");
+    expect(row("f-plan")).toBeTruthy();
+  });
+
+  it("finds a Global file from My Resources and shows it in its own folder", () => {
+    seed({ ...held, global: [file("g-plan", "plans", "plan-2026.pdf", { scope: "global", scope_id: "" })] });
+    renderPage("/resources?q=plan");
+    fireEvent.click(within(row("g-plan")).getByRole("button", { name: "Show in folder" }));
+    expect(last(navigations)).toBe("/resources/lib/global/plans");
+  });
+
+  it("lists a search's hits from Shared with me", () => {
+    renderPage("/resources/lib/shared-with-me?q=plan");
     expect(row("f-plan").textContent).toContain("/My Resources/drafts");
   });
 

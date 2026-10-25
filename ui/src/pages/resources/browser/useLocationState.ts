@@ -82,6 +82,9 @@ export function useLocationState(
     path: view.path,
     /** The debounced search, which is what the listing asks for. */
     query: view.q,
+    /** Whether the search stays in the open folder and beneath it (#2293). */
+    within: view.within,
+    setWithin: (within: boolean) => replace({ within }),
     searchInput,
     setSearchInput,
     tag: view.tag,

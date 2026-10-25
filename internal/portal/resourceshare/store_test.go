@@ -150,3 +150,16 @@ func TestStoreRevoke(t *testing.T) {
 	mock.ExpectExec(revokeQuery).WithArgs("s3", "r1").WillReturnError(errDown)
 	assert.ErrorIs(t, s.Revoke(context.Background(), "r1", "s3"), errDown)
 }
+
+func TestStoreSetPermission(t *testing.T) {
+	s, mock := mockStore(t)
+	mock.ExpectExec(permissionSetQuery).WithArgs("s1", "r1", "editor").WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, s.SetPermission(context.Background(), "r1", "s1", portaldomain.PermissionEditor))
+
+	// A share revoked, or on another resource, is not found.
+	mock.ExpectExec(permissionSetQuery).WithArgs("s2", "r1", "viewer").WillReturnResult(sqlmock.NewResult(0, 0))
+	assert.ErrorIs(t, s.SetPermission(context.Background(), "r1", "s2", portaldomain.PermissionViewer), ErrNotFound)
+
+	mock.ExpectExec(permissionSetQuery).WithArgs("s3", "r1", "viewer").WillReturnError(errDown)
+	assert.ErrorIs(t, s.SetPermission(context.Background(), "r1", "s3", portaldomain.PermissionViewer), errDown)
+}

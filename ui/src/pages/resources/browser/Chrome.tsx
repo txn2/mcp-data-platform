@@ -9,6 +9,7 @@ import { plural, type Entry } from "./model";
 export function SelectionBar({
   count,
   canAct,
+  canMove,
   onMove,
   onTag,
   onDelete,
@@ -16,6 +17,8 @@ export function SelectionBar({
 }: {
   count: number;
   canAct: boolean;
+  /** A move names a folder of the library in view, so a hit from another library has none. */
+  canMove: boolean;
   onMove: () => void;
   onTag: () => void;
   onDelete: () => void;
@@ -34,9 +37,11 @@ export function SelectionBar({
       <span className="flex-1" />
       {canAct && (
         <>
-          <Button size="xs" variant="outline" onClick={onMove}>
-            Move to...
-          </Button>
+          {canMove && (
+            <Button size="xs" variant="outline" onClick={onMove}>
+              Move to...
+            </Button>
+          )}
           <Button size="xs" variant="outline" onClick={onTag}>
             Tag...
           </Button>
@@ -57,23 +62,34 @@ export function SelectionBar({
   );
 }
 
-/** Says a search or a tag spans the whole top-level folder, not the open one. */
+/**
+ * Says what a search or a tag looks in: a search every library the caller
+ * reads, or the open folder and beneath it (#2293); a tag the whole top-level
+ * folder.
+ */
 export function SearchNote({
   query,
+  within,
   tag,
   label,
+  where,
   onClearTag,
 }: {
   query: string;
+  within: boolean;
   tag: string;
   label: string;
+  /** The open folder as the page writes it, /Global/data. */
+  where: string;
   onClearTag: () => void;
 }) {
   return (
     <div data-testid="search-note" className="flex items-center gap-2 border-b bg-muted/50 px-3 py-1.5 text-[12.5px] text-muted-foreground">
       <span className="flex-1">
         {query
-          ? `Searching everything in ${label}, not only the open folder. Each hit shows where it is.`
+          ? within
+            ? `Searching ${where} and the folders in it.`
+            : "Searching every folder you can open. Each file shows where it is."
           : `Every file in ${label} tagged “${tag}”. Each one shows where it is.`}
       </span>
       {!query && tag && (
@@ -119,7 +135,7 @@ export function EmptyFolder({
 }: {
   root: ResourceRoot;
   path: string;
-  flat: { query: string; tag: string } | null;
+  flat: { query: string; within: boolean; tag: string } | null;
   canWrite: boolean;
   onUpload: () => void;
 }) {
@@ -127,7 +143,9 @@ export function EmptyFolder({
     return (
       <div data-testid="resources-empty" className="flex flex-col items-center gap-2.5 px-5 py-16 text-center text-muted-foreground">
         {flat.query
-          ? `No files in ${root.label} match “${flat.query}”.`
+          ? flat.within
+            ? `No files in ${displayPath(root, path)} match “${flat.query}”.`
+            : `No files match “${flat.query}”.`
           : `No files in ${root.label} are tagged “${flat.tag}”.`}
       </div>
     );

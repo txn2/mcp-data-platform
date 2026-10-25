@@ -127,6 +127,13 @@ export const personaAccessHandlers = [
     fileShares[id] = [share, ...(fileShares[id] ?? [])];
     return HttpResponse.json(share, { status: 201 });
   }),
+  http.patch("/api/v1/resources/:id/shares/:shareID", async ({ params, request }) => {
+    const { permission } = (await request.json()) as { permission: "viewer" | "editor" };
+    const share = (fileShares[params["id"] as string] ?? []).find((s) => s.id === params["shareID"]);
+    if (!share) return HttpResponse.json({ detail: "not found" }, { status: 404 });
+    share.permission = permission;
+    return HttpResponse.json(share);
+  }),
   http.delete("/api/v1/resources/:id/shares/:shareID", ({ params }) => {
     const id = params["id"] as string;
     fileShares[id] = (fileShares[id] ?? []).filter((s) => s.id !== params["shareID"]);

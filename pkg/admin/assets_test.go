@@ -107,6 +107,14 @@ func (*mockAdminShareStore) ListSharedWithUser(_ context.Context, _, _ string, _
 }
 func (*mockAdminShareStore) Revoke(_ context.Context, _ string) error          { return nil }
 func (*mockAdminShareStore) IncrementAccess(_ context.Context, _ string) error { return nil }
+func (*mockAdminShareStore) SetPermission(_ context.Context, _ string, _ portal.SharePermission) error {
+	return nil
+}
+
+func (*mockAdminShareStore) UpdateLink(_ context.Context, _ string, _ portaldomain.LinkUpdate) error {
+	return nil
+}
+
 func (m *mockAdminShareStore) ListActiveShareSummaries(_ context.Context, _ []string) (map[string]portal.ShareSummary, error) {
 	return m.summaries, m.summariesErr
 }

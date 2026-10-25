@@ -14,11 +14,11 @@ import (
 // Compile-time check: the store is the search federation's catalog index.
 var _ knowledge.CatalogIndexSearcher = (*Store)(nil)
 
-// ftsExpr is the full-text expression the lexical arm matches and ranks
-// against. It calls catalog_dataset_fts() (migration 000096) with the same
-// argument order so the planner uses idx_catalog_datasets_search_fts, the GIN
-// index built on that same call.
-const ftsExpr = `catalog_dataset_fts(name, description, tags, domain)`
+// ftsExpr is the full-text vector the lexical arm matches and ranks against:
+// the stored column catalog_dataset_fts(name, description, tags, domain) is
+// computed into when a dataset is written (migration 000220), so ranking reads
+// it rather than computing it for each matching row (#2292).
+const ftsExpr = `search_fts`
 
 // lexRankNormalization is the ts_rank_cd normalization bitmask for the lexical
 // score: bit 1 divides by 1 + log(document length) so a short, dense match

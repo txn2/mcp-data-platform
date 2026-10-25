@@ -148,7 +148,7 @@ func TestSearch_LexicalArm(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	rows := addSearchRow(searchRows([]string{"lex_rank"}), "res_1", "Sales Dictionary", 0.42)
-	mock.ExpectQuery("SELECT .+ FROM resources WHERE resource_fts").
+	mock.ExpectQuery("SELECT .+ FROM resources WHERE search_fts @@").
 		WithArgs("net amount", "global", "user", "sub-1").
 		WillReturnRows(rows)
 

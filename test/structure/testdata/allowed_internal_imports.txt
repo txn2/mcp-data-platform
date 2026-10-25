@@ -1507,6 +1507,10 @@ internal/portal/sessionapi -> internal/portal/access
 internal/portal/sessionapi -> pkg/audit
 internal/portal/sharecache -> pkg/blobserve
 internal/portal/sharecache -> pkg/portal/shareaccess
+internal/portal/sharelink -> internal/httpjson
+internal/portal/sharelink -> internal/portal/access
+internal/portal/sharelink -> internal/portal/portaldomain
+internal/portal/sharelink -> pkg/prompt
 internal/portal/viewerlimit -> internal/httpobs
 internal/portal/viewerlimit -> pkg/ratelimit
 internal/producedby -> internal/logsan
@@ -1966,6 +1970,7 @@ pkg/portal -> internal/portal/producerapi
 pkg/portal -> internal/portal/publicviewer
 pkg/portal -> internal/portal/sessionapi
 pkg/portal -> internal/portal/sharecache
+pkg/portal -> internal/portal/sharelink
 pkg/portal -> internal/portal/viewerlimit
 pkg/portal -> internal/producedby
 pkg/portal -> internal/producedview

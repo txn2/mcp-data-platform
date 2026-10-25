@@ -651,14 +651,16 @@ asset's shares, and revoking it stops the posted link from opening. A post
 that was held back by a repeat key, or refused, revokes a share it created.
 The result reports `access`, `share_id` and, for a public link, `expires_at`.
 
-![Share dialog: Share to a Channel](../images/screenshots/light/user-asset-share-to-channel-light.webp#only-light)![Share dialog: Share to a Channel](../images/screenshots/dark/user-asset-share-to-channel-dark.webp#only-dark)
+![Share dialog: Post to a channel](../images/screenshots/light/user-asset-share-to-channel-light.webp#only-light)![Share dialog: Post to a channel](../images/screenshots/dark/user-asset-share-to-channel-dark.webp#only-dark)
 
-In the portal, **Share** on an asset its owner holds offers a channel beside a
-person (#2241): the chat channels each bot is in and the other channels the
-person reaches, **Signed-in users** or **Anyone with the link** with an
-expiration, and an optional message. When the channel shows files (Slack,
-Mattermost, email) the dialog says everyone in it sees the preview image and,
-for a text asset, the first part of its content. The post is the same tool
+In the portal, **Share** on an asset its owner holds offers **Post to a
+channel** (#2241, #2291): the chat channels each bot is in and the other
+channels the person reaches, **Anyone who can sign in** or **Anyone with the
+link** with when it stops working, an optional message, and a preview of what
+the channel will see. When the channel shows files (Slack, Mattermost, email)
+the dialog says everyone in it sees the preview image and, for a text item, the
+start of its content. A post is listed under **Posted to channels** in the
+Share view, where **Remove** stops its link opening. The post is the same tool
 call: the portal opens an in-process session as the signed-in person and calls
 `notify`, so the channels offered, the persona rules, the rate limit and the
 audit row are the tool's. A persona without the [sharing

@@ -13,6 +13,8 @@ type SharePersona struct {
 	Name        string `json:"name" example:"finance"`
 	DisplayName string `json:"display_name" example:"Finance"`
 	External    bool   `json:"external,omitempty" example:"false"`
+	// MemberCount is how many people the persona reaches now (#2291).
+	MemberCount int `json:"member_count" example:"12"`
 }
 
 // sharePersonaList is the personas the caller may share with: the body of
@@ -35,7 +37,7 @@ func (h *Handler) sharePersonas(user *User) []SharePersona {
 // listSharePersonas handles GET /api/v1/portal/share-personas.
 //
 // @Summary      List the personas the caller may share with
-// @Description  Returns every persona a share may be addressed to, each marked when it is for people outside the organization (#2089, #2290). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.
+// @Description  Returns every persona a share may be addressed to, each marked when it is for people outside the organization (#2089, #2290), with how many people it reaches now (#2291). A share addressed to a persona opens for everyone whose roles resolve to it when they open the item.
 // @Tags         Shares
 // @Produce      json
 // @Success      200  {object}  sharePersonaList
@@ -49,7 +51,14 @@ func (h *Handler) listSharePersonas(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	writeJSON(w, http.StatusOK, sharePersonaList{Personas: h.sharePersonas(user)})
+	personas := h.sharePersonas(user)
+	if h.deps.PersonaMemberCounts != nil {
+		n := h.deps.PersonaMemberCounts(r.Context())
+		for i := range personas {
+			personas[i].MemberCount = n[personas[i].Name]
+		}
+	}
+	writeJSON(w, http.StatusOK, sharePersonaList{Personas: personas})
 }
 
 // allowedSharePersona refuses, with 400, a share addressed to a persona the

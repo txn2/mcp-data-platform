@@ -181,9 +181,7 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
       const share = page.getByRole("button", { name: "Share" }).first();
       if (await share.isVisible()) await share.click();
       await page.waitForTimeout(600);
-      // The recipient field opens the people list on focus; the capture is of
-      // the dialog.
-      await page.getByRole("dialog").getByText("Share File").click({ timeout: 2_000 }).catch(() => undefined);
+      await page.getByRole("dialog").getByText("People with access").waitFor();
       await page.waitForTimeout(300);
     },
   },

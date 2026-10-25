@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
@@ -170,6 +171,13 @@ func (f *fakeShareStore) GetUserAssetPermissionViaCollection(_ context.Context, 
 }
 func (*fakeShareStore) Revoke(_ context.Context, _ string) error          { return nil }
 func (*fakeShareStore) IncrementAccess(_ context.Context, _ string) error { return nil }
+func (*fakeShareStore) SetPermission(_ context.Context, _ string, _ portal.SharePermission) error {
+	return nil
+}
+
+func (*fakeShareStore) UpdateLink(_ context.Context, _ string, _ portaldomain.LinkUpdate) error {
+	return nil
+}
 
 var _ portal.ShareStore = (*fakeShareStore)(nil)
 

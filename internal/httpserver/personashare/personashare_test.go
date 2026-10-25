@@ -88,3 +88,27 @@ func (d directoryOf) Get(_ context.Context, email string) (*user.User, error) {
 	}
 	return nil, user.ErrNotFound
 }
+
+// Each persona's count is how many people PersonaMembers lists for it, read
+// in one walk; HasAccount is whether the directory holds the address (#2291).
+func TestMemberCountsAndAccounts(t *testing.T) {
+	pr := persona.NewRegistry()
+	require.NoError(t, pr.Register(&persona.Persona{Name: "finance", Roles: []string{"fin"}}))
+	require.NoError(t, pr.Register(&persona.Persona{Name: "analyst", Roles: []string{"an"}}))
+	users := directoryOf{all: []user.User{
+		{Email: "a@example.com", Roles: []string{"fin"}},
+		{Email: "b@example.com", Roles: []string{"fin"}},
+		{Email: "c@example.com", Roles: []string{"an"}},
+		{Email: "d@example.com", Roles: []string{"none"}},
+	}}
+	var deps portal.Deps
+	Wire(&deps, pr, users)
+	require.NotNil(t, deps.PersonaMemberCounts)
+	ctx := context.Background()
+	counts := deps.PersonaMemberCounts(ctx)
+	assert.Equal(t, map[string]int{"finance": 2, "analyst": 1}, counts)
+	assert.Len(t, deps.PersonaMembers(ctx, "finance"), counts["finance"])
+
+	assert.True(t, deps.HasAccount(ctx, "c@example.com"))
+	assert.False(t, deps.HasAccount(ctx, "guest@example.org"))
+}

@@ -138,6 +138,13 @@ func (*shareStore) GetUserAssetPermissionViaCollection(_ context.Context, _, _, 
 
 func (*shareStore) Revoke(_ context.Context, _ string) error          { return nil } //nolint:revive // interface impl
 func (*shareStore) IncrementAccess(_ context.Context, _ string) error { return nil } //nolint:revive // interface impl
+func (*shareStore) SetPermission(_ context.Context, _ string, _ portaldomain.SharePermission) error { //nolint:revive // interface impl
+	return nil
+}
+
+func (*shareStore) UpdateLink(_ context.Context, _ string, _ portaldomain.LinkUpdate) error { //nolint:revive // interface impl
+	return nil
+}
 
 // --- VersionStore ---
 

@@ -42,9 +42,10 @@ func New(p *platform.Platform, notify *notifydelivery.Handle) *Shares {
 		return nil
 	}
 	reg := p.PersonaRegistry()
+	dir := directory(p)
 	d := &resourceshare.Deps{
 		Shares: resourceshare.NewStore(p.DB()), Resources: p.ResourceStore(),
-		Caller: CallerOf(reg), Members: membersOf(p),
+		Caller: CallerOf(reg), Members: dir.PersonaMembers, HasAccount: dir.HasAccount,
 		PersonaExists: func(name string) bool { _, ok := reg.Get(name); return ok },
 	}
 	if bridge := notify.PortalNotifier(notifydelivery.PortalStores{}, p.Config().Portal.PublicBaseURL); bridge != nil {
@@ -103,14 +104,15 @@ func CallerOf(reg *persona.Registry) func(roles []string) resourceshare.Caller {
 	}
 }
 
-// membersOf lists the people of a persona from the directory, as a persona
-// share of an asset does; nil without one.
-func membersOf(p *platform.Platform) func(ctx context.Context, name string) []string {
+// directory is what the directory answers a share of an asset with: the
+// people of a persona, and whether an address has an account (#2291); both
+// nil without one.
+func directory(p *platform.Platform) portal.Deps {
 	var deps portal.Deps
 	if users := p.UserStore(); users != nil {
 		personashare.Wire(&deps, p.PersonaRegistry(), users)
 	}
-	return deps.PersonaMembers
+	return deps
 }
 
 // TablePermission is the permission a share gives a table registration's

@@ -77,10 +77,11 @@ func nonEmpty(in []string) []string {
 	return out
 }
 
-// ftsExpr is the full-text expression the lexical arm matches and ranks
-// against. It is spelled exactly as migration 000107's GIN index, so the
-// planner uses that index rather than recomputing the vector per row.
-const ftsExpr = `to_tsvector('english', purpose || ' ' || statement || ' ' || method || ' ' || path || ' ' || operation_id)`
+// ftsExpr is the full-text vector the lexical arm matches and ranks against:
+// the stored column the record's purpose, statement, method, path and
+// operation id are computed into when it is written (migration 000220), so
+// ranking reads it rather than computing it for each matching row (#2292).
+const ftsExpr = `search_fts`
 
 // searchScope is what a search will consider at all: the caller's own records,
 // and only calls that succeeded. A failed call is a record worth reading on the

@@ -20,8 +20,10 @@ type ScoredFolder struct {
 	Score   float64
 }
 
-// folderFTS is the full-text expression a folder entry is matched on.
-const folderFTS = "to_tsvector('english', fts_name_words(path) || ' ' || description || ' ' || summary_text)"
+// folderFTS is the full-text vector a folder entry is matched on: the stored
+// column its path, description and summary are computed into when the entry
+// is written (migration 000220, #2292).
+const folderFTS = "search_fts"
 
 // SearchFolders ranks the folder entries in the caller's visible libraries.
 // Only a folder that has an entry -- one holding files that are not indexed

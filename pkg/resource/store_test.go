@@ -93,10 +93,15 @@ func TestBuildScopeWhere_WithQueryFilter(t *testing.T) {
 		Scopes: []ScopeFilter{{Scope: ScopeGlobal}},
 		Query:  "test",
 	}
-	_, args := buildScopeWhere(filter)
-	// 1 scope + 2 query (display_name ILIKE, description ILIKE)
-	if len(args) != 3 {
-		t.Fatalf("expected 3 args, got %d", len(args))
+	where, args := buildScopeWhere(filter)
+	// 1 scope + 1 query pattern, compared with all five fields
+	if len(args) != 2 {
+		t.Fatalf("expected 2 args, got %d", len(args))
+	}
+	for _, field := range []string{"display_name", "description", "path", "filename", "array_to_string(tags, ' ')"} {
+		if !strings.Contains(where, field+" ILIKE $2") {
+			t.Errorf("the query is not compared with %s: %s", field, where)
+		}
 	}
 }
 
@@ -111,9 +116,9 @@ func TestBuildScopeWhere_AllFilters(t *testing.T) {
 	if where == "" {
 		t.Fatal("where is empty")
 	}
-	// Expected: 8 args total (two scopes, the folder and its subtree pattern,
-	// tag, two query patterns).
-	if len(args) != 8 {
+	// Expected: 7 args total (two scopes, the folder and its subtree pattern,
+	// tag, the query pattern).
+	if len(args) != 7 {
 		t.Fatalf("expected 8 args, got %d: %v", len(args), args)
 	}
 }

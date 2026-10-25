@@ -15,15 +15,13 @@ import (
 // Compile-time check: the PostgreSQL store provides ranked search.
 var _ prompt.Searcher = (*Store)(nil)
 
-// promptFTSExpr is the full-text expression the lexical arm matches and ranks
-// against. It calls the prompt_fts() function from migration 000062 with the
-// same argument order, so the planner uses idx_prompts_search_fts (the GIN index
-// built on that same call). A function, not an inline expression, is required
-// because the composition folds in array_to_string(tags), which is only STABLE
-// while a GIN index expression demands IMMUTABLE; prompt_fts composes the same
-// corpus as prompt.IndexText (title + description + body + tags, the title
-// falling back from display_name to name).
-const promptFTSExpr = `prompt_fts(display_name, name, description, content, tags)`
+// promptFTSExpr is the full-text vector the lexical arm matches and ranks
+// against: the stored column prompt_fts(display_name, name, description,
+// content, tags) is computed into when a prompt is written (migration 000220),
+// so ranking reads it rather than computing it for each matching row (#2292).
+// prompt_fts composes the same corpus as prompt.IndexText (title + description
+// + body + tags, the title falling back from display_name to name).
+const promptFTSExpr = `search_fts`
 
 // promptFTSQuery is the parameterized tsquery the lexical predicate compares
 // against. $2 is the query text in the hybrid arms; searchLexical rebinds it to

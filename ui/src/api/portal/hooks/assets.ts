@@ -337,6 +337,8 @@ export interface SharePersona {
   display_name: string;
   /** A persona for people outside the organization (#2290). */
   external?: boolean;
+  /** How many people the persona reaches now (#2291). */
+  member_count?: number;
 }
 
 /** The personas the caller may share with: their own, or every one for an administrator. */

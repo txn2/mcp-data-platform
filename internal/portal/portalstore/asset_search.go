@@ -22,12 +22,12 @@ var _ portaldomain.AssetSearcher = (*postgresAssetStore)(nil)
 // reads the provenance summary rather than the provenance itself (#1623).
 var assetSearchColumns = strings.Join(assetListColumns(), ", ")
 
-// assetFTSExpr is the full-text expression the lexical arm matches and ranks
-// against. It calls portal_asset_fts() (migration 000063) with the same
-// argument order so the planner uses idx_portal_assets_search_fts, the GIN index
-// built on that same call. portal_asset_fts composes the same corpus as
-// AssetIndexText (name + description + tags).
-const assetFTSExpr = `portal_asset_fts(name, description, tags)`
+// assetFTSExpr is the full-text vector the lexical arm matches and ranks
+// against: the stored column portal_asset_fts(name, description, tags) is
+// computed into when an asset is written (migration 000220), so ranking reads
+// it rather than computing it for each matching row (#2292). portal_asset_fts
+// composes the same corpus as AssetIndexText (name + description + tags).
+const assetFTSExpr = `search_fts`
 
 // Parameterized tsquery for the lexical predicate. $2 binds the query text in
 // the hybrid arms; the lexical-only path rebinds it to $1 (no vector parameter).

@@ -973,6 +973,21 @@ is safe (a cached client simply does not see it until it refreshes). Renaming or
 removing a parameter, or removing a tool, breaks a client mid-session; deprecate
 across a release before removing.
 
+### Migrations that rewrite a table
+
+Most migrations change a schema in milliseconds. One that adds a stored column
+computes it for every row, holding its table locked while it does, and the
+platform's replicas wait for the migration before they serve.
+
+Migration 000220 (#2292) stores the text each search ranks, on the resources,
+resource folders, assets, collections, prompts, knowledge pages, scripts,
+catalog datasets, memory records and call records tables. Its time is the time
+to read each row's searchable text once: on a library of 30,000 files carrying
+about 26 KiB of extracted text each, the resources table took 2 minutes 50
+seconds, so allow about 6 seconds per 1,000 files with content, and well under
+that for files indexed on their details alone. Searches and uploads wait for it;
+plan the upgrade for a quiet window on a large library.
+
 ---
 
 ## Monitoring Setup

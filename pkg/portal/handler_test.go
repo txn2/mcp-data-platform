@@ -183,6 +183,14 @@ func (m *mockShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _
 	return m.sharedWithRes, m.sharedWithTot, m.sharedWithErr
 }
 func (m *mockShareStore) Revoke(_ context.Context, _ string) error { return m.revokeErr }
+func (*mockShareStore) SetPermission(_ context.Context, _ string, _ SharePermission) error {
+	return nil
+}
+
+func (*mockShareStore) UpdateLink(_ context.Context, _ string, _ portaldomain.LinkUpdate) error {
+	return nil
+}
+
 func (m *mockShareStore) IncrementAccess(_ context.Context, id string) error {
 	m.incrementMu.Lock()
 	m.incrementIDs = append(m.incrementIDs, id)
@@ -365,6 +373,14 @@ func (c *captureShareStore) Revoke(ctx context.Context, id string) error {
 
 func (c *captureShareStore) IncrementAccess(ctx context.Context, id string) error {
 	return c.inner.IncrementAccess(ctx, id)
+}
+
+func (c *captureShareStore) SetPermission(ctx context.Context, id string, perm SharePermission) error {
+	return c.inner.SetPermission(ctx, id, perm)
+}
+
+func (c *captureShareStore) UpdateLink(ctx context.Context, id string, u portaldomain.LinkUpdate) error {
+	return c.inner.UpdateLink(ctx, id, u)
 }
 
 func (c *captureShareStore) ListActiveShareSummaries(ctx context.Context, ids []string) (map[string]ShareSummary, error) {

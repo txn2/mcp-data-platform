@@ -77,6 +77,11 @@ type ShareStore interface {
 	GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (SharePermission, error)
 	GetActiveShareForTarget(ctx context.Context, targetType, targetID, userID, email string) (*Share, error)
 	Revoke(ctx context.Context, id string) error
+	// SetPermission changes a share's permission in place (#2291).
+	SetPermission(ctx context.Context, id string, perm SharePermission) error
+	// UpdateLink changes a link share's mode, expiry and notice in place,
+	// keeping its token (#2291).
+	UpdateLink(ctx context.Context, id string, u LinkUpdate) error
 	IncrementAccess(ctx context.Context, id string) error
 }
 

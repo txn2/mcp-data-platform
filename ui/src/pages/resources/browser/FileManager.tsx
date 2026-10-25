@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { cn } from "@/lib/utils";
+import { displayPath } from "../scopes";
 import { downloadResource } from "./actions";
 import { EmptyFolder, SearchNote, SelectionBar, StatusLine } from "./Chrome";
 import { FmDialogs } from "./FmDialogs";
@@ -82,6 +83,8 @@ function Bar({ fm }: { fm: FM }) {
       root={fm.root}
       path={fm.path}
       query={fm.loc.searchInput}
+      within={fm.loc.within}
+      onWithin={fm.loc.setWithin}
       canBack={fm.loc.canBack}
       canForward={fm.loc.canForward}
       onBack={fm.loc.back}
@@ -104,13 +107,22 @@ function Bar({ fm }: { fm: FM }) {
 
 /** The listing column: the selection bar, the search note, and the rows. */
 function Main({ fm }: { fm: FM }) {
-  const flat = fm.data.flat ? { query: fm.loc.query, tag: fm.loc.tag, label: fm.root.label } : null;
+  const flat = fm.data.flat
+    ? {
+        query: fm.loc.query,
+        within: fm.loc.within,
+        tag: fm.loc.tag,
+        label: fm.root.label,
+        where: displayPath(fm.root, fm.path),
+      }
+    : null;
   const files = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && fm.canWrite;
   return (
     <section className="relative flex min-h-0 min-w-0 flex-col">
       <SelectionBar
         count={fm.selection.keys.length}
         canAct={fm.canAct}
+        canMove={fm.canMove}
         onMove={() => fm.act("move")}
         onTag={() => fm.act("tag")}
         onDelete={() => fm.act("delete")}
@@ -137,8 +149,9 @@ function Main({ fm }: { fm: FM }) {
   );
 }
 
-function Body({ fm, flat }: { fm: FM; flat: { query: string; tag: string } | null }) {
-  if (fm.root.shared) {
+function Body({ fm, flat }: { fm: FM; flat: { query: string; within: boolean; tag: string } | null }) {
+  // A search of every library lists its hits here too (#2293).
+  if (fm.root.shared && !(flat?.query && !flat.within)) {
     return <SharedWithMe onOpen={fm.openFile} />;
   }
   if (fm.data.isLoading) {
@@ -161,6 +174,7 @@ function Body({ fm, flat }: { fm: FM; flat: { query: string; tag: string } | nul
         viewMode={fm.prefs.viewMode}
         flat={fm.data.flat}
         root={fm.root}
+        rootOf={fm.rootOf}
         admin={fm.admin}
         selection={fm.selection}
         sort={fm.loc.sort}

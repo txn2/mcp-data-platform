@@ -8,13 +8,22 @@ import { openResourceNamed, openTopLevelFolder } from "./route-actions-library";
  * routes rather than a file of closures.
  */
 
-/** openShareDialog opens the asset viewer's Share dialog. */
+/** openShareDialog opens the asset viewer's Share dialog on its Share view (#2291). */
 export async function openShareDialog(page: Page): Promise<void> {
-  const btn = page.locator("button:has-text('Share')").first();
-  if (await btn.isVisible()) {
-    await btn.click();
-    await page.waitForTimeout(600);
-  }
+  await page.getByRole("button", { name: "Share", exact: true }).first().click();
+  await page.getByRole("dialog").getByText("People with access").waitFor();
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openShareDialogAccessMenu opens General access's menu, the one place the
+ * three modes are described side by side (#2291).
+ */
+export async function openShareDialogAccessMenu(page: Page): Promise<void> {
+  await openShareDialog(page);
+  await page.getByRole("button", { name: /^General access:/ }).click();
+  await page.getByRole("menuitem", { name: /Only people added/ }).waitFor();
+  await page.waitForTimeout(300);
 }
 
 /**
@@ -77,32 +86,43 @@ export async function openAssetVersionPicker(page: Page): Promise<void> {
 }
 
 /**
- * openShareDialogPublicLink opens the Share dialog and switches the link to
- * "Anyone with the link", which is the only state showing the anonymous-access
- * warning and the lifetime control: a public link is the one share that
- * expires on a clock (#1279).
+ * openShareDialogPublicLink shows the Share view of an asset whose general
+ * link anyone can open: the warning-tinted mode, the forwarded sentence, the
+ * date the link stops working and Copy link promoted (#2291).
  */
 export async function openShareDialogPublicLink(page: Page): Promise<void> {
   await openShareDialog(page);
-  await page.getByLabel("Who can open this link").click();
-  await page.getByRole("option", { name: "Anyone with the link" }).click();
-  await page.getByText(/works without signing in/).waitFor();
-  await page.waitForTimeout(400);
+  await page.getByRole("button", { name: /^General access:/ }).click();
+  await page.getByRole("menuitem", { name: /Anyone with the link/ }).click();
+  await page.getByText("No sign-in needed. Anyone it’s forwarded to can open it too.").waitFor();
+  await page.waitForTimeout(300);
 }
 
 /**
- * openShareDialogWithRecipient opens the Share dialog and names a recipient,
- * which is the only state showing the notify checkbox and the sharer's
- * message box (#1016). It builds on openShareDialog so the two share captures
- * cannot drift apart.
+ * openShareDialogWithRecipient searches for a person and a guest and adds
+ * both, the Adding people state: the chips, the guest note, Send an email and
+ * the message box (#2291).
  */
 export async function openShareDialogWithRecipient(page: Page): Promise<void> {
   await openShareDialog(page);
-  const recipient = page.locator("input[type='email']").first();
-  if (await recipient.isVisible()) {
-    await recipient.fill("marcus.johnson@example.com");
-    await page.waitForTimeout(400);
-  }
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("combobox", { name: "Add people or groups" }).fill("sarah");
+  await page.getByRole("option", { name: /Sarah Chen/ }).click();
+  await dialog.getByRole("combobox", { name: "Add more" }).fill("lee@partner.example");
+  await page.getByRole("option", { name: /lee@partner\.example/ }).click();
+  await dialog.getByPlaceholder("Add a message (optional)").fill("The Q3 numbers you asked about.");
+  await page.waitForTimeout(300);
+}
+
+/**
+ * openShareDialogSearching types two letters into the Share view's box, the
+ * state that lists the matching groups and people (#2291).
+ */
+export async function openShareDialogSearching(page: Page): Promise<void> {
+  await openShareDialog(page);
+  await page.getByRole("dialog").getByRole("combobox", { name: "Add people or groups" }).fill("da");
+  await page.getByRole("listbox").waitFor();
+  await page.waitForTimeout(400);
 }
 
 /**

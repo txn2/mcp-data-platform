@@ -43,7 +43,7 @@ func TestSearch_NoQueryTextIsNoQuery(t *testing.T) {
 // superseded) out as a predicate rather than post-processing.
 func TestSearch_RanksEveryReadersScriptsWithTheLifecycleInSQL(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("script_fts(display_name, name, description, category, tags, params, source_code)")).
+	mock.ExpectQuery(regexp.QuoteMeta("AND search_fts @@ plainto_tsquery")).
 		WithArgs("sales report", sqlmock.AnyArg(), script.DefaultSearchLimit).
 		WillReturnRows(sqlmock.NewRows(scoredSelectColumns).
 			AddRow(scoredRow(rowSpec{
@@ -96,7 +96,7 @@ func TestSearch_DiscoverableStatusesExcludeDeadEnds(t *testing.T) {
 
 func TestSearch_QueryErrorIsWrapped(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery("script_fts").WillReturnError(errors.New("boom"))
+	mock.ExpectQuery("search_fts").WillReturnError(errors.New("boom"))
 
 	_, err := s.Search(context.Background(), script.SearchQuery{QueryText: "x"})
 

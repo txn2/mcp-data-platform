@@ -2607,10 +2607,12 @@ export const handlers = [
         token,
         created_by: "user-alice",
         shared_with_user_id: body.shared_with_user_id as string | undefined,
+        shared_with_email: body.shared_with_email as string | undefined,
+        shared_with_persona: body.shared_with_persona as string | undefined,
         permission: (body.permission as Share["permission"]) ?? "viewer",
         access_mode:
           (body.access_mode as Share["access_mode"]) ??
-          (body.shared_with_user_id || body.shared_with_email ? "restricted" : "authenticated"),
+          (body.shared_with_user_id || body.shared_with_email || body.shared_with_persona ? "restricted" : "authenticated"),
         expires_at: body.expires_in
           ? new Date(
               Date.now() + parseDuration(body.expires_in as string),
@@ -2633,12 +2635,74 @@ export const handlers = [
     },
   ),
 
+  // An asset's one general link (#2291): made, changed in place keeping its
+  // token, or removed. The newest unaddressed, unposted link is the one.
+  http.put(`${PORTAL_BASE}/assets/:assetId/link`, async ({ params, request }) => {
+    const assetId = params.assetId as string;
+    const body = (await request.json()) as {
+      access_mode: Share["access_mode"];
+      expires_in?: string;
+      notice_text?: string;
+      hide_expiration?: boolean;
+    };
+    const list = (portalShares[assetId] ??= []);
+    const link = [...list]
+      .reverse()
+      .find((x) => !x.revoked && !x.shared_with_email && !x.shared_with_user_id && !x.shared_with_persona && !x.posted_to);
+    const expiry = body.expires_in ? new Date(Date.now() + parseDuration(body.expires_in)).toISOString() : undefined;
+    if (link) {
+      link.access_mode = body.access_mode ?? link.access_mode;
+      link.expires_at = link.access_mode === "public" ? (expiry ?? link.expires_at) : undefined;
+      if (body.notice_text !== undefined) link.notice_text = body.notice_text;
+      if (body.hide_expiration !== undefined) link.hide_expiration = body.hide_expiration;
+      return HttpResponse.json({ share: link, share_url: `${window.location.origin}/portal/view/${link.token}` });
+    }
+    shareCounter++;
+    const share: Share = {
+      id: `shr-mock-${shareCounter}`,
+      asset_id: assetId,
+      token: `tok_mock_${shareCounter}`,
+      created_by: "user-alice",
+      permission: "viewer",
+      access_mode: body.access_mode,
+      expires_at: expiry,
+      revoked: false,
+      access_count: 0,
+      created_at: new Date().toISOString(),
+      hide_expiration: body.hide_expiration === true,
+      notice_text: body.notice_text ?? "Proprietary & Confidential. Only share with authorized viewers.",
+    };
+    list.push(share);
+    return HttpResponse.json({ share, share_url: `${window.location.origin}/portal/view/${share.token}` }, { status: 201 });
+  }),
+
+  http.delete(`${PORTAL_BASE}/assets/:assetId/link`, ({ params }) => {
+    for (const s of portalShares[params.assetId as string] ?? []) {
+      if (!s.shared_with_email && !s.shared_with_user_id && !s.shared_with_persona && !s.posted_to) s.revoked = true;
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // A grant's permission, changed in place (#2291).
+  http.patch(`${PORTAL_BASE}/shares/:id`, async ({ params, request }) => {
+    const { permission } = (await request.json()) as { permission: Share["permission"] };
+    for (const list of Object.values(portalShares)) {
+      const share = list.find((s) => s.id === params.id);
+      if (share) {
+        share.permission = permission;
+        return HttpResponse.json(share);
+      }
+    }
+    return HttpResponse.json({ detail: "share not found" }, { status: 404 });
+  }),
+
   http.delete(`${PORTAL_BASE}/shares/:id`, ({ params }) => {
     for (const list of Object.values(portalShares)) {
       const share = list.find((s) => s.id === params.id);
       if (share) {
         share.revoked = true;
-        return new HttpResponse(null, { status: 204 });
+        // The server answers 200 with its status (pkg/portal revokeShare).
+        return HttpResponse.json({ status: "revoked" });
       }
     }
     return HttpResponse.json({ detail: "Not found" }, { status: 404 });
@@ -2901,9 +2965,9 @@ export const handlers = [
   http.get(`${PORTAL_BASE}/share-personas`, () =>
     HttpResponse.json({
       personas: [
-        { name: "analyst", display_name: "Data Analyst" },
-        { name: "client-a", display_name: "Client A", external: true },
-        { name: "data-engineer", display_name: "Data Engineer" },
+        { name: "analyst", display_name: "Data Analyst", member_count: 14 },
+        { name: "client-a", display_name: "Client A", external: true, member_count: 3 },
+        { name: "data-engineer", display_name: "Data Engineer", member_count: 6 },
       ],
     }),
   ),
@@ -3268,10 +3332,12 @@ export const handlers = [
         token,
         created_by: "user-alice",
         shared_with_user_id: body.shared_with_user_id as string | undefined,
+        shared_with_email: body.shared_with_email as string | undefined,
+        shared_with_persona: body.shared_with_persona as string | undefined,
         permission: (body.permission as Share["permission"]) ?? "viewer",
         access_mode:
           (body.access_mode as Share["access_mode"]) ??
-          (body.shared_with_user_id || body.shared_with_email ? "restricted" : "authenticated"),
+          (body.shared_with_user_id || body.shared_with_email || body.shared_with_persona ? "restricted" : "authenticated"),
         expires_at: body.expires_in
           ? new Date(
               Date.now() + parseDuration(body.expires_in as string),
@@ -3428,10 +3494,9 @@ export const handlers = [
     }
     if (q) {
       const lower = q.toLowerCase();
-      filtered = filtered.filter(
-        (r) =>
-          r.display_name.toLowerCase().includes(lower) ||
-          r.description.toLowerCase().includes(lower),
+      // The five fields the store compares (#2293).
+      filtered = filtered.filter((r) =>
+        [r.display_name, r.description, r.path, r.filename, r.tags.join(" ")].some((f) => f.toLowerCase().includes(lower)),
       );
     }
 

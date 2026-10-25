@@ -40,6 +40,8 @@ export function PathBar({
   root,
   path,
   query,
+  within,
+  onWithin,
   canBack,
   canForward,
   onBack,
@@ -60,6 +62,9 @@ export function PathBar({
   root: ResourceRoot;
   path: string;
   query: string;
+  /** Whether the search stays in the open folder (#2293); off, it spans every library. */
+  within: boolean;
+  onWithin: (within: boolean) => void;
   canBack: boolean;
   canForward: boolean;
   onBack: () => void;
@@ -135,17 +140,7 @@ export function PathBar({
           </>
         )}
       </nav>
-      <label className="relative w-36 sm:w-56">
-        <Search className="pointer-events-none absolute top-2 left-2 size-3.5 text-muted-foreground" />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => onQuery(e.target.value)}
-          placeholder="Search"
-          aria-label="Search"
-          className="h-[30px] w-full rounded-md border bg-muted/50 pr-2 pl-7 text-sm outline-none focus:ring-2 focus:ring-ring"
-        />
-      </label>
+      <SearchBox query={query} onQuery={onQuery} within={within} onWithin={onWithin} />
       <ViewToggles viewMode={viewMode} onViewMode={onViewMode} preview={preview} onPreview={onPreview} />
       {canWrite && (
         <>
@@ -157,6 +152,45 @@ export function PathBar({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * SearchBox is the search, and beside it while there is one the choice to
+ * keep it in the open folder (#2293); off, it spans every folder the caller
+ * can open.
+ */
+function SearchBox({
+  query,
+  onQuery,
+  within,
+  onWithin,
+}: {
+  query: string;
+  onQuery: (q: string) => void;
+  within: boolean;
+  onWithin: (within: boolean) => void;
+}) {
+  return (
+    <>
+      <label className="relative w-36 sm:w-56">
+        <Search className="pointer-events-none absolute top-2 left-2 size-3.5 text-muted-foreground" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          placeholder="Search"
+          aria-label="Search"
+          className="h-[30px] w-full rounded-md border bg-muted/50 pr-2 pl-7 text-sm outline-none focus:ring-2 focus:ring-ring"
+        />
+      </label>
+      {(query !== "" || within) && (
+        <label className="flex items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground">
+          <input type="checkbox" checked={within} onChange={(e) => onWithin(e.target.checked)} data-testid="search-within" />
+          This folder only
+        </label>
+      )}
+    </>
   );
 }
 

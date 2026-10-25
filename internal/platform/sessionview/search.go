@@ -74,8 +74,8 @@ func (q SearchQuery) effectiveLimit() int {
 //
 // The two arms that can use an index run first, in candidates: a purpose
 // matched through the audit full-text index, and an asset matched through
-// portal_asset_fts, which is the expression migration 000063 indexed and so
-// must be called with exactly these arguments. Only the sessions they name are
+// its stored search_fts column (migration 000220), which carries the GIN
+// index. Only the sessions they name are
 // rolled up, so the aggregate never runs over the caller's whole audit history.
 //
 // The query is spelled inline rather than computed once in a CTE: a matching
@@ -104,7 +104,7 @@ WITH candidates AS (
      WHERE p.owner_id = $1
        AND p.session_id <> ''
        AND p.deleted_at IS NULL
-       AND portal_asset_fts(p.name, p.description, p.tags) @@ plainto_tsquery('english', $2)
+       AND p.search_fts @@ plainto_tsquery('english', $2)
 ),
 rolled AS (
     SELECT a.session_id,
