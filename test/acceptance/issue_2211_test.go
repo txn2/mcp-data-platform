@@ -61,7 +61,7 @@ func TestIssue2211_A503CarriesItsBodyAndIsRetryableForAQueryOnly(t *testing.T) {
 	c := connect(t)
 	busy := endpointName("acc-2211-busy")
 	saveEndpointScript(t, c, busy, issue2211Busy, `{"params": {}, "caller": None}`)
-	bindEndpoint(t, c, busy, "", map[string]any{"endpoint": busy, "auth_mode": "signed_in", "methods": []any{"POST"}})
+	bindEndpoint(t, c, busy, "", map[string]any{"endpoint": busy, "auth_mode": "authenticated", "callers": []string{"*"}, "methods": []any{"POST"}})
 	name := issue2211Connection(t, c, "503", c.base+"/endpoints/"+busy, c.apiKey)
 	query := c.call("graphql_query", map[string]any{
 		"connection": name, "query": "{ ping }", "purpose": "Acceptance #2211: a 503 with no errors array.",

@@ -48,11 +48,13 @@ func TestCounter_CountsByEndpointHourAndReason(t *testing.T) {
 	now = now.Add(2 * time.Minute) // the next hour
 	c.Refused("e1", ReasonBotCheck)
 	c.Refused("", ReasonBotCheck) // no endpoint, nothing counted
+	c.Refused("e1", "unknown")    // a reason the table does not take, nothing counted
+	c.Refused("e1", ReasonCaller)
 
 	if err := c.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]int64{"e1/bot_check/09": 3, "e1/rate_limit/09": 1, "e1/bot_check/10": 1}
+	want := map[string]int64{"e1/bot_check/09": 3, "e1/rate_limit/09": 1, "e1/bot_check/10": 1, "e1/caller/10": 1}
 	got := store.total()
 	if len(got) != len(want) {
 		t.Fatalf("added %v; want %v", got, want)
@@ -62,7 +64,7 @@ func TestCounter_CountsByEndpointHourAndReason(t *testing.T) {
 			t.Errorf("%s = %d; want %d", k, got[k], n)
 		}
 	}
-	if err := c.Flush(context.Background()); err != nil || len(store.added) != 3 {
+	if err := c.Flush(context.Background()); err != nil || len(store.added) != 4 {
 		t.Errorf("a flush with nothing counted adds nothing: %v %d", err, len(store.added))
 	}
 }

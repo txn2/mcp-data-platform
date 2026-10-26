@@ -29,13 +29,13 @@ type analyzer struct {
 	lines []string
 	file  *syntax.File
 	// module is what runs at the module level: the file's statements, then
-	// the call of main() the platform makes when it makes one (#1944).
+	// the calls the platform makes when it makes them (#1944).
 	module []syntax.Stmt
-	// entryCall is that call, which has no position of its own in the source
-	// and no frame at run time, so it adds no call site.
-	entryCall *syntax.CallExpr
-	consts    scriptconst.Table
-	funcs     map[string]*syntax.DefStmt
+	// entryCalls are those calls, which have no position of their own in the
+	// source and no frame at run time, so they add no call site.
+	entryCalls []*syntax.CallExpr
+	consts     scriptconst.Table
+	funcs      map[string]*syntax.DefStmt
 	// parentOf names the function a nested def is written in.
 	parentOf map[string]string
 	// hasSteps is every function that makes a platform call, directly or
@@ -76,14 +76,57 @@ func newAnalyzer(source string, file *syntax.File) *analyzer {
 		groups: map[string]*groupInfo{},
 	}
 	a.module = file.Stmts
-	if main := scriptdialect.EntryPoint(file); main != nil {
-		a.entryCall = &syntax.CallExpr{Fn: main.Name, Lparen: main.Def, Rparen: main.Def}
-		a.module = append(slices.Clone(file.Stmts), &syntax.ExprStmt{X: a.entryCall})
+	if calls := entryCalls(file); len(calls) > 0 {
+		a.entryCalls = calls
+		a.module = slices.Clone(file.Stmts)
+		for _, c := range calls {
+			a.module = append(a.module, &syntax.ExprStmt{X: c})
+		}
 	}
 	a.collectDefs(file.Stmts, "")
 	a.survey()
 	return a
 }
+
+// entryCalls are the calls the platform makes after the module runs: main()
+// for a run; in a script with no main(), handle(req) for an endpoint's
+// request (#2172, #2315), or a form's form_spec(req) then form_submit(req,
+// values), in the order a person meets them (#2176). None when it makes none.
+func entryCalls(file *syntax.File) []*syntax.CallExpr {
+	if main := scriptdialect.EntryPoint(file); main != nil {
+		return []*syntax.CallExpr{{Fn: main.Name, Lparen: main.Def, Rparen: main.Def}}
+	}
+	if handler := scriptdialect.HandlerOf(file); handler != nil {
+		return []*syntax.CallExpr{call(handler, "req")}
+	}
+	var calls []*syntax.CallExpr
+	for _, s := range file.Stmts {
+		d, ok := s.(*syntax.DefStmt)
+		switch {
+		case !ok:
+		case d.Name.Name == scriptdialect.FormSpecName && len(d.Params) == 1:
+			calls = append([]*syntax.CallExpr{call(d, "req")}, calls...)
+		case d.Name.Name == scriptdialect.FormSubmitName && len(d.Params) == 2:
+			calls = append(calls, call(d, "req", "values"))
+		}
+	}
+	if len(calls) != 2 {
+		return nil
+	}
+	return calls
+}
+
+// call is the platform's call of d with arguments of the names given.
+func call(d *syntax.DefStmt, args ...string) *syntax.CallExpr {
+	c := &syntax.CallExpr{Fn: d.Name, Lparen: d.Def, Rparen: d.Def}
+	for _, name := range args {
+		c.Args = append(c.Args, &syntax.Ident{NamePos: d.Def, Name: name})
+	}
+	return c
+}
+
+// isEntry reports whether c is one of the calls the platform makes.
+func (a *analyzer) isEntry(c *syntax.CallExpr) bool { return slices.Contains(a.entryCalls, c) }
 
 // collectDefs records every def, and the function each nested one is written
 // in.

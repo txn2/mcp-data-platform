@@ -468,7 +468,7 @@ func (w *structWalk) call(c *syntax.CallExpr, cx sctx, in []pending) []pending {
 func (w *structWalk) invoke(name string, c *syntax.CallExpr, cx sctx, in []pending) []pending {
 	d := w.a.funcs[name]
 	inner := sctx{box: cx.box, sites: slices.Clone(cx.sites), fn: name}
-	if c == w.a.entryCall {
+	if w.a.isEntry(c) {
 		inner.main = true
 		if len(d.Body) > 0 {
 			inner.last = d.Body[len(d.Body)-1]

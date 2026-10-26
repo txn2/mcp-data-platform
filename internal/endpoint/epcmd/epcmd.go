@@ -61,7 +61,9 @@ type Input struct {
 	Methods         []string `json:"methods,omitempty"`
 	Path            *string  `json:"path,omitempty"`
 	AuthMode        string   `json:"auth_mode,omitempty"`
-	OpenReads       *bool    `json:"open_reads,omitempty"`
+	Callers         []string `json:"callers,omitempty"`
+	BotCheck        string   `json:"bot_check,omitempty"`
+	CheckedMethods  []string `json:"checked_methods,omitempty"`
 	MaxMemoryBytes  int64    `json:"max_memory_bytes,omitempty"`
 	MaxBodyBytes    int      `json:"max_body_bytes,omitempty"`
 	AllowedOrigins  []string `json:"allowed_origins,omitempty"`
@@ -90,9 +92,9 @@ type Request struct {
 // Handler carries the commands out.
 type Handler struct {
 	Store epbinding.Store
-	// PublicAllowed reports whether the deployment lets a public endpoint be
-	// bound (internal/botcheck).
-	PublicAllowed func(ctx context.Context) (bool, error)
+	// CheckUsable reports why a binding cannot name a bot check: none has
+	// the name, or it cannot be issued here (internal/botcheck).
+	CheckUsable func(ctx context.Context, name string) error
 	// BaseURL is the deployment's public address, empty when it has none.
 	BaseURL string
 	// ScriptName names a script a listing found by id; nil leaves names out.
@@ -131,23 +133,28 @@ func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) 
 	case err != nil:
 		return nil, storeErr("failed to read the current binding", err)
 	}
-	public, err := h.PublicAllowed(ctx)
-	if err != nil {
-		return nil, storeErr("failed to read the bot check settings", err)
-	}
 	in := req.Input
 	b, err := epbinding.Build(sc, prev, epbinding.Request{
-		Name: in.Endpoint, Methods: in.Methods, Path: in.Path, AuthMode: in.AuthMode, OpenReads: in.OpenReads,
+		Name: in.Endpoint, Methods: in.Methods, Path: in.Path, AuthMode: in.AuthMode, Callers: in.Callers,
+		BotCheck: in.BotCheck, CheckedMethods: in.CheckedMethods,
 		TimeoutSeconds: req.TimeoutSeconds, MaxMemoryBytes: in.MaxMemoryBytes, MaxBodyBytes: in.MaxBodyBytes,
 		AllowedOrigins: in.AllowedOrigins, RateLimit: in.RateLimit, CallerRateLimit: in.CallerRateLimit,
-		Actor: req.Actor, PublicAllowed: public,
+		Actor: req.Actor,
 	}, time.Now())
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the binding's own refusal is what the caller reads
 	}
+	if b.AuthMode == epbinding.AuthBotCheck && h.CheckUsable != nil {
+		if err := h.CheckUsable(ctx, b.BotCheck); err != nil {
+			return nil, err
+		}
+	}
 	if err := h.Store.Set(ctx, b); err != nil {
-		if errors.Is(err, epbinding.ErrNameTaken) {
+		switch {
+		case errors.Is(err, epbinding.ErrNameTaken):
 			return nil, fmt.Errorf("endpoint name %q is taken by another script's endpoint; choose another", b.Name)
+		case errors.Is(err, epbinding.ErrNoSuchCheck):
+			return nil, err //nolint:wrapcheck // names the check the binding asked for
 		}
 		return nil, storeErr("failed to set the binding", err)
 	}
@@ -230,7 +237,8 @@ func (h *Handler) Bound(ctx context.Context, scriptID string) string {
 func (h *Handler) fields(scriptName string, b *epbinding.Binding) map[string]any {
 	return map[string]any{
 		fieldName: scriptName, "endpoint": b.Name, "url": h.BaseURL + b.URLPath(), "methods": b.Methods,
-		"path": b.Path, "auth_mode": b.AuthMode, "open_reads": b.OpenReads, "enabled": b.Enabled,
+		"path": b.Path, "auth_mode": b.AuthMode, "callers": b.Callers, "bot_check": b.BotCheck,
+		"checked_methods": b.CheckedMethods, "enabled": b.Enabled,
 		"timeout_seconds": b.TimeoutSeconds, "max_memory_bytes": b.MaxMemoryBytes,
 		"max_body_bytes": b.MaxBodyBytes, "allowed_origins": b.AllowedOrigins,
 		"rate_limit": b.RateLimit, "caller_rate_limit": b.CallerRateLimit,

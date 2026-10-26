@@ -15,15 +15,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// Auth modes. A public endpoint answers anyone who passes the deployment's
-// bot check; a signed-in one answers a browser session or an API key.
+// Access modes (#2259). An authenticated endpoint answers a platform API key
+// or a browser session among its callers; a public one answers anyone with no
+// check; a bot_check one answers anyone who passes the bot check it names.
 const (
-	AuthPublic   = "public"
-	AuthSignedIn = "signed_in"
+	AuthAuthenticated = "authenticated"
+	AuthPublic        = "public"
+	AuthBotCheck      = "bot_check"
+)
+
+// AuthModes is every access mode, in the order they are offered.
+var AuthModes = []string{AuthAuthenticated, AuthPublic, AuthBotCheck}
+
+// Callers an authenticated endpoint names: every authenticated caller, the
+// callers whose persona is the named one, or the named API key.
+const (
+	CallersAll      = "*"
+	CallerPersona   = "persona:"
+	CallerAPIKey    = "api_key:"
+	maxCallers      = 50
+	maxCallerLength = 200
 )
 
 // PathPrefix is where every endpoint is served: /endpoints/{name}/...
@@ -49,6 +65,7 @@ const (
 	MaxRateLimit           = 100000
 
 	maxNameLen       = 63
+	maxCheckNameLen  = 63
 	maxPathSegments  = 8
 	maxOrigins       = 20
 	maxOriginLen     = 253
@@ -73,6 +90,9 @@ var (
 	// ErrNotAllowed reports a caller who may not create or change a binding:
 	// everyone but an administrator, the script's owner included.
 	ErrNotAllowed = errors.New("only an administrator can bind a script to an endpoint")
+	// ErrNoSuchCheck reports a binding naming a bot check that does not
+	// exist.
+	ErrNoSuchCheck = errors.New("no bot check has this name; an administrator configures them under Admin > Settings > Bot checks")
 )
 
 // Binding is one script's endpoint.
@@ -87,11 +107,17 @@ type Binding struct {
 	// Path is the template under /endpoints/{name}: "" for the name alone,
 	// "/{id}" for one parameter a request reads as req.params["id"].
 	Path string `json:"path" example:"/{id}"`
-	// AuthMode is public or signed_in.
-	AuthMode string `json:"auth_mode" example:"signed_in"`
-	// OpenReads lets GET and HEAD on a public endpoint through without a bot
-	// check.
-	OpenReads bool `json:"open_reads"`
+	// AuthMode is authenticated, public or bot_check.
+	AuthMode string `json:"auth_mode" example:"authenticated"`
+	// Callers is who an authenticated endpoint admits besides the
+	// administrator: "*" for every authenticated caller, "persona:<name>" and
+	// "api_key:<name>". Empty admits no one but the administrator.
+	Callers []string `json:"callers" example:"persona:analyst"`
+	// BotCheck is the named bot check a bot_check endpoint requires.
+	BotCheck string `json:"bot_check,omitempty" example:"default"`
+	// CheckedMethods are the methods a bot_check endpoint checks, empty for
+	// every method it answers; HEAD is checked where GET is.
+	CheckedMethods []string `json:"checked_methods"`
 	// TimeoutSeconds, MaxMemoryBytes and MaxBodyBytes bound one request.
 	TimeoutSeconds int   `json:"timeout_seconds"`
 	MaxMemoryBytes int64 `json:"max_memory_bytes"`
@@ -120,14 +146,66 @@ func (b Binding) Answers(method string) bool {
 	return slices.Contains(b.Methods, method) || (method == "HEAD" && slices.Contains(b.Methods, "GET"))
 }
 
+// Checks reports whether a request with method must pass the binding's bot
+// check.
+func (b Binding) Checks(method string) bool {
+	if b.AuthMode != AuthBotCheck {
+		return false
+	}
+	if len(b.CheckedMethods) == 0 {
+		return true
+	}
+	if method == "HEAD" {
+		method = "GET"
+	}
+	return slices.Contains(b.CheckedMethods, method)
+}
+
+// Caller is who sent a request to an authenticated endpoint, as the binding's
+// callers list is matched against it.
+type Caller struct {
+	// Admin is whether the caller is the platform's administrator, whom every
+	// authenticated endpoint admits whatever its callers say: an
+	// administrator is unrestricted on every surface.
+	Admin bool
+	// Persona is the persona the caller's roles resolve to, empty when none.
+	Persona string
+	// APIKey is the name of the API key the request carried, empty for a
+	// browser session.
+	APIKey string
+}
+
+// Admits reports whether an authenticated endpoint admits c: the
+// administrator always, anyone else when the callers list names them.
+func (b Binding) Admits(c Caller) bool {
+	if c.Admin {
+		return true
+	}
+	for _, entry := range b.Callers {
+		switch {
+		case entry == CallersAll:
+			return true
+		case c.Persona != "" && entry == CallerPersona+c.Persona:
+			return true
+		case c.APIKey != "" && entry == CallerAPIKey+c.APIKey:
+			return true
+		}
+	}
+	return false
+}
+
 // Request is a binding set on a script. A nil field keeps what the binding
 // had, or takes the default on a new one.
 type Request struct {
-	Name            string
-	Methods         []string
-	Path            *string
-	AuthMode        string
-	OpenReads       *bool
+	Name     string
+	Methods  []string
+	Path     *string
+	AuthMode string
+	// Callers, BotCheck and CheckedMethods are nil or empty to keep what the
+	// binding had; a change of mode clears what the old mode named.
+	Callers         []string
+	BotCheck        string
+	CheckedMethods  []string
 	TimeoutSeconds  int
 	MaxMemoryBytes  int64
 	MaxBodyBytes    int
@@ -136,9 +214,6 @@ type Request struct {
 	CallerRateLimit int
 	Enabled         *bool
 	Actor           string
-	// PublicAllowed is whether the deployment lets a public endpoint be
-	// bound: it has a bot check, or an administrator set the override.
-	PublicAllowed bool
 }
 
 // Build is the binding req sets on sc over prev, which is nil for a script
@@ -151,6 +226,7 @@ func Build(sc *script.Script, prev *Binding, req Request, now time.Time) (*Bindi
 	b := Binding{
 		ScriptID: sc.ID, Methods: []string{"GET"}, TimeoutSeconds: DefaultTimeoutSeconds,
 		MaxMemoryBytes: DefaultMaxMemoryBytes, MaxBodyBytes: DefaultMaxBodyBytes, AllowedOrigins: []string{},
+		Callers: []string{}, CheckedMethods: []string{},
 		RateLimit: DefaultRateLimit, CallerRateLimit: DefaultCallerRateLimit, Enabled: true,
 		CreatedBy: req.Actor, CreatedAt: now,
 	}
@@ -162,17 +238,22 @@ func Build(sc *script.Script, prev *Binding, req Request, now time.Time) (*Bindi
 	if err := b.Validate(); err != nil {
 		return nil, err
 	}
-	if b.AuthMode == AuthPublic && !req.PublicAllowed {
-		return nil, errors.New("a public endpoint needs a bot check, and this deployment has none: an administrator " +
-			"chooses one, or allows public endpoints without one, under Admin > Settings > Bot check")
-	}
 	return &b, nil
 }
 
 // apply sets on b what req names.
 func apply(b *Binding, req Request) {
 	setString(&b.Name, strings.TrimSpace(req.Name))
-	setString(&b.AuthMode, req.AuthMode)
+	if req.AuthMode != "" && req.AuthMode != b.AuthMode {
+		b.AuthMode, b.Callers, b.BotCheck, b.CheckedMethods = req.AuthMode, []string{}, "", []string{}
+	}
+	if req.Callers != nil {
+		b.Callers = normalizeCallers(req.Callers)
+	}
+	setString(&b.BotCheck, strings.TrimSpace(req.BotCheck))
+	if req.CheckedMethods != nil {
+		b.CheckedMethods = normalizeMethods(req.CheckedMethods)
+	}
 	if req.Methods != nil {
 		b.Methods = normalizeMethods(req.Methods)
 	}
@@ -182,7 +263,6 @@ func apply(b *Binding, req Request) {
 	if req.AllowedOrigins != nil {
 		b.AllowedOrigins = req.AllowedOrigins
 	}
-	setBool(&b.OpenReads, req.OpenReads)
 	setBool(&b.Enabled, req.Enabled)
 	setInt(&b.TimeoutSeconds, req.TimeoutSeconds)
 	setInt(&b.MaxBodyBytes, req.MaxBodyBytes)
@@ -209,6 +289,18 @@ func setInt(dst *int, v int) {
 	if v != 0 {
 		*dst = v
 	}
+}
+
+// normalizeCallers trims and de-duplicates callers, in order.
+func normalizeCallers(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, c := range in {
+		c = strings.TrimSpace(c)
+		if !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // normalizeMethods upper-cases and de-duplicates methods, in order.
@@ -287,13 +379,60 @@ func (b Binding) validatePath() error {
 }
 
 func (b Binding) validateAuth() error {
-	switch b.AuthMode {
-	case AuthPublic, AuthSignedIn:
-		return nil
-	case "":
-		return fmt.Errorf("an endpoint needs an auth mode: %s or %s", AuthPublic, AuthSignedIn)
+	modes := strings.Join(AuthModes, ", ")
+	switch {
+	case b.AuthMode == "":
+		return fmt.Errorf("an endpoint needs an auth mode: %s", modes)
+	case !slices.Contains(AuthModes, b.AuthMode):
+		return fmt.Errorf("auth mode %q is not one of %s", b.AuthMode, modes)
+	case len(b.Callers) > 0 && b.AuthMode != AuthAuthenticated:
+		return fmt.Errorf("callers name who an %s endpoint admits; a %s endpoint names none", AuthAuthenticated, b.AuthMode)
+	case (b.BotCheck != "" || len(b.CheckedMethods) > 0) && b.AuthMode != AuthBotCheck:
+		return fmt.Errorf("bot_check and checked_methods belong to a %s endpoint; a %s endpoint names neither", AuthBotCheck, b.AuthMode)
+	case b.AuthMode == AuthAuthenticated:
+		return b.validateCallers()
+	case b.AuthMode == AuthBotCheck:
+		return b.validateBotCheck()
 	}
-	return fmt.Errorf("auth mode %q is not %s or %s", b.AuthMode, AuthPublic, AuthSignedIn)
+	return nil
+}
+
+func (b Binding) validateCallers() error {
+	if len(b.Callers) > maxCallers {
+		return fmt.Errorf("an endpoint names at most %d callers", maxCallers)
+	}
+	for _, c := range b.Callers {
+		if c == CallersAll {
+			if len(b.Callers) > 1 {
+				return errors.New(`callers "*" admits every authenticated caller, so it is named alone`)
+			}
+			continue
+		}
+		name, ok := strings.CutPrefix(c, CallerPersona)
+		if !ok {
+			name, ok = strings.CutPrefix(c, CallerAPIKey)
+		}
+		if !ok || name == "" || len(c) > maxCallerLength || strings.ContainsAny(name, " \t\n") {
+			return fmt.Errorf(`caller %q must be "*", "persona:<name>" or "api_key:<name>"`, c)
+		}
+	}
+	return nil
+}
+
+func (b Binding) validateBotCheck() error {
+	if b.BotCheck == "" {
+		return errors.New("a bot_check endpoint names the bot check it requires, one an administrator " +
+			"configured under Admin > Settings > Bot checks")
+	}
+	if len(b.BotCheck) > maxCheckNameLen {
+		return fmt.Errorf("bot check name %q is longer than %d characters", b.BotCheck, maxCheckNameLen)
+	}
+	for _, m := range b.CheckedMethods {
+		if !b.Answers(m) {
+			return fmt.Errorf("checked method %q is not one the endpoint answers (%s)", m, strings.Join(b.Methods, ", "))
+		}
+	}
+	return nil
 }
 
 func (b Binding) validateLimits() error {
@@ -373,17 +512,20 @@ func matchSegment(seg, got string, params map[string]string) bool {
 	return value == seg
 }
 
-// Callable refuses a source an endpoint cannot call: one that defines no
-// top-level handle(req) taking one parameter. It is asked when a script is
-// bound and when a bound script is saved (internal/platform/scriptsave).
+// Callable refuses a source an endpoint cannot call: one that defines
+// neither a top-level handle(req) taking one parameter nor a form's
+// form_spec(req) and form_submit(req, values) (#2176). It is asked when a
+// script is bound and when a bound script is saved
+// (internal/platform/scriptsave).
 func Callable(source string) error {
 	file, err := scriptdialect.Options.Parse("script", source, 0)
 	if err != nil {
 		return fmt.Errorf("the source does not parse: %w", err)
 	}
-	if scriptdialect.HandlerOf(file) == nil {
-		return fmt.Errorf("an endpoint calls %s(req) with each request, and the source defines no %s(req) taking "+
-			"one parameter", scriptdialect.HandlerName, scriptdialect.HandlerName)
+	if scriptdialect.HandlerOf(file) == nil && !epform.Defines(file) {
+		return fmt.Errorf("an endpoint calls %s(req) with each request, or %s(req) and %s(req, values) on a form, "+
+			"and the source defines no %s(req) taking one parameter, nor both form handlers",
+			scriptdialect.HandlerName, epform.SpecName, epform.SubmitName, scriptdialect.HandlerName)
 	}
 	return nil
 }

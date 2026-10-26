@@ -3,7 +3,7 @@
 // caller's credential, or a cross-origin preflight from an origin the binding
 // does not list. An answered request is audited; a refused one was not, so a
 // flood refused at the bot check, which is what an administrator looks for on
-// a public endpoint, showed nowhere.
+// a bot_check endpoint, showed nowhere.
 //
 // A replica counts in memory and adds its counts to the database every few
 // seconds, one row per endpoint, hour and reason: a flood moves a counter
@@ -16,6 +16,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -32,8 +33,18 @@ const (
 	ReasonCallerRateLimit = "caller_rate_limit"
 	ReasonBodyLimit       = "body_limit"
 	ReasonCredential      = "credential"
-	ReasonOrigin          = "origin"
+	// ReasonCaller is an authenticated caller the endpoint's callers list
+	// does not name (#2259).
+	ReasonCaller = "caller"
+	ReasonOrigin = "origin"
 )
+
+// Reasons is every reason a refusal is counted under. The table's CHECK
+// constraint names the same set, and a count under a reason it does not name
+// fails the whole batch it was added in, so a new reason goes into both.
+var Reasons = []string{
+	ReasonBotCheck, ReasonRateLimit, ReasonCallerRateLimit, ReasonBodyLimit, ReasonCredential, ReasonCaller, ReasonOrigin,
+}
 
 // Retention is how long the counts are kept.
 const Retention = 30 * 24 * time.Hour
@@ -150,8 +161,12 @@ func NewCounter(store adder, flush time.Duration) *Counter {
 
 // Refused counts one refused request. Nil-safe, and never blocks on the
 // database.
+//
+// A reason Reasons does not name is not counted: the table would refuse it,
+// and a refused batch is put back whole, so one such count would hold back
+// every endpoint's counts on the replica.
 func (c *Counter) Refused(endpointID, reason string) {
-	if c == nil || endpointID == "" {
+	if c == nil || endpointID == "" || !slices.Contains(Reasons, reason) {
 		return
 	}
 	k := key{endpoint: endpointID, hour: c.now().UTC().Truncate(time.Hour), reason: reason}

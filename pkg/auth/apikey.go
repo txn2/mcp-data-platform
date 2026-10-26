@@ -288,11 +288,12 @@ func isGeneratedKeyShape(token string) bool {
 // as. Expiry is checked by userInfo, which is the only caller.
 func keyUserInfo(key *APIKey) *middleware.UserInfo {
 	return &middleware.UserInfo{
-		UserID:   "apikey:" + key.Name,
-		Email:    apiKeyEmail(*key),
-		Claims:   attributeClaims(key.Attributes),
-		Roles:    key.Roles,
-		AuthType: middleware.AuthTypeAPIKey,
+		UserID:     "apikey:" + key.Name,
+		Email:      apiKeyEmail(*key),
+		Claims:     attributeClaims(key.Attributes),
+		Roles:      key.Roles,
+		AuthType:   middleware.AuthTypeAPIKey,
+		APIKeyName: key.Name,
 	}
 }
 

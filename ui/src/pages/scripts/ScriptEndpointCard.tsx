@@ -10,6 +10,7 @@ import type {
   ScriptEndpoint,
   ScriptEndpointInput,
 } from "@/api/portal/hooks/scriptEndpoint";
+import { useBotChecks } from "@/api/admin/hooks";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -18,20 +19,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
+import { ACCESS_LABELS, PUBLIC_NOTE, accessLabel, callersSummary } from "./endpoints/endpointLabels";
 import { formatBytes, formatWhen } from "./runFormat";
 
 // ScriptEndpointCard is the script's endpoint (#2171): the HTTP route at
 // /endpoints/{name} that runs its handle(req) on each request, the binding's
 // limits, and the requests that failed in the last seven days. Its owner reads
 // it; only an administrator binds the script, changes the binding, or turns
-// it on and off, because an endpoint can answer the public.
+// it on and off, because an endpoint can answer the public. Each endpoint has
+// one access mode (#2259): authenticated callers it names, anyone, or anyone
+// who passes a named bot check.
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
-const AUTH_LABELS: Record<EndpointAuthMode, string> = {
-  signed_in: "Signed in",
-  public: "Public",
-};
+const AUTH_MODES = Object.keys(ACCESS_LABELS) as EndpointAuthMode[];
 
 export function ScriptEndpointCard({ scriptId }: { scriptId: string }) {
   const { data, isLoading, error } = useScriptEndpoint(scriptId, true);
@@ -92,8 +93,10 @@ const DEFAULTS = {
   url: "",
   methods: ["GET"],
   path: "",
-  auth_mode: "signed_in" as EndpointAuthMode,
-  open_reads: false,
+  auth_mode: "authenticated" as EndpointAuthMode,
+  callers: [] as string[],
+  bot_check: "",
+  checked_methods: [] as string[],
   enabled: true,
   timeout_seconds: 10,
   max_memory_bytes: 64 << 20,
@@ -117,16 +120,20 @@ function factsOf(endpoint: ScriptEndpoint): [string, string][] {
     ["Address", e.url],
     ["Methods", e.methods.join(", ")],
     ["Path", e.path || "—"],
-    ["Callers", AUTH_LABELS[e.auth_mode]],
+    ["Access", accessLabel(e)],
   ];
-  if (e.auth_mode === "public") rows.push(["Reads without a check", e.open_reads ? "Yes" : "No"]);
+  if (e.auth_mode === "authenticated") rows.push(["Admits", callersSummary(e.callers)]);
+  if (e.auth_mode === "bot_check") {
+    rows.push(["Checked methods", e.checked_methods.length === 0 ? "Every method" : e.checked_methods.join(", ")]);
+  }
+  if (e.auth_mode === "public") rows.push(["Check", PUBLIC_NOTE]);
   rows.push(
     ["Timeout", `${e.timeout_seconds} s`],
     ["Memory", formatBytes(e.max_memory_bytes)],
     ["Body limit", formatBytes(e.max_body_bytes)],
     ["Rate limit", perReplica(e.rate_limit)],
   );
-  if (e.auth_mode === "signed_in") rows.push(["Per-caller limit", perReplica(e.caller_rate_limit)]);
+  if (e.auth_mode === "authenticated") rows.push(["Per-caller limit", perReplica(e.caller_rate_limit)]);
   rows.push(["Allowed origins", e.allowed_origins.join(", ") || "None"]);
   return rows;
 }
@@ -190,7 +197,11 @@ interface formState {
   methods: string[];
   path: string;
   authMode: EndpointAuthMode;
-  openReads: boolean;
+  // callers is one entry a line; everyCaller stands for "*".
+  callers: string;
+  everyCaller: boolean;
+  botCheck: string;
+  checkedMethods: string[];
   timeout: string;
   memoryMiB: string;
   bodyKiB: string;
@@ -206,7 +217,10 @@ function initialForm(endpoint: ScriptEndpoint): formState {
     methods: e.methods,
     path: e.path,
     authMode: e.auth_mode,
-    openReads: e.open_reads,
+    callers: e.callers.filter((c) => c !== "*").join("\n"),
+    everyCaller: e.callers.includes("*"),
+    botCheck: e.bot_check,
+    checkedMethods: e.checked_methods,
     timeout: String(e.timeout_seconds),
     memoryMiB: String(Math.round(e.max_memory_bytes / (1 << 20))),
     bodyKiB: String(Math.round(e.max_body_bytes / (1 << 10))),
@@ -222,7 +236,7 @@ function toInput(f: formState): ScriptEndpointInput {
     methods: f.methods,
     path: f.path.trim(),
     auth_mode: f.authMode,
-    open_reads: f.authMode === "public" && f.openReads,
+    ...modeFields(f),
     timeout_seconds: Number(f.timeout),
     max_memory_bytes: Number(f.memoryMiB) * (1 << 20),
     max_body_bytes: Number(f.bodyKiB) * (1 << 10),
@@ -232,13 +246,39 @@ function toInput(f: formState): ScriptEndpointInput {
   };
 }
 
+// modeFields are the fields of the chosen access mode alone; the server
+// clears the others when the mode changes and refuses them on another mode.
+function modeFields(f: formState): ScriptEndpointInput {
+  switch (f.authMode) {
+    case "authenticated":
+      return {
+        callers: f.everyCaller
+          ? ["*"]
+          : f.callers
+              .split("\n")
+              .map((c) => c.trim())
+              .filter(Boolean),
+      };
+    case "bot_check":
+      return { bot_check: f.botCheck, checked_methods: f.checkedMethods.filter((m) => f.methods.includes(m)) };
+    default:
+      return {};
+  }
+}
+
 function EndpointForm({ scriptId, endpoint, onDone }: { scriptId: string; endpoint: ScriptEndpoint; onDone: () => void }) {
   const save = useSetScriptEndpoint(scriptId);
   const [form, setForm] = useState<formState>(() => initialForm(endpoint));
   const set = <K extends keyof formState>(key: K, value: formState[K]) => setForm((f) => ({ ...f, [key]: value }));
   const toggleMethod = (m: string) =>
     set("methods", form.methods.includes(m) ? form.methods.filter((x) => x !== m) : [...form.methods, m]);
+  const toggleChecked = (m: string) =>
+    set(
+      "checkedMethods",
+      form.checkedMethods.includes(m) ? form.checkedMethods.filter((x) => x !== m) : [...form.checkedMethods, m],
+    );
   const submit = () => save.mutate(toInput(form), { onSuccess: onDone });
+  const incomplete = !form.endpoint.trim() || form.methods.length === 0 || (form.authMode === "bot_check" && !form.botCheck);
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -248,16 +288,16 @@ function EndpointForm({ scriptId, endpoint, onDone }: { scriptId: string; endpoi
         <Field id="endpoint-path" label="Path">
           <Input id="endpoint-path" value={form.path} placeholder="/{id}" onChange={(e) => set("path", e.target.value)} />
         </Field>
-        <Field id="endpoint-callers" label="Callers">
+        <Field id="endpoint-access" label="Access">
           <select
-            id="endpoint-callers"
+            id="endpoint-access"
             className="h-9 w-full rounded-md border bg-background px-2 text-sm"
             value={form.authMode}
             onChange={(e) => set("authMode", e.target.value as EndpointAuthMode)}
           >
-            {(Object.keys(AUTH_LABELS) as EndpointAuthMode[]).map((m) => (
+            {AUTH_MODES.map((m) => (
               <option key={m} value={m}>
-                {AUTH_LABELS[m]}
+                {ACCESS_LABELS[m]}
               </option>
             ))}
           </select>
@@ -277,7 +317,7 @@ function EndpointForm({ scriptId, endpoint, onDone }: { scriptId: string; endpoi
         <NumberField id="endpoint-memory" label="Memory (MiB)" value={form.memoryMiB} onChange={(v) => set("memoryMiB", v)} />
         <NumberField id="endpoint-body" label="Body limit (KiB)" value={form.bodyKiB} onChange={(v) => set("bodyKiB", v)} />
         <NumberField id="endpoint-rate" label="Rate limit (a minute)" value={form.rateLimit} onChange={(v) => set("rateLimit", v)} />
-        {form.authMode === "signed_in" && (
+        {form.authMode === "authenticated" && (
           <NumberField
             id="endpoint-caller-rate"
             label="Per-caller limit (a minute)"
@@ -285,13 +325,8 @@ function EndpointForm({ scriptId, endpoint, onDone }: { scriptId: string; endpoi
             onChange={(v) => set("callerRateLimit", v)}
           />
         )}
-        {form.authMode === "public" && (
-          <label className="flex items-center gap-2 self-end text-sm">
-            <input type="checkbox" checked={form.openReads} onChange={(e) => set("openReads", e.target.checked)} />
-            Reads without a check
-          </label>
-        )}
       </div>
+      <ModeFields form={form} set={set} onToggle={toggleChecked} />
       <Field id="endpoint-origins" label="Allowed origins">
         <Textarea
           id="endpoint-origins"
@@ -307,13 +342,115 @@ function EndpointForm({ scriptId, endpoint, onDone }: { scriptId: string; endpoi
         </Alert>
       )}
       <div className="flex gap-2">
-        <Button size="sm" disabled={save.isPending || !form.endpoint.trim() || form.methods.length === 0} onClick={submit}>
+        <Button
+          size="sm"
+          disabled={save.isPending || incomplete}
+          onClick={submit}
+        >
           {save.isPending ? "Saving..." : "Save"}
         </Button>
         <Button size="sm" variant="ghost" disabled={save.isPending} onClick={onDone}>
           Cancel
         </Button>
       </div>
+    </div>
+  );
+}
+
+type setField = <K extends keyof formState>(key: K, value: formState[K]) => void;
+
+// ModeFields are the fields of the chosen access mode.
+function ModeFields({ form, set, onToggle }: { form: formState; set: setField; onToggle: (m: string) => void }) {
+  switch (form.authMode) {
+    case "authenticated":
+      return <CallersFields form={form} set={set} />;
+    case "bot_check":
+      return <BotCheckFields form={form} set={set} onToggle={onToggle} />;
+    default:
+      return (
+        <p className="text-sm text-muted-foreground">
+          {PUBLIC_NOTE} An automated caller, a partner system included, is better given an authenticated endpoint and an
+          API key.
+        </p>
+      );
+  }
+}
+
+// CallersFields are who an authenticated endpoint admits.
+function CallersFields({ form, set }: { form: formState; set: setField }) {
+  return (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={form.everyCaller} onChange={(e) => set("everyCaller", e.target.checked)} />
+        Every authenticated caller
+      </label>
+      {!form.everyCaller && (
+        <Field id="endpoint-callers" label="Callers">
+          <Textarea
+            id="endpoint-callers"
+            rows={3}
+            value={form.callers}
+            placeholder={"persona:analyst\napi_key:partner-sync"}
+            onChange={(e) => set("callers", e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            One a line: persona:&lt;name&gt; admits the callers of that persona, api_key:&lt;name&gt; that API key. An
+            empty list admits no one but the administrator, who is always admitted.
+          </p>
+        </Field>
+      )}
+    </div>
+  );
+}
+
+// BotCheckFields are the check a bot_check endpoint names and the methods it
+// checks.
+function BotCheckFields({
+  form,
+  set,
+  onToggle,
+}: {
+  form: formState;
+  set: setField;
+  onToggle: (m: string) => void;
+}) {
+  const { data } = useBotChecks();
+  const checks = data?.checks ?? [];
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field id="endpoint-bot-check" label="Bot check">
+        <select
+          id="endpoint-bot-check"
+          className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+          value={form.botCheck}
+          onChange={(e) => set("botCheck", e.target.value)}
+        >
+          <option value="">Choose a bot check</option>
+          {checks.map((c) => (
+            <option key={c.name} value={c.name} disabled={!c.usable}>
+              {c.name}
+            </option>
+          ))}
+          {form.botCheck && !checks.some((c) => c.name === form.botCheck) && (
+            <option value={form.botCheck}>{form.botCheck}</option>
+          )}
+        </select>
+        <p className="text-xs text-muted-foreground">Bot checks are configured under Admin &gt; Settings &gt; Bot checks.</p>
+      </Field>
+      <fieldset className="space-y-1">
+        <legend className="text-sm font-medium">Checked methods</legend>
+        <div className="flex flex-wrap gap-3 pt-1">
+          {form.methods.map((m) => (
+            <label key={m} className="flex items-center gap-1 text-sm">
+              <input type="checkbox" checked={form.checkedMethods.includes(m)} onChange={() => onToggle(m)} />
+              {m}
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          None ticked checks every method. Tick POST alone to serve a form&apos;s page on GET without a check.
+        </p>
+      </fieldset>
     </div>
   );
 }

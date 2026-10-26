@@ -40,11 +40,23 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 	if p.Config().Admin.IsEnabled() {
 		settings = adminAuth()
 	}
-	mountOver(mux, e, Authenticator(portal.NewAuthenticator(p.Authenticator(), opts...), p.PersonaRegistry().IsExternalRoles), settings, author)
+	reg := p.PersonaRegistry()
+	personas := Personas{
+		External: reg.IsExternalRoles,
+		Name: func(roles []string) string {
+			if found, ok := reg.GetForRoles(roles); ok {
+				return found.Name
+			}
+			return ""
+		},
+		Admin: reg.AdminRule(p.Config().Admin.Persona),
+	}
+	mountOver(mux, e, Authenticator(portal.NewAuthenticator(p.Authenticator(), opts...), personas), settings, author)
 	if settings != nil && p.DB() != nil {
 		scripts := scriptstore.New(p.DB())
 		endpointapi.Register(mux, settings, endpointapi.Config{
-			DB: p.DB(), Bindings: e.Bindings, Script: scripts.GetByID, BaseURL: p.Config().Portal.PublicBaseURL,
+			DB: p.DB(), Bindings: e.Bindings, Checks: e.Checker.Checks.List, Script: scripts.GetByID,
+			BaseURL: p.Config().Portal.PublicBaseURL,
 		})
 		slog.Info("Endpoints admin API on /api/v1/admin/endpoints enabled")
 	}
@@ -62,9 +74,9 @@ func mountOver(mux *http.ServeMux, e *epwire.Endpoints, auth func(r *http.Reques
 		return
 	}
 	botcheckapi.Register(mux, settings, botcheckapi.Config{
-		Settings: e.Checker.Settings, KeyAvailable: e.Checker.Key != nil, Secret: e.Checker.Secret, Author: author,
+		Checks: e.Checker.Checks, KeyAvailable: e.Checker.Key != nil, Secret: e.Checker.Secret, Author: author,
 	})
-	slog.Info("Endpoints on /endpoints/ and the bot check settings admin API on /api/v1/admin/settings/bot-check enabled")
+	slog.Info("Endpoints on /endpoints/ and the bot checks admin API on /api/v1/admin/bot-checks enabled")
 }
 
 // portalAuth is the portal's authentication of a request.
@@ -72,12 +84,25 @@ type portalAuth interface {
 	Authenticate(r *http.Request) (*portal.User, error)
 }
 
-// Authenticator adapts the portal's authentication to an endpoint's caller.
-// The portal reports an error only for a browser session refused its CSRF
-// token, which is the caller's credential refused rather than absent. A person
-// of an external persona is refused too (#2290): a signed-in endpoint runs a
-// script, which reaches far more than what is shared with them.
-func Authenticator(a portalAuth, external func(roles []string) bool) func(r *http.Request) (*eprun.Caller, error) {
+// Personas resolves a caller's roles: whether they are an external persona's,
+// the name of the persona they resolve to ("" for none), and whether the
+// platform's one administrator rule says they administer it. A nil function
+// answers no.
+type Personas struct {
+	External func(roles []string) bool
+	Name     func(roles []string) string
+	Admin    func(roles []string) bool
+}
+
+// Authenticator adapts the portal's authentication to an endpoint's caller,
+// with whether they administer the platform, the persona their roles resolve
+// to and the API key's name, which an authenticated endpoint admits by
+// (#2259). The portal reports an
+// error only for a browser session refused its CSRF token, which is the
+// caller's credential refused rather than absent. A person of an external
+// persona is refused too (#2290): an authenticated endpoint runs a script,
+// which reaches far more than what is shared with them.
+func Authenticator(a portalAuth, personas Personas) func(r *http.Request) (*eprun.Caller, error) {
 	return func(r *http.Request) (*eprun.Caller, error) {
 		u, err := a.Authenticate(r)
 		if err != nil {
@@ -86,9 +111,14 @@ func Authenticator(a portalAuth, external func(roles []string) bool) func(r *htt
 		if u == nil {
 			return nil, nil
 		}
-		if external != nil && external(u.Roles) {
+		if personas.External != nil && personas.External(u.Roles) {
 			return nil, fmt.Errorf("an external persona reaches no endpoint: %w", ephttp.ErrForbidden)
 		}
-		return &eprun.Caller{UserID: u.UserID, Email: u.Email, AuthType: u.AuthType}, nil
+		caller := &eprun.Caller{UserID: u.UserID, Email: u.Email, AuthType: u.AuthType, APIKey: u.APIKeyName}
+		if personas.Name != nil {
+			caller.Persona = personas.Name(u.Roles)
+		}
+		caller.Admin = personas.Admin != nil && personas.Admin(u.Roles)
+		return caller, nil
 	}
 }

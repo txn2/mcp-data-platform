@@ -7,7 +7,20 @@ import { scriptsKey } from "./scriptKeys";
 // and an administrator read it; only an administrator binds a script, changes
 // its binding, or turns it on and off.
 
-export type EndpointAuthMode = "public" | "signed_in";
+// EndpointAuthMode is who an endpoint answers (#2259): a platform API key or a
+// browser session among its callers, anyone with no check, or anyone who
+// passes the bot check it names.
+export type EndpointAuthMode = "authenticated" | "public" | "bot_check";
+
+// ListedEndpoint is a listed script's endpoint (#2259): where it answers, who
+// it admits and whether it is on.
+export interface ListedEndpoint {
+  name: string;
+  /** path is the address, with the template's parameters in braces. */
+  path: string;
+  auth_mode: EndpointAuthMode;
+  enabled: boolean;
+}
 
 export interface EndpointFailure {
   id: string;
@@ -27,7 +40,13 @@ export interface ScriptEndpoint {
   methods?: string[];
   path?: string;
   auth_mode?: EndpointAuthMode;
-  open_reads?: boolean;
+  // callers is who an authenticated endpoint admits: "*", "persona:<name>"
+  // or "api_key:<name>"; empty admits no one.
+  callers?: string[];
+  // bot_check is the check a bot_check endpoint names, and checked_methods
+  // the methods it checks, empty for every one.
+  bot_check?: string;
+  checked_methods?: string[];
   enabled?: boolean;
   timeout_seconds?: number;
   max_memory_bytes?: number;
@@ -47,7 +66,9 @@ export interface ScriptEndpointInput {
   methods?: string[];
   path?: string;
   auth_mode?: EndpointAuthMode;
-  open_reads?: boolean;
+  callers?: string[];
+  bot_check?: string;
+  checked_methods?: string[];
   timeout_seconds?: number;
   max_memory_bytes?: number;
   max_body_bytes?: number;

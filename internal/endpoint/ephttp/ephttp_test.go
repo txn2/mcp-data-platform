@@ -47,44 +47,55 @@ func (f *runner) Serve(_ context.Context, _ *eprun.Target, req eprun.Request) ep
 	return eprun.Response{Status: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}, "X-From": {"handler"}}, Body: body}
 }
 
-// checker accepts the answer "good" once per endpoint, refuses any other.
+// checker accepts the answer "good" to the check "default" and "good:<check>"
+// to any other, once per endpoint, and refuses the rest: an answer to one
+// check is refused by an endpoint naming another.
 type checker struct {
-	public    bool
-	publicErr error
 	verifyErr error
 	used      map[string]bool
 	issued    []string
 	issueErr  error
 }
 
-func (c *checker) PublicAllowed(context.Context) (bool, error) { return c.public, c.publicErr }
-
-func (c *checker) Issue(_ context.Context, endpoint string) (botcheck.Challenge, error) {
-	c.issued = append(c.issued, endpoint)
-	return botcheck.Challenge{Provider: botcheck.ProviderPoW, Token: "tok", Difficulty: 8}, c.issueErr
+func (c *checker) Issue(_ context.Context, check, endpoint string) (botcheck.Challenge, error) {
+	c.issued = append(c.issued, check+"/"+endpoint)
+	return botcheck.Challenge{Check: check, Provider: botcheck.ProviderPoW, Token: "tok", Difficulty: 8}, c.issueErr
 }
 
-func (c *checker) Verify(_ context.Context, endpoint, answer string) error {
+func (c *checker) Verify(_ context.Context, check, endpoint, answer string) error {
 	if c.verifyErr != nil {
 		return c.verifyErr
+	}
+	want := "good"
+	if check != "default" {
+		want = "good:" + check
 	}
 	switch {
 	case answer == "":
 		return botcheck.ErrMissing
-	case answer != "good":
+	case strings.HasPrefix(answer, "good") && answer != want:
+		return botcheck.ErrOtherCheck
+	case answer != want:
 		return botcheck.ErrInvalid
-	case c.used[endpoint]:
+	case c.used[check+"/"+endpoint]:
 		return botcheck.ErrReplayed
 	}
-	c.used[endpoint] = true
+	c.used[check+"/"+endpoint] = true
 	return nil
 }
 
 func binding(name, mode string) *epbinding.Binding {
-	return &epbinding.Binding{
+	b := &epbinding.Binding{
 		ID: name, Name: name, Methods: []string{"GET", "POST"}, Path: "/{id}", AuthMode: mode, Enabled: true,
 		MaxBodyBytes: 64, RateLimit: 600, CallerRateLimit: 2, AllowedOrigins: []string{"https://forms.example.com"},
 	}
+	switch mode {
+	case epbinding.AuthAuthenticated:
+		b.Callers = []string{epbinding.CallersAll}
+	case epbinding.AuthBotCheck:
+		b.BotCheck = "default"
+	}
+	return b
 }
 
 type fixture struct {
@@ -98,22 +109,25 @@ type fixture struct {
 func newFixture() *fixture {
 	f := &fixture{
 		runner: &runner{bindings: map[string]*epbinding.Binding{
-			"contact": binding("contact", epbinding.AuthPublic),
-			"orders":  binding("orders", epbinding.AuthSignedIn),
+			"contact": binding("contact", epbinding.AuthBotCheck),
+			"orders":  binding("orders", epbinding.AuthAuthenticated),
+			"open":    binding("open", epbinding.AuthPublic),
 		}},
-		checker: &checker{public: true, used: map[string]bool{}},
+		checker: &checker{used: map[string]bool{}},
 	}
 	h := &Handler{Runner: f.runner, Checker: f.checker, Authenticate: func(r *http.Request) (*eprun.Caller, error) {
 		switch r.Header.Get("Authorization") {
 		case "Bearer ann-key":
-			return &eprun.Caller{UserID: "ann", Email: "ann@example.com", AuthType: "apikey"}, nil
+			return &eprun.Caller{UserID: "ann", Email: "ann@example.com", AuthType: "apikey", Persona: "analyst", APIKey: "ann-key"}, nil
 		case "Bearer bo-key":
-			return &eprun.Caller{UserID: "bo", Email: "bo@example.com", AuthType: "apikey"}, nil
+			return &eprun.Caller{UserID: "bo", Email: "bo@example.com", AuthType: "apikey", Persona: "ops", APIKey: "bo-key"}, nil
+		case "Bearer admin-key":
+			return &eprun.Caller{UserID: "apikey:admin", Email: "admin@example.com", AuthType: "apikey", Admin: true, Persona: "admin", APIKey: "admin"}, nil
 		case "Bearer csrf":
 			return nil, ErrForbidden
 		}
 		if c, err := r.Cookie("session"); err == nil && c.Value == "ann" {
-			return &eprun.Caller{UserID: "ann", Email: "ann@example.com", AuthType: "browser_session"}, nil
+			return &eprun.Caller{UserID: "ann", Email: "ann@example.com", AuthType: "browser_session", Persona: "analyst"}, nil
 		}
 		return nil, nil //nolint:nilnil // nobody: no credential and no refusal
 	}}
@@ -138,9 +152,9 @@ func fields(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	return out
 }
 
-// #2174: a public endpoint answers an anonymous request with a valid bot
-// check answer, and refuses one without.
-func TestPublic_AnswersOnlyARequestThatPassedTheBotCheck(t *testing.T) {
+// #2174, #2259: a bot_check endpoint answers an anonymous request with a
+// valid answer to its check, and refuses one without.
+func TestBotCheck_AnswersOnlyARequestThatPassedTheBotCheck(t *testing.T) {
 	f := newFixture()
 	rec := f.do("POST", "/endpoints/contact/7", nil, "hi")
 	assert.Equal(t, http.StatusForbidden, rec.Code)
@@ -150,7 +164,7 @@ func TestPublic_AnswersOnlyARequestThatPassedTheBotCheck(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	out := fields(t, rec)
 	assert.Equal(t, map[string]any{"id": "7"}, out["params"])
-	assert.Empty(t, out["caller"], "a public request has no caller")
+	assert.Empty(t, out["caller"], "a bot_check request has no caller")
 	assert.Equal(t, "hi", out["body"])
 	assert.Equal(t, "handler", rec.Header().Get("X-From"))
 	assert.Equal(t, contentPolicy, rec.Header().Get("Content-Security-Policy"))
@@ -162,35 +176,64 @@ func TestPublic_AnswersOnlyARequestThatPassedTheBotCheck(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "already used")
 }
 
-func TestPublic_OpenReadsLetAGetThroughWithoutACheck(t *testing.T) {
+// #2259: a public endpoint answers a request with no X-Bot-Check header while
+// a bot_check endpoint on the same deployment refuses one.
+func TestPublic_AnswersWithNoCheckWhereABotCheckEndpointRefuses(t *testing.T) {
 	f := newFixture()
-	assert.Equal(t, http.StatusForbidden, f.do("GET", "/endpoints/contact/1", nil, "").Code)
-	f.runner.bindings["contact"].OpenReads = true
+	rec := f.do("POST", "/endpoints/open/1", nil, "hi")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Empty(t, fields(t, rec)["caller"])
+	assert.Equal(t, http.StatusForbidden, f.do("POST", "/endpoints/contact/1", nil, "hi").Code)
+	assert.Empty(t, f.checker.issued, "a public endpoint asks no check")
+}
+
+// #2259: a bot_check endpoint checking only POST answers GET without a check
+// and refuses POST without one.
+func TestBotCheck_CheckedMethodsAreTheOnlyOnesChecked(t *testing.T) {
+	f := newFixture()
+	assert.Equal(t, http.StatusForbidden, f.do("GET", "/endpoints/contact/1", nil, "").Code, "every method is checked by default")
+	f.runner.bindings["contact"].CheckedMethods = []string{"POST"}
 	assert.Equal(t, http.StatusOK, f.do("GET", "/endpoints/contact/1", nil, "").Code)
 	head := f.do("HEAD", "/endpoints/contact/1", nil, "")
 	assert.Equal(t, http.StatusOK, head.Code)
 	assert.Empty(t, head.Body.String(), "a HEAD is answered without a body")
-	assert.Equal(t, http.StatusForbidden, f.do("POST", "/endpoints/contact/1", nil, "").Code, "a write still needs the check")
+	assert.Equal(t, http.StatusForbidden, f.do("POST", "/endpoints/contact/1", nil, "").Code, "a checked method still needs the check")
 }
 
-func TestPublic_RefusedWhenThereIsNoBotCheck(t *testing.T) {
+// #2259: two bot_check endpoints naming different checks each refuse the
+// other's answer and accept their own.
+func TestBotCheck_EachEndpointTakesOnlyItsOwnChecksAnswer(t *testing.T) {
 	f := newFixture()
-	f.checker.public = false
+	other := binding("signup", epbinding.AuthBotCheck)
+	other.BotCheck = "turnstile"
+	f.runner.bindings["signup"] = other
+
+	rec := f.do("POST", "/endpoints/signup/1", http.Header{HeaderBotCheck: {"good"}}, "")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Body.String(), "another bot check")
+	assert.Equal(t, http.StatusForbidden, f.do("POST", "/endpoints/contact/1", http.Header{HeaderBotCheck: {"good:turnstile"}}, "").Code)
+	assert.Equal(t, http.StatusOK, f.do("POST", "/endpoints/signup/1", http.Header{HeaderBotCheck: {"good:turnstile"}}, "").Code)
+	assert.Equal(t, http.StatusOK, f.do("POST", "/endpoints/contact/1", http.Header{HeaderBotCheck: {"good"}}, "").Code)
+}
+
+func TestBotCheck_ACheckThatCannotBeMadeIs503(t *testing.T) {
+	f := newFixture()
+	f.checker.verifyErr = errors.New("provider down")
 	rec := f.do("POST", "/endpoints/contact/1", http.Header{HeaderBotCheck: {"good"}}, "")
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-
-	f.checker.publicErr = errors.New("boom")
-	assert.Equal(t, http.StatusServiceUnavailable, f.do("POST", "/endpoints/contact/1", nil, "").Code)
-
-	f.checker.public, f.checker.publicErr, f.checker.verifyErr = true, nil, errors.New("provider down")
-	rec = f.do("POST", "/endpoints/contact/1", http.Header{HeaderBotCheck: {"good"}}, "")
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "a check that could not be made is not the caller's refusal")
 }
 
-// #2174: a signed_in endpoint answers an API key and a browser session,
+func TestAnUnknownModeIsNotAnswered(t *testing.T) {
+	f := newFixture()
+	f.runner.bindings["open"].AuthMode = "signed_in"
+	assert.Equal(t, http.StatusServiceUnavailable, f.do("GET", "/endpoints/open/1", nil, "").Code)
+	assert.Empty(t, f.runner.served)
+}
+
+// #2174: an authenticated endpoint answers an API key and a browser session,
 // refuses an anonymous request with 401, and the handler reads who the
 // credential named.
-func TestSignedIn_AnswersAKeyAndASessionAndRefusesNobody(t *testing.T) {
+func TestAuthenticated_AnswersAKeyAndASessionAndRefusesNobody(t *testing.T) {
 	f := newFixture()
 	rec := f.do("GET", "/endpoints/orders/1", http.Header{"Authorization": {"Bearer ann-key"}}, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -208,9 +251,42 @@ func TestSignedIn_AnswersAKeyAndASessionAndRefusesNobody(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, f.do("POST", "/endpoints/orders/1", http.Header{"Authorization": {"Bearer csrf"}}, "").Code)
 }
 
-// #2174: a signed-in caller past their own limit gets 429 while another
+// #2259: an authenticated endpoint admits the callers its list names: a
+// persona, an API key by name, every caller with "*", and no one with an empty
+// list. A caller not named is answered 403 before the handler runs and counted
+// under its own reason.
+func TestAuthenticated_AdmitsOnlyTheCallersItNames(t *testing.T) {
+	f := newFixture()
+	orders := f.runner.bindings["orders"]
+	ann := http.Header{"Authorization": {"Bearer ann-key"}}
+	bo := http.Header{"Authorization": {"Bearer bo-key"}}
+
+	orders.Callers = []string{"persona:analyst"}
+	assert.Equal(t, http.StatusOK, f.do("GET", "/endpoints/orders/1", ann, "").Code)
+	rec := f.do("GET", "/endpoints/orders/1", bo, "")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Body.String(), "does not admit this caller")
+	assert.Equal(t, []string{"orders/caller"}, f.refused)
+
+	orders.Callers = []string{"api_key:bo-key"}
+	assert.Equal(t, http.StatusOK, f.do("GET", "/endpoints/orders/1", bo, "").Code)
+	assert.Equal(t, http.StatusForbidden, f.do("GET", "/endpoints/orders/1", http.Header{"Cookie": {"session=ann"}}, "").Code,
+		"a browser session carries no API key")
+
+	orders.Callers = []string{}
+	assert.Equal(t, http.StatusForbidden, f.do("GET", "/endpoints/orders/1", ann, "").Code, "an empty list admits no one")
+	assert.Equal(t, http.StatusForbidden, f.do("GET", "/endpoints/orders/1", bo, "").Code)
+	assert.Equal(t, http.StatusOK, f.do("GET", "/endpoints/orders/1", http.Header{"Authorization": {"Bearer admin-key"}}, "").Code,
+		"but the administrator, who is unrestricted")
+
+	orders.Callers = []string{"*"}
+	assert.Equal(t, http.StatusOK, f.do("GET", "/endpoints/orders/1", bo, "").Code)
+	assert.Len(t, f.runner.served, 4, "no refused caller reached the handler")
+}
+
+// #2174: an authenticated caller past their own limit gets 429 while another
 // caller is still answered.
-func TestSignedIn_ACallerPastTheirLimitIsRefusedAndAnotherIsNot(t *testing.T) {
+func TestAuthenticated_ACallerPastTheirLimitIsRefusedAndAnotherIsNot(t *testing.T) {
 	f := newFixture()
 	ann := http.Header{"Authorization": {"Bearer ann-key"}}
 	for range 2 {
@@ -224,12 +300,12 @@ func TestSignedIn_ACallerPastTheirLimitIsRefusedAndAnotherIsNot(t *testing.T) {
 
 func TestEndpointLimitIsTheCeiling(t *testing.T) {
 	f := newFixture()
-	b := f.runner.bindings["contact"]
-	b.RateLimit, b.OpenReads = 1, true
-	assert.Equal(t, http.StatusOK, f.do("GET", "/endpoints/contact/1", nil, "").Code)
-	assert.Equal(t, http.StatusTooManyRequests, f.do("GET", "/endpoints/contact/1", nil, "").Code)
+	b := f.runner.bindings["open"]
+	b.RateLimit = 1
+	assert.Equal(t, http.StatusOK, f.do("GET", "/endpoints/open/1", nil, "").Code)
+	assert.Equal(t, http.StatusTooManyRequests, f.do("GET", "/endpoints/open/1", nil, "").Code)
 	b.RateLimit = 5
-	assert.Equal(t, http.StatusOK, f.do("GET", "/endpoints/contact/1", nil, "").Code, "a changed limit starts a new bucket")
+	assert.Equal(t, http.StatusOK, f.do("GET", "/endpoints/open/1", nil, "").Code, "a changed limit starts a new bucket")
 }
 
 // #2174: a browser fetch from an allowed origin passes its preflight and can
@@ -308,9 +384,11 @@ func TestChallenge(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, "tok", fields(t, rec)["token"])
 	assert.Equal(t, "https://forms.example.com", rec.Header().Get("Access-Control-Allow-Origin"))
-	assert.Equal(t, []string{"contact"}, f.checker.issued)
+	assert.Equal(t, "default", fields(t, rec)["check"])
+	assert.Equal(t, []string{"default/contact"}, f.checker.issued, "the challenge is the check the endpoint names")
 
-	assert.Equal(t, http.StatusNotFound, f.do("GET", "/botcheck/challenge?endpoint=orders", nil, "").Code, "a signed-in endpoint has no challenge")
+	assert.Equal(t, http.StatusNotFound, f.do("GET", "/botcheck/challenge?endpoint=orders", nil, "").Code, "an authenticated endpoint has no challenge")
+	assert.Equal(t, http.StatusNotFound, f.do("GET", "/botcheck/challenge?endpoint=open", nil, "").Code, "a public endpoint has no challenge")
 	assert.Equal(t, http.StatusNotFound, f.do("GET", "/botcheck/challenge?endpoint=nope", nil, "").Code)
 
 	pre := http.Header{"Origin": {"https://forms.example.com"}, "Access-Control-Request-Method": {"GET"}}
@@ -361,13 +439,16 @@ func TestRefusalsAreCountedByEndpointAndReason(t *testing.T) {
 	f.do("GET", "/endpoints/orders/1", ann, "")                                           // caller's second request
 	f.do("GET", "/endpoints/orders/1", ann, "")                                           // past the caller's limit
 	f.do("OPTIONS", "/endpoints/orders/1", http.Header{"Origin": {"https://elsewhere.example.com"}, "Access-Control-Request-Method": {"POST"}}, "")
-	f.runner.bindings["contact"].RateLimit, f.runner.bindings["contact"].OpenReads = 1, true
-	f.do("GET", "/endpoints/contact/1", nil, "")
-	f.do("GET", "/endpoints/contact/1", nil, "") // past the endpoint's limit
+	f.runner.bindings["open"].RateLimit = 1
+	f.do("GET", "/endpoints/open/1", nil, "")
+	f.do("GET", "/endpoints/open/1", nil, "") // past the endpoint's limit
+	f.runner.bindings["orders"].Callers = []string{"persona:ops"}
+	f.do("GET", "/endpoints/orders/2", http.Header{"Authorization": {"Bearer bo-key"}}, "")  // admitted
+	f.do("GET", "/endpoints/orders/2", http.Header{"Authorization": {"Bearer ann-key"}}, "") // not a caller it names
 
 	assert.Equal(t, []string{
 		"contact/bot_check", "orders/credential", "orders/credential", "orders/body_limit",
-		"orders/caller_rate_limit", "orders/origin", "contact/rate_limit",
+		"orders/caller_rate_limit", "orders/origin", "open/rate_limit", "orders/caller",
 	}, f.refused)
 }
 

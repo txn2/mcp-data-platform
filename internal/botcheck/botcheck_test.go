@@ -13,30 +13,70 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 )
 
-// memSettings is a SettingsStore holding one value, unwritten until Set.
-type memSettings struct {
-	v   *Settings
-	err error
+// memChecks is a Store over a map, modeling the table's primary key and the
+// endpoints' foreign key through used.
+type memChecks struct {
+	mu   sync.Mutex
+	m    map[string]Check
+	used map[string][]string
+	err  error
 }
 
-func (m *memSettings) Get(context.Context) (settingsjson.Stored[Settings], error) {
+func checks(cs ...Check) *memChecks {
+	m := &memChecks{m: map[string]Check{}, used: map[string][]string{}}
+	for _, c := range cs {
+		m.m[c.Name] = c
+	}
+	return m
+}
+
+func (m *memChecks) List(context.Context) ([]Check, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Check, 0, len(m.m))
+	for _, c := range m.m {
+		out = append(out, c)
+	}
+	return out, m.err
+}
+
+func (m *memChecks) Get(_ context.Context, name string) (Check, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.err != nil {
-		return settingsjson.Stored[Settings]{}, m.err
+		return Check{}, m.err
 	}
-	if m.v == nil {
-		return settingsjson.Stored[Settings]{}, settingsjson.ErrNotFound
+	c, ok := m.m[name]
+	if !ok {
+		return Check{}, ErrNotFound
 	}
-	return settingsjson.Stored[Settings]{Value: *m.v, UpdatedBy: "admin@example.com", UpdatedAt: time.Unix(1700000000, 0)}, nil
+	return c, nil
 }
 
-func (m *memSettings) Set(_ context.Context, v Settings, _ string) error {
-	m.v = &v
+func (m *memChecks) Put(_ context.Context, c Check, author string) (Check, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c.UpdatedBy = author
+	m.m[c.Name] = c
+	return c, m.err
+}
+
+func (m *memChecks) Delete(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.m[name]; !ok {
+		return ErrNotFound
+	}
+	if len(m.used[name]) > 0 {
+		return &InUseError{Name: name, Endpoints: m.used[name]}
+	}
+	delete(m.m, name)
 	return nil
 }
+
+func (m *memChecks) UsedBy(context.Context) (map[string][]string, error) { return m.used, m.err }
 
 // memAnswers models the table's primary key: an id inserted once.
 type memAnswers struct {
@@ -79,74 +119,81 @@ func (*memAnswers) Sweep(context.Context, time.Time) (int64, error) { return 0, 
 
 var key = []byte("0123456789abcdef0123456789abcdef")
 
-func lowDifficulty() *Settings {
-	s := Defaults()
-	s.Difficulty, s.MaxDifficulty, s.RateThreshold = 8, 12, 2
-	return &s
+func lowDifficulty() Check {
+	c := New(DefaultName)
+	c.Difficulty, c.MaxDifficulty, c.RateThreshold = 8, 12, 2
+	return c
 }
 
-func powChecker(t *testing.T, s *Settings) (*Checker, *memAnswers) {
+func powChecker(t *testing.T, c Check) (*Checker, *memAnswers) {
 	t.Helper()
 	answers := newAnswers()
-	return &Checker{Settings: &memSettings{v: s}, Answers: answers, Key: key}, answers
+	return &Checker{Checks: checks(c), Answers: answers, Key: key}, answers
 }
 
-func TestDefaultsAreProofOfWorkAndValid(t *testing.T) {
-	s := Defaults()
-	require.NoError(t, s.Validate())
-	assert.Equal(t, ProviderPoW, s.Provider)
-	assert.True(t, s.PublicAllowed())
-	none := Settings{Provider: ProviderNone}
-	assert.False(t, none.PublicAllowed())
-	none.AllowPublicWithoutCheck = true
-	assert.True(t, none.PublicAllowed())
+func TestNewIsProofOfWorkAndValid(t *testing.T) {
+	c := New("forms")
+	require.NoError(t, c.Validate())
+	assert.Equal(t, ProviderPoW, c.Provider)
+	assert.False(t, c.NeedsBrowser())
+	c.Provider = ProviderTurnstile
+	assert.True(t, c.NeedsBrowser())
 }
 
 func TestInputApply(t *testing.T) {
 	str := func(s string) *string { return &s }
 	n := func(i int) *int { return &i }
-	yes := true
 	out, err := Input{
 		Provider: str(" turnstile "), SiteKey: str("1x00000000000000000000AA"), SecretName: str("turnstile-key"),
-		AllowPublicWithoutCheck: &yes, Difficulty: n(10), MaxDifficulty: n(20), RateThreshold: n(5), ChallengeTTLSeconds: n(60),
-	}.Apply(Defaults())
+		Difficulty: n(10), MaxDifficulty: n(20), RateThreshold: n(5), ChallengeTTLSeconds: n(60),
+	}.Apply(New("forms"))
 	require.NoError(t, err)
 	assert.Equal(t, ProviderTurnstile, out.Provider)
 	assert.Equal(t, 10, out.Difficulty)
-	assert.True(t, out.AllowPublicWithoutCheck)
+	assert.Equal(t, "forms", out.Name)
 
 	for name, in := range map[string]Input{
-		"unknown provider": {Provider: str("recaptcha")},
-		"no site key":      {Provider: str(ProviderHCaptcha), SecretName: str("k")},
-		"no secret":        {Provider: str(ProviderHCaptcha), SiteKey: str("k")},
-		"long site key":    {SiteKey: str(strings.Repeat("k", 201))},
-		"long secret name": {SecretName: str(strings.Repeat("k", 129))},
-		"easy":             {Difficulty: n(2)},
-		"max under base":   {MaxDifficulty: n(10)},
-		"rate":             {RateThreshold: n(0)},
-		"ttl":              {ChallengeTTLSeconds: n(2)},
+		"none is no provider": {Provider: str("none")},
+		"unknown provider":    {Provider: str("recaptcha")},
+		"no site key":         {Provider: str(ProviderHCaptcha), SecretName: str("k")},
+		"no secret":           {Provider: str(ProviderHCaptcha), SiteKey: str("k")},
+		"long site key":       {SiteKey: str(strings.Repeat("k", 201))},
+		"long secret name":    {SecretName: str(strings.Repeat("k", 129))},
+		"easy":                {Difficulty: n(2)},
+		"max under base":      {MaxDifficulty: n(10)},
+		"rate":                {RateThreshold: n(0)},
+		"ttl":                 {ChallengeTTLSeconds: n(2)},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := in.Apply(Defaults())
+			_, err := in.Apply(New("forms"))
 			require.Error(t, err)
 		})
 	}
 }
 
-func TestReadDefaultsWhenUnwrittenAndReportsTheWriter(t *testing.T) {
-	v, err := Read(context.Background(), &memSettings{})
-	require.NoError(t, err)
-	assert.Equal(t, Defaults(), v.Settings)
-	assert.Empty(t, v.UpdatedBy)
+func TestValidateName(t *testing.T) {
+	for _, ok := range []string{"default", "forms-2", "a_b"} {
+		require.NoError(t, ValidateName(ok), ok)
+	}
+	for _, bad := range []string{"", "Forms", "-x", "a b", strings.Repeat("a", 64)} {
+		require.Error(t, ValidateName(bad), bad)
+	}
+}
 
-	s := Defaults()
-	v, err = Read(context.Background(), &memSettings{v: &s})
-	require.NoError(t, err)
-	assert.Equal(t, "admin@example.com", v.UpdatedBy)
-	assert.NotEmpty(t, v.UpdatedAt)
+func TestInUseErrorNamesTheEndpoints(t *testing.T) {
+	err := &InUseError{Name: "default", Endpoints: []string{"contact", "orders"}}
+	assert.Equal(t, `bot check "default" is used by the endpoints contact, orders: bind them to another check first`, err.Error())
+}
 
-	_, err = Read(context.Background(), &memSettings{err: errors.New("boom")})
-	require.ErrorContains(t, err, "reading the bot check settings")
+func TestUsable(t *testing.T) {
+	ctx := context.Background()
+	c, _ := powChecker(t, lowDifficulty())
+	require.NoError(t, c.Usable(ctx, DefaultName))
+	require.ErrorContains(t, c.Usable(ctx, "missing"), `no bot check is named "missing"`)
+	c.Key = nil
+	require.ErrorContains(t, c.Usable(ctx, DefaultName), "cannot sign one")
+	c.Checks = &memChecks{err: errors.New("boom")}
+	require.ErrorContains(t, c.Usable(ctx, DefaultName), "boom")
 }
 
 // The acceptance shape of #2173 for the default provider: a solved
@@ -155,26 +202,26 @@ func TestReadDefaultsWhenUnwrittenAndReportsTheWriter(t *testing.T) {
 func TestProofOfWork_AcceptsOnceAndRefusesTheRest(t *testing.T) {
 	c, _ := powChecker(t, lowDifficulty())
 	ctx := context.Background()
-	ch, err := c.Issue(ctx, "orders")
+	ch, err := c.Issue(ctx, DefaultName, "orders")
 	require.NoError(t, err)
 	assert.Equal(t, ProviderPoW, ch.Provider)
 	assert.Equal(t, 8, ch.Difficulty)
 	answer := solve(ch.Token, ch.Difficulty)
 
-	require.NoError(t, c.Verify(ctx, "orders", answer))
-	require.ErrorIs(t, c.Verify(ctx, "orders", answer), ErrReplayed, "the same answer sent again")
+	require.NoError(t, c.Verify(ctx, DefaultName, "orders", answer))
+	require.ErrorIs(t, c.Verify(ctx, DefaultName, "orders", answer), ErrReplayed, "the same answer sent again")
 
-	other, err := c.Issue(ctx, "orders")
+	other, err := c.Issue(ctx, DefaultName, "orders")
 	require.NoError(t, err)
-	require.ErrorIs(t, c.Verify(ctx, "contact", solve(other.Token, other.Difficulty)), ErrOtherEndpoint)
+	require.ErrorIs(t, c.Verify(ctx, DefaultName, "contact", solve(other.Token, other.Difficulty)), ErrOtherEndpoint)
 
-	late, err := c.Issue(ctx, "orders")
+	late, err := c.Issue(ctx, DefaultName, "orders")
 	require.NoError(t, err)
 	c.Now = func() time.Time { return time.Now().Add(time.Hour) }
-	require.ErrorIs(t, c.Verify(ctx, "orders", solve(late.Token, late.Difficulty)), ErrExpired)
+	require.ErrorIs(t, c.Verify(ctx, DefaultName, "orders", solve(late.Token, late.Difficulty)), ErrExpired)
 	c.Now = nil
 
-	fresh, err := c.Issue(ctx, "orders")
+	fresh, err := c.Issue(ctx, DefaultName, "orders")
 	require.NoError(t, err)
 	solved := solve(fresh.Token, fresh.Difficulty)
 	tok, counter, _ := strings.Cut(solved, "~")
@@ -187,21 +234,21 @@ func TestProofOfWork_AcceptsOnceAndRefusesTheRest(t *testing.T) {
 		"too long":       strings.Repeat("a", maxAnswerLen+1),
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.ErrorIs(t, c.Verify(ctx, "orders", bad), ErrInvalid)
+			require.ErrorIs(t, c.Verify(ctx, DefaultName, "orders", bad), ErrInvalid)
 		})
 	}
-	require.ErrorIs(t, c.Verify(ctx, "orders", ""), ErrMissing)
+	require.ErrorIs(t, c.Verify(ctx, DefaultName, "orders", ""), ErrMissing)
 }
 
 // A wrong counter is refused: the answer has to carry the work.
 func TestProofOfWork_RefusesAnAnswerWithoutTheWork(t *testing.T) {
 	c, _ := powChecker(t, lowDifficulty())
-	ch, err := c.Issue(context.Background(), "orders")
+	ch, err := c.Issue(context.Background(), DefaultName, "orders")
 	require.NoError(t, err)
 	for i := range 1000 {
 		counter := strings.Repeat("9", 1) + string(rune('0'+i%10))
 		if !worked(ch.Token, counter, ch.Difficulty) {
-			require.ErrorIs(t, c.Verify(context.Background(), "orders", ch.Token+"~"+counter), ErrInvalid)
+			require.ErrorIs(t, c.Verify(context.Background(), DefaultName, "orders", ch.Token+"~"+counter), ErrInvalid)
 			return
 		}
 	}
@@ -213,26 +260,26 @@ func TestProofOfWork_RefusesAnAnswerWithoutTheWork(t *testing.T) {
 func TestProofOfWork_DifficultyRisesWithTheRecentRate(t *testing.T) {
 	c, _ := powChecker(t, lowDifficulty())
 	ctx := context.Background()
-	quiet, err := c.Issue(ctx, "orders")
+	quiet, err := c.Issue(ctx, DefaultName, "orders")
 	require.NoError(t, err)
 	for range 8 {
-		ch, err := c.Issue(ctx, "orders")
+		ch, err := c.Issue(ctx, DefaultName, "orders")
 		require.NoError(t, err)
-		require.NoError(t, c.Verify(ctx, "orders", solve(ch.Token, ch.Difficulty)))
+		require.NoError(t, c.Verify(ctx, DefaultName, "orders", solve(ch.Token, ch.Difficulty)))
 	}
-	raised, err := c.Issue(ctx, "orders")
+	raised, err := c.Issue(ctx, DefaultName, "orders")
 	require.NoError(t, err)
 	assert.Greater(t, raised.Difficulty, quiet.Difficulty)
 	assert.Equal(t, 10, raised.Difficulty, "8 answers against a threshold of 2 is two doublings: two bits")
-	require.NoError(t, c.Verify(ctx, "orders", solve(raised.Token, raised.Difficulty)))
+	require.NoError(t, c.Verify(ctx, DefaultName, "orders", solve(raised.Token, raised.Difficulty)))
 
-	other, err := c.Issue(ctx, "contact")
+	other, err := c.Issue(ctx, DefaultName, "contact")
 	require.NoError(t, err)
 	assert.Equal(t, quiet.Difficulty, other.Difficulty, "one endpoint's flood does not raise another's")
 }
 
 func TestDifficultyFor(t *testing.T) {
-	s := Settings{Difficulty: 16, MaxDifficulty: 20, RateThreshold: 30}
+	s := Check{Difficulty: 16, MaxDifficulty: 20, RateThreshold: 30}
 	assert.Equal(t, 16, difficultyFor(s, 0))
 	assert.Equal(t, 16, difficultyFor(s, 30))
 	assert.Equal(t, 17, difficultyFor(s, 31))
@@ -244,48 +291,49 @@ func TestDifficultyFor(t *testing.T) {
 func TestProofOfWork_WithoutAKeyIsUnavailable(t *testing.T) {
 	c, _ := powChecker(t, lowDifficulty())
 	c.Key = nil
-	_, err := c.Issue(context.Background(), "orders")
+	_, err := c.Issue(context.Background(), DefaultName, "orders")
 	require.ErrorIs(t, err, ErrUnavailable)
-	require.ErrorIs(t, c.Verify(context.Background(), "orders", "x"), ErrUnavailable)
+	require.ErrorIs(t, c.Verify(context.Background(), DefaultName, "orders", "x"), ErrUnavailable)
 	assert.False(t, Refusal(ErrUnavailable), "the check could not run; the caller is not refused for it")
-	ok, err := c.PublicAllowed(context.Background())
-	require.NoError(t, err)
-	assert.False(t, ok, "proof of work with no key to sign is no bot check")
 }
 
-func TestNoneChecksNothingAndIsPublicOnlyWithTheOverride(t *testing.T) {
+func TestCheckReadFailureIsPassedOn(t *testing.T) {
+	c := &Checker{Checks: &memChecks{err: errors.New("boom")}, Answers: newAnswers(), Key: key}
+	_, err := c.Issue(context.Background(), DefaultName, "x")
+	require.Error(t, err)
+	require.Error(t, c.Verify(context.Background(), DefaultName, "x", "y"))
+}
+
+// Two proof-of-work checks issue at their own difficulty, and each refuses
+// the other's answer on the same endpoint (#2259).
+func TestProofOfWork_EachCheckIssuesItsOwnAndRefusesAnothers(t *testing.T) {
+	easy, hard := lowDifficulty(), lowDifficulty()
+	easy.Name, hard.Name = "easy", "hard"
+	hard.Difficulty, hard.MaxDifficulty = 10, 12
+	c := &Checker{Checks: checks(easy, hard), Answers: newAnswers(), Key: key}
 	ctx := context.Background()
-	s := Settings{Provider: ProviderNone}
-	c := &Checker{Settings: &memSettings{v: &s}, Answers: newAnswers()}
-	ch, err := c.Issue(ctx, "orders")
+	e, err := c.Issue(ctx, "easy", "orders")
 	require.NoError(t, err)
-	assert.Equal(t, ProviderNone, ch.Provider)
-	require.NoError(t, c.Verify(ctx, "orders", ""))
-	ok, err := c.PublicAllowed(ctx)
+	h, err := c.Issue(ctx, "hard", "orders")
 	require.NoError(t, err)
-	assert.False(t, ok)
-	s.AllowPublicWithoutCheck = true
-	ok, err = c.PublicAllowed(ctx)
-	require.NoError(t, err)
-	assert.True(t, ok)
-}
+	assert.Equal(t, 8, e.Difficulty)
+	assert.Equal(t, 10, h.Difficulty)
+	assert.Equal(t, "hard", h.Check)
 
-func TestSettingsReadFailureIsPassedOn(t *testing.T) {
-	c := &Checker{Settings: &memSettings{err: errors.New("boom")}, Answers: newAnswers(), Key: key}
-	_, err := c.Issue(context.Background(), "x")
-	require.Error(t, err)
-	require.Error(t, c.Verify(context.Background(), "x", "y"))
-	_, err = c.PublicAllowed(context.Background())
-	require.Error(t, err)
+	require.ErrorIs(t, c.Verify(ctx, "hard", "orders", solve(e.Token, e.Difficulty)), ErrOtherCheck)
+	require.ErrorIs(t, c.Verify(ctx, "easy", "orders", solve(h.Token, h.Difficulty)), ErrOtherCheck)
+	require.NoError(t, c.Verify(ctx, "easy", "orders", solve(e.Token, e.Difficulty)))
+	require.NoError(t, c.Verify(ctx, "hard", "orders", solve(h.Token, h.Difficulty)))
+	require.ErrorIs(t, c.Verify(ctx, "gone", "orders", "x"), ErrNotFound)
 }
 
 func TestAnswerStoreFailureIsPassedOn(t *testing.T) {
 	c, answers := powChecker(t, lowDifficulty())
-	ch, err := c.Issue(context.Background(), "orders")
+	ch, err := c.Issue(context.Background(), DefaultName, "orders")
 	require.NoError(t, err)
 	answers.err = errors.New("boom")
-	require.Error(t, c.Verify(context.Background(), "orders", solve(ch.Token, ch.Difficulty)))
-	_, err = c.Issue(context.Background(), "orders")
+	require.Error(t, c.Verify(context.Background(), DefaultName, "orders", solve(ch.Token, ch.Difficulty)))
+	_, err = c.Issue(context.Background(), DefaultName, "orders")
 	require.ErrorContains(t, err, "recent rate")
 }
 
@@ -317,10 +365,11 @@ func TestProvider_AcceptsOnlyWhatTheProviderVerifiesAndOnlyOnce(t *testing.T) {
 	defer srv.Close()
 	v := NewVerifier()
 	v.urls[ProviderTurnstile] = srv.URL
-	s := Settings{Provider: ProviderTurnstile, SiteKey: "site", SecretName: "turnstile-key"}
+	s := Check{Name: "forms", Provider: ProviderTurnstile, SiteKey: "site", SecretName: "turnstile-key"}
 	answers := newAnswers()
+	store := checks(s)
 	c := &Checker{
-		Settings: &memSettings{v: &s}, Answers: answers, Verifier: v,
+		Checks: store, Answers: answers, Verifier: v,
 		Secret: func(_ context.Context, name string) (string, error) {
 			if name != "turnstile-key" {
 				return "", errors.New("no such secret")
@@ -329,17 +378,19 @@ func TestProvider_AcceptsOnlyWhatTheProviderVerifiesAndOnlyOnce(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	ch, err := c.Issue(ctx, "orders")
+	ch, err := c.Issue(ctx, "forms", "orders")
 	require.NoError(t, err)
-	assert.Equal(t, Challenge{Provider: ProviderTurnstile, SiteKey: "site"}, ch)
+	assert.Equal(t, Challenge{Check: "forms", Provider: ProviderTurnstile, SiteKey: "site"}, ch)
 
-	require.ErrorIs(t, c.Verify(ctx, "orders", "badToken"), ErrInvalid)
-	require.NoError(t, c.Verify(ctx, "orders", "goodToken"))
-	require.ErrorIs(t, c.Verify(ctx, "orders", "goodToken"), ErrReplayed)
-	require.ErrorIs(t, c.Verify(ctx, "orders", strings.Repeat("t", maxAnswerLen+1)), ErrInvalid)
+	require.ErrorIs(t, c.Verify(ctx, "forms", "orders", "badToken"), ErrInvalid)
+	require.ErrorIs(t, c.Verify(ctx, "forms", "orders", ""), ErrMissing)
+	require.NoError(t, c.Verify(ctx, "forms", "orders", "goodToken"))
+	require.ErrorIs(t, c.Verify(ctx, "forms", "orders", "goodToken"), ErrReplayed)
+	require.ErrorIs(t, c.Verify(ctx, "forms", "orders", strings.Repeat("t", maxAnswerLen+1)), ErrInvalid)
 
 	s.SecretName = "missing"
-	require.ErrorContains(t, c.Verify(ctx, "orders", "goodToken"), "reading the turnstile secret key")
+	store.m["forms"] = s
+	require.ErrorContains(t, c.Verify(ctx, "forms", "orders", "goodToken"), "reading the turnstile secret key")
 }
 
 // A token the provider verified but this platform recorded already is
@@ -347,13 +398,13 @@ func TestProvider_AcceptsOnlyWhatTheProviderVerifiesAndOnlyOnce(t *testing.T) {
 // token twice.
 func TestProvider_ARecordedTokenIsReplayed(t *testing.T) {
 	v := &stubVerifier{}
-	s := Settings{Provider: ProviderHCaptcha, SiteKey: "site", SecretName: "k"}
+	s := Check{Name: "h", Provider: ProviderHCaptcha, SiteKey: "site", SecretName: "k"}
 	c := &Checker{
-		Settings: &memSettings{v: &s}, Answers: newAnswers(), Verifier: v,
+		Checks: checks(s), Answers: newAnswers(), Verifier: v,
 		Secret: func(context.Context, string) (string, error) { return "x", nil },
 	}
-	require.NoError(t, c.Verify(context.Background(), "orders", "tok"))
-	require.ErrorIs(t, c.Verify(context.Background(), "orders", "tok"), ErrReplayed)
+	require.NoError(t, c.Verify(context.Background(), "h", "orders", "tok"))
+	require.ErrorIs(t, c.Verify(context.Background(), "h", "orders", "tok"), ErrReplayed)
 }
 
 type stubVerifier struct{}
@@ -382,7 +433,7 @@ func TestVerifier_ReportsAProviderThatDidNotAnswerProperly(t *testing.T) {
 }
 
 func TestRefusal(t *testing.T) {
-	for _, err := range []error{ErrMissing, ErrInvalid, ErrExpired, ErrReplayed, ErrOtherEndpoint} {
+	for _, err := range []error{ErrMissing, ErrInvalid, ErrExpired, ErrReplayed, ErrOtherEndpoint, ErrOtherCheck} {
 		assert.True(t, Refusal(err), err.Error())
 	}
 	assert.False(t, Refusal(errors.New("boom")))

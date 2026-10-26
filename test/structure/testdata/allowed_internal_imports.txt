@@ -46,6 +46,7 @@ internal/admin/connoauthapi -> pkg/pkcestore
 internal/admin/connoauthapi -> pkg/platform
 internal/admin/connoauthapi -> pkg/toolkits/apigateway
 internal/admin/connoauthapi -> pkg/toolkits/gateway
+internal/admin/endpointapi -> internal/botcheck
 internal/admin/endpointapi -> internal/endpoint/epbinding
 internal/admin/endpointapi -> internal/endpoint/eprefusal
 internal/admin/endpointapi -> internal/httpjson
@@ -109,7 +110,6 @@ internal/apikeyissue -> internal/platform/apikeystore
 internal/apikeyissue -> pkg/auth
 internal/bgloop -> pkg/observability
 internal/botcheck -> internal/outbound
-internal/botcheck -> internal/platform/settingsjson
 internal/botcheck -> pkg/portal/shareguest
 internal/catalogfake -> pkg/catalog
 internal/conncatchup -> internal/logsan
@@ -122,10 +122,14 @@ internal/connsecretref -> pkg/connoauth
 internal/dbobs -> internal/sqltables
 internal/dbobs -> pkg/observability
 internal/docread -> pkg/contenttype
+internal/endpoint/epbinding -> internal/endpoint/epform
 internal/endpoint/epbinding -> internal/platform/scriptdialect
 internal/endpoint/epbinding -> pkg/script
 internal/endpoint/epcmd -> internal/endpoint/epbinding
 internal/endpoint/epcmd -> pkg/script
+internal/endpoint/epform -> internal/platform/scriptdialect
+internal/endpoint/epform -> internal/platform/starlarkconv
+internal/endpoint/epform -> pkg/portal/shareguest
 internal/endpoint/ephttp -> internal/botcheck
 internal/endpoint/ephttp -> internal/endpoint/epbinding
 internal/endpoint/ephttp -> internal/endpoint/eprefusal
@@ -137,6 +141,7 @@ internal/endpoint/ephttp -> pkg/ratelimit
 internal/endpoint/eprefusal -> internal/bgloop
 internal/endpoint/eprefusal -> internal/logsan
 internal/endpoint/eprun -> internal/endpoint/epbinding
+internal/endpoint/eprun -> internal/endpoint/epform
 internal/endpoint/eprun -> internal/logsan
 internal/endpoint/eprun -> internal/platform/scriptdialect
 internal/endpoint/eprun -> internal/platform/scriptguard
@@ -155,6 +160,7 @@ internal/endpoint/epstore -> internal/endpoint/epbinding
 internal/endpoint/epwire -> internal/botcheck
 internal/endpoint/epwire -> internal/endpoint/epbinding
 internal/endpoint/epwire -> internal/endpoint/epcmd
+internal/endpoint/epwire -> internal/endpoint/epform
 internal/endpoint/epwire -> internal/endpoint/eprefusal
 internal/endpoint/epwire -> internal/endpoint/eprun
 internal/endpoint/epwire -> internal/endpoint/epstore
@@ -529,6 +535,7 @@ internal/httpserver/scripthttp/postshttp -> pkg/notification
 internal/httpserver/scripthttp/postshttp -> pkg/script
 internal/httpserver/scripthttp/runpage -> internal/httpjson
 internal/httpserver/scripthttp/runpage -> pkg/script
+internal/httpserver/scripthttp/scriptlist -> internal/endpoint/epbinding
 internal/httpserver/scripthttp/scriptlist -> pkg/script
 internal/httpserver/scripthttp/statehttp -> internal/httpjson
 internal/httpserver/scripthttp/statehttp -> pkg/script

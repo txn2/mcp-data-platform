@@ -309,7 +309,10 @@ type ListFilter struct {
 	// Library narrows to libraries when true and to the scripts that run
 	// when false (#1941); nil lists both.
 	Library *bool
-	Limit   int // cap the number of rows returned; 0 means the store default
+	// Endpoint narrows to the scripts bound to an endpoint when true and to
+	// the ones that are not when false (#2259); nil lists both.
+	Endpoint *bool
+	Limit    int // cap the number of rows returned; 0 means the store default
 	// Sort names the column to order by and Desc the direction. An empty or
 	// unrecognized Sort falls back to the default, most-recently-updated
 	// first: a listing answers with the wrong order rather than refusing,

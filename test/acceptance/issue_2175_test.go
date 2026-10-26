@@ -67,7 +67,7 @@ func issue2175Secret(t *testing.T, admin *client, personas []string) (name, valu
 func issue2175Endpoint(t *testing.T, admin *client, name, secret string) {
 	t.Helper()
 	admin.saveScript(map[string]any{"command": "create", "name": name, "source": issue2175Handler(secret)}, nil)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "signed_in"})
+	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}})
 }
 
 // issue2175Get sends a GET to an endpoint on c's replica and decodes the JSON.

@@ -1,11 +1,42 @@
-import type { AdminEndpoint } from "@/api/admin/types";
+import type { BotCheckProvider, EndpointAuthMode } from "@/api/admin/types";
 
-// The words the Endpoints pages use for what the API reports (#2208).
+// The words the Endpoints pages use for what the API reports (#2208, #2259).
 
-export const ACCESS_LABELS: Record<AdminEndpoint["auth_mode"], string> = {
+export const ACCESS_LABELS: Record<EndpointAuthMode, string> = {
+  authenticated: "Authenticated (API key or session)",
   public: "Public",
-  signed_in: "Signed in",
+  bot_check: "Bot check",
 };
+
+/** accessLabel is an endpoint's access mode, with the check a bot_check one names. */
+export function accessLabel(e: { auth_mode: EndpointAuthMode; bot_check?: string }): string {
+  if (e.auth_mode === "bot_check" && e.bot_check) return `Bot check: ${e.bot_check}`;
+  return ACCESS_LABELS[e.auth_mode] ?? e.auth_mode;
+}
+
+/** PROVIDER_LABELS names each bot check provider. */
+export const PROVIDER_LABELS: Record<BotCheckProvider, string> = {
+  pow: "Proof of work",
+  turnstile: "Cloudflare Turnstile",
+  hcaptcha: "hCaptcha",
+};
+
+/** PUBLIC_NOTE is how a public endpoint is marked wherever it is shown. */
+export const PUBLIC_NOTE = "Answers anyone, with no check.";
+
+/** callerLabel is one entry of an authenticated endpoint's callers list. */
+export function callerLabel(entry: string): string {
+  if (entry === "*") return "Every authenticated caller";
+  if (entry.startsWith("persona:")) return `Persona ${entry.slice("persona:".length)}`;
+  if (entry.startsWith("api_key:")) return `API key ${entry.slice("api_key:".length)}`;
+  return entry;
+}
+
+/** callersSummary is an authenticated endpoint's callers list in one line. */
+export function callersSummary(callers: string[]): string {
+  if (callers.length === 0) return "Only the administrator: the callers list is empty";
+  return callers.map(callerLabel).join(", ");
+}
 
 export const REFUSAL_LABELS: Record<string, string> = {
   bot_check: "Bot check",
@@ -13,6 +44,7 @@ export const REFUSAL_LABELS: Record<string, string> = {
   caller_rate_limit: "Caller rate limit",
   body_limit: "Body limit",
   credential: "Credential",
+  caller: "Caller not admitted",
   origin: "Origin",
 };
 

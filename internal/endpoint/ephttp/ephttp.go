@@ -1,12 +1,13 @@
 // Package ephttp is the HTTP surface of endpoints (#2174): every request to
-// /endpoints/{name}/... and the bot check a public one is answered behind
+// /endpoints/{name}/... and the bot check a bot_check one is answered behind
 // (/botcheck/challenge and /botcheck/solver.js).
 //
-// A signed_in endpoint answers a browser session or an API key, and the
-// identity the platform found is what the handler reads as req.caller; it
-// never comes from the request body. A public endpoint answers a request
-// carrying an accepted bot check answer in the X-Bot-Check header, or a GET
-// or HEAD with none where the binding opens its reads.
+// An authenticated endpoint answers a platform API key or a browser session
+// its callers list names, and the identity the platform found is what the
+// handler reads as req.caller; it never comes from the request body. A public
+// endpoint answers anyone. A bot_check endpoint answers a request carrying an
+// answer to the bot check it names in the X-Bot-Check header, or one with
+// none to a method it does not check (#2259).
 //
 // These routes answer their own cross-origin requests from each binding's
 // allowed origins; the platform's CORS layer leaves them alone. No limit here
@@ -73,11 +74,10 @@ type Runner interface {
 	Serve(ctx context.Context, t *eprun.Target, req eprun.Request) eprun.Response
 }
 
-// Checker is the deployment's bot check.
+// Checker issues and verifies the named bot checks.
 type Checker interface {
-	PublicAllowed(ctx context.Context) (bool, error)
-	Issue(ctx context.Context, endpoint string) (botcheck.Challenge, error)
-	Verify(ctx context.Context, endpoint, answer string) error
+	Issue(ctx context.Context, check, endpoint string) (botcheck.Challenge, error)
+	Verify(ctx context.Context, check, endpoint, answer string) error
 }
 
 // ErrForbidden is what Authenticate returns for a credential that was
@@ -89,7 +89,8 @@ var ErrForbidden = errors.New("the request's credential was refused")
 type Handler struct {
 	Runner  Runner
 	Checker Checker
-	// Authenticate is who sent the request: a browser session or an API key.
+	// Authenticate is who sent the request: a browser session or an API key,
+	// with the persona its roles resolve to and the key's name.
 	// Nil caller and nil error is nobody.
 	Authenticate func(r *http.Request) (*eprun.Caller, error)
 	// Refused counts a request refused before its handler ran, by endpoint
@@ -178,40 +179,43 @@ func (h *Handler) resolve(w http.ResponseWriter, r *http.Request, name string) (
 	return t, true
 }
 
-// admit decides whether the request may run: the signed-in caller and their
-// own limit, or the public request's bot check.
+// admit decides whether the request may run: the authenticated caller among
+// the endpoint's callers and within their own limit, anyone on a public
+// endpoint, or the bot check a bot_check endpoint names.
 func (h *Handler) admit(w http.ResponseWriter, r *http.Request, b *epbinding.Binding) (*eprun.Caller, bool) {
-	if b.AuthMode == epbinding.AuthSignedIn {
-		return h.signedIn(w, r, b)
-	}
-	allowed, err := h.Checker.PublicAllowed(r.Context())
-	if err != nil {
-		slog.ErrorContext(r.Context(), "endpoint: reading the bot check settings failed", logKeyError, logsan.SanitizeForLog(err.Error()))
-		httpjson.WriteError(w, http.StatusServiceUnavailable, "the bot check could not be read")
-		return nil, false
-	}
-	if !allowed {
-		httpjson.WriteError(w, http.StatusServiceUnavailable, "public endpoints need a bot check, and this deployment has none")
-		return nil, false
-	}
-	if b.OpenReads && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+	switch b.AuthMode {
+	case epbinding.AuthAuthenticated:
+		return h.authenticated(w, r, b)
+	case epbinding.AuthPublic:
 		return nil, true
+	case epbinding.AuthBotCheck:
+		return nil, h.checked(w, r, b)
 	}
-	err = h.Checker.Verify(r.Context(), b.Name, r.Header.Get(HeaderBotCheck))
+	httpjson.WriteError(w, http.StatusServiceUnavailable, "the endpoint's access mode is not one this platform answers")
+	return nil, false
+}
+
+// checked reports whether a bot_check endpoint's request passed its check,
+// writing the refusal when it did not.
+func (h *Handler) checked(w http.ResponseWriter, r *http.Request, b *epbinding.Binding) bool {
+	if !b.Checks(r.Method) {
+		return true
+	}
+	err := h.Checker.Verify(r.Context(), b.BotCheck, b.Name, r.Header.Get(HeaderBotCheck))
 	switch {
 	case botcheck.Refusal(err):
 		h.refused(b, eprefusal.ReasonBotCheck)
 		httpjson.WriteError(w, http.StatusForbidden, err.Error())
-		return nil, false
+		return false
 	case err != nil:
 		slog.WarnContext(r.Context(), "endpoint: the bot check could not be made", logKeyError, logsan.SanitizeForLog(err.Error()))
 		httpjson.WriteError(w, http.StatusServiceUnavailable, "the bot check could not be made")
-		return nil, false
+		return false
 	}
-	return nil, true
+	return true
 }
 
-func (h *Handler) signedIn(w http.ResponseWriter, r *http.Request, b *epbinding.Binding) (*eprun.Caller, bool) {
+func (h *Handler) authenticated(w http.ResponseWriter, r *http.Request, b *epbinding.Binding) (*eprun.Caller, bool) {
 	caller, err := h.Authenticate(r)
 	switch {
 	case errors.Is(err, ErrForbidden):
@@ -221,7 +225,12 @@ func (h *Handler) signedIn(w http.ResponseWriter, r *http.Request, b *epbinding.
 	case err != nil || caller == nil:
 		h.refused(b, eprefusal.ReasonCredential)
 		w.Header().Set("WWW-Authenticate", `Bearer realm="endpoints"`)
-		httpjson.WriteError(w, http.StatusUnauthorized, "this endpoint answers a signed-in caller: a browser session or an API key")
+		httpjson.WriteError(w, http.StatusUnauthorized, "this endpoint answers an authenticated caller: a platform API key or a browser session")
+		return nil, false
+	}
+	if !b.Admits(epbinding.Caller{Admin: caller.Admin, Persona: caller.Persona, APIKey: caller.APIKey}) {
+		h.refused(b, eprefusal.ReasonCaller)
+		httpjson.WriteError(w, http.StatusForbidden, "this endpoint does not admit this caller")
 		return nil, false
 	}
 	key := caller.UserID
@@ -335,16 +344,17 @@ func tooMany(w http.ResponseWriter, r *http.Request, rpm int) {
 	httpjson.WriteError(w, http.StatusTooManyRequests, "too many requests to this endpoint; wait and send it again")
 }
 
-// challenge issues a public endpoint's bot check challenge, answering the
-// cross-origin request a page on an allowed origin sends for it.
+// challenge issues the challenge of the bot check a bot_check endpoint names,
+// answering the cross-origin request a page on an allowed origin sends for
+// it.
 func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 	t, ok := h.resolve(w, r, r.URL.Query().Get("endpoint"))
 	if !ok {
 		return
 	}
 	b := t.Binding
-	if b.AuthMode != epbinding.AuthPublic {
-		httpjson.WriteError(w, http.StatusNotFound, "no public endpoint has this name")
+	if b.AuthMode != epbinding.AuthBotCheck {
+		httpjson.WriteError(w, http.StatusNotFound, "no bot_check endpoint has this name")
 		return
 	}
 	if !cors(w, r, b) {
@@ -360,7 +370,7 @@ func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 		tooMany(w, r, b.RateLimit)
 		return
 	}
-	ch, err := h.Checker.Issue(r.Context(), b.Name)
+	ch, err := h.Checker.Issue(r.Context(), b.BotCheck, b.Name)
 	if err != nil {
 		slog.WarnContext(r.Context(), "endpoint: issuing a bot check challenge failed", logKeyError, logsan.SanitizeForLog(err.Error()))
 		httpjson.WriteError(w, http.StatusServiceUnavailable, "a bot check challenge could not be issued")

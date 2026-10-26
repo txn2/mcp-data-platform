@@ -177,7 +177,7 @@ type fixture struct {
 func newFixture(t *testing.T, source string) *fixture {
 	t.Helper()
 	b := &epbinding.Binding{
-		ID: "e1", ScriptID: "s1", Name: "orders", Methods: []string{"GET"}, Path: "/{id}", AuthMode: epbinding.AuthSignedIn,
+		ID: "e1", ScriptID: "s1", Name: "orders", Methods: []string{"GET"}, Path: "/{id}", AuthMode: epbinding.AuthAuthenticated,
 		TimeoutSeconds: 5, MaxMemoryBytes: 64 << 20, MaxBodyBytes: 1 << 20, RateLimit: 600, CallerRateLimit: 60, Enabled: true,
 	}
 	scripts := &memScripts{sc: &script.Script{ID: "s1", Name: "order-lookup", OwnerEmail: "jane@example.com", Enabled: true, Status: script.StatusActive}, versions: map[int]*script.Version{}}

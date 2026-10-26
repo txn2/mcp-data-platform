@@ -94,11 +94,12 @@ func (a *APIKeyAuthenticator) boundUserInfo(ctx context.Context, key *APIKey) (*
 		return nil, fmt.Errorf("api key %q is bound to an account the platform has no record of", key.Name)
 	}
 	return &middleware.UserInfo{
-		UserID:   person.Subject,
-		Email:    person.Email,
-		Claims:   attributeClaims(key.Attributes),
-		Roles:    boundRoles(key, person),
-		AuthType: middleware.AuthTypeAPIKey,
+		UserID:     person.Subject,
+		Email:      person.Email,
+		Claims:     attributeClaims(key.Attributes),
+		Roles:      boundRoles(key, person),
+		AuthType:   middleware.AuthTypeAPIKey,
+		APIKeyName: key.Name,
 	}, nil
 }
 

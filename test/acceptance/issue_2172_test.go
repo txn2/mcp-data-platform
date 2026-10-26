@@ -34,7 +34,7 @@ func TestIssue2172_ATrinoQueryAnswersWithItsRowsAndTheAuditNamesTheEndpoint(t *t
 	admin := connect(t)
 	name := endpointName("acc-2172-trino")
 	saveEndpointScript(t, admin, name, issue2172TrinoHandler, `{"params": {"id": "42"}, "caller": None}`)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "path": "/{id}", "auth_mode": "signed_in"})
+	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "path": "/{id}", "auth_mode": "authenticated", "callers": []string{"*"}})
 
 	got := endpointRequest(t, admin.base, http.MethodGet, "/endpoints/"+name+"/42", bearer(admin.apiKey), "")
 	if got.status != http.StatusOK || !strings.Contains(got.body, `"status":"shipped"`) || !strings.Contains(got.body, `"id":"42"`) {
@@ -82,7 +82,7 @@ func TestIssue2172_TheNextRequestOnTheOtherReplicaRunsTheNewVersion(t *testing.T
 		return "def handle(_req):\n    \"\"\"Answers with its version.\"\"\"\n    return {\"json\": {\"version\": \"" + v + "\"}}\n"
 	}
 	saveEndpointScript(t, a, name, answer("one"), `{"params": {}, "caller": None}`)
-	bindEndpoint(t, a, name, "", map[string]any{"endpoint": name, "auth_mode": "signed_in"})
+	bindEndpoint(t, a, name, "", map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}})
 	if got := endpointRequest(t, b.base, http.MethodGet, "/endpoints/"+name, bearer(b.apiKey), ""); !strings.Contains(got.body, `"one"`) {
 		t.Fatalf("the other replica before the save: %d %s", got.status, got.body)
 	}
@@ -102,7 +102,7 @@ func TestIssue2172_PastItsTimeoutIs504AndTheFailureIsListed(t *testing.T) {
         "purpose": "Acceptance for #2172: hold a handler past its endpoint's timeout."})
     return {"json": req["params"]}
 `, `{"params": {"ms": "10"}, "caller": None}`)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "path": "/{ms}", "auth_mode": "signed_in", "timeout_seconds": 1})
+	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "path": "/{ms}", "auth_mode": "authenticated", "callers": []string{"*"}, "timeout_seconds": 1})
 
 	got := endpointRequest(t, admin.base, http.MethodGet, "/endpoints/"+name+"/3000", bearer(admin.apiKey), "")
 	// The status is what reaches the caller: the dev stack's proxy replaces a
@@ -127,7 +127,7 @@ func TestIssue2172_ARequestWritesNoRunRow(t *testing.T) {
 	admin := connect(t)
 	name := endpointName("acc-2172-runs")
 	saveEndpointScript(t, admin, name, issue2171EchoHandler, `{"params": {}, "caller": None}`)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "signed_in"})
+	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}})
 	for range 3 {
 		if got := endpointRequest(t, admin.base, http.MethodGet, "/endpoints/"+name, bearer(admin.apiKey), ""); got.status != http.StatusOK {
 			t.Fatalf("GET: %d %s", got.status, got.body)
@@ -145,7 +145,7 @@ func TestIssue2172_ABodyPastTheLimitIs413WithoutRunning(t *testing.T) {
 	admin := connect(t)
 	name := endpointName("acc-2172-body")
 	saveEndpointScript(t, admin, name, issue2171EchoHandler, `{"params": {}, "caller": None}`)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "methods": []string{"POST"}, "auth_mode": "signed_in", "max_body_bytes": 16})
+	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "methods": []string{"POST"}, "auth_mode": "authenticated", "callers": []string{"*"}, "max_body_bytes": 16})
 
 	header := bearer(admin.apiKey)
 	header.Set("Content-Type", "application/json")
@@ -167,7 +167,7 @@ func TestIssue2172_TheHandlerReadsAJSONBodyAndAForm(t *testing.T) {
     """Answers with what it was sent."""
     return {"json": {"json": req["json"], "form": req["form"], "method": req["method"]}}
 `, `{"method": "POST", "json": None, "form": None}`)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "methods": []string{"POST"}, "auth_mode": "signed_in"})
+	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "methods": []string{"POST"}, "auth_mode": "authenticated", "callers": []string{"*"}})
 
 	header := bearer(admin.apiKey)
 	header.Set("Content-Type", "application/json")

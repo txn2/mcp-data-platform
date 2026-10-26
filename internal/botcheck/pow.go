@@ -60,25 +60,27 @@ var (
 	ErrExpired       = errors.New("the bot check challenge has expired")
 	ErrReplayed      = errors.New("the bot check answer was already used")
 	ErrOtherEndpoint = errors.New("the bot check challenge was issued for another endpoint")
+	ErrOtherCheck    = errors.New("the bot check challenge was issued by another bot check")
 	ErrUnavailable   = errors.New("this deployment cannot issue a bot check challenge")
 )
 
 // claims is what a proof-of-work challenge carries, signed.
 type claims struct {
+	Check      string `json:"c"`
 	Endpoint   string `json:"e"`
 	Nonce      string `json:"n"`
 	Difficulty int    `json:"d"`
 	Expires    int64  `json:"x"`
 }
 
-// issuePoW signs a challenge for endpoint at difficulty, answerable until
-// expires.
-func issuePoW(key []byte, endpoint string, difficulty int, expires time.Time) (string, error) {
+// issuePoW signs a challenge of check for endpoint at difficulty, answerable
+// until expires.
+func issuePoW(key []byte, check, endpoint string, difficulty int, expires time.Time) (string, error) {
 	nonce := make([]byte, 16)
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("reading a nonce: %w", err)
 	}
-	payload, err := json.Marshal(claims{Endpoint: endpoint, Nonce: hex.EncodeToString(nonce), Difficulty: difficulty, Expires: expires.Unix()})
+	payload, err := json.Marshal(claims{Check: check, Endpoint: endpoint, Nonce: hex.EncodeToString(nonce), Difficulty: difficulty, Expires: expires.Unix()})
 	if err != nil {
 		return "", fmt.Errorf("encoding a challenge: %w", err)
 	}
@@ -93,9 +95,9 @@ func sign(key []byte, body string) []byte {
 }
 
 // checkPoW verifies an answer to a challenge issuePoW signed: the signature,
-// the endpoint, the expiry and the work. It returns the challenge's nonce and
-// expiry, which the caller records as used.
-func checkPoW(key []byte, endpoint, answer string, now time.Time) (claims, error) {
+// the check, the endpoint, the expiry and the work. It returns the
+// challenge's nonce and expiry, which the caller records as used.
+func checkPoW(key []byte, check, endpoint, answer string, now time.Time) (claims, error) {
 	if len(answer) > maxAnswerLen {
 		return claims{}, ErrInvalid
 	}
@@ -108,6 +110,8 @@ func checkPoW(key []byte, endpoint, answer string, now time.Time) (claims, error
 		return claims{}, err
 	}
 	switch {
+	case c.Check != check:
+		return claims{}, ErrOtherCheck
 	case c.Endpoint != endpoint:
 		return claims{}, ErrOtherEndpoint
 	case now.Unix() >= c.Expires:
@@ -164,7 +168,7 @@ func leadingZeroBits(b []byte) int {
 // difficultyFor is the work a challenge asks for when the endpoint answered
 // rate challenges in the last minute: the base while the rate is at or under
 // the threshold, and one bit more for each doubling past it, up to the most.
-func difficultyFor(s Settings, rate int) int {
+func difficultyFor(s Check, rate int) int {
 	if rate <= s.RateThreshold {
 		return s.Difficulty
 	}

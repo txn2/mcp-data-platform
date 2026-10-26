@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -107,4 +108,33 @@ func TestRealDB_FailuresAreKeptAndSweptAndGoWithTheScript(t *testing.T) {
 	got, err = s.Failures(ctx, b.ID, 10)
 	require.NoError(t, err)
 	assert.Empty(t, got, "and the failures its binding answered")
+}
+
+// Every reason a refusal is counted under is one the refusals table takes
+// (#2259): one batch carries a count under each, and every count is read
+// back. A reason the table's CHECK does not name fails the whole batch.
+func TestRealDB_EveryRefusalReasonIsStored(t *testing.T) {
+	db := testdb.New(t)
+	scripts, s := scriptstore.New(db), New(db)
+	ctx := context.Background()
+	b := sample()
+	b.ScriptID = savedScript(ctx, t, scripts, "refused").ID
+	require.NoError(t, s.Set(ctx, b))
+
+	hour := time.Now().UTC().Truncate(time.Hour)
+	counts := make([]eprefusal.Count, 0, len(eprefusal.Reasons))
+	for _, reason := range eprefusal.Reasons {
+		counts = append(counts, eprefusal.Count{EndpointID: b.ID, Hour: hour, Reason: reason, Count: 2})
+	}
+	refusals := eprefusal.NewStore(db)
+	require.NoError(t, refusals.Add(ctx, counts))
+	got, err := refusals.Since(ctx, b.ID, hour)
+	require.NoError(t, err)
+	byReason := map[string]int64{}
+	for _, c := range got {
+		byReason[c.Reason] = c.Count
+	}
+	for _, reason := range eprefusal.Reasons {
+		assert.Equal(t, int64(2), byReason[reason], reason)
+	}
 }

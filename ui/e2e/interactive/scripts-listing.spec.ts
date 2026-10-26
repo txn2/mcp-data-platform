@@ -143,8 +143,9 @@ test.describe("The health line", () => {
     await failing.click();
     await expect(failing).toHaveAttribute("aria-pressed", "true");
 
-    // Every row left is one whose last run failed.
-    const statuses = await page.locator("tbody tr td:nth-child(5)").allInnerTexts();
+    // Every row left is one whose last run failed. Last run is the sixth
+    // cell, after Schedule and Endpoint (#2314).
+    const statuses = await page.locator("tbody tr td:nth-child(6)").allInnerTexts();
     for (const status of statuses) {
       expect(status.toLowerCase()).toContain("failed");
     }
@@ -189,7 +190,7 @@ test.describe("Scope", () => {
     // Dormant Accounts is another person's and has never run.
     const theirs = page.locator("tbody tr").filter({ hasText: "Dormant Accounts" });
     await expect(theirs).toHaveCount(1);
-    await expect(theirs.locator("td:nth-child(5)")).toHaveText("Never run");
+    await expect(theirs.locator("td:nth-child(6)")).toHaveText("Never run");
   });
 });
 

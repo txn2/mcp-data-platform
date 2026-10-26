@@ -9,9 +9,11 @@
 package scriptlist
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -36,6 +38,29 @@ func ParseKind(v string) (library, named bool, err error) {
 		return false, true, nil
 	default:
 		return false, false, fmt.Errorf("unknown kind %q: must be %s or %s", v, KindScript, KindLibrary)
+	}
+}
+
+// The values endpoint= narrows to (#2259): the scripts bound to an endpoint,
+// and the ones that are not.
+const (
+	EndpointBound   = "bound"
+	EndpointUnbound = "unbound"
+)
+
+// ParseEndpoint reads endpoint=: whether it names the bound scripts, and
+// whether it names either (an absent value lists both), or an error for a
+// value that names neither.
+func ParseEndpoint(v string) (bound, named bool, err error) {
+	switch v {
+	case "":
+		return false, false, nil
+	case EndpointBound:
+		return true, true, nil
+	case EndpointUnbound:
+		return false, true, nil
+	default:
+		return false, false, fmt.Errorf("unknown endpoint %q: must be %s or %s", v, EndpointBound, EndpointUnbound)
 	}
 }
 
@@ -95,6 +120,12 @@ func Filter(owner string, isAdmin bool, query url.Values) script.ListFilter {
 	if library, named, err := ParseKind(query.Get("kind")); err == nil && named {
 		filter.Library = &library
 	}
+	// endpoint=bound lists the scripts bound to an endpoint and
+	// endpoint=unbound the rest (#2259); the handler refuses any other value
+	// through ParseEndpoint.
+	if bound, named, err := ParseEndpoint(query.Get("endpoint")); err == nil && named {
+		filter.Endpoint = &bound
+	}
 	// owner narrows to one author, and naming one is itself a way of asking
 	// about somebody other than yourself: it selects the population rather
 	// than being intersected with the default scope, which would answer the
@@ -133,4 +164,39 @@ func parseBool(v string) (value, ok bool) {
 	default:
 		return false, false
 	}
+}
+
+// Endpoint is a listed script's endpoint (#2314): where it answers, who it
+// admits and whether it is on. The binding's limits and callers are read on
+// the script's own page.
+type Endpoint struct {
+	Name string `json:"name" example:"order-lookup"`
+	// Path is the address it answers at, with the template's parameters in
+	// braces.
+	Path     string `json:"path" example:"/endpoints/order-lookup/{id}"`
+	AuthMode string `json:"auth_mode" example:"authenticated"`
+	Enabled  bool   `json:"enabled" example:"true"`
+}
+
+// Endpoints is the endpoint each script ids names is bound to, by script id,
+// read with list in one call whose limit is the number of scripts, so no
+// bound one is cut off. A script bound to none is absent, and so is every
+// script when the read fails: a listing that cannot report an endpoint is
+// still a listing.
+func Endpoints(
+	ctx context.Context, list func(context.Context, epbinding.Filter) ([]epbinding.Binding, int, error), ids []string,
+) map[string]*Endpoint {
+	out := map[string]*Endpoint{}
+	if len(ids) == 0 {
+		return out
+	}
+	bindings, _, err := list(ctx, epbinding.Filter{ScriptIDs: ids, Limit: len(ids)})
+	if err != nil {
+		return out
+	}
+	for i := range bindings {
+		b := bindings[i]
+		out[b.ScriptID] = &Endpoint{Name: b.Name, Path: b.URLPath(), AuthMode: b.AuthMode, Enabled: b.Enabled}
+	}
+	return out
 }

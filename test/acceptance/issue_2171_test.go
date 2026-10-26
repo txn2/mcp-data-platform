@@ -16,10 +16,10 @@ import (
 // Acceptance for #2171: a managed script bound to an HTTP route. An
 // administrator binds a script through manage_script and through the portal,
 // and the binding is listed on the script's page; everybody else, the
-// script's owner included, is refused on both surfaces; a bound script saved
-// without handle(req) is refused naming the function; and a public binding is
-// refused while the deployment has no bot check until an administrator sets
-// the override.
+// script's owner included, is refused on both surfaces; and a bound script
+// saved without handle(req) is refused naming the function. That a public
+// binding needs a deployment-wide bot check was retired by #2259: a public
+// endpoint answers anyone with no check, and a bot_check one names its check.
 //
 // Wire forms: manage_script endpoint_set takes typed arguments (methods a
 // JSON array of strings, path and auth_mode strings, timeout_seconds a JSON
@@ -27,8 +27,8 @@ import (
 // JSON object with the same fields.
 
 const (
-	issue2171BotCheckPath = "/api/v1/admin/settings/bot-check"
-	issue2171EchoHandler  = `def handle(req):
+	botChecksPath        = "/api/v1/admin/bot-checks"
+	issue2171EchoHandler = `def handle(req):
     """Answers with the id it was asked for and who asked."""
     caller = req["caller"]
     return {"json": {"id": req["params"].get("id"), "caller": caller["email"] if caller else None}}
@@ -129,20 +129,24 @@ func endpointRequestWith(t *testing.T, hc *http.Client, base, method, path strin
 
 func bearer(key string) http.Header { return http.Header{"Authorization": {"Bearer " + key}} }
 
-// putBotCheck writes the bot check settings and restores the defaults when
-// the test ends.
-func putBotCheck(t *testing.T, admin *client, body map[string]any) {
+// putBotCheck creates a named bot check of the test's own (#2259) and
+// returns its name, so no test changes a check another one reads. The check
+// is deleted when the test ends where no endpoint still names it.
+func putBotCheck(t *testing.T, admin *client, body map[string]any) string {
 	t.Helper()
-	status, out := admin.rest(http.MethodPut, issue2171BotCheckPath, jsonBody(t, body))
+	name := endpointName("acc-check")
+	writeBotCheck(t, admin, name, body)
+	t.Cleanup(func() { admin.rest(http.MethodDelete, botChecksPath+"/"+name, nil) })
+	return name
+}
+
+// writeBotCheck creates or updates the check named name.
+func writeBotCheck(t *testing.T, admin *client, name string, body map[string]any) {
+	t.Helper()
+	status, out := admin.rest(http.MethodPut, botChecksPath+"/"+name, jsonBody(t, body))
 	if status != http.StatusOK {
-		t.Fatalf("PUT %s: %d %v", issue2171BotCheckPath, status, out)
+		t.Fatalf("PUT %s/%s: %d %v", botChecksPath, name, status, out)
 	}
-	t.Cleanup(func() {
-		admin.rest(http.MethodPut, issue2171BotCheckPath, jsonBody(t, map[string]any{
-			"provider": "pow", "site_key": "", "secret_name": "", "allow_public_without_check": false,
-			"difficulty": 16, "max_difficulty": 22, "rate_threshold": 30, "challenge_ttl_seconds": 300,
-		}))
-	})
 }
 
 // TestIssue2171_AnAdministratorBindsOnBothSurfacesAndItIsListed: a binding
@@ -155,14 +159,14 @@ func TestIssue2171_AnAdministratorBindsOnBothSurfacesAndItIsListed(t *testing.T)
 	portalID := saveEndpointScript(t, admin, viaPortal, issue2171EchoHandler, `{"params": {"id": "1"}, "caller": None}`)
 
 	listed := bindEndpoint(t, admin, viaTool, "", map[string]any{
-		"endpoint": viaTool, "methods": []string{"GET"}, "path": "/{id}", "auth_mode": "signed_in", "timeout_seconds": 5,
+		"endpoint": viaTool, "methods": []string{"GET"}, "path": "/{id}", "auth_mode": "authenticated", "callers": []string{"*"}, "timeout_seconds": 5,
 	})
 	if listed["bound"] != true || listed["endpoint"] != viaTool || fmt.Sprint(listed["timeout_seconds"]) != "5" {
 		t.Fatalf("endpoint_list after endpoint_set: %v", listed)
 	}
 
 	status, out := admin.rest(http.MethodPut, fmt.Sprintf("/api/v1/portal/scripts/%s/endpoint", portalID), jsonBody(t, map[string]any{
-		"endpoint": viaPortal, "methods": []string{"GET"}, "path": "/{id}", "auth_mode": "signed_in",
+		"endpoint": viaPortal, "methods": []string{"GET"}, "path": "/{id}", "auth_mode": "authenticated", "callers": []string{"*"},
 	}))
 	if status != http.StatusOK {
 		t.Fatalf("PUT portal endpoint: %d %v", status, out)
@@ -187,12 +191,12 @@ func TestIssue2171_ANonAdministratorIsRefusedOnBothSurfaces(t *testing.T) {
 	name := endpointName("acc-2171-owner")
 	id := saveEndpointScript(t, owner, name, issue2171EchoHandler, `{"params": {}, "caller": None}`)
 
-	out, refusal := endpointSet(t, owner, name, "", map[string]any{"endpoint": name, "auth_mode": "signed_in"})
+	out, refusal := endpointSet(t, owner, name, "", map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}})
 	if out != nil || !strings.Contains(refusal, "only an administrator") {
 		t.Fatalf("the owner's endpoint_set: want refused, got %v %q", out, refusal)
 	}
 	status, body := owner.rest(http.MethodPut, fmt.Sprintf("/api/v1/portal/scripts/%s/endpoint", id),
-		jsonBody(t, map[string]any{"endpoint": name, "auth_mode": "signed_in"}))
+		jsonBody(t, map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}}))
 	if status != http.StatusForbidden {
 		t.Fatalf("the owner's portal PUT: want 403, got %d %v", status, body)
 	}
@@ -209,7 +213,7 @@ func TestIssue2171_SavingABoundScriptWithoutHandleIsRefused(t *testing.T) {
 	admin := connect(t)
 	name := endpointName("acc-2171-gate")
 	saveEndpointScript(t, admin, name, issue2171EchoHandler, `{"params": {}, "caller": None}`)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "signed_in"})
+	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}})
 
 	update := admin.tested(map[string]any{
 		"command": "update", "name": name,
@@ -226,25 +230,5 @@ func TestIssue2171_SavingABoundScriptWithoutHandleIsRefused(t *testing.T) {
 	}
 	if got := endpointRequest(t, admin.base, http.MethodGet, "/endpoints/"+name, bearer(admin.apiKey), ""); got.status != http.StatusOK {
 		t.Fatalf("the endpoint after the refused save: %d %s", got.status, got.body)
-	}
-}
-
-// TestIssue2171_APublicBindingNeedsABotCheckUntilTheOverride: with the
-// provider none, a public binding is refused; with the override it is
-// accepted.
-func TestIssue2171_APublicBindingNeedsABotCheckUntilTheOverride(t *testing.T) {
-	admin := connect(t)
-	name := endpointName("acc-2171-public")
-	saveEndpointScript(t, admin, name, issue2171EchoHandler, `{"params": {}, "caller": None}`)
-
-	putBotCheck(t, admin, map[string]any{"provider": "none", "allow_public_without_check": false})
-	out, refusal := endpointSet(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "public"})
-	if out != nil || !strings.Contains(refusal, "needs a bot check") {
-		t.Fatalf("a public binding with no bot check: want refused, got %v %q", out, refusal)
-	}
-	putBotCheck(t, admin, map[string]any{"allow_public_without_check": true})
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "public"})
-	if got := endpointRequest(t, admin.base, http.MethodGet, "/endpoints/"+name, nil, ""); got.status != http.StatusOK {
-		t.Fatalf("the public endpoint with the override: %d %s", got.status, got.body)
 	}
 }

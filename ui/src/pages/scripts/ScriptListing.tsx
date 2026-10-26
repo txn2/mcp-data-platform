@@ -3,6 +3,7 @@ import { FileCode2 } from "lucide-react";
 import { useScriptListing } from "@/api/portal/hooks/scripts";
 import type {
   PortalScriptRow,
+  ScriptEndpointFilter,
   ScriptKind,
   ScriptListFilter,
   ScriptListResponse,
@@ -88,9 +89,19 @@ interface Facets {
   status: string;
   /** kind is "" for both, or the one kind the listing narrows to (#1941). */
   kind: "" | ScriptKind;
+  /** endpoint is "" for both, or whether the scripts are bound to one (#2259). */
+  endpoint: "" | ScriptEndpointFilter;
 }
 
-const NO_FACETS: Facets = { owner: "", category: "", tag: "", status: "", kind: "" };
+const NO_FACETS: Facets = { owner: "", category: "", tag: "", status: "", kind: "", endpoint: "" };
+
+// ENDPOINT_OPTIONS answer "which answer HTTP requests" (#2259): every one, the
+// scripts bound to an endpoint, and the rest.
+const ENDPOINT_OPTIONS: FilterOption[] = [
+  { value: "", label: "All" },
+  { value: "bound", label: "Bound" },
+  { value: "unbound", label: "Not bound" },
+];
 
 // KIND_OPTIONS are the three answers to "which kind": every one, the scripts
 // that run, and the libraries they load (#1941), in the words of the Kind
@@ -272,6 +283,7 @@ function serverFilter(
   if (facets.status) filter.status = facets.status;
   if (facets.owner) filter.owner = facets.owner;
   if (facets.kind) filter.kind = facets.kind;
+  if (facets.endpoint) filter.endpoint = facets.endpoint;
   if (search) filter.search = search;
   return filter;
 }
@@ -302,6 +314,7 @@ function isNarrowed(filter: ScriptListFilter): boolean {
       filter.status ||
       filter.owner ||
       filter.kind ||
+      filter.endpoint ||
       filter.search,
   );
 }
@@ -423,6 +436,12 @@ function ScriptFilterBar({
         options={KIND_OPTIONS}
       />
       <FilterSelect
+        label="Filter by endpoint"
+        value={facets.endpoint}
+        onChange={(endpoint) => set({ endpoint: endpoint as Facets["endpoint"] })}
+        options={ENDPOINT_OPTIONS}
+      />
+      <FilterSelect
         label="Filter by author"
         value={facets.owner}
         onChange={(owner) => set({ owner })}
@@ -504,6 +523,9 @@ function ScriptsSection({
             onSort={onSort}
           />
           <TableHead>Schedule</TableHead>
+          {/* The endpoint a script answers HTTP requests at (#2259), blank
+              for one bound to none. */}
+          <TableHead>Endpoint</TableHead>
           {/* Last run carries no sort affordance: it is attached to this page
               after the query, so an ordering over it would order the page. */}
           <TableHead>Last run</TableHead>

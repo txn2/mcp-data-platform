@@ -23,7 +23,10 @@ func SQLSamples() map[string]string {
 	}
 	// The listing's own filter, carrying every axis at once so the rendered
 	// statement exercises each clause the builders can emit.
+	library, bound := false, true
 	listing := script.ListFilter{
+		Library:    &library,
+		Endpoint:   &bound,
 		OwnerEmail: "owner@example.com",
 		IDs:        []string{"3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b"},
 		Category:   "reports",

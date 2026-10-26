@@ -523,11 +523,11 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   {
-    // The bot check a public endpoint requires (#2173): the provider, the
-    // proof of work's difficulty and how a flood raises it, and the override
-    // for a public endpoint with no check.
-    slug: "admin-settings-bot-check",
-    path: "/portal/admin/settings/bot-check",
+    // The named bot checks a bot_check endpoint picks from (#2173, #2259):
+    // each check's provider, the endpoints using it, and the proof of work's
+    // difficulty and how a flood raises it.
+    slug: "admin-settings-bot-checks",
+    path: "/portal/admin/settings/bot-checks",
     category: "admin",
   },
   ...accessSettingsRoutes,

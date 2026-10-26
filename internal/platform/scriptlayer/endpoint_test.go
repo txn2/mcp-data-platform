@@ -3,6 +3,7 @@ package scriptlayer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sort"
 	"sync"
@@ -113,12 +114,18 @@ def test_handle():
 
 // endpointHandle is a script layer whose deployment can bind endpoints, with
 // the author's script "lookup" saved.
-func endpointHandle(t *testing.T, public bool) (*Handle, *memBindings) {
+// checks names the bot checks that exist: a binding naming another is refused.
+func endpointHandle(t *testing.T, checks ...string) (*Handle, *memBindings) {
 	t.Helper()
 	bindings := &memBindings{byScript: map[string]epbinding.Binding{}}
 	h := New(Config{Store: newMemStore(), Endpoints: &epwire.Endpoints{Commands: &epcmd.Handler{
 		Store: bindings, BaseURL: "https://data.example.com",
-		PublicAllowed: func(context.Context) (bool, error) { return public, nil },
+		CheckUsable: func(_ context.Context, name string) error {
+			if !slices.Contains(checks, name) {
+				return fmt.Errorf("no bot check is named %q", name)
+			}
+			return nil
+		},
 	}}})
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "lookup", Source: handlerSource})
 	require.False(t, res.IsError, resultText(res))
@@ -133,10 +140,10 @@ func endpointSet(in epcmd.Input) manageScriptInput {
 
 // #2171: an administrator binds a script, and the binding is listed.
 func TestEndpointSet_AnAdministratorBindsAndTheBindingIsListed(t *testing.T) {
-	h, _ := endpointHandle(t, true)
+	h, _ := endpointHandle(t, "default")
 	path := "/{id}"
 	res := call(t, h, adminCtx(), endpointSet(epcmd.Input{
-		Endpoint: "order-lookup", Methods: []string{"get", "post"}, Path: &path, AuthMode: epbinding.AuthSignedIn,
+		Endpoint: "order-lookup", Methods: []string{"get", "post"}, Path: &path, AuthMode: epbinding.AuthAuthenticated,
 	}))
 	require.False(t, res.IsError, resultText(res))
 	out := resultFields(t, res)
@@ -157,9 +164,9 @@ func TestEndpointSet_AnAdministratorBindsAndTheBindingIsListed(t *testing.T) {
 
 // #2171: everyone but an administrator is refused, the owner included.
 func TestEndpointCommands_RefuseEveryoneButAnAdministrator(t *testing.T) {
-	h, bindings := endpointHandle(t, true)
+	h, bindings := endpointHandle(t, "default")
 	for _, cmd := range []string{epcmd.CmdSet, epcmd.CmdEnable, epcmd.CmdDisable} {
-		in := endpointSet(epcmd.Input{Endpoint: "x", AuthMode: epbinding.AuthSignedIn})
+		in := endpointSet(epcmd.Input{Endpoint: "x", AuthMode: epbinding.AuthAuthenticated})
 		in.Command = cmd
 		res := call(t, h, authorCtx(), in)
 		require.True(t, res.IsError, cmd)
@@ -167,37 +174,43 @@ func TestEndpointCommands_RefuseEveryoneButAnAdministrator(t *testing.T) {
 	}
 	assert.Empty(t, bindings.byScript)
 
-	res := call(t, h, callerCtx("bob@example.com", "analyst"), endpointSet(epcmd.Input{Endpoint: "x", AuthMode: epbinding.AuthSignedIn}))
+	res := call(t, h, callerCtx("bob@example.com", "analyst"), endpointSet(epcmd.Input{Endpoint: "x", AuthMode: epbinding.AuthAuthenticated}))
 	require.True(t, res.IsError)
 	assert.Empty(t, bindings.byScript)
 }
 
-// #2171: a public binding is refused where there is no bot check, and
-// accepted once there is one (or the override).
-func TestEndpointSet_PublicNeedsABotCheck(t *testing.T) {
-	h, _ := endpointHandle(t, false)
+// #2259: a public binding needs no check; a bot_check binding names a check
+// that exists, and signed_in is no longer a mode.
+func TestEndpointSet_ModesAndTheChecksTheyName(t *testing.T) {
+	h, _ := endpointHandle(t, "default")
 	res := call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "contact", AuthMode: epbinding.AuthPublic}))
-	require.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "needs a bot check")
-
-	h, _ = endpointHandle(t, true)
-	res = call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "contact", AuthMode: epbinding.AuthPublic}))
 	require.False(t, res.IsError, resultText(res))
+
+	res = call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "contact", AuthMode: epbinding.AuthBotCheck, BotCheck: "gone"}))
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), `no bot check is named "gone"`)
+
+	res = call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "contact", AuthMode: epbinding.AuthBotCheck, BotCheck: "default"}))
+	require.False(t, res.IsError, resultText(res))
+
+	res = call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "contact", AuthMode: "signed_in"}))
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), `"signed_in" is not one of`)
 }
 
 // #2171: binding a script with no handle(req), and saving a bound script
 // without one, are both refused naming the missing function.
 func TestEndpoint_ABoundScriptMustDefineHandle(t *testing.T) {
-	h, _ := endpointHandle(t, true)
+	h, _ := endpointHandle(t, "default")
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n"))})
 	require.False(t, res.IsError, resultText(res))
-	in := endpointSet(epcmd.Input{Endpoint: "daily", AuthMode: epbinding.AuthSignedIn})
+	in := endpointSet(epcmd.Input{Endpoint: "daily", AuthMode: epbinding.AuthAuthenticated})
 	in.Name = "daily"
 	res = call(t, h, adminCtx(), in)
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "defines no handle(req)")
 
-	res = call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "order-lookup", AuthMode: epbinding.AuthSignedIn}))
+	res = call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "order-lookup", AuthMode: epbinding.AuthAuthenticated}))
 	require.False(t, res.IsError, resultText(res))
 	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "lookup", Source: tested(inMain("print(1)\n"))})
 	msg, _ := resultFields(t, res)["message"].(string)
@@ -207,14 +220,14 @@ func TestEndpoint_ABoundScriptMustDefineHandle(t *testing.T) {
 }
 
 func TestEndpointEnableAndDisable(t *testing.T) {
-	h, bindings := endpointHandle(t, true)
+	h, bindings := endpointHandle(t, "default")
 	in := endpointSet(epcmd.Input{})
 	in.Command = epcmd.CmdDisable
 	res := call(t, h, adminCtx(), in)
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "not bound to an endpoint")
 
-	require.False(t, call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "order-lookup", AuthMode: epbinding.AuthSignedIn})).IsError)
+	require.False(t, call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "order-lookup", AuthMode: epbinding.AuthAuthenticated})).IsError)
 	res = call(t, h, adminCtx(), in)
 	require.False(t, res.IsError, resultText(res))
 	assert.Equal(t, false, resultFields(t, res)["enabled"])
@@ -227,11 +240,11 @@ func TestEndpointEnableAndDisable(t *testing.T) {
 }
 
 func TestEndpointSet_ANameAnotherScriptHasIsRefused(t *testing.T) {
-	h, _ := endpointHandle(t, true)
-	require.False(t, call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "orders", AuthMode: epbinding.AuthSignedIn})).IsError)
+	h, _ := endpointHandle(t, "default")
+	require.False(t, call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "orders", AuthMode: epbinding.AuthAuthenticated})).IsError)
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "lookup-two", Source: handlerSource})
 	require.False(t, res.IsError, resultText(res))
-	in := endpointSet(epcmd.Input{Endpoint: "orders", AuthMode: epbinding.AuthSignedIn})
+	in := endpointSet(epcmd.Input{Endpoint: "orders", AuthMode: epbinding.AuthAuthenticated})
 	in.Name = "lookup-two"
 	res = call(t, h, adminCtx(), in)
 	require.True(t, res.IsError)
@@ -239,7 +252,7 @@ func TestEndpointSet_ANameAnotherScriptHasIsRefused(t *testing.T) {
 }
 
 func TestEndpointList_AnUnboundScriptSaysSo(t *testing.T) {
-	h, bindings := endpointHandle(t, true)
+	h, bindings := endpointHandle(t, "default")
 	out := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: epcmd.CmdList, Name: "lookup"}))
 	assert.Equal(t, false, out["bound"])
 
@@ -258,10 +271,10 @@ func TestEndpointCommands_WithoutEndpointsAreUnavailable(t *testing.T) {
 // A script run may not bind a script: an endpoint is a route anyone may be
 // able to reach.
 func TestEndpointSet_IsRefusedInsideARun(t *testing.T) {
-	h, bindings := endpointHandle(t, true)
+	h, bindings := endpointHandle(t, "default")
 	ctx := adminCtx()
 	middleware.GetPlatformContext(ctx).Source = middleware.SourceScript
-	res := call(t, h, ctx, endpointSet(epcmd.Input{Endpoint: "x", AuthMode: epbinding.AuthSignedIn}))
+	res := call(t, h, ctx, endpointSet(epcmd.Input{Endpoint: "x", AuthMode: epbinding.AuthAuthenticated}))
 	require.True(t, res.IsError)
 	assert.Empty(t, bindings.byScript)
 }
@@ -269,7 +282,7 @@ func TestEndpointSet_IsRefusedInsideARun(t *testing.T) {
 func TestEndpointsIsTheAssembledFeature(t *testing.T) {
 	var nilHandle *Handle
 	assert.Nil(t, nilHandle.Endpoints())
-	h, _ := endpointHandle(t, true)
+	h, _ := endpointHandle(t, "default")
 	require.NotNil(t, h.Endpoints())
 	assert.NotNil(t, h.Endpoints().Commands)
 }

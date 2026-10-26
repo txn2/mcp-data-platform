@@ -62,8 +62,9 @@ func TestIssue2208_TheListAndThePageCountAnsweredAndRefusedRequests(t *testing.T
 	public, signed := endpointName("acc-2208-public"), endpointName("acc-2208-signed")
 	saveEndpointScript(t, admin, public, issue2171EchoHandler, `{"params": {}, "caller": None}`)
 	saveEndpointScript(t, admin, signed, issue2171EchoHandler, `{"params": {}, "caller": None}`)
-	bindEndpoint(t, admin, public, "", map[string]any{"endpoint": public, "auth_mode": "public", "methods": []any{"POST"}})
-	bindEndpoint(t, admin, signed, "", map[string]any{"endpoint": signed, "auth_mode": "signed_in"})
+	check := putBotCheck(t, admin, issue2173Quick)
+	bindEndpoint(t, admin, public, "", map[string]any{"endpoint": public, "auth_mode": "bot_check", "bot_check": check, "methods": []any{"POST"}})
+	bindEndpoint(t, admin, signed, "", map[string]any{"endpoint": signed, "auth_mode": "authenticated", "callers": []string{"*"}})
 
 	for range 3 { // refused at the bot check
 		if got := endpointRequest(t, admin.base, http.MethodPost, "/endpoints/"+public, nil, "{}"); got.status != http.StatusForbidden {
@@ -93,7 +94,7 @@ func TestIssue2208_TheListAndThePageCountAnsweredAndRefusedRequests(t *testing.T
 		}
 		time.Sleep(2 * time.Second)
 	}
-	if pub["auth_mode"] != "public" || sig["auth_mode"] != "signed_in" {
+	if pub["auth_mode"] != "bot_check" || pub["bot_check"] != check || pub["bot_check_provider"] != "pow" || sig["auth_mode"] != "authenticated" {
 		t.Fatalf("access: %v / %v", pub["auth_mode"], sig["auth_mode"])
 	}
 	if script, _ := pub["script"].(map[string]any); script["name"] != public || script["owner"] == "" {
@@ -130,7 +131,7 @@ func TestIssue2208_TheListAndThePageCountAnsweredAndRefusedRequests(t *testing.T
 // route so the two cannot disagree.
 func TestIssue2208_ANonAdministratorIsRefused(t *testing.T) {
 	analyst := connectAs(t, analystKey1892)
-	want, _ := analyst.rest(http.MethodGet, "/api/v1/admin/settings/bot-check", nil)
+	want, _ := analyst.rest(http.MethodGet, botChecksPath, nil)
 	if want != http.StatusUnauthorized && want != http.StatusForbidden {
 		t.Fatalf("an existing admin route answered an analyst %d", want)
 	}

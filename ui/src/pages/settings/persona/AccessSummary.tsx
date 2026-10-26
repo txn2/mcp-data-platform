@@ -61,8 +61,17 @@ export function referenceLines(r: PersonaReferences): { text: string; href?: str
   }
   if (r.prompts > 0) out.push({ text: countLine(r.prompts, "prompt scoped here", "prompts scoped here"), href: adminHref("prompts") });
   if (r.shares > 0) out.push({ text: countLine(r.shares, "share to this persona", "shares to this persona") });
+  return [...out, ...namedLines(r)];
+}
+
+/** namedLines are the references that list the objects by name or count the principals. */
+function namedLines(r: PersonaReferences): { text: string; href?: string }[] {
+  const out: { text: string; href?: string }[] = [];
   if (r.webhook_sources.length > 0) {
     out.push({ text: `Webhook sources writing to its folder: ${r.webhook_sources.join(", ")}`, href: adminHref("webhooks") });
+  }
+  if (r.endpoints.length > 0) {
+    out.push({ text: `Endpoints admitting this persona: ${r.endpoints.join(", ")}`, href: adminHref("automations/endpoints") });
   }
   if (r.api_keys > 0) out.push({ text: countLine(r.api_keys, "API key resolves here", "API keys resolve here"), href: adminHref("keys") });
   if (r.people.length > 0) out.push({ text: countLine(r.people.length, "person", "people"), href: adminHref("users") });
@@ -221,8 +230,12 @@ function Ungoverned({ report }: { report: EffectiveAccess }) {
       <h4 className="text-sm font-semibold">Not governed by personas</h4>
       <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">
         <li>
-          {countLine(report.unscoped.signed_in_endpoints, "signed-in endpoint", "signed-in endpoints")}, open to any
-          signed-in account, External included.
+          {countLine(report.unscoped.any_caller_endpoints, "authenticated endpoint", "authenticated endpoints")} open to
+          every authenticated caller of an internal persona.
+        </li>
+        <li>
+          {countLine(report.unscoped.anyone_endpoints, "endpoint", "endpoints")} open to anyone, with or without a bot
+          check.
         </li>
         <li>Per-connection limits and consent prompts.</li>
         <li>Rate limits.</li>

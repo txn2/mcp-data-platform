@@ -18,7 +18,7 @@ import { MapsCard } from "./MapsCard";
 import { NotificationChannelsCard } from "./NotificationChannelsCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
 import { ScriptRunAlertCard } from "./ScriptRunAlertCard";
-import { BotCheckSettingsCard } from "./BotCheckSettingsCard";
+import { BotChecksSettingsCard } from "./BotChecksSettingsCard";
 import { AccessRequestsSettingsCard } from "./AccessRequestsSettingsCard";
 import { StorageSettingsCard } from "./StorageSettingsCard";
 import { WebhookAlertCard } from "./WebhookAlertCard";
@@ -421,7 +421,7 @@ const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.Re
   webhooks: (ro) => <WebhookAlertCard isReadOnly={ro} />,
   storage: (ro) => <StorageSettingsCard isReadOnly={ro} />,
   maps: () => <MapsCard />,
-  "bot-check": (ro) => <BotCheckSettingsCard isReadOnly={ro} />,
+  "bot-checks": (ro) => <BotChecksSettingsCard isReadOnly={ro} />,
   "access-requests": (ro) => <AccessRequestsSettingsCard isReadOnly={ro} />,
 };
 

@@ -57,7 +57,7 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`^(GET|POST) /api/v1/admin/tables/`), "mountTableAdmin: the table registrar needs a Trino connection and an object store; the test platform has neither"},
 	{regexp.MustCompile(`^/endpoints/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^(GET|OPTIONS) /botcheck/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
-	{regexp.MustCompile(`^(GET|PUT) /api/v1/admin/settings/bot-check$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
+	{regexp.MustCompile(`^(GET|PUT|DELETE) /api/v1/admin/bot-checks(/\{name\})?$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^GET /api/v1/admin/endpoints(/\{name\})?$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^(GET|PUT|POST) /api/v1/portal/scripts/\{id\}/endpoint`), "bindinghttp: the script routes' endpoint deps come from Platform.Start, which this test does not run"},
 }

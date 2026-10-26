@@ -20,10 +20,10 @@ import (
 func TestRealDB_AnAnswerIsAcceptedOnceAcrossReplicas(t *testing.T) {
 	db := testdb.New(t)
 	ctx := context.Background()
-	replicas := []*Checker{New(db, key, nil), New(db, key, nil)}
-	low := *lowDifficulty()
-	require.NoError(t, replicas[0].Settings.Set(ctx, low, "admin@example.com"))
-	ch, err := replicas[0].Issue(ctx, "orders")
+	replicas := []*Checker{NewChecker(db, key, nil), NewChecker(db, key, nil)}
+	_, err := replicas[0].Checks.Put(ctx, lowDifficulty(), "admin@example.com")
+	require.NoError(t, err)
+	ch, err := replicas[0].Issue(ctx, DefaultName, "orders")
 	require.NoError(t, err)
 	answer := solve(ch.Token, ch.Difficulty)
 
@@ -33,7 +33,7 @@ func TestRealDB_AnAnswerIsAcceptedOnceAcrossReplicas(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			switch err := replicas[i%2].Verify(ctx, "orders", answer); err {
+			switch err := replicas[i%2].Verify(ctx, DefaultName, "orders", answer); err {
 			case nil:
 				accepted.Add(1)
 			case ErrReplayed:

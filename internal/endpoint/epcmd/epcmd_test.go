@@ -3,6 +3,7 @@ package epcmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -100,7 +101,12 @@ var lookup = &script.Script{ID: "s1", Name: "lookup", Source: "def handle(req):\
 func handler(s *store) *Handler {
 	return &Handler{
 		Store: s, BaseURL: "https://data.example.com",
-		PublicAllowed: func(context.Context) (bool, error) { return true, nil },
+		CheckUsable: func(_ context.Context, name string) error {
+			if name != "default" {
+				return errors.New("no bot check is named " + name)
+			}
+			return nil
+		},
 	}
 }
 
@@ -110,12 +116,20 @@ func setReq(in Input) Request {
 
 func TestRun_SetStoresTheBindingAndReportsItsAddress(t *testing.T) {
 	s := newStore()
-	out, err := handler(s).Run(context.Background(), setReq(Input{Endpoint: "orders", AuthMode: epbinding.AuthSignedIn, RateLimit: 50, CallerRateLimit: 5}))
+	out, err := handler(s).Run(context.Background(), setReq(Input{Endpoint: "orders", AuthMode: epbinding.AuthAuthenticated, RateLimit: 50, CallerRateLimit: 5}))
 	require.NoError(t, err)
 	assert.Equal(t, "https://data.example.com/endpoints/orders", out["url"])
 	assert.Equal(t, "lookup now answers GET at https://data.example.com/endpoints/orders.", out["message"])
 	assert.Equal(t, 50, s.byScript["s1"].RateLimit)
 	assert.Equal(t, "orders", handler(s).Bound(context.Background(), "s1"))
+
+	out, err = handler(s).Run(context.Background(), setReq(Input{
+		AuthMode: epbinding.AuthBotCheck, BotCheck: "default", Methods: []string{"GET", "POST"}, CheckedMethods: []string{"POST"},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "default", out["bot_check"])
+	assert.Equal(t, []string{"POST"}, out["checked_methods"])
+	assert.Equal(t, []string{}, out["callers"])
 	assert.Empty(t, handler(s).Bound(context.Background(), "s2"))
 }
 
@@ -130,7 +144,7 @@ func TestRun_RefusesANonAdministratorsWrite(t *testing.T) {
 
 func TestRun_SetRefusals(t *testing.T) {
 	ctx := context.Background()
-	in := Input{Endpoint: "orders", AuthMode: epbinding.AuthSignedIn}
+	in := Input{Endpoint: "orders", AuthMode: epbinding.AuthAuthenticated}
 
 	_, err := handler(newStore()).Run(ctx, Request{
 		Command: CmdSet, Input: in, Admin: true,
@@ -143,12 +157,19 @@ func TestRun_SetRefusals(t *testing.T) {
 	_, err = handler(s).Run(ctx, setReq(in))
 	require.ErrorContains(t, err, "failed to read the current binding")
 
-	h := handler(newStore())
-	h.PublicAllowed = func(context.Context) (bool, error) { return false, errors.New("boom") }
-	_, err = h.Run(ctx, setReq(in))
-	require.ErrorContains(t, err, "bot check settings")
+	_, err = handler(newStore()).Run(ctx, setReq(Input{Endpoint: "orders", AuthMode: epbinding.AuthBotCheck, BotCheck: "gone"}))
+	require.ErrorContains(t, err, "no bot check is named gone")
 
-	_, err = handler(newStore()).Run(ctx, setReq(Input{Endpoint: "Bad Name", AuthMode: epbinding.AuthSignedIn}))
+	_, err = handler(newStore()).Run(ctx, setReq(Input{Endpoint: "orders", AuthMode: "signed_in"}))
+	require.ErrorContains(t, err, `auth mode "signed_in" is not one of`)
+
+	s = newStore()
+	s.setErr = fmt.Errorf("bot check %q: %w", "default", epbinding.ErrNoSuchCheck)
+	_, err = handler(s).Run(ctx, setReq(Input{Endpoint: "orders", AuthMode: epbinding.AuthBotCheck, BotCheck: "default"}))
+	require.ErrorIs(t, err, epbinding.ErrNoSuchCheck)
+	require.NotErrorIs(t, err, ErrStore, "the caller named a check that does not exist; the store did not fail")
+
+	_, err = handler(newStore()).Run(ctx, setReq(Input{Endpoint: "Bad Name", AuthMode: epbinding.AuthAuthenticated}))
 	require.ErrorContains(t, err, "lowercase")
 
 	s = newStore()
@@ -167,7 +188,7 @@ func TestRun_EnableAndDisable(t *testing.T) {
 	_, err := h.Run(ctx, Request{Command: CmdDisable, Script: lookup, Admin: true})
 	require.ErrorContains(t, err, "not bound to an endpoint")
 
-	_, err = h.Run(ctx, setReq(Input{Endpoint: "orders", AuthMode: epbinding.AuthSignedIn}))
+	_, err = h.Run(ctx, setReq(Input{Endpoint: "orders", AuthMode: epbinding.AuthAuthenticated}))
 	require.NoError(t, err)
 	out, err := h.Run(ctx, Request{Command: CmdDisable, Script: lookup, Admin: true})
 	require.NoError(t, err)
@@ -187,7 +208,7 @@ func TestRun_List(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, false, out["bound"])
 
-	_, err = h.Run(ctx, setReq(Input{Endpoint: "orders", AuthMode: epbinding.AuthSignedIn}))
+	_, err = h.Run(ctx, setReq(Input{Endpoint: "orders", AuthMode: epbinding.AuthAuthenticated}))
 	require.NoError(t, err)
 	out, err = h.Run(ctx, Request{Command: CmdList, Script: lookup})
 	require.NoError(t, err)
@@ -240,10 +261,10 @@ func TestRun_List(t *testing.T) {
 func TestPropertiesCoverTheInput(t *testing.T) {
 	props := Properties()
 	for _, name := range []string{
-		"endpoint", "methods", "path", "auth_mode", "open_reads", "max_memory_bytes",
+		"endpoint", "methods", "path", "auth_mode", "callers", "bot_check", "checked_methods", "max_memory_bytes",
 		"max_body_bytes", "allowed_origins", "rate_limit", "caller_rate_limit",
 	} {
 		assert.Contains(t, props, name)
 	}
-	assert.Len(t, props, 10)
+	assert.Len(t, props, 12)
 }

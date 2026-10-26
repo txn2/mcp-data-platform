@@ -57,8 +57,8 @@ function report(over: Partial<EffectiveAccess> = {}): EffectiveAccess {
     portal: { stored: {}, effective: {}, capped_by_external: [] },
     sharing: true,
     resource_scopes: ["user", "persona:analyst", "global"],
-    references: { secrets: { named: [], unrestricted: 0 }, script_grants: 0, script_versions: 0, prompts: 0, shares: 0, webhook_sources: [], api_keys: 0, people: [] },
-    unscoped: { signed_in_endpoints: 0 },
+    references: { secrets: { named: [], unrestricted: 0 }, script_grants: 0, script_versions: 0, prompts: 0, shares: 0, webhook_sources: [], endpoints: [], api_keys: 0, people: [] },
+    unscoped: { any_caller_endpoints: 0, anyone_endpoints: 0 },
     ...over,
   };
 }
@@ -179,12 +179,20 @@ describe("access summary", () => {
       ...report().references,
       secrets: { named: ["crm-token"], unrestricted: 2 },
       webhook_sources: ["stripe-events"],
+      endpoints: ["store-lookup"],
       api_keys: 1,
     }).map((l) => l.text);
+    expect(lines).toContain("Endpoints admitting this persona: store-lookup");
     expect(lines).toContain("Stored secrets naming this persona: crm-token");
     expect(lines).toContain("2 stored secrets name no persona, so this one may use them");
     expect(lines).toContain("Webhook sources writing to its folder: stripe-events");
     expect(lines).toContain("1 API key resolves here");
+  });
+
+  it("counts the endpoints no persona setting governs (#2259)", () => {
+    render(<AccessSummary draft={draft()} report={report({ unscoped: { any_caller_endpoints: 1, anyone_endpoints: 3 } })} isLoading={false} />);
+    expect(screen.getByText(/1 authenticated endpoint open to every authenticated caller/)).toBeTruthy();
+    expect(screen.getByText(/3 endpoints open to anyone, with or without a bot check/)).toBeTruthy();
   });
 
   it("says what the scratch tables allow", () => {

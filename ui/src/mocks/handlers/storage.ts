@@ -1,12 +1,13 @@
 import { http, HttpResponse } from "msw";
-import type { BotCheckSettings, BotCheckSettingsInput, StorageSettings, WebhookAlertSettings } from "@/api/admin/types";
+import type { BotCheck, BotCheckInput, StorageSettings, WebhookAlertSettings } from "@/api/admin/types";
+import { mockAdminEndpoints } from "../data/endpoints";
 import { mockStorageHistory, mockStorageReport, mockStorageSettings } from "../data/storage";
 
 // Storage capacity (#2148), the webhook alerts' settings (#2149) and the
-// bot check a public endpoint requires (#2173):
+// named bot checks a bot_check endpoint picks from (#2173, #2259):
 //   GET /storage, GET /storage/history
 //   GET|PUT /settings/storage, GET|PUT /settings/webhook-alert
-//   GET|PUT /settings/bot-check
+//   GET /bot-checks, GET|PUT|DELETE /bot-checks/{name}
 
 const ADMIN_BASE = "/api/v1/admin";
 
@@ -32,39 +33,92 @@ const webhookAlert: WebhookAlertSettings = {
   updated_at: "2026-10-12T10:00:00Z",
 };
 
-const botCheck: BotCheckSettings = {
-  provider: "pow",
-  site_key: "",
-  secret_name: "",
-  allow_public_without_check: false,
-  difficulty: 16,
-  max_difficulty: 22,
-  rate_threshold: 30,
-  challenge_ttl_seconds: 300,
-  updated_by: "sarah.chen@example.com",
-  updated_at: "2026-10-16T09:00:00Z",
-  key_available: true,
-  public_allowed: true,
-};
+// botChecks are the named checks; used_by is read from the endpoints that
+// name each, as the server does.
+const botChecks: Omit<BotCheck, "used_by" | "usable">[] = [
+  {
+    name: "default",
+    provider: "pow",
+    site_key: "",
+    secret_name: "",
+    difficulty: 16,
+    max_difficulty: 22,
+    rate_threshold: 30,
+    challenge_ttl_seconds: 300,
+    updated_by: "sarah.chen@example.com",
+    updated_at: "2026-10-16T09:00:00Z",
+  },
+  {
+    name: "signup",
+    provider: "turnstile",
+    site_key: "0x4AAAAAAAexample",
+    secret_name: "turnstile-key",
+    difficulty: 16,
+    max_difficulty: 22,
+    rate_threshold: 30,
+    challenge_ttl_seconds: 300,
+    updated_by: "sarah.chen@example.com",
+    updated_at: "2026-10-20T14:00:00Z",
+  },
+];
+
+function checkView(c: Omit<BotCheck, "used_by" | "usable">): BotCheck {
+  const used_by = mockAdminEndpoints.filter((e) => e.bot_check === c.name).map((e) => e.name);
+  return { ...c, used_by, usable: true };
+}
 
 const badRequest = (detail: string) =>
   HttpResponse.json({ type: "about:blank", title: "Bad Request", status: 400, detail }, { status: 400 });
 
 export const storageHandlers = [
-  http.get(`${ADMIN_BASE}/settings/bot-check`, () => HttpResponse.json(botCheck)),
+  http.get(`${ADMIN_BASE}/bot-checks`, () =>
+    HttpResponse.json({ checks: botChecks.map(checkView), key_available: true }),
+  ),
 
-  http.put(`${ADMIN_BASE}/settings/bot-check`, async ({ request }) => {
-    const body = (await request.json()) as BotCheckSettingsInput;
-    const next = { ...botCheck, ...body };
-    if ((next.provider === "turnstile" || next.provider === "hcaptcha") && (!next.site_key || !next.secret_name)) {
-      return badRequest(`provider ${next.provider} needs a site_key and secret_name`);
-    }
-    Object.assign(botCheck, next, {
-      public_allowed: next.provider !== "none" || next.allow_public_without_check,
+  http.get(`${ADMIN_BASE}/bot-checks/:name`, ({ params }) => {
+    const c = botChecks.find((x) => x.name === params.name);
+    if (!c) return HttpResponse.json({ status: 404, detail: "no bot check has this name" }, { status: 404 });
+    return HttpResponse.json(checkView(c));
+  }),
+
+  http.put(`${ADMIN_BASE}/bot-checks/:name`, async ({ params, request }) => {
+    const name = String(params.name);
+    const body = (await request.json()) as BotCheckInput;
+    const prev = botChecks.find((x) => x.name === name);
+    const base = prev ?? {
+      name, provider: "pow" as const, site_key: "", secret_name: "", difficulty: 16, max_difficulty: 22,
+      rate_threshold: 30, challenge_ttl_seconds: 300,
+    };
+    const next: Omit<BotCheck, "used_by" | "usable"> = {
+      ...base,
+      ...Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)),
       updated_by: "sarah.chen@example.com",
       updated_at: new Date().toISOString(),
-    });
-    return HttpResponse.json(botCheck);
+    };
+    if (next.provider !== "pow" && (!next.site_key || !next.secret_name)) {
+      return badRequest(`provider ${next.provider} needs a site_key and secret_name`);
+    }
+    if (prev) Object.assign(prev, next);
+    else botChecks.push(next);
+    return HttpResponse.json(checkView(next));
+  }),
+
+  http.delete(`${ADMIN_BASE}/bot-checks/:name`, ({ params }) => {
+    const i = botChecks.findIndex((x) => x.name === params.name);
+    const found = botChecks[i];
+    if (!found) return HttpResponse.json({ status: 404, detail: "no bot check has this name" }, { status: 404 });
+    const view = checkView(found);
+    if (view.used_by.length > 0) {
+      return HttpResponse.json(
+        {
+          status: 409,
+          detail: `bot check "${view.name}" is used by the endpoints ${view.used_by.join(", ")}: bind them to another check first`,
+        },
+        { status: 409 },
+      );
+    }
+    botChecks.splice(i, 1);
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.get(`${ADMIN_BASE}/storage`, () => HttpResponse.json(mockStorageReport())),

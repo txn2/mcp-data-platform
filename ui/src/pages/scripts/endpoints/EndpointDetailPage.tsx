@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { adminEndpointsKey, useAdminEndpoint } from "@/api/admin/hooks";
 import type {
+  BotCheckProvider,
   AdminEndpointDetail,
   EndpointBucket,
   EndpointRange,
@@ -30,12 +31,19 @@ import {
 } from "@/components/ui/table";
 import { bucketLabel } from "@/pages/webhooks/historySeries";
 import { formatWhen } from "../runFormat";
-import { ENDPOINTS_PATH, formatMs, refusalLabel } from "./endpointLabels";
+import {
+  ENDPOINTS_PATH,
+  PROVIDER_LABELS,
+  PUBLIC_NOTE,
+  callersSummary,
+  formatMs,
+  refusalLabel,
+} from "./endpointLabels";
 import { AccessBadge, RANGE_OPTIONS } from "./EndpointsTab";
 
 // EndpointDetailPage is one endpoint (#2208): its binding, its automation,
 // the requests it answered over the range by status class beside the ones it
-// refused before its handler ran, how long they took, its busiest signed-in
+// refused before its handler ran, how long they took, its busiest authenticated
 // callers, and the requests that failed. An administrator turns it on and off
 // here, and edits it on its automation's page, the one form that sets a
 // binding.
@@ -100,7 +108,7 @@ function EndpointBody({
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="font-mono text-lg font-semibold">{e.name}</h2>
-          <AccessBadge mode={e.auth_mode} />
+          <AccessBadge endpoint={e} />
           <span className="text-sm text-muted-foreground">
             {e.enabled ? "On" : "Off"}
           </span>
@@ -109,6 +117,7 @@ function EndpointBody({
           {e.methods.join(", ")} {e.url}
           {e.path}
         </p>
+        <AccessLine endpoint={e} />
         <p className="text-sm">
           Runs{" "}
           <button
@@ -134,7 +143,7 @@ function EndpointBody({
         <SectionCard title="Refused before the handler">
           <Refusals byReason={e.refused_by_reason} />
         </SectionCard>
-        {e.auth_mode === "signed_in" && (
+        {e.auth_mode === "authenticated" && (
           <SectionCard title="Top callers">
             <TopCallers callers={e.top_callers} />
           </SectionCard>
@@ -144,6 +153,35 @@ function EndpointBody({
         <Failures failures={e.failures} />
       </SectionCard>
     </>
+  );
+}
+
+/**
+ * AccessLine says who the endpoint answers (#2259): an authenticated one's
+ * callers, a bot_check one's check, its provider and the methods it checks,
+ * or that a public one answers anyone with no check.
+ */
+function AccessLine({ endpoint: e }: { endpoint: AdminEndpointDetail }) {
+  let text: string;
+  switch (e.auth_mode) {
+    case "authenticated":
+      text = `Admits: ${callersSummary(e.callers)}.`;
+      break;
+    case "bot_check": {
+      const provider = e.bot_check_provider
+        ? PROVIDER_LABELS[e.bot_check_provider as BotCheckProvider] ?? e.bot_check_provider
+        : "";
+      const methods = e.checked_methods.length === 0 ? "every method" : e.checked_methods.join(", ");
+      text = `Requires the bot check ${e.bot_check}${provider ? ` (${provider})` : ""} on ${methods}.`;
+      break;
+    }
+    default:
+      text = PUBLIC_NOTE;
+  }
+  return (
+    <p className="text-sm" data-testid="endpoint-access">
+      {text}
+    </p>
   );
 }
 
@@ -311,7 +349,7 @@ function TopCallers({
   if (callers.length === 0)
     return (
       <p className="text-sm text-muted-foreground">
-        No signed-in caller in this range.
+        No authenticated caller in this range.
       </p>
     );
   return (
