@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuthStore } from "@/stores/auth";
-import { ScriptEndpointCard } from "./ScriptEndpointCard";
+import { ScriptEndpointSections } from "./ScriptEndpointSections";
 import { scheduleLine } from "./cadence";
 import { executionState, formatWhen } from "./runFormat";
 import { ScriptDelete } from "./ScriptDelete";
@@ -165,7 +165,7 @@ function ScriptDetail({
 
       {/* Its endpoint (#2171): what an HTTP request to /endpoints/{name}
           runs, read by its owner and bound only by an administrator. */}
-      {runs && <ScriptEndpointCard key={`endpoint-${scriptId}`} scriptId={scriptId} />}
+      {runs && <ScriptEndpointSections scriptId={scriptId} />}
 
       <ScriptDocumentation scriptId={scriptId} contract={contract} owned={owned} />
 

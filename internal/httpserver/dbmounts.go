@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessreqwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/formwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personashare"
@@ -31,6 +32,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/submissionshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/userkeywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
@@ -122,6 +124,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		// reader and blob client are the resource layer's, not the portal's:
 		// a reference points at a resource, which lives in its own bucket.
 		ContentRefs:      p.PortalContentRefStore(),
+		FormViewerKey:    formwire.ViewerKey(p),
 		ResourceReader:   p.ResourceStore(),
 		ResourceBlobs:    p.ResourceS3Client(),
 		ResourceS3Bucket: p.Config().Resources.Managed.S3Bucket,
@@ -305,6 +308,8 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap f
 	flowhttp.ForPortal(scripts, deps, p.Audit().Reader(), thumbwire.ScriptTiles(p)).RegisterPortal(mux, wrap)
 	// What a run posted to notification channels (#1723).
 	postshttp.ForPortal(scripts, deps, notifywire.RunPosts(p)).Register(mux, wrap)
+	// A form's stored submissions and their export (#2180), the owner's.
+	submissionshttp.ForPortal(scripts, deps, formwire.Submissions(p)).Register(mux, wrap)
 }
 
 // scriptDeps assembles the surface-independent script handler dependencies,

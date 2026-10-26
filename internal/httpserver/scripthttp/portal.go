@@ -1184,6 +1184,12 @@ func (h *Handler) requester(w http.ResponseWriter, r *http.Request) (requester s
 	return user.owner(), user.IsAdmin, true
 }
 
+// OwnedByCaller is ownedByCaller for a route package the composition root
+// mounts beside this one (#2180).
+func (h *Handler) OwnedByCaller(w http.ResponseWriter, r *http.Request) (scriptID, actor string, ok bool) {
+	return h.ownedByCaller(w, r)
+}
+
 // ownedByCaller is ownedScript for a route mounted outside this package: it
 // resolves the caller too, answering 401 when there is none, and reports the
 // script's id and the caller's identity.

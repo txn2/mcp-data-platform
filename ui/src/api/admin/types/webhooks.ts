@@ -5,9 +5,19 @@
 
 export type WebhookAuthMode = "hmac" | "header_token" | "basic" | "path_token" | "imap";
 
-/** WebhookInput is where a source's events come from: posted to it, or read
- * from a mailbox the platform polls, each message one event (#2247). */
-export type WebhookInput = "http" | "imap";
+/** WebhookInput is where a source's events come from: posted to it, read
+ * from a mailbox the platform polls, each message one event (#2247), or a
+ * form's accepted submissions, each one event (#2178). */
+export type WebhookInput = "http" | "imap" | "form";
+
+/** WebhookFormBinding is the form a form's source collects for (#2178); the
+ * platform makes the source when the form is bound to an endpoint. */
+export interface WebhookFormBinding {
+  script_id: string;
+  endpoint: string;
+  /** The personas a script may decrypt the form's sensitive fields as. */
+  decrypt_personas?: string[];
+}
 
 /** WebhookIMAP is the mailbox an imap source polls. The login is the source's
  * auth: mode imap, its username, and its password as the write-only secret. */
@@ -60,6 +70,7 @@ export interface WebhookConfig {
   /** Absent is http. */
   input?: WebhookInput;
   imap?: WebhookIMAP;
+  form?: WebhookFormBinding;
   handshake?: "none" | "cloudevents";
   max_body_bytes?: number;
   split?: string;
@@ -85,7 +96,7 @@ export interface WebhookSource {
   name: string;
   enabled: boolean;
   connection: string;
-  /** Where the sender posts, relative to the platform's address; empty for an imap source. */
+  /** Where the sender posts, relative to the platform's address; empty for an imap or form source. */
   path: string;
   /** What readers query, in the connection's scratch schema. */
   table: string;
@@ -161,7 +172,8 @@ export interface WebhookSourceDetail {
 }
 
 export interface WebhookAuthInput {
-  mode: WebhookAuthMode;
+  /** Empty for a form's source, which takes no auth. */
+  mode: WebhookAuthMode | "";
   /** Write-only. Empty on an update keeps the stored secret. */
   secret?: string;
   algorithm?: string;

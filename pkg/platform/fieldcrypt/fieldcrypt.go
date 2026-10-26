@@ -10,6 +10,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -117,17 +118,42 @@ func SensitiveConfigKeyList() []string {
 // FieldEncryptor encrypts and decrypts sensitive fields within connection config maps.
 // Uses AES-256-GCM with a random nonce per encryption. The encrypted value is stored
 // as "enc:" + base64(nonce + ciphertext).
+//
+// A key is rotated by making the new key current and passing the old one as a
+// previous key: every value is encrypted with the current key, and a value the
+// current key does not open is opened with each previous key in turn. GCM
+// authenticates, so a key that did not encrypt a value fails to open it rather
+// than yielding garbage, and the stored form needs no key id.
 type FieldEncryptor struct {
-	gcm cipher.AEAD
+	gcm      cipher.AEAD
+	previous []cipher.AEAD
 }
 
-// NewFieldEncryptor creates an encryptor from a 32-byte (AES-256) key.
-// The key should come from the ENCRYPTION_KEY environment variable.
+// NewFieldEncryptor creates an encryptor from a 32-byte (AES-256) key, and the
+// keys it replaced, which only decrypt.
+// The key should come from the ENCRYPTION_KEY environment variable and the
+// previous keys from ENCRYPTION_KEY_PREVIOUS.
 // Returns nil if the key is empty (encryption disabled — values stored in plain text).
-func NewFieldEncryptor(key []byte) (*FieldEncryptor, error) {
+func NewFieldEncryptor(key []byte, previous ...[]byte) (*FieldEncryptor, error) {
 	if len(key) == 0 {
 		return nil, nil //nolint:nilnil // nil encryptor = encryption disabled
 	}
+	gcm, err := newGCM(key)
+	if err != nil {
+		return nil, err
+	}
+	e := &FieldEncryptor{gcm: gcm}
+	for i, k := range previous {
+		old, err := newGCM(k)
+		if err != nil {
+			return nil, fmt.Errorf("previous key %d: %w", i+1, err)
+		}
+		e.previous = append(e.previous, old)
+	}
+	return e, nil
+}
+
+func newGCM(key []byte) (cipher.AEAD, error) {
 	if len(key) != KeyLength {
 		return nil, fmt.Errorf("encryption key must be exactly %d bytes (got %d)", KeyLength, len(key))
 	}
@@ -141,8 +167,7 @@ func NewFieldEncryptor(key []byte) (*FieldEncryptor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating GCM: %w", err)
 	}
-
-	return &FieldEncryptor{gcm: gcm}, nil
+	return gcm, nil
 }
 
 // EncryptSensitiveFields returns a copy of the config map with sensitive field values encrypted.
@@ -285,7 +310,8 @@ func (e *FieldEncryptor) encrypt(plaintext string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// decrypt decodes base64, splits nonce + ciphertext, and decrypts with AES-256-GCM.
+// decrypt decodes base64, splits nonce + ciphertext, and decrypts with AES-256-GCM:
+// with the current key, else with each previous key in turn.
 func (e *FieldEncryptor) decrypt(encoded string) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
@@ -299,6 +325,12 @@ func (e *FieldEncryptor) decrypt(encoded string) (string, error) {
 
 	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
 	plaintext, err := e.gcm.Open(nil, nonce, ciphertext, nil)
+	for _, old := range e.previous {
+		if err == nil {
+			break
+		}
+		plaintext, err = old.Open(nil, nonce, ciphertext, nil)
+	}
 	if err != nil {
 		return "", fmt.Errorf("decrypting: %w", err)
 	}
@@ -356,4 +388,71 @@ func (g *RestFieldEncryptor) Decrypt(ciphertext string) (string, error) {
 		return "", fmt.Errorf("rest field decrypt: %w", err)
 	}
 	return out, nil
+}
+
+// ErrDisabled is a value that must be encrypted on a deployment with no
+// encryption key.
+var ErrDisabled = errors.New("encryption is not configured: the platform needs ENCRYPTION_KEY")
+
+// Enabled reports whether the encryptor holds a key. Encrypt and Decrypt pass
+// values through without one; Seal and Open refuse.
+func (g *RestFieldEncryptor) Enabled() bool {
+	return g != nil && g.enc != nil
+}
+
+// Seal encrypts a value someone else wrote, whatever it holds: unlike
+// Encrypt it never takes a value that already reads "enc:..." as encrypted,
+// so text typed into a form cannot pass through as plaintext by looking like
+// ciphertext. ErrDisabled with no key.
+func (g *RestFieldEncryptor) Seal(plaintext string) (string, error) {
+	if !g.Enabled() {
+		return "", ErrDisabled
+	}
+	out, err := g.enc.encrypt(plaintext)
+	if err != nil {
+		return "", fmt.Errorf("rest field seal: %w", err)
+	}
+	return encryptedPrefix + out, nil
+}
+
+// Open decrypts a value Seal wrote, with the current key or a previous one.
+// ErrDisabled with no key; a value that is not "enc:..." is refused rather
+// than returned, since it was never sealed.
+func (g *RestFieldEncryptor) Open(sealed string) (string, error) {
+	if !g.Enabled() {
+		return "", ErrDisabled
+	}
+	if !strings.HasPrefix(sealed, encryptedPrefix) {
+		return "", errors.New("rest field open: the value is not encrypted")
+	}
+	out, err := g.enc.decrypt(strings.TrimPrefix(sealed, encryptedPrefix))
+	if err != nil {
+		return "", fmt.Errorf("rest field open: %w", err)
+	}
+	return out, nil
+}
+
+// DecodeKey reads a key as ENCRYPTION_KEY holds it: hex (64 characters),
+// then base64 (44 characters), then the raw bytes.
+func DecodeKey(keyStr string) []byte {
+	if key, err := hex.DecodeString(keyStr); err == nil && len(key) == KeyLength {
+		return key
+	}
+	if key, err := base64.StdEncoding.DecodeString(keyStr); err == nil && len(key) == KeyLength {
+		return key
+	}
+	return []byte(keyStr)
+}
+
+// DecodeKeys reads ENCRYPTION_KEY_PREVIOUS: the keys ENCRYPTION_KEY replaced,
+// comma-separated, each in any form DecodeKey reads. They only decrypt, so a
+// value written before a rotation still reads.
+func DecodeKeys(list string) [][]byte {
+	var keys [][]byte
+	for k := range strings.SplitSeq(list, ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			keys = append(keys, DecodeKey(k))
+		}
+	}
+	return keys
 }

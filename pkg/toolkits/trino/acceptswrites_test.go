@@ -47,3 +47,25 @@ func TestAcceptsWrites_BlanketReadOnlyRefuses(t *testing.T) {
 		t.Error("a blanket read-only toolkit accepted writes")
 	}
 }
+
+// ScratchConnections lists what a form's source could be created on: a
+// scratch catalog and schema, and writes accepted.
+func TestScratchConnections(t *testing.T) {
+	tk := &Toolkit{
+		name:     "primary",
+		readOnly: NewConnectionReadOnlyInterceptor("primary", map[string]bool{"primary": false, "locked": true, "lake": false, "half": false}),
+		scratch: map[string]ScratchConfig{
+			"primary": {Catalog: "hive", Schema: "scratch"},
+			"locked":  {Catalog: "hive", Schema: "scratch"},
+			"lake":    {Catalog: "lake", Schema: "s"},
+			"half":    {Catalog: "hive"},
+		},
+	}
+	got := tk.ScratchConnections()
+	if len(got) != 2 || got[0] != "lake" || got[1] != "primary" {
+		t.Errorf("ScratchConnections() = %v, want [lake primary]", got)
+	}
+	if got := (&Toolkit{name: "primary"}).ScratchConnections(); len(got) != 0 {
+		t.Errorf("a toolkit with no scratch target listed %v", got)
+	}
+}

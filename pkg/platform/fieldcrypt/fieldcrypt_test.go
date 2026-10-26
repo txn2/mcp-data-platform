@@ -2,6 +2,7 @@ package fieldcrypt
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -373,4 +374,91 @@ func TestFieldEncryptor_WrongKeyFailsDecrypt(t *testing.T) {
 	_, err = e2.DecryptSensitiveFields(encrypted)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "decrypting")
+}
+
+// TestFieldEncryptor_Rotation is a key rotation: a value written under the old
+// key reads once that key is a previous key, a new value is written under the
+// new key alone, and a key that wrote neither opens nothing.
+func TestFieldEncryptor_Rotation(t *testing.T) {
+	oldKey, newKey := testKey(t), testKey(t)
+	before, err := NewFieldEncryptor(oldKey)
+	require.NoError(t, err)
+	written, err := before.EncryptSensitiveFields(map[string]any{"password": "before-rotation"})
+	require.NoError(t, err)
+
+	after, err := NewFieldEncryptor(newKey, oldKey)
+	require.NoError(t, err)
+	read, err := after.DecryptSensitiveFields(written)
+	require.NoError(t, err)
+	assert.Equal(t, "before-rotation", read["password"])
+
+	fresh, err := after.EncryptSensitiveFields(map[string]any{"password": "after-rotation"})
+	require.NoError(t, err)
+	_, err = before.DecryptSensitiveFields(fresh)
+	require.Error(t, err, "a new value is written under the new key, which the old key does not open")
+
+	newOnly, err := NewFieldEncryptor(newKey)
+	require.NoError(t, err)
+	_, err = newOnly.DecryptSensitiveFields(written)
+	require.Error(t, err, "without the previous key the old value does not open")
+}
+
+func TestNewFieldEncryptor_PreviousKeyLength(t *testing.T) {
+	_, err := NewFieldEncryptor(testKey(t), []byte("short"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "previous key 1")
+}
+
+func TestRestFieldEncryptor_SealOpen(t *testing.T) {
+	enc, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+	r := NewRestFieldEncryptor(enc)
+	require.True(t, r.Enabled())
+
+	// A value that looks like ciphertext is sealed like any other.
+	sealed, err := r.Seal("enc:not-really")
+	require.NoError(t, err)
+	assert.NotEqual(t, "enc:not-really", sealed)
+	assert.True(t, strings.HasPrefix(sealed, "enc:"))
+	opened, err := r.Open(sealed)
+	require.NoError(t, err)
+	assert.Equal(t, "enc:not-really", opened)
+
+	empty, err := r.Seal("")
+	require.NoError(t, err)
+	got, err := r.Open(empty)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	_, err = r.Open("plaintext")
+	require.Error(t, err)
+	_, err = r.Open("enc:!!!")
+	require.Error(t, err)
+
+	off := NewRestFieldEncryptor(nil)
+	assert.False(t, off.Enabled())
+	_, err = off.Seal("x")
+	require.ErrorIs(t, err, ErrDisabled)
+	_, err = off.Open("enc:x")
+	require.ErrorIs(t, err, ErrDisabled)
+}
+
+func TestDecodeKey(t *testing.T) {
+	hexKey := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	assert.Len(t, DecodeKey(hexKey), KeyLength, "hex")
+	raw := make([]byte, KeyLength)
+	for i := range raw {
+		raw[i] = byte(i)
+	}
+	assert.Equal(t, raw, DecodeKey(base64.StdEncoding.EncodeToString(raw)), "base64")
+	assert.Equal(t, []byte("01234567890123456789012345678901"), DecodeKey("01234567890123456789012345678901"), "raw bytes")
+}
+
+func TestDecodeKeys(t *testing.T) {
+	hexKey := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	keys := DecodeKeys(" " + hexKey + " ,, 01234567890123456789012345678901")
+	require.Len(t, keys, 2)
+	assert.Len(t, keys[0], KeyLength)
+	assert.Len(t, keys[1], KeyLength)
+	assert.Empty(t, DecodeKeys(""), "an unset ENCRYPTION_KEY_PREVIOUS is no key")
 }

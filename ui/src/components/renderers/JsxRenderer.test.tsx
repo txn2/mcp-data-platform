@@ -3,6 +3,7 @@ import { render } from "@testing-library/react";
 import {
   JsxRenderer,
   buildCSP,
+  formSource,
   buildJsxIframeHtml,
   refSource,
   transformJsx,
@@ -283,11 +284,21 @@ describe("buildCSP: the reference route", () => {
 
   it("grants the path, never the origin", () => {
     const csp = buildCSP(origin);
-    // Every mention of the platform origin carries the reference path with it,
-    // so the frame cannot reach the portal API or the admin API.
+    // Every mention of the platform origin carries the reference path, or the
+    // form page path a frame may frame (#2177), so the frame cannot reach the
+    // portal API or the admin API.
     for (const mention of csp.split(/[\s;]+/).filter((t) => t.startsWith(origin))) {
-      expect(mention).toBe(`${origin}/portal/refs/`);
+      expect([`${origin}/portal/refs/`, `${origin}/portal/forms/`]).toContain(mention);
     }
+  });
+
+  it("frames the form pages and nothing else", () => {
+    const frame = buildCSP(origin)
+      .split("; ")
+      .find((d) => d.startsWith("frame-src"));
+    expect(frame).toBe(`frame-src ${origin}/portal/forms/`);
+    expect(buildCSP("")).not.toContain("frame-src");
+    expect(formSource("null")).toBe("");
   });
 
   it("keeps the frame denied where there is no origin to grant", () => {

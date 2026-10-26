@@ -11,9 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epsource"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -69,6 +72,11 @@ type Input struct {
 	AllowedOrigins  []string `json:"allowed_origins,omitempty"`
 	RateLimit       int      `json:"rate_limit,omitempty"`
 	CallerRateLimit int      `json:"caller_rate_limit,omitempty"`
+	// Connection and DecryptPersonas are a form's (#2178, #2179): the Trino
+	// connection its source's table is created on, and the personas a script
+	// run may decrypt its sensitive fields as (nil keeps them).
+	Connection      string   `json:"connection,omitempty"`
+	DecryptPersonas []string `json:"decrypt_personas,omitempty"`
 }
 
 // Request is one endpoint command.
@@ -99,6 +107,28 @@ type Handler struct {
 	BaseURL string
 	// ScriptName names a script a listing found by id; nil leaves names out.
 	ScriptName func(ctx context.Context, scriptID string) string
+
+	// forms makes a form's webhook source (SetForms); nil makes none.
+	forms atomic.Pointer[FormSources]
+}
+
+// FormSources makes the webhook source a form stores its submissions in
+// (epcollect.Maker).
+type FormSources interface {
+	Ensure(ctx context.Context, req epsource.SourceRequest) (epsource.SourceResult, error)
+	Find(ctx context.Context, scriptID string) (epsource.SourceResult, bool, error)
+	ConnectionChoices() []string
+}
+
+// SetForms is what makes a form's source from here on: the webhook
+// sources, which are assembled after the endpoint commands.
+func (h *Handler) SetForms(f FormSources) { h.forms.Store(&f) }
+
+func (h *Handler) formSources() FormSources {
+	if f := h.forms.Load(); f != nil {
+		return *f
+	}
+	return nil
 }
 
 // Run carries out req and returns the result manage_script answers with. An
@@ -160,7 +190,32 @@ func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) 
 	}
 	out := h.fields(sc.Name, b)
 	out["message"] = fmt.Sprintf("%s now answers %s at %s.", sc.Name, strings.Join(b.Methods, ", "), out["url"])
+	if err := h.formSource(ctx, req, b, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// formSource makes or updates the webhook source a form stores into, once
+// its binding is set, and reports it in out (#2178). A script that is not a
+// form, or a deployment with no webhook sources, has none.
+func (h *Handler) formSource(ctx context.Context, req Request, b *epbinding.Binding, out map[string]any) error {
+	forms := h.formSources()
+	if forms == nil || !epform.DefinesSource(req.Script.Source) {
+		return nil
+	}
+	res, err := forms.Ensure(ctx, epsource.SourceRequest{
+		ScriptID: req.Script.ID, Endpoint: b.Name, Connection: req.Input.Connection,
+		DecryptPersonas: req.Input.DecryptPersonas, Actor: req.Actor,
+	})
+	if err != nil {
+		return fmt.Errorf("%s is bound at %s, but its submissions have nowhere to be stored: %w; "+
+			"call endpoint_set again once that is fixed", req.Script.Name, out["url"], err)
+	}
+	out["form"] = res
+	out["message"] = fmt.Sprintf("%s Each accepted submission is stored as a row of %s on connection %s.",
+		out["message"], res.Table, res.Connection)
+	return nil
 }
 
 func (h *Handler) setEnabled(ctx context.Context, req Request) (map[string]any, error) {
@@ -178,7 +233,8 @@ func (h *Handler) setEnabled(ctx context.Context, req Request) (map[string]any, 
 func (h *Handler) one(ctx context.Context, sc *script.Script) (map[string]any, error) {
 	b, err := h.Store.Get(ctx, sc.ID)
 	if errors.Is(err, epbinding.ErrNotFound) {
-		return map[string]any{fieldName: sc.Name, "bound": false}, nil
+		out := map[string]any{fieldName: sc.Name, "bound": false}
+		return out, h.describeForm(ctx, sc, out)
 	}
 	if err != nil {
 		return nil, storeErr("failed to read the binding", err)
@@ -190,7 +246,29 @@ func (h *Handler) one(ctx context.Context, sc *script.Script) (map[string]any, e
 	out := h.fields(sc.Name, b)
 	out["bound"] = true
 	out["failures"] = failures
-	return out, nil
+	return out, h.describeForm(ctx, sc, out)
+}
+
+// describeForm says, of a script that is a form, where its submissions are
+// stored (form) or, before its source is made, which connections it could be
+// made on (form_connections) (#2178). A script that is not a form, or a
+// deployment with no webhook sources, says nothing.
+func (h *Handler) describeForm(ctx context.Context, sc *script.Script, out map[string]any) error {
+	forms := h.formSources()
+	if forms == nil || !epform.DefinesSource(sc.Source) {
+		return nil
+	}
+	out["is_form"] = true
+	res, found, err := forms.Find(ctx, sc.ID)
+	if err != nil {
+		return storeErr("failed to read the form's webhook source", err)
+	}
+	if found {
+		out["form"] = res
+		return nil
+	}
+	out["form_connections"] = forms.ConnectionChoices()
+	return nil
 }
 
 func (h *Handler) list(ctx context.Context, req Request) (map[string]any, error) {

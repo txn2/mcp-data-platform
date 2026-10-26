@@ -262,9 +262,9 @@ func TestPropertiesCoverTheInput(t *testing.T) {
 	props := Properties()
 	for _, name := range []string{
 		"endpoint", "methods", "path", "auth_mode", "callers", "bot_check", "checked_methods", "max_memory_bytes",
-		"max_body_bytes", "allowed_origins", "rate_limit", "caller_rate_limit",
+		"max_body_bytes", "allowed_origins", "rate_limit", "caller_rate_limit", "connection", "decrypt_personas",
 	} {
 		assert.Contains(t, props, name)
 	}
-	assert.Len(t, props, 12)
+	assert.Len(t, props, 14)
 }

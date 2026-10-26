@@ -28,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/endpointwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/formwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
@@ -228,6 +229,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 		return err
 	}
 	hooks.Mount(mux)
+	formwire.Attach(p, hooks) // a form stores its accepted submissions in a webhook source (#2178)
 	// The webhook receiver's alerts (#2149) post through the notification
 	// substrate; they start and stop with the receiver.
 	enableWebhookAlerts(hooks, p, notify)

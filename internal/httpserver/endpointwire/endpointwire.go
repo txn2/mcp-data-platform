@@ -13,6 +13,8 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/admin/botcheckapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/endpointapi"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epformpage"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/ephttp"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
@@ -65,11 +67,13 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 // mountOver registers the routes over the assembled feature; the settings
 // routes only when settings, the admin API's authentication, is not nil.
 func mountOver(mux *http.ServeMux, e *epwire.Endpoints, auth func(r *http.Request) (*eprun.Caller, error), settings func(http.Handler) http.Handler, author func(*http.Request) string) {
-	h := &ephttp.Handler{Runner: e.Runner, Checker: e.Checker, Authenticate: auth}
+	h := &ephttp.Handler{Runner: e.Runner, Checker: e.Checker, Authenticate: auth, ViewerKey: epform.ViewerKey(e.Runner.FormKey)}
 	if e.Refusals != nil {
 		h.Refused = e.Refusals.Refused
 	}
 	h.Mount(mux)
+	// The page a form is rendered on (#2177), with no session.
+	(&epformpage.Handler{Runner: e.Runner, BaseURL: e.Commands.BaseURL}).Mount(mux)
 	if settings == nil {
 		return
 	}

@@ -58,7 +58,7 @@ func TestTheStepCapHoldsOutsideATest(t *testing.T) {
 
 // A run binds testing and assert to a value that refuses every use.
 func TestTheTestModulesRefuseARun(t *testing.T) {
-	stub := testOnly(AssertName)
+	stub := scriptdialect.TestOnly(AssertName)
 	assert.Equal(t, "assert", stub.String())
 	assert.Equal(t, "module", stub.Type())
 	assert.Equal(t, starlark.True, stub.Truth())

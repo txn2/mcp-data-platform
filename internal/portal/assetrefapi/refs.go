@@ -379,6 +379,10 @@ func (h *handler) views(
 			fillResource(&view, resources[ref.TargetID], claims)
 		case assetrefs.TargetAsset:
 			h.fillAsset(r, &view, assets[ref.TargetID], user)
+		case assetrefs.TargetForm:
+			// A form is served by its endpoint, not through the reference: the
+			// row names it and links to its page (#2177).
+			view.DisplayName, view.ContentURL = ref.TargetID, assetrefs.FormPagePrefix+ref.TargetID
 		default:
 			view.Broken = true
 		}

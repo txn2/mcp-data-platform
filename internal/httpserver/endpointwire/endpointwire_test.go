@@ -105,6 +105,9 @@ func TestMount_TheEndpointAndSettingsRoutes(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/botcheck/solver.js", http.NoBody))
 	assert.Equal(t, http.StatusOK, rec.Code, "the bot check's script is served")
 	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/portal/forms/_/form.js", http.NoBody))
+	assert.Equal(t, http.StatusOK, rec.Code, "the form page's script is served (#2177)")
+	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/bot-checks", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, rec.Code, "no settings routes without the admin API")
 

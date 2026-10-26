@@ -113,7 +113,7 @@ const (
 var Capabilities = []string{
 	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
 	CapabilityCheckpoint, CapabilityRemainingMS, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
-	scripttoken.CapabilityMint, scripttoken.CapabilityVerify,
+	scripttoken.CapabilityMint, scripttoken.CapabilityVerify, scripttoken.CapabilityDecrypt,
 }
 
 // The formats platform.export accepts, split by what serializes them. A format

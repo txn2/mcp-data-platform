@@ -57,6 +57,24 @@ export interface ScriptEndpoint {
   updated_by?: string;
   updated_at?: string;
   failures?: EndpointFailure[];
+  /** is_form is whether the script defines form_spec and form_submit (#2176). */
+  is_form?: boolean;
+  /** form is where a form's submissions are stored, once its source is made
+   * (#2178). */
+  form?: FormSource;
+  /** form_connections are the connections a form's source can be made on,
+   * before it is. */
+  form_connections?: string[];
+}
+
+// FormSource is the webhook source a form's accepted submissions are stored
+// in (#2178), and the personas a script may decrypt its sensitive fields as
+// (#2179).
+export interface FormSource {
+  source: string;
+  table: string;
+  connection: string;
+  decrypt_personas: string[];
 }
 
 // ScriptEndpointInput is a binding set on a script; a field left out keeps
@@ -75,9 +93,14 @@ export interface ScriptEndpointInput {
   allowed_origins?: string[];
   rate_limit?: number;
   caller_rate_limit?: number;
+  /** connection is where a form's source is made, named once (#2178). */
+  connection?: string;
+  /** decrypt_personas replaces the personas a form's sensitive fields may be
+   * decrypted as (#2179); left out keeps them. */
+  decrypt_personas?: string[];
 }
 
-const endpointKey = (scriptID: string | null) => [...scriptsKey, scriptID, "endpoint"];
+export const endpointKey = (scriptID: string | null) => [...scriptsKey, scriptID, "endpoint"];
 
 // useScriptEndpoint reads a script's binding. A deployment that cannot bind
 // scripts answers 404, which reads here as null rather than as a failure.

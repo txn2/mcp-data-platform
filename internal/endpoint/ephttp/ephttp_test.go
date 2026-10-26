@@ -22,8 +22,10 @@ import (
 // request it was handed, so a test reads what the surface passed on.
 type runner struct {
 	bindings map[string]*epbinding.Binding
-	err      error
-	served   []eprun.Request
+	// forms names the bindings whose script is a form (#2176).
+	forms  map[string]bool
+	err    error
+	served []eprun.Request
 }
 
 func (f *runner) Resolve(_ context.Context, name string) (*eprun.Target, error) {
@@ -34,7 +36,7 @@ func (f *runner) Resolve(_ context.Context, name string) (*eprun.Target, error) 
 	if !ok {
 		return nil, epbinding.ErrNotFound
 	}
-	return &eprun.Target{Binding: b}, nil
+	return &eprun.Target{Binding: b, Form: f.forms[name]}, nil
 }
 
 func (f *runner) Serve(_ context.Context, _ *eprun.Target, req eprun.Request) eprun.Response {

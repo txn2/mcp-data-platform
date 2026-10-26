@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,6 +29,9 @@ type Issuer struct {
 	Authority Authority
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+
+	// decrypter answers platform.decrypt (SetDecrypter); nil refuses it.
+	decrypter atomic.Pointer[Decrypter]
 }
 
 // Bind is the Caller for one run: where it mints and verifies, and the roles
@@ -59,8 +63,12 @@ func (b *bound) now() time.Time {
 	return time.Now()
 }
 
-// CallTool answers platform.mint_token and platform.verify_token.
+// CallTool answers platform.mint_token, platform.verify_token and
+// platform.decrypt.
 func (b *bound) CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
+	if name == CapabilityDecrypt {
+		return b.decrypt(ctx, args)
+	}
 	secret, _ := args["secret"].(string)
 	value, err := b.issuer.Keys(ctx, secret, b.persona, b.admin)
 	if err != nil {

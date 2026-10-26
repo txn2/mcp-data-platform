@@ -100,6 +100,22 @@ type Field struct {
 	// Help is shown under the field.
 	Help    string   `json:"help,omitempty"`
 	Choices []Choice `json:"choices,omitempty"`
+	// Sensitive is encrypted when the submission is stored (#2179): the
+	// form's source and its table hold ciphertext, and the plaintext is read
+	// only on the owner's submissions view and through platform.decrypt.
+	// form_submit is handed it as typed.
+	Sensitive bool `json:"sensitive,omitempty"`
+}
+
+// Sensitive names the spec's sensitive fields, in the order declared.
+func (s Spec) Sensitive() []string {
+	var names []string
+	for _, f := range s.Fields {
+		if f.Sensitive {
+			names = append(names, f.Name)
+		}
+	}
+	return names
 }
 
 // Spec is what form_spec returns: the fields, the values they start with,

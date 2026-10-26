@@ -290,8 +290,8 @@ func viewOf(s whsource.Source) SourceView {
 		view.PreviousUntil = &until
 	}
 	path := "/hooks/" + s.Name
-	if s.IsIMAP() {
-		path = "" // a polled mailbox is not posted to
+	if s.IsIMAP() || s.IsForm() {
+		path = "" // a polled mailbox and a form's source are not posted to
 	}
 	return SourceView{
 		Name: s.Name, Enabled: s.Enabled, Connection: s.Connection, Path: path,

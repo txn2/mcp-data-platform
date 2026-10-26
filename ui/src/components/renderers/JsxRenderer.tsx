@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { transform } from "sucrase";
 import { ASSET_FRAME_SANDBOX } from "./assetFrame";
+import { withFormQuery } from "./formFrames";
 
 // The one platform path an artifact may reach: the route a declared reference
 // is rewritten to (assetrefs.PathPrefix on the Go side). An asset that names a
@@ -23,6 +24,19 @@ export const REF_PATH_PREFIX = "/portal/refs/";
 export function refSource(origin: string): string {
   if (!origin || origin === "null") return "";
   return origin.replace(/\/+$/, "") + REF_PATH_PREFIX;
+}
+
+// The path a form an asset embeds is framed from (#2177): the page an
+// mcp:form:<endpoint> reference is rewritten to (epformpage.PathPrefix).
+export const FORM_PATH_PREFIX = "/portal/forms/";
+
+/**
+ * The form pages as a CSP source expression: the viewer's own origin and the
+ * form path, so the frame may frame a form and nothing else on the platform.
+ */
+export function formSource(origin: string): string {
+  if (!origin || origin === "null") return "";
+  return origin.replace(/\/+$/, "") + FORM_PATH_PREFIX;
 }
 
 /**
@@ -66,6 +80,7 @@ export function buildCSP(origin: string): string {
     `img-src ${img}`,
     `font-src ${font}`,
     `connect-src ${connect}`,
+    ...(formSource(origin) ? [`frame-src ${formSource(origin)}`] : []),
   ].join("; ");
 }
 
@@ -275,7 +290,7 @@ try {
 
 export function JsxRenderer({ content }: { content: string }) {
   const blobUrl = useMemo(() => {
-    const html = buildJsxIframeHtml(content);
+    const html = buildJsxIframeHtml(withFormQuery(content, false));
     return URL.createObjectURL(
       new Blob([html], { type: "text/html;charset=utf-8" }),
     );

@@ -337,6 +337,10 @@ type Deps struct {
 	// import surface (docs/library/stability.md), so the composition root
 	// names the internal type directly.
 	ContentRefs assetrefs.Store
+	// FormViewerKey signs the viewer token an asset embedding an
+	// authenticated form is served with for a signed-in reader
+	// (epform.ViewerKey, #2177); nil writes none.
+	FormViewerKey []byte
 	// ResourceReader and ResourceBlobs read a referenced resource's metadata
 	// and its bytes. They are the managed-resource layer's store and object
 	// client, not the portal's: a reference points at a resource, which lives

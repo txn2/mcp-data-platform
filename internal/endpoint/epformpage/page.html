@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Form</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #18181b; --muted: #52525b; --line: #d4d4d8; --field: #ffffff;
+  --accent: #2563eb; --accent-fg: #ffffff; --error: #b91c1c; --ok-bg: #ecfdf5; --ok-fg: #065f46;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #09090b; --fg: #fafafa; --muted: #a1a1aa; --line: #3f3f46; --field: #18181b;
+    --accent: #3b82f6; --accent-fg: #ffffff; --error: #f87171; --ok-bg: #052e1f; --ok-fg: #6ee7b7;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #09090b; --fg: #fafafa; --muted: #a1a1aa; --line: #3f3f46; --field: #18181b;
+  --accent: #3b82f6; --accent-fg: #ffffff; --error: #f87171; --ok-bg: #052e1f; --ok-fg: #6ee7b7;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+form, .status, #check { max-width: 640px; margin: 0 auto; }
+.field { margin: 0 0 16px; }
+label, legend { display: block; font-weight: 600; margin: 0 0 4px; }
+fieldset { border: 0; padding: 0; margin: 0 0 16px; }
+.req { color: var(--error); margin-left: 2px; }
+.help { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+input[type=text], input[type=email], input[type=number], input[type=date], select, textarea {
+  width: 100%; padding: 8px 10px; font: inherit; color: var(--fg); background: var(--field);
+  border: 1px solid var(--line); border-radius: 6px; }
+textarea { min-height: 120px; resize: vertical; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.option { display: flex; gap: 8px; align-items: center; font-weight: 400; margin: 4px 0; }
+.error { color: var(--error); font-size: 13px; margin: 4px 0 0; }
+.trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+button { font: inherit; font-weight: 600; padding: 10px 18px; border: 0; border-radius: 6px;
+  background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+button[disabled] { opacity: .6; cursor: progress; }
+.status { padding: 12px 14px; border-radius: 6px; border: 1px solid var(--line); }
+.status.ok { background: var(--ok-bg); color: var(--ok-fg); border-color: transparent; }
+.status.err { color: var(--error); }
+#check:empty { display: none; }
+#check { margin-top: 16px; }
+@media (max-width: 480px) { body { padding: 12px; } button { width: 100%; } }
+</style>
+</head>
+<body>
+<div id="app" aria-live="polite"><p class="status">Loading the form…</p></div>
+<div id="check"></div>
+<script type="application/json" id="form-config">{{.Config}}</script>
+<script src="{{.Solver}}"></script>
+<script src="{{.Script}}"></script>
+</body>
+</html>

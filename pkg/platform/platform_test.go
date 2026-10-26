@@ -3,7 +3,6 @@ package platform
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"log/slog"
 	"os"
@@ -269,7 +268,6 @@ func TestNew_UnknownProviders(t *testing.T) {
 			t.Error("New() expected error for unknown query provider")
 		}
 	})
-
 }
 
 func TestPlatformStartStop(t *testing.T) {
@@ -715,7 +713,6 @@ func TestProviderInstanceNotFound(t *testing.T) {
 			t.Error("New() expected error for nonexistent trino instance")
 		}
 	})
-
 }
 
 func TestCreateAuthenticatorWithAPIKeys(t *testing.T) {
@@ -3407,38 +3404,6 @@ func TestInitConfigStoreWithDatabase(t *testing.T) {
 	if got := p.config.ServerDescription(context.Background()); got != "file desc" {
 		t.Errorf("ServerDescription() = %q, want %q", got, "file desc")
 	}
-}
-
-func TestDecodeEncryptionKey(t *testing.T) {
-	t.Run("hex encoded", func(t *testing.T) {
-		// 32 bytes as hex = 64 hex chars
-		hexKey := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-		key := decodeEncryptionKey(hexKey)
-		if len(key) != 32 {
-			t.Errorf("expected 32 bytes, got %d", len(key))
-		}
-	})
-
-	t.Run("base64 encoded", func(t *testing.T) {
-		// 32 random bytes as base64
-		raw := make([]byte, 32)
-		for i := range raw {
-			raw[i] = byte(i)
-		}
-		b64 := base64.StdEncoding.EncodeToString(raw)
-		key := decodeEncryptionKey(b64)
-		if len(key) != 32 {
-			t.Errorf("expected 32 bytes, got %d", len(key))
-		}
-	})
-
-	t.Run("raw 32 bytes", func(t *testing.T) {
-		rawKey := "01234567890123456789012345678901" // exactly 32 chars
-		key := decodeEncryptionKey(rawKey)
-		if len(key) != 32 {
-			t.Errorf("expected 32 bytes, got %d", len(key))
-		}
-	})
 }
 
 func TestMergeDBConnectionsIntoConfig(t *testing.T) {

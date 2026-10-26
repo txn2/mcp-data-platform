@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
 import { ACCESS_LABELS, PUBLIC_NOTE, accessLabel, callersSummary } from "./endpoints/endpointLabels";
+import { FormStorageFields, formStorage } from "./endpoints/FormStorageFields";
 import { formatBytes, formatWhen } from "./runFormat";
 
 // ScriptEndpointCard is the script's endpoint (#2171): the HTTP route at
@@ -63,21 +64,21 @@ function EndpointBody({ scriptId, endpoint }: { scriptId: string; endpoint: Scri
   }
   return (
     <>
-      {endpoint.bound ? <EndpointFacts endpoint={endpoint} /> : <Unbound isAdmin={isAdmin} />}
+      {endpoint.bound ? <EndpointFacts endpoint={endpoint} /> : <Unbound isAdmin={isAdmin} isForm={Boolean(endpoint.is_form)} />}
       {isAdmin && <EndpointActions scriptId={scriptId} endpoint={endpoint} onEdit={() => setEditing(true)} />}
       {endpoint.bound && <FailureList failures={endpoint.failures ?? []} />}
     </>
   );
 }
 
-function Unbound({ isAdmin }: { isAdmin: boolean }) {
-  return (
-    <p className="text-sm text-muted-foreground">
-      {isAdmin
-        ? "This script answers no HTTP requests. Bind it to an endpoint to run handle(req) on each request to /endpoints/{name}."
-        : "Only an administrator can bind a script to an endpoint."}
-    </p>
-  );
+function Unbound({ isAdmin, isForm }: { isAdmin: boolean; isForm: boolean }) {
+  let text = "Only an administrator can bind a script to an endpoint.";
+  if (isAdmin) {
+    text = isForm
+      ? "This form answers no requests. Bind it to an endpoint to show it at /portal/forms/{name} and store each accepted submission."
+      : "This script answers no HTTP requests. Bind it to an endpoint to run handle(req) on each request to /endpoints/{name}.";
+  }
+  return <p className="text-sm text-muted-foreground">{text}</p>;
 }
 
 function endpointSummary(e?: ScriptEndpoint): string | undefined {
@@ -135,8 +136,16 @@ function factsOf(endpoint: ScriptEndpoint): [string, string][] {
   );
   if (e.auth_mode === "authenticated") rows.push(["Per-caller limit", perReplica(e.caller_rate_limit)]);
   rows.push(["Allowed origins", e.allowed_origins.join(", ") || "None"]);
+  if (e.form) {
+    rows.push(
+      ["Submissions", formStorage(e.form.table, e.form.connection)],
+      ["Decrypt personas", e.form.decrypt_personas.join(", ") || "None"],
+    );
+  }
   return rows;
 }
+
+
 
 function EndpointFacts({ endpoint }: { endpoint: ScriptEndpoint }) {
   return (
@@ -208,6 +217,9 @@ interface formState {
   rateLimit: string;
   callerRateLimit: string;
   origins: string;
+  // connection and decryptPersonas are a form's (#2178, #2179).
+  connection: string;
+  decryptPersonas: string[];
 }
 
 function initialForm(endpoint: ScriptEndpoint): formState {
@@ -227,11 +239,14 @@ function initialForm(endpoint: ScriptEndpoint): formState {
     rateLimit: String(e.rate_limit),
     callerRateLimit: String(e.caller_rate_limit),
     origins: e.allowed_origins.join("\n"),
+    connection: e.form?.connection ?? (e.form_connections?.length === 1 ? (e.form_connections[0] ?? "") : ""),
+    decryptPersonas: e.form?.decrypt_personas ?? [],
   };
 }
 
-function toInput(f: formState): ScriptEndpointInput {
+function toInput(f: formState, endpoint: ScriptEndpoint): ScriptEndpointInput {
   return {
+    ...formFields(f, endpoint),
     endpoint: f.endpoint.trim(),
     methods: f.methods,
     path: f.path.trim(),
@@ -243,6 +258,24 @@ function toInput(f: formState): ScriptEndpointInput {
     rate_limit: Number(f.rateLimit),
     caller_rate_limit: Number(f.callerRateLimit),
     allowed_origins: f.origins.split("\n").map((o) => o.trim()).filter(Boolean),
+  };
+}
+
+// formIncomplete reports whether the form lacks a field a save needs: a
+// name, a method, a bot_check endpoint's check, and a new form's connection.
+function formIncomplete(form: formState, endpoint: ScriptEndpoint): boolean {
+  if (!form.endpoint.trim() || form.methods.length === 0) return true;
+  if (form.authMode === "bot_check" && !form.botCheck) return true;
+  return Boolean(endpoint.is_form) && !endpoint.form && !form.connection;
+}
+
+// formFields are a form's storage fields (#2178): the connection its source
+// is made on, sent until the source exists, and the decrypt personas.
+function formFields(f: formState, endpoint: ScriptEndpoint): ScriptEndpointInput {
+  if (!endpoint.is_form) return {};
+  return {
+    ...(endpoint.form ? {} : { connection: f.connection }),
+    decrypt_personas: f.decryptPersonas,
   };
 }
 
@@ -277,8 +310,8 @@ function EndpointForm({ scriptId, endpoint, onDone }: { scriptId: string; endpoi
       "checkedMethods",
       form.checkedMethods.includes(m) ? form.checkedMethods.filter((x) => x !== m) : [...form.checkedMethods, m],
     );
-  const submit = () => save.mutate(toInput(form), { onSuccess: onDone });
-  const incomplete = !form.endpoint.trim() || form.methods.length === 0 || (form.authMode === "bot_check" && !form.botCheck);
+  const submit = () => save.mutate(toInput(form, endpoint), { onSuccess: onDone });
+  const incomplete = formIncomplete(form, endpoint);
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -327,6 +360,15 @@ function EndpointForm({ scriptId, endpoint, onDone }: { scriptId: string; endpoi
         )}
       </div>
       <ModeFields form={form} set={set} onToggle={toggleChecked} />
+      {endpoint.is_form && (
+        <FormStorageFields
+          endpoint={endpoint}
+          connection={form.connection}
+          decryptPersonas={form.decryptPersonas}
+          onConnection={(v) => set("connection", v)}
+          onDecryptPersonas={(v) => set("decryptPersonas", v)}
+        />
+      )}
       <Field id="endpoint-origins" label="Allowed origins">
         <Textarea
           id="endpoint-origins"

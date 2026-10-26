@@ -22,9 +22,15 @@ import (
 // search hit carries.
 var namedAssetPrefix = knowledgepage.EntityRef{TargetType: knowledgepage.RefTargetAsset}.URN()
 
+// namedFormPrefix is the mcp:form:<endpoint> form a body embeds a form by
+// (#2177); assetrefs.FormURIPrefix, restated so this package stays free of
+// the reference layer.
+const namedFormPrefix = "mcp:form:"
+
 // namedPrefixes are the reference forms a body is read for: a managed resource
-// by its default-scheme URI, then an asset by its mcp:asset:<id> reference.
-var namedPrefixes = []string{resource.DefaultURIScheme + "://", namedAssetPrefix}
+// by its default-scheme URI, then an asset by its mcp:asset:<id> reference,
+// then a form by mcp:form:<endpoint>.
+var namedPrefixes = []string{resource.DefaultURIScheme + "://", namedAssetPrefix, namedFormPrefix}
 
 // uriTerminators end a reference string written into a body: whitespace, the
 // quotes and brackets markup and code put around a URL, and the backslash a

@@ -156,6 +156,19 @@ A script then posts with
 and is answered `202`. A [notification channel](notifications.md) of the
 webhook kind with `format: json` delivers through such a connection, signed.
 
+## A form's source
+
+A source with `config.input: form` holds a form's accepted submissions, one
+event each (#2178). The platform makes it when a form script is bound to an
+endpoint (`manage_script endpoint_set`), named `form-<endpoint>`, and it is
+never posted to: `/hooks/form-<endpoint>` answers 404, and the create route
+refuses `input: form`. `config.form` names the script and endpoint it collects
+for and the personas a script may decrypt the form's sensitive fields as
+(`decrypt_personas`); it takes no `auth`, and its event id, type and key are the
+platform's, so no field (a sensitive one included) names them. An
+administrator changes its windows, retention and search setting like any
+source's. See [Endpoints](../scripts/endpoints.md#where-submissions-are-stored).
+
 ## A mailbox as a source
 
 A source with `config.input: imap` is not posted to. The platform signs in to a
@@ -193,7 +206,7 @@ after.
 
 | Field | Meaning |
 |---|---|
-| `config.input` | `http` (the default) or `imap`. Fixed when the source is created. |
+| `config.input` | `http` (the default) or `imap`; `form` is a form's source, which the platform makes. Fixed when the source is created. |
 | `config.imap.host`, `port`, `tls` | The server. `tls` is `tls` (IMAPS, port 993, the default) or `starttls` (port 143). Plain IMAP is refused: the password would cross the network in the clear. |
 | `config.imap.tls_ca_bundle_pem` | PEM certificates to trust, for a server whose certificate a private CA signed. |
 | `config.imap.folders` | The folders read. Required; there is no all-folders default. Each keeps its own place. |

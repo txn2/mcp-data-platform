@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -958,30 +957,12 @@ func buildFieldEncryptor() (*fieldcrypt.FieldEncryptor, error) {
 		return nil, nil //nolint:nilnil // nil encryptor = encryption disabled
 	}
 
-	key := decodeEncryptionKey(keyStr)
-
-	encryptor, err := fieldcrypt.NewFieldEncryptor(key)
+	encryptor, err := fieldcrypt.NewFieldEncryptor(fieldcrypt.DecodeKey(keyStr), fieldcrypt.DecodeKeys(os.Getenv("ENCRYPTION_KEY_PREVIOUS"))...)
 	if err != nil {
 		return nil, fmt.Errorf("initializing field encryptor: %w", err)
 	}
 	slog.Info("connection store: encryption enabled")
 	return encryptor, nil
-}
-
-// decodeEncryptionKey tries hex, then base64, then raw bytes to decode the key.
-func decodeEncryptionKey(keyStr string) []byte {
-	// Try hex first (64 hex chars = 32 bytes).
-	if key, err := hex.DecodeString(keyStr); err == nil && len(key) == fieldcrypt.KeyLength {
-		return key
-	}
-
-	// Try base64 (44 chars = 32 bytes).
-	if key, err := base64.StdEncoding.DecodeString(keyStr); err == nil && len(key) == fieldcrypt.KeyLength {
-		return key
-	}
-
-	// Fall back to raw bytes.
-	return []byte(keyStr)
 }
 
 // initConfigStore initializes the config store. When a database is available it
@@ -2856,6 +2837,8 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Endpoint refusal counts are flushed on a loop, and at stop (#2208).
 	if e := p.Endpoints(); e != nil {
 		p.lifecycle.OnComponent(e.Start, e.Stop)
+		// An asset may embed a form by mcp:form:<endpoint> (#2177).
+		p.portalStore.BindForms(e.Forms())
 	}
 
 	// The notify tool: the one route a session, a script and the portal all

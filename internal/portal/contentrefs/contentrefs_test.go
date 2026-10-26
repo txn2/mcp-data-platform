@@ -37,6 +37,10 @@ func TestNamed(t *testing.T) {
 			[]string{"mcp://global/brand/logo.svg"},
 		},
 		{"duplicates collapse", `mcp://a/b.png mcp://a/b.png`, []string{"mcp://a/b.png"}},
+		{
+			"an embedded form, after resources and assets", `<iframe src="mcp:form:contact"></iframe> mcp:asset:a1`,
+			[]string{"mcp:asset:a1", "mcp:form:contact"},
+		},
 		{"a bare scheme names nothing", `mcp:// and mcp:asset: alone`, nil},
 		{"end of body terminates", "mcp://a/b.png", []string{"mcp://a/b.png"}},
 		{"another scheme is not read", "acme://a/b.png", nil},

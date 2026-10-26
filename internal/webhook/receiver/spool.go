@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -121,36 +120,34 @@ func (t *spoolTally) last() (drainedAt time.Time, lastError string) {
 	return t.lastDrain, t.lastError
 }
 
-// acceptSpooled appends a delivery's events to the spool and answers 202 once
-// they are synced; the drain writes them to object storage later.
-func (r *Receiver) acceptSpooled(ctx context.Context, w http.ResponseWriter, src whsource.Source, d delivery) {
-	if len(d.events) > 0 {
-		took, err := r.cfg.Spool.Append(src.Name, whspool.Record{Hash: d.hash, Events: d.events})
-		switch {
-		case errors.Is(err, whspool.ErrFull):
-			r.refuse(w, d, refusal{
-				outcome: OutcomeSpoolFull, reason: "the receiver's spool is full", status: http.StatusServiceUnavailable,
-				retryAfter: retrySpoolFull, detail: err.Error(),
-			}, nil)
-			return
-		case errors.Is(err, whspool.ErrClosed):
-			r.refuse(w, d, refusal{outcome: OutcomeWriteFailed, reason: "the platform is shutting down", status: http.StatusServiceUnavailable, retryAfter: retryStopping}, nil)
-			return
-		case err != nil:
-			r.refuse(w, d, refusal{
-				outcome: OutcomeWriteFailed, reason: "the events could not be written to the receiver's spool",
-				status: http.StatusServiceUnavailable, retryAfter: retryWriteFailed, detail: err.Error(),
-			}, nil)
-			return
-		}
-		r.observeAccepted(ctx, src.Name, d, stages{put: took})
-		if dr := r.drainerFor(src.Name); dr != nil {
-			dr.wake()
-		}
-	} else {
+// storeSpooled appends a delivery's events to the spool and counts it
+// accepted once they are synced, or returns the refusal that stored nothing;
+// the drain writes them to object storage later.
+func (r *Receiver) storeSpooled(ctx context.Context, src whsource.Source, d delivery) *refusal {
+	if len(d.events) == 0 {
 		r.observeAccepted(ctx, src.Name, d, stages{})
+		return nil
 	}
-	writeJSON(w, http.StatusAccepted, `{"accepted":`+strconv.Itoa(len(d.events))+`}`)
+	took, err := r.cfg.Spool.Append(src.Name, whspool.Record{Hash: d.hash, Events: d.events})
+	switch {
+	case errors.Is(err, whspool.ErrFull):
+		return &refusal{
+			outcome: OutcomeSpoolFull, reason: "the receiver's spool is full", status: http.StatusServiceUnavailable,
+			retryAfter: retrySpoolFull, detail: err.Error(),
+		}
+	case errors.Is(err, whspool.ErrClosed):
+		return &refusal{outcome: OutcomeWriteFailed, reason: "the platform is shutting down", status: http.StatusServiceUnavailable, retryAfter: retryStopping}
+	case err != nil:
+		return &refusal{
+			outcome: OutcomeWriteFailed, reason: "the events could not be written to the receiver's spool",
+			status: http.StatusServiceUnavailable, retryAfter: retryWriteFailed, detail: err.Error(),
+		}
+	}
+	r.observeAccepted(ctx, src.Name, d, stages{put: took})
+	if dr := r.drainerFor(src.Name); dr != nil {
+		dr.wake()
+	}
+	return nil
 }
 
 // observeAccepted counts and times a delivery answered 202.

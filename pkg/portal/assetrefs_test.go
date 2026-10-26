@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -715,4 +717,35 @@ func TestBinaryContentKeepsTheDefaultCache(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "private", rec.Header().Get("Cache-Control"))
 	assert.Empty(t, rec.Header().Get("ETag"))
+}
+
+// #2177: an asset embedding an authenticated form is served to a signed-in
+// reader with a viewer token the form's endpoint opens as that reader, and to
+// a public read with none.
+func TestServeRefsHandsAFormItsReader(t *testing.T) {
+	refs := newMockRefStore()
+	refs.byAsset["a1"] = []assetrefs.Ref{{AssetID: "a1", TargetKind: assetrefs.TargetForm, TargetID: "apply", URI: "mcp:form:apply", RefToken: "t"}}
+	key := epform.ViewerKey([]byte("0123456789abcdef0123456789abcdef"))
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{}, ShareStore: &mockShareStore{}, ContentRefs: refs, FormViewerKey: key,
+		PublicBaseURL:   refBaseURL,
+		PersonaResolver: func([]string) *PersonaInfo { return &PersonaInfo{Name: "analyst"} },
+	}, nil)
+	body := []byte(`<iframe src="mcp:form:apply"></iframe>`)
+
+	signedIn := withUser(refRequest(t), "ann@example.com", "analyst")
+	out := string(h.serveRefs(signedIn, "a1", "text/html", body))
+	_, query, found := strings.Cut(out, refBaseURL+"/portal/forms/apply?")
+	require.True(t, found, out)
+	values, err := url.ParseQuery(strings.TrimSuffix(query, `"></iframe>`))
+	require.NoError(t, err)
+	who, err := epform.OpenViewer(key, "apply", values.Get(epform.ViewerParam), time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, epform.Viewer{UserID: "user-123", Email: "ann@example.com", Persona: "analyst"}, who)
+
+	public := string(h.serveRefs(refRequest(t), "a1", "text/html", body))
+	assert.Contains(t, public, `src="`+refBaseURL+`/portal/forms/apply"`, "a public read hands no viewer token")
+
+	noKey := NewHandler(Deps{AssetStore: &mockAssetStore{}, ShareStore: &mockShareStore{}, ContentRefs: refs, PublicBaseURL: refBaseURL}, nil)
+	assert.NotContains(t, string(noKey.serveRefs(signedIn, "a1", "text/html", body)), epform.ViewerParam)
 }
