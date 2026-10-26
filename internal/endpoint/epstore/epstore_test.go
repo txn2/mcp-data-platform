@@ -20,14 +20,14 @@ import (
 var rowTime = time.Unix(1700000000, 0).UTC()
 
 var bindingColumns = []string{
-	"id", "script_id", "name", "methods", "path", "auth_mode", "open_reads", "timeout_seconds",
+	"id", "script_id", "name", "methods", "path", "auth_mode", "callers", "bot_check", "checked_methods", "timeout_seconds",
 	"max_memory_bytes", "max_body_bytes", "allowed_origins", "rate_limit", "caller_rate_limit", "enabled",
 	"created_by", "updated_by", "created_at", "updated_at",
 }
 
 func bindingRow() []driver.Value {
 	return []driver.Value{
-		"e1", "s1", "orders", "{GET,POST}", "/{id}", epbinding.AuthSignedIn, false, 10,
+		"e1", "s1", "orders", "{GET,POST}", "/{id}", epbinding.AuthAuthenticated, "{persona:analyst}", "", nil, 10,
 		int64(64 << 20), 1 << 20, "{}", 600, 120, true, "a@example.com", "a@example.com", rowTime, rowTime,
 	}
 }
@@ -45,8 +45,8 @@ func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 
 func sample() *epbinding.Binding {
 	return &epbinding.Binding{
-		ScriptID: "s1", Name: "orders", Methods: []string{"GET"}, AuthMode: epbinding.AuthSignedIn,
-		TimeoutSeconds: 10, MaxMemoryBytes: 64 << 20, MaxBodyBytes: 1 << 20, RateLimit: 600,
+		ScriptID: "s1", Name: "orders", Methods: []string{"GET"}, AuthMode: epbinding.AuthAuthenticated,
+		Callers: []string{"*"}, TimeoutSeconds: 10, MaxMemoryBytes: 64 << 20, MaxBodyBytes: 1 << 20, RateLimit: 600,
 		CallerRateLimit: 120, Enabled: true, UpdatedBy: "a@example.com",
 	}
 }
@@ -54,8 +54,8 @@ func sample() *epbinding.Binding {
 func TestSet_StoresAndReadsBackTheIdentity(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_endpoints")).
-		WithArgs("s1", "orders", sqlmock.AnyArg(), "", epbinding.AuthSignedIn, false, 10, int64(64<<20), 1<<20,
-			sqlmock.AnyArg(), 600, 120, true, "a@example.com").
+		WithArgs("s1", "orders", sqlmock.AnyArg(), "", epbinding.AuthAuthenticated, sqlmock.AnyArg(), "", sqlmock.AnyArg(),
+			10, int64(64<<20), 1<<20, sqlmock.AnyArg(), 600, 120, true, "a@example.com").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_by", "created_at", "updated_at"}).
 			AddRow("e1", "first@example.com", rowTime, rowTime))
 	b := sample()
@@ -70,8 +70,16 @@ func TestSet_ANameAnotherScriptHasIsErrNameTaken(t *testing.T) {
 		WillReturnError(&pq.Error{Code: "23505", Constraint: nameConstraint})
 	require.ErrorIs(t, s.Set(context.Background(), sample()), epbinding.ErrNameTaken)
 
+	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_endpoints")).
+		WillReturnError(&pq.Error{Code: "23503", Constraint: checkConstraint})
+	checked := sample()
+	checked.AuthMode, checked.Callers, checked.BotCheck = epbinding.AuthBotCheck, nil, "gone"
+	err := s.Set(context.Background(), checked)
+	require.ErrorIs(t, err, epbinding.ErrNoSuchCheck)
+	require.ErrorContains(t, err, `"gone"`)
+
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_endpoints")).WillReturnError(errors.New("boom"))
-	err := s.Set(context.Background(), sample())
+	err = s.Set(context.Background(), sample())
 	require.ErrorContains(t, err, "set endpoint binding")
 	assert.NotErrorIs(t, err, epbinding.ErrNameTaken)
 }

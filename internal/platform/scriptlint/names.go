@@ -33,17 +33,20 @@ func (l *linter) names() {
 	syntax.Walk(l.file, func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.DefStmt:
-			l.unused(n.Name.Name, n.Function, used)
+			_, fixed := requestHandlers[n.Name.Name]
+			l.unused(n.Name.Name, n.Function, used, fixed)
 		case *syntax.LambdaExpr:
-			l.unused("lambda", n.Function, used)
+			l.unused("lambda", n.Function, used, false)
 		}
 		return true
 	})
 }
 
 // unused reports each local of one function that nothing reads. A name
-// starting with an underscore is one its author has said is unused.
-func (l *linter) unused(fn string, function any, used map[*syntax.Ident]bool) {
+// starting with an underscore is one its author has said is unused. The
+// parameters of a function the platform calls with a fixed signature
+// (handle, form_spec, form_submit) are its to pass, so fixed leaves them be.
+func (l *linter) unused(fn string, function any, used map[*syntax.Ident]bool, fixed bool) {
 	f, ok := function.(*resolve.Function)
 	if !ok {
 		return
@@ -54,6 +57,9 @@ func (l *linter) unused(fn string, function any, used map[*syntax.Ident]bool) {
 			continue
 		}
 		name := b.First.Name
+		if i < params && fixed {
+			continue
+		}
 		if i < params {
 			l.add(finding{
 				rule: RuleUnusedParameter, line: int(b.First.NamePos.Line),

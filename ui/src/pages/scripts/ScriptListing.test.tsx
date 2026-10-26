@@ -549,4 +549,46 @@ describe("ScriptListing: libraries", () => {
     chooseKind("Libraries");
     expect(screen.getByText(/No automation you can see matches that/)).toBeInTheDocument();
   });
+
+  // #2259: which automations answer HTTP requests, in a column of its own and
+  // a filter the server applies.
+  it("shows the endpoint a script is bound to, Off when its binding is, and nothing for the rest", () => {
+    mockScripts.mockReturnValue(
+      answer([
+        row({ endpoint: { name: "orders", path: "/endpoints/orders/{id}", auth_mode: "authenticated", enabled: true } }),
+        row({
+          script: { ...row().script, id: "script-002", name: "contact" },
+          endpoint: { name: "contact", path: "/endpoints/contact", auth_mode: "bot_check", enabled: false },
+        }),
+        row({ script: { ...row().script, id: "script-003", name: "nightly" } }),
+      ]),
+    );
+    list();
+    expect(screen.getByRole("columnheader", { name: "Endpoint" })).toBeInTheDocument();
+    const bound = within(screen.getByTestId("script-row-script-001")).getByTestId("script-endpoint");
+    expect(bound).toHaveTextContent("/endpoints/orders/{id}");
+    expect(bound).not.toHaveTextContent("Off");
+    expect(within(screen.getByTestId("script-row-script-002")).getByTestId("script-endpoint")).toHaveTextContent(
+      "/endpoints/contactOff",
+    );
+    expect(within(screen.getByTestId("script-row-script-003")).queryByTestId("script-endpoint")).toBeNull();
+  });
+
+  it("asks the server for the bound or the unbound scripts, and for neither once All is chosen", () => {
+    mockScripts.mockReturnValue(answer([row()]));
+    list();
+    expect(lastFilter()).not.toHaveProperty("endpoint");
+    const choose = (option: string) => {
+      fireEvent.keyDown(screen.getByLabelText("Filter by endpoint"), { key: "Enter" });
+      fireEvent.click(screen.getByRole("option", { name: option }));
+    };
+    fireEvent.keyDown(screen.getByLabelText("Filter by endpoint"), { key: "Enter" });
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["All", "Bound", "Not bound"]);
+    fireEvent.click(screen.getByRole("option", { name: "Bound" }));
+    expect(listingFilter()["endpoint"]).toBe("bound");
+    choose("Not bound");
+    expect(listingFilter()["endpoint"]).toBe("unbound");
+    choose("All");
+    expect(listingFilter()).not.toHaveProperty("endpoint");
+  });
 });

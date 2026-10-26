@@ -91,8 +91,8 @@ func TestServiceReferences(t *testing.T) {
 	assert.True(t, refs.Empty())
 
 	mock.ExpectQuery("FROM gateway_secrets").WithArgs("analyst", false).WillReturnRows(
-		sqlmock.NewRows([]string{"a", "b", "c", "d", "e", "f", "g"}).
-			AddRow("{crm-token}", 2, 1, 0, 3, "{}", 1))
+		sqlmock.NewRows([]string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}).
+			AddRow("{crm-token}", 2, 1, 0, 3, "{}", "{orders}", 1, 2))
 	mock.ExpectQuery("FROM script_versions").WillReturnRows(sqlmock.NewRows([]string{"r"}).AddRow("{analyst}").AddRow("{x}"))
 	mock.ExpectQuery("FROM api_keys").WillReturnRows(sqlmock.NewRows([]string{"r"}).AddRow([]byte(`["analyst"]`)))
 	mock.ExpectQuery("FROM users").WillReturnRows(sqlmock.NewRows([]string{"e", "r"}).
@@ -104,19 +104,20 @@ func TestServiceReferences(t *testing.T) {
 	assert.Equal(t, 1, refs.ScriptVersions)
 	assert.Equal(t, 1, refs.APIKeys)
 	assert.Equal(t, 3, refs.Shares)
+	assert.Equal(t, []string{"orders"}, refs.Endpoints, "the authenticated endpoints whose callers name it")
 
 	mock.ExpectQuery("FROM gateway_secrets").WillReturnError(assert.AnError)
 	_, err = s.References(t.Context(), "analyst")
 	require.Error(t, err)
 
 	mock.ExpectQuery("FROM gateway_secrets").WillReturnRows(
-		sqlmock.NewRows([]string{"a", "b", "c", "d", "e", "f", "g"}).AddRow("{}", 0, 0, 0, 0, "{}", 0))
+		sqlmock.NewRows([]string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}).AddRow("{}", 0, 0, 0, 0, "{}", "{}", 0, 0))
 	mock.ExpectQuery("FROM script_versions").WillReturnError(assert.AnError)
 	_, err = s.References(t.Context(), "analyst")
 	require.Error(t, err)
 
 	mock.ExpectQuery("FROM gateway_secrets").WillReturnRows(
-		sqlmock.NewRows([]string{"a", "b", "c", "d", "e", "f", "g"}).AddRow("{}", 0, 0, 0, 0, "{}", 0))
+		sqlmock.NewRows([]string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}).AddRow("{}", 0, 0, 0, 0, "{}", "{}", 0, 0))
 	mock.ExpectQuery("FROM script_versions").WillReturnRows(sqlmock.NewRows([]string{"r"}))
 	mock.ExpectQuery("FROM api_keys").WillReturnRows(sqlmock.NewRows([]string{"r"}).AddRow([]byte(`not json`)))
 	_, err = s.References(t.Context(), "analyst")
@@ -124,7 +125,7 @@ func TestServiceReferences(t *testing.T) {
 
 	people := func(rows *sqlmock.Rows, err error) {
 		mock.ExpectQuery("FROM gateway_secrets").WillReturnRows(
-			sqlmock.NewRows([]string{"a", "b", "c", "d", "e", "f", "g"}).AddRow("{}", 0, 0, 0, 0, "{}", 0))
+			sqlmock.NewRows([]string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}).AddRow("{}", 0, 0, 0, 0, "{}", "{}", 0, 0))
 		mock.ExpectQuery("FROM script_versions").WillReturnRows(sqlmock.NewRows([]string{"r"}))
 		mock.ExpectQuery("FROM api_keys").WillReturnRows(sqlmock.NewRows([]string{"r"}))
 		q := mock.ExpectQuery("FROM users")

@@ -33,11 +33,17 @@ const (
 // digits, which a header's name is made of.
 const tokenChars = "!#$%&'*+-.^_`|~" // #nosec G101 -- the RFC 9110 token punctuation, not a credential
 
-// Caller is who sent a request to a signed_in endpoint.
+// Caller is who sent a request to an authenticated endpoint.
 type Caller struct {
 	UserID   string
 	Email    string
 	AuthType string
+	// Admin, Persona and APIKey are whether the caller is the administrator,
+	// the persona their roles resolve to and the name of the API key the
+	// request carried; an authenticated endpoint admits by them (#2259).
+	Admin   bool
+	Persona string
+	APIKey  string
 }
 
 // Request is one request to an endpoint, as the HTTP surface read it.
@@ -48,7 +54,7 @@ type Request struct {
 	Query  map[string][]string
 	Header http.Header
 	Body   []byte
-	// Caller is nil on a public endpoint.
+	// Caller is nil on a public or bot_check endpoint.
 	Caller *Caller
 }
 

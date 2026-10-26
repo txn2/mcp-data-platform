@@ -17,8 +17,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
@@ -54,6 +57,9 @@ const (
 type Config struct {
 	DB       *sql.DB
 	Bindings epbinding.Store
+	// Checks lists the named bot checks, so a bot_check endpoint is shown with
+	// its check's provider; nil shows the name alone.
+	Checks func(ctx context.Context) ([]botcheck.Check, error)
 	// Script reads a binding's script by id.
 	Script func(ctx context.Context, id string) (*script.Script, error)
 	// BaseURL is the deployment's public address, which an endpoint's URL
@@ -73,14 +79,22 @@ type Script struct {
 
 // Endpoint is one binding and its traffic over the range.
 type Endpoint struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	URL       string   `json:"url"`
-	Methods   []string `json:"methods"`
-	Path      string   `json:"path"`
-	AuthMode  string   `json:"auth_mode"`
-	OpenReads bool     `json:"open_reads"`
-	Enabled   bool     `json:"enabled"`
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	URL     string   `json:"url"`
+	Methods []string `json:"methods"`
+	Path    string   `json:"path"`
+	// AuthMode is authenticated, public or bot_check.
+	AuthMode string `json:"auth_mode"`
+	// Callers is who an authenticated endpoint admits.
+	Callers []string `json:"callers"`
+	// BotCheck is the check a bot_check endpoint names, BotCheckProvider that
+	// check's provider, and CheckedMethods the methods it checks, empty for
+	// every one.
+	BotCheck         string   `json:"bot_check,omitempty"`
+	BotCheckProvider string   `json:"bot_check_provider,omitempty"`
+	CheckedMethods   []string `json:"checked_methods"`
+	Enabled          bool     `json:"enabled"`
 	// Limits are the binding's per-request and per-minute limits.
 	TimeoutSeconds  int       `json:"timeout_seconds"`
 	MaxBodyBytes    int       `json:"max_body_bytes"`
@@ -92,7 +106,7 @@ type Endpoint struct {
 	Traffic         Traffic   `json:"traffic"`
 	// Refused is how many requests it refused before its handler ran, and
 	// RefusedByReason the same by reason (bot_check, rate_limit,
-	// caller_rate_limit, body_limit, credential, origin).
+	// caller_rate_limit, body_limit, credential, caller, origin).
 	Refused         int64            `json:"refused"`
 	RefusedByReason map[string]int64 `json:"refused_by_reason"`
 }
@@ -144,11 +158,11 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 // list handles GET /api/v1/admin/endpoints.
 //
 // @Summary      List every endpoint with its traffic
-// @Description  The endpoint bindings on the deployment, ordered by name, a page at a time: total is how many match the filters, page and per_page the page answered (per_page defaults to 50, at most 200). Each endpoint carries its script (id, name, owner), address, methods, path, access (public or signed_in), open_reads, whether it is on, its limits, and who last changed it and when. traffic is what it answered over the range: requests by status class, failures, p50 and p95 duration, distinct signed-in callers and the last request's time, read from each request's audit row. refused counts the requests it turned away before its handler ran, by reason: the bot check, the endpoint's or a caller's rate limit, the body limit, a missing or refused credential, an origin the binding does not list. A deployment with no bindings answers an empty list.
+// @Description  The endpoint bindings on the deployment, ordered by name, a page at a time: total is how many match the filters, page and per_page the page answered (per_page defaults to 50, at most 200). Each endpoint carries its script (id, name, owner), address, methods, path, access (authenticated: a platform API key or a browser session among its callers; public: anyone, with no check; bot_check: anyone who passes the named bot check), the callers an authenticated endpoint admits, the bot check a bot_check endpoint names with that check's provider and the methods it checks (empty for every method), whether it is on, its limits, and who last changed it and when. traffic is what it answered over the range: requests by status class, failures, p50 and p95 duration, distinct authenticated callers and the last request's time, read from each request's audit row. refused counts the requests it turned away before its handler ran, by reason: the bot check, the endpoint's or a caller's rate limit, the body limit, a missing or refused credential, an authenticated caller the endpoint's callers do not name, an origin the binding does not list. A deployment with no bindings answers an empty list.
 // @Tags         Endpoints
 // @Produce      json
 // @Param        range     query  string  false  "day (the default) or week"  Enums(day, week)
-// @Param        access    query  string  false  "Only public or only signed_in endpoints"  Enums(public, signed_in)
+// @Param        access    query  string  false  "Only the endpoints with this access mode"  Enums(authenticated, public, bot_check)
 // @Param        status    query  string  false  "Only endpoints that are on, or off"  Enums(on, off)
 // @Param        page      query  int     false  "1-based page (default 1)"
 // @Param        per_page  query  int     false  "Endpoints per page (default 50, at most 200)"
@@ -184,12 +198,13 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	byEndpoint := refusalsByEndpoint(refused)
+	providers := h.providers(ctx)
 	out := List{
 		Range: rng, Since: since, Endpoints: make([]Endpoint, 0, len(bindings)),
 		Total: total, Page: page, PerPage: filter.Limit,
 	}
 	for i := range bindings {
-		out.Endpoints = append(out.Endpoints, h.endpoint(ctx, &bindings[i], traffic[bindings[i].Name], byEndpoint[bindings[i].ID]))
+		out.Endpoints = append(out.Endpoints, h.endpoint(ctx, &bindings[i], traffic[bindings[i].Name], byEndpoint[bindings[i].ID], providers))
 	}
 	httpjson.WriteJSON(w, http.StatusOK, out)
 }
@@ -198,13 +213,12 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 // or status it does not know.
 func listFilter(w http.ResponseWriter, r *http.Request) (filter epbinding.Filter, page int, ok bool) {
 	q := r.URL.Query()
-	switch access := q.Get("access"); access {
-	case "", epbinding.AuthPublic, epbinding.AuthSignedIn:
-		filter.AuthMode = access
-	default:
-		httpjson.WriteError(w, http.StatusBadRequest, "access is public or signed_in")
+	access := q.Get("access")
+	if access != "" && !slices.Contains(epbinding.AuthModes, access) {
+		httpjson.WriteError(w, http.StatusBadRequest, "access is "+strings.Join(epbinding.AuthModes, ", "))
 		return filter, 0, false
 	}
+	filter.AuthMode = access
 	switch q.Get("status") {
 	case "":
 	case "on":
@@ -290,7 +304,7 @@ func (h *handler) read(ctx context.Context, b *epbinding.Binding, rng string, si
 	}
 	return &Detail{
 		Range: rng, Since: since,
-		Endpoint:      h.endpoint(ctx, b, traffic[b.Name], refusalsByEndpoint(refused)[b.ID]),
+		Endpoint:      h.endpoint(ctx, b, traffic[b.Name], refusalsByEndpoint(refused)[b.ID], h.providers(ctx)),
 		BucketSeconds: int64(step / time.Second),
 		Series:        series(since, h.cfg.Now(), step, classes, refused),
 		TopCallers:    callers,
@@ -298,11 +312,30 @@ func (h *handler) read(ctx context.Context, b *epbinding.Binding, rng string, si
 	}, nil
 }
 
+// providers is each named check's provider, empty when the checks cannot be
+// read: an endpoint is still listed without it.
+func (h *handler) providers(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	if h.cfg.Checks == nil {
+		return out
+	}
+	checks, err := h.cfg.Checks(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "endpoints: reading the bot checks failed", "error", logsan.SanitizeForLog(err.Error()))
+		return out
+	}
+	for _, c := range checks {
+		out[c.Name] = c.Provider
+	}
+	return out
+}
+
 // endpoint renders one binding with its traffic and refusals.
-func (h *handler) endpoint(ctx context.Context, b *epbinding.Binding, traffic *Traffic, refused map[string]int64) Endpoint {
+func (h *handler) endpoint(ctx context.Context, b *epbinding.Binding, traffic *Traffic, refused map[string]int64, providers map[string]string) Endpoint {
 	e := Endpoint{
 		ID: b.ID, Name: b.Name, URL: h.cfg.BaseURL + b.URLPath(), Methods: b.Methods, Path: b.Path,
-		AuthMode: b.AuthMode, OpenReads: b.OpenReads, Enabled: b.Enabled,
+		AuthMode: b.AuthMode, Callers: nonNil(b.Callers), BotCheck: b.BotCheck, BotCheckProvider: providers[b.BotCheck],
+		CheckedMethods: nonNil(b.CheckedMethods), Enabled: b.Enabled,
 		TimeoutSeconds: b.TimeoutSeconds, MaxBodyBytes: b.MaxBodyBytes, RateLimit: b.RateLimit,
 		CallerRateLimit: b.CallerRateLimit, UpdatedBy: b.UpdatedBy, UpdatedAt: b.UpdatedAt,
 		Script: Script{ID: b.ScriptID}, RefusedByReason: map[string]int64{},
@@ -391,4 +424,12 @@ func refusalsByEndpoint(counts []eprefusal.Count) map[string]map[string]int64 {
 func fail(w http.ResponseWriter, r *http.Request, err error) {
 	slog.ErrorContext(r.Context(), "admin endpoints: a read failed", "error", logsan.SanitizeForLog(err.Error()))
 	httpjson.WriteError(w, http.StatusInternalServerError, "the endpoints could not be read")
+}
+
+// nonNil is list, or an empty list for nil, so an absent list reads as [].
+func nonNil(list []string) []string {
+	if list == nil {
+		return []string{}
+	}
+	return list
 }

@@ -14,17 +14,18 @@ import (
 	"time"
 )
 
-// Acceptance for #2174: the /endpoints/{name}/... surface. A public endpoint
-// answers an anonymous request carrying a valid bot check answer and refuses
-// one without; a signed_in endpoint answers an API key and a browser session,
-// naming each caller, and refuses an anonymous request with 401; a browser's
-// cross-origin request from an allowed origin passes its preflight and reads
-// the response, and an unlisted origin's preflight is refused; a signed-in
-// caller past their own limit gets 429 while another caller is answered; and
-// the request metrics and the slow-request log carry the route template.
+// Acceptance for #2174: the /endpoints/{name}/... surface. A bot_check
+// endpoint answers an anonymous request carrying a valid bot check answer and
+// refuses one without; an authenticated endpoint answers an API key and a
+// browser session, naming each caller, and refuses an anonymous request with
+// 401; a browser's cross-origin request from an allowed origin passes its
+// preflight and reads the response, and an unlisted origin's preflight is
+// refused; an authenticated caller past their own limit gets 429 while
+// another caller is answered; and the request metrics and the slow-request
+// log carry the route template. The access modes are #2259's.
 //
-// Wire forms: a public request carries its answer in X-Bot-Check with a
-// JSON body; a signed-in request authenticates with Authorization: Bearer
+// Wire forms: a bot_check request carries its answer in X-Bot-Check with a
+// JSON body; an authenticated request authenticates with Authorization: Bearer
 // and with the portal's session cookie; a preflight sends Origin,
 // Access-Control-Request-Method and Access-Control-Request-Headers.
 
@@ -66,12 +67,13 @@ func browserSignIn(t *testing.T, base, email, password string) *http.Client {
 	return nil
 }
 
-// signedInEndpoint saves and binds a signed-in echo endpoint.
+// signedInEndpoint saves and binds an authenticated echo endpoint admitting
+// every authenticated caller.
 func signedInEndpoint(t *testing.T, admin *client, prefix string, args map[string]any) string {
 	t.Helper()
 	name := endpointName(prefix)
 	saveEndpointScript(t, admin, name, issue2171EchoHandler, `{"params": {}, "caller": None}`)
-	bind := map[string]any{"endpoint": name, "methods": []string{"GET", "POST"}, "auth_mode": "signed_in"}
+	bind := map[string]any{"endpoint": name, "methods": []string{"GET", "POST"}, "auth_mode": "authenticated", "callers": []string{"*"}}
 	for k, v := range args {
 		bind[k] = v
 	}
@@ -82,8 +84,8 @@ func signedInEndpoint(t *testing.T, admin *client, prefix string, args map[strin
 // TestIssue2174_APublicEndpointAnswersAValidAnswerAndRefusesNone.
 func TestIssue2174_APublicEndpointAnswersAValidAnswerAndRefusesNone(t *testing.T) {
 	admin := connect(t)
-	putBotCheck(t, admin, issue2173Quick)
-	name := publicEndpoint(t, admin, "acc-2174-public")
+	check := putBotCheck(t, admin, issue2173Quick)
+	name := checkedEndpoint(t, admin, "acc-2174-public", check)
 	if got := postAnswered(t, admin.base, name, ""); got.status != http.StatusForbidden {
 		t.Fatalf("anonymous with no answer: want 403, got %d %s", got.status, got.body)
 	}
@@ -182,7 +184,7 @@ func TestIssue2174_TheMetricsAndTheSlowLogCarryTheRouteTemplate(t *testing.T) {
         "purpose": "Acceptance for #2174: hold one endpoint request past the slow threshold."})
     return {"json": req["params"]}
 `, `{"params": {"ms": "10"}, "caller": None}`)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "path": "/{ms}", "auth_mode": "signed_in"})
+	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "path": "/{ms}", "auth_mode": "authenticated", "callers": []string{"*"}})
 
 	start := time.Now().Add(-time.Second)
 	if got := endpointRequest(t, admin.base, http.MethodGet, "/endpoints/"+name+"/2600", bearer(admin.apiKey), ""); got.status != http.StatusOK {

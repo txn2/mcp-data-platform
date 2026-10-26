@@ -309,6 +309,9 @@ type portalScriptRow struct {
 	// so the page offers those surfaces rather than linking a reader to a
 	// refusal.
 	Owned bool `json:"owned" example:"true"`
+	// Endpoint is the endpoint the script is bound to (#2259), absent when it
+	// is bound to none.
+	Endpoint *scriptlist.Endpoint `json:"endpoint,omitempty"`
 	// Granted marks a script this caller may run because it was granted to
 	// them rather than because they own it (#1846), on a scope=granted
 	// listing.
@@ -333,7 +336,7 @@ type portalScriptListResponse struct {
 // portalListScripts returns the scripts this caller may see.
 //
 // @Summary      List scripts visible to the portal caller
-// @Description  Returns the managed scripts the caller may see, each with its cadence and the state of its most recent run. A script's definition, its cadence and its runs' status are readable by everyone signed in; what a run was given and printed is its owner's and an administrator's. No row carries the script's source, for any caller: read it from GET /portal/scripts/{id}. A row the caller does not own carries no action, no fire-time parameters, and a last run without its requester or progress. scope=all lists every script and is the default; scope=mine narrows to the caller's own; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
+// @Description  Returns the managed scripts the caller may see, each with its cadence and the state of its most recent run. A script's definition, its cadence and its runs' status are readable by everyone signed in; what a run was given and printed is its owner's and an administrator's. No row carries the script's source, for any caller: read it from GET /portal/scripts/{id}. A row the caller does not own carries no action, no fire-time parameters, and a last run without its requester or progress. scope=all lists every script and is the default; scope=mine narrows to the caller's own; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; endpoint=bound lists the scripts bound to an endpoint and endpoint=unbound the rest, and each row bound to one carries its endpoint (name, address, access mode, whether it is on); tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
 // @Tags         Scripts
 // @Produce      json
 // @Param        scope     query  string    false  "Whose scripts to list: all (default), mine, or granted"  Enums(mine, all, granted)
@@ -344,6 +347,7 @@ type portalScriptListResponse struct {
 // @Param        status    query  string    false  "Narrow to one lifecycle status"
 // @Param        enabled   query  boolean   false  "Narrow to enabled or disabled scripts"
 // @Param        kind      query  string    false  "Narrow to the scripts that run or to the libraries they load; any other value is refused"  Enums(script, library)
+// @Param        endpoint  query  string    false  "Narrow to the scripts bound to an endpoint or to the ones that are not; any other value is refused"  Enums(bound, unbound)
 // @Param        sort      query  string    false  "Order by this column; an unknown value falls back to updated_at"  Enums(name, display_name, owner_email, created_at, updated_at)
 // @Param        dir       query  string    false  "Order direction"  Enums(asc, desc)
 // @Success      200  {object}  portalScriptListResponse
@@ -355,6 +359,10 @@ type portalScriptListResponse struct {
 // @Router       /portal/scripts [get]
 func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
 	if _, _, err := scriptlist.ParseKind(r.URL.Query().Get("kind")); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, _, err := scriptlist.ParseEndpoint(r.URL.Query().Get("endpoint")); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -378,6 +386,7 @@ func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user
 	}
 	h.attachSchedules(r.Context(), rows)
 	h.attachLastRuns(r.Context(), rows)
+	h.attachEndpoints(r.Context(), rows)
 
 	resp := portalScriptListResponse{Data: rows, Total: len(rows)}
 	// The total is the predicate's, counted without the cap. A count that
@@ -506,6 +515,17 @@ func reportableSchedule(s script.Schedule, owned bool) *script.Schedule {
 		ID: s.ID, ScriptID: s.ScriptID,
 		CronSpec: s.CronSpec, Timezone: s.Timezone,
 		Enabled: s.Enabled, NextRunAt: s.NextRunAt,
+	}
+}
+
+// attachEndpoints fills in each row's endpoint in one read (#2314).
+func (h *Handler) attachEndpoints(ctx context.Context, rows []portalScriptRow) {
+	if h.deps.Endpoints == nil || h.deps.Endpoints.Store == nil || len(rows) == 0 {
+		return
+	}
+	byScript := scriptlist.Endpoints(ctx, h.deps.Endpoints.Store.List, rowIDs(rows, false))
+	for i := range rows {
+		rows[i].Endpoint = byScript[rows[i].Script.ID]
 	}
 }
 

@@ -25,6 +25,9 @@ type User struct {
 	// Claims are the claims the authenticator reported, an API key's
 	// attributes among them (#1846). A browser session carries none.
 	Claims map[string]any
+	// APIKeyName is the name of the API key the request carried, empty for a
+	// browser session and every other credential (#2259).
+	APIKeyName string
 }
 
 // GetUser returns the User from context, or nil if not set.

@@ -58,17 +58,22 @@ beforeEach(() => {
 });
 
 describe("EndpointsTab", () => {
-  it("lists every binding with its automation and owner, marking a public one", () => {
+  it("lists every binding with its automation, owner and access mode, marking a public one", () => {
     render(<EndpointsTab onNavigate={vi.fn()} />);
     const rows = screen.getAllByRole("row").slice(1);
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     const contact = within(rows[0]!);
     expect(contact.getByText("contact")).toBeInTheDocument();
     expect(contact.getByText("Contact Form")).toBeInTheDocument();
     expect(contact.getByText("marcus.webb@example.com")).toBeInTheDocument();
-    expect(contact.getByText("Public")).toHaveAttribute("data-access", "public");
+    const check = contact.getByText("Bot check: default");
+    expect(check).toHaveAttribute("data-access", "bot_check");
+    expect(check).toHaveAttribute("title", "Provider: Proof of work");
     expect(contact.getByText("1,873")).toBeInTheDocument();
-    expect(within(rows[1]!).getByText("Signed in")).toHaveAttribute("data-access", "signed_in");
+    expect(within(rows[1]!).getByText("Authenticated (API key or session)")).toHaveAttribute("data-access", "authenticated");
+    const open = within(rows[2]!).getByText("Public");
+    expect(open).toHaveAttribute("data-access", "public");
+    expect(open).toHaveAttribute("title", "Answers anyone, with no check.");
   });
 
   it("opens an endpoint on row click", () => {
@@ -136,10 +141,10 @@ describe("EndpointDetailPage", () => {
   it("shows the figures, refusals by reason and the failed requests", () => {
     render(<EndpointDetailPage name="contact" onNavigate={vi.fn()} />);
     expect(screen.getByRole("heading", { name: "contact" })).toBeInTheDocument();
-    expect(screen.getByText("Bot check")).toBeInTheDocument();
+    expect(screen.getByTestId("endpoint-access")).toHaveTextContent("Requires the bot check default (Proof of work) on every method.");
     expect(screen.getByText("1,840")).toBeInTheDocument();
     expect(screen.getByText("handle(req) failed: the CRM answered 503")).toBeInTheDocument();
-    expect(screen.queryByText("Top callers"), "a public endpoint has no signed-in callers").toBeNull();
+    expect(screen.queryByText("Top callers"), "a bot_check endpoint has no authenticated callers").toBeNull();
   });
 
   it("turns the endpoint off and opens its automation to edit it", () => {
@@ -153,11 +158,21 @@ describe("EndpointDetailPage", () => {
     expect(onNavigate).toHaveBeenCalledWith("/admin/automations/endpoints");
   });
 
-  it("names the busiest callers of a signed-in endpoint", () => {
+  it("names an authenticated endpoint's callers and its busiest ones, and the refusals of a caller it does not admit", () => {
     h.detail = { data: mockEndpointDetail("store-lookup", "week"), isLoading: false, isError: false };
     render(<EndpointDetailPage name="store-lookup" onNavigate={vi.fn()} />);
+    expect(screen.getByTestId("endpoint-access")).toHaveTextContent("Admits: Persona analyst, API key store-sync.");
+    expect(screen.getByText("Caller not admitted")).toBeInTheDocument();
     expect(screen.getByText("sarah.chen@example.com")).toBeInTheDocument();
     expect(screen.getByText("No failed request in the last 7 days.")).toBeInTheDocument();
+  });
+});
+
+describe("EndpointDetailPage on a public endpoint", () => {
+  it("says it answers anyone with no check", () => {
+    h.detail = { data: mockEndpointDetail("store-hours", "day"), isLoading: false, isError: false };
+    render(<EndpointDetailPage name="store-hours" onNavigate={vi.fn()} />);
+    expect(screen.getByTestId("endpoint-access")).toHaveTextContent("Answers anyone, with no check.");
   });
 });
 

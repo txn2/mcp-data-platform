@@ -79,7 +79,7 @@ func mux(st *store) *http.ServeMux {
 	New(Deps{
 		Commands: &epcmd.Handler{
 			Store: st, BaseURL: "https://data.example.com",
-			PublicAllowed: func(context.Context) (bool, error) { return true, nil },
+			CheckUsable: func(context.Context, string) error { return nil },
 		},
 		Scripts: scripts{"s1": {ID: "s1", Name: "lookup", Source: "def handle(req):\n    return {}\n"}},
 		Owned: func(w http.ResponseWriter, r *http.Request) (string, string, bool) {
@@ -114,11 +114,11 @@ func TestAnAdministratorBindsAndTheOwnerReads(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, false, out["bound"])
 
-	rec, _ = do(m, "PUT", "/api/v1/portal/scripts/s1/endpoint", "owner", `{"endpoint":"orders","auth_mode":"signed_in"}`)
+	rec, _ = do(m, "PUT", "/api/v1/portal/scripts/s1/endpoint", "owner", `{"endpoint":"orders","auth_mode":"authenticated"}`)
 	assert.Equal(t, http.StatusForbidden, rec.Code, "the owner is refused")
 	assert.Empty(t, st.byScript)
 
-	rec, out = do(m, "PUT", "/api/v1/portal/scripts/s1/endpoint", "admin", `{"endpoint":"orders","auth_mode":"signed_in","timeout_seconds":30}`)
+	rec, out = do(m, "PUT", "/api/v1/portal/scripts/s1/endpoint", "admin", `{"endpoint":"orders","auth_mode":"authenticated","timeout_seconds":30}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, "https://data.example.com/endpoints/orders", out["url"])
 	assert.Equal(t, 30, st.byScript["s1"].TimeoutSeconds)
@@ -149,7 +149,7 @@ func TestRefusals(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	rec, _ = do(m, "PUT", "/api/v1/portal/scripts/s1/endpoint", "admin", `{"endpointt":"x"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "an unknown field is refused")
-	rec, _ = do(m, "PUT", "/api/v1/portal/scripts/s1/endpoint", "admin", `{"endpoint":"Bad Name","auth_mode":"signed_in"}`)
+	rec, _ = do(m, "PUT", "/api/v1/portal/scripts/s1/endpoint", "admin", `{"endpoint":"Bad Name","auth_mode":"authenticated"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	st.err = errors.New("down")

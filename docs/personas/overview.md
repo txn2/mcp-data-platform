@@ -391,7 +391,7 @@ Whatever the rest of the persona says, an external persona:
 - has `assets: shared`, `resources: shared` (or `none`), `knowledge`, `catalog`, `apis`, `scratch_tables` and `external_files` at `none`, and `search`, `prompts`, `automations` and `memory` off. `feedback`, `download`, `history` and `uploads` stay as the block sets them;
 - reads its people's own folders and nothing else in Resources: no persona folder and no Global (#2257, #2290);
 - opens the assets, collections and files shared with its people, one by one or with the persona, as a viewer, whatever permission the share carries;
-- cannot share, has no API keys, no people directory and no mentions, reaches no admin route and no signed-in endpoint (`/endpoints/`);
+- cannot share, has no API keys, no people directory and no mentions, reaches no admin route and no authenticated endpoint (`/endpoints/`);
 - reaches only these portal routes under `/api/v1/portal/`: `me`, `assets`, `collections`, `shared-with-me`, `shared-collections`, `threads`, `worklist`, `feedback`, `notification-prefs` and `notifications`. Every other one, a route added later included, answers `403`.
 
 On a thread, an external person sees and writes only threads shared with them (#2227), is not mentioned in an internal thread, and is not notified of one.
@@ -418,8 +418,8 @@ The `share_personas` and `share_emails` lists #2258 named under `uploads` are go
 - the scratch tables: on each scratch connection it reaches, whether it can list and register, whether it can drop any registered table through SQL (`trino_execute` on a connection whose Trino user holds every privilege on the scratch catalog), how many tables are registered there, and the connections through which `trino_query` reads every registered table when their Trino user reads the scratch catalog;
 - the portal block as stored and as External leaves it, sharing, and the resource folders its people read;
 - who gets it: its roles, the roles `personas.role_mapping` assigns it, the other personas listing one of its roles, and the role that writes its folder (`persona-admin:<name>`);
-- the grants other objects hold that name it: stored secrets (and how many secrets name no persona, which every persona may use), script run grants, scripts whose latest version was saved with roles that resolve to it (a run carries those roles, so editing the persona changes what they can do), persona-scoped prompts, shares to it, webhook sources writing to its folder, external accounts, and API keys whose roles resolve to it;
-- the signed-in endpoints no persona governs: any signed-in account, External included, calls them.
+- the grants other objects hold that name it: stored secrets (and how many secrets name no persona, which every persona may use), script run grants, scripts whose latest version was saved with roles that resolve to it (a run carries those roles, so editing the persona changes what they can do), persona-scoped prompts, shares to it, webhook sources writing to its folder, the authenticated endpoints whose callers name it (`persona:<name>`), external accounts, and API keys whose roles resolve to it;
+- the endpoints no persona governs: the authenticated endpoints whose callers are `*`, which every authenticated caller of an internal persona calls, and the public and bot_check endpoints, which anyone calls.
 
 The portal's persona editor shows the answer as its **Access summary**, recomputed as the page changes. `DELETE /api/v1/admin/personas/{name}` answers `409` with the same references while any remain, and deletes with `?confirm=true`: a persona created later under the name would inherit them.
 

@@ -28,21 +28,22 @@ func TestAuthenticator(t *testing.T) {
 
 	caller, err := Authenticator(authFunc(func(*http.Request) (*portal.User, error) {
 		return &portal.User{UserID: "u1", Email: "ann@example.com", AuthType: "apikey", Roles: []string{"analyst"}}, nil
-	}), nil)(req)
+	}), Personas{})(req)
 	require.NoError(t, err)
 	assert.Equal(t, "ann@example.com", caller.Email)
 	assert.Equal(t, "apikey", caller.AuthType)
 
-	caller, err = Authenticator(authFunc(func(*http.Request) (*portal.User, error) { return nil, nil }), nil)(req) //nolint:nilnil // the portal's "no credential" answer
+	caller, err = Authenticator(authFunc(func(*http.Request) (*portal.User, error) { return nil, nil }), Personas{})(req) //nolint:nilnil // the portal's "no credential" answer
 	require.NoError(t, err)
 	assert.Nil(t, caller, "no credential is nobody")
 
-	_, err = Authenticator(authFunc(func(*http.Request) (*portal.User, error) { return nil, errors.New("csrf") }), nil)(req)
+	_, err = Authenticator(authFunc(func(*http.Request) (*portal.User, error) { return nil, errors.New("csrf") }), Personas{})(req)
 	require.ErrorIs(t, err, ephttp.ErrForbidden, "a session refused its CSRF token is a refused credential")
 }
 
-// A person of an external persona reaches no endpoint, signed in or not
-// (#2290); an internal person is let through.
+// A person of an external persona reaches no endpoint (#2290); an internal
+// person is let through with the persona their roles resolve to and the API
+// key they called with, which a callers list is matched against (#2259).
 func TestAuthenticatorRefusesExternalPeople(t *testing.T) {
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/endpoints/x", http.NoBody)
 	reg := persona.NewRegistry()
@@ -50,14 +51,34 @@ func TestAuthenticatorRefusesExternalPeople(t *testing.T) {
 	require.NoError(t, reg.Register(&persona.Persona{Name: "staff", Roles: []string{"staff"}}))
 	as := func(role string) authFunc {
 		return func(*http.Request) (*portal.User, error) {
-			return &portal.User{UserID: "u", Email: "p@example.com", Roles: []string{role}}, nil
+			return &portal.User{UserID: "u", Email: "p@example.com", Roles: []string{role}, APIKeyName: "etl"}, nil
 		}
 	}
-	_, err := Authenticator(as("client-a"), reg.IsExternalRoles)(req)
+	require.NoError(t, reg.Register(&persona.Persona{Name: "admin", Roles: []string{"admin"}}))
+	personas := Personas{
+		External: reg.IsExternalRoles,
+		Name: func(roles []string) string {
+			if p, ok := reg.GetForRoles(roles); ok {
+				return p.Name
+			}
+			return ""
+		},
+		Admin: reg.AdminRule("admin"),
+	}
+	_, err := Authenticator(as("client-a"), personas)(req)
 	require.ErrorIs(t, err, ephttp.ErrForbidden)
-	caller, err := Authenticator(as("staff"), reg.IsExternalRoles)(req)
+	caller, err := Authenticator(as("staff"), personas)(req)
 	require.NoError(t, err)
 	assert.Equal(t, "p@example.com", caller.Email)
+	assert.Equal(t, "staff", caller.Persona)
+	assert.Equal(t, "etl", caller.APIKey)
+	assert.False(t, caller.Admin)
+	caller, err = Authenticator(as("admin"), personas)(req)
+	require.NoError(t, err)
+	assert.True(t, caller.Admin, "the administrator rule decides who administers")
+	caller, err = Authenticator(as("nobody"), personas)(req)
+	require.NoError(t, err)
+	assert.Empty(t, caller.Persona, "roles that match no persona resolve to none")
 }
 
 func TestMount_NoDatabaseMountsNothing(t *testing.T) {
@@ -79,20 +100,20 @@ func TestMount_TheEndpointAndSettingsRoutes(t *testing.T) {
 	nobody := authFunc(func(*http.Request) (*portal.User, error) { return nil, nil }) //nolint:nilnil // the portal's "no credential" answer
 
 	mux := http.NewServeMux()
-	mountOver(mux, e, Authenticator(nobody, nil), nil, nil)
+	mountOver(mux, e, Authenticator(nobody, Personas{}), nil, nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/botcheck/solver.js", http.NoBody))
 	assert.Equal(t, http.StatusOK, rec.Code, "the bot check's script is served")
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/settings/bot-check", http.NoBody))
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/bot-checks", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, rec.Code, "no settings routes without the admin API")
 
 	mux = http.NewServeMux()
 	refuse := func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
 	}
-	mountOver(mux, e, Authenticator(nobody, nil), refuse, func(*http.Request) string { return "" })
+	mountOver(mux, e, Authenticator(nobody, Personas{}), refuse, func(*http.Request) string { return "" })
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/settings/bot-check", http.NoBody))
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/bot-checks", http.NoBody))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "the settings routes are behind the admin API's authentication")
 }

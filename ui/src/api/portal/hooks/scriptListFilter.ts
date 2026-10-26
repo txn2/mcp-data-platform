@@ -1,6 +1,8 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { ListResponse, PortalScriptRow } from "./scripts";
+import type { Script } from "@/api/admin/types";
+import type { ListedEndpoint } from "./scriptEndpoint";
+import type { ListResponse, ScriptRun, ScriptSchedule } from "./scripts";
 import { scriptsKey } from "./scriptKeys";
 
 // How the scripts listing is narrowed and ordered, and the response it gets.
@@ -38,6 +40,11 @@ export interface ScriptListFilter {
    */
   kind?: ScriptKind;
   /**
+   * endpoint narrows to the scripts bound to an endpoint ("bound") or to the
+   * ones that are not ("unbound", #2259). Absent lists both.
+   */
+  endpoint?: ScriptEndpointFilter;
+  /**
    * sort and dir order the listing IN THE STORE. Ordering in the browser
    * would order the page the cap returned, so "A-Z" would silently mean "A-Z
    * within the most recently updated 200.
@@ -53,6 +60,9 @@ export interface ScriptListFilter {
  */
 /** ScriptKind is what kind= narrows the listing to. */
 export type ScriptKind = "script" | "library";
+
+/** ScriptEndpointFilter is what endpoint= narrows the listing to. */
+export type ScriptEndpointFilter = "bound" | "unbound";
 
 export type ScriptSortKey = "name" | "display_name" | "owner_email" | "created_at" | "updated_at";
 
@@ -89,6 +99,7 @@ const LIST_AXES = [
   "enabled",
   "scope",
   "kind",
+  "endpoint",
   "sort",
   "dir",
 ] as const satisfies readonly (keyof ScriptListFilter)[];
@@ -101,6 +112,21 @@ const LIST_AXES = [
  * counts the page, because a run is attached per page -- there is nothing else
  * to count it over.
  */
+// PortalScriptRow is one script in the portal listing.
+export interface PortalScriptRow {
+  script: Script;
+  schedule?: ScriptSchedule;
+  // last_run is present only for the scripts this caller owns: a run is
+  // owner-and-admin reading, and so is the fact that one failed.
+  last_run?: ScriptRun;
+  // owned reports whether this caller may act on the script and read its
+  // runs, so the page offers those surfaces rather than linking to a refusal.
+  // A row carries no source for any caller; the script's own route does.
+  owned: boolean;
+  /** endpoint is the endpoint the script is bound to (#2259), absent when none. */
+  endpoint?: ListedEndpoint;
+}
+
 export interface ScriptListResponse extends ListResponse<PortalScriptRow> {
   scheduled: number;
   failing: number;

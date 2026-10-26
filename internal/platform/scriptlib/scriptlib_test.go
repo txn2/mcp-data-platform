@@ -59,6 +59,8 @@ func TestLoadsAndRefs(t *testing.T) {
 	assert.False(t, IsLibrary(file))
 	assert.False(t, SourceIsLibrary(src))
 	assert.True(t, SourceIsLibrary("def f():\n    return 1\n"))
+	assert.False(t, SourceIsLibrary("def form_spec(req):\n    return {}\n\ndef form_submit(req, values):\n    return None\n"),
+		"a form script is not a library (#2176)")
 	assert.False(t, SourceIsLibrary("def ("))
 	assert.False(t, SourceIsLibrary("def handle(req):\n    return 1\n"), "an endpoint's handle makes a script (#2172)")
 }

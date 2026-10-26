@@ -90,6 +90,8 @@ export interface PersonaReferences {
   prompts: number;
   shares: number;
   webhook_sources: string[];
+  /** The authenticated endpoints whose callers name the persona (#2259). */
+  endpoints: string[];
   api_keys: number;
   /** The signed-in people whose roles resolve to the persona (#2290). */
   people: string[];
@@ -110,7 +112,12 @@ export interface EffectiveAccess {
   sharing: boolean;
   resource_scopes: string[];
   references: PersonaReferences;
-  unscoped: { signed_in_endpoints: number };
+  unscoped: {
+    /** Enabled authenticated endpoints admitting every authenticated caller ("*"). */
+    any_caller_endpoints: number;
+    /** Enabled public and bot_check endpoints, which take no credential. */
+    anyone_endpoints: number;
+  };
 }
 
 /** Whether anything other than a secret open to every persona names it. */
@@ -122,6 +129,7 @@ export function hasReferences(r: PersonaReferences): boolean {
     r.prompts > 0 ||
     r.shares > 0 ||
     r.webhook_sources.length > 0 ||
+    r.endpoints.length > 0 ||
     r.people.length > 0 ||
     r.api_keys > 0
   );

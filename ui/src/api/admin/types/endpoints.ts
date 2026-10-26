@@ -3,6 +3,11 @@
 
 export type EndpointRange = "day" | "week";
 
+// EndpointAuthMode is who an endpoint answers (#2259): a platform API key or a
+// browser session among its callers, anyone with no check, or anyone who
+// passes the bot check it names.
+export type EndpointAuthMode = "authenticated" | "public" | "bot_check";
+
 export interface EndpointStatusClasses {
   "2xx": number;
   "3xx": number;
@@ -17,7 +22,7 @@ export interface EndpointTraffic {
   failures: number;
   p50_ms: number;
   p95_ms: number;
-  // callers is how many distinct signed-in callers sent requests.
+  // callers is how many distinct authenticated callers sent requests.
   callers: number;
   last_request_at?: string;
 }
@@ -29,8 +34,16 @@ export interface AdminEndpoint {
   url: string;
   methods: string[];
   path: string;
-  auth_mode: "public" | "signed_in";
-  open_reads: boolean;
+  auth_mode: EndpointAuthMode;
+  // callers is who an authenticated endpoint admits: "*", "persona:<name>"
+  // or "api_key:<name>"; empty admits no one.
+  callers: string[];
+  // bot_check is the check a bot_check endpoint names, bot_check_provider
+  // that check's provider, and checked_methods the methods it checks, empty
+  // for every one.
+  bot_check?: string;
+  bot_check_provider?: string;
+  checked_methods: string[];
   enabled: boolean;
   timeout_seconds: number;
   max_body_bytes: number;

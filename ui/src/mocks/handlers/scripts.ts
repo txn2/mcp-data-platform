@@ -93,8 +93,9 @@ const endpoints: Record<string, ScriptEndpoint> = {
     url: "https://data.example.com/endpoints/dormant-accounts/{region}",
     methods: ["GET"],
     path: "/{region}",
-    auth_mode: "signed_in",
-    open_reads: false,
+    auth_mode: "authenticated",
+    callers: ["persona:analyst"],
+    checked_methods: [],
     enabled: true,
     timeout_seconds: 10,
     max_memory_bytes: 64 << 20,
@@ -117,6 +118,18 @@ const endpoints: Record<string, ScriptEndpoint> = {
     ],
   },
 };
+
+// listedEndpoint is a script's endpoint as the listing carries it (#2259).
+function listedEndpoint(scriptID: string) {
+  const e = endpoints[scriptID];
+  if (!e?.bound || !e.endpoint) return undefined;
+  return {
+    name: e.endpoint,
+    path: `/endpoints/${e.endpoint}${e.path ?? ""}`,
+    auth_mode: e.auth_mode ?? "authenticated",
+    enabled: e.enabled ?? true,
+  };
+}
 
 const states = JSON.parse(
   JSON.stringify(mockScriptStates),
@@ -276,8 +289,12 @@ export const scriptHandlers = [
     // kind= narrows to the libraries or to the scripts that run (#1941), on
     // the server; absent lists both.
     const kind = query.get("kind");
+    // endpoint= narrows to the scripts bound to an endpoint or the rest
+    // (#2259), on the server.
+    const endpoint = query.get("endpoint");
     const matched = scripts
       .filter((script) => !kind || (kind === "library") === Boolean(script.library))
+      .filter((script) => !endpoint || (endpoint === "bound") === Boolean(endpoints[script.id]?.bound))
       .filter((script) => !category || script.category === category)
       .filter(
         (script) =>
@@ -315,6 +332,7 @@ export const scriptHandlers = [
         schedule: scheduleOf(script.id),
         last_run: owned || !runs[0] ? runs[0] : { ...runs[0], requested_by: undefined, progress: undefined },
         owned,
+        endpoint: listedEndpoint(script.id),
       };
     });
     return HttpResponse.json({

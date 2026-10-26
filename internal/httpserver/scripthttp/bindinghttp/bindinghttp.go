@@ -67,7 +67,7 @@ type bindingRequest struct {
 // get returns the script's binding.
 //
 // @Summary      Get a script's endpoint
-// @Description  Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, auth mode, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. Restricted to the script's owner and to administrators.
+// @Description  Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, access mode (authenticated, public or bot_check), the callers an authenticated endpoint admits, the bot check a bot_check endpoint names and the methods it checks, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. Restricted to the script's owner and to administrators.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"
@@ -85,7 +85,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 // put binds the script to an endpoint, or changes its binding.
 //
 // @Summary      Bind a script to an endpoint
-// @Description  Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req); a public endpoint needs the deployment's bot check (Admin > Settings > Bot check). Restricted to administrators: the script's owner is refused.
+// @Description  Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req). auth_mode is authenticated (a platform API key or a browser session among callers: "*", "persona:<name>" or "api_key:<name>", empty admitting no one but the administrator, who is always admitted), public (anyone, with no check) or bot_check (anyone who passes the bot check bot_check names, one configured under Admin > Settings > Bot checks, on the methods in checked_methods, empty for every method); a binding naming a check that does not exist is refused, and so is signed_in. Restricted to administrators: the script's owner is refused.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json

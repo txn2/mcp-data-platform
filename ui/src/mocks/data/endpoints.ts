@@ -1,7 +1,8 @@
 import type { AdminEndpoint, AdminEndpointDetail, EndpointBucket, EndpointRange } from "@/api/admin/types";
 
-// The admin Endpoints page's data (#2208): two bindings, one public with a
-// flood refused at its bot check, one signed in.
+// The admin Endpoints page's data (#2208, #2259): a bot_check endpoint with a
+// flood refused at its check, an authenticated one with its callers, and a
+// public one that answers anyone.
 
 const HOUR = 3600 * 1000;
 
@@ -16,8 +17,11 @@ export const mockAdminEndpoints: AdminEndpoint[] = [
     url: "https://data.example.com/endpoints/contact",
     methods: ["POST"],
     path: "",
-    auth_mode: "public",
-    open_reads: false,
+    auth_mode: "bot_check",
+    callers: [],
+    bot_check: "default",
+    bot_check_provider: "pow",
+    checked_methods: [],
     enabled: true,
     timeout_seconds: 10,
     max_body_bytes: 65536,
@@ -44,8 +48,9 @@ export const mockAdminEndpoints: AdminEndpoint[] = [
     url: "https://data.example.com/endpoints/store-lookup",
     methods: ["GET"],
     path: "/{id}",
-    auth_mode: "signed_in",
-    open_reads: false,
+    auth_mode: "authenticated",
+    callers: ["persona:analyst", "api_key:store-sync"],
+    checked_methods: [],
     enabled: true,
     timeout_seconds: 5,
     max_body_bytes: 4096,
@@ -63,8 +68,37 @@ export const mockAdminEndpoints: AdminEndpoint[] = [
       callers: 7,
       last_request_at: hoursAgo(0.05),
     },
-    refused: 4,
-    refused_by_reason: { caller_rate_limit: 4 },
+    refused: 9,
+    refused_by_reason: { caller_rate_limit: 4, caller: 5 },
+  },
+  {
+    id: "ep-003",
+    name: "store-hours",
+    url: "https://data.example.com/endpoints/store-hours",
+    methods: ["GET"],
+    path: "",
+    auth_mode: "public",
+    callers: [],
+    checked_methods: [],
+    enabled: true,
+    timeout_seconds: 5,
+    max_body_bytes: 4096,
+    rate_limit: 600,
+    caller_rate_limit: 120,
+    updated_by: "admin@example.com",
+    updated_at: hoursAgo(90),
+    script: { id: "script-003", name: "store-hours", display_name: "Store Hours", owner: "sarah.chen@example.com" },
+    traffic: {
+      requests: 5320,
+      by_status_class: { "2xx": 5320, "3xx": 0, "4xx": 0, "5xx": 0 },
+      failures: 0,
+      p50_ms: 9,
+      p95_ms: 18,
+      callers: 0,
+      last_request_at: hoursAgo(0.01),
+    },
+    refused: 0,
+    refused_by_reason: {},
   },
 ];
 
@@ -83,7 +117,7 @@ export function mockEndpointDetail(name: string, range: EndpointRange): AdminEnd
       "3xx": 0,
       "4xx": i % 5 === 0 ? 2 : 0,
       "5xx": i === count - 3 ? 1 : 0,
-      refused: e.auth_mode === "public" && i > count - 5 ? 400 : 0,
+      refused: e.auth_mode === "bot_check" && i > count - 5 ? 400 : 0,
     };
   });
   return {
@@ -93,7 +127,7 @@ export function mockEndpointDetail(name: string, range: EndpointRange): AdminEnd
     bucket_seconds: step * 3600,
     series,
     top_callers:
-      e.auth_mode === "signed_in"
+      e.auth_mode === "authenticated"
         ? [
             { caller: "sarah.chen@example.com", requests: 610 },
             { caller: "marcus.webb@example.com", requests: 402 },

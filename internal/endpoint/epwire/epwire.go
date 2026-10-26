@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
@@ -79,7 +80,7 @@ func Build(deps Deps) *Endpoints {
 	bindings := epstore.New(deps.DB)
 	scripts := scriptstore.New(deps.DB)
 	secrets := secretstore.NewStore(deps.DB, deps.Encryptor)
-	checker := botcheck.New(deps.DB, deps.Key, func(ctx context.Context, name string) (string, error) {
+	checker := botcheck.NewChecker(deps.DB, deps.Key, func(ctx context.Context, name string) (string, error) {
 		return secrets.ConnectionValue(ctx, name, botcheck.SecretUse) //nolint:wrapcheck // the store's refusal names the secret and what allows it
 	})
 	tokens := &scripttoken.Issuer{
@@ -91,10 +92,10 @@ func Build(deps Deps) *Endpoints {
 	runner := &eprun.Runner{
 		Bindings: bindings, Scripts: scripts, Server: deps.Server, Audit: deps.Audit, Metrics: deps.Metrics,
 		Subjects: deps.Subjects, Limits: deps.Limits, Destinations: deps.Destinations,
-		Libraries: libraries(scripts, deps.Sources), Tokens: tokens,
+		Libraries: libraries(scripts, deps.Sources), Tokens: tokens, FormKey: epform.Key(deps.Key),
 	}
 	commands := &epcmd.Handler{
-		Store: bindings, PublicAllowed: checker.PublicAllowed, BaseURL: deps.BaseURL,
+		Store: bindings, CheckUsable: checker.Usable, BaseURL: deps.BaseURL,
 		ScriptName: func(ctx context.Context, id string) string {
 			if sc, err := scripts.GetByID(ctx, id); err == nil && sc != nil {
 				return sc.Name

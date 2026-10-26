@@ -1,12 +1,15 @@
 package scriptlist
 
 import (
+	"context"
+	"errors"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -80,6 +83,28 @@ func TestFilter_Kind(t *testing.T) {
 	assert.Nil(t, Filter("jane@example.com", false, url.Values{}).Library)
 }
 
+// TestParseEndpoint: bound, unbound and neither are read; any other value is
+// refused (#2259).
+func TestParseEndpoint(t *testing.T) {
+	_, named, err := ParseEndpoint("")
+	require.NoError(t, err)
+	assert.False(t, named)
+	bound, named, err := ParseEndpoint(EndpointBound)
+	require.NoError(t, err)
+	assert.True(t, named)
+	assert.True(t, bound)
+	bound, named, err = ParseEndpoint(EndpointUnbound)
+	require.NoError(t, err)
+	assert.True(t, named)
+	assert.False(t, bound)
+	_, _, err = ParseEndpoint("Bound")
+	require.ErrorContains(t, err, "unknown endpoint")
+
+	assert.True(t, *Filter("", true, url.Values{"endpoint": {"bound"}}).Endpoint)
+	assert.False(t, *Filter("", true, url.Values{"endpoint": {"unbound"}}).Endpoint)
+	assert.Nil(t, Filter("", true, url.Values{}).Endpoint)
+}
+
 // TestParseKind: the two kinds and no kind are read; any other value,
 // including the automation the listing named scripts by before #1970, is
 // refused.
@@ -101,4 +126,23 @@ func TestParseKind(t *testing.T) {
 		assert.Contains(t, err.Error(), "unknown kind")
 		assert.False(t, named)
 	}
+}
+
+// TestEndpoints: one read for the scripts named, limited to how many there
+// are, by script id; none bound, none named, or a failed read answer none.
+func TestEndpoints(t *testing.T) {
+	var asked epbinding.Filter
+	list := func(_ context.Context, f epbinding.Filter) ([]epbinding.Binding, int, error) {
+		asked = f
+		return []epbinding.Binding{{ScriptID: "s2", Name: "orders", Path: "/{id}", AuthMode: epbinding.AuthPublic, Enabled: true}}, 1, nil
+	}
+	got := Endpoints(context.Background(), list, []string{"s1", "s2"})
+	assert.Equal(t, map[string]*Endpoint{"s2": {Name: "orders", Path: "/endpoints/orders/{id}", AuthMode: "public", Enabled: true}}, got)
+	assert.Equal(t, epbinding.Filter{ScriptIDs: []string{"s1", "s2"}, Limit: 2}, asked)
+
+	assert.Empty(t, Endpoints(context.Background(), list, nil))
+	failing := func(context.Context, epbinding.Filter) ([]epbinding.Binding, int, error) {
+		return nil, 0, errors.New("down")
+	}
+	assert.Empty(t, Endpoints(context.Background(), failing, []string{"s1"}))
 }

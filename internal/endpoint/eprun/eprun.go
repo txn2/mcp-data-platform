@@ -25,6 +25,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
@@ -90,6 +91,12 @@ type Runner struct {
 	// Tokens answers platform.mint_token and platform.verify_token, bound to
 	// the endpoint a request reached (#2175); nil refuses them.
 	Tokens *scripttoken.Issuer
+	// FormKey signs a form's token (epform.Key, #2176); nil answers every
+	// request to a form 503.
+	FormKey []byte
+	// Now is the clock a form's token is signed and checked by; nil is
+	// time.Now.
+	Now func() time.Time
 
 	mu    sync.Mutex
 	cache map[string]*Target
@@ -108,6 +115,8 @@ type Target struct {
 	Version *script.Version
 	program *scriptdialect.Program
 	stamp   epbinding.Stamp
+	// form is whether the version defines form_spec and form_submit (#2176).
+	form bool
 }
 
 // Resolve is the endpoint a name serves, current as of this call.
@@ -159,7 +168,9 @@ func (r *Runner) load(ctx context.Context, name string, stamp epbinding.Stamp, h
 	}
 	t := &Target{Binding: b, Script: sc, Version: v, program: &scriptdialect.Program{}, stamp: stamp}
 	if held != nil && held.Version.ID == v.ID {
-		t.program = held.program
+		t.program, t.form = held.program, held.form
+	} else {
+		t.form = epform.DefinesSource(v.Source)
 	}
 	return t, nil
 }
@@ -187,6 +198,8 @@ func (r *Runner) Serve(ctx context.Context, t *Target, req Request) Response {
 		resp, failure = errorResponse(http.StatusInternalServerError, "the endpoint could not start"), err
 	case script.RefuseRun(t.Script) != nil:
 		resp, failure = errorResponse(http.StatusServiceUnavailable, "this endpoint is not available"), script.RefuseRun(t.Script)
+	case t.form && r.FormKey == nil:
+		resp, failure = errorResponse(http.StatusServiceUnavailable, "this form is not available"), errNoForm
 	default:
 		resp, failure = r.run(ctx, t, req, sessionID)
 	}
@@ -199,17 +212,22 @@ func (r *Runner) Serve(ctx context.Context, t *Target, req Request) Response {
 	return resp
 }
 
-// run executes the handler in the request's own session.
+// run executes the handler in the request's own session. A form submission
+// the spec refuses is answered before a session is opened.
 func (r *Runner) run(ctx context.Context, t *Target, req Request, sessionID string) (Response, error) {
+	reqValue, err := requestValue(req)
+	if err != nil {
+		return errorResponse(http.StatusBadRequest, "the request could not be read"), err
+	}
+	call, refusal := r.invocationFor(t, req, reqValue)
+	if refusal != nil {
+		return *refusal, nil
+	}
 	caller, cleanup, err := r.connect(ctx, t, sessionID)
 	if err != nil {
 		return errorResponse(http.StatusInternalServerError, "the endpoint could not start"), err
 	}
 	defer cleanup()
-	reqValue, err := requestValue(req)
-	if err != nil {
-		return errorResponse(http.StatusBadRequest, "the request could not be read"), err
-	}
 	opts := scriptrun.RunLimits(r.Limits)
 	unit := r.unit
 	if unit == 0 {
@@ -229,17 +247,13 @@ func (r *Runner) run(ctx context.Context, t *Target, req Request, sessionID stri
 	}
 	var returned starlark.Value
 	opts.Handler = &scriptdialect.Handler{
-		Name: scriptdialect.HandlerName, Args: starlark.Tuple{reqValue}, Program: t.program,
+		Name: call.name, Args: call.args, Program: t.program,
 		Returned: func(v starlark.Value) error { returned = v; return nil },
 	}
 	if _, err := scriptrun.Run(ctx, opts); err != nil {
 		return failedRun(err), err
 	}
-	resp, err := responseFrom(returned)
-	if err != nil {
-		return errorResponse(http.StatusInternalServerError, "the endpoint answered with something that is not a response"), err
-	}
-	return resp, nil
+	return call.respond(returned)
 }
 
 // failedRun is the response to a handler that did not finish: past its time

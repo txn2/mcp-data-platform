@@ -80,7 +80,10 @@ func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
 	if info == nil {
 		return nil, csrfErr
 	}
-	return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles, AuthType: info.AuthType, Claims: info.Claims}, nil
+	return &User{
+		UserID: info.UserID, Email: info.Email, Roles: info.Roles, AuthType: info.AuthType, Claims: info.Claims,
+		APIKeyName: info.APIKeyName,
+	}, nil
 }
 
 // extractPortalToken extracts an authentication token from X-API-Key or Authorization headers.

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -113,7 +114,7 @@ func expectRefusals(mock sqlmock.Sqlmock, endpoint string) {
 // by status class and its refusals by reason.
 func TestList_EveryBindingWithItsScriptOwnerAndTraffic(t *testing.T) {
 	orphan := contactBinding()
-	orphan.ID, orphan.Name, orphan.ScriptID, orphan.AuthMode, orphan.Methods = "2", "orders", "gone", epbinding.AuthSignedIn, nil
+	orphan.ID, orphan.Name, orphan.ScriptID, orphan.AuthMode, orphan.Methods = "2", "orders", "gone", epbinding.AuthAuthenticated, nil
 	b := &bindings{list: []epbinding.Binding{contactBinding(), orphan}}
 	rec := serve(t, b, "/api/v1/admin/endpoints?range=week", func(mock sqlmock.Sqlmock) {
 		expectTraffic(mock)
@@ -137,7 +138,7 @@ func TestList_EveryBindingWithItsScriptOwnerAndTraffic(t *testing.T) {
 	assert.Equal(t, map[string]int64{"bot_check": 40, "rate_limit": 2}, c.RefusedByReason)
 
 	o := out.Endpoints[1]
-	assert.Equal(t, epbinding.AuthSignedIn, o.AuthMode)
+	assert.Equal(t, epbinding.AuthAuthenticated, o.AuthMode)
 	assert.Zero(t, o.Traffic.Requests, "an endpoint with no requests reads as none")
 	assert.Equal(t, []string{}, o.Methods)
 	assert.Equal(t, map[string]int64{}, o.RefusedByReason)
@@ -164,7 +165,7 @@ func TestList_PagesAndFiltersOnTheServer(t *testing.T) {
 		e := contactBinding()
 		e.ID, e.Name, e.Enabled = fmt.Sprint(i), fmt.Sprintf("ep-%03d", i), i%2 == 0
 		if i%3 == 0 {
-			e.AuthMode = epbinding.AuthSignedIn
+			e.AuthMode = epbinding.AuthAuthenticated
 		}
 		list = append(list, e)
 	}
@@ -205,12 +206,12 @@ func TestList_PagesAndFiltersOnTheServer(t *testing.T) {
 	}
 	assert.Equal(t, len(public.Endpoints), public.Total)
 
-	off := read("/api/v1/admin/endpoints?access=signed_in&status=off")
+	off := read("/api/v1/admin/endpoints?access=authenticated&status=off")
 	require.NotNil(t, b.filter.Enabled)
 	assert.False(t, *b.filter.Enabled)
 	assert.Positive(t, off.Total)
 
-	for _, bad := range []string{"access=everyone", "status=maybe"} {
+	for _, bad := range []string{"access=everyone", "access=signed_in", "status=maybe"} {
 		rec := serve(t, b, "/api/v1/admin/endpoints?"+bad, func(sqlmock.Sqlmock) {})
 		assert.Equal(t, http.StatusBadRequest, rec.Code, bad)
 	}
@@ -284,4 +285,29 @@ func TestRegister_NeedsItsReads(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/endpoints", nil))
 	assert.Equal(t, http.StatusNotFound, rec.Code, "nothing is mounted without a database")
+}
+
+// #2259: a bot_check endpoint is listed with its check's provider, read once
+// for the page; a failed read lists it with the name alone.
+func TestProviders_NameEachChecksProvider(t *testing.T) {
+	h := &handler{cfg: Config{
+		Checks: func(context.Context) ([]botcheck.Check, error) {
+			return []botcheck.Check{{Name: "default", Provider: botcheck.ProviderPoW}, {Name: "signup", Provider: botcheck.ProviderTurnstile}}, nil
+		},
+		Script: func(context.Context, string) (*script.Script, error) { return nil, errors.New("no such script") },
+	}}
+	got := h.providers(context.Background())
+	assert.Equal(t, map[string]string{"default": "pow", "signup": "turnstile"}, got)
+
+	b := contactBinding()
+	b.AuthMode, b.BotCheck, b.Callers, b.CheckedMethods = epbinding.AuthBotCheck, "signup", nil, nil
+	e := h.endpoint(context.Background(), &b, nil, nil, got)
+	assert.Equal(t, "turnstile", e.BotCheckProvider)
+	assert.Equal(t, []string{}, e.Callers, "an absent list reads as []")
+	assert.Equal(t, []string{}, e.CheckedMethods)
+
+	h.cfg.Checks = func(context.Context) ([]botcheck.Check, error) { return nil, errors.New("down") }
+	assert.Empty(t, h.providers(context.Background()))
+	h.cfg.Checks = nil
+	assert.Empty(t, h.providers(context.Background()))
 }

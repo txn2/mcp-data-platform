@@ -131,11 +131,18 @@ func Refs(source string) []Ref {
 	return out
 }
 
-// IsLibrary reports whether file is a library: it defines neither main() nor
-// an endpoint's handle() at its top level (#2172).
+// entryNames are the functions the platform calls: a script defining any of
+// them at its top level is not a library.
+var entryNames = []string{
+	scriptdialect.EntryPointName, scriptdialect.HandlerName, scriptdialect.FormSpecName, scriptdialect.FormSubmitName,
+}
+
+// IsLibrary reports whether file is a library: it defines neither main(), an
+// endpoint's handle() (#2172) nor a form's form_spec() or form_submit()
+// (#2176) at its top level.
 func IsLibrary(file *syntax.File) bool {
 	for _, s := range file.Stmts {
-		if d, ok := s.(*syntax.DefStmt); ok && (d.Name.Name == scriptdialect.EntryPointName || d.Name.Name == scriptdialect.HandlerName) {
+		if d, ok := s.(*syntax.DefStmt); ok && slices.Contains(entryNames, d.Name.Name) {
 			return false
 		}
 	}

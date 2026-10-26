@@ -436,6 +436,10 @@ func (q *listQuery) addEquality(filter script.ListFilter) {
 	if filter.Library != nil {
 		q.add("library = $%d", *filter.Library)
 	}
+	if filter.Endpoint != nil {
+		q.add("EXISTS (SELECT 1 FROM script_endpoints WHERE script_endpoints.script_id = "+scriptsTable+".id) = $%d",
+			*filter.Endpoint)
+	}
 	if filter.Status != "" {
 		q.add("status = $%d", filter.Status)
 	}

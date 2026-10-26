@@ -24,7 +24,7 @@ func (a *analyzer) invoke(caller *frame, d *syntax.DefStmt, c *syntax.CallExpr) 
 	}
 	fr := a.calleeFrame(caller, name, int(c.Lparen.Line))
 	fr.sites = slices.Clone(caller.sites)
-	if c != a.entryCall {
+	if !a.isEntry(c) {
 		fr.sites = append(fr.sites, position(c.Lparen))
 	}
 	a.bindParams(caller, fr, d, c)

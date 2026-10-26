@@ -28,7 +28,7 @@ func TestIssue2251_TheEndpointListReachesEveryEndpointAndCountsThem(t *testing.T
 	names := []string{endpointName("acc-2251-a"), endpointName("acc-2251-b"), endpointName("acc-2251-c")}
 	for _, name := range names {
 		saveEndpointScript(t, admin, name, issue2171EchoHandler, `{"params": {}, "caller": None}`)
-		bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "signed_in"})
+		bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}})
 	}
 
 	status, first := admin.rest(http.MethodGet, "/api/v1/admin/endpoints?range=day", nil)
@@ -70,10 +70,11 @@ func TestIssue2251_TheEndpointListReachesEveryEndpointAndCountsThem(t *testing.T
 	}
 
 	// A filter narrows the count, not only the page.
-	_, signed := issue2208AllPages(t, admin, "range=day&access=signed_in", 200)
+	_, authed := issue2208AllPages(t, admin, "range=day&access=authenticated", 200)
 	_, public := issue2208AllPages(t, admin, "range=day&access=public", 200)
-	if signed < len(names) || signed+public != total {
-		t.Errorf("signed-in %d and public %d endpoints of %d", signed, public, total)
+	_, checked := issue2208AllPages(t, admin, "range=day&access=bot_check", 200)
+	if authed < len(names) || authed+public+checked != total {
+		t.Errorf("authenticated %d, public %d and bot_check %d endpoints of %d", authed, public, checked, total)
 	}
 	if status, _ := admin.rest(http.MethodGet, "/api/v1/admin/endpoints?access=everyone", nil); status != http.StatusBadRequest {
 		t.Errorf("an unknown access: %d, want 400", status)

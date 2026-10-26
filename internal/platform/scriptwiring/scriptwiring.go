@@ -195,7 +195,7 @@ type Deps struct {
 	PortalURL            string
 	Toolkits             *registry.Registry
 
-	// BotCheckKey signs a public endpoint's proof-of-work challenges
+	// BotCheckKey signs a bot_check endpoint's proof-of-work challenges
 	// (botcheck.Key), and Encryptor decrypts the stored secret a bot check
 	// provider's key is kept in (#2173).
 	BotCheckKey []byte

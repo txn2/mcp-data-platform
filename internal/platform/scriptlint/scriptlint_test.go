@@ -93,6 +93,8 @@ func TestCheck_EachRuleRefusesANewScript(t *testing.T) {
 		"library names run":                {"def day():\n    \"\"\"Doc.\"\"\"\n    return run.params[\"day\"]\n", RuleLibraryEffect, 3},
 		"main takes params":                {"def main(x):\n    \"\"\"Doc.\"\"\"\n    print(x)\n", RuleEntryPoint, 1},
 		"handle takes no request":          {"def handle():\n    \"\"\"Doc.\"\"\"\n    return {\"status\": 200}\n", RuleEntryPoint, 1},
+		"form_spec takes two":              {"def form_spec(req, x):\n    \"\"\"Doc.\"\"\"\n    return {}\n", RuleEntryPoint, 1},
+		"form_submit takes one":            {"def form_submit(req):\n    \"\"\"Doc.\"\"\"\n    return None\n", RuleEntryPoint, 1},
 		"work at top level":                {clean + "\nprint(\"hi\")\n", RuleTopLevelWork, 20},
 		"top-level call value":             {"X = run.params[\"a\"]\n\n" + clean, RuleTopLevelWork, 1},
 		"cyclomatic":                       {branches, RuleCyclomatic, 1},
@@ -196,4 +198,17 @@ func TestCheck_AHandlerWithoutMainIsNotALibrary(t *testing.T) {
 	res := Check(src)
 	assert.NotContains(t, rules(res), RuleLibraryEffect)
 	assert.NotContains(t, rules(res), RuleEntryPoint)
+}
+
+// A form script, form_spec(req) and form_submit(req, values) and no main(),
+// is an endpoint's script, not a library (#2176).
+func TestCheck_AFormWithoutMainIsNotALibrary(t *testing.T) {
+	src := "def form_spec(req):\n    \"\"\"The form.\"\"\"\n    return {\"fields\": platform.query(\"SELECT 1\")}\n\n" +
+		"def form_submit(req, values):\n    \"\"\"Accepts.\"\"\"\n    return None\n"
+	res := Check(src)
+	assert.NotContains(t, rules(res), RuleLibraryEffect)
+	assert.NotContains(t, rules(res), RuleEntryPoint)
+	assert.NotContains(t, rules(res), RuleUnusedParameter, "the platform passes req and values whether a handler reads them or not")
+	other := Check("def main():\n    \"\"\"Runs.\"\"\"\n    helper(1)\n\ndef helper(x):\n    \"\"\"Ignores x.\"\"\"\n    return 1\n")
+	assert.Contains(t, rules(other), RuleUnusedParameter, "any other function's unused parameter is still a finding")
 }

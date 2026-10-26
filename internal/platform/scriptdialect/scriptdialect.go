@@ -96,6 +96,14 @@ func EntryPoint(file *syntax.File) *syntax.DefStmt {
 // as its one argument (#2172).
 const HandlerName = "handle"
 
+// FormSpecName and FormSubmitName are the functions a form endpoint's
+// requests call instead (#2176): the spec on a GET, and the checked
+// submission otherwise. internal/endpoint/epform holds the contract.
+const (
+	FormSpecName   = "form_spec"
+	FormSubmitName = "form_submit"
+)
+
 // HandlerOf returns file's top-level handle(req) taking exactly one
 // parameter, or nil when it defines none that a request can call.
 func HandlerOf(file *syntax.File) *syntax.DefStmt {

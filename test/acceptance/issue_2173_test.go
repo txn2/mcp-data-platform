@@ -19,7 +19,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 )
 
-// Acceptance for #2173: the bot check a public endpoint requires. A request
+// Acceptance for #2173: the bot check a bot_check endpoint requires, each test
+// with a named check of its own (#2259). A request
 // with a solved challenge is accepted, the same answer sent again is refused,
 // and so is an expired one; a burst past the endpoint's recent rate raises
 // the difficulty and the raised challenge solved is still accepted; with
@@ -36,7 +37,6 @@ import (
 // issue2173Quick is a proof of work cheap enough to solve many times.
 var issue2173Quick = map[string]any{
 	"provider": "pow", "difficulty": 8, "max_difficulty": 12, "rate_threshold": 2, "challenge_ttl_seconds": 5,
-	"allow_public_without_check": false,
 }
 
 // solvePoW finds the counter whose SHA-256 of token~counter has difficulty
@@ -60,12 +60,15 @@ func solvePoW(token string, difficulty int) string {
 	}
 }
 
-// publicEndpoint saves and binds a public echo endpoint.
-func publicEndpoint(t *testing.T, admin *client, prefix string) string {
+// checkedEndpoint saves and binds an echo endpoint behind the bot check named
+// check.
+func checkedEndpoint(t *testing.T, admin *client, prefix, check string) string {
 	t.Helper()
 	name := endpointName(prefix)
 	saveEndpointScript(t, admin, name, issue2171EchoHandler, `{"params": {}, "caller": None}`)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "methods": []string{"POST"}, "auth_mode": "public"})
+	bindEndpoint(t, admin, name, "", map[string]any{
+		"endpoint": name, "methods": []string{"POST"}, "auth_mode": "bot_check", "bot_check": check,
+	})
 	return name
 }
 
@@ -83,7 +86,7 @@ func challengeFor(t *testing.T, base, endpoint string) botcheck.Challenge {
 	return ch
 }
 
-// postAnswered posts to a public endpoint with answer in X-Bot-Check.
+// postAnswered posts to a bot_check endpoint with answer in X-Bot-Check.
 func postAnswered(t *testing.T, base, endpoint, answer string) endpointResponse {
 	t.Helper()
 	header := http.Header{"Content-Type": {"application/json"}}
@@ -126,8 +129,8 @@ window.PlatformBotCheck.answer(process.argv[3], {base: process.argv[4]}).then(a 
 // TestIssue2173_ASolvedChallengeIsAcceptedOnceAndNotAfterItExpires.
 func TestIssue2173_ASolvedChallengeIsAcceptedOnceAndNotAfterItExpires(t *testing.T) {
 	admin := connect(t)
-	putBotCheck(t, admin, issue2173Quick)
-	name := publicEndpoint(t, admin, "acc-2173-once")
+	check := putBotCheck(t, admin, issue2173Quick)
+	name := checkedEndpoint(t, admin, "acc-2173-once", check)
 
 	if got := postAnswered(t, admin.base, name, ""); got.status != http.StatusForbidden {
 		t.Fatalf("with no answer: want 403, got %d %s", got.status, got.body)
@@ -151,8 +154,8 @@ func TestIssue2173_ASolvedChallengeIsAcceptedOnceAndNotAfterItExpires(t *testing
 // TestIssue2173_ABurstRaisesTheDifficultyAndTheRaisedChallengeIsAccepted.
 func TestIssue2173_ABurstRaisesTheDifficultyAndTheRaisedChallengeIsAccepted(t *testing.T) {
 	admin := connect(t)
-	putBotCheck(t, admin, issue2173Quick)
-	name := publicEndpoint(t, admin, "acc-2173-burst")
+	check := putBotCheck(t, admin, issue2173Quick)
+	name := checkedEndpoint(t, admin, "acc-2173-burst", check)
 
 	quiet := challengeFor(t, admin.base, name)
 	for range 8 {
@@ -171,8 +174,8 @@ func TestIssue2173_ABurstRaisesTheDifficultyAndTheRaisedChallengeIsAccepted(t *t
 }
 
 // issue2173Turnstile stores value as the secret name and points the bot
-// check at Cloudflare Turnstile with its testing site key.
-func issue2173Turnstile(t *testing.T, admin *client, secret, value string) {
+// check named check at Cloudflare Turnstile with its testing site key.
+func issue2173Turnstile(t *testing.T, admin *client, check, secret, value string) {
 	t.Helper()
 	status, out := admin.rest(http.MethodPut, "/api/v1/admin/secrets/"+secret, jsonBody(t, map[string]any{
 		"kind": "value", "value": value, "allow_connections": []string{"bot_check"}, "allow_personas": []string{},
@@ -181,7 +184,7 @@ func issue2173Turnstile(t *testing.T, admin *client, secret, value string) {
 		t.Fatalf("storing the Turnstile secret: %d %v", status, out)
 	}
 	t.Cleanup(func() { admin.rest(http.MethodDelete, "/api/v1/admin/secrets/"+secret, nil) })
-	putBotCheck(t, admin, map[string]any{"provider": "turnstile", "site_key": "1x00000000000000000000AA", "secret_name": secret})
+	writeBotCheck(t, admin, check, map[string]any{"provider": "turnstile", "site_key": "1x00000000000000000000AA", "secret_name": secret})
 }
 
 // TestIssue2173_TurnstileAcceptsOnlyWhatCloudflareVerified: Cloudflare's
@@ -190,8 +193,7 @@ func issue2173Turnstile(t *testing.T, admin *client, secret, value string) {
 // and no log line.
 func TestIssue2173_TurnstileAcceptsOnlyWhatCloudflareVerified(t *testing.T) {
 	admin := connect(t)
-	name := publicEndpoint(t, admin, "acc-2173-turnstile")
-	secret := endpointName("acc-2173-turnstile-key")
+	secret, check := endpointName("acc-2173-turnstile-key"), endpointName("acc-2173-turnstile")
 	const (
 		passes = "1x0000000000000000000000000000000AA" // #nosec G101 -- Cloudflare's published testing key, which verifies every token
 		fails  = "2x0000000000000000000000000000000AA" // #nosec G101 -- Cloudflare's published testing key, which verifies none
@@ -201,7 +203,9 @@ func TestIssue2173_TurnstileAcceptsOnlyWhatCloudflareVerified(t *testing.T) {
 	token := "XXXX.DUMMY.TOKEN.XXXX." + endpointName("run")
 	since := time.Now().Add(-time.Second)
 
-	issue2173Turnstile(t, admin, secret, passes)
+	issue2173Turnstile(t, admin, check, secret, passes)
+	t.Cleanup(func() { admin.rest(http.MethodDelete, botChecksPath+"/"+check, nil) })
+	name := checkedEndpoint(t, admin, "acc-2173-turnstile", check)
 	ch := challengeFor(t, admin.base, name)
 	if ch.Provider != "turnstile" || ch.SiteKey != "1x00000000000000000000AA" || ch.Token != "" {
 		t.Fatalf("the Turnstile challenge: %+v", ch)
@@ -216,12 +220,12 @@ func TestIssue2173_TurnstileAcceptsOnlyWhatCloudflareVerified(t *testing.T) {
 		t.Fatalf("the same token again: want 403 already used, got %d %s", got.status, got.body)
 	}
 
-	issue2173Turnstile(t, admin, secret, fails)
+	issue2173Turnstile(t, admin, check, secret, fails)
 	if got := postAnswered(t, admin.base, name, token+".2"); got.status != http.StatusForbidden {
 		t.Fatalf("a token Cloudflare refused: want 403, got %d %s", got.status, got.body)
 	}
 
-	status, settings := admin.rest(http.MethodGet, issue2171BotCheckPath, nil)
+	status, settings := admin.rest(http.MethodGet, botChecksPath+"/"+check, nil)
 	raw, _ := json.Marshal(settings)
 	if status != http.StatusOK || strings.Contains(string(raw), passes) || strings.Contains(string(raw), fails) {
 		t.Fatalf("the settings response carries the key: %s", raw)
@@ -237,8 +241,8 @@ func TestIssue2173_TurnstileAcceptsOnlyWhatCloudflareVerified(t *testing.T) {
 // TestIssue2173_AChallengeForOneEndpointIsRefusedOnAnother.
 func TestIssue2173_AChallengeForOneEndpointIsRefusedOnAnother(t *testing.T) {
 	admin := connect(t)
-	putBotCheck(t, admin, issue2173Quick)
-	first, second := publicEndpoint(t, admin, "acc-2173-first"), publicEndpoint(t, admin, "acc-2173-second")
+	check := putBotCheck(t, admin, issue2173Quick)
+	first, second := checkedEndpoint(t, admin, "acc-2173-first", check), checkedEndpoint(t, admin, "acc-2173-second", check)
 	ch := challengeFor(t, admin.base, first)
 	got := postAnswered(t, admin.base, second, solvePoW(ch.Token, ch.Difficulty))
 	if got.status != http.StatusForbidden || !strings.Contains(got.body, "another endpoint") {

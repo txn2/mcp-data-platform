@@ -401,6 +401,19 @@ func TestBuildListQuery_Kind(t *testing.T) {
 	assert.Equal(t, true, args[0])
 }
 
+// TestBuildListQuery_Endpoint narrows to the scripts bound to an endpoint, or
+// to the rest (#2259), in the listing and in both counts.
+func TestBuildListQuery_Endpoint(t *testing.T) {
+	bound := false
+	query, args := buildListQuery(script.ListFilter{Endpoint: &bound})
+	assert.Contains(t, query, "EXISTS (SELECT 1 FROM script_endpoints WHERE script_endpoints.script_id = scripts.id) = $1")
+	assert.Equal(t, false, args[0])
+	count, _ := buildCountQuery(script.ListFilter{Endpoint: &bound})
+	assert.Contains(t, count, "FROM script_endpoints")
+	scheduled, _ := buildScheduledCountQuery(script.ListFilter{Endpoint: &bound})
+	assert.Contains(t, scheduled, "FROM script_endpoints")
+}
+
 func TestBuildListQuery_FacetAxes(t *testing.T) {
 	query, args := buildListQuery(script.ListFilter{Category: "reporting"})
 	assert.Contains(t, query, "category = $1")

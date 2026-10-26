@@ -60,6 +60,9 @@ export function ScriptRow({
         <ScheduleCell row={row} />
       </TableCell>
       <TableCell>
+        <EndpointCell row={row} />
+      </TableCell>
+      <TableCell>
         <LastRunCell row={row} />
       </TableCell>
       <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
@@ -126,6 +129,20 @@ function scheduleWhen(schedule: NonNullable<PortalScriptRow["schedule"]>): strin
     case "due":
       return `Next ${formatWhen(state.at)}`;
   }
+}
+
+// EndpointCell is the address a script answers HTTP requests at (#2259), and
+// Off beside it when its binding is turned off; blank for a script bound to
+// no endpoint, which is most of them.
+export function EndpointCell({ row }: { row: PortalScriptRow }) {
+  const { endpoint } = row;
+  if (!endpoint) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs" data-testid="script-endpoint">
+      <span className="break-all font-mono">{endpoint.path}</span>
+      {!endpoint.enabled && <Badge variant="muted">Off</Badge>}
+    </div>
+  );
 }
 
 // LastRunCell reports the most recent run, for every row: how a script is

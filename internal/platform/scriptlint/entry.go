@@ -18,29 +18,28 @@ var hostNames = []string{"platform", "run"}
 // isolation, which is what a test of the script needs.
 //
 // A script an endpoint calls defines handle(req) (#2172), which takes the
-// request as its one parameter; one that defines handle and no main() is a
-// script rather than a library, since a request runs it.
+// request as its one parameter, or a form's form_spec(req) and
+// form_submit(req, values) (#2176); one that defines any of them and no
+// main() is a script rather than a library, since a request runs it.
 func (l *linter) entryPoint() {
-	var main, handle *syntax.DefStmt
+	var main *syntax.DefStmt
+	called := false
 	for _, s := range l.file.Stmts {
-		if d, ok := s.(*syntax.DefStmt); ok {
-			switch d.Name.Name {
-			case scriptdialect.EntryPointName:
-				main = d
-			case scriptdialect.HandlerName:
-				handle = d
-			}
+		d, ok := s.(*syntax.DefStmt)
+		if !ok {
+			continue
+		}
+		if d.Name.Name == scriptdialect.EntryPointName {
+			main = d
+			continue
+		}
+		if want, ok := requestHandlers[d.Name.Name]; ok {
+			called = true
+			l.handlerParams(d, want)
 		}
 	}
-	if handle != nil && len(handle.Params) != 1 {
-		l.add(finding{
-			rule: RuleEntryPoint, line: line(handle),
-			message: "handle() must take one parameter, the request",
-			hint:    "An endpoint calls handle(req) with the request: `def handle(req):`. Read the query, body and caller from req.",
-		})
-	}
 	switch {
-	case main == nil && handle != nil:
+	case main == nil && called:
 	case main == nil:
 		l.library()
 	case len(main.Params) > 0:
@@ -59,6 +58,37 @@ func (l *linter) entryPoint() {
 					"The top level may only define functions, bind constants written as literals, and load().",
 			})
 		}
+	}
+}
+
+// requestHandler is a function an endpoint's request calls: its parameters
+// and the hint a definition with others is given.
+type requestHandler struct {
+	params int
+	sig    string
+	hint   string
+}
+
+// requestHandlers are the functions an endpoint's requests call, by name.
+var requestHandlers = map[string]requestHandler{
+	scriptdialect.HandlerName: {
+		1, "handle() must take one parameter, the request",
+		"An endpoint calls handle(req) with the request: `def handle(req):`. Read the query, body and caller from req.",
+	},
+	scriptdialect.FormSpecName: {
+		1, "form_spec() must take one parameter, the request",
+		"A form's GET calls form_spec(req) with the request: `def form_spec(req):`, returning the form's fields.",
+	},
+	scriptdialect.FormSubmitName: {
+		2, "form_submit() must take two parameters, the request and the values",
+		"A form's submission calls form_submit(req, values) once the values passed the spec: `def form_submit(req, values):`.",
+	},
+}
+
+// handlerParams refuses a request handler defined with the wrong parameters.
+func (l *linter) handlerParams(d *syntax.DefStmt, want requestHandler) {
+	if len(d.Params) != want.params {
+		l.add(finding{rule: RuleEntryPoint, line: line(d), message: want.sig, hint: want.hint})
 	}
 }
 

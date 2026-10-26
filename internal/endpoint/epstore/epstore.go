@@ -28,10 +28,14 @@ const (
 // script_endpoints.name, which a second binding with the same name violates.
 const nameConstraint = "script_endpoints_name_key"
 
+// checkConstraint is the foreign key from script_endpoints.bot_check to
+// bot_checks, which a binding naming a check that does not exist violates.
+const checkConstraint = "script_endpoints_bot_check_fkey"
+
 // columns is the column list every script_endpoints SELECT reads, in scan's
 // order.
-const columns = `id, script_id, name, methods, path, auth_mode, open_reads, timeout_seconds,
-	max_memory_bytes, max_body_bytes, allowed_origins, rate_limit, caller_rate_limit, enabled,
+const columns = `id, script_id, name, methods, path, auth_mode, callers, COALESCE(bot_check, ''), checked_methods,
+	timeout_seconds, max_memory_bytes, max_body_bytes, allowed_origins, rate_limit, caller_rate_limit, enabled,
 	created_by, updated_by, created_at, updated_at`
 
 const selectBinding = "SELECT " + columns + " FROM script_endpoints"
@@ -50,14 +54,16 @@ type rowScanner interface {
 
 func scan(r rowScanner) (*epbinding.Binding, error) {
 	b := &epbinding.Binding{}
-	err := r.Scan(&b.ID, &b.ScriptID, &b.Name, pq.Array(&b.Methods), &b.Path, &b.AuthMode, &b.OpenReads,
-		&b.TimeoutSeconds, &b.MaxMemoryBytes, &b.MaxBodyBytes, pq.Array(&b.AllowedOrigins), &b.RateLimit,
+	err := r.Scan(&b.ID, &b.ScriptID, &b.Name, pq.Array(&b.Methods), &b.Path, &b.AuthMode, pq.Array(&b.Callers),
+		&b.BotCheck, pq.Array(&b.CheckedMethods), &b.TimeoutSeconds, &b.MaxMemoryBytes, &b.MaxBodyBytes, pq.Array(&b.AllowedOrigins), &b.RateLimit,
 		&b.CallerRateLimit, &b.Enabled, &b.CreatedBy, &b.UpdatedBy, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // each caller says what it was reading
 	}
-	if b.AllowedOrigins == nil {
-		b.AllowedOrigins = []string{}
+	for _, list := range []*[]string{&b.AllowedOrigins, &b.Callers, &b.CheckedMethods} {
+		if *list == nil {
+			*list = []string{}
+		}
 	}
 	return b, nil
 }
@@ -65,34 +71,43 @@ func scan(r rowScanner) (*epbinding.Binding, error) {
 // Set creates or replaces a script's binding, keyed by its script, keeping
 // the id and creation stamp of the one it replaces.
 func (s *Store) Set(ctx context.Context, b *epbinding.Binding) error {
-	origins := b.AllowedOrigins
-	if origins == nil {
-		origins = []string{}
-	}
 	row := s.db.QueryRowContext(ctx, `
-		INSERT INTO script_endpoints (script_id, name, methods, path, auth_mode, open_reads, timeout_seconds,
-		                              max_memory_bytes, max_body_bytes, allowed_origins, rate_limit,
+		INSERT INTO script_endpoints (script_id, name, methods, path, auth_mode, callers, bot_check, checked_methods,
+		                              timeout_seconds, max_memory_bytes, max_body_bytes, allowed_origins, rate_limit,
 		                              caller_rate_limit, enabled, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
 		ON CONFLICT (script_id) DO UPDATE
 		   SET name = EXCLUDED.name, methods = EXCLUDED.methods, path = EXCLUDED.path,
-		       auth_mode = EXCLUDED.auth_mode, open_reads = EXCLUDED.open_reads,
+		       auth_mode = EXCLUDED.auth_mode, callers = EXCLUDED.callers, bot_check = EXCLUDED.bot_check,
+		       checked_methods = EXCLUDED.checked_methods,
 		       timeout_seconds = EXCLUDED.timeout_seconds, max_memory_bytes = EXCLUDED.max_memory_bytes,
 		       max_body_bytes = EXCLUDED.max_body_bytes, allowed_origins = EXCLUDED.allowed_origins,
 		       rate_limit = EXCLUDED.rate_limit, caller_rate_limit = EXCLUDED.caller_rate_limit,
 		       enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = NOW()
 		RETURNING id, created_by, created_at, updated_at`,
-		b.ScriptID, b.Name, pq.Array(b.Methods), b.Path, b.AuthMode, b.OpenReads, b.TimeoutSeconds,
-		b.MaxMemoryBytes, b.MaxBodyBytes, pq.Array(origins), b.RateLimit, b.CallerRateLimit, b.Enabled, b.UpdatedBy)
+		b.ScriptID, b.Name, pq.Array(b.Methods), b.Path, b.AuthMode, pq.Array(nonNil(b.Callers)), b.BotCheck,
+		pq.Array(nonNil(b.CheckedMethods)), b.TimeoutSeconds, b.MaxMemoryBytes, b.MaxBodyBytes,
+		pq.Array(nonNil(b.AllowedOrigins)), b.RateLimit, b.CallerRateLimit, b.Enabled, b.UpdatedBy)
 	err := row.Scan(&b.ID, &b.CreatedBy, &b.CreatedAt, &b.UpdatedAt)
 	var pqErr *pq.Error
-	if errors.As(err, &pqErr) && pqErr.Code == "23505" && pqErr.Constraint == nameConstraint {
+	switch {
+	case errors.As(err, &pqErr) && pqErr.Code == "23505" && pqErr.Constraint == nameConstraint:
 		return epbinding.ErrNameTaken
-	}
-	if err != nil {
+	case errors.As(err, &pqErr) && pqErr.Code == "23503" && pqErr.Constraint == checkConstraint:
+		return fmt.Errorf("bot check %q: %w", b.BotCheck, epbinding.ErrNoSuchCheck)
+	case err != nil:
 		return fmt.Errorf("set endpoint binding: %w", err)
 	}
 	return nil
+}
+
+// nonNil is list, or an empty list for nil: a NOT NULL array column takes no
+// NULL.
+func nonNil(list []string) []string {
+	if list == nil {
+		return []string{}
+	}
+	return list
 }
 
 // Get returns a script's binding.

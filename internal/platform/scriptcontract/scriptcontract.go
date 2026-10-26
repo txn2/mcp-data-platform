@@ -658,8 +658,8 @@ ENDPOINTS
   values), "query" and "form" (each name's first value), "headers" (names
   lower-cased, the caller's credentials left out), "body" (bytes), "json"
   (the body parsed when it is JSON, else None) and "caller" ({"user_id",
-  "email", "auth_type"} of a signed_in endpoint's caller; None on a public
-  one). handle returns {"status": 200, "headers": {...}} with one
+  "email", "auth_type"} of an authenticated endpoint's caller; None on a
+  public or bot_check one). handle returns {"status": 200, "headers": {...}} with one
   of "json" (any value) or "body" (a string or bytes); status is 200 to
   599, and Set-Cookie, Content-Length and the Access-Control-* headers are
   the platform's. A handler past its timeout is answered 504, past its
@@ -674,6 +674,43 @@ ENDPOINTS
   "42"}, "caller": None})); its recording answers the calls handle makes
   in a test_* that replays it, calls main() or handle, and asserts on what
   came back.
+
+FORMS
+  A bound script defining form_spec(req) and form_submit(req, values), in
+  place of handle(req), is a form. A GET calls form_spec(req) and answers
+  {"spec", "form_token", "token_field", "honeypot_field"}: the checked spec
+  signed into form_token, which a submission (urlencoded or JSON alike)
+  carries back. Before form_submit runs, the platform answers 422 {"errors":
+  {field: message}} for an undeclared field, a missing required one, a
+  wrong type, a value past its limits or a changed hidden field, and 400 for
+  a missing, altered, foreign or day-old token, a filled honeypot field, or
+  a submission sooner than min_fill_seconds (at least 2) after the GET.
+  form_submit gets every declared field (number as int or float, checkbox
+  as bool, multiple choice as a list, empty as "") and returns None to
+  accept with the spec's confirmation and redirect, {"errors": {...}} to
+  refuse, or {"confirmation": ..., "redirect": ...}:
+      def form_spec(req):
+          """Asks for an email, carrying a token the submission returns."""
+          c = req["query"].get("customer_id", "")
+          return {
+              "fields": [
+                  {"name": "email", "type": "email", "required": True},
+                  {"name": "ticket", "type": "hidden"},
+              ],
+              "prefill": {"ticket": platform.mint_token({"c": c}, 3600, secret = "form-key")},
+              "confirmation": "Thanks.",
+          }
+      def form_submit(req, values):
+          """Accepts a submission carrying a ticket this form issued."""
+          if not platform.verify_token(values["ticket"], secret = "form-key")["ok"]:
+              return {"errors": {"ticket": "start the form again"}}
+          return None
+  Types: text, long_text, email, number, date (YYYY-MM-DD), single_choice,
+  multiple_choice, checkbox, hidden. A field has name, type, label,
+  required, max_length (text 1000, long text 10000 by default), min and max,
+  help and choices ({"value", "label"}); form_token and website (the
+  honeypot) are the platform's. A form answers GET and POST; on a bot_check
+  endpoint set checked_methods to ["POST"].
 
 LIBRARIES
   A library is a script with neither main() nor handle(): pure code other scripts load, so the

@@ -46,6 +46,10 @@ type UserInfo struct {
 	Claims   map[string]any
 	Roles    []string
 	AuthType string // one of the AuthType* constants below
+	// APIKeyName is the name of the API key the caller authenticated with,
+	// empty for every other kind of credential. A key bound to a person
+	// authenticates as that person, so its name is not in UserID (#2259).
+	APIKeyName string
 	// OnBehalfOf is the address of the PERSON an unattended caller acts for,
 	// set only where the authenticated principal is not itself a person: a
 	// managed-script run authenticates as script:<name> and presents the roles

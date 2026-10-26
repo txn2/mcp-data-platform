@@ -15,7 +15,7 @@ export const SETTINGS_SECTIONS = [
   { id: "webhooks", label: "Webhooks", group: "Alerts" },
   { id: "storage", label: "Storage", group: "Alerts" },
   { id: "maps", label: "Maps", group: "Content" },
-  { id: "bot-check", label: "Bot check", group: "Endpoints" },
+  { id: "bot-checks", label: "Bot checks", group: "Endpoints" },
   { id: "access-requests", label: "Access requests", group: "Access" },
 ] as const satisfies readonly { id: string; label: string; group: (typeof SECTION_GROUPS)[number] }[];
 

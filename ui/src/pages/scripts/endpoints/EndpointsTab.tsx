@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Globe } from "lucide-react";
 import { useAdminEndpoints } from "@/api/admin/hooks";
 import type {
+  BotCheckProvider,
   AdminEndpoint,
   AdminEndpointListParams,
   EndpointRange,
@@ -22,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { formatWhen } from "../runFormat";
 import { BindAutomationDialog } from "./BindAutomationDialog";
-import { ACCESS_LABELS, endpointPath, formatMs } from "./endpointLabels";
+import { ACCESS_LABELS, PROVIDER_LABELS, PUBLIC_NOTE, accessLabel, endpointPath, formatMs } from "./endpointLabels";
 
 // EndpointsTab is every endpoint binding on the deployment with its traffic
 // (#2208): what the deployment exposes, under whose automation, and who is
@@ -40,8 +41,9 @@ export const RANGE_OPTIONS: { value: EndpointRange; label: string }[] = [
 
 const ACCESS_OPTIONS = [
   { value: "", label: "All access" },
-  { value: "public", label: "Public" },
-  { value: "signed_in", label: "Signed in" },
+  { value: "authenticated", label: ACCESS_LABELS.authenticated },
+  { value: "public", label: ACCESS_LABELS.public },
+  { value: "bot_check", label: ACCESS_LABELS.bot_check },
 ];
 
 const STATUS_OPTIONS = [
@@ -209,7 +211,7 @@ function EndpointTable({
               </TableCell>
               <TableCell className="text-xs">{e.script.owner || "-"}</TableCell>
               <TableCell>
-                <AccessBadge mode={e.auth_mode} />
+                <AccessBadge endpoint={e} />
               </TableCell>
               <TableCell className="font-mono text-xs">
                 {e.methods.join(", ")}
@@ -240,11 +242,25 @@ function EndpointTable({
   );
 }
 
-/** AccessBadge marks a public endpoint apart from a signed-in one. */
-export function AccessBadge({ mode }: { mode: AdminEndpoint["auth_mode"] }) {
+/**
+ * AccessBadge is an endpoint's access mode (#2259): a public endpoint, which
+ * answers anyone with no check, is marked apart; a bot_check one names its
+ * check and that check's provider.
+ */
+export function AccessBadge({
+  endpoint: e,
+}: {
+  endpoint: Pick<AdminEndpoint, "auth_mode" | "bot_check" | "bot_check_provider">;
+}) {
+  const title =
+    e.auth_mode === "public"
+      ? PUBLIC_NOTE
+      : e.auth_mode === "bot_check" && e.bot_check_provider
+        ? `Provider: ${PROVIDER_LABELS[e.bot_check_provider as BotCheckProvider] ?? e.bot_check_provider}`
+        : undefined;
   return (
-    <Badge variant={mode === "public" ? "warning" : "muted"} data-access={mode}>
-      {ACCESS_LABELS[mode]}
+    <Badge variant={e.auth_mode === "public" ? "warning" : "muted"} data-access={e.auth_mode} title={title}>
+      {accessLabel(e)}
     </Badge>
   );
 }

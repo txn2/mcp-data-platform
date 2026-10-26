@@ -15,10 +15,12 @@ sequenceDiagram
     participant P as Platform tools
     C->>H: request (session, API key, or bot check answer)
     H->>H: binding, CORS, method, path, rate limit
-    alt public
-        H->>B: verify X-Bot-Check
-    else signed_in
-        H->>H: browser session or API key
+    alt authenticated
+        H->>H: API key or browser session, among the callers
+    else bot_check
+        H->>B: verify X-Bot-Check against the named check
+    else public
+        H->>H: no check
     end
     H->>R: handle(req), inline
     R->>P: platform.query / platform.call as script:<name>
@@ -37,8 +39,8 @@ With `manage_script`:
 
 ```json
 {"command": "endpoint_set", "name": "order-lookup", "owner_email": "jane@example.com",
- "endpoint": "orders", "methods": ["GET"], "path": "/{id}", "auth_mode": "signed_in",
- "timeout_seconds": 10}
+ "endpoint": "orders", "methods": ["GET"], "path": "/{id}", "auth_mode": "authenticated",
+ "callers": ["persona:analyst", "api_key:partner-sync"], "timeout_seconds": 10}
 ```
 
 `endpoint_list` reads a script's binding and its recent failed requests, or
@@ -60,14 +62,16 @@ A binding holds:
 | `endpoint` | (required) | The name, `/endpoints/{name}`; lowercase letters, digits, hyphens and underscores, unique across the deployment |
 | `methods` | `GET` | The HTTP methods answered; HEAD is answered wherever GET is |
 | `path` | empty | The template under the name: `/{id}` takes one segment the handler reads as `req["params"]["id"]` |
-| `auth_mode` | (required) | `signed_in` or `public` |
-| `open_reads` | false | On a public endpoint, GET and HEAD need no bot check |
+| `auth_mode` | (required) | `authenticated`, `public` or `bot_check` (see [Access modes](#access-modes)) |
+| `callers` | none | On an `authenticated` endpoint, who it admits besides the administrator: `*`, `persona:<name>`, `api_key:<name>`. Empty admits no one else |
+| `bot_check` | (required on `bot_check`) | The name of the [bot check](#bot-checks) a `bot_check` endpoint requires |
+| `checked_methods` | every method | On a `bot_check` endpoint, the methods the check applies to; HEAD is checked where GET is |
 | `timeout_seconds` | 10 (at most 60) | How long one request may run |
 | `max_memory_bytes` | 64 MiB | The memory one request may hold, measured as a run's is |
 | `max_body_bytes` | 1 MiB (at most 10 MiB) | The largest request body |
 | `allowed_origins` | none | Browser origins a cross-origin request may come from |
 | `rate_limit` | 600 | The endpoint's requests a minute on each replica |
-| `caller_rate_limit` | 120 | One signed-in caller's requests a minute on each replica |
+| `caller_rate_limit` | 120 | One authenticated caller's requests a minute on each replica |
 
 A script can be bound only when it defines `handle(req)`, and a save of a bound
 script whose source no longer defines it is refused, naming the endpoint. A
@@ -100,7 +104,7 @@ def handle(req):
 | `body` | The body, as bytes |
 | `json` | The body parsed when its content type is JSON, else None. A body that says it is JSON and is not is answered 400 before the script runs |
 | `form` | Each field's first value when the body is `application/x-www-form-urlencoded`, else None |
-| `caller` | On a `signed_in` endpoint, `{"user_id", "email", "auth_type"}` of the session or API key; None on a public one. It never comes from the request body |
+| `caller` | On an `authenticated` endpoint, `{"user_id", "email", "auth_type"}` of the session or API key; None on a `public` or `bot_check` one. It never comes from the request body |
 
 The handler returns a dict: `status` (200 to 599, default 200), `headers` (names
 to strings) and one of `json` (any value) or `body` (a string or bytes). A
@@ -146,6 +150,123 @@ def test_handle():
 
 A save runs the tests as it does for any script.
 
+## Forms
+
+A bound script that defines `form_spec(req)` and `form_submit(req, values)`,
+in place of `handle(req)`, is a form (#2176). The script decides what the form
+is; the platform checks every submission against the spec it issued before the
+script sees it.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant E as /endpoints/{name}
+    participant S as form_spec / form_submit
+    B->>E: GET
+    E->>S: form_spec(req)
+    S-->>E: fields, prefill, confirmation
+    E-->>B: spec and a signed form_token
+    B->>E: POST the fields and form_token
+    E->>E: token, honeypot, minimum fill time, every field against the spec
+    alt refused
+        E-->>B: 400, or 422 with each field's error
+    else passed
+        E->>S: form_submit(req, values)
+        S-->>E: None, {"errors": ...} or {"confirmation", "redirect"}
+        E-->>B: 200 with the confirmation, or 422
+    end
+```
+
+**The spec.** A GET calls `form_spec(req)`, which returns a dict:
+
+| Key | Meaning |
+|---|---|
+| `fields` | The fields, in order (at most 100). Each has `name` (lowercase letters, digits and underscores), `type`, and optionally `label`, `required`, `max_length`, `min` and `max` (a number), `help` and `choices` (`{"value", "label"}`, at most 500) |
+| `prefill` | Each field's starting value. A `hidden` field's prefill is the value a submission must carry back unchanged |
+| `confirmation` | Shown once the form is accepted |
+| `redirect` | Where the browser goes once the form is accepted: an http or https URL, or a path |
+| `min_fill_seconds` | How long after the GET the form may be submitted; at least 2, the default |
+
+Field types: `text` and `long_text` (at most 1,000 and 10,000 characters
+unless `max_length` says otherwise, at most 100,000), `email`, `number`, `date`
+(`YYYY-MM-DD`, what a date input submits), `single_choice`, `multiple_choice`,
+`checkbox` and `hidden`. The platform checks the spec (known types, unique
+names, choices only on a choice field, limits) and answers the GET with
+`{"spec", "form_token", "token_field": "form_token", "honeypot_field":
+"website"}`. A spec that fails its check is answered 500 and kept with the
+endpoint's failed requests, naming what was wrong. `form_spec` may compute
+anything from the request: choices from a `platform.query`, a prefill from the
+query string, a token from `platform.mint_token` carried as a hidden field.
+
+**The token.** The spec is signed into `form_token` with a key derived from the
+browser-session signing key, bound to the endpoint, and good for a day. The
+platform keeps no copy: a submission brings its spec back, on any replica.
+
+**The submission.** A POST (any method but GET and HEAD) carries the fields and
+`form_token`, as `application/x-www-form-urlencoded` or as a JSON object; a
+JSON number, boolean or list reads as the strings a form would send. Before the
+script runs, the platform refuses:
+
+- with 400: no `form_token`, one that was altered, one another form issued, or
+  one more than a day old; a value in the `website` field, which the page
+  renders hidden from people, so only a program filling every field it finds
+  fills it; and a submission sooner than `min_fill_seconds` after the GET;
+- with 422 `{"errors": {"<field>": "<message>"}}`: a field the spec does not
+  declare, a required field left empty, a value that is not its type (an email
+  address, a number within `min` and `max`, a date, one of the choices, a ticked
+  or unticked box), a value past `max_length`, and a hidden field whose value is
+  not its prefill.
+
+Only then `form_submit(req, values)` runs, `values` holding every declared
+field: a number as an int or a float, a checkbox as a bool, a multiple choice
+as a list of the values chosen, an empty field as `""`. It returns None to
+accept with the spec's `confirmation` and `redirect` (`200 {"ok": true,
+"confirmation", "redirect"}`), `{"errors": {"<field>": "<message>"}}` to refuse
+field by field (422), or `{"confirmation": ..., "redirect": ...}` to accept with
+its own.
+
+```python
+def form_spec(req):
+    """The plan request form for one customer."""
+    customer = req["query"].get("customer_id", "")
+    plans = platform.query(
+        "SELECT code, name FROM plans WHERE customer_id = :c",
+        params = {"c": customer},
+    )
+    return {
+        "fields": [
+            {"name": "email", "type": "email", "required": True, "label": "Email"},
+            {
+                "name": "plan",
+                "type": "single_choice",
+                "required": True,
+                "choices": [{"value": r["code"], "label": r["name"]} for r in plans["rows"]],
+            },
+            {"name": "customer_id", "type": "hidden"},
+            {"name": "application", "type": "hidden"},
+        ],
+        "prefill": {
+            "customer_id": customer,
+            "application": platform.mint_token({"customer_id": customer}, 3600, secret = "form-key"),
+        },
+        "confirmation": "Thanks. We will be in touch.",
+    }
+
+def form_submit(req, values):
+    """Checks the application token and accepts the request."""
+    checked = platform.verify_token(values["application"], secret = "form-key")
+    if not checked["ok"]:
+        return {"errors": {"application": "start the form again"}}
+    return None
+```
+
+A form endpoint answers GET for its spec and POST for its submission, so its
+binding's `methods` name both; on a `bot_check` endpoint, `checked_methods:
+["POST"]` serves the spec without a check and checks the submission. A save of
+a bound form that no longer defines both handlers is refused, as a save that
+removes `handle(req)` is. The flow diagram draws `form_spec` and then
+`form_submit`.
+
 ## Identity and authority
 
 A request runs as the script's own principal, `script:<name>`, presenting the
@@ -160,32 +281,78 @@ Each request writes one audit row of its own: source `endpoint`, event kind
 endpoint, script, version, method, status, auth mode and the caller. No
 `script_runs` row is written.
 
-## Auth modes
+## Access modes
 
-**signed_in** answers a browser session or an API key (`Authorization: Bearer`
-or `X-API-Key`). A GET handler should change nothing: a browser sends its
-session with a GET another site navigates it to, as it does for any page. An anonymous request is answered 401. A browser session's
-write (POST, PUT, PATCH, DELETE) carries its CSRF token, as every portal write
-does; a session refused its token is answered 403. A caller past their own
-`caller_rate_limit` is answered 429 while other callers are still answered.
+Every endpoint has exactly one access mode (#2259):
 
-**public** answers anyone who passes the deployment's bot check, carried in the
-`X-Bot-Check` header. A request without one, or with one refused (altered,
-expired, issued for another endpoint, or already used), is answered 403. With
-`open_reads`, GET and HEAD need no check.
+| Mode | Admits | Portal label |
+|---|---|---|
+| `authenticated` | A platform API key (`Authorization: Bearer` or `X-API-Key`) or a browser session, among the binding's `callers` | Authenticated (API key or session) |
+| `public` | Anyone, with no check | Public |
+| `bot_check` | Anyone who passes the named bot check, on the methods it checks | Bot check: `<name>` |
+
+**authenticated** answers a platform API key or a browser session. An
+anonymous request is answered 401. The binding's `callers` names who it admits:
+
+- `*` admits every authenticated caller, and is named alone;
+- `persona:<name>` admits the callers whose roles resolve to that persona;
+- `api_key:<name>` admits that API key, whether it stands alone or is bound to
+  a person's account.
+
+An empty list admits no one, as a persona's connections do, so `*` is written
+when every caller is meant. The administrator is admitted whatever the list
+says, as on every other surface. A caller not admitted is answered 403 before the
+handler runs, and the refusal is counted under `caller`. A person of an
+External persona reaches no endpoint. A GET handler should change nothing: a
+browser sends its session with a GET another site navigates it to, as it does
+for any page. A browser session's write (POST, PUT, PATCH, DELETE) carries its
+CSRF token, as every portal write does; a session refused its token is answered
+403. A caller past their own `caller_rate_limit` is answered 429 while other
+callers are still answered. An automated caller, a partner system included,
+calls an authenticated endpoint with an API key.
+
+**public** answers anyone, with no check. It is marked on every page that lists
+it as answering anyone.
+
+**bot_check** answers anyone who passes the bot check the binding names,
+carried in the `X-Bot-Check` header. A request without one, or with one refused
+(altered, expired, issued for another endpoint or by another check, or already
+used), is answered 403. `checked_methods` lists the methods the check applies
+to, every method the endpoint answers when empty: a form endpoint that checks
+only `POST` serves its page on GET without a check.
+
+`signed_in` and `open_reads` are gone. Migration `000221` rewrote the stored
+bindings: `signed_in` became `authenticated` with `callers` `["*"]`, which
+admits whom it admitted before; `public` became `bot_check` naming `default`,
+the check made from the deployment's former setting, checking every method, or
+every method but GET and HEAD where its reads were open. A `public` endpoint
+that answered only GET and HEAD with its reads open, and every `public`
+endpoint where the setting was `none` with `allow_public_without_check`,
+answered with no check, and became `public`. Where the setting was `none`
+without the override, every public endpoint was refused; those became
+`bot_check` naming `default` and were turned off.
 
 ## Bot checks
 
-The bot check is configured under Admin > Settings > Bot check, the
-`platform_settings` section `bot_check`
-(`GET|PUT /api/v1/admin/settings/bot-check`).
+The bot checks are configured under Admin > Settings > Bot checks: a list of
+named checks, each with a provider and that provider's settings
+(`GET /api/v1/admin/bot-checks`, `GET|PUT|DELETE /api/v1/admin/bot-checks/{name}`,
+the `bot_checks` table). A `bot_check` endpoint names one, so a public read can
+use proof of work while a form uses Turnstile on the same deployment.
 
-| Provider | What it is |
-|---|---|
-| `pow` (default) | The platform's own proof-of-work challenge. It calls no third party |
-| `turnstile` | Cloudflare Turnstile, verified on the server |
-| `hcaptcha` | hCaptcha, verified on the server |
-| `none` | No check. A public endpoint is refused, and cannot be bound, until `allow_public_without_check` is set |
+| Provider | What it is | What it stops |
+|---|---|---|
+| `pow` | The platform's own proof-of-work challenge. It calls no third party | Nothing outright: each request costs work, which any program can pay. It slows a flood rather than stopping an automated caller |
+| `turnstile` | Cloudflare Turnstile, verified on the server | A caller without a browser |
+| `hcaptcha` | hCaptcha, verified on the server | A caller without a browser |
+
+A check's name is 1 to 63 lowercase letters, digits, hyphens and underscores.
+The deployment's former setting became the check named `default`. A check an
+endpoint names cannot be deleted: the delete is answered 409 and names those
+endpoints. Binding an endpoint to a check that does not exist is refused, and
+so is binding one to a proof-of-work check on a deployment that cannot sign
+one. An endpoint that wants no check uses the `public` mode; `none` is no
+longer a provider.
 
 A page fetches a challenge and answers it with the platform's script:
 
@@ -201,9 +368,11 @@ A page fetches a challenge and answers it with the platform's script:
 </script>
 ```
 
-`GET /botcheck/challenge?endpoint=<name>` issues a challenge for a public
-endpoint. A proof-of-work challenge is signed, bound to the one endpoint and
-answerable for `challenge_ttl_seconds` (300 by default). Challenges are counted
+`GET /botcheck/challenge?endpoint=<name>` issues the challenge of the check a
+`bot_check` endpoint names, and says which (`check`). A proof-of-work challenge
+is signed, bound to the one endpoint and the one check, and answerable for the
+check's `challenge_ttl_seconds` (300 by default): an endpoint naming another
+check refuses its answer. Challenges are counted
 against the endpoint's `rate_limit` in a bucket of their own, so fetching one
 does not spend the request it guards. The answer is the
 challenge and a counter whose SHA-256 has the challenge's difficulty in leading
@@ -215,10 +384,12 @@ default), each doubling of the rate adds a bit, up to `max_difficulty` (22 by
 default). A person filling out a form does not notice it, and a flood pays more
 for each request.
 
-The challenge is signed with a key derived from the browser-session signing key
-(`auth.browser_session.signing_key`), which every replica holds. A deployment
-without one cannot issue a proof-of-work challenge, and the settings page says
-so.
+Each proof-of-work check sets its own difficulty, maximum and rate threshold,
+so two checks issue challenges at their own difficulty to the endpoints that
+name them. The challenge is signed with a key derived from the browser-session
+signing key (`auth.browser_session.signing_key`), which every replica holds. A
+deployment without one cannot issue a proof-of-work challenge, and the settings
+page says so.
 
 Turnstile and hCaptcha take the provider's `site_key`, which the widget is
 rendered with, and `secret_name`, a stored secret (Admin > Secrets) holding the
@@ -227,8 +398,9 @@ lists no personas. The key is read
 on the server when a request is verified and never appears in a response or a
 log. `PlatformBotCheck.answer(name, {container})` renders the provider's widget
 into `container` and resolves with the token it produces. A provider token is
-recorded as used like a proof-of-work answer; it is not bound to one endpoint
-beyond what the provider itself checks.
+recorded as used like a proof-of-work answer. It is verified with the secret
+key of the check the endpoint names, so a token from another check's widget is
+refused by the provider unless both checks hold one key.
 
 ## Signed tokens
 
@@ -289,7 +461,7 @@ preflight from a listed origin is answered with the endpoint's methods and the
 `Content-Type`, `Authorization`, `X-API-Key` and `X-Bot-Check` headers; one from
 an origin that is not listed is refused with 403. Credentials are never allowed
 across origins, so a browser session is never sent from another site, and a
-cross-origin caller of a `signed_in` endpoint signs in with an API key.
+cross-origin caller of an `authenticated` endpoint calls with an API key.
 
 ## Limits and failures
 
@@ -331,15 +503,17 @@ never the path a caller sent.
 An administrator sees every binding on the deployment under **Admin >
 Automations > Endpoints** (`/portal/admin/automations/endpoints`, #2208),
 without opening automations one at a time: each endpoint's automation and
-owner, its methods and path, its access (a public endpoint is marked apart from
-a signed-in one), whether it is on, and over the last 24 hours or 7 days its
+owner, its methods and path, its access mode (for `bot_check`, the check's name
+and provider; a `public` endpoint is marked as answering anyone with no check),
+whether it is on, and over the last 24 hours or 7 days its
 requests, failures, refusals, p95 duration and last request. The list filters
 by access and by on or off, shows 50 endpoints a page with the total that match
 and pages through the rest (#2251), and a row opens the endpoint.
 
 An endpoint's page charts its requests by status class (an hour a bar over a
 day, six hours over a week) beside the requests it refused before its handler
-ran, names the reasons it refused them, its busiest signed-in callers and its
+ran, names the reasons it refused them, who an authenticated one admits and its
+busiest callers, a bot_check one's check and the methods it checks, and its
 failed requests, and turns it on and off. It is edited on its automation's
 page, in the Endpoint section, which is also where **Bind an automation** on
 the list leads: the automation is picked there, and the binding refuses one
@@ -349,7 +523,8 @@ The answered requests are read from each request's audit row. A request
 refused before its handler ran writes no audit row, so the refusals are
 counted on their own (`script_endpoint_refusals`, migration `000207`) by
 reason: `bot_check`, `rate_limit`, `caller_rate_limit`, `body_limit`,
-`credential` (none, or one refused) and `origin` (a cross-origin preflight
+`credential` (none, or one refused), `caller` (an authenticated caller its
+callers list does not name) and `origin` (a cross-origin preflight
 from an origin the binding does not list). Each replica counts in memory and
 adds its counts every ten seconds, and once more as it stops, one row per
 endpoint, hour and reason, so a flood refused at the bot check moves a counter
@@ -357,6 +532,21 @@ rather than writing a row per request. The counts are kept 30 days.
 
 The page reads `GET /api/v1/admin/endpoints?range=day|week` and
 `GET /api/v1/admin/endpoints/{name}?range=day|week`, admin only. The list
-takes `access` (`public`, `signed_in`), `status` (`on`, `off`), `page` and
+takes `access` (`authenticated`, `public`, `bot_check`), `status` (`on`, `off`), `page` and
 `per_page` (default 50, at most 200), and answers `total`, `page` and
 `per_page` beside the page's `endpoints`.
+
+## Which automations are endpoints
+
+The Automations list has an Endpoint column: the address a script answers at,
+with Off beside it when its binding is turned off, and blank for a script bound
+to no endpoint. Its Endpoint filter (All, Bound, Not bound) narrows the listing
+on the server (`GET /api/v1/portal/scripts?endpoint=bound|unbound`), and each
+listed row bound to an endpoint carries it (`endpoint`: name, address, access
+mode, whether it is on).
+
+## The flow diagram
+
+An endpoint script's Flow tab draws `handle(req)`: the platform calls it with
+each request, as it calls `main()` for a run. A script that defines both draws
+`main()`.

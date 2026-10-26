@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { LibraryUse, Script, ScriptVersion } from "@/api/admin/types";
+import type { LibraryUse, ScriptVersion } from "@/api/admin/types";
 import { ApiError, apiFetch } from "../client";
 import { scriptsKey } from "./scriptKeys";
 import { RUN_POLL_MS, hasRunInFlight } from "./scriptRuns";
@@ -288,19 +288,6 @@ export interface ScriptContract {
   runs_withheld?: boolean;
 }
 
-// PortalScriptRow is one script in the portal listing.
-export interface PortalScriptRow {
-  script: Script;
-  schedule?: ScriptSchedule;
-  // last_run is present only for the scripts this caller owns: a run is
-  // owner-and-admin reading, and so is the fact that one failed.
-  last_run?: ScriptRun;
-  // owned reports whether this caller may act on the script and read its
-  // runs, so the page offers those surfaces rather than linking to a refusal.
-  // A row carries no source for any caller; the script's own route does.
-  owned: boolean;
-}
-
 export interface ListResponse<T> {
   data: T[];
   total: number;
@@ -368,6 +355,8 @@ export {
 import type { ExclusiveMode } from "./scriptExclusive";
 
 export type {
+  PortalScriptRow,
+  ScriptEndpointFilter,
   ScriptKind,
   ScriptListFilter,
   ScriptListResponse,

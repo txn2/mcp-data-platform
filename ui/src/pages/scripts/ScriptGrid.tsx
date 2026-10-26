@@ -3,7 +3,7 @@ import type { PortalScriptRow } from "@/api/portal/hooks/scripts";
 import { ThumbCard } from "@/components/cards/ThumbCard";
 import { Badge } from "@/components/ui/badge";
 import { useResolvedDark } from "@/stores/theme";
-import { InertBadge, LastRunCell, LibraryBadge, ScheduleCell } from "./ScriptRow";
+import { EndpointCell, InertBadge, LastRunCell, LibraryBadge, ScheduleCell } from "./ScriptRow";
 
 // ScriptGrid is the scripts listing as a grid (#1909): one card per script,
 // its flow diagram as the tile, then what a row says today. A listing of
@@ -71,6 +71,7 @@ function ScriptCard({
         <div>
           <ScheduleCell row={row} />
         </div>
+        <EndpointCell row={row} />
         <div>
           <LastRunCell row={row} />
         </div>

@@ -248,7 +248,10 @@ type References struct {
 	Prompts        int        `json:"prompts"`
 	Shares         int        `json:"shares"`
 	WebhookSources []string   `json:"webhook_sources"`
-	APIKeys        int        `json:"api_keys"`
+	// Endpoints are the authenticated endpoints whose callers name the
+	// persona (#2259).
+	Endpoints []string `json:"endpoints"`
+	APIKeys   int      `json:"api_keys"`
 	// People are the addresses of the signed-in people whose recorded roles
 	// resolve to the persona (#2290).
 	People []string `json:"people"`
@@ -258,13 +261,17 @@ type References struct {
 // persona are not a reference to this one.
 func (r References) Empty() bool {
 	return len(r.Secrets.Named) == 0 && r.ScriptGrants == 0 && r.ScriptVersions == 0 && r.Prompts == 0 &&
-		r.Shares == 0 && len(r.WebhookSources) == 0 && len(r.People) == 0 && r.APIKeys == 0
+		r.Shares == 0 && len(r.WebhookSources) == 0 && len(r.Endpoints) == 0 && len(r.People) == 0 && r.APIKeys == 0
 }
 
 // Unscoped is access no persona setting governs.
 type Unscoped struct {
-	// SignedInEndpoints admit any signed-in account, external included.
-	SignedInEndpoints int `json:"signed_in_endpoints"`
+	// AnyCallerEndpoints are the enabled authenticated endpoints whose
+	// callers are "*": every authenticated caller of an internal persona.
+	AnyCallerEndpoints int `json:"any_caller_endpoints"`
+	// AnyoneEndpoints are the enabled public and bot_check endpoints, which
+	// answer without a credential.
+	AnyoneEndpoints int `json:"anyone_endpoints"`
 }
 
 // Subject is the persona being evaluated with what decides it.

@@ -21,7 +21,10 @@ const refsQuery = `SELECT
 		AND (expires_at IS NULL OR expires_at > NOW())),
 	COALESCE((SELECT array_agg(name ORDER BY name) FROM webhook_sources
 		WHERE config->>'persona' = $1 OR ($2 AND COALESCE(config->>'persona', '') = '')), '{}'),
-	(SELECT count(*) FROM script_endpoints WHERE auth_mode = 'signed_in' AND enabled)`
+	COALESCE((SELECT array_agg(name ORDER BY name) FROM script_endpoints
+		WHERE auth_mode = 'authenticated' AND ('persona:' || $1) = ANY(callers)), '{}'),
+	(SELECT count(*) FROM script_endpoints WHERE auth_mode = 'authenticated' AND '*' = ANY(callers) AND enabled),
+	(SELECT count(*) FROM script_endpoints WHERE auth_mode IN ('public', 'bot_check') AND enabled)`
 
 // scriptRolesQuery is the roles each script's latest applied version was
 // saved with: a run presents them, so a persona they resolve to decides what
@@ -50,15 +53,16 @@ type refScope struct {
 func readRefs(ctx context.Context, db *sql.DB, scope refScope) (References, Unscoped, error) {
 	var refs References
 	var unscoped Unscoped
-	var secrets, sources pq.StringArray
+	var secrets, sources, endpoints pq.StringArray
 	err := db.QueryRowContext(ctx, refsQuery, scope.name, scope.admin).Scan(
 		&secrets, &refs.Secrets.Unrestricted, &refs.ScriptGrants, &refs.Prompts, &refs.Shares,
-		&sources, &unscoped.SignedInEndpoints,
+		&sources, &endpoints, &unscoped.AnyCallerEndpoints, &unscoped.AnyoneEndpoints,
 	)
 	if err != nil {
 		return refs, unscoped, fmt.Errorf("reading the persona's references: %w", err)
 	}
 	refs.Secrets.Named, refs.WebhookSources = nonNil([]string(secrets)), nonNil([]string(sources))
+	refs.Endpoints = nonNil([]string(endpoints))
 	if refs.ScriptVersions, err = countResolving(ctx, db, scriptRolesQuery, scope.resolves, scanTextArray); err != nil {
 		return refs, unscoped, err
 	}
