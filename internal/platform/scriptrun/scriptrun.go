@@ -297,8 +297,8 @@ type Options struct {
 	// Handler, when not nil, calls the function it names with its arguments
 	// in place of main(): a request to an endpoint (#2172).
 	Handler *scriptdialect.Handler
-	// Tokens answers platform.mint_token and platform.verify_token in a run
-	// (#2175); nil refuses them. A test answers them from its recording.
+	// Tokens answers platform.mint_token, verify_token and decrypt in a run
+	// (#2175, #2179); nil refuses them. A test answers them from its recording.
 	Tokens scripttoken.Caller
 }
 
@@ -755,6 +755,7 @@ func predeclared(host *hostState) starlark.StringDict {
 				"publish":      starlark.NewBuiltin(CapabilityPublish, host.guarded(host.publish)),
 				"mint_token":   starlark.NewBuiltin(scripttoken.CapabilityMint, host.guarded(tokens.Mint)),
 				"verify_token": starlark.NewBuiltin(scripttoken.CapabilityVerify, host.guarded(tokens.Verify)),
+				"decrypt":      starlark.NewBuiltin(scripttoken.CapabilityDecrypt, host.guarded(tokens.Decrypt)),
 				"progress":     host.log.Bindings()["progress"],
 				"result":       host.log.Bindings()["result"],
 			},
@@ -767,8 +768,8 @@ func predeclared(host *hostState) starlark.StringDict {
 		"run":           host.runBinding(),
 		scriptsum.Name:  scriptsum.Builtin,
 		"fail":          scriptguard.Fail, // the universe's, plus retryable= (#1935)
-		TestingName:     testOnly(TestingName),
-		AssertName:      testOnly(AssertName),
+		TestingName:     scriptdialect.TestOnly(TestingName),
+		AssertName:      scriptdialect.TestOnly(AssertName),
 	}
 	if host.opts.Test != nil {
 		maps.Copy(env, host.opts.Test.Env)
@@ -783,32 +784,4 @@ func libraryEnv(env starlark.StringDict) starlark.StringDict {
 	delete(out, "platform")
 	delete(out, "run")
 	return out
-}
-
-// testOnly is what a run binds a test module's name to: any use of it fails,
-// saying where it belongs.
-type testOnly string
-
-// String, Type, Freeze, Truth and AttrNames make the stub a Starlark value
-// that reads as the module it stands in for.
-func (t testOnly) String() string { return string(t) }
-
-// Type is the module's.
-func (testOnly) Type() string { return "module" }
-
-// Freeze has nothing to freeze.
-func (testOnly) Freeze() {}
-
-// Truth is a module's.
-func (testOnly) Truth() starlark.Bool { return starlark.True }
-
-// AttrNames lists nothing: every attribute is refused.
-func (testOnly) AttrNames() []string { return nil }
-
-// Hash is the module name's, so the stub can key a dict as a module can.
-func (t testOnly) Hash() (uint32, error) { return starlark.String(t).Hash() } //nolint:wrapcheck // a string's hash cannot fail
-
-// Attr refuses every attribute, naming where the module belongs.
-func (t testOnly) Attr(name string) (starlark.Value, error) {
-	return nil, fmt.Errorf("module %s.%s is available only inside a %s function; a run never calls one", t, name, scriptdialect.TestPrefix+"*")
 }

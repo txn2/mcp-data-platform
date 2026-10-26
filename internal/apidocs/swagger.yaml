@@ -2573,6 +2573,7 @@ definitions:
     - resource_move
     - script_run
     - endpoint_request
+    - form_decrypt
     type: string
     x-enum-varnames:
     - EventTypeAdmin
@@ -2583,6 +2584,7 @@ definitions:
     - EventTypeResourceMove
     - EventTypeScriptRun
     - EventTypeEndpointRequest
+    - EventTypeFormDecrypt
   audit.Overview:
     properties:
       avg_duration_ms:
@@ -2677,6 +2679,7 @@ definitions:
         - resource_move
         - script_run
         - endpoint_request
+        - form_decrypt
         items:
           type: string
         type: array
@@ -2813,6 +2816,16 @@ definitions:
           type: string
         type: array
       checked_methods:
+        items:
+          type: string
+        type: array
+      connection:
+        description: |-
+          Connection and DecryptPersonas are a form's (#2178, #2179): the Trino
+          connection its source's table is created on, and the personas a script
+          run may decrypt its sensitive fields as (nil keeps them).
+        type: string
+      decrypt_personas:
         items:
           type: string
         type: array
@@ -4888,6 +4901,56 @@ definitions:
         type: integer
       version:
         type: integer
+    type: object
+  epcollect.Submitter:
+    properties:
+      auth_type:
+        type: string
+      email:
+        type: string
+      user_id:
+        type: string
+    type: object
+  epsubmit.Page:
+    properties:
+      connection:
+        type: string
+      fields:
+        description: |-
+          Fields are the columns, in the order the newest submission's form
+          declared them, then any an older one held.
+        items:
+          type: string
+        type: array
+      form:
+        type: string
+      limit:
+        type: integer
+      sensitive:
+        description: Sensitive are the fields that were decrypted for this read.
+        items:
+          type: string
+        type: array
+      source:
+        type: string
+      submissions:
+        items:
+          $ref: '#/definitions/epsubmit.Submission'
+        type: array
+      table:
+        type: string
+    type: object
+  epsubmit.Submission:
+    properties:
+      id:
+        type: string
+      received_at:
+        type: string
+      submitter:
+        $ref: '#/definitions/epcollect.Submitter'
+      values:
+        additionalProperties: {}
+        type: object
     type: object
   exclusivehttp.exclusiveRequest:
     properties:
@@ -14345,6 +14408,8 @@ definitions:
         type: integer
       flush_max_interval_ms:
         type: integer
+      form:
+        $ref: '#/definitions/whsource.Form'
       handshake:
         type: string
       imap:
@@ -14358,8 +14423,8 @@ definitions:
         type: string
       input:
         description: |-
-          Input is "http" (the default, posted to) or "imap" (a polled mailbox,
-          configured under IMAP).
+          Input is "http" (the default, posted to), "imap" (a polled mailbox,
+          configured under IMAP) or "form" (a form's submissions, under Form).
         type: string
       key_path:
         type: string
@@ -14391,6 +14456,27 @@ definitions:
           is objects the raw table and retention list (#2134).
         type: integer
       split:
+        type: string
+    type: object
+  whsource.Form:
+    properties:
+      decrypt_personas:
+        description: |-
+          DecryptPersonas are the personas a script run may decrypt the form's
+          sensitive fields as (platform.decrypt, #2179); an administrator always
+          may, and so does the owner on the submissions view.
+        items:
+          type: string
+        type: array
+      endpoint:
+        description: |-
+          Endpoint is the endpoint the form was bound to when its source was
+          made, which its name was derived from.
+        type: string
+      script_id:
+        description: |-
+          ScriptID is the form script's id: the source follows the script, so an
+          endpoint renamed later still stores into the source made for it.
         type: string
     type: object
   whsource.IMAP:
@@ -16176,8 +16262,9 @@ paths:
         name: source
         type: string
       - description: 'Filter by event kind: admin, mcp_tool_call, apigateway_invoke,
-          prompt_serve, resource_read, resource_move, script_run, endpoint_request.
-          GET /admin/audit/events/filters returns the kinds present in the data.'
+          prompt_serve, resource_read, resource_move, script_run, endpoint_request,
+          form_decrypt. GET /admin/audit/events/filters returns the kinds present
+          in the data.'
         in: query
         name: event_kind
         type: string
@@ -16316,8 +16403,9 @@ paths:
         name: end_time
         type: string
       - description: 'Filter by event kind: admin, mcp_tool_call, apigateway_invoke,
-          prompt_serve, resource_read, resource_move, script_run, endpoint_request.
-          GET /admin/audit/events/filters returns the kinds present in the data.'
+          prompt_serve, resource_read, resource_move, script_run, endpoint_request,
+          form_decrypt. GET /admin/audit/events/filters returns the kinds present
+          in the data.'
         in: query
         name: event_kind
         type: string
@@ -16357,8 +16445,9 @@ paths:
         name: end_time
         type: string
       - description: 'Filter by event kind: admin, mcp_tool_call, apigateway_invoke,
-          prompt_serve, resource_read, resource_move, script_run, endpoint_request.
-          GET /admin/audit/events/filters returns the kinds present in the data.'
+          prompt_serve, resource_read, resource_move, script_run, endpoint_request,
+          form_decrypt. GET /admin/audit/events/filters returns the kinds present
+          in the data.'
         in: query
         name: event_kind
         type: string
@@ -16393,8 +16482,9 @@ paths:
         name: end_time
         type: string
       - description: 'Filter by event kind: admin, mcp_tool_call, apigateway_invoke,
-          prompt_serve, resource_read, resource_move, script_run, endpoint_request.
-          GET /admin/audit/events/filters returns the kinds present in the data.'
+          prompt_serve, resource_read, resource_move, script_run, endpoint_request,
+          form_decrypt. GET /admin/audit/events/filters returns the kinds present
+          in the data.'
         in: query
         name: event_kind
         type: string
@@ -16428,8 +16518,9 @@ paths:
         name: end_time
         type: string
       - description: 'Filter by event kind: admin, mcp_tool_call, apigateway_invoke,
-          prompt_serve, resource_read, resource_move, script_run, endpoint_request.
-          GET /admin/audit/events/filters returns the kinds present in the data.'
+          prompt_serve, resource_read, resource_move, script_run, endpoint_request,
+          form_decrypt. GET /admin/audit/events/filters returns the kinds present
+          in the data.'
         in: query
         name: event_kind
         type: string
@@ -16463,8 +16554,9 @@ paths:
         name: end_time
         type: string
       - description: 'Filter by event kind: admin, mcp_tool_call, apigateway_invoke,
-          prompt_serve, resource_read, resource_move, script_run, endpoint_request.
-          GET /admin/audit/events/filters returns the kinds present in the data.'
+          prompt_serve, resource_read, resource_move, script_run, endpoint_request,
+          form_decrypt. GET /admin/audit/events/filters returns the kinds present
+          in the data.'
         in: query
         name: event_kind
         type: string
@@ -16502,8 +16594,9 @@ paths:
         name: end_time
         type: string
       - description: 'Filter by event kind: admin, mcp_tool_call, apigateway_invoke,
-          prompt_serve, resource_read, resource_move, script_run, endpoint_request.
-          GET /admin/audit/events/filters returns the kinds present in the data.'
+          prompt_serve, resource_read, resource_move, script_run, endpoint_request,
+          form_decrypt. GET /admin/audit/events/filters returns the kinds present
+          in the data.'
         in: query
         name: event_kind
         type: string
@@ -16552,8 +16645,9 @@ paths:
         name: source
         type: string
       - description: 'Filter by event kind: admin, mcp_tool_call, apigateway_invoke,
-          prompt_serve, resource_read, resource_move, script_run, endpoint_request.
-          GET /admin/audit/events/filters returns the kinds present in the data.'
+          prompt_serve, resource_read, resource_move, script_run, endpoint_request,
+          form_decrypt. GET /admin/audit/events/filters returns the kinds present
+          in the data.'
         in: query
         name: event_kind
         type: string
@@ -28963,8 +29057,10 @@ paths:
         public or bot_check), the callers an authenticated endpoint admits, the bot
         check a bot_check endpoint names and the methods it checks, limits and allowed
         origins, with the requests that failed in the last seven days (status, error
-        and how long each took), newest first. Restricted to the script''s owner and
-        to administrators.'
+        and how long each took), newest first. A form (is_form) reports where its
+        submissions are stored (form: source, table, connection, decrypt_personas)
+        or, before its source is made, the connections it could be made on (form_connections).
+        Restricted to the script''s owner and to administrators.'
       parameters:
       - description: Script ID
         in: path
@@ -29002,14 +29098,18 @@ paths:
       - application/json
       description: 'Binds the script to /endpoints/{endpoint}, or changes its binding.
         A field left out keeps what the binding had, or takes the default on a new
-        one. The script must define handle(req). auth_mode is authenticated (a platform
-        API key or a browser session among callers: "*", "persona:<name>" or "api_key:<name>",
-        empty admitting no one but the administrator, who is always admitted), public
-        (anyone, with no check) or bot_check (anyone who passes the bot check bot_check
-        names, one configured under Admin > Settings > Bot checks, on the methods
-        in checked_methods, empty for every method); a binding naming a check that
-        does not exist is refused, and so is signed_in. Restricted to administrators:
-        the script''s owner is refused.'
+        one. The script must define handle(req), or form_spec(req) and form_submit(req,
+        values) (a form); binding a form makes the webhook source its accepted submissions
+        are stored in, on connection (the Trino connection whose scratch catalog holds
+        webhook_form_<endpoint>, defaulting to the only one, named once), with decrypt_personas
+        the personas a script may decrypt its sensitive fields as. auth_mode is authenticated
+        (a platform API key or a browser session among callers: "*", "persona:<name>"
+        or "api_key:<name>", empty admitting no one but the administrator, who is
+        always admitted), public (anyone, with no check) or bot_check (anyone who
+        passes the bot check bot_check names, one configured under Admin > Settings
+        > Bot checks, on the methods in checked_methods, empty for every method);
+        a binding naming a check that does not exist is refused, and so is signed_in.
+        Restricted to administrators: the script''s owner is refused.'
       parameters:
       - description: Script ID
         in: path
@@ -30081,6 +30181,101 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Replace a script's state
+      tags:
+      - Scripts
+  /portal/scripts/{id}/submissions:
+    get:
+      description: Returns the newest submissions stored in the webhook source of
+        the form this script is, newest first, read from webhook_form_<endpoint> on
+        the source's Trino connection. Sensitive fields are decrypted for the reader,
+        and a read that decrypted any is audited as form_decrypt with the fields it
+        opened. Restricted to the script's owner and to administrators. 404 when the
+        script was never bound as a form.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: How many submissions (default 50, at most 10000)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/epsubmit.Page'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a form's submissions
+      tags:
+      - Scripts
+  /portal/scripts/{id}/submissions/export:
+    get:
+      description: 'Returns the newest submissions of the form this script is as CSV
+        or an Excel workbook: received_at, the submitter''s address on a signed-in
+        form, then each field in the order the form declares them. Sensitive fields
+        are decrypted and the read audited, as on the list. A CSV cell a spreadsheet
+        would read as a formula is written with a leading apostrophe. Restricted to
+        the script''s owner and to administrators.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: csv (default) or xlsx
+        in: query
+        name: format
+        type: string
+      - description: How many submissions (default 10000, at most 10000)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - text/csv
+      - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Export a form's submissions
       tags:
       - Scripts
   /portal/scripts/{id}/thumbnail:

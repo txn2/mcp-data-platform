@@ -1,0 +1,229 @@
+/*
+ * A form the platform renders from the spec its endpoint answers (#2177).
+ *
+ * The page reads its configuration from #form-config, fetches the form's spec
+ * from /endpoints/{name} (passing on the query string it was opened with, so
+ * form_spec(req) reads a link's token or id from req["query"]), renders the
+ * fields, and posts the submission back with the form token the spec came
+ * with. A viewer token in the form_viewer parameter is sent as X-Form-Viewer
+ * and never passed to the form. A bot check the endpoint names is answered
+ * with /botcheck/solver.js before each request it applies to.
+ */
+(function () {
+  "use strict";
+
+  var cfg = JSON.parse(document.getElementById("form-config").textContent);
+  var app = document.getElementById("app");
+  var params = new URLSearchParams(window.location.search);
+  var viewer = params.get(cfg.viewer_param);
+  params.delete(cfg.viewer_param);
+  var theme = params.get(cfg.theme_param);
+  params.delete(cfg.theme_param);
+  if (theme === "dark" || theme === "light") {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+
+  var state = { spec: null, token: "", tokenField: "", honeypot: "" };
+
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      if (k === "text") { node.textContent = attrs[k]; } else if (attrs[k] !== false && attrs[k] != null) { node.setAttribute(k, attrs[k] === true ? "" : attrs[k]); }
+    });
+    (children || []).forEach(function (c) { if (c) { node.appendChild(c); } });
+    return node;
+  }
+
+  function status(text, kind) {
+    app.replaceChildren(el("p", { "class": "status " + (kind || ""), role: kind === "err" ? "alert" : "status", text: text }));
+  }
+
+  function checked(method) {
+    if (!cfg.bot_check) { return false; }
+    var m = cfg.checked_methods || [];
+    return m.length === 0 || m.indexOf(method) >= 0 || (method === "HEAD" && m.indexOf("GET") >= 0);
+  }
+
+  function headers(method) {
+    var h = {};
+    if (viewer) { h[cfg.viewer_header] = viewer; }
+    if (!checked(method)) { return Promise.resolve(h); }
+    var container = document.getElementById("check");
+    return window.PlatformBotCheck.answer(cfg.endpoint, { container: container }).then(function (answer) {
+      if (answer) { h[window.PlatformBotCheck.header] = answer; }
+      return h;
+    });
+  }
+
+  function message(body, fallback) {
+    if (body && typeof body.error === "string") { return body.error; }
+    if (body && typeof body.detail === "string") { return body.detail; }
+    return fallback;
+  }
+
+  function readJSON(r) {
+    return r.json().catch(function () { return {}; }).then(function (body) { return { status: r.status, ok: r.ok, body: body }; });
+  }
+
+  function load() {
+    var query = params.toString();
+    var url = cfg.url + (query ? "?" + query : "");
+    return headers("GET")
+      .then(function (h) { return fetch(url, { headers: h, credentials: "omit" }); })
+      .then(readJSON)
+      .then(function (res) {
+        if (!res.ok || !res.body.spec) { status(message(res.body, "The form could not be loaded."), "err"); return; }
+        state.spec = res.body.spec;
+        state.token = res.body.form_token;
+        state.tokenField = res.body.token_field;
+        state.honeypot = res.body.honeypot_field;
+        render();
+      })
+      .catch(function (e) { status("The form could not be loaded: " + e.message, "err"); });
+  }
+
+  function control(f, value) {
+    var id = "f-" + f.name;
+    var common = { id: id, name: f.name, required: f.required, "aria-describedby": f.help ? id + "-help" : null };
+    switch (f.type) {
+      case "long_text":
+        var ta = el("textarea", Object.assign({ maxlength: f.max_length }, common));
+        ta.value = value == null ? "" : String(value);
+        return ta;
+      case "single_choice":
+        var sel = el("select", common, [el("option", { value: "", text: "Choose…" })]);
+        (f.choices || []).forEach(function (c) { sel.appendChild(el("option", { value: c.value, text: c.label || c.value })); });
+        sel.value = value == null ? "" : String(value);
+        return sel;
+      case "multiple_choice":
+        var chosen = Array.isArray(value) ? value.map(String) : [];
+        return el("div", { role: "group" }, (f.choices || []).map(function (c, i) {
+          return el("label", { "class": "option", "for": id + "-" + i }, [
+            el("input", { type: "checkbox", id: id + "-" + i, name: f.name, value: c.value, checked: chosen.indexOf(c.value) >= 0 }),
+            document.createTextNode(c.label || c.value)
+          ]);
+        }));
+      case "checkbox":
+        return el("label", { "class": "option", "for": id }, [
+          el("input", { type: "checkbox", id: id, name: f.name, value: "true", required: f.required, checked: value === true || value === "true" }),
+          document.createTextNode(f.label || f.name)
+        ]);
+      case "number":
+        var n = el("input", Object.assign({ type: "number", step: "any", min: f.min, max: f.max }, common));
+        n.value = value == null ? "" : String(value);
+        return n;
+      default:
+        var type = { email: "email", date: "date" }[f.type] || "text";
+        var input = el("input", Object.assign({ type: type, maxlength: f.max_length, autocomplete: f.sensitive ? "off" : null }, common));
+        input.value = value == null ? "" : String(value);
+        return input;
+    }
+  }
+
+  function field(f) {
+    var prefill = (state.spec.prefill || {})[f.name];
+    if (f.type === "hidden") {
+      var hidden = el("input", { type: "hidden", name: f.name });
+      hidden.value = prefill == null ? "" : String(prefill);
+      return hidden;
+    }
+    var label = f.label || f.name;
+    var wrap;
+    if (f.type === "multiple_choice") {
+      wrap = el("fieldset", { "class": "field" }, [el("legend", { text: label }, [f.required ? el("span", { "class": "req", "aria-hidden": "true", text: "*" }) : null])]);
+    } else if (f.type === "checkbox") {
+      wrap = el("div", { "class": "field" });
+    } else {
+      wrap = el("div", { "class": "field" }, [el("label", { "for": "f-" + f.name, text: label }, [f.required ? el("span", { "class": "req", "aria-hidden": "true", text: "*" }) : null])]);
+    }
+    wrap.appendChild(control(f, prefill));
+    if (f.help) { wrap.appendChild(el("p", { "class": "help", id: "f-" + f.name + "-help", text: f.help })); }
+    wrap.appendChild(el("p", { "class": "error", id: "f-" + f.name + "-error", role: "alert", hidden: true }));
+    return wrap;
+  }
+
+  function render() {
+    var form = el("form", { novalidate: true });
+    state.spec.fields.forEach(function (f) { form.appendChild(field(f)); });
+    var trap = el("div", { "class": "trap", "aria-hidden": "true" }, [
+      el("label", { "for": "f-trap", text: "Leave this empty" }),
+      el("input", { type: "text", id: "f-trap", name: state.honeypot, tabindex: "-1", autocomplete: "off" })
+    ]);
+    form.appendChild(trap);
+    form.appendChild(el("p", { "class": "error", id: "form-error", role: "alert", hidden: true }));
+    // The page is sent from the button and from Enter in a one-line field,
+    // never by the form's own submission: inside an asset the page inherits
+    // the asset's sandbox, which has no allow-forms, and a browser stops a
+    // form's submission there before its submit event fires.
+    var button = el("button", { type: "button", text: "Submit" });
+    button.addEventListener("click", function () { submit(form); });
+    form.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.type !== "checkbox") {
+        e.preventDefault();
+        submit(form);
+      }
+    });
+    form.addEventListener("submit", function (e) { e.preventDefault(); });
+    form.appendChild(button);
+    app.replaceChildren(form);
+  }
+
+  function values(form) {
+    var out = {};
+    state.spec.fields.forEach(function (f) {
+      var inputs = form.querySelectorAll('[name="' + f.name + '"]');
+      if (f.type === "multiple_choice") {
+        out[f.name] = Array.prototype.filter.call(inputs, function (i) { return i.checked; }).map(function (i) { return i.value; });
+      } else if (f.type === "checkbox") {
+        out[f.name] = inputs[0] && inputs[0].checked ? "true" : "false";
+      } else if (inputs[0]) {
+        out[f.name] = inputs[0].value;
+      }
+    });
+    out[state.tokenField] = state.token;
+    var trap = form.querySelector('[name="' + state.honeypot + '"]');
+    out[state.honeypot] = trap ? trap.value : "";
+    return out;
+  }
+
+  function showErrors(form, errors) {
+    form.querySelectorAll(".error").forEach(function (p) { p.hidden = true; p.textContent = ""; });
+    var first = null;
+    Object.keys(errors || {}).forEach(function (name) {
+      var p = document.getElementById("f-" + name + "-error") || document.getElementById("form-error");
+      p.textContent = (p.id === "form-error" ? name + ": " : "") + errors[name];
+      p.hidden = false;
+      first = first || p;
+    });
+    if (first) { first.scrollIntoView({ block: "center" }); }
+  }
+
+  function formError(form, text) {
+    var p = document.getElementById("form-error");
+    p.textContent = text;
+    p.hidden = false;
+  }
+
+  function submit(form) {
+    var button = form.querySelector("button");
+    if (button.disabled) { return; }
+    button.disabled = true;
+    var body = JSON.stringify(values(form));
+    headers("POST")
+      .then(function (h) {
+        h["Content-Type"] = "application/json";
+        return fetch(cfg.url, { method: "POST", headers: h, body: body, credentials: "omit" });
+      })
+      .then(readJSON)
+      .then(function (res) {
+        if (res.status === 422) { showErrors(form, res.body.errors); return; }
+        if (!res.ok) { formError(form, message(res.body, "The form could not be sent.")); return; }
+        if (res.body.redirect) { window.location.assign(res.body.redirect); return; }
+        status(res.body.confirmation || "Thank you. Your response was received.", "ok");
+      })
+      .catch(function (e) { formError(form, "The form could not be sent: " + e.message); })
+      .finally(function () { button.disabled = false; });
+  }
+
+  load();
+})();

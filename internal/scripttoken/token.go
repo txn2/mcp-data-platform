@@ -8,6 +8,9 @@
 // It is the same form the bot check's proof-of-work challenge is signed in
 // (internal/botcheck), kept in-house rather than a JWT: the platform both
 // mints and verifies, so nothing outside it has to read one.
+//
+// platform.decrypt (#2179) is answered here too: like the token members it
+// acts as the run's identity, the persona its author's roles resolve to.
 package scripttoken
 
 import (

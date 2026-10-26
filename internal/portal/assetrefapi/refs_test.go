@@ -847,3 +847,21 @@ func TestListRefsMarksAPersonaFileReadableForAnAdministrator(t *testing.T) {
 	require.Equal(t, http.StatusOK, owners.Code)
 	assert.False(t, decode[listResponse](t, owners).Data[0].Readable)
 }
+
+// #2177: an embedded form is listed by its endpoint and links to its page;
+// it is served by the endpoint, never through the reference.
+func TestListRefsForm(t *testing.T) {
+	h := newHarness()
+	h.declare(assetID, assetrefs.Ref{
+		TargetKind: assetrefs.TargetForm, TargetID: "contact", URI: "mcp:form:contact", RefToken: "tok-form", DeclaredBy: ownerEmail,
+	})
+	rec := h.do(t, owner(), http.MethodGet, refsPath(assetID), "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := decode[listResponse](t, rec)
+	require.Len(t, body.Data, 1)
+	got := body.Data[0]
+	assert.Equal(t, "form", got.TargetKind)
+	assert.Equal(t, "contact", got.DisplayName)
+	assert.Equal(t, assetrefs.FormPagePrefix+"contact", got.ContentURL)
+	assert.False(t, got.Broken)
+}

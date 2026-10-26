@@ -146,10 +146,11 @@ type Auth struct {
 
 // Config is everything about a source other than its authentication.
 type Config struct {
-	// Input is "http" (the default, posted to) or "imap" (a polled mailbox,
-	// configured under IMAP).
+	// Input is "http" (the default, posted to), "imap" (a polled mailbox,
+	// configured under IMAP) or "form" (a form's submissions, under Form).
 	Input string `json:"input,omitempty"`
 	IMAP  *IMAP  `json:"imap,omitempty"`
+	Form  *Form  `json:"form,omitempty"`
 
 	Handshake     string `json:"handshake,omitempty"`
 	MaxBodyBytes  int64  `json:"max_body_bytes,omitempty"`

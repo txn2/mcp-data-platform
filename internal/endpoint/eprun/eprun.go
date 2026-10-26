@@ -25,6 +25,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcollect"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
@@ -100,6 +101,8 @@ type Runner struct {
 
 	mu    sync.Mutex
 	cache map[string]*Target
+	// forms stores accepted submissions (SetCollector); nil stores none.
+	forms *epcollect.Collector
 	// slots holds one token per handler running on this replica.
 	slots     chan struct{}
 	slotsOnce sync.Once
@@ -115,8 +118,8 @@ type Target struct {
 	Version *script.Version
 	program *scriptdialect.Program
 	stamp   epbinding.Stamp
-	// form is whether the version defines form_spec and form_submit (#2176).
-	form bool
+	// Form is whether the version defines form_spec and form_submit (#2176).
+	Form bool
 }
 
 // Resolve is the endpoint a name serves, current as of this call.
@@ -168,9 +171,9 @@ func (r *Runner) load(ctx context.Context, name string, stamp epbinding.Stamp, h
 	}
 	t := &Target{Binding: b, Script: sc, Version: v, program: &scriptdialect.Program{}, stamp: stamp}
 	if held != nil && held.Version.ID == v.ID {
-		t.program, t.form = held.program, held.form
+		t.program, t.Form = held.program, held.Form
 	} else {
-		t.form = epform.DefinesSource(v.Source)
+		t.Form = epform.DefinesSource(v.Source)
 	}
 	return t, nil
 }
@@ -198,7 +201,7 @@ func (r *Runner) Serve(ctx context.Context, t *Target, req Request) Response {
 		resp, failure = errorResponse(http.StatusInternalServerError, "the endpoint could not start"), err
 	case script.RefuseRun(t.Script) != nil:
 		resp, failure = errorResponse(http.StatusServiceUnavailable, "this endpoint is not available"), script.RefuseRun(t.Script)
-	case t.form && r.FormKey == nil:
+	case t.Form && r.FormKey == nil:
 		resp, failure = errorResponse(http.StatusServiceUnavailable, "this form is not available"), errNoForm
 	default:
 		resp, failure = r.run(ctx, t, req, sessionID)
@@ -219,7 +222,7 @@ func (r *Runner) run(ctx context.Context, t *Target, req Request, sessionID stri
 	if err != nil {
 		return errorResponse(http.StatusBadRequest, "the request could not be read"), err
 	}
-	call, refusal := r.invocationFor(t, req, reqValue)
+	call, refusal := r.invocationFor(ctx, t, req, reqValue)
 	if refusal != nil {
 		return *refusal, nil
 	}

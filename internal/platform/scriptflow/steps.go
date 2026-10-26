@@ -120,6 +120,10 @@ var memberCards = map[string]func(*card, *Node){
 	},
 	"mint_token":   func(c *card, n *Node) { c.token(n, "Mint token") },
 	"verify_token": func(c *card, n *Node) { c.token(n, "Verify token") },
+	"decrypt": func(c *card, n *Node) {
+		form, full := c.value(c.arg("form", 0))
+		n.Role, n.Kind, n.Title, n.Subtitle, n.Computed = RoleReads, KindToken, "Decrypt", "form "+form, !full
+	},
 	"result": func(_ *card, n *Node) {
 		n.Role, n.Kind, n.Title, n.Subtitle = RoleOutput, KindResult, "Run result", "handed back to whoever ran it"
 	},

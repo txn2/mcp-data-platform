@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MODE_LABELS, senderURL, windowLength } from "./webhookForm";
 import { MailboxSection } from "./MailboxSection";
+import { FormSourceSection } from "./FormSourceSection";
 import { RejectionsTable } from "./RejectionsTable";
 import { OUTCOMES, formatMs } from "./webhookOverview";
 
@@ -61,7 +62,7 @@ export function WebhookDetailPage({
         urn={source.table}
         subtitle={
           <>
-            {source.enabled ? "Enabled" : "Disabled"} &middot; {MODE_LABELS[source.auth.mode] ?? source.auth.mode}{" "}
+            {source.enabled ? "Enabled" : "Disabled"} &middot; {sourceKind(source)}{" "}
             &middot; table on <span className="font-medium text-foreground">{source.connection}</span>
           </>
         }
@@ -89,16 +90,11 @@ export function WebhookDetailPage({
 
 /** SourceAlerts say a source is off, or that windows are failing to compact. */
 function SourceAlerts({ source, status }: { source: WebhookSource; status: WebhookStatus }) {
-  const mailbox = source.config.input === "imap";
   return (
     <>
       {!source.enabled && (
         <Alert className="py-2">
-          <AlertDescription>
-            {mailbox
-              ? "This source is disabled: its mailbox is not checked."
-              : "This source is disabled: requests to it are answered 404 and nothing is stored."}
-          </AlertDescription>
+          <AlertDescription>{DISABLED_TEXT[source.config.input ?? "http"]}</AlertDescription>
         </Alert>
       )}
       {status.failing > 0 && (
@@ -115,10 +111,34 @@ function SourceAlerts({ source, status }: { source: WebhookSource; status: Webho
   );
 }
 
+/** DISABLED_TEXT says what a disabled source of each input does. */
+const DISABLED_TEXT: Record<NonNullable<WebhookSource["config"]["input"]>, string> = {
+  http: "This source is disabled: requests to it are answered 404 and nothing is stored.",
+  imap: "This source is disabled: its mailbox is not checked.",
+  form: "This source is disabled: the form's submissions are refused and nothing is stored.",
+};
+
+/** sourceKind names how a source takes its events, in the page's subtitle. */
+function sourceKind(source: WebhookSource): string {
+  if (source.config.input === "form") return "Form submissions";
+  return MODE_LABELS[source.auth.mode] ?? source.auth.mode;
+}
+
 /** SourceSections are a source's sections: a mailbox source shows its mailbox
- * where a posted source shows its address, requests and rejections. */
+ * and a form's source its form where a posted source shows its address,
+ * requests and rejections. */
 function SourceSections({ detail }: { detail: WebhookSourceDetail }) {
   const { source, status } = detail;
+  if (source.config.input === "form" && source.config.form) {
+    return (
+      <>
+        <FormSourceSection form={source.config.form} />
+        <ActivitySection status={status} />
+        <StorageSection source={source} status={status} />
+        <RejectionsSection status={status} />
+      </>
+    );
+  }
   if (source.config.input === "imap") {
     return (
       <>

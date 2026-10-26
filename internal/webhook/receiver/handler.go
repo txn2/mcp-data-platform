@@ -59,7 +59,7 @@ func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	started := r.now()
 	name, token, ok := splitPath(req.URL.Path)
 	src, served := r.lookupFresh(req.Context(), name)
-	if !ok || !served || (token != "" && src.Auth.Mode != whsource.AuthPathToken) {
+	if !ok || !served || !postedTo(src.Source) || (token != "" && src.Auth.Mode != whsource.AuthPathToken) {
 		r.count(name, OutcomeUnknownSource, http.StatusNotFound)
 		writeJSON(w, http.StatusNotFound, notFoundBody)
 		return
@@ -104,51 +104,62 @@ func (r *Receiver) post(w http.ResponseWriter, req *http.Request, src served, to
 
 // accept buffers the events and answers once their segment is written.
 func (r *Receiver) accept(ctx context.Context, w http.ResponseWriter, src whsource.Source, d delivery) {
+	st, why, gone := r.store(ctx, src, d)
+	switch {
+	case gone:
+		return
+	case why != nil:
+		r.refuse(w, d, *why, st)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, `{"accepted":`+strconv.Itoa(len(d.events))+`}`)
+}
+
+// store makes a delivery's events durable -- synced to the spool, or written
+// to object storage -- and counts it accepted, or returns the refusal that
+// stored nothing (with the stages of a write that ran), or gone when the
+// sender left before the write finished, which goes on without it.
+func (r *Receiver) store(ctx context.Context, src whsource.Source, d delivery) (st *stages, why *refusal, gone bool) {
 	if len(d.events) > src.Config.BufferLimit {
 		// A batch the buffer could never hold would be answered 503 on every
 		// retry. It is refused once, with what the sender has to change.
-		r.refuse(w, d, refusal{
+		return nil, &refusal{
 			outcome: OutcomeTooLarge,
 			reason: fmt.Sprintf("the request holds %d events, more than the source's buffer_limit of %d",
 				len(d.events), src.Config.BufferLimit),
 			status: http.StatusRequestEntityTooLarge,
-		}, nil)
-		return
+		}, false
 	}
 	if r.cfg.Spool != nil {
-		r.acceptSpooled(ctx, w, src, d)
-		return
+		return nil, r.storeSpooled(ctx, src, d), false
 	}
+	stopping := &refusal{outcome: OutcomeWriteFailed, reason: "the platform is shutting down", status: http.StatusServiceUnavailable, retryAfter: retryStopping}
 	buf := r.bufferFor(src.Name)
 	if buf == nil {
-		r.refuse(w, d, refusal{outcome: OutcomeWriteFailed, reason: "the platform is shutting down", status: http.StatusServiceUnavailable, retryAfter: retryStopping}, nil)
-		return
+		return nil, stopping, false
 	}
 	bt, err := buf.admit(d.events, src.Config.BufferLimit)
 	if errors.Is(err, errClosed) {
-		r.refuse(w, d, refusal{outcome: OutcomeWriteFailed, reason: "the platform is shutting down", status: http.StatusServiceUnavailable, retryAfter: retryStopping}, nil)
-		return
+		return nil, stopping, false
 	}
 	if err != nil {
-		r.refuse(w, d, refusal{outcome: OutcomeBufferFull, reason: "the source's buffer is full", status: http.StatusServiceUnavailable, retryAfter: retryBufferFull}, nil)
-		return
+		return nil, &refusal{outcome: OutcomeBufferFull, reason: "the source's buffer is full", status: http.StatusServiceUnavailable, retryAfter: retryBufferFull}, false
 	}
 	var res written
 	select {
 	case res = <-bt.done:
 	case <-ctx.Done():
 		r.senderGone(d, bt)
-		return
+		return nil, nil, true
 	}
 	if res.err != nil {
-		r.refuse(w, d, refusal{
+		return &res.stages, &refusal{
 			outcome: OutcomeWriteFailed, reason: "the events could not be written to object storage",
 			status: http.StatusServiceUnavailable, retryAfter: retryWriteFailed, detail: res.err.Error(),
-		}, &res.stages)
-		return
+		}, false
 	}
 	r.observeAccepted(ctx, src.Name, d, res.stages)
-	writeJSON(w, http.StatusAccepted, `{"accepted":`+strconv.Itoa(len(d.events))+`}`)
+	return nil, nil, false
 }
 
 // build turns the body into events. A form-encoded body carries its JSON in

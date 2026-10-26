@@ -4,7 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -320,6 +322,33 @@ func (h *Handler) serveRefs(r *http.Request, assetID, contentType string, data [
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 		return data
 	}
-	return assetrefs.Rewrite(data, contentType,
+	return h.formViewer(r).Rewrite(data, contentType,
 		assetrefs.BaseURL(r, h.deps.PublicBaseURL), assetID, refs)
+}
+
+// formViewer signs, for the signed-in reader of r, the viewer token each
+// embedded form's page is handed (#2177): a form in an asset is framed with
+// the asset's sandbox and carries no session, so this is how an
+// authenticated form learns who submits it. A public read has no reader and
+// hands none. The token is signed against the hour, so the content served in
+// one hour is the same bytes and revalidates.
+func (h *Handler) formViewer(r *http.Request) assetrefs.FormViewer {
+	user := GetUser(r.Context())
+	if user == nil || len(h.deps.FormViewerKey) == 0 {
+		return nil
+	}
+	v := epform.Viewer{UserID: user.UserID, Email: user.Email, Admin: h.access.IsAdmin(user)}
+	if h.deps.PersonaResolver != nil {
+		if info := h.deps.PersonaResolver(user.Roles); info != nil {
+			v.Persona = info.Name
+		}
+	}
+	at := time.Now().UTC().Truncate(time.Hour)
+	return func(endpoint string) string {
+		tok, err := epform.SignViewer(h.deps.FormViewerKey, endpoint, v, at)
+		if err != nil {
+			return ""
+		}
+		return tok
+	}
 }

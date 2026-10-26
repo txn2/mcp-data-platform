@@ -36,7 +36,7 @@ flowchart LR
 ## Declaring one
 
 `save_asset` and `manage_asset` (`update` and `patch`) take a `references`
-list. Two forms go in it, and they are not interchangeable:
+list. Three forms go in it, and they are not interchangeable:
 
 - **A managed resource by its `mcp://` URI**: `mcp://global/brand/logo.png`,
   `mcp://user/<id>/data/orders.csv`. This is the form `manage_resource create`
@@ -45,6 +45,14 @@ list. Two forms go in it, and they are not interchangeable:
   declaration that uses it is refused naming both forms.
 - **Another saved asset by its `mcp:asset:<id>` reference**, exactly as a
   search hit or a fetch document carries it.
+- **A form by `mcp:form:<endpoint>`**: an endpoint whose script defines
+  `form_spec` and `form_submit`. Frame it where it shows,
+  `<iframe src="mcp:form:contact" style="width:100%;height:640px;border:0"></iframe>`;
+  the platform renders the form in that frame, hands it the query string of
+  the page the asset is opened at, and stores each accepted submission in the
+  form's webhook source. Anyone may embed a public or bot_check form; an
+  authenticated one only its owner or an administrator. One asset may embed
+  several.
 
 The list is the whole declaration. Omitting it leaves the asset's references
 alone, sending a list replaces them, and sending an empty list removes them

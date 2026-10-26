@@ -118,14 +118,7 @@ function EditorForm({
       <EditorHeader source={source} onBack={onBack} />
 
       <SourceGroup form={form} creating={creating} set={set} />
-      {form.input === "imap" ? (
-        <MailboxGroup form={form} creating={creating} set={set} />
-      ) : (
-        <>
-          <AuthGroup form={form} creating={creating} set={set} />
-          <EventsGroup form={form} set={set} />
-        </>
-      )}
+      <InputGroups form={form} creating={creating} set={set} />
       <LimitsGroup form={form} set={set} />
 
       <Refusals shown={shown} error={error} />
@@ -214,6 +207,20 @@ function Refusals({ shown, error }: { shown: string[]; error: Error | null }) {
 }
 
 type Setter = <K extends keyof WebhookForm>(key: K) => (value: WebhookForm[K]) => void;
+
+/** InputGroups are the settings of the source's input: a mailbox's, or a
+ * posted source's authentication and events. A form's source has none: the
+ * platform owns them (#2178). */
+function InputGroups({ form, creating, set }: { form: WebhookForm; creating: boolean; set: Setter }) {
+  if (form.input === "imap") return <MailboxGroup form={form} creating={creating} set={set} />;
+  if (form.input !== "http") return null;
+  return (
+    <>
+      <AuthGroup form={form} creating={creating} set={set} />
+      <EventsGroup form={form} set={set} />
+    </>
+  );
+}
 
 function SourceGroup({ form, creating, set }: { form: WebhookForm; creating: boolean; set: Setter }) {
   const connections = useTableConnections(creating);
@@ -478,7 +485,7 @@ function LimitsGroup({ form, set }: { form: WebhookForm; set: Setter }) {
         help="Events are grouped into windows of this length, and each window becomes one Parquet file once it has ended. Every event is queryable as soon as it is accepted either way; a shorter window compacts sooner, into more files."
       />
       <div className="grid gap-3 sm:grid-cols-3">
-        {form.input !== "imap" && <RequestLimits form={form} set={set} />}
+        {form.input === "http" && <RequestLimits form={form} set={set} />}
         <ConfigField
           label="Keep raw events (days)"
           type="number"

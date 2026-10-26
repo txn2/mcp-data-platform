@@ -130,10 +130,75 @@ func (s *Service) checkMailbox(ctx context.Context, src whsource.Source) error {
 	return nil
 }
 
+// ErrFormSource refuses an administrator's create of a form's source, which
+// the platform makes when the form is bound (CreateForm).
+var ErrFormSource = whsource.Refusal("a form's source is made by the platform when a form script is bound to an endpoint (manage_script endpoint_set)")
+
 // Create makes a source: its tables, the proof its connection can hold them,
 // its record and its registration. A failure part-way removes what was made.
+// A form's source is refused: CreateForm makes it.
 func (s *Service) Create(ctx context.Context, src whsource.Source) (whsource.Source, error) {
+	if src.WithDefaults().IsForm() {
+		return whsource.Source{}, ErrFormSource //nolint:wrapcheck // ErrInvalid is what a surface renders
+	}
+	return s.createSource(ctx, src)
+}
+
+// CreateForm makes a form's source (#2178), as Create makes any other.
+func (s *Service) CreateForm(ctx context.Context, src whsource.Source) (whsource.Source, error) {
+	if !src.WithDefaults().IsForm() {
+		return whsource.Source{}, whsource.Refusal("CreateForm makes a form's source; this source's input is %s", src.WithDefaults().Config.Input) //nolint:wrapcheck // ErrInvalid is what a surface renders
+	}
+	return s.createSource(ctx, src)
+}
+
+// SetDecryptPersonas replaces the personas a form source's sensitive fields
+// may be decrypted as.
+func (s *Service) SetDecryptPersonas(ctx context.Context, name string, personas []string) (whsource.Source, error) {
+	cur, err := s.deps.Sources.Get(ctx, name)
+	if err != nil {
+		return whsource.Source{}, err //nolint:wrapcheck // ErrNotFound is what a surface renders
+	}
+	if !cur.IsForm() || cur.Config.Form == nil {
+		return whsource.Source{}, whsource.Refusal("source %s is not a form's", name) //nolint:wrapcheck // ErrInvalid is what a surface renders
+	}
+	if err := s.checkPersonas(personas); err != nil {
+		return whsource.Source{}, err
+	}
+	next := cur
+	form := *cur.Config.Form
+	form.DecryptPersonas = personas
+	next.Config.Form = &form
+	next = next.WithDefaults()
+	if err := whsource.Validate(next); err != nil {
+		return whsource.Source{}, err //nolint:wrapcheck // ErrInvalid is what a surface renders
+	}
+	updatedAt, err := s.deps.Sources.Update(ctx, next)
+	if err != nil {
+		return whsource.Source{}, err //nolint:wrapcheck // ErrNotFound is what a surface renders
+	}
+	next.UpdatedAt = updatedAt
+	s.deps.Changed()
+	return next, nil
+}
+
+// checkPersonas refuses a decrypt persona the platform does not define.
+func (s *Service) checkPersonas(personas []string) error {
+	for _, p := range personas {
+		if s.deps.PersonaExists != nil && !s.deps.PersonaExists(p) {
+			return whsource.Refusal("decrypt_personas names no persona: %s", p) //nolint:wrapcheck // ErrInvalid is what a surface renders
+		}
+	}
+	return nil
+}
+
+func (s *Service) createSource(ctx context.Context, src whsource.Source) (whsource.Source, error) {
 	src = src.WithDefaults()
+	if src.IsForm() && src.Config.Form != nil {
+		if err := s.checkPersonas(src.Config.Form.DecryptPersonas); err != nil {
+			return whsource.Source{}, err
+		}
+	}
 	tg, err := s.admit(ctx, src)
 	if err != nil {
 		return whsource.Source{}, err
@@ -258,6 +323,12 @@ func (s *Service) Update(ctx context.Context, name string, u Update) (whsource.S
 	if err != nil {
 		return whsource.Source{}, err //nolint:wrapcheck // ErrNotFound is what a surface renders
 	}
+	if !cur.IsForm() && (u.Config.Input == whsource.InputForm || u.Config.Form != nil) {
+		// Silently keeping the input would answer a request to make a form's
+		// source as if it had been carried out (#2178).
+		return whsource.Source{}, whsource.Refusal("config.form is only for a form's source, which the platform makes when a form is bound; source %s's input is %s", //nolint:wrapcheck // ErrInvalid is what a surface renders
+			name, cur.WithDefaults().Config.Input)
+	}
 	next := cur
 	if u.Enabled != nil {
 		next.Enabled = *u.Enabled
@@ -268,6 +339,9 @@ func (s *Service) Update(ctx context.Context, name string, u Update) (whsource.S
 	next.Config = u.Config
 	next.Config.Persona = cur.Config.Persona
 	next.Config.Input = cur.WithDefaults().Config.Input
+	// A form's binding is the platform's (SetDecryptPersonas changes its
+	// personas); an administrator changes the rest.
+	next.Config.Form = cur.Config.Form
 	next = next.WithDefaults()
 	if err := whsource.Validate(next); err != nil {
 		return whsource.Source{}, err //nolint:wrapcheck // ErrInvalid is what a surface renders

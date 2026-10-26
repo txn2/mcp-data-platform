@@ -183,7 +183,7 @@ function str(v: string): string | undefined {
 /** toInput renders the form as the request body. creating says whether the
  * name, connection and persona are sent: they are fixed once a source exists. */
 export function toInput(f: WebhookForm, creating: boolean): WebhookSourceInput {
-  const config: WebhookConfig = f.input === "imap" ? mailConfigOf(f) : httpConfigOf(f);
+  const config: WebhookConfig = configOf(f);
   const input: WebhookSourceInput = {
     enabled: f.enabled,
     auth: authOf(f),
@@ -197,6 +197,13 @@ export function toInput(f: WebhookForm, creating: boolean): WebhookSourceInput {
     input.rotation_overlap_seconds = Math.round((num(f.rotationOverlapHours) ?? 0) * 3600);
   }
   return input;
+}
+
+/** configOf is the config the source's input sends: a form's source sends
+ * only what comes after the input, since the platform owns the rest. */
+function configOf(f: WebhookForm): WebhookConfig {
+  if (f.input === "form") return { input: "form", ...storageConfigOf(f) };
+  return f.input === "imap" ? mailConfigOf(f) : httpConfigOf(f);
 }
 
 /** mailConfigOf is an imap source's config: the mailbox, and the settings
@@ -240,6 +247,7 @@ function httpConfigOf(f: WebhookForm): WebhookConfig {
 /** authOf sends only the settings the chosen mode reads. */
 function authOf(f: WebhookForm): WebhookSourceInput["auth"] {
   const secret = f.secret === "" ? undefined : f.secret;
+  if (f.input === "form") return { mode: "" };
   if (f.input === "imap") {
     return { mode: "imap", secret, username: str(f.username) };
   }
@@ -284,6 +292,7 @@ function hmacAuthOf(f: WebhookForm, secret: string | undefined): WebhookSourceIn
  * acts on. The platform checks everything again; these are the ones worth
  * saying before a round trip. */
 export function problems(f: WebhookForm, creating: boolean): string[] {
+  if (f.input === "form") return [];
   const input = f.input === "imap" ? imapProblems(f.imap, f.username) : modeProblems(f);
   return [...(creating ? createProblems(f) : []), ...input];
 }
@@ -335,7 +344,7 @@ export const HTTP_MODES: WebhookAuthMode[] = ["hmac", "header_token", "basic", "
  * is a further path segment, shown as a placeholder: the secret is never read
  * back. */
 export function senderURL(origin: string, s: WebhookSource): string {
-  if (s.config.input === "imap") return "";
+  if (s.config.input === "imap" || s.config.input === "form") return "";
   const url = origin.replace(/\/$/, "") + s.path;
   return s.auth.mode === "path_token" ? `${url}/<token>` : url;
 }

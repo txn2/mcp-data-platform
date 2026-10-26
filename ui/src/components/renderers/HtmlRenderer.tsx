@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { FileDown, LayoutGrid, Presentation } from "lucide-react";
 import { isSlideDeck, overviewMessage } from "@/lib/deck";
 import { downloadPdf } from "@/lib/pdfExport";
 import { ASSET_FRAME_SANDBOX } from "./assetFrame";
+import { withFormQuery } from "./formFrames";
 
 /**
  * Whether this browser lets a page fullscreen an element it holds. Read once
@@ -43,7 +44,9 @@ interface Props {
  * was saved to. The sandbox is ASSET_FRAME_SANDBOX: `allow-scripts` without
  * `allow-same-origin`, so the artifact's script runs in an opaque origin with
  * no reach into the viewer's origin or storage, and `allow-downloads`, so a
- * download the reader starts goes ahead (#2127).
+ * download the reader starts goes ahead (#2127). A form the document embeds
+ * (mcp:form:<endpoint>, #2177) is framed inside it, sandboxed alike, and its
+ * page is handed this page's query string (formFrames.ts).
  *
  * The frame takes the height its page leaves it: both viewers lay the content
  * column out as a flex column, and the frame grows to its end (#1769). Where
@@ -70,6 +73,8 @@ export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const deck = isSlideDeck(content);
+  // A form the document embeds is handed this page's query string (#2177).
+  const framed = useMemo(() => withFormQuery(content, true), [content]);
 
   useEffect(() => {
     setCanPresent(fullscreenAvailable());
@@ -159,7 +164,7 @@ export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
         ref={iframeRef}
         sandbox={ASSET_FRAME_SANDBOX}
         allow="fullscreen"
-        srcDoc={content}
+        srcDoc={framed}
         className="min-h-[60vh] w-full min-w-0 flex-1 rounded-lg border border-border"
         title="HTML Preview"
       />

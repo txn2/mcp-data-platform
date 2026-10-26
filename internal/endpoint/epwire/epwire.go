@@ -9,6 +9,8 @@ package epwire
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -24,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -149,4 +152,30 @@ func (e *Endpoints) Stop(ctx context.Context) error {
 		return nil
 	}
 	return e.Refusals.Stop(ctx) //nolint:wrapcheck // never fails
+}
+
+// Forms is what an asset's declaration of mcp:form:<endpoint> reads (#2177):
+// whether the endpoint serves a form, whether it answers signed-in callers
+// only, and who owns its script.
+func (e *Endpoints) Forms() assetrefs.Forms {
+	if e == nil {
+		return nil
+	}
+	return formTargets{runner: e.Runner}
+}
+
+type formTargets struct{ runner *eprun.Runner }
+
+// Form reads the form endpoint serves.
+func (f formTargets) Form(ctx context.Context, endpoint string) (assetrefs.Form, error) {
+	t, err := f.runner.Resolve(ctx, endpoint)
+	if errors.Is(err, epbinding.ErrNotFound) {
+		return assetrefs.Form{}, assetrefs.ErrNoForm
+	}
+	if err != nil {
+		return assetrefs.Form{}, fmt.Errorf("reading endpoint %s: %w", endpoint, err)
+	}
+	return assetrefs.Form{
+		Form: t.Form, Authenticated: t.Binding.AuthMode == epbinding.AuthAuthenticated, OwnerEmail: t.Script.OwnerEmail,
+	}, nil
 }

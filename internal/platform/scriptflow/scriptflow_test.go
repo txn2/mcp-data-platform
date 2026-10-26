@@ -766,3 +766,26 @@ res = platform.verify_token(tok, secret = run.params["key"])
 	assert.False(t, m.Computed)
 	assert.True(t, nodeByTitle(t, g, "Verify token").Computed)
 }
+
+// A form's sensitive fields read in plaintext is a card naming the form
+// (#2179); a form named at run time is shown as computed.
+func TestDerive_DecryptCard(t *testing.T) {
+	g := deriveGraph(`
+payload = json.decode(run.params["payload"])
+row = platform.decrypt("apply", payload)
+other = platform.decrypt(form = run.params["form"], payload = payload)
+`)
+	require.True(t, g.OK, "%+v", g.Findings)
+	var titled []Node
+	for _, n := range g.Nodes {
+		if n.Title == "Decrypt" {
+			titled = append(titled, n)
+		}
+	}
+	require.Len(t, titled, 2)
+	assert.Equal(t, KindToken, titled[0].Kind)
+	assert.Equal(t, RoleReads, titled[0].Role)
+	assert.Equal(t, "form apply", titled[0].Subtitle)
+	assert.False(t, titled[0].Computed)
+	assert.True(t, titled[1].Computed)
+}

@@ -2107,7 +2107,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request, form_decrypt. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     },
@@ -2319,7 +2319,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request, form_decrypt. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2382,7 +2382,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request, form_decrypt. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2436,7 +2436,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request, form_decrypt. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2490,7 +2490,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request, form_decrypt. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2544,7 +2544,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request, form_decrypt. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2604,7 +2604,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request, form_decrypt. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2679,7 +2679,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request. GET /admin/audit/events/filters returns the kinds present in the data.",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run, endpoint_request, form_decrypt. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     },
@@ -21512,7 +21512,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, access mode (authenticated, public or bot_check), the callers an authenticated endpoint admits, the bot check a bot_check endpoint names and the methods it checks, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. Restricted to the script's owner and to administrators.",
+                "description": "Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, access mode (authenticated, public or bot_check), the callers an authenticated endpoint admits, the bot check a bot_check endpoint names and the methods it checks, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. A form (is_form) reports where its submissions are stored (form: source, table, connection, decrypt_personas) or, before its source is made, the connections it could be made on (form_connections). Restricted to the script's owner and to administrators.",
                 "produces": [
                     "application/json"
                 ],
@@ -21566,7 +21566,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req). auth_mode is authenticated (a platform API key or a browser session among callers: \"*\", \"persona:\u003cname\u003e\" or \"api_key:\u003cname\u003e\", empty admitting no one but the administrator, who is always admitted), public (anyone, with no check) or bot_check (anyone who passes the bot check bot_check names, one configured under Admin \u003e Settings \u003e Bot checks, on the methods in checked_methods, empty for every method); a binding naming a check that does not exist is refused, and so is signed_in. Restricted to administrators: the script's owner is refused.",
+                "description": "Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req), or form_spec(req) and form_submit(req, values) (a form); binding a form makes the webhook source its accepted submissions are stored in, on connection (the Trino connection whose scratch catalog holds webhook_form_\u003cendpoint\u003e, defaulting to the only one, named once), with decrypt_personas the personas a script may decrypt its sensitive fields as. auth_mode is authenticated (a platform API key or a browser session among callers: \"*\", \"persona:\u003cname\u003e\" or \"api_key:\u003cname\u003e\", empty admitting no one but the administrator, who is always admitted), public (anyone, with no check) or bot_check (anyone who passes the bot check bot_check names, one configured under Admin \u003e Settings \u003e Bot checks, on the methods in checked_methods, empty for every method); a binding naming a check that does not exist is refused, and so is signed_in. Restricted to administrators: the script's owner is refused.",
                 "consumes": [
                     "application/json"
                 ],
@@ -23103,6 +23103,141 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/statehttp.stateResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/submissions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the newest submissions stored in the webhook source of the form this script is, newest first, read from webhook_form_\u003cendpoint\u003e on the source's Trino connection. Sensitive fields are decrypted for the reader, and a read that decrypted any is audited as form_decrypt with the fields it opened. Restricted to the script's owner and to administrators. 404 when the script was never bound as a form.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List a form's submissions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "How many submissions (default 50, at most 10000)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/epsubmit.Page"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/submissions/export": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the newest submissions of the form this script is as CSV or an Excel workbook: received_at, the submitter's address on a signed-in form, then each field in the order the form declares them. Sensitive fields are decrypted and the read audited, as on the list. A CSV cell a spreadsheet would read as a formula is written with a leading apostrophe. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "text/csv",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Export a form's submissions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "csv (default) or xlsx",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "How many submissions (default 10000, at most 10000)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
@@ -30428,7 +30563,8 @@ const docTemplate = `{
                 "resource_read",
                 "resource_move",
                 "script_run",
-                "endpoint_request"
+                "endpoint_request",
+                "form_decrypt"
             ],
             "x-enum-varnames": [
                 "EventTypeAdmin",
@@ -30438,7 +30574,8 @@ const docTemplate = `{
                 "EventTypeResourceRead",
                 "EventTypeResourceMove",
                 "EventTypeScriptRun",
-                "EventTypeEndpointRequest"
+                "EventTypeEndpointRequest",
+                "EventTypeFormDecrypt"
             ]
         },
         "audit.Overview": {
@@ -30571,7 +30708,8 @@ const docTemplate = `{
                         "resource_read",
                         "resource_move",
                         "script_run",
-                        "endpoint_request"
+                        "endpoint_request",
+                        "form_decrypt"
                     ]
                 },
                 "sources": {
@@ -30736,6 +30874,16 @@ const docTemplate = `{
                     }
                 },
                 "checked_methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "connection": {
+                    "description": "Connection and DecryptPersonas are a form's (#2178, #2179): the Trino\nconnection its source's table is created on, and the personas a script\nrun may decrypt its sensitive fields as (nil keeps them).",
+                    "type": "string"
+                },
+                "decrypt_personas": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -33367,6 +33515,78 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "integer"
+                }
+            }
+        },
+        "epcollect.Submitter": {
+            "type": "object",
+            "properties": {
+                "auth_type": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "epsubmit.Page": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "fields": {
+                    "description": "Fields are the columns, in the order the newest submission's form\ndeclared them, then any an older one held.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "form": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "sensitive": {
+                    "description": "Sensitive are the fields that were decrypted for this read.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "source": {
+                    "type": "string"
+                },
+                "submissions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/epsubmit.Submission"
+                    }
+                },
+                "table": {
+                    "type": "string"
+                }
+            }
+        },
+        "epsubmit.Submission": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "received_at": {
+                    "type": "string"
+                },
+                "submitter": {
+                    "$ref": "#/definitions/epcollect.Submitter"
+                },
+                "values": {
+                    "type": "object",
+                    "additionalProperties": {}
                 }
             }
         },
@@ -44987,6 +45207,9 @@ const docTemplate = `{
                 "flush_max_interval_ms": {
                     "type": "integer"
                 },
+                "form": {
+                    "$ref": "#/definitions/whsource.Form"
+                },
                 "handshake": {
                     "type": "string"
                 },
@@ -44998,7 +45221,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "input": {
-                    "description": "Input is \"http\" (the default, posted to) or \"imap\" (a polled mailbox,\nconfigured under IMAP).",
+                    "description": "Input is \"http\" (the default, posted to), \"imap\" (a polled mailbox,\nconfigured under IMAP) or \"form\" (a form's submissions, under Form).",
                     "type": "string"
                 },
                 "key_path": {
@@ -45023,6 +45246,26 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "split": {
+                    "type": "string"
+                }
+            }
+        },
+        "whsource.Form": {
+            "type": "object",
+            "properties": {
+                "decrypt_personas": {
+                    "description": "DecryptPersonas are the personas a script run may decrypt the form's\nsensitive fields as (platform.decrypt, #2179); an administrator always\nmay, and so does the owner on the submissions view.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "endpoint": {
+                    "description": "Endpoint is the endpoint the form was bound to when its source was\nmade, which its name was derived from.",
+                    "type": "string"
+                },
+                "script_id": {
+                    "description": "ScriptID is the form script's id: the source follows the script, so an\nendpoint renamed later still stores into the source made for it.",
                     "type": "string"
                 }
             }

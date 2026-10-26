@@ -274,6 +274,16 @@ func (h *Handle) BindResources(resources assetrefs.Resources, scheme string) {
 	h.declarer.BindResources(resources, scheme)
 }
 
+// BindForms gives the declaration path the endpoints, which is what admits
+// an mcp:form:<endpoint> reference in a save (#2177). Like the resource
+// layer, the endpoints are assembled after this one.
+func (h *Handle) BindForms(forms assetrefs.Forms) {
+	if h == nil || forms == nil {
+		return
+	}
+	h.declarer.BindForms(forms)
+}
+
 // BindResourceWriter gives the asset toolkit the ability to write a managed
 // resource, which is what puts manage_resource behind an agent and a scheduled
 // script (#1487).

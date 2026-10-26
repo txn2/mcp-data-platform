@@ -26,9 +26,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
@@ -56,7 +58,13 @@ const challengeKey = "challenge"
 const HeaderBotCheck = "X-Bot-Check"
 
 // allowedRequestHeaders are the headers a cross-origin request may send.
-const allowedRequestHeaders = "Content-Type, Authorization, X-API-Key, " + HeaderBotCheck
+const allowedRequestHeaders = "Content-Type, Authorization, X-API-Key, " + HeaderBotCheck + ", " + epform.ViewerHeader
+
+// originOpaque is the Origin a sandboxed frame's requests carry. A form
+// embedded in an asset is framed with the asset's sandbox, so its page's
+// requests to the form carry it (#2177); a form answers it, never with
+// credentials.
+const originOpaque = "null"
 
 const (
 	headerCacheControl = "Cache-Control"
@@ -96,6 +104,9 @@ type Handler struct {
 	// Refused counts a request refused before its handler ran, by endpoint
 	// and reason (#2208). Nil counts nothing.
 	Refused func(endpointID, reason string)
+	// ViewerKey opens the viewer token an authenticated form embedded in an
+	// asset is sent with (epform.ViewerKey, #2177); nil honors none.
+	ViewerKey []byte
 
 	endpointLimits limiters
 	callerLimits   limiters
@@ -117,7 +128,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := t.Binding
-	if !cors(w, r, b) {
+	if !cors(w, r, b, t.Form) {
 		h.refused(b, eprefusal.ReasonOrigin)
 		return
 	}
@@ -145,7 +156,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tooMany(w, r, b.RateLimit)
 		return
 	}
-	caller, ok := h.admit(w, r, b)
+	caller, ok := h.admit(w, r, t)
 	if !ok {
 		return
 	}
@@ -182,10 +193,11 @@ func (h *Handler) resolve(w http.ResponseWriter, r *http.Request, name string) (
 // admit decides whether the request may run: the authenticated caller among
 // the endpoint's callers and within their own limit, anyone on a public
 // endpoint, or the bot check a bot_check endpoint names.
-func (h *Handler) admit(w http.ResponseWriter, r *http.Request, b *epbinding.Binding) (*eprun.Caller, bool) {
+func (h *Handler) admit(w http.ResponseWriter, r *http.Request, t *eprun.Target) (*eprun.Caller, bool) {
+	b := t.Binding
 	switch b.AuthMode {
 	case epbinding.AuthAuthenticated:
-		return h.authenticated(w, r, b)
+		return h.authenticated(w, r, t)
 	case epbinding.AuthPublic:
 		return nil, true
 	case epbinding.AuthBotCheck:
@@ -215,8 +227,9 @@ func (h *Handler) checked(w http.ResponseWriter, r *http.Request, b *epbinding.B
 	return true
 }
 
-func (h *Handler) authenticated(w http.ResponseWriter, r *http.Request, b *epbinding.Binding) (*eprun.Caller, bool) {
-	caller, err := h.Authenticate(r)
+func (h *Handler) authenticated(w http.ResponseWriter, r *http.Request, t *eprun.Target) (*eprun.Caller, bool) {
+	b := t.Binding
+	caller, err := h.caller(r, t)
 	switch {
 	case errors.Is(err, ErrForbidden):
 		h.refused(b, eprefusal.ReasonCredential)
@@ -243,6 +256,27 @@ func (h *Handler) authenticated(w http.ResponseWriter, r *http.Request, b *epbin
 		return nil, false
 	}
 	return caller, true
+}
+
+// caller is who sent the request: the browser session or API key it carries,
+// or on a form with neither, the viewer token it carries (#2177).
+func (h *Handler) caller(r *http.Request, t *eprun.Target) (*eprun.Caller, error) {
+	caller, err := h.Authenticate(r)
+	if err == nil && caller == nil && t.Form && r.Header.Get(epform.ViewerHeader) != "" {
+		return h.viewer(r, t.Binding.Name)
+	}
+	return caller, err
+}
+
+// viewer is the caller a form's viewer token names (#2177): who a signed-in
+// person was when the platform served them the asset the form is embedded
+// in. A token that does not open is no caller.
+func (h *Handler) viewer(r *http.Request, endpoint string) (*eprun.Caller, error) {
+	v, err := epform.OpenViewer(h.ViewerKey, endpoint, r.Header.Get(epform.ViewerHeader), time.Now())
+	if err != nil {
+		return nil, err //nolint:wrapcheck // answered 401 like any absent credential
+	}
+	return &eprun.Caller{UserID: v.UserID, Email: v.Email, AuthType: v.AuthType, Admin: v.Admin, Persona: v.Persona}, nil
 }
 
 // refused counts a refusal of a request to b.
@@ -303,13 +337,13 @@ func write(w http.ResponseWriter, r *http.Request, resp eprun.Response) {
 // Credentials are never allowed across origins, so a browser session is
 // never sent from another site; a cross-origin caller signs in with an API
 // key.
-func cors(w http.ResponseWriter, r *http.Request, b *epbinding.Binding) bool {
+func cors(w http.ResponseWriter, r *http.Request, b *epbinding.Binding, form bool) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
 	w.Header().Add("Vary", "Origin")
-	listed := slices.Contains(b.AllowedOrigins, origin)
+	listed := slices.Contains(b.AllowedOrigins, origin) || (form && origin == originOpaque)
 	preflight := r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != ""
 	if !listed {
 		if preflight {
@@ -357,7 +391,7 @@ func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusNotFound, "no bot_check endpoint has this name")
 		return
 	}
-	if !cors(w, r, b) {
+	if !cors(w, r, b, t.Form) {
 		return
 	}
 	if r.Method == http.MethodOptions {

@@ -55,6 +55,11 @@ func Properties() map[string]any {
 			"request may come from. Empty answers no cross-origin preflight."),
 		"rate_limit": integer(fmt.Sprintf("For endpoint_set: the endpoint's requests a minute on each replica "+
 			"(default %d); past it a request is answered 429.", epbinding.DefaultRateLimit)),
+		"connection": str("For endpoint_set on a form (a script defining form_spec and form_submit): the Trino " +
+			"connection whose scratch catalog holds the table the form's submissions are stored in, " +
+			"webhook_form_<endpoint>. Defaults to the only such connection; named once, when the form is first bound."),
+		"decrypt_personas": strings("For endpoint_set on a form: the personas a script may decrypt the form's " +
+			"sensitive fields as, with platform.decrypt. The administrator always may. Omit to keep them; [] removes them."),
 		"caller_rate_limit": integer(fmt.Sprintf("For endpoint_set on an authenticated endpoint: one caller's requests a "+
 			"minute on each replica (default %d), at most rate_limit.", epbinding.DefaultCallerRateLimit)),
 	}

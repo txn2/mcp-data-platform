@@ -171,7 +171,16 @@ func TestIssue2065_TheAuditTheCallRecordAndTheRecordingHoldThePlaceholder(t *tes
 	if params := stringOf(row["parameters"]); strings.Contains(params, code) || strings.Contains(params, rfcSeed2065) {
 		t.Errorf("the audit row's parameters hold the code or the seed: %s", params)
 	}
-	records := c.list("/api/v1/admin/calls?session_id=" + c.sessionID)
+	// The call record is written after the audit row, by the decorator that
+	// catalogs what the audit store accepted (callrecord.Recorder.Log), so an
+	// audit row seen is not yet a record written: wait for the record too.
+	var records []any
+	for attempt := 0; attempt < 40 && len(records) == 0; attempt++ {
+		if attempt > 0 {
+			time.Sleep(250 * time.Millisecond)
+		}
+		records = c.list("/api/v1/admin/calls?session_id=" + c.sessionID)
+	}
 	if len(records) == 0 {
 		t.Fatalf("no call record for the call")
 	}
@@ -179,8 +188,10 @@ func TestIssue2065_TheAuditTheCallRecordAndTheRecordingHoldThePlaceholder(t *tes
 		t.Errorf("the call record holds the code or the seed: %s", text)
 	}
 
-	ran := c.call("manage_script", map[string]any{"command": "run_draft", "name": "acceptance-2065-" + unique1579(),
-		"source": strings.Replace(script2065, "%s", name, 1), "allow_writes": true})
+	ran := c.call("manage_script", map[string]any{
+		"command": "run_draft", "name": "acceptance-2065-" + unique1579(),
+		"source": strings.Replace(script2065, "%s", name, 1), "allow_writes": true,
+	})
 	if ran["status"] != "succeeded" {
 		t.Fatalf("the draft failed: %v", ran)
 	}

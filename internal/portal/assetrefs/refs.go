@@ -89,13 +89,17 @@ const (
 	// reference resolves to (#1488). It is what lets a scheduled script
 	// refresh a data file and a dashboard read it without being re-saved.
 	TargetAsset TargetKind = "asset"
+	// TargetForm is a form: a script bound to an endpoint that defines
+	// form_spec and form_submit (#2177), named by mcp:form:<endpoint>. The
+	// reference is rewritten to the form's page, which an asset frames.
+	TargetForm TargetKind = "form"
 )
 
 // Valid reports whether k is a kind the platform can resolve. A row read back
 // with anything else is data from a future version and is refused rather than
 // guessed at.
 func (k TargetKind) Valid() bool {
-	return k == TargetResource || k == TargetAsset
+	return k == TargetResource || k == TargetAsset || k == TargetForm
 }
 
 // Ref links an asset to something its content names (#1474,

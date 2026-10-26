@@ -18,6 +18,7 @@ package assetrefs
 
 import (
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -32,6 +33,9 @@ import (
 // prefix is what lets the composition root mount it outside the portal's
 // authentication chain instead of carving an exception out of it.
 const PathPrefix = "/portal/refs/"
+
+// pathSep separates a URL's path segments.
+const pathSep = "/"
 
 // downloadQuery marks a reference URL that serves the target as an attachment
 // rather than inline (#2127).
@@ -126,10 +130,20 @@ func forwardedScheme(r *http.Request) string {
 // Non-textual content is returned untouched: a stored PNG is bytes, and
 // scanning it for URIs could only corrupt it.
 func Rewrite(content []byte, contentType, base, assetID string, refs []Ref) []byte {
+	return FormViewer(nil).Rewrite(content, contentType, base, assetID, refs)
+}
+
+// FormViewer is the viewer token one reader's copy of an asset hands each
+// form it embeds (#2177): the token for the form at endpoint, "" for none.
+type FormViewer func(endpoint string) string
+
+// Rewrite is the package's Rewrite for the reader v signs for; a nil
+// FormViewer hands no form a viewer token.
+func (v FormViewer) Rewrite(content []byte, contentType, base, assetID string, refs []Ref) []byte {
 	if len(refs) == 0 || len(content) == 0 || !contenttype.IsTextual(contentType) {
 		return content
 	}
-	pairs := replacements(base, assetID, refs)
+	pairs := replacements(base, assetID, refs, v)
 	if len(pairs) == 0 {
 		return content
 	}
@@ -155,7 +169,7 @@ func Rewrite(content []byte, contentType, base, assetID string, refs []Ref) []by
 //
 // A reference with an empty URI or token contributes nothing: it could only
 // match everywhere or resolve to nothing.
-func replacements(base, assetID string, refs []Ref) []string {
+func replacements(base, assetID string, refs []Ref, viewer FormViewer) []string {
 	ordered := make([]Ref, 0, len(refs))
 	for _, ref := range refs {
 		if ref.URI == "" || ref.RefToken == "" {
@@ -169,9 +183,26 @@ func replacements(base, assetID string, refs []Ref) []string {
 
 	pairs := make([]string, 0, len(ordered)*2)
 	for _, ref := range ordered {
+		if ref.TargetKind == TargetForm {
+			pairs = append(pairs, ref.URI, formURL(base, ref.TargetID, viewer))
+			continue
+		}
 		pairs = append(pairs, ref.URI, URL(base, assetID, ref.RefToken))
 	}
 	return pairs
+}
+
+// formURL is the absolute address of a form's page, with the viewer token the
+// reader is handed for it, if any.
+func formURL(base, endpoint string, viewer FormViewer) string {
+	u := strings.TrimRight(base, pathSep) + FormPagePrefix + url.PathEscape(endpoint)
+	if viewer == nil {
+		return u
+	}
+	if tok := viewer(endpoint); tok != "" {
+		u += "?" + url.Values{FormViewerParam: {tok}}.Encode()
+	}
+	return u
 }
 
 // downloads rewrites the declared references the content's download anchors
@@ -186,7 +217,7 @@ func downloads(content, contentType, base, assetID string, refs []Ref) string {
 	}
 	tokens := make(map[string]string, len(refs))
 	for _, ref := range refs {
-		if ref.URI != "" && ref.RefToken != "" {
+		if ref.URI != "" && ref.RefToken != "" && ref.TargetKind != TargetForm {
 			tokens[ref.URI] = ref.RefToken
 		}
 	}

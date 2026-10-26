@@ -77,6 +77,12 @@ const (
 	// handler's platform calls produce under the script:<name> principal carry
 	// too, so a request and its calls join on one key.
 	EventTypeEndpointRequest EventType = "endpoint_request"
+
+	// EventTypeFormDecrypt categorizes a read of a form submission's
+	// sensitive fields in plaintext (#2179): a script's platform.decrypt or
+	// the form owner's submissions view. It carries form, the fields read and
+	// how many submissions, under the identity that read them.
+	EventTypeFormDecrypt EventType = "form_decrypt"
 )
 
 // toolkitKindAPIGateway is the toolkit-kind discriminator for the

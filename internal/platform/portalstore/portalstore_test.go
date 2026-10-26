@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -380,4 +381,26 @@ func TestBindResourcesMakesDeclarationAvailable(t *testing.T) {
 	var nilHandle *Handle
 	nilHandle.BindResources(stubResources{}, "mcp")
 	(&Handle{}).BindResources(stubResources{}, "mcp")
+}
+
+// formsStub answers that no endpoint serves a form.
+type formsStub struct{}
+
+func (formsStub) Form(context.Context, string) (assetrefs.Form, error) {
+	return assetrefs.Form{}, assetrefs.ErrNoForm
+}
+
+// TestBindFormsReachesTheDeclarer: once bound, a save's mcp:form: reference
+// is asked of the endpoints, which here serve none.
+func TestBindFormsReachesTheDeclarer(t *testing.T) {
+	t.Parallel()
+	h := NewFromStores(Stores{ContentRefs: stubRefStore{}}, nil, Config{Name: "default"})
+	h.BindForms(formsStub{})
+	_, err := h.declarer.Resolve(context.Background(), []string{"mcp:form:contact"}, assetrefs.Author{}, "")
+	if err == nil || !strings.Contains(err.Error(), "no form answers") {
+		t.Fatalf("Resolve of a form reference = %v, want the endpoints' refusal", err)
+	}
+	var nilHandle *Handle
+	nilHandle.BindForms(formsStub{})
+	h.BindForms(nil)
 }

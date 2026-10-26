@@ -113,8 +113,40 @@ type Declarer struct {
 	refs      Store
 	assets    Assets
 	resources Resources
+	forms     Forms
 	scheme    string
 	max       int
+}
+
+// Form is what a declaration of a form reference reads about the form at an
+// endpoint.
+type Form struct {
+	// Form is whether the endpoint's script defines form_spec and
+	// form_submit.
+	Form bool
+	// Authenticated is whether the endpoint answers only a signed-in caller,
+	// whom a form embedded in an asset is told of by the viewer token the
+	// asset is served with.
+	Authenticated bool
+	// OwnerEmail is the address of the script's owner.
+	OwnerEmail string
+}
+
+// Forms reads the form an endpoint serves; ErrNoForm when none.
+type Forms interface {
+	Form(ctx context.Context, endpoint string) (Form, error)
+}
+
+// ErrNoForm is an endpoint that serves no form.
+var ErrNoForm = errors.New("no form answers at this endpoint")
+
+// BindForms gives the declaration path the endpoints, which is what admits
+// an mcp:form:<endpoint> reference (#2177). A Declarer never bound refuses
+// one.
+func (d *Declarer) BindForms(f Forms) {
+	if d != nil {
+		d.forms = f
+	}
 }
 
 // NewDeclarer builds the declaration path over the reference store and the
@@ -380,9 +412,36 @@ func (d *Declarer) readable(ctx context.Context, uri string, author Author) (Dec
 		ref.TargetType == knowledgepage.RefTargetAsset {
 		return d.readableAsset(ctx, uri, ref.AssetID, author)
 	}
+	if endpoint, ok := ParseFormURI(uri); ok {
+		return d.embeddableForm(ctx, uri, endpoint, author)
+	}
 	return Declared{}, fmt.Errorf(
-		"cannot reference %q: a reference names a managed resource by its %s:// URI "+
-			"or an asset by its mcp:asset:<id> reference: %w", uri, d.resourceScheme(), ErrRefused)
+		"cannot reference %q: a reference names a managed resource by its %s:// URI, "+
+			"an asset by its mcp:asset:<id> reference or a form by mcp:form:<endpoint>: %w", uri, d.resourceScheme(), ErrRefused)
+}
+
+// embeddableForm resolves an mcp:form:<endpoint> reference to the form it
+// names (#2177). A public or bot_check form may be embedded by anyone: its
+// page is open to everyone already. An authenticated form is embedded only by
+// its script's owner or an administrator, because the asset is served to each
+// signed-in reader with a viewer token that submits to the form as them, and
+// the asset's own script can read that token.
+func (d *Declarer) embeddableForm(ctx context.Context, uri, endpoint string, author Author) (Declared, error) {
+	if d.forms == nil {
+		return Declared{}, fmt.Errorf("cannot reference %q: this deployment has no endpoints: %w", uri, ErrRefused)
+	}
+	f, err := d.forms.Form(ctx, endpoint)
+	if errors.Is(err, ErrNoForm) || (err == nil && !f.Form) {
+		return Declared{}, fmt.Errorf("no form answers at %q: an endpoint whose script defines form_spec and form_submit: %w", uri, ErrRefused)
+	}
+	if err != nil {
+		return Declared{}, fmt.Errorf("resolving form reference %q: %w", uri, err)
+	}
+	if f.Authenticated && !author.Claims.IsAdmin && !strings.EqualFold(author.Claims.Email, f.OwnerEmail) {
+		return Declared{}, fmt.Errorf("the form at %q answers signed-in callers, and only its owner or an administrator "+
+			"may embed it: %w", uri, ErrRefused)
+	}
+	return Declared{Kind: TargetForm, TargetID: endpoint, URI: uri}, nil
 }
 
 // resourceScheme is the deployment's resource URI scheme, defaulted the same

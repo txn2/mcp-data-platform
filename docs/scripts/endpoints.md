@@ -267,6 +267,104 @@ a bound form that no longer defines both handlers is refused, as a save that
 removes `handle(req)` is. The flow diagram draws `form_spec` and then
 `form_submit`.
 
+### Where submissions are stored
+
+Binding a form makes a webhook source for it (#2178), named `form-<endpoint>`
+(each `_` read as `-`), whose table is `webhook_form_<endpoint>` in the scratch
+schema of a Trino connection. `endpoint_set` takes `connection`, the Trino
+connection whose scratch catalog holds the table, and defaults it to the only
+such connection; on a deployment with several it is required, named once, and
+does not change. Each submission `form_submit` accepts is written to that
+source as one event before the browser is answered, through the same receiver
+spool and object storage path every webhook source's events take; a submission
+that could not be stored is answered 503 and never confirmed. Retention is the
+source's: `compacted_retention_days` under Admin > Webhooks, where 0 keeps
+submissions forever.
+
+| Payload key | What it holds |
+|-------------|---------------|
+| `values` | The checked values, a sensitive field's as ciphertext |
+| `fields` | The fields in the order the spec declared them |
+| `sensitive` | The names of the sensitive fields |
+| `endpoint`, `version` | The endpoint and the script version that accepted it |
+| `submitter` | On an authenticated form, `{"user_id", "email", "auth_type"}` of the caller the platform found; a field claiming another identity changes nothing |
+
+The event's `event_type` is `form_submission` and its `key` the submitter's
+address. A form's source is never posted to: `/hooks/form-<endpoint>` answers
+404, and the administrator's create refuses a source with input `form`. The
+script follows the source, so an endpoint renamed later keeps storing where it
+did. A form bound before it defined both handlers, or whose source was deleted
+or disabled, answers each submission 503 until `endpoint_set` is called again.
+A deployment with no webhook sources (no Trino toolkit) stores nothing, and a
+form accepts as it did before submissions were stored.
+
+### Sensitive fields
+
+A field with `"sensitive": True` is encrypted before it is stored (#2179), with
+the platform's field encryption (`ENCRYPTION_KEY`), so the receiver's spool
+file, the raw segment, the compacted Parquet and `trino_query` on the table
+all hold ciphertext. `form_submit` is handed the value as typed. A form
+declaring a sensitive field on a deployment without `ENCRYPTION_KEY` is not
+shown: its GET is answered 500 and kept for the owner. The plaintext is read
+in two places, each audited as `form_decrypt` with the fields read:
+
+- the form owner's Submissions section on the automation's page (and its CSV
+  and Excel exports);
+- `platform.decrypt(form, payload)` in a script, whose run's persona must be
+  among the form's `decrypt_personas` (set with `endpoint_set`); the
+  administrator always may.
+
+```python
+def main():
+    """Lists the week's applications with the SSN in clear."""
+    rows = platform.query("SELECT payload FROM webhook_form_apply WHERE received_at > now() - interval '7' day")
+    for row in rows["rows"]:
+        values = platform.decrypt("apply", row["payload"])
+        print(values["name"], values["ssn"])
+```
+
+A recording keeps `[encrypted]` in place of each value `platform.decrypt`
+opened, so no recording, replay or test holds one. Rotating the key keeps old
+submissions readable: set the new key as `ENCRYPTION_KEY` and the old one in
+`ENCRYPTION_KEY_PREVIOUS` (comma-separated for several); new values are
+written with the new key, and a value the new key does not open is opened with
+each previous key in turn.
+
+### Embedding a form in an asset
+
+The platform renders a form at `/portal/forms/<endpoint>` (#2177): labels,
+help, choices, the hidden fields, the bot check, field errors and the
+confirmation or redirect, in light and dark and at phone width. An HTML or JSX
+asset embeds one by declaring `mcp:form:<endpoint>` in its references and
+framing it:
+
+```html
+<iframe src="mcp:form:contact" style="width:100%;height:640px;border:0"></iframe>
+```
+
+Every viewing surface rewrites the reference to the form's page, and the form
+is framed inside the asset's own frame, whose sandbox is unchanged. One asset
+may embed several forms. The page the asset is opened at hands its query string
+to each form, so a shared link `?t=<token>` reaches `form_spec(req)` as
+`req["query"]["t"]`. A form inside an asset has the asset's opaque origin and
+no session, so an authenticated form is told who the signed-in reader is by a
+viewer token the platform writes into the form's address as it serves the
+asset (good for 12 hours); a public share has no reader, so an authenticated
+form refuses there. Only the form's owner or an administrator may embed an
+authenticated form, because the asset's own script can read that token. A
+form's page answers the opaque origin its requests carry, never with
+credentials. Proof of work answers a bot check inside an asset; Turnstile and
+hCaptcha may need the form opened at its own address.
+
+### Submissions
+
+The automation's page shows a form's newest submissions under **Submissions**,
+read from `webhook_form_<endpoint>`, with sensitive fields decrypted and the
+read audited, and exports them as CSV or Excel
+(`GET /api/v1/portal/scripts/{id}/submissions` and `.../submissions/export?format=csv|xlsx`).
+It is the script's owner's and an administrator's. A CSV cell a spreadsheet
+would read as a formula is written with a leading apostrophe.
+
 ## Identity and authority
 
 A request runs as the script's own principal, `script:<name>`, presenting the

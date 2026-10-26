@@ -244,8 +244,16 @@ kubectl create secret generic mcp-data-platform-secrets \
 
 `ENCRYPTION_KEY` is 32 bytes of key material (64 hex characters, 44-character
 base64, or 32 raw bytes) and encrypts stored connection credentials, gateway
-OAuth tokens, and PKCE state at rest. Without it the platform logs a warning at
-startup and stores those values in plaintext.
+OAuth tokens, PKCE state and a form's sensitive fields at rest. Without it the
+platform logs a warning at startup and stores those values in plaintext, and a
+form that declares a sensitive field is not shown.
+
+To rotate it, make the new key `ENCRYPTION_KEY` and set the old one in
+`ENCRYPTION_KEY_PREVIOUS` (comma-separated for more than one). Every value is
+written with the current key; a stored value the current key does not open is
+opened with each previous key in turn, so nothing written before the rotation
+becomes unreadable. Keep a previous key for as long as values written under it
+are stored.
 
 ### ServiceAccount
 

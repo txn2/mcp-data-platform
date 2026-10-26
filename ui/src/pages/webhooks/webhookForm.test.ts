@@ -122,3 +122,33 @@ describe("webhook form", () => {
   });
 });
 
+
+describe("a form's source (#2178)", () => {
+  const form = {
+    ...hmac,
+    name: "form-contact",
+    path: "",
+    auth: { mode: "" as never, secret_set: false },
+    config: {
+      input: "form" as const,
+      form: { script_id: "scr_1", endpoint: "contact", decrypt_personas: ["credit"] },
+      compacted_retention_days: 30,
+    },
+  };
+
+  it("sends only the storage settings, with no auth, and asks for nothing more", () => {
+    const f = fromSource(form);
+    expect(f.input).toBe("form");
+    expect(problems(f, false)).toEqual([]);
+    const body = toInput({ ...f, compactedRetentionDays: "0" }, false);
+    expect(body.auth).toEqual({ mode: "" });
+    expect(body.config).toMatchObject({ input: "form", compacted_retention_days: 0 });
+    expect(Object.keys(body.config).sort()).toEqual(
+      ["compact_every_minutes", "compacted_retention_days", "index", "input", "raw_retention_days"],
+    );
+  });
+
+  it("has no address to give a sender", () => {
+    expect(senderURL("https://data.example.com", form)).toBe("");
+  });
+});

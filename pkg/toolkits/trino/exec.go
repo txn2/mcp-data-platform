@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,6 +26,28 @@ func (t *Toolkit) ScratchTarget(connection string) (ScratchConfig, bool) {
 	}
 	target, ok := t.scratch[connection]
 	return target, ok
+}
+
+// ScratchConnections names the connections a table can be created on: each
+// that has a scratch catalog and schema and accepts writes, sorted. It is the
+// list a form's source is placed on when the binding names none (#2178).
+func (t *Toolkit) ScratchConnections() []string {
+	t.connMu.RLock()
+	names := make([]string, 0, len(t.scratch))
+	for name, sc := range t.scratch {
+		if sc.Catalog != "" && sc.Schema != "" {
+			names = append(names, name)
+		}
+	}
+	t.connMu.RUnlock()
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if t.AcceptsWrites(name) {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // AcceptsWrites reports whether Exec would be allowed to run write SQL on a

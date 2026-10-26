@@ -496,6 +496,8 @@ WHAT IS AVAILABLE
       "tampered", "other_endpoint", "used" or "malformed", so the script
       answers a refusal itself. A single-use token is marked used by the
       verify that accepts it.
+  platform.decrypt(form, payload)  A stored form submission's values,
+      sensitive fields decrypted (see FORMS).
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"], run.state  The frozen run
       record. run.state is the script's state as it stood when the run was
@@ -708,9 +710,17 @@ FORMS
   Types: text, long_text, email, number, date (YYYY-MM-DD), single_choice,
   multiple_choice, checkbox, hidden. A field has name, type, label,
   required, max_length (text 1000, long text 10000 by default), min and max,
-  help and choices ({"value", "label"}); form_token and website (the
-  honeypot) are the platform's. A form answers GET and POST; on a bot_check
-  endpoint set checked_methods to ["POST"].
+  help, choices ({"value", "label"}) and sensitive; form_token and website
+  (the honeypot) are the platform's. A form answers GET and POST; on a
+  bot_check endpoint set checked_methods to ["POST"].
+  Binding a form makes its webhook source (endpoint_set connection, default
+  the only scratch connection; decrypt_personas), and each accepted
+  submission is stored as a row of webhook_form_<endpoint> before it is
+  answered (503 when it cannot be). A "sensitive": True field is stored
+  encrypted; platform.decrypt(form, row["payload"]) reads it
+  for a persona in decrypt_personas, audited. An HTML or JSX asset embeds a
+  form by declaring mcp:form:<endpoint> and framing it, <iframe
+  src="mcp:form:contact"></iframe>; the form is handed the page's query.
 
 LIBRARIES
   A library is a script with neither main() nor handle(): pure code other scripts load, so the
