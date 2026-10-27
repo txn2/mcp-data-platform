@@ -200,8 +200,9 @@ func issue2121Start(t *testing.T, dir string, store *issue2121Store, extra ...st
 		"DEV_WEBHOOK_SPOOL_DIR="+dir,
 	)
 	// What dev/start.sh gives the replicas it runs and does not record in
-	// dev/.dev-ports.env: the repository's .env (the field-encryption key a
-	// source's secret is stored under), the local Trino it points the
+	// dev/.dev-ports.env: the repository's .env (credentials for remote
+	// backends; the field-encryption key comes from dev/.dev-ports.env, which
+	// is in the environment), the local Trino it points the
 	// replicas at when it started one, and the CA bundle of the object
 	// store's TLS endpoint.
 	root, _ := filepath.Abs("../..")

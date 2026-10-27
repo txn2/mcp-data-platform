@@ -84,8 +84,10 @@ func TestAdminAPI_AuthEnforcement(t *testing.T) {
 		}
 	})
 
-	t.Run("analyst_key_returns_401", func(t *testing.T) {
-		// Analyst persona is not the admin persona, so PlatformAuthenticator rejects it
+	t.Run("analyst_key_returns_403", func(t *testing.T) {
+		// A valid key without the admin role is authenticated and refused:
+		// 403, never 401, so a client reports a refusal rather than an
+		// expired sign-in (#2337).
 		analystAuth := helpers.NewAdminClient(ts.URL, helpers.AnalystAPIKey)
 		for _, p := range paths {
 			status, _, err := analystAuth.RawGet(p.path)
@@ -93,8 +95,8 @@ func TestAdminAPI_AuthEnforcement(t *testing.T) {
 				t.Errorf("%s %s: unexpected error: %v", p.method, p.path, err)
 				continue
 			}
-			if status != http.StatusUnauthorized {
-				t.Errorf("%s %s: expected 401, got %d", p.method, p.path, status)
+			if status != http.StatusForbidden {
+				t.Errorf("%s %s: expected 403, got %d", p.method, p.path, status)
 			}
 		}
 	})
