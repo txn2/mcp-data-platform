@@ -32,8 +32,11 @@
 # criteria: one call through each service the stack runs, which says which
 # service did not come up in under a minute (#2274).
 #
+# ACCEPTANCE_TICKETS=<n>,<n> runs those tickets' criteria alone and not the
+# browser suite: CI's run of the criteria a pull request changed (#2341).
+#
 # Environment: MCP_BASE_URL (as `make acceptance` reads it), ISSUE,
-# ACCEPTANCE_ENV and ACCEPTANCE_SHARD (passed through), ACCEPTANCE_SMOKE, RELEASE_DEV_TIMEOUT seconds to wait for the
+# ACCEPTANCE_ENV, ACCEPTANCE_SHARD and ACCEPTANCE_TICKETS (passed through), ACCEPTANCE_SMOKE, RELEASE_DEV_TIMEOUT seconds to wait for the
 # stack (default 900), RELEASE_INDEX_DRAIN_TIMEOUT seconds to wait for a fresh
 # stack's first index pass (default 1800).
 set -euo pipefail
@@ -63,6 +66,7 @@ run_suite() {
     make --no-print-directory dev-smoke
   fi
   make --no-print-directory acceptance
+  [ -z "${ACCEPTANCE_TICKETS:-}" ] || return 0
   case "${ACCEPTANCE_SHARD:-1/}" in 1/*) ;; *) return 0 ;; esac
   if [ -z "$ACCEPTANCE_ENV" ] || [ "$ACCEPTANCE_ENV" = dev ]; then
     make --no-print-directory frontend-e2e-public-viewer

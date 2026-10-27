@@ -86,6 +86,12 @@ go test -v -tags=integration ./test/e2e/... -run <TestName>
 go test -v -tags=integration ./test/e2e/... -count=1
 ```
 
+A test that reads the services above calls `helpers.NeedsServices(t)` first.
+`make e2e-standalone` runs the package with `E2E_STANDALONE=1`, which skips
+those, and runs every other test; `make verify` and CI's test job run it, so a
+test here that needs no service fails before a merge rather than in the E2E
+Nightly (#2342).
+
 ## Troubleshooting
 
 ### Services not starting

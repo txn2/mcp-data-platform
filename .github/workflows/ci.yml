@@ -97,6 +97,13 @@ jobs:
           MIGRATE_TEST_DSN: postgres://migrate:migrate@localhost:5432/migrate_check?sslmode=disable
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
+      # The integration-tagged test/e2e tests that need none of the e2e
+      # services, the same target `make verify` runs (#2342). Only the E2E
+      # Nightly ran the package before, so a test pinning the old behavior of a
+      # deliberate change failed the morning after the merge.
+      - name: E2E tests that need no service
+        run: make e2e-standalone
+
       # Every Go package the pull request changed, at -race -cpu=1,2 -count=5,
       # the same target `make verify` runs (#1711). A test whose assertion
       # depends on goroutine ordering passes the single run above and fails
@@ -303,6 +310,7 @@ jobs:
       contents: read
     outputs:
       changed: ${{ steps.paths.outputs.changed }}
+      tickets: ${{ steps.paths.outputs.tickets }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -317,6 +325,9 @@ jobs:
           changed=$(git diff --name-only "$BASE_SHA"...HEAD | python3 scripts/acceptance-pr-paths.py)
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
           echo "The diff changes the dev stack or the suite's harness: $changed"
+          tickets=$(git diff --name-only "$BASE_SHA"...HEAD | python3 scripts/acceptance-pr-paths.py --tickets)
+          echo "tickets=$tickets" >> "$GITHUB_OUTPUT"
+          echo "The diff changes the criteria of tickets: ${tickets:-none}"
 
   # The smallest group the nightly runs, one criterion on a stack started as
   # the nightly starts it, with make dev-smoke first: the stack's start and the
@@ -333,3 +344,20 @@ jobs:
       id: pr-worker-off
       smoke: true
       timeout-minutes: 60
+
+  # The criteria a pull request changes, on a stack started as the nightly
+  # starts it: a fresh Linux runner with no .env (#2341). They were otherwise
+  # run only on the author's machine before merge, and #2179's passed there
+  # with a field-encryption key the runners never had, then failed the first
+  # nightly after the merge.
+  acceptance-changed:
+    name: Acceptance (changed criteria)
+    needs: stack-changes
+    if: needs.stack-changes.outputs.tickets != ''
+    permissions:
+      contents: read
+    uses: ./.github/workflows/acceptance-run.yml
+    with:
+      environment: dev
+      tickets: ${{ needs.stack-changes.outputs.tickets }}
+      id: pr-changed

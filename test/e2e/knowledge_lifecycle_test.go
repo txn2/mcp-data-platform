@@ -19,6 +19,7 @@ const (
 // real PostgreSQL: insert, query, JSONB containment, pagination, status
 // transitions, changesets, and rollback.
 func TestKnowledgeLifecycle(t *testing.T) {
+	helpers.NeedsServices(t)
 	cfg := helpers.DefaultE2EConfig()
 
 	ctx := context.Background()
