@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
 import { ACCESS_LABELS, PUBLIC_NOTE, accessLabel, callersSummary } from "./endpoints/endpointLabels";
+import { FormEmbed } from "./endpoints/FormEmbed";
 import { FormStorageFields, formStorage } from "./endpoints/FormStorageFields";
 import { formatBytes, formatWhen } from "./runFormat";
 
@@ -65,9 +66,19 @@ function EndpointBody({ scriptId, endpoint }: { scriptId: string; endpoint: Scri
   return (
     <>
       {endpoint.bound ? <EndpointFacts endpoint={endpoint} /> : <Unbound isAdmin={isAdmin} isForm={Boolean(endpoint.is_form)} />}
+      <BoundFormEmbed endpoint={endpoint} />
       {isAdmin && <EndpointActions scriptId={scriptId} endpoint={endpoint} onEdit={() => setEditing(true)} />}
       {endpoint.bound && <FailureList failures={endpoint.failures ?? []} />}
     </>
+  );
+}
+
+// BoundFormEmbed is a bound form's embed snippet (#2331), nothing for any
+// other endpoint.
+function BoundFormEmbed({ endpoint }: { endpoint: ScriptEndpoint }) {
+  if (!endpoint.bound || !endpoint.page_url) return null;
+  return (
+    <FormEmbed pageUrl={endpoint.page_url} name={endpoint.endpoint ?? endpoint.name} allowedOrigins={endpoint.allowed_origins ?? []} />
   );
 }
 
@@ -75,7 +86,7 @@ function Unbound({ isAdmin, isForm }: { isAdmin: boolean; isForm: boolean }) {
   let text = "Only an administrator can bind a script to an endpoint.";
   if (isAdmin) {
     text = isForm
-      ? "This form answers no requests. Bind it to an endpoint to show it at /portal/forms/{name} and store each accepted submission."
+      ? "This form answers no requests. Bind it to an endpoint to show it at /forms/{name} and store each accepted submission."
       : "This script answers no HTTP requests. Bind it to an endpoint to run handle(req) on each request to /endpoints/{name}.";
   }
   return <p className="text-sm text-muted-foreground">{text}</p>;

@@ -64,6 +64,14 @@ type Submission struct {
 	Spec      epform.Spec
 	Values    map[string]any
 	Submitter *Submitter
+	// EventID and ReceivedAt name the event a submission that carries files
+	// is stored as, chosen by Prepare so its files' addresses are known
+	// before form_submit runs; empty, Event chooses them.
+	EventID    string
+	ReceivedAt time.Time
+	// Files are the submission's files, saved by Store before its event
+	// (#2333).
+	Files []File
 }
 
 // Collector stores accepted submissions.
@@ -71,6 +79,12 @@ type Collector struct {
 	Sources Sources
 	Writer  Writer
 	Sealer  Sealer
+	// Files saves a submission's files (#2333); nil saves none, and a form
+	// with a file field is refused.
+	Files Files
+	// MaxFileBytes is the most a saved file may hold
+	// (resources.managed.max_upload_bytes); zero bounds none here.
+	MaxFileBytes int64
 	// Now is the clock a submission is received by; nil is time.Now.
 	Now func() time.Time
 }
@@ -80,18 +94,35 @@ func (c *Collector) CanSeal() bool {
 	return c != nil && c.Sealer != nil && c.Sealer.Enabled()
 }
 
-// Store writes sub to its form's source and returns once it is durable.
+// Store writes sub to its form's source and returns once it is durable. Its
+// files are saved first, and removed again when the event is not stored, so
+// a submission that was not stored keeps none of them.
 func (c *Collector) Store(ctx context.Context, sub Submission) error {
 	src, ok := c.Sources.FormSource(ctx, sub.ScriptID)
 	if !ok {
 		return ErrNoSource
 	}
-	event, body, err := c.Event(sub)
-	if err != nil {
-		return err
+	var saved []string
+	if len(sub.Files) > 0 {
+		if !c.CanSaveFiles() {
+			return ErrCannotSaveFiles
+		}
+		ids, err := c.saveFiles(ctx, src, sub)
+		if err != nil {
+			return err
+		}
+		saved = ids
 	}
-	if err := c.Writer.Deliver(ctx, src, event, body); err != nil {
-		return fmt.Errorf("storing the submission in webhook source %s: %w", src.Name, err)
+	event, body, err := c.Event(sub)
+	if err == nil {
+		err = c.Writer.Deliver(ctx, src, event, body)
+		if err != nil {
+			err = fmt.Errorf("storing the submission in webhook source %s: %w", src.Name, err)
+		}
+	}
+	if err != nil {
+		c.removeFiles(ctx, saved)
+		return err
 	}
 	return nil
 }
@@ -122,12 +153,17 @@ func (c *Collector) Event(sub Submission) (whevent.Event, []byte, error) {
 	if err != nil {
 		return whevent.Event{}, nil, fmt.Errorf("encoding the submission: %w", err)
 	}
-	id, err := newEventID()
-	if err != nil {
-		return whevent.Event{}, nil, err
+	id, at := sub.EventID, sub.ReceivedAt
+	if id == "" {
+		if id, err = newEventID(); err != nil {
+			return whevent.Event{}, nil, err
+		}
+	}
+	if at.IsZero() {
+		at = c.now().UTC()
 	}
 	return whevent.Event{
-		ReceivedAt: c.now().UTC(), EventID: id, EventType: EventType, Key: key,
+		ReceivedAt: at, EventID: id, EventType: EventType, Key: key,
 		ContentHash: contentHash(body), Payload: body,
 	}, body, nil
 }

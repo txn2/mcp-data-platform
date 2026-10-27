@@ -719,9 +719,10 @@ func TestBinaryContentKeepsTheDefaultCache(t *testing.T) {
 	assert.Empty(t, rec.Header().Get("ETag"))
 }
 
-// #2177: an asset embedding an authenticated form is served to a signed-in
-// reader with a viewer token the form's endpoint opens as that reader, and to
-// a public read with none.
+// #2177, #2331: an asset embedding a form is served to a signed-in reader with
+// a viewer token the form's endpoint opens as that reader, and to a public
+// read with none; both copies carry the embed marker that lets the asset frame
+// the form's page.
 func TestServeRefsHandsAFormItsReader(t *testing.T) {
 	refs := newMockRefStore()
 	refs.byAsset["a1"] = []assetrefs.Ref{{AssetID: "a1", TargetKind: assetrefs.TargetForm, TargetID: "apply", URI: "mcp:form:apply", RefToken: "t"}}
@@ -735,17 +736,27 @@ func TestServeRefsHandsAFormItsReader(t *testing.T) {
 
 	signedIn := withUser(refRequest(t), "ann@example.com", "analyst")
 	out := string(h.serveRefs(signedIn, "a1", "text/html", body))
-	_, query, found := strings.Cut(out, refBaseURL+"/portal/forms/apply?")
-	require.True(t, found, out)
-	values, err := url.ParseQuery(strings.TrimSuffix(query, `"></iframe>`))
-	require.NoError(t, err)
+	query := func(t *testing.T, out string) url.Values {
+		t.Helper()
+		_, q, found := strings.Cut(out, refBaseURL+"/forms/apply?")
+		require.True(t, found, out)
+		values, err := url.ParseQuery(strings.TrimSuffix(q, `"></iframe>`))
+		require.NoError(t, err)
+		return values
+	}
+	values := query(t, out)
 	who, err := epform.OpenViewer(key, "apply", values.Get(epform.ViewerParam), time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, epform.Viewer{UserID: "user-123", Email: "ann@example.com", Persona: "analyst"}, who)
+	assert.True(t, epform.OpenEmbed(epform.EmbedKey(key), "apply", values.Get(epform.EmbedParam), time.Now()))
 
-	public := string(h.serveRefs(refRequest(t), "a1", "text/html", body))
-	assert.Contains(t, public, `src="`+refBaseURL+`/portal/forms/apply"`, "a public read hands no viewer token")
+	public := query(t, string(h.serveRefs(refRequest(t), "a1", "text/html", body)))
+	assert.Empty(t, public.Get(epform.ViewerParam), "a public read hands no viewer token")
+	assert.True(t, epform.OpenEmbed(epform.EmbedKey(key), "apply", public.Get(epform.EmbedParam), time.Now()),
+		"a public read's asset frames the form too")
 
 	noKey := NewHandler(Deps{AssetStore: &mockAssetStore{}, ShareStore: &mockShareStore{}, ContentRefs: refs, PublicBaseURL: refBaseURL}, nil)
-	assert.NotContains(t, string(noKey.serveRefs(signedIn, "a1", "text/html", body)), epform.ViewerParam)
+	unsigned := string(noKey.serveRefs(signedIn, "a1", "text/html", body))
+	assert.NotContains(t, unsigned, epform.ViewerParam)
+	assert.NotContains(t, unsigned, epform.EmbedParam)
 }

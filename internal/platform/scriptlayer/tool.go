@@ -93,6 +93,7 @@ type manageScriptInput struct {
 	// Exclusive is a pointer for the same reason: an update that does not
 	// send it leaves the setting alone (#1986).
 	Exclusive    *runstate.ExclusiveMode `json:"exclusive,omitempty"`
+	EventSource  *string                 `json:"event_source,omitempty"` // a pointer: "" is a value (#2332)
 	Status       string                  `json:"status,omitempty"`
 	SupersededBy string                  `json:"superseded_by,omitempty"`
 
@@ -378,6 +379,8 @@ func manageScriptSchema() any {
 			"queue: another run is accepted and stays pending until no other run of the script is running, then runs; use it to start several runs by hand against an upstream that takes one request at a time. " +
 			"off (the default): runs of one script may overlap (a run_script run beside a scheduled one, or two run_script runs), and the state check at save time is the only guard: the later run fails with state_conflict after its side effects have happened. " +
 			"true and false are read as refuse and off."},
+		"event_source": map[string]any{keyType: valString, keyDescription: "Set with update: the webhook source the script runs for (\"\" for none). Each event it stores (a post, a form submission, a filed message) enqueues one run, trigger event, reading run.event (id, type, key, received_at, source, payload) under the script's saved roles; " +
+			"one run per event id, at most scripts.events.max_queued waiting (past it, skipped_backlog), one at a time when exclusive. An administrator names any source; the owner only their own form's (form-<endpoint>)."},
 		fieldStatus:     map[string]any{keyType: valString, keyEnum: []string{script.StatusActive, script.StatusDeprecated, script.StatusSuperseded}, keyDescription: "Lifecycle transition to apply."},
 		"superseded_by": map[string]any{keyType: valString, keyDescription: "Name of the replacing script when superseding."},
 		"search":        map[string]any{keyType: valString, keyDescription: "Substring filter for list."},

@@ -298,6 +298,16 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights/stats" \
 
 ## Changeset Endpoints
 
+The same three routes are served to the portal for anyone whose persona holds
+`apply_knowledge` (#2337), the audience the portal's Changesets tab is shown
+to: `GET /api/v1/portal/knowledge/changesets`, `GET .../changesets/{id}` and
+`POST .../changesets/{id}/rollback`. They answer as the admin routes do, with
+the portal caller recorded as the one who rolled a changeset back, and `403`
+for a caller without `apply_knowledge`. The admin routes stay the
+administrator's: a signed-in caller who is not the admin persona is answered
+`403`, never `401`, so the portal reports a refusal rather than an expired
+session.
+
 ### List Changesets
 
 ```

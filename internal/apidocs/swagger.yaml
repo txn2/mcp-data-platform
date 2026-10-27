@@ -4166,6 +4166,22 @@ definitions:
       status:
         type: string
     type: object
+  changesethttp.changesetList:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/knowledge.Changeset'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 20
+        type: integer
+      total:
+        example: 8
+        type: integer
+    type: object
   channelhttp.ChannelShareRequest:
     properties:
       access_mode:
@@ -4951,6 +4967,42 @@ definitions:
       values:
         additionalProperties: {}
         type: object
+    type: object
+  eventshttp.sourceRequest:
+    properties:
+      source:
+        description: Source is the webhook source's name; empty runs the script for
+          none.
+        example: form-contact
+        type: string
+    type: object
+  eventshttp.sourceResponse:
+    properties:
+      message:
+        example: Saved. Each event source form-contact stores runs this script.
+        type: string
+      source:
+        example: form-contact
+        type: string
+    type: object
+  eventshttp.summaryResponse:
+    properties:
+      last_event_run:
+        type: string
+      last_skipped_at:
+        type: string
+      max_queued:
+        description: MaxQueued is how many pending event runs the script may hold.
+        example: 100
+        type: integer
+      pending:
+        type: integer
+      skipped_since:
+        type: integer
+      skipped_window_days:
+        description: SkippedWindowDays is how far back skipped_since counts.
+        example: 7
+        type: integer
     type: object
   exclusivehttp.exclusiveRequest:
     properties:
@@ -10012,6 +10064,11 @@ definitions:
       enabled:
         example: true
         type: boolean
+      event_source:
+        description: |-
+          EventSource is the webhook source the script runs for (#2332), empty
+          when it runs for none.
+        type: string
       exclusive:
         allOf:
         - $ref: '#/definitions/runstate.ExclusiveMode'
@@ -10609,6 +10666,12 @@ definitions:
       enabled:
         example: true
         type: boolean
+      event_source:
+        description: |-
+          EventSource is the webhook source the script runs for (#2332): each
+          event it stores enqueues one run with trigger event. Empty runs for
+          none. Set by the owner or an administrator, as a schedule is.
+        type: string
       exclusive:
         allOf:
         - $ref: '#/definitions/runstate.ExclusiveMode'
@@ -27217,6 +27280,150 @@ paths:
       summary: Search knowledge pages
       tags:
       - Knowledge
+  /portal/knowledge/changesets:
+    get:
+      description: Returns paginated knowledge changesets with optional filtering,
+        for a caller who holds apply_knowledge (#2337). The same list the admin route
+        answers.
+      parameters:
+      - description: Filter by entity URN
+        in: query
+        name: entity_urn
+        type: string
+      - description: Filter by applier
+        in: query
+        name: applied_by
+        type: string
+      - description: Filter by rollback state
+        in: query
+        name: rolled_back
+        type: boolean
+      - description: Changesets after this time (RFC 3339)
+        in: query
+        name: since
+        type: string
+      - description: Changesets before this time (RFC 3339)
+        in: query
+        name: until
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/changesethttp.changesetList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List changesets
+      tags:
+      - Knowledge
+  /portal/knowledge/changesets/{id}:
+    get:
+      description: Returns one knowledge changeset, for a caller who holds apply_knowledge
+        (#2337).
+      parameters:
+      - description: Changeset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/knowledge.Changeset'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get changeset
+      tags:
+      - Knowledge
+  /portal/knowledge/changesets/{id}/rollback:
+    post:
+      description: Reverts what a changeset wrote, as the admin route does, for a
+        caller who holds apply_knowledge (#2337); the caller is recorded as the one
+        who rolled it back. Refused (409) when already rolled back or when a newer
+        changeset has since touched the same aspect, and (422) when the changeset
+        contains change types whose prior state was not captured.
+      parameters:
+      - description: Changeset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/knowledge.RollbackResult'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Rollback changeset
+      tags:
+      - Knowledge
   /portal/knowledge/insights:
     get:
       description: Returns paginated insights captured by the current user.
@@ -29059,8 +29266,9 @@ paths:
         origins, with the requests that failed in the last seven days (status, error
         and how long each took), newest first. A form (is_form) reports where its
         submissions are stored (form: source, table, connection, decrypt_personas)
-        or, before its source is made, the connections it could be made on (form_connections).
-        Restricted to the script''s owner and to administrators.'
+        or, before its source is made, the connections it could be made on (form_connections),
+        and a bound form its hosted page (page_url, #2331), which a site frames when
+        allowed_origins lists it. Restricted to the script''s owner and to administrators.'
       parameters:
       - description: Script ID
         in: path
@@ -29214,6 +29422,98 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Turn a script's endpoint on
+      tags:
+      - Scripts
+  /portal/scripts/{id}/event-source:
+    put:
+      consumes:
+      - application/json
+      description: Each event the named source stores enqueues one run of the script
+        with trigger event, carrying the event as run.event (id, type, key, received_at,
+        source, payload); the run executes through the run queue under the script's
+        saved author roles, as a scheduled run does. An empty source runs it for none.
+        An administrator may name any source; the owner only the source of a form
+        they own (403 otherwise). Restricted to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The source
+        in: body
+        name: source
+        required: true
+        schema:
+          $ref: '#/definitions/eventshttp.sourceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/eventshttp.sourceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set the webhook source a script runs for
+      tags:
+      - Scripts
+  /portal/scripts/{id}/events:
+    get:
+      description: The script's pending event runs, the events skipped in the last
+        seven days because max_queued event runs were already waiting (each recorded
+        as a run with status skipped_backlog), the newest of each, and the bound (scripts.events.max_queued).
+        Restricted to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/eventshttp.summaryResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: How a script's event runs stand
       tags:
       - Scripts
   /portal/scripts/{id}/exclusive:

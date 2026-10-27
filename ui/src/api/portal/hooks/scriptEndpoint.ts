@@ -65,6 +65,9 @@ export interface ScriptEndpoint {
   /** form_connections are the connections a form's source can be made on,
    * before it is. */
   form_connections?: string[];
+  /** page_url is a bound form's hosted page (#2331), absolute when the
+   * deployment names its public address. */
+  page_url?: string;
 }
 
 // FormSource is the webhook source a form's accepted submissions are stored

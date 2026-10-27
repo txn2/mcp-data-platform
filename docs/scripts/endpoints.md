@@ -190,7 +190,7 @@ sequenceDiagram
 Field types: `text` and `long_text` (at most 1,000 and 10,000 characters
 unless `max_length` says otherwise, at most 100,000), `email`, `number`, `date`
 (`YYYY-MM-DD`, what a date input submits), `single_choice`, `multiple_choice`,
-`checkbox` and `hidden`. The platform checks the spec (known types, unique
+`checkbox`, `hidden` and `file` (see [File fields](#file-fields)). The platform checks the spec (known types, unique
 names, choices only on a choice field, limits) and answers the GET with
 `{"spec", "form_token", "token_field": "form_token", "honeypot_field":
 "website"}`. A spec that fails its check is answered 500 and kept with the
@@ -203,8 +203,9 @@ browser-session signing key, bound to the endpoint, and good for a day. The
 platform keeps no copy: a submission brings its spec back, on any replica.
 
 **The submission.** A POST (any method but GET and HEAD) carries the fields and
-`form_token`, as `application/x-www-form-urlencoded` or as a JSON object; a
-JSON number, boolean or list reads as the strings a form would send. Before the
+`form_token`, as `application/x-www-form-urlencoded`, as a JSON object, or as
+`multipart/form-data`, the one form a submission with files takes; a JSON
+number, boolean or list reads as the strings a form would send. Before the
 script runs, the platform refuses:
 
 - with 400: no `form_token`, one that was altered, one another form issued, or
@@ -330,13 +331,53 @@ submissions readable: set the new key as `ENCRYPTION_KEY` and the old one in
 written with the new key, and a value the new key does not open is opened with
 each previous key in turn.
 
+### The form's page
+
+The platform renders a form at `/forms/<endpoint>` (#2177, #2331): labels,
+help, choices, the hidden fields, file pickers, the bot check, field errors and
+the confirmation or redirect, in light and dark and at phone width. The page
+hands its query string to `form_spec(req)`, so a link `/forms/survey?t=<token>`
+reaches it as `req["query"]["t"]`. An address that serves no enabled form
+answers 404. The page takes its theme from the browser, or from `form_theme=light`
+or `dark` in its address.
+
+![A form's page with a field error](../images/screenshots/light/user-form-page-light.webp#only-light)![A form's page with a field error](../images/screenshots/dark/user-form-page-dark.webp#only-dark)
+
+An `authenticated` form's page submits as the person signed in to the portal:
+opened directly with no session, it sends the browser to sign in and back; in a
+frame, where a browser sends another site's frame no session, it offers a
+**Sign in** link that opens the form in a tab of its own. A session the
+platform refuses (an external persona) is never sent to sign in again: the page
+says the form cannot be filled in.
+
+### Embedding a form on a site
+
+A bound form's section on the automation's page offers its page's address and
+an embed snippet to copy: a frame of the page and the few lines that size the
+frame to the height the page posts to it.
+
+```html
+<iframe src="https://data.example.com/forms/contact" title="contact" data-platform-form style="width:100%;border:0" loading="lazy"></iframe>
+<script>
+window.addEventListener("message", function (e) {
+  if (e.origin !== "https://data.example.com" || !e.data || e.data.type !== "mcp-form:height") return;
+  document.querySelectorAll("iframe[data-platform-form]").forEach(function (f) {
+    if (f.contentWindow === e.source) f.style.height = e.data.height + "px";
+  });
+});
+</script>
+```
+
+A site may frame the page only when the binding's `allowed_origins` lists its
+origin: the page is served with `frame-ancestors 'self'` and those origins, so
+a site the binding does not list is refused by the browser before the form
+loads. A framed page runs on the platform's origin and posts to the form as the
+platform's own page does.
+
 ### Embedding a form in an asset
 
-The platform renders a form at `/portal/forms/<endpoint>` (#2177): labels,
-help, choices, the hidden fields, the bot check, field errors and the
-confirmation or redirect, in light and dark and at phone width. An HTML or JSX
-asset embeds one by declaring `mcp:form:<endpoint>` in its references and
-framing it:
+An HTML or JSX asset embeds a form by declaring `mcp:form:<endpoint>` in its
+references and framing it:
 
 ```html
 <iframe src="mcp:form:contact" style="width:100%;height:640px;border:0"></iframe>
@@ -346,21 +387,55 @@ Every viewing surface rewrites the reference to the form's page, and the form
 is framed inside the asset's own frame, whose sandbox is unchanged. One asset
 may embed several forms. The page the asset is opened at hands its query string
 to each form, so a shared link `?t=<token>` reaches `form_spec(req)` as
-`req["query"]["t"]`. A form inside an asset has the asset's opaque origin and
-no session, so an authenticated form is told who the signed-in reader is by a
-viewer token the platform writes into the form's address as it serves the
-asset (good for 12 hours); a public share has no reader, so an authenticated
-form refuses there. Only the form's owner or an administrator may embed an
-authenticated form, because the asset's own script can read that token. A
-form's page answers the opaque origin its requests carry, never with
+`req["query"]["t"]`. The asset's frame has an opaque origin, which no
+`frame-ancestors` source names, so the rewrite writes an embed marker into the
+form's address (`form_embed`, signed, bound to the form, good for 12 hours),
+and a page opened with a valid one is not held to `allowed_origins`. A form
+inside an asset has no session either, so an authenticated form is told who the
+signed-in reader is by a viewer token the platform writes into the same address
+(`form_viewer`, good for 12 hours); a public share has no reader, so an
+authenticated form refuses there. Only the form's owner or an administrator may
+embed an authenticated form, because the asset's own script can read that
+token. A form's page answers the opaque origin its requests carry, never with
 credentials. Proof of work answers a bot check inside an asset; Turnstile and
 hCaptcha may need the form opened at its own address.
+
+### File fields
+
+A field with `"type": "file"` takes files (#2333), each saved as a managed
+resource:
+
+| Key | Meaning |
+|---|---|
+| `max_files` | How many files the field takes, 1 (the default) to 20 |
+| `max_bytes` | The most each file may hold, 10 MiB unless it says otherwise, and at most `resources.managed.max_upload_bytes`; a spec naming more is not shown (500) |
+| `accept` | The content types it takes, such as `image/png` or the family `image/*`; none takes any type. A file's type is judged from its bytes, never from its name or the type the browser sends |
+
+A submission with files is `multipart/form-data`, and the whole of it is held
+to the binding's `max_body_bytes` (at most 10 MiB): raise it for a form that
+takes large files. Each file is checked with the spec, so a file past
+`max_bytes`, of a type the field does not take, one more than `max_files`, or
+with an extension managed resources refuse is the field's 422 error, and
+nothing is saved. `form_submit` is handed each file as `{"name",
+"content_type", "size", "uri"}`, the `uri` being the `mcp://` address the file
+will be saved at. The files are saved only once `form_submit` accepts, before
+the submission is stored; a submission refused by `form_submit`, or one that
+could not be stored, keeps none of them. The stored submission carries the
+same description with the file's `resource_id`, never its bytes.
+
+The files are saved in the library of the form's source (an administrator's,
+unless the source names a persona), under
+`webhooks/form-<endpoint>/attachments/<date>/<submission>/<field>/`, and are
+removed with the source. A form with a file field is not shown on a replica
+that cannot save them (no webhook receiver), and a file field cannot be
+`sensitive`.
 
 ### Submissions
 
 The automation's page shows a form's newest submissions under **Submissions**,
 read from `webhook_form_<endpoint>`, with sensitive fields decrypted and the
-read audited, and exports them as CSV or Excel
+read audited, each file linked to its managed resource, and exports them as CSV
+or Excel (a file as its name and its `mcp://` address)
 (`GET /api/v1/portal/scripts/{id}/submissions` and `.../submissions/export?format=csv|xlsx`).
 It is the script's owner's and an administrator's. A CSV cell a spreadsheet
 would read as a formula is written with a leading apostrophe.

@@ -152,9 +152,9 @@ func TestToken_OpensOnlyWhereItWasIssuedAndUnaltered(t *testing.T) {
 }
 
 func TestValues_ReadsAFormAndJSONTheSame(t *testing.T) {
-	form, err := Values("application/x-www-form-urlencoded; charset=utf-8", []byte("name=Ann&topics=a&topics=b&agree=on&age=30"))
+	form, _, err := Read("application/x-www-form-urlencoded; charset=utf-8", []byte("name=Ann&topics=a&topics=b&agree=on&age=30"))
 	require.NoError(t, err)
-	js, err := Values("application/json", []byte(`{"name":"Ann","topics":["a","b"],"agree":true,"age":30,"start":null}`))
+	js, _, err := Read("application/json", []byte(`{"name":"Ann","topics":["a","b"],"agree":true,"age":30,"start":null}`))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Ann"}, js["name"])
 	assert.Equal(t, form["topics"], js["topics"])
@@ -170,7 +170,7 @@ func TestValues_ReadsAFormAndJSONTheSame(t *testing.T) {
 		"other type":    {"text/plain", "a=1"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := Values(tc.ct, []byte(tc.body))
+			_, _, err := Read(tc.ct, []byte(tc.body))
 			require.Error(t, err)
 		})
 	}
@@ -185,7 +185,7 @@ func TestCheck_RefusesEachFieldItGetsWrong(t *testing.T) {
 		"name": {"Ann"}, "email": {"ann@example.com"}, "age": {"30"}, "start": {"2026-11-01"}, "plan": {"pro"},
 		"topics": {"a", "b", "a"}, "agree": {"on"}, "customer": {"c-42"}, TokenField: {"t"}, HoneypotField: {""},
 	}
-	values, errs, err := Check(contact(), issued, good, later)
+	values, errs, err := Check(contact(), issued, good, nil, later)
 	require.NoError(t, err)
 	require.Empty(t, errs)
 	assert.Equal(t, int64(30), values["age"])
@@ -197,7 +197,7 @@ func TestCheck_RefusesEachFieldItGetsWrong(t *testing.T) {
 		"name": {strings.Repeat("n", 21)}, "email": {"Ann <ann@example.com>"}, "age": {"12"}, "start": {"01/11/2026"},
 		"plan": {"gold"}, "topics": {"c"}, "agree": {""}, "customer": {"c-43"}, "color": {"red"}, "message": {"a", "b"},
 	}
-	_, errs, err = Check(contact(), issued, bad, later)
+	_, errs, err = Check(contact(), issued, bad, nil, later)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{
 		"name":     "this is longer than 20 characters",
@@ -212,23 +212,23 @@ func TestCheck_RefusesEachFieldItGetsWrong(t *testing.T) {
 		"message":  "this field takes one value",
 	}, errs)
 
-	_, errs, _ = Check(contact(), issued, map[string][]string{"age": {"x"}, "agree": {"maybe"}}, later)
+	_, errs, _ = Check(contact(), issued, map[string][]string{"age": {"x"}, "agree": {"maybe"}}, nil, later)
 	assert.Equal(t, "this field is required", errs["name"])
 	assert.Equal(t, "this is not a number", errs["age"])
 	assert.Equal(t, "this is not a ticked or unticked box", errs["agree"])
 
 	over := map[string][]string{"age": {"121.5"}, "agree": {"1", "1"}}
-	_, errs, _ = Check(contact(), issued, over, later)
+	_, errs, _ = Check(contact(), issued, over, nil, later)
 	assert.Equal(t, "this is more than 120", errs["age"])
 	assert.Equal(t, "this field takes one value", errs["agree"])
 
 	required := contact()
 	required.Fields[6].Required = true
-	_, errs, _ = Check(required, issued, map[string][]string{}, later)
+	_, errs, _ = Check(required, issued, map[string][]string{}, nil, later)
 	assert.Equal(t, "choose at least one", errs["topics"])
 
 	fractional := map[string][]string{"name": {"Ann"}, "email": {"a@example.com"}, "agree": {"yes"}, "age": {"30.5"}, "customer": {"c-42"}}
-	values, errs, _ = Check(contact(), issued, fractional, later)
+	values, errs, _ = Check(contact(), issued, fractional, nil, later)
 	require.Empty(t, errs)
 	assert.Equal(t, 30.5, values["age"])
 	assert.Equal(t, true, values["agree"], "yes ticks a box")
@@ -237,16 +237,16 @@ func TestCheck_RefusesEachFieldItGetsWrong(t *testing.T) {
 // #2176: the honeypot and the minimum fill time refuse a submission whole.
 func TestCheck_TheHoneypotAndTheMinimumFillTime(t *testing.T) {
 	issued := time.Unix(1_800_000_000, 0)
-	_, _, err := Check(contact(), issued, map[string][]string{HoneypotField: {"https://spam.example.com"}}, issued.Add(time.Minute))
+	_, _, err := Check(contact(), issued, map[string][]string{HoneypotField: {"https://spam.example.com"}}, nil, issued.Add(time.Minute))
 	require.ErrorIs(t, err, ErrRefused)
 	assert.Contains(t, err.Error(), "people do not see")
 
-	_, _, err = Check(contact(), issued, map[string][]string{}, issued.Add(time.Second))
+	_, _, err = Check(contact(), issued, map[string][]string{}, nil, issued.Add(time.Second))
 	require.ErrorIs(t, err, ErrRefused)
 	assert.Contains(t, err.Error(), "sooner than a person")
 
 	slow := contact()
 	slow.MinFillSeconds = 30
-	_, _, err = Check(slow, issued, map[string][]string{}, issued.Add(10*time.Second))
+	_, _, err = Check(slow, issued, map[string][]string{}, nil, issued.Add(10*time.Second))
 	require.ErrorContains(t, err, "sooner", "a spec may raise the minimum")
 }

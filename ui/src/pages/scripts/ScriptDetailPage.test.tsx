@@ -49,6 +49,9 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   useRemoveScriptGrant: vi.fn(),
   // The one-run-at-a-time checkbox (#1986); its own test covers it.
   useSetScriptExclusive: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  // The webhook source it runs for (#2332); its own test covers it.
+  useSetScriptEventSource: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  useScriptEventSummary: vi.fn(() => ({ data: undefined })),
   useSetScriptState: vi.fn(),
   useClearScriptState: vi.fn(),
   // The page size is the module's own constant, not a hook: the run history
@@ -361,6 +364,8 @@ describe("ScriptDetailPage: the details", () => {
     expect(sections).toEqual([
       "Details",
       "Schedule",
+      // The webhook source it runs for (#2332), beside its schedule.
+      "Events",
       "About",
       "Run history",
       "Files written (1)",
@@ -561,6 +566,8 @@ describe("ScriptDetailPage: what an owner may read", () => {
     ).toEqual([
       "Details",
       "Schedule",
+      // The webhook source it runs for (#2332), beside its schedule.
+      "Events",
       "About",
       "Run history",
       "Files written (1)",

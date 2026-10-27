@@ -75,8 +75,8 @@ func TestResolveFormRefusals(t *testing.T) {
 	nilDeclarer.BindForms(fakeForms{})
 }
 
-// #2177: a form reference is served as the form's page, handed the reader's
-// viewer token, and the asset's other references are unchanged.
+// #2177, #2331: a form reference is served as the form's page, handed what
+// the reader's copy carries, and the asset's other references are unchanged.
 func TestRewriteForServesAFormsPage(t *testing.T) {
 	refs := []assetrefs.Ref{
 		{TargetKind: assetrefs.TargetForm, TargetID: "contact", URI: "mcp:form:contact", RefToken: "t1"},
@@ -85,20 +85,20 @@ func TestRewriteForServesAFormsPage(t *testing.T) {
 	}
 	html := `<iframe src="mcp:form:contact"></iframe><iframe src="mcp:form:apply"></iframe><img src="` + logoURI + `">` +
 		`<a href="mcp:form:contact" download>x</a>`
-	viewer := func(endpoint string) string {
+	query := func(endpoint string) url.Values {
 		if endpoint == "apply" {
-			return "tok/1+"
+			return url.Values{"form_viewer": {"tok/1+"}}
 		}
-		return ""
+		return nil
 	}
-	out := string(assetrefs.FormViewer(viewer).Rewrite([]byte(html), "text/html", "https://data.example.com", "a1", refs))
-	assert.Contains(t, out, `src="https://data.example.com/portal/forms/contact"`)
-	assert.Contains(t, out, `src="https://data.example.com/portal/forms/apply?form_viewer=`+url.QueryEscape("tok/1+")+`"`)
+	out := string(assetrefs.FormQuery(query).Rewrite([]byte(html), "text/html", "https://data.example.com", "a1", refs))
+	assert.Contains(t, out, `src="https://data.example.com/forms/contact"`)
+	assert.Contains(t, out, `src="https://data.example.com/forms/apply?form_viewer=`+url.QueryEscape("tok/1+")+`"`)
 	assert.Contains(t, out, `src="https://data.example.com/portal/refs/a1/t3"`)
 	assert.NotContains(t, out, "download=1", "a form is never offered as a download")
 
 	plain := string(assetrefs.Rewrite([]byte(html), "text/html", "", "a1", refs))
-	assert.Contains(t, plain, `src="/portal/forms/apply"`, "a read with no reader hands no viewer token")
+	assert.Contains(t, plain, `src="/forms/apply"`, "a read with no query hands the page nothing")
 	assert.False(t, strings.Contains(plain, "form_viewer"))
 }
 

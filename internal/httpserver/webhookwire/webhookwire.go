@@ -82,6 +82,8 @@ type Webhooks struct {
 	// EnableAlerts names where it posts; alerts is the evaluation (#2149).
 	alertDeps whalert.Deps
 	alerts    *whalert.Service
+	// files saves a form's files as managed resources (#2333).
+	files *formFiles
 }
 
 // EnableAlerts builds the webhook alert evaluation (#2149), posting through
@@ -234,7 +236,7 @@ func assemble(pt parts) (*Webhooks, error) {
 	registerCompactionGauge(bgloop.Metrics(), windows)
 	registerStorageGauge(bgloop.Metrics(), windows)
 	wcfg := pt.cfg.Webhooks
-	w := &Webhooks{address: wcfg.Receiver.Address, observe: httpobs.Config{Route: receiver.PathPrefix, Metrics: pt.observe}}
+	w := &Webhooks{address: wcfg.Receiver.Address, observe: httpobs.Config{Route: receiver.PathPrefix, Metrics: pt.observe}, files: &formFiles{r: pt.resources}}
 	if wcfg.ReceiverEnabled() {
 		rcfg := receiver.Config{
 			Sources: sources, Objects: pt.objects, Bucket: pt.bucket, Recorder: windows,

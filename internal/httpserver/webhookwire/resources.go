@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcollect"
 	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/tableparquet"
@@ -201,11 +204,51 @@ func (h windowResources) PutFile(ctx context.Context, src whsource.Source, f whi
 	return res.URI, res.ID, nil
 }
 
+// formFiles saves a form's files (#2333) where an imap source saves its
+// attachments: under the source's attachments folder in its library, in a
+// folder of the day and the submission's event, one per field.
+type formFiles struct{ r windowResources }
+
+// folder is where a form's file is saved.
+func (formFiles) folder(src whsource.Source, f epcollect.File) string {
+	dt, _, _ := whlayout.PartitionValues(f.At)
+	return path.Join(whimap.AttachmentsFolder(src.Name), dt, f.EventID, f.Field)
+}
+
+// FileURI is the address f is saved at.
+func (h formFiles) FileURI(src whsource.Source, f epcollect.File) string {
+	scope, scopeID := h.r.libraryOf(src)
+	return resource.BuildURI(h.r.uriScheme, scope, scopeID, h.folder(src, f), f.Name)
+}
+
+// PutFile saves f as a new resource.
+func (h formFiles) PutFile(ctx context.Context, src whsource.Source, f epcollect.File) (uri, id string, err error) {
+	scope, scopeID := h.r.libraryOf(src)
+	res, err := h.r.w.Create(ctx, resource.NewResource{
+		Scope: scope, ScopeID: scopeID, Path: h.folder(src, f), Filename: f.Name,
+		DisplayName: f.Name,
+		Description: "A file sent with a submission to the form " + strings.TrimPrefix(src.Name, "form-") + ".",
+		Tags:        []string{"webhook", "form", src.Name},
+		Content:     bytes.NewReader(f.Data),
+		MIMEType:    f.ContentType,
+		Index:       src.Config.Index,
+		Origin:      indexpolicy.OriginWebhook,
+	}, systemClaims())
+	if err != nil {
+		return "", "", err //nolint:wrapcheck // the writer's message names the resource
+	}
+	return res.URI, res.ID, nil
+}
+
+// DeleteFile removes a saved file.
+func (h formFiles) DeleteFile(ctx context.Context, id string) error { return h.r.Delete(ctx, id) }
+
 // attachmentsPage is how many attachments one listing removes.
 const attachmentsPage = 200
 
-// DeleteAttachments removes every attachment an imap source saved: the
-// resources under its attachments folder in its library (#2247). Each page is
+// DeleteAttachments removes every attachment an imap source saved, and every
+// file a form's submissions carried: the resources under its attachments
+// folder in its library (#2247, #2333). Each page is
 // listed again from the start, since what the last one held is gone.
 func (h windowResources) DeleteAttachments(ctx context.Context, src whsource.Source) error {
 	scope, scopeID := h.libraryOf(src)

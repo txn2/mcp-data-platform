@@ -57,7 +57,9 @@ type Header struct {
 	FireTime time.Time      `json:"fire_time"`
 	Params   map[string]any `json:"params"`
 	State    map[string]any `json:"state"`
-	RunURL   string         `json:"run_url,omitempty"`
+	// Event is the webhook event an event run read as run.event (#2332).
+	Event  map[string]any `json:"event,omitempty"`
+	RunURL string         `json:"run_url,omitempty"`
 	// MaxRows is the row cap the run's queries carried, which is part of each
 	// query's arguments.
 	MaxRows int `json:"max_rows"`

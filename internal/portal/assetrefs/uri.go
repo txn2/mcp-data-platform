@@ -10,14 +10,10 @@ import (
 // mcp:form:<endpoint> (#2177).
 const FormURIPrefix = "mcp:form:"
 
-// The form page a form reference is rewritten to, and the query parameter
-// that hands it a viewer token. They are internal/endpoint/epformpage's and
-// internal/endpoint/epform's, restated here so this package does not import
-// the endpoint layer; a test holds them together.
-const (
-	FormPagePrefix  = "/portal/forms/"
-	FormViewerParam = "form_viewer"
-)
+// FormPagePrefix is the form page a form reference is rewritten to:
+// internal/endpoint/epform's PagePrefix, restated here so this package does
+// not import the endpoint layer; a test holds them together.
+const FormPagePrefix = "/forms/"
 
 // FormURI is the reference an asset embeds the form at endpoint by.
 func FormURI(endpoint string) string { return FormURIPrefix + endpoint }

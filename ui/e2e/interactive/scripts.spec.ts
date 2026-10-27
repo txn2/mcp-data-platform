@@ -88,6 +88,8 @@ test.describe("Portal script pages", () => {
       // runs for (#1943): the mock's v2 carries a summary.
       "What changed",
       "Schedule",
+      // The webhook source it runs for (#2332), beside its schedule.
+      "Events",
       // Its endpoint (#2171): what an HTTP request to /endpoints/{name} runs.
       "Endpoint",
       "About",

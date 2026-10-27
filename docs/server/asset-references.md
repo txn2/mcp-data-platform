@@ -23,7 +23,7 @@ An **asset reference** names something the platform produces. It resolves to the
 
 Both kinds are one mechanism. They share a declaration, a token, a serving route, and a rewrite; what differs is which store the target is read from and which permission admitted the declaration.
 
-A **form reference**, `mcp:form:<endpoint>`, names a form: a script bound to an endpoint that defines `form_spec` and `form_submit` (#2177). It is declared like the other two and rewritten to the form's page, `/portal/forms/<endpoint>`, which the asset frames (`<iframe src="mcp:form:contact">`); the form is served by its endpoint, never through `/portal/refs/`. A public or `bot_check` form may be declared by anyone; an `authenticated` one only by its script's owner or an administrator, because a signed-in reader's copy of the asset carries a viewer token that submits to the form as them. See [Endpoints](../scripts/endpoints.md#embedding-a-form-in-an-asset).
+A **form reference**, `mcp:form:<endpoint>`, names a form: a script bound to an endpoint that defines `form_spec` and `form_submit` (#2177). It is declared like the other two and rewritten to the form's page, `/forms/<endpoint>`, with a signed embed marker that lets the asset frame it (`<iframe src="mcp:form:contact">`), since the page refuses to be framed by a site its binding's `allowed_origins` do not list (#2331); the form is served by its endpoint, never through `/portal/refs/`. A public or `bot_check` form may be declared by anyone; an `authenticated` one only by its script's owner or an administrator, because a signed-in reader's copy of the asset carries a viewer token that submits to the form as them. See [Endpoints](../scripts/endpoints.md#embedding-a-form-in-an-asset).
 
 ## Declaring a reference
 

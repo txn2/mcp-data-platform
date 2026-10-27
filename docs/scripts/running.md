@@ -1398,6 +1398,65 @@ misfire policy then collapses to one run — a pause is downtime, and gets the
 same treatment. While it is paused it reports no next run: the stored due time
 is what it will resume on, not a fire anything is going to produce.
 
+## Running one for each event a webhook source stores
+
+A script can name a [webhook source](../server/webhooks.md) it runs for
+(#2332): a form's source (`form-<endpoint>`), a source an external system posts
+to, or an imap source. Each event the source stores enqueues one run of the
+script with trigger `event`, once the event is durable: the enqueue is one
+database transaction before the sender is answered, and the run itself never
+executes inside the sender's request, so a slow or failing automation cannot
+slow the sender, and a failure to enqueue is logged without refusing an event
+that is already stored. The run executes through the run queue and its workers under
+the script's saved author roles, as a scheduled run does, and reads the event
+as `run.event`:
+
+| Key | What it holds |
+|-----|---------------|
+| `id` | The event id the source stores, the one the run is made once for |
+| `type`, `key` | The event's type and key, as the source read them |
+| `received_at` | When the source received it, RFC 3339 in UTC |
+| `source` | The source's name |
+| `payload` | The event's JSON; a form submission's holds `values`, `fields` and `submitter` |
+
+```python
+def main():
+    """Thanks each person who sends the contact form."""
+    values = run.event["payload"]["values"]
+    platform.notify(channel = "sales", text = "New request from " + values["email"])
+```
+
+`run.event` is `None` on every other run. A run binds each parameter's
+default, since an event passes none; a script with a required parameter and no
+default enqueues nothing, and the platform logs why.
+
+Set it with `manage_script update` and `event_source`, or on the automation's
+page under **Events**, beside the schedule; `event_source=""` stops it. The
+owner and an administrator set it, as they set a cadence. Naming a source is
+reading every event it stores, so an administrator may name any source and
+the owner only the source of a form they own.
+
+**One event, one run.** A run is made once per (script, source, event id): a
+retried delivery, or a second replica noticing the same event, makes no second
+run. A run that fails is recorded with its cause like any run, the owner is
+mailed as for a failed scheduled run, and the platform does not run it again on
+its own; the next event still runs.
+
+**A burst is bounded.** A script holds at most `scripts.events.max_queued`
+pending event runs (default 100). An event past it is recorded as a run with
+status `skipped_backlog`, the reason saying the queue was full and that the
+event is in its source, and never executed; the **Events** section counts the
+skips of the last seven days (`GET /api/v1/portal/scripts/{id}/events`). A
+script set to run one at a time (`exclusive` `refuse` or `queue`) runs its
+event runs one at a time, in the order they arrived: an event run is never
+refused for an open run, it waits.
+
+```yaml
+scripts:
+  events:
+    max_queued: 100   # pending event runs one script may hold
+```
+
 ## Where runs execute
 
 Every replica runs the queue worker by default, so the single-binary deployment

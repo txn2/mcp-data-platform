@@ -107,7 +107,7 @@ func TestIssue2177_ASharedAssetsTwoFormsAreSubmittedByAnAnonymousBrowser(t *test
 
 	content := endpointRequest(t, admin.base, http.MethodGet, "/api/v1/portal/assets/"+assetID+"/content", bearer(devAPIKey()), "")
 	status, body := content.status, content.body
-	if status != http.StatusOK || !strings.Contains(body, "/portal/forms/"+first) || !strings.Contains(body, "/portal/forms/"+second) ||
+	if status != http.StatusOK || !strings.Contains(body, "/forms/"+first) || !strings.Contains(body, "/forms/"+second) ||
 		strings.Contains(body, "mcp:form:") {
 		t.Fatalf("the asset's content does not name both form pages: %d %s", status, body)
 	}
@@ -146,11 +146,12 @@ func TestIssue2177_AnEmbeddedSignedInFormKnowsItsReader(t *testing.T) {
 	assetID := saveFormsAsset(t, admin, form)
 	content := endpointRequest(t, admin.base, http.MethodGet, "/api/v1/portal/assets/"+assetID+"/content", bearer(devAPIKey()), "")
 	status, body := content.status, content.body
-	_, after, found := strings.Cut(body, "/portal/forms/"+form+"?form_viewer=")
-	if status != http.StatusOK || !found {
+	_, after, found := strings.Cut(body, "/forms/"+form+"?")
+	query, _ := url.ParseQuery(after[:max(strings.IndexAny(after, `"'`), 0)])
+	viewer := query.Get("form_viewer")
+	if status != http.StatusOK || !found || viewer == "" {
 		t.Fatalf("the signed-in reader's content hands the form no viewer token: %d %s", status, body)
 	}
-	viewer, _ := url.QueryUnescape(after[:strings.IndexAny(after, `"&`)])
 
 	opaque := http.Header{"Origin": {"null"}, "X-Form-Viewer": {viewer}}
 	shown := showForm(t, admin.base, form, "", opaque)
@@ -186,7 +187,7 @@ func TestIssue2177_TheFormPageInLightAndDarkAtDesktopAndPhoneWidth(t *testing.T)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	formsBrowser(t, "screens", "FORMS_FORM_PATH=/portal/forms/"+form, "FORMS_SCREENSHOT_DIR="+dir)
+	formsBrowser(t, "screens", "FORMS_FORM_PATH=/forms/"+form, "FORMS_SCREENSHOT_DIR="+dir)
 	for _, scheme := range []string{"light", "dark"} {
 		for _, size := range []string{"desktop", "phone"} {
 			path := filepath.Join(dir, "form-"+scheme+"-"+size+".png")
@@ -195,7 +196,7 @@ func TestIssue2177_TheFormPageInLightAndDarkAtDesktopAndPhoneWidth(t *testing.T)
 			}
 		}
 	}
-	page := endpointRequest(t, admin.base, http.MethodGet, "/portal/forms/"+form, nil, "")
+	page := endpointRequest(t, admin.base, http.MethodGet, "/forms/"+form, nil, "")
 	var cfg map[string]any
 	_, rest, _ := strings.Cut(page.body, `id="form-config">`)
 	cfgText, _, _ := strings.Cut(rest, "</script>")

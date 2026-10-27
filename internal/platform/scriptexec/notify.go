@@ -33,7 +33,9 @@ func (w *worker) notifyOutcome(ctx context.Context, run *script.Run, sc *script.
 	}
 	res = w.recordedResult(ctx, run, res)
 	switch {
-	case res.Status == script.RunStatusFailed && run.Trigger == script.TriggerSchedule:
+	// An event run (#2332) has nobody present either: the sender was
+	// answered when the event was stored.
+	case res.Status == script.RunStatusFailed && (run.Trigger == script.TriggerSchedule || run.Trigger == runstate.TriggerEvent):
 		alerts.Failed(ctx, run, sc, res, func() int { return w.repeats(ctx, sc.ID) })
 	case res.Status == script.RunStatusSucceeded:
 		alerts.Succeeded(ctx, run, sc)

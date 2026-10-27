@@ -802,6 +802,8 @@ func TestWriteFailureIsLoggedAndRejectedWithItsStages(t *testing.T) {
 // saying whether the events were stored (#2107).
 func TestSenderGone(t *testing.T) {
 	h := newHarness(t, hmacSource("esp"))
+	calls := &storedCalls{}
+	h.r.SetStored(calls.hook)
 	h.objects.mu.Lock()
 	h.objects.stall = make(chan struct{})
 	h.objects.mu.Unlock()
@@ -833,6 +835,9 @@ func TestSenderGone(t *testing.T) {
 	assert.Contains(t, finished, "stored=true")
 	assert.Contains(t, finished, "put_ms=")
 	assert.Len(t, h.objects.events(t), 1, "the write the sender left behind stored its event")
+	require.Eventually(t, func() bool { return len(calls.of("esp")) == 1 }, 5*time.Second, 5*time.Millisecond,
+		"#2332: events stored after the sender left still owe their runs")
+	assert.Equal(t, []string{"evt-1"}, calls.of("esp"))
 
 	h.r.statsMu.Lock()
 	rejections := append([]whstore.Rejection(nil), h.r.rejections...)
@@ -1275,4 +1280,23 @@ func TestTheNextWindowIsRegisteredAhead(t *testing.T) {
 	r.queueNext()
 	_, kept := r.latest["gone"]
 	assert.False(t, kept, "a source no longer served is forgotten")
+}
+
+// A window queued again by a write that landed while its registration was
+// finishing is not registered a second time.
+func TestARegisteredWindowQueuedAgainIsNotRegisteredAgain(t *testing.T) {
+	h := newHarness(t, hmacSource("esp"))
+	start := time.Now().UTC().Truncate(time.Hour)
+	key := windowKey("esp", start)
+	h.r.rawWindows.Store(key, start)
+	h.r.regMu.Lock()
+	h.r.regPending[key] = rawWindow{source: "esp", start: start}
+	h.r.regMu.Unlock()
+	require.NoError(t, h.r.registerPending(context.Background()))
+	h.raw.mu.Lock()
+	defer h.raw.mu.Unlock()
+	assert.Zero(t, h.raw.calls, "the window is registered already")
+	h.r.regMu.Lock()
+	defer h.r.regMu.Unlock()
+	assert.NotContains(t, h.r.regPending, key, "and is no longer owed a registration")
 }

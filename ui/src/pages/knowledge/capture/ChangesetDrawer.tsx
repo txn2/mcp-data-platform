@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useRollbackChangeset } from "@/api/admin/hooks";
+import { useRollbackChangeset } from "@/api/portal/hooks";
 import type { Changeset } from "@/api/admin/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { KnowledgeStatusBadge } from "@/components/knowledge/KnowledgeStatusBadge";

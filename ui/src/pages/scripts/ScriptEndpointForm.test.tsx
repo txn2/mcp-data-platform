@@ -55,9 +55,20 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ScriptEndpointCard on a form", () => {
+  it("offers a bound form's embed snippet (#2331)", () => {
+    show({ ...storedForm, page_url: "https://data.example.com/forms/contact" });
+    expect(screen.getByRole("heading", { name: "Embed on a site" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Embed snippet").textContent).toContain('src="https://data.example.com/forms/contact"');
+  });
+
+  it("offers no snippet for an endpoint with no page", () => {
+    show(storedForm);
+    expect(screen.queryByRole("heading", { name: "Embed on a site" })).not.toBeInTheDocument();
+  });
+
   it("says an unbound form shows a page and stores its submissions", () => {
     show(unboundForm);
-    expect(screen.getByText(/Bind it to an endpoint to show it at \/portal\/forms/)).toBeInTheDocument();
+    expect(screen.getByText(/Bind it to an endpoint to show it at \/forms\//)).toBeInTheDocument();
   });
 
   it("binds a form only once a connection is chosen, and sends it with the decrypt personas", () => {

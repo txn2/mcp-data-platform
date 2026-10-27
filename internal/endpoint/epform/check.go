@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
+	"mime/multipart"
 	"net/mail"
 	"net/url"
 	"slices"
@@ -26,22 +28,62 @@ const (
 	intBits   = 64
 )
 
-// Values reads a submission body into each field's values, a urlencoded body
-// and a JSON object alike: a JSON number, boolean or array of them reads as
-// the strings a urlencoded body would carry.
-func Values(contentType string, body []byte) (map[string][]string, error) {
-	mediaType, _, _ := mime.ParseMediaType(contentType)
+// maxParts bounds the parts of a multipart submission.
+const maxParts = 1000
+
+// Read reads a submission body into each field's values and the files it
+// carries: a urlencoded body and a JSON object alike, where a JSON number,
+// boolean or array of them reads as the strings a urlencoded body would
+// carry, and a multipart/form-data body, the one form a submission with files
+// takes (#2333).
+func Read(contentType string, body []byte) (map[string][]string, []Upload, error) {
+	mediaType, params, _ := mime.ParseMediaType(contentType)
 	switch mediaType {
 	case "application/x-www-form-urlencoded":
 		v, err := url.ParseQuery(string(body))
 		if err != nil {
-			return nil, fmt.Errorf("the submission is not a form: %w", err)
+			return nil, nil, fmt.Errorf("the submission is not a form: %w", err)
 		}
-		return v, nil
+		return v, nil, nil
 	case "application/json":
-		return jsonValues(body)
+		v, err := jsonValues(body)
+		return v, nil, err
+	case "multipart/form-data":
+		return multipartValues(params["boundary"], body)
 	}
-	return nil, fmt.Errorf("a submission is application/x-www-form-urlencoded or application/json, not %q", mediaType)
+	return nil, nil, fmt.Errorf("a submission is application/x-www-form-urlencoded, application/json or multipart/form-data, not %q", mediaType)
+}
+
+// multipartValues reads a multipart body: each part with a file name is a
+// file, each other part a value.
+func multipartValues(boundary string, body []byte) (map[string][]string, []Upload, error) {
+	if boundary == "" {
+		return nil, nil, errNoBoundary
+	}
+	mr := multipart.NewReader(bytes.NewReader(body), boundary)
+	values := map[string][]string{}
+	var files []Upload
+	for n := 0; ; n++ {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			return values, files, nil
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("the submission is not a multipart form: %w", err)
+		}
+		if n >= maxParts {
+			return nil, nil, fmt.Errorf("the submission is not a multipart form: it has more than %d parts", maxParts)
+		}
+		data, err := io.ReadAll(part)
+		if err != nil {
+			return nil, nil, fmt.Errorf("the submission is not a multipart form: %w", err)
+		}
+		if name := part.FileName(); name != "" {
+			files = append(files, Upload{Field: part.FormName(), Name: name, Data: data})
+			continue
+		}
+		values[part.FormName()] = append(values[part.FormName()], string(data))
+	}
 }
 
 func jsonValues(body []byte) (map[string][]string, error) {
@@ -100,23 +142,24 @@ func jsonScalar(v any) (string, error) {
 // signed: the values form_submit is handed, by field, or the per-field
 // errors, or ErrRefused when the honeypot was filled or the form came back
 // sooner than a person fills it in. Every declared field is in values: an
-// empty one is "" (a list for a multiple choice, False for a checkbox).
-func Check(spec Spec, issued time.Time, submitted map[string][]string, now time.Time) (values map[string]any, errs map[string]string, err error) {
+// empty one is "" (a list for a multiple choice or a file field, False for a
+// checkbox). A file field's value describes each of its files, in the order
+// they were sent.
+func Check(spec Spec, issued time.Time, submitted map[string][]string, files []Upload, now time.Time) (values map[string]any, errs map[string]string, err error) {
 	if first(submitted[HoneypotField]) != "" {
 		return nil, nil, refused("a field people do not see was filled in")
 	}
 	if now.Sub(issued) < time.Duration(spec.MinFillSeconds)*time.Second {
 		return nil, nil, refused("the form came back sooner than a person fills it in; wait a moment and send it again")
 	}
-	errs = map[string]string{}
-	for name := range submitted {
-		if _, ok := spec.field(name); !ok && name != TokenField && name != HoneypotField {
-			errs[name] = "this form has no such field"
-		}
-	}
+	errs = spec.undeclared(submitted)
+	byField := spec.uploadsByField(files, errs)
 	values = make(map[string]any, len(spec.Fields))
 	for _, f := range spec.Fields {
-		v, msg := f.check(spec.Prefill[f.Name], submitted[f.Name])
+		if _, done := errs[f.Name]; done {
+			continue
+		}
+		v, msg := f.checkValue(spec.Prefill[f.Name], submitted[f.Name], byField[f.Name])
 		if msg != "" {
 			errs[f.Name] = msg
 			continue
@@ -129,11 +172,49 @@ func Check(spec Spec, issued time.Time, submitted map[string][]string, now time.
 	return values, nil, nil
 }
 
+// undeclared names each submitted value the spec does not declare, other
+// than the platform's own fields.
+func (s Spec) undeclared(submitted map[string][]string) map[string]string {
+	errs := map[string]string{}
+	for name := range submitted {
+		if _, ok := s.field(name); !ok && name != TokenField && name != HoneypotField {
+			errs[name] = "this form has no such field"
+		}
+	}
+	return errs
+}
+
+// uploadsByField groups files by the field they were sent in, naming in errs
+// each file sent to a field that is not declared or takes no files.
+func (s Spec) uploadsByField(files []Upload, errs map[string]string) map[string][]Upload {
+	byField := map[string][]Upload{}
+	for _, u := range files {
+		f, ok := s.field(u.Field)
+		switch {
+		case !ok:
+			errs[u.Field] = "this form has no such field"
+		case f.Type != TypeFile:
+			errs[u.Field] = "this field takes no files"
+		}
+		byField[u.Field] = append(byField[u.Field], u)
+	}
+	return byField
+}
+
 func first(values []string) string {
 	if len(values) == 0 {
 		return ""
 	}
 	return values[0]
+}
+
+// checkValue is one field's value from what was submitted for it, or the
+// message that refuses it.
+func (f Field) checkValue(prefill any, values []string, files []Upload) (value any, refusal string) {
+	if f.Type == TypeFile {
+		return f.checkFiles(values, files)
+	}
+	return f.check(prefill, values)
 }
 
 // check is one field's value, or the message that refuses it.

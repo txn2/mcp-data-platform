@@ -231,10 +231,18 @@ func TestPoll_FilesTrustedMailAsEvents(t *testing.T) {
 	src := srv.source("app-pw")
 	f := newFakes(src)
 	p := newPoller(f)
+	var told []string
+	p.SetStored(func(_ context.Context, source string, events []whevent.Event) {
+		for _, e := range events {
+			told = append(told, source+"/"+e.EventID)
+		}
+	})
 	require.NoError(t, p.Pass(context.Background()))
 
 	evs := f.events(t)
 	require.Len(t, evs, 2, "the invoice and the message with no id; the forgery and the newsletter are withheld")
+	assert.Len(t, told, 2, "#2332: each filed message is told once its segment is written")
+	assert.Contains(t, told, "vendor-mail/inv-4411@vendor.example")
 	byID := map[string]whevent.Stored{}
 	for _, e := range evs {
 		byID[e.EventID] = e

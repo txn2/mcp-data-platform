@@ -100,12 +100,12 @@ func TestMount_TheEndpointAndSettingsRoutes(t *testing.T) {
 	nobody := authFunc(func(*http.Request) (*portal.User, error) { return nil, nil }) //nolint:nilnil // the portal's "no credential" answer
 
 	mux := http.NewServeMux()
-	mountOver(mux, e, Authenticator(nobody, Personas{}), nil, nil)
+	mountOver(mux, e, identity{auth: Authenticator(nobody, Personas{})}, nil, nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/botcheck/solver.js", http.NoBody))
 	assert.Equal(t, http.StatusOK, rec.Code, "the bot check's script is served")
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/portal/forms/_/form.js", http.NoBody))
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/forms/_/form.js", http.NoBody))
 	assert.Equal(t, http.StatusOK, rec.Code, "the form page's script is served (#2177)")
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/bot-checks", http.NoBody))
@@ -115,7 +115,7 @@ func TestMount_TheEndpointAndSettingsRoutes(t *testing.T) {
 	refuse := func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
 	}
-	mountOver(mux, e, Authenticator(nobody, Personas{}), refuse, func(*http.Request) string { return "" })
+	mountOver(mux, e, identity{auth: Authenticator(nobody, Personas{})}, refuse, func(*http.Request) string { return "" })
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/bot-checks", http.NoBody))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "the settings routes are behind the admin API's authentication")

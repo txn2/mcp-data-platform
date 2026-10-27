@@ -17,16 +17,21 @@ export function runStatusVariant(status: string): "success" | "danger" | "warnin
     case "running":
       return "info";
     case "skipped_overlap":
+    case "skipped_backlog":
       return "warning";
     default:
       return "muted";
   }
 }
 
-// runStatusLabel renders a status for a human. Only skipped_overlap needs
-// translating; the rest are already words.
+// runStatusLabel renders a status for a human. Only the two skips need
+// translating; the rest are already words. A skipped backlog is an event the
+// script's source stored while as many event runs as the deployment allows
+// were already waiting (#2332).
 export function runStatusLabel(status: string): string {
-  return status === "skipped_overlap" ? "Skipped (overlap)" : status;
+  if (status === "skipped_overlap") return "Skipped (overlap)";
+  if (status === "skipped_backlog") return "Skipped (backlog)";
+  return status;
 }
 
 // runBadge is the badge a run row carries: its status, except that a running
@@ -268,6 +273,7 @@ const OUTCOME_COUNTER: Record<string, "succeeded" | "failed" | "skipped" | "canc
   succeeded: "succeeded",
   failed: "failed",
   skipped_overlap: "skipped",
+  skipped_backlog: "skipped",
   canceled: "canceled",
 };
 

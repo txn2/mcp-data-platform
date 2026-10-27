@@ -67,6 +67,18 @@ type Poller struct {
 
 	mu   sync.Mutex
 	last map[string]time.Time
+	// onStored is told each window's events once their segment is written
+	// (#2332); nil tells nothing.
+	onStored func(ctx context.Context, source string, events []whevent.Event)
+}
+
+// SetStored is what is told each written segment's events from here on: the
+// hook the runs of an automation naming the source are enqueued through
+// (#2332). It is set before the poller starts.
+func (p *Poller) SetStored(fn func(ctx context.Context, source string, events []whevent.Event)) {
+	p.mu.Lock()
+	p.onStored = fn
+	p.mu.Unlock()
 }
 
 // New returns a poller, nil when a dependency is missing.
@@ -350,6 +362,12 @@ func (p *Poller) writeWindow(ctx context.Context, src whsource.Source, start tim
 	}
 	if err := p.cfg.Recorder.MarkSegment(ctx, src.Name, start, length, int64(len(data))); err != nil {
 		return fmt.Errorf("recording segment: %w", err)
+	}
+	p.mu.Lock()
+	stored := p.onStored
+	p.mu.Unlock()
+	if stored != nil {
+		stored(ctx, src.Name, events)
 	}
 	if p.cfg.RawWindows != nil {
 		if err := p.cfg.RawWindows.EnsureRawWindow(ctx, src, start); err != nil {

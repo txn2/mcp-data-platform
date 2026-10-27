@@ -130,7 +130,7 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/metadata", wrap(h.portalHandler(h.portalSetMetadata)))
 	// Whether its runs may overlap is the owner's as well, and it is about what
 	// the script does rather than what it says (#1986).
-	exclusivehttp.New(exclusivehttp.Deps{Edit: h.editOwned}).Register(mux, wrap)
+	exclusivehttp.New(exclusivehttp.Deps{Edit: h.EditOwned}).Register(mux, wrap)
 	// Moving it to somebody else is an administrator's, and the handler is what
 	// refuses everybody else: it is mounted here because it is the same detail
 	// page, not because every caller of that page may use it (#1404).
@@ -151,19 +151,19 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// The state a script carries from run to run, and the owner's reset of it
 	// (#1537).
 	if h.deps.States != nil {
-		statehttp.New(statehttp.Deps{States: h.deps.States, Owned: h.ownedByCaller}).Register(mux, wrap)
+		statehttp.New(statehttp.Deps{States: h.deps.States, Owned: h.OwnedByCaller}).Register(mux, wrap)
 	}
 	if h.deps.Schedules != nil {
 		h.registerPortalSchedules(mux, wrap)
 	}
 	// Who else may run it (#1846), which is the owner's to decide.
 	if h.deps.Grants != nil {
-		granthttp.New(granthttp.Deps{Grants: h.deps.Grants, Owned: h.ownedByCaller, Audit: h.auditGrantAct}).Register(mux, wrap)
+		granthttp.New(granthttp.Deps{Grants: h.deps.Grants, Owned: h.OwnedByCaller, Audit: h.auditGrantAct}).Register(mux, wrap)
 	}
 	// Its endpoint, which only an administrator binds (#2171).
 	if h.deps.Endpoints != nil {
 		bindinghttp.New(bindinghttp.Deps{
-			Commands: h.deps.Endpoints, Scripts: h.deps.Scripts, Owned: h.ownedByCaller,
+			Commands: h.deps.Endpoints, Scripts: h.deps.Scripts, Owned: h.OwnedByCaller,
 			Admin: func(r *http.Request) bool { u := h.deps.PortalUser(r); return u != nil && u.IsAdmin },
 		}).Register(mux, wrap)
 	}
@@ -1184,16 +1184,10 @@ func (h *Handler) requester(w http.ResponseWriter, r *http.Request) (requester s
 	return user.owner(), user.IsAdmin, true
 }
 
-// OwnedByCaller is ownedByCaller for a route package the composition root
-// mounts beside this one (#2180).
+// OwnedByCaller is ownedScript for a route mounted outside this package
+// (#2180): it resolves the caller too, answering 401 when there is none, and
+// reports the script's id and the caller's identity.
 func (h *Handler) OwnedByCaller(w http.ResponseWriter, r *http.Request) (scriptID, actor string, ok bool) {
-	return h.ownedByCaller(w, r)
-}
-
-// ownedByCaller is ownedScript for a route mounted outside this package: it
-// resolves the caller too, answering 401 when there is none, and reports the
-// script's id and the caller's identity.
-func (h *Handler) ownedByCaller(w http.ResponseWriter, r *http.Request) (scriptID, actor string, ok bool) {
 	user := h.deps.PortalUser(r)
 	if user == nil {
 		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required")
@@ -1206,9 +1200,9 @@ func (h *Handler) ownedByCaller(w http.ResponseWriter, r *http.Request) (scriptI
 	return sc.ID, user.owner(), true
 }
 
-// editOwned applies mutate to the script in the path for its owner or an
+// EditOwned applies mutate to the script in the path for its owner or an
 // administrator, through the edit funnel, writing every refusal itself.
-func (h *Handler) editOwned(w http.ResponseWriter, r *http.Request, mutate func(*script.Script)) (*script.Script, bool) {
+func (h *Handler) EditOwned(w http.ResponseWriter, r *http.Request, mutate func(*script.Script)) (*script.Script, bool) {
 	user := h.deps.PortalUser(r)
 	if user == nil {
 		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required")

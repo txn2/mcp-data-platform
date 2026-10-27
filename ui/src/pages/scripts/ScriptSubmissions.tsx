@@ -8,13 +8,14 @@ import {
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { formatWhen } from "./runFormat";
+import { formatBytes, formatWhen } from "./runFormat";
 
 // ScriptSubmissions is a form's stored submissions (#2180): the newest rows of
 // the webhook source its accepted submissions are stored in (#2178), newest
 // first, with its sensitive fields decrypted for the owner, which the platform
-// audits (#2179), and the same rows as CSV or an Excel workbook. It shows only
-// for a form whose source exists.
+// audits (#2179), each file a submission carried linked to its resource
+// (#2333), and the same rows as CSV or an Excel workbook. It shows only for a
+// form whose source exists.
 
 export function ScriptSubmissions({ scriptId }: { scriptId: string }) {
   const { data: endpoint } = useScriptEndpoint(scriptId, true);
@@ -96,7 +97,7 @@ function SubmissionsTable({ page }: { page: FormSubmissionsPage }) {
               {showSubmitter && <td className="whitespace-nowrap px-3 py-2">{s.submitter?.email ?? "—"}</td>}
               {page.fields.map((f) => (
                 <td key={f} className="max-w-xs break-words px-3 py-2">
-                  {cellText(s.values[f])}
+                  <Cell value={s.values[f]} />
                 </td>
               ))}
             </tr>
@@ -104,6 +105,40 @@ function SubmissionsTable({ page }: { page: FormSubmissionsPage }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** SubmittedFile is a file a submission carried, as it was saved (#2333). */
+export interface SubmittedFile {
+  name: string;
+  content_type: string;
+  size: number;
+  uri?: string;
+  resource_id?: string;
+}
+
+/** submittedFiles is v's files when v is a file field's value, else null. */
+export function submittedFiles(v: unknown): SubmittedFile[] | null {
+  if (!Array.isArray(v) || v.length === 0) return null;
+  const files = v.filter((item): item is SubmittedFile => typeof item === "object" && item !== null && "resource_id" in item);
+  return files.length === v.length ? files : null;
+}
+
+/** Cell is a submitted value; a file field's files open their resources. */
+function Cell({ value }: { value: unknown }) {
+  const files = submittedFiles(value);
+  if (!files) return <>{cellText(value)}</>;
+  return (
+    <ul className="space-y-1">
+      {files.map((f) => (
+        <li key={f.resource_id}>
+          <a href={`/portal/resources/${encodeURIComponent(f.resource_id ?? "")}`} className="underline" title={f.uri}>
+            {f.name}
+          </a>{" "}
+          <span className="text-xs text-muted-foreground">{formatBytes(f.size)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

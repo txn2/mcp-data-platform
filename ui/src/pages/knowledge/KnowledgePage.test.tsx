@@ -7,8 +7,6 @@ vi.mock("@/api/admin/hooks", () => ({
   useInsights: vi.fn(),
   useInsightStats: vi.fn(),
   useUpdateInsightStatus: vi.fn(),
-  useChangesets: vi.fn(),
-  useRollbackChangeset: vi.fn(),
   useAuditFilters: vi.fn(),
 }));
 

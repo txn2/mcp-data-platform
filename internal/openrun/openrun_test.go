@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -22,6 +23,7 @@ func TestRunDescribe(t *testing.T) {
 		{Run{ID: "r2", Trigger: script.TriggerSchedule, CreatedAt: at}, "run r2 (started by its schedule, queued since 2026-10-04T09:30:00Z)"},
 		{Run{ID: "r3", Trigger: script.TriggerPortal, StartedAt: &at}, "run r3 (started by the portal, running since 2026-10-04T09:30:00Z)"},
 		{Run{ID: "r4", Trigger: "webhook", CreatedAt: at}, "run r4 (started by webhook, queued since 2026-10-04T09:30:00Z)"},
+		{Run{ID: "r5", Trigger: runstate.TriggerEvent, CreatedAt: at}, "run r5 (started by a webhook event, queued since 2026-10-04T09:30:00Z)"},
 	} {
 		assert.Equal(t, tc.want, tc.open.Describe())
 	}

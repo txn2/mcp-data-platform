@@ -1,25 +1,36 @@
 /**
- * Forms embedded in an HTML or JSX asset (#2177).
+ * Forms embedded in an HTML or JSX asset (#2177, #2331).
  *
  * An asset embeds a form by declaring mcp:form:<endpoint>, which the platform
- * serves rewritten to the form's page, /portal/forms/<endpoint>, framed where
- * the asset puts it. The page fetches the form's spec from its endpoint and
- * hands it the query string it was opened with, so a shared link carrying a
- * token or an id (?t=...) reaches form_spec(req) as req["query"]. The asset's
- * own frame is opened from srcdoc and has no query string of its own, so the
- * viewer copies the query of the page the asset is opened at onto each form
- * page's address before framing the document, along with the portal's theme,
- * and points the address at the origin the reader browses.
+ * serves rewritten to the form's page, /forms/<endpoint>, carrying the embed
+ * marker (form_embed) that lets the asset frame it, framed where the asset
+ * puts it. Only an address carrying the marker is the platform's: a link to
+ * another site's /forms/ path is left as written. The page fetches the form's
+ * spec from its endpoint and hands it the query string it was opened with, so
+ * a shared link carrying a token or an id (?t=...) reaches form_spec(req) as
+ * req["query"]. The asset's own frame is opened from srcdoc and has no query
+ * string of its own, so the viewer copies the query of the page the asset is
+ * opened at onto each form page's address before framing the document, along
+ * with the portal's theme, and points the address at the origin the reader
+ * browses.
  *
- * The parameters the form page keeps for itself (the viewer token the
- * platform signs, the theme) are never taken from the page's query.
+ * The parameters the form page keeps for itself (the viewer token and embed
+ * marker the platform signs, the theme) are never taken from the page's query.
  */
 
 /** The query parameters a form's page reads for itself, never the form's. */
-export const FORM_OWN_PARAMS = ["form_viewer", "form_theme"] as const;
+export const FORM_OWN_PARAMS = ["form_viewer", "form_theme", "form_embed"] as const;
+
+/** The path a form's page is served under (epform.PagePrefix). */
+const FORM_PAGES = "/forms/";
 
 /** A form page's address, absolute or root-relative, and its query. */
-const FORM_PAGE = /((?:https?:\/\/[^\s"'<>()]+)?\/portal\/forms\/[a-z0-9][a-z0-9_-]*)(\?[^\s"'<>()]*)?/g;
+const FORM_PAGE = /((?:https?:\/\/[^\s"'<>()]+)?\/forms\/[a-z0-9][a-z0-9_-]*)(\?[^\s"'<>()]*)?/g;
+
+/** Whether a page address's query carries the platform's embed marker. */
+function marked(query: string | undefined): boolean {
+  return query !== undefined && /[?&](?:amp;)?form_embed=/.test(query);
+}
 
 /**
  * The query to pass on: the page's, without the parameters a form page keeps
@@ -42,11 +53,12 @@ export function formQuery(search: string, theme: "light" | "dark" | null): strin
  * reads as &; in JSX source it is written as itself.
  */
 export function passQueryToForms(content: string, query: string, markup: boolean, origin = ""): string {
-  if (!content.includes("/portal/forms/")) return content;
+  if (!content.includes(FORM_PAGES)) return content;
   const sep = markup ? "&amp;" : "&";
   const added = markup ? query.replace(/&/g, "&amp;") : query;
-  return content.replace(FORM_PAGE, (_match, base: string, existing: string | undefined) => {
-    const page = origin ? origin + base.slice(base.indexOf("/portal/forms/")) : base;
+  return content.replace(FORM_PAGE, (match: string, base: string, existing: string | undefined) => {
+    if (!marked(existing)) return match;
+    const page = origin ? origin + base.slice(base.indexOf(FORM_PAGES)) : base;
     if (!added) return page + (existing ?? "");
     return existing ? `${page}${existing}${sep}${added}` : `${page}?${added}`;
   });

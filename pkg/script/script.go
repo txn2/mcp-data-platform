@@ -161,6 +161,10 @@ type Script struct {
 	// no other run of the script is running. Under off runs may overlap and
 	// the state check is the only guard.
 	Exclusive runstate.ExclusiveMode `json:"exclusive"`
+	// EventSource is the webhook source the script runs for (#2332): each
+	// event it stores enqueues one run with trigger event. Empty runs for
+	// none. Set by the owner or an administrator, as a schedule is.
+	EventSource string `json:"event_source,omitempty"`
 
 	// Lifecycle.
 	Status       string     `json:"status" example:"active"`

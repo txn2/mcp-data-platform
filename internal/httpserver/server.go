@@ -230,6 +230,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	}
 	hooks.Mount(mux)
 	formwire.Attach(p, hooks) // a form stores its accepted submissions in a webhook source (#2178)
+	hooks.AttachScriptRuns(p) // each stored event runs the automations naming its source (#2332)
 	// The webhook receiver's alerts (#2149) post through the notification
 	// substrate; they start and stop with the receiver.
 	enableWebhookAlerts(hooks, p, notify)

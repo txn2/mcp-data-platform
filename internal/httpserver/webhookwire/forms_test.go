@@ -41,11 +41,13 @@ func (f *formCommands) SetForms(s epcmd.FormSources) { f.f = s }
 // #2178: forms store through this replica's receiver, endpoint_set makes a
 // form's source through the source service, and platform.decrypt is answered.
 func TestAttachForms(t *testing.T) {
-	w := &Webhooks{Service: whadmin.New(whadmin.Deps{Sources: noSources{}}), receiver: receiver.New(receiver.Config{})}
+	w := &Webhooks{Service: whadmin.New(whadmin.Deps{Sources: noSources{}}), receiver: receiver.New(receiver.Config{}), files: &formFiles{}}
 	run, cmds, tokens := &formRunner{}, &formCommands{}, &scripttoken.Issuer{}
-	w.AttachForms(FormDeps{Runner: run, Commands: cmds, Tokens: tokens})
+	w.AttachForms(FormDeps{Runner: run, Commands: cmds, Tokens: tokens, MaxFileBytes: 1 << 20})
 	require.NotNil(t, run.c)
 	assert.Same(t, w.receiver, run.c.Writer)
+	assert.True(t, run.c.CanSaveFiles(), "#2333: a form's files are saved through the source's library")
+	assert.Equal(t, int64(1<<20), run.c.MaxFileBytes)
 	require.NotNil(t, cmds.f)
 
 	_, err := tokens.Bind(scripttoken.Binding{ScriptID: "s"}, nil).CallTool(context.Background(), scripttoken.CapabilityDecrypt,
@@ -60,6 +62,7 @@ func TestAttachForms_NoReceiver(t *testing.T) {
 	run := &formRunner{}
 	w.AttachForms(FormDeps{Runner: run, Commands: &formCommands{}, Tokens: &scripttoken.Issuer{}})
 	require.NotNil(t, run.c)
+	assert.False(t, run.c.CanSaveFiles(), "a replica without the receiver saves no file")
 	err := run.c.Store(context.Background(), epcollect.Submission{ScriptID: "s"})
 	require.ErrorIs(t, err, errNoReceiver)
 	src, ok := noReceiver{}.FormSource(context.Background(), "s")

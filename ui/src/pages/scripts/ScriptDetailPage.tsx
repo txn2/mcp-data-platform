@@ -22,6 +22,7 @@ import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
 import type { ProducedTargetKind } from "@/api/portal/hooks/producers";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
+import { ScriptEventsCard } from "./ScriptEventsCard";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptCodeCard } from "./ScriptCodeCard";
 import { ScriptFlowView } from "./flow/ScriptFlowView";
@@ -161,7 +162,9 @@ function ScriptDetail({
           runs for (#1943), read by owner and reader alike. */}
       <ScriptChanges scriptId={scriptId} />
 
-      {runs && <ScriptScheduleEditor scriptId={scriptId} contract={contract} />}
+      {/* When it runs: its schedule, and the webhook source it runs for
+          (#2332) beside it. */}
+      {runs && <ScriptTriggers scriptId={scriptId} contract={contract} />}
 
       {/* Its endpoint (#2171): what an HTTP request to /endpoints/{name}
           runs, read by its owner and bound only by an administrator. */}
@@ -370,6 +373,17 @@ function draftParamsOf(data: {
 // The parameters used to be a section of their own, one card below these five
 // lines. They are the same kind of statement — what this script is and what it
 // takes — so they are read here rather than found separately (#1406).
+// ScriptTriggers is what starts the script unattended: its schedule and the
+// webhook source it runs for.
+function ScriptTriggers({ scriptId, contract }: { scriptId: string; contract: ScriptContract }) {
+  return (
+    <>
+      <ScriptScheduleEditor scriptId={scriptId} contract={contract} />
+      <ScriptEventsCard key={`events-${scriptId}`} scriptId={scriptId} contract={contract} />
+    </>
+  );
+}
+
 function ScriptFacts({ contract }: { contract: ScriptContract }) {
   if (contract.library) return <LibraryFacts contract={contract} />;
   // In words, as every other surface states a cadence (#1405, #1407): the
@@ -384,6 +398,7 @@ function ScriptFacts({ contract }: { contract: ScriptContract }) {
         <Fact label="Owner" value={contract.owner_email || "nobody"} />
         <Fact label="Runs" value={`v${contract.version}, the latest saved version`} />
         <Fact label="Schedule" value={schedule} />
+        <Fact label="Events" value={contract.event_source ? `each event of ${contract.event_source}` : "none"} />
         <Fact
           label="Next run"
           value={contract.schedule?.enabled ? formatWhen(contract.schedule.next_run_at) : "—"}

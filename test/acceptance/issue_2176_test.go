@@ -89,7 +89,7 @@ func issue2176Bind(t *testing.T, admin *client, prefix, secret string) string {
 	t.Helper()
 	name := endpointName(prefix)
 	admin.saveScript(map[string]any{"command": "create", "name": name, "source": issue2176Form(secret)}, nil)
-	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "public", "methods": []string{"GET", "POST"}})
+	bindEndpoint(t, admin, name, "", map[string]any{"endpoint": name, "auth_mode": "public", "methods": []string{"GET", "POST"}, "connection": formsConn})
 	return name
 }
 

@@ -63,6 +63,15 @@ func notifierWorker(n Notifier) *worker {
 	return newWorker(workerConfig{runs: &fakeRuns{}, notifier: n})
 }
 
+// #2332: a failed event run has nobody watching either, and tells the owner.
+func TestNotifyFailure_AnEventRunTellsTheOwner(t *testing.T) {
+	f := failedScheduledRun()
+	f.run.Trigger, f.run.ScheduleID = runstate.TriggerEvent, ""
+	n := &fakeNotifier{}
+	notifierWorker(n).notifyOutcome(context.Background(), f.run, f.script, f.result)
+	assert.Equal(t, []string{"jane@example.com"}, n.queued())
+}
+
 // TestNotifyFailure_TellsTheOwner pins who hears about an automation nobody is
 // watching — the owner, who is accountable for it and can fix it — and what
 // they are told.

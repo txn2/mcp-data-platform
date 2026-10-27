@@ -220,7 +220,7 @@ func execute(ctx context.Context, req Request, e execution) (*produced, *scriptr
 	out := &produced{replay: replay, live: live, declared: answers, reads: e.reads}
 	opts := scriptrun.Options{
 		Source: req.Source, Name: req.Name,
-		RunID: h.RunID, FireTime: h.FireTime, Params: h.Params, State: h.State, RunURL: h.RunURL,
+		RunID: h.RunID, FireTime: h.FireTime, Params: h.Params, State: h.State, Event: h.Event, RunURL: h.RunURL,
 		Caller: replay, Exporter: replay.Exporter(), Destinations: req.Destinations,
 		Live: live, MaxSteps: scriptrun.RunMaxSteps, Timeout: scriptrun.DraftTimeout,
 		MaxRows: h.MaxRows, MaxMemoryBytes: req.MaxMemoryBytes, Libraries: req.Libraries,

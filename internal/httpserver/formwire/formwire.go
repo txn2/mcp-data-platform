@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	trinotoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
@@ -35,7 +36,17 @@ func Attach(p *platform.Platform, hooks *webhookwire.Webhooks) {
 	hooks.AttachForms(webhookwire.FormDeps{
 		Runner: e.Runner, Commands: e.Commands, Tokens: e.TokenIssuer(), Audit: e.Runner.Audit,
 		Sealer: p.RestEncryptor(), Connections: scratchConnections(p),
+		MaxFileBytes: maxUploadBytes(p.Config().Resources.Managed.MaxUploadBytes),
 	})
+}
+
+// maxUploadBytes is the most a managed resource may hold here: the
+// configured limit, or resource.MaxUploadBytes when none is set.
+func maxUploadBytes(configured int64) int64 {
+	if configured > 0 {
+		return configured
+	}
+	return resource.MaxUploadBytes
 }
 
 // ViewerKey is the key an embedded authenticated form's viewer token is

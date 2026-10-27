@@ -24,6 +24,9 @@ import (
 //   - canceled: terminal. Somebody asked for the run to stop (#1847): a
 //     pending run is never claimed, and a running one stopped at its next
 //     interpreter step, keeping the outputs it had already written.
+//   - skipped_backlog (runstate.StatusSkippedBacklog): terminal, and never
+//     executed; an event arrived past the script's bound on waiting event
+//     runs (#2332).
 const (
 	RunStatusPending        = "pending"
 	RunStatusRunning        = "running"
@@ -205,6 +208,14 @@ type Run struct {
 	// replicas notice the same fire, exactly one run exists for it.
 	ScheduleID string `json:"schedule_id,omitempty"`
 
+	// EventSource, EventID and Event are the webhook source and the event an
+	// event run was enqueued for (#2332), empty on every other trigger. The
+	// run is unique per (script, source, event id), so an event makes one run
+	// however often it is noticed. Event is handed to the script as run.event.
+	EventSource string         `json:"event_source,omitempty"`
+	EventID     string         `json:"event_id,omitempty"`
+	Event       map[string]any `json:"event,omitempty"`
+
 	// Params are the bound, type-checked parameter values the run executes
 	// with. They are bound once, when the run is created, so a re-read of the
 	// row explains the run exactly.
@@ -294,7 +305,7 @@ type Run struct {
 // so nothing is ever going to move it.
 func (r *Run) Terminal() bool {
 	return r.Status == RunStatusSucceeded || r.Status == RunStatusFailed ||
-		r.Status == RunStatusSkippedOverlap || r.Status == RunStatusCanceled
+		r.Status == RunStatusSkippedOverlap || r.Status == RunStatusCanceled || r.Status == runstate.StatusSkippedBacklog
 }
 
 // Output returns the recorded output this run wrote under one name to one

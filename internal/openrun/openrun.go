@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -54,6 +55,8 @@ func triggerWords(trigger string) string {
 		return "its schedule"
 	case script.TriggerPortal:
 		return "the portal"
+	case runstate.TriggerEvent:
+		return "a webhook event"
 	default:
 		return trigger
 	}

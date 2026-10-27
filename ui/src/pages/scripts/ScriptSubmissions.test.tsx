@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import type { FormSubmissionsPage } from "@/api/portal/hooks/scriptSubmissions";
-import { ScriptSubmissions, cellText } from "./ScriptSubmissions";
+import { ScriptSubmissions, cellText, submittedFiles } from "./ScriptSubmissions";
 
 // A form's stored submissions (#2180): the newest rows, sensitive columns
 // marked, and the two exports.
@@ -68,6 +68,28 @@ describe("ScriptSubmissions", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(refetch).toHaveBeenCalled();
+  });
+
+  it("links each file a submission carried to its resource (#2333)", () => {
+    const photo = { name: "Site Logo.png", content_type: "image/png", size: 2048, uri: "mcp://persona/admin/x/site-logo.png", resource_id: "res-1" };
+    withForm(true, {
+      ...page,
+      fields: ["name", "photos"],
+      sensitive: [],
+      submissions: [{ id: "s3", received_at: "2026-10-26T10:00:00Z", values: { name: "Cy", photos: [photo] } }],
+    });
+    render(<ScriptSubmissions scriptId="script-001" />);
+    const link = screen.getByRole("link", { name: "Site Logo.png" });
+    expect(link).toHaveAttribute("href", "/portal/resources/res-1");
+    expect(link).toHaveAttribute("title", photo.uri);
+    expect(screen.getByText("2 KiB")).toBeInTheDocument();
+  });
+
+  it("reads only a list of saved files as files", () => {
+    expect(submittedFiles([{ name: "a", content_type: "image/png", size: 1, resource_id: "r" }])).toHaveLength(1);
+    expect(submittedFiles(["a", "b"])).toBeNull();
+    expect(submittedFiles([])).toBeNull();
+    expect(submittedFiles("a")).toBeNull();
   });
 
   it("says when nothing has been submitted", () => {
