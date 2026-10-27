@@ -17,6 +17,7 @@ import (
 // the semantic context the platform catalog holds for the table: its owners
 // and tags as helpers.SeedCatalog wrote them.
 func TestTrinoToCatalogEnrichment(t *testing.T) {
+	helpers.NeedsServices(t)
 	cfg := helpers.DefaultE2EConfig()
 
 	ctx, cancel := helpers.TestContext(cfg.Timeout)

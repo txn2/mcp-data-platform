@@ -54,7 +54,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all migrate-check-diff build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
-	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags \
+	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
 	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -350,6 +350,18 @@ lint-fix:
 vet-tags:
 	@echo "Vetting the integration build..."
 	@$(GOVET) -tags=integration ./...
+
+## e2e-standalone: Run the test/e2e tests that need none of the e2e services (#2342)
+## The package is behind the integration tag, and only the E2E Nightly's
+## Real-dependency E2E job ran it, so #2337's deliberate 401-to-403 change
+## passed every gate and failed the nightly on TestAdminAPI_AuthEnforcement.
+## A test that needs the services make e2e-up starts calls
+## helpers.NeedsServices and is skipped here; every other test runs, in
+## make verify and in CI's test job. The metrics listener takes a free port so
+## a dev stack's Keycloak on 127.0.0.1:9090 does not refuse it on Linux.
+e2e-standalone:
+	@echo "Running the e2e tests that need no e2e service..."
+	@E2E_STANDALONE=1 OTEL_METRICS_ADDR=127.0.0.1:0 $(GOTEST) -count=1 -race -tags=integration -timeout 5m ./test/e2e/...
 
 ## fmt: Format code
 fmt:
@@ -686,7 +698,8 @@ endif
 ## instead (scripts/release-acceptance.sh starts the stack it needs).
 ## ACCEPTANCE_SHARD=i/N runs group i of N of the plain stack's criteria, split
 ## by ticket number, which is how the E2E Nightly runs the suite in N jobs at
-## once (#2218).
+## once (#2218). ACCEPTANCE_TICKETS=<n>,<n> runs those tickets' criteria,
+## which is how CI runs the criteria a pull request changes (#2341).
 # The recipe sets pipefail so a failed `go test` is not hidden by the evidence
 # splitter it pipes into. Make runs recipes with /bin/sh, which is bash on
 # macOS and dash on the Ubuntu runners, and dash has no pipefail, so every
@@ -698,6 +711,7 @@ acceptance:
 	@set -a; [ -f dev/.dev-ports.env ] && . ./dev/.dev-ports.env; set +a; \
 	echo "Running acceptance suite against $${MCP_BASE_URL:-http://localhost:$${DEV_PROXY_PORT:-$${DEV_API_PORT:-8080}}}..."; \
 	if [ -n "$(ISSUE)" ]; then run_flag="-run TestIssue$(ISSUE)_"; echo "  limited to #$(ISSUE)"; \
+	elif [ -n "$(ACCEPTANCE_TICKETS)" ]; then run_flag=$$(python3 scripts/acceptance-env.py flags "$(ACCEPTANCE_ENV)" --tickets "$(ACCEPTANCE_TICKETS)") || exit 1; echo "  limited to tickets $(ACCEPTANCE_TICKETS)"; \
 	elif [ -n "$(ACCEPTANCE_SHARD)" ]; then run_flag=$$(python3 scripts/acceptance-env.py flags "$(ACCEPTANCE_ENV)" --shard "$(ACCEPTANCE_SHARD)") || exit 1; echo "  group $(ACCEPTANCE_SHARD)"; \
 	else run_flag=$$(python3 scripts/acceptance-env.py flags "$(ACCEPTANCE_ENV)") || exit 1; fi; \
 	set -o pipefail; \
@@ -753,7 +767,10 @@ release-tag-check:
 ## release-check: Validate build, Docker, and release config
 release-check:
 	@echo "Running GoReleaser dry-run..."
-	goreleaser release --snapshot --clean --skip=publish,sign,sbom
+	@# A GITLAB_TOKEN or GITEA_TOKEN in the shell makes GoReleaser pick that
+	@# forge's client, and its homebrew step then blocks with no CPU and no
+	@# output; CI's runners carry neither. The dry run publishes nothing.
+	env -u GITLAB_TOKEN -u GITEA_TOKEN goreleaser release --snapshot --clean --skip=publish,sign,sbom
 
 ## swagger: Generate OpenAPI/Swagger documentation from annotations
 swagger:
@@ -935,6 +952,9 @@ verify:
 	@# wall clock buys a broken integration-tagged file being reported before
 	@# any of that begins (#1799).
 	@$(MAKE) --no-print-directory vet-tags
+	@# Then the tagged e2e tests that need no service, about twenty seconds:
+	@# vet-tags compiles them and nothing else in verify runs them (#2342).
+	@$(MAKE) --no-print-directory e2e-standalone
 	@# Then the diff-scoped gates that read the change rather than a coverage
 	@# profile (#1856): about fifteen seconds together. They used to run at the
 	@# END of verify-go, behind the full race+coverage unit run, so a finding

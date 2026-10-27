@@ -1,6 +1,7 @@
 # One acceptance run on the dev stack, the definition both callers use (#2274):
 # the E2E Nightly runs one per group of the suite, and CI runs one on a pull
-# request that changes how the stack starts or how the suite is launched. A
+# request that changes how the stack starts or how the suite is launched, and
+# one for the criteria a pull request changes (#2341). A
 # change to the setup is made here once, so the pull request's check and the
 # nightly cannot drift apart.
 #
@@ -18,6 +19,11 @@ on:
         type: string
       shard:
         description: The group of the plain stack's criteria, as N/M; empty for an environment.
+        required: false
+        type: string
+        default: ""
+      tickets:
+        description: The tickets whose criteria run, as n,n; empty for the shard or environment.
         required: false
         type: string
         default: ""
@@ -41,7 +47,7 @@ permissions:
 
 jobs:
   run:
-    name: ${{ inputs.environment }}${{ inputs.shard && format(' {0}', inputs.shard) || '' }}
+    name: ${{ inputs.environment }}${{ inputs.shard && format(' {0}', inputs.shard) || '' }}${{ inputs.tickets && format(' {0}', inputs.tickets) || '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -85,6 +91,7 @@ jobs:
         env:
           ACCEPTANCE_ENV: ${{ inputs.environment }}
           ACCEPTANCE_SHARD: ${{ inputs.shard }}
+          ACCEPTANCE_TICKETS: ${{ inputs.tickets }}
           ACCEPTANCE_SMOKE: ${{ inputs.smoke && '1' || '' }}
           ACCEPTANCE_TIMEOUT: 75m
         run: bash scripts/release-acceptance.sh 2>&1 | tee nightly-output-acceptance-${{ inputs.id }}.txt

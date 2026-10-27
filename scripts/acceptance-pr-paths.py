@@ -10,14 +10,21 @@ acceptance group on a pull request this answers "true" for.
 
 Reads the changed paths, one per line, on stdin. Prints "true" when one of
 them is the stack or the suite's harness, "false" otherwise. A criterion of
-one ticket (test/acceptance/issue_<n>_test.go) is not the harness: it runs in
-the nightly like any other.
+one ticket (test/acceptance/issue_<n>_test.go) is not the harness.
+
+With --tickets it prints instead the tickets whose criteria file the pull
+request changed and still holds, comma-separated (empty for none), and CI
+runs those criteria on a fresh stack (#2341). They were otherwise run only on
+the author's machine before merge, against whatever its .env set: #2179's
+criteria passed there with a field-encryption key the runners never had, and
+failed the first nightly after the merge.
 """
 
 from __future__ import annotations
 
 import re
 import sys
+from pathlib import Path
 
 # The paths that decide how the stack starts and the suite is launched.
 STACK_PATHS = (
@@ -30,6 +37,17 @@ STACK_PATHS = (
 )
 
 
+# A ticket's criteria file.
+CRITERIA = re.compile(r"^test/acceptance/issue_(\d+)_test\.go$")
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def changed_tickets(paths: list[str], root: Path = ROOT) -> list[int]:
+    """The tickets whose criteria file is among paths and still exists."""
+    found = {int(m.group(1)) for path in paths if (m := CRITERIA.match(path)) and (root / path).is_file()}
+    return sorted(found)
+
+
 def touches_stack(paths: list[str]) -> bool:
     """Whether any of paths is one STACK_PATHS names."""
     return any(p.search(path) for path in paths for p in STACK_PATHS)
@@ -37,7 +55,10 @@ def touches_stack(paths: list[str]) -> bool:
 
 def main() -> int:
     paths = [line.strip() for line in sys.stdin if line.strip()]
-    print("true" if touches_stack(paths) else "false")
+    if sys.argv[1:] == ["--tickets"]:
+        print(",".join(str(n) for n in changed_tickets(paths)))
+    else:
+        print("true" if touches_stack(paths) else "false")
     return 0
 
 

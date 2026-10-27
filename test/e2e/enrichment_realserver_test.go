@@ -39,6 +39,7 @@ const (
 var enrichDatasetRef = helpers.DatasetRef(helpers.TestOrdersPath).String()
 
 func TestEnrichment_RealAssembledServer(t *testing.T) {
+	helpers.NeedsServices(t)
 	cfg := helpers.DefaultE2EConfig()
 	ctx, cancel := helpers.TestContext(cfg.Timeout)
 	defer cancel()

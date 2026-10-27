@@ -8,7 +8,8 @@
                 -run its criteria. --shard runs the plain stack's group i of N:
                 the tickets in test/acceptance, sorted by number and dealt
                 round robin, so the E2E Nightly runs the suite in N jobs at once
-                (#2218).
+                (#2218). --tickets n,n runs those tickets' plain-stack criteria,
+                which is how CI runs the criteria a pull request changes (#2341).
   vars <env>    the dev stack's variables for env, one NAME=value per line.
   services <env>  the services the run starts beside the stack, one per line.
   nightly       the environments the E2E Nightly runs, one per line.
@@ -101,14 +102,26 @@ def shard(spec: str, numbers: list[int]) -> list[int]:
     return numbers[index::count]
 
 
+def group_flags(envs: list[Environment], group: list[int]) -> str:
+    """The plain stack's flags limited to the criteria of the tickets in group."""
+    run = "-run " + shlex.quote("^TestIssue(" + "|".join(str(n) for n in group) + ")_")
+    skip = flags(envs, DEV)
+    return f"{run} {skip}".strip()
+
+
 def shard_flags(envs: list[Environment], spec: str) -> str:
     """The plain stack's flags limited to one group of tickets."""
     group = shard(spec, tickets(MANIFEST.parent))
     if not group:
         raise SystemExit(f"acceptance: shard {spec} holds no ticket")
-    run = "-run " + shlex.quote("^TestIssue(" + "|".join(str(n) for n in group) + ")_")
-    skip = flags(envs, DEV)
-    return f"{run} {skip}".strip()
+    return group_flags(envs, group)
+
+
+def ticket_flags(envs: list[Environment], spec: str) -> str:
+    """The plain stack's flags limited to the tickets a spec written n,n names."""
+    if not re.fullmatch(r"\d+(,\d+)*", spec):
+        raise SystemExit(f"acceptance: tickets {spec!r} is not n,n,...")
+    return group_flags(envs, sorted({int(n) for n in spec.split(",")}))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -117,14 +130,17 @@ def main(argv: list[str] | None = None) -> int:
     flags_cmd = sub.add_parser("flags")
     flags_cmd.add_argument("env", nargs="?", default="")
     flags_cmd.add_argument("--shard", default="")
+    flags_cmd.add_argument("--tickets", default="")
     sub.add_parser("vars").add_argument("env")
     sub.add_parser("services").add_argument("env")
     sub.add_parser("nightly")
     args = parser.parse_args(argv)
     envs = load()
-    if args.command == "flags" and args.shard:
-        if args.env not in ("", DEV):
-            raise SystemExit(f"acceptance: --shard splits the plain stack's criteria, not {args.env}'s")
+    if args.command == "flags" and (args.shard or args.tickets) and args.env not in ("", DEV):
+        raise SystemExit(f"acceptance: --shard and --tickets select the plain stack's criteria, not {args.env}'s")
+    if args.command == "flags" and args.tickets:
+        print(ticket_flags(envs, args.tickets))
+    elif args.command == "flags" and args.shard:
         print(shard_flags(envs, args.shard))
     elif args.command == "flags":
         print(flags(envs, args.env))
