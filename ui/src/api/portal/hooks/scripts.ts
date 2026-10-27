@@ -258,6 +258,9 @@ export interface ScriptContract {
   enabled: boolean;
   // exclusive is off, refuse or queue (#1986, #2209); absent from an older server.
   exclusive?: ExclusiveMode;
+  // event_source is the webhook source the script runs for (#2332); absent
+  // when it runs for none.
+  event_source?: string;
   params: ScriptParam[];
   // version is the version a run executes: the latest saved one.
   version: number;
@@ -353,6 +356,14 @@ export {
   type ScriptExclusiveOutcome,
 } from "./scriptExclusive";
 import type { ExclusiveMode } from "./scriptExclusive";
+
+// The webhook source a script runs for (#2332) lives in scriptEvents.ts.
+export {
+  useScriptEventSummary,
+  useSetScriptEventSource,
+  type ScriptEventSummary,
+  type ScriptEventSourceOutcome,
+} from "./scriptEvents";
 
 export type {
   PortalScriptRow,

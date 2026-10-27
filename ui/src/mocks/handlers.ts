@@ -1950,7 +1950,7 @@ export const handlers = [
     return HttpResponse.json(insight);
   }),
 
-  http.get(`${ADMIN_BASE}/knowledge/changesets`, ({ request }) => {
+  http.get(`${PORTAL_BASE}/knowledge/changesets`, ({ request }) => {
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get("page") ?? "1", 10);
     const perPage = parseInt(url.searchParams.get("per_page") ?? "20", 10);
@@ -1979,13 +1979,13 @@ export const handlers = [
     });
   }),
 
-  http.get(`${ADMIN_BASE}/knowledge/changesets/:id`, ({ params }) => {
+  http.get(`${PORTAL_BASE}/knowledge/changesets/:id`, ({ params }) => {
     const changeset = mockChangesets.find((c) => c.id === params["id"]);
     if (!changeset) return new HttpResponse(null, { status: 404 });
     return HttpResponse.json(changeset);
   }),
 
-  http.post(`${ADMIN_BASE}/knowledge/changesets/:id/rollback`, ({ params }) => {
+  http.post(`${PORTAL_BASE}/knowledge/changesets/:id/rollback`, ({ params }) => {
     const changeset = mockChangesets.find((c) => c.id === params["id"]);
     if (!changeset) return new HttpResponse(null, { status: 404 });
 

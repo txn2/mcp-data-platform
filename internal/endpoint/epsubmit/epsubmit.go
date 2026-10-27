@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcollect"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/tablexlsx"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
@@ -268,20 +269,32 @@ func writeCSV(header []string, rows [][]any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// cell is a value as an export cell: a list of choices joined, everything
-// else as it is.
+// cell is a value as an export cell: a list of choices joined, each file a
+// submission carried (#2333) as its name and the address it was saved at,
+// everything else as it is.
 func cell(v any) any {
 	switch t := v.(type) {
 	case []any:
 		parts := make([]string, 0, len(t))
 		for _, item := range t {
-			parts = append(parts, fmt.Sprint(item))
+			parts = append(parts, itemText(item))
 		}
 		return strings.Join(parts, "; ")
 	case nil:
 		return ""
 	}
 	return v
+}
+
+// itemText is one item of a list value: a saved file's name and address, or
+// the item as it prints.
+func itemText(item any) string {
+	if f, ok := item.(map[string]any); ok {
+		if uri, ok := f[epform.FileKeyURI].(string); ok {
+			return fmt.Sprintf("%v <%s>", f[epform.FileKeyName], uri)
+		}
+	}
+	return fmt.Sprint(item)
 }
 
 // csvText is a cell as CSV text. A value a spreadsheet would read as a

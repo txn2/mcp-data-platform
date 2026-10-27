@@ -130,6 +130,8 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	// read, so a reset between creation and execution fails the run at its
 	// write instead of silently changing what it computed.
 	opts.State = run.StateRead
+	// The event an event run was enqueued for (#2332), from its own row.
+	opts.Event = run.Event
 	opts.Caller = caller
 	opts.Tokens = r.tokens.Bind(scripttoken.Binding{ScriptID: sc.ID}, v.AuthorRoles)
 	opts.Destinations = r.destinations
@@ -179,7 +181,7 @@ func (r *runner) record(opts *scriptrun.Options) *scriptrec.Recorder {
 		return nil
 	}
 	rec := scriptrec.NewRecorder(scriptrec.Header{
-		RunID: opts.RunID, FireTime: opts.FireTime, Params: opts.Params, State: opts.State,
+		RunID: opts.RunID, FireTime: opts.FireTime, Params: opts.Params, State: opts.State, Event: opts.Event,
 		RunURL: opts.RunURL, MaxRows: opts.MaxRows, Preview: opts.Exporter == nil,
 		Files: scriptres.PinsOf(opts.Libraries),
 	})

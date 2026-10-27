@@ -44,17 +44,42 @@ func (r *Runner) invocationFor(ctx context.Context, t *Target, req Request, reqV
 	if req.Method == http.MethodGet || req.Method == http.MethodHead {
 		return &invocation{name: epform.SpecName, args: starlark.Tuple{reqValue}, respond: r.specResponse(t)}, nil
 	}
-	spec, values, refusal := r.checkSubmission(t, req)
+	ok, refusal := r.checkSubmission(t, req)
 	if refusal != nil {
 		return nil, refusal
 	}
-	sv, err := starlarkconv.ToStarlark(values)
+	sub := submission{target: t, req: req, spec: ok.spec, values: ok.values}
+	if refusal := r.prepareFiles(ctx, &sub, ok.uploads); refusal != nil {
+		return nil, refusal
+	}
+	sv, err := starlarkconv.ToStarlark(ok.values)
 	if err != nil {
 		resp := errorResponse(http.StatusBadRequest, "the submission could not be read")
 		return nil, &resp
 	}
-	sub := submission{target: t, req: req, spec: spec, values: values}
 	return &invocation{name: epform.SubmitName, args: starlark.Tuple{reqValue, sv}, respond: r.submitResponse(ctx, sub)}, nil
+}
+
+// prepareFiles names where a submission's files will be saved before
+// form_submit is handed their addresses (#2333), or the response that
+// refuses it: 422 for a file the platform does not store, 503 when they
+// cannot be saved here.
+func (r *Runner) prepareFiles(ctx context.Context, sub *submission, uploads []epform.Upload) *Response {
+	if len(uploads) == 0 {
+		return nil
+	}
+	cs := sub.collected()
+	fieldErrs, err := r.collector().Prepare(ctx, &cs, uploads)
+	switch {
+	case err != nil:
+		resp := errorResponse(http.StatusServiceUnavailable, "the submission's files cannot be saved: "+err.Error())
+		return &resp
+	case len(fieldErrs) > 0:
+		resp := jsonResponse(http.StatusUnprocessableEntity, map[string]any{keyErrors: fieldErrs})
+		return &resp
+	}
+	sub.eventID, sub.receivedAt, sub.files = cs.EventID, cs.ReceivedAt, cs.Files
+	return nil
 }
 
 // handlerResponse is what handle(req) returned as the response, or 500 for
@@ -67,14 +92,22 @@ func handlerResponse(v starlark.Value) (Response, error) {
 	return resp, nil
 }
 
-// checkSubmission is the spec a submission's token carries and its checked
-// values, or the response that refuses it: 400 for one refused whole, 422
+// checked is a submission that passed its spec: the spec its token carried,
+// its values, and the files it carries.
+type checked struct {
+	spec    epform.Spec
+	values  map[string]any
+	uploads []epform.Upload
+}
+
+// checkSubmission is a submission checked against the spec its token
+// carries, or the response that refuses it: 400 for one refused whole, 422
 // with the fields it got wrong.
-func (r *Runner) checkSubmission(t *Target, req Request) (epform.Spec, map[string]any, *Response) {
-	submitted, err := epform.Values(req.Header.Get(headerContentType), req.Body)
+func (r *Runner) checkSubmission(t *Target, req Request) (checked, *Response) {
+	submitted, uploads, err := epform.Read(req.Header.Get(headerContentType), req.Body)
 	if err != nil {
 		resp := errorResponse(http.StatusBadRequest, err.Error())
-		return epform.Spec{}, nil, &resp
+		return checked{}, &resp
 	}
 	now := r.now()
 	token := ""
@@ -84,18 +117,18 @@ func (r *Runner) checkSubmission(t *Target, req Request) (epform.Spec, map[strin
 	spec, issued, err := epform.Open(r.FormKey, t.Binding.Name, token, now)
 	if err != nil {
 		resp := errorResponse(http.StatusBadRequest, err.Error())
-		return epform.Spec{}, nil, &resp
+		return checked{}, &resp
 	}
-	values, fieldErrs, err := epform.Check(spec, issued, submitted, now)
+	values, fieldErrs, err := epform.Check(spec, issued, submitted, uploads, now)
 	switch {
 	case err != nil:
 		resp := errorResponse(http.StatusBadRequest, err.Error())
-		return epform.Spec{}, nil, &resp
+		return checked{}, &resp
 	case len(fieldErrs) > 0:
 		resp := jsonResponse(http.StatusUnprocessableEntity, map[string]any{keyErrors: fieldErrs})
-		return epform.Spec{}, nil, &resp
+		return checked{}, &resp
 	}
-	return spec, values, nil
+	return checked{spec: spec, values: values, uploads: uploads}, nil
 }
 
 // specResponse answers a GET with the spec form_spec returned, checked, and
@@ -103,8 +136,8 @@ func (r *Runner) checkSubmission(t *Target, req Request) (epform.Spec, map[strin
 func (r *Runner) specResponse(t *Target) func(starlark.Value) (Response, error) {
 	return func(v starlark.Value) (Response, error) {
 		spec, err := epform.SpecFrom(v)
-		if err == nil && len(spec.Sensitive()) > 0 && !r.collector().CanSeal() {
-			err = epcollect.ErrCannotSeal
+		if err == nil {
+			err = r.storable(spec)
 		}
 		if err != nil {
 			return errorResponse(http.StatusInternalServerError, "the form's spec is not one this platform renders"), err
@@ -135,13 +168,45 @@ func (r *Runner) submitResponse(ctx context.Context, sub submission) func(starla
 	}
 }
 
+// storable reports what stops this deployment storing the spec's
+// submissions: a sensitive field with no key to encrypt it, or a file field
+// with nowhere to save its files or a max_bytes past the upload limit.
+func (r *Runner) storable(spec epform.Spec) error {
+	c := r.collector()
+	switch {
+	case len(spec.Sensitive()) > 0 && !c.CanSeal():
+		return epcollect.ErrCannotSeal
+	case !spec.HasFiles():
+		return nil
+	case !c.CanSaveFiles():
+		return epcollect.ErrCannotSaveFiles
+	}
+	return spec.CheckUploads(c.MaxFileBytes) //nolint:wrapcheck // the spec's own words
+}
+
 // submission is a submission that passed its spec, on its way to form_submit
-// and, accepted, to the form's source.
+// and, accepted, to the form's source: with files, the event Prepare named
+// and the files Store saves.
 type submission struct {
-	target *Target
-	req    Request
-	spec   epform.Spec
-	values map[string]any
+	target     *Target
+	req        Request
+	spec       epform.Spec
+	values     map[string]any
+	eventID    string
+	receivedAt time.Time
+	files      []epcollect.File
+}
+
+// collected is the submission as the collector stores it.
+func (s submission) collected() epcollect.Submission {
+	out := epcollect.Submission{
+		ScriptID: s.target.Script.ID, Endpoint: s.target.Binding.Name, Version: s.target.Version.Version,
+		Spec: s.spec, Values: s.values, EventID: s.eventID, ReceivedAt: s.receivedAt, Files: s.files,
+	}
+	if s.req.Caller != nil {
+		out.Submitter = &epcollect.Submitter{UserID: s.req.Caller.UserID, Email: s.req.Caller.Email, AuthType: s.req.Caller.AuthType}
+	}
+	return out
 }
 
 // store writes an accepted submission to its form's source and returns the
@@ -153,14 +218,7 @@ func (r *Runner) store(ctx context.Context, s submission, accepted Response) (Re
 	if c == nil {
 		return accepted, nil
 	}
-	sub := epcollect.Submission{
-		ScriptID: s.target.Script.ID, Endpoint: s.target.Binding.Name, Version: s.target.Version.Version,
-		Spec: s.spec, Values: s.values,
-	}
-	if s.req.Caller != nil {
-		sub.Submitter = &epcollect.Submitter{UserID: s.req.Caller.UserID, Email: s.req.Caller.Email, AuthType: s.req.Caller.AuthType}
-	}
-	if err := c.Store(ctx, sub); err != nil {
+	if err := c.Store(ctx, s.collected()); err != nil {
 		resp := errorResponse(http.StatusServiceUnavailable, "the submission could not be stored; send it again")
 		if ra, ok := errors.AsType[retryable](err); ok && ra.RetryAfter() > 0 {
 			resp.Header.Set("Retry-After", strconv.Itoa(ra.RetryAfter()))

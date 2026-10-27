@@ -39,6 +39,13 @@ func GetUser(ctx context.Context) *User {
 	return u
 }
 
+// ContextWithUser returns a copy of ctx carrying user, the value GetUser
+// reads. A route served outside RequirePersona that calls an admin handler
+// (the portal's changesets, #2337) names its caller with it.
+func ContextWithUser(ctx context.Context, user *User) context.Context {
+	return context.WithValue(ctx, adminUserKey, user)
+}
+
 // Authenticator validates admin credentials.
 type Authenticator interface {
 	Authenticate(r *http.Request) (*User, error)
@@ -137,10 +144,18 @@ func WithBrowserSessionAuth(ba *browsersession.Authenticator) PlatformAuthOption
 	}
 }
 
+// ErrNotAdmin is a request whose session or token is valid but whose roles
+// are not the admin persona's. RequirePersona answers it 403, never 401: a
+// 401 tells the portal its session expired, and a signed-in caller sent back
+// to sign in is signed in again at once and refused again (#2337).
+var ErrNotAdmin = errors.New("administrator access required")
+
 // Authenticate extracts credentials from the HTTP request, delegates to the
 // platform authenticator, then checks that the resolved persona matches
 // the admin persona. It checks browser session cookies first, then falls
-// back to token-based authentication.
+// back to token-based authentication. A credential that authenticates a
+// caller who is not the admin persona is ErrNotAdmin once neither the cookie
+// nor the token admits the request.
 func (pa *PlatformAuthenticator) Authenticate(r *http.Request) (*User, error) {
 	// Try cookie-based auth first (browser sessions). A CSRF failure on an
 	// otherwise-valid admin cookie is deferred, not fatal: a CSRF-exempt
@@ -158,15 +173,19 @@ func (pa *PlatformAuthenticator) Authenticate(r *http.Request) (*User, error) {
 	}
 	// No token authenticated the request. If a cookie was present but failed
 	// CSRF, surface that rejection (→ 403) rather than a bare 401.
-	if csrfErr != nil {
+	if csrfErr != nil && !errors.Is(csrfErr, ErrNotAdmin) {
 		return nil, csrfErr
 	}
-	return tokenUser, tokenErr
+	if tokenErr != nil {
+		return nil, tokenErr
+	}
+	return nil, csrfErr
 }
 
 // authenticateViaCookie tries browser session cookie auth and verifies the
 // user has the admin persona. It returns (nil, nil) when there is no valid
-// admin cookie, and (nil, ErrCSRFInvalid) when a valid admin cookie is
+// session cookie, (nil, ErrNotAdmin) for a valid session that is not the
+// admin persona's, and (nil, ErrCSRFInvalid) when a valid admin cookie is
 // present on a state-changing request that lacks a valid CSRF token.
 func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) (*User, error) {
 	if pa.browserAuth == nil {
@@ -179,7 +198,7 @@ func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) (*User, 
 	// The one admin rule (#2228): an external persona carrying the
 	// administrator's name administers nothing (#2257).
 	if !pa.registry.AdminRule(pa.adminPersona)(info.Roles) {
-		return nil, nil //nolint:nilnil // cookie user is not admin persona
+		return nil, ErrNotAdmin
 	}
 	// The request is authenticated by a cookie the browser attached
 	// automatically; enforce CSRF on state-changing methods.
@@ -190,7 +209,8 @@ func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) (*User, 
 }
 
 // authenticateViaToken extracts a token from headers, validates it, and
-// verifies the user has the admin persona.
+// verifies the user has the admin persona: (nil, nil) for no valid token,
+// (nil, ErrNotAdmin) for a valid one that is not the admin persona's.
 func (pa *PlatformAuthenticator) authenticateViaToken(r *http.Request) (*User, error) {
 	token := extractToken(r)
 	if token == "" {
@@ -211,7 +231,7 @@ func (pa *PlatformAuthenticator) authenticateViaToken(r *http.Request) (*User, e
 	}
 
 	if !pa.registry.AdminRule(pa.adminPersona)(info.Roles) {
-		return nil, nil //nolint:nilnil // user authenticated but not admin persona
+		return nil, ErrNotAdmin
 	}
 
 	return &User{
@@ -242,6 +262,10 @@ func RequirePersona(auth Authenticator) func(http.Handler) http.Handler {
 			if err != nil {
 				if errors.Is(err, browsersession.ErrCSRFInvalid) {
 					writeError(w, http.StatusForbidden, "invalid or missing CSRF token")
+					return
+				}
+				if errors.Is(err, ErrNotAdmin) {
+					writeError(w, http.StatusForbidden, ErrNotAdmin.Error())
 					return
 				}
 				// A caller authenticated in process whose roles miss the persona (#2086).

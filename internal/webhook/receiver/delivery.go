@@ -1,6 +1,7 @@
 package receiver
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -134,6 +135,11 @@ func (r *Receiver) senderGone(d delivery, bt *batch) {
 			attrs = append(attrs, logKeyError, logsan.SanitizeForLog(res.err.Error()))
 		}
 		r.cfg.Logger.Warn("webhooks: write for a disconnected sender finished", attrs...)
+		if res.err == nil {
+			// The events are stored though the sender left, so their runs
+			// are owed (#2332).
+			r.stored(context.Background(), d.source, d.events)
+		}
 	}()
 }
 
@@ -155,4 +161,26 @@ func (r *Receiver) observeAck(source string, total time.Duration, st stages) {
 type latencyKey struct {
 	source string
 	minute time.Time
+}
+
+// StoredFunc is told a source's events once they are durable: the hook the
+// runs of an automation naming the source are enqueued through (#2332).
+type StoredFunc func(ctx context.Context, source string, events []whevent.Event)
+
+// SetStored is what is told each stored delivery from here on; it is set
+// after the receiver is built, before it serves. Nil tells nothing.
+func (r *Receiver) SetStored(fn StoredFunc) {
+	r.mu.Lock()
+	r.onStored = fn
+	r.mu.Unlock()
+}
+
+// stored tells the hook, if any, that events of source are durable.
+func (r *Receiver) stored(ctx context.Context, source string, events []whevent.Event) {
+	r.mu.RLock()
+	fn := r.onStored
+	r.mu.RUnlock()
+	if fn != nil && len(events) > 0 {
+		fn(ctx, source, events)
+	}
 }

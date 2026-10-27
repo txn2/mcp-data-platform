@@ -8,7 +8,6 @@ import { apiFetch } from "../client";
 import type {
   InsightListResponse,
   InsightStats,
-  ChangesetListResponse,
   ToolSchemaMap,
   ToolCallRequest,
   ToolCallResponse,
@@ -19,7 +18,7 @@ import type {
 import { REFETCH_INTERVAL } from "./shared";
 
 // ---------------------------------------------------------------------------
-// Knowledge — Insights & Changesets
+// Knowledge — Insights
 // ---------------------------------------------------------------------------
 
 interface InsightsParams {
@@ -83,47 +82,6 @@ export function useUpdateInsightStatus() {
       apiFetch(`/knowledge/insights/${id}/status`, {
         method: "PUT",
         body: JSON.stringify({ status, review_notes: reviewNotes }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["knowledge"] });
-    },
-  });
-}
-
-interface ChangesetsParams {
-  page?: number;
-  perPage?: number;
-  entityUrn?: string;
-  appliedBy?: string;
-  rolledBack?: string;
-}
-
-export function useChangesets(params: ChangesetsParams = {}) {
-  const searchParams = new URLSearchParams();
-  if (params.page) searchParams.set("page", String(params.page));
-  if (params.perPage) searchParams.set("per_page", String(params.perPage));
-  if (params.entityUrn) searchParams.set("entity_urn", params.entityUrn);
-  if (params.appliedBy) searchParams.set("applied_by", params.appliedBy);
-  if (params.rolledBack) searchParams.set("rolled_back", params.rolledBack);
-
-  const qs = searchParams.toString();
-  return useQuery({
-    queryKey: ["knowledge", "changesets", params],
-    queryFn: () =>
-      apiFetch<ChangesetListResponse>(
-        `/knowledge/changesets${qs ? `?${qs}` : ""}`,
-      ),
-    refetchInterval: REFETCH_INTERVAL,
-    placeholderData: keepPreviousData,
-  });
-}
-
-export function useRollbackChangeset() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/knowledge/changesets/${id}/rollback`, {
-        method: "POST",
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["knowledge"] });

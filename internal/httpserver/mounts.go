@@ -11,11 +11,11 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/changesethttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessgate"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/adminwire"
@@ -730,16 +730,7 @@ func AdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Hand
 	deps.Embedder = p.EmbeddingProvider()
 	adminwire.StoreDeps(&deps, p)
 
-	if p.KnowledgeInsightStore() != nil {
-		deps.Knowledge = admin.NewKnowledgeHandler(
-			p.KnowledgeInsightStore(),
-			p.KnowledgeChangesetStore(),
-			p.KnowledgeCatalog(),
-			p.PortalKnowledgePageStore(),
-			agentinstructions.New(p.ConfigStore(), p.FileDefaults(), platform.ConfigKeyServerAgentInstructions),
-			p.QueryProvider(),
-		)
-	}
+	deps.Knowledge = changesethttp.KnowledgeHandler(p)
 
 	if p.APIKeyAuthenticator() != nil {
 		deps.APIKeyManager = p.APIKeyAuthenticator()

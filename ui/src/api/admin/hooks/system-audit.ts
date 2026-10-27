@@ -114,11 +114,14 @@ export function useAuditEvent(eventId: string | null) {
   });
 }
 
-export function useAuditFilters() {
+// useAuditFilters reads the audit filter facets, an administrator's read.
+// `enabled` lets a surface shown to others mount it without a refused call.
+export function useAuditFilters(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["audit", "filters"],
     queryFn: () => apiFetch<AuditFiltersResponse>("/audit/events/filters"),
     staleTime: 60_000,
+    enabled: options?.enabled ?? true,
   });
 }
 

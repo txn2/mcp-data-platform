@@ -42,6 +42,9 @@ type Contract struct {
 	// Exclusive is whether the script's runs may overlap: off, refuse or
 	// queue (#1986, #2209).
 	Exclusive runstate.ExclusiveMode `json:"exclusive"`
+	// EventSource is the webhook source the script runs for (#2332), empty
+	// when it runs for none.
+	EventSource string `json:"event_source,omitempty"`
 
 	// Params is the typed parameter contract a run binds against: the live
 	// record's, which is the latest saved version's.
@@ -376,6 +379,7 @@ func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 		Status:      sc.Status,
 		Enabled:     sc.Enabled,
 		Exclusive:   sc.Exclusive,
+		EventSource: sc.EventSource,
 		Params:      sc.Params,
 		Version:     sc.Version,
 		Refusal:     refusalText(RefuseRun(sc)),

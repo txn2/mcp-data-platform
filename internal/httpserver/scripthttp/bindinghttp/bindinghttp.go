@@ -67,7 +67,7 @@ type bindingRequest struct {
 // get returns the script's binding.
 //
 // @Summary      Get a script's endpoint
-// @Description  Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, access mode (authenticated, public or bot_check), the callers an authenticated endpoint admits, the bot check a bot_check endpoint names and the methods it checks, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. A form (is_form) reports where its submissions are stored (form: source, table, connection, decrypt_personas) or, before its source is made, the connections it could be made on (form_connections). Restricted to the script's owner and to administrators.
+// @Description  Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, access mode (authenticated, public or bot_check), the callers an authenticated endpoint admits, the bot check a bot_check endpoint names and the methods it checks, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. A form (is_form) reports where its submissions are stored (form: source, table, connection, decrypt_personas) or, before its source is made, the connections it could be made on (form_connections), and a bound form its hosted page (page_url, #2331), which a site frames when allowed_origins lists it. Restricted to the script's owner and to administrators.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"

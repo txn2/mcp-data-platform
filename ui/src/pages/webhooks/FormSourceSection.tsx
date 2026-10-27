@@ -20,7 +20,7 @@ export function FormSourceSection({ form }: { form: WebhookFormBinding }) {
         </div>
         <div>
           <dt className="text-muted-foreground">Form page</dt>
-          <dd className="font-mono">/portal/forms/{form.endpoint}</dd>
+          <dd className="font-mono">/forms/{form.endpoint}</dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Decrypt personas</dt>

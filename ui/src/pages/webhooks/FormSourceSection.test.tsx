@@ -9,7 +9,7 @@ describe("FormSourceSection", () => {
     render(<FormSourceSection form={{ script_id: "scr_1", endpoint: "contact", decrypt_personas: ["credit", "ops"] }} />);
     expect(screen.getByRole("heading", { name: "Form" })).toBeInTheDocument();
     expect(screen.getByText("/endpoints/contact")).toBeInTheDocument();
-    expect(screen.getByText("/portal/forms/contact")).toBeInTheDocument();
+    expect(screen.getByText("/forms/contact")).toBeInTheDocument();
     expect(screen.getByText("credit, ops")).toBeInTheDocument();
   });
 

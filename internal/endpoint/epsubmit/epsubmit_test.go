@@ -227,4 +227,10 @@ func TestTimeOf(t *testing.T) {
 	assert.Equal(t, "5", text(5))
 	assert.Empty(t, cell(nil))
 	assert.Equal(t, "true", csvText(true))
+	// #2333: a file is exported as its name and the address it was saved at.
+	files := []any{
+		map[string]any{"name": "logo.png", "uri": "mcp://persona/admin/a/logo.png", "size": 3},
+		map[string]any{"name": "unsaved.png"},
+	}
+	assert.Equal(t, "logo.png <mcp://persona/admin/a/logo.png>; map[name:unsaved.png]", cell(files))
 }

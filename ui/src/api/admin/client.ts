@@ -23,15 +23,46 @@ class ApiError extends Error {
 // upstream OAuth flow) doesn't get lost. API-key-mode users get the
 // store flag flipped — their key is server-side invalid, the login
 // form re-renders with "your session has expired" and they re-enter.
+//
+// A 401 that arrives within SIGN_IN_LOOP_WINDOW_MS of the last redirect
+// came right after a sign-in that just completed, so the session is not
+// what failed: the server refused the fresh session itself. Sending the
+// browser back would sign it in again at once and repeat forever (#2337),
+// so the call fails where it was made instead.
 function handleUnauthorized(): void {
   const { authMethod } = useAuthStore.getState();
+  if (authMethod === "cookie" && redirectedForSignInRecently()) {
+    return;
+  }
   useAuthStore.getState().expireSession();
 
   if (authMethod !== "cookie") {
     return;
   }
 
+  markSignInRedirect();
   window.location.replace(buildLoginURL());
+}
+
+// SIGN_IN_REDIRECT_KEY holds when the last 401 sent the browser to sign in.
+const SIGN_IN_REDIRECT_KEY = "mcp-portal-sign-in-redirect-at";
+const SIGN_IN_LOOP_WINDOW_MS = 60_000;
+
+function markSignInRedirect(): void {
+  try {
+    sessionStorage.setItem(SIGN_IN_REDIRECT_KEY, String(Date.now()));
+  } catch {
+    // Without storage the guard is off and a 401 redirects as before.
+  }
+}
+
+function redirectedForSignInRecently(): boolean {
+  try {
+    const at = Number(sessionStorage.getItem(SIGN_IN_REDIRECT_KEY));
+    return at > 0 && Date.now() - at < SIGN_IN_LOOP_WINDOW_MS;
+  } catch {
+    return false;
+  }
 }
 
 // apiFetchAt is the shared authenticated JSON fetch. It attaches the

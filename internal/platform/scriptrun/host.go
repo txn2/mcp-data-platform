@@ -423,9 +423,25 @@ func (h *hostState) runRecord(paramValues, stateValues map[string]any) *starlark
 		"fire_time": starlark.String(h.opts.FireTime.UTC().Format(scriptdate.TimeLayout)),
 		"params":    params,
 		"state":     state,
+		"event":     eventValue(h.opts.Event),
 	})
 	rec.Freeze()
 	return rec
+}
+
+// eventValue is the event an event run carries as run.event (#2332), None
+// for every other run. It was decoded from JSON when the run was created, so
+// a value it cannot convert is a defect in the store, and reads as None
+// rather than failing the run with a message no author can act on.
+func eventValue(event map[string]any) starlark.Value {
+	if event == nil {
+		return starlark.None
+	}
+	v, err := starlarkconv.ToStarlark(event)
+	if err != nil {
+		return starlark.None
+	}
+	return v
 }
 
 // query implements platform.query: bind the parameters, issue one tool call

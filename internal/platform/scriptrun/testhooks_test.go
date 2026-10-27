@@ -127,7 +127,7 @@ def test_main():
 	})
 	require.NoError(t, err)
 	assert.Contains(t, res.Log, `{"p": "recorded"} {} r1`)
-	assert.Contains(t, res.Log, `struct ["fire_time", "params", "run_id", "state"] True True`, "the type a run reads")
+	assert.Contains(t, res.Log, `struct ["event", "fire_time", "params", "run_id", "state"] True True`, "the type a run reads")
 	assert.Contains(t, res.Log, `{"p": "given"} {"last": 2} r1`)
 	assert.Contains(t, res.Log, "none")
 

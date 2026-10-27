@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { useChangesets, useAuditFilters } from "@/api/admin/hooks";
+import { useAuditFilters } from "@/api/admin/hooks";
+import { useChangesets } from "@/api/portal/hooks";
 import type { Changeset } from "@/api/admin/types";
 import { FilterSelect } from "@/components/patterns/FilterSelect";
 import { Pager } from "@/components/patterns/Pager";
@@ -7,6 +8,7 @@ import { SearchInput } from "@/components/patterns/SearchInput";
 import { ChangesetDrawer } from "./ChangesetDrawer";
 import { ChangesetsTable } from "./ChangesetsTable";
 import { PER_PAGE } from "./helpers";
+import { useAuthStore } from "@/stores/auth";
 
 const ROLLED_BACK_OPTIONS = [
   { value: "", label: "All" },
@@ -19,7 +21,10 @@ export function ChangesetsTab() {
   const [entityUrnFilter, setEntityUrnFilter] = useState("");
   const [rolledBackFilter, setRolledBackFilter] = useState("");
   const [selectedChangeset, setSelectedChangeset] = useState<Changeset | null>(null);
-  const { data: filters } = useAuditFilters();
+  // The audit filters name each user; they are an administrator's read, so
+  // anyone else sees the changesets with their raw user ids (#2337).
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const { data: filters } = useAuditFilters({ enabled: isAdmin });
   const ul = filters?.user_labels ?? {};
 
   const params = useMemo(

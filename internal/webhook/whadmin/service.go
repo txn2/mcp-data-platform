@@ -375,7 +375,7 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 			return err
 		}
 	}
-	if src.IsIMAP() {
+	if src.IsIMAP() || src.IsForm() {
 		if err := s.deps.Resources.DeleteAttachments(ctx, src); err != nil {
 			return fmt.Errorf("deleting the source's attachments: %w", err)
 		}

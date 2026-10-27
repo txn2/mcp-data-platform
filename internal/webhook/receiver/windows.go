@@ -102,8 +102,11 @@ func (r *Receiver) registerLoop() {
 // registerPending registers every queued window, with the next window of
 // each source that wrote into the current one once it is near. A window whose
 // source is no longer served is dropped; one that fails stays queued for the
-// next pass.
+// next pass. Passes run one at a time, so a window is never registered by two
+// at once.
 func (r *Receiver) registerPending(ctx context.Context) error {
+	r.passMu.Lock()
+	defer r.passMu.Unlock()
 	r.forgetOld()
 	r.queueNext()
 	r.regMu.Lock()
@@ -160,6 +163,11 @@ func (r *Receiver) queueNext() {
 // registerOne registers one window's raw partition, logging a failure with
 // how long it took.
 func (r *Receiver) registerOne(ctx context.Context, w rawWindow) error {
+	// A window queued again by a write that landed while its registration
+	// was finishing is registered already.
+	if _, done := r.rawWindows.Load(windowKey(w.source, w.start)); done {
+		return nil
+	}
 	src, ok := r.lookup(w.source)
 	if !ok {
 		return nil

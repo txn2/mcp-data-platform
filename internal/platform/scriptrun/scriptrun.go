@@ -231,6 +231,10 @@ type Options struct {
 	// are, pinned by the caller and never read here.
 	State map[string]any
 
+	// Event is the webhook event an event run was enqueued for (#2332),
+	// handed to the script as run.event; nil, run.event is None.
+	Event map[string]any
+
 	// Caller issues the script's platform tool calls. A nil Caller leaves the
 	// platform module predeclared but every call on it fails, which is what a
 	// syntax-only execution wants.

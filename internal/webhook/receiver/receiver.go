@@ -97,6 +97,8 @@ type Receiver struct {
 	seq    atomic.Uint64
 
 	mu       sync.RWMutex
+	passMu   sync.Mutex // one registerPending pass at a time
+	onStored StoredFunc
 	sources  map[string]served
 	buffers  map[string]*buffer
 	drainers map[string]*drainer

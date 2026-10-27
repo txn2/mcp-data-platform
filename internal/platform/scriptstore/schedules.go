@@ -251,7 +251,7 @@ func (s *Store) insertScheduledRun(ctx context.Context, r *script.Run, status st
 		                         schedule_id, error, finished_at, state_revision, state_read, exclusive, queued)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11,
 		        CASE WHEN $6 = 'skipped_overlap' THEN NOW() END,
-		        `+stateAtCreation+`, `+exclusiveAtCreation+`, `+queuedAtCreation+`)
+		        `+StateAtCreation+`, `+exclusiveAtCreation+`, `+queuedAtCreation+`)
 		ON CONFLICT DO NOTHING
 		RETURNING state_revision, state_read, created_at, updated_at`,
 		r.ID, r.ScriptID, r.VersionID, r.Version, script.TriggerSchedule,

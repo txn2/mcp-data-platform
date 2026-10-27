@@ -1331,6 +1331,16 @@ type ScriptsConfig struct {
 	// SQL bounds how long a statement may run (#2073), Draft an administrator's run_draft (#2117).
 	SQL   scriptstmt.Config    `yaml:"sql"`
 	Draft scriptbgdraft.Config `yaml:"draft"`
+	// Events bounds the runs a script's webhook source enqueues (#2332).
+	Events ScriptsEventsConfig `yaml:"events"`
+}
+
+// ScriptsEventsConfig bounds event runs (#2332): a script that names a
+// webhook source holds at most MaxQueued pending event runs, and an event
+// past them is recorded as a run with status skipped_backlog and never
+// executed. Zero or negative takes the default, 100.
+type ScriptsEventsConfig struct {
+	MaxQueued int `yaml:"max_queued"`
 }
 
 // ScriptDestinations returns the configured destinations normalized, with the

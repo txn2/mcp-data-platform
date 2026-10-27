@@ -130,20 +130,21 @@ func forwardedScheme(r *http.Request) string {
 // Non-textual content is returned untouched: a stored PNG is bytes, and
 // scanning it for URIs could only corrupt it.
 func Rewrite(content []byte, contentType, base, assetID string, refs []Ref) []byte {
-	return FormViewer(nil).Rewrite(content, contentType, base, assetID, refs)
+	return FormQuery(nil).Rewrite(content, contentType, base, assetID, refs)
 }
 
-// FormViewer is the viewer token one reader's copy of an asset hands each
-// form it embeds (#2177): the token for the form at endpoint, "" for none.
-type FormViewer func(endpoint string) string
+// FormQuery is the query string one copy of an asset hands each form page it
+// embeds: the embed marker that lets the asset frame it (#2331) and, for a
+// signed-in reader, their viewer token (#2177). Nil or empty values hand none.
+type FormQuery func(endpoint string) url.Values
 
-// Rewrite is the package's Rewrite for the reader v signs for; a nil
-// FormViewer hands no form a viewer token.
-func (v FormViewer) Rewrite(content []byte, contentType, base, assetID string, refs []Ref) []byte {
+// Rewrite is the package's Rewrite with each form page handed what q says; a
+// nil FormQuery hands none anything.
+func (q FormQuery) Rewrite(content []byte, contentType, base, assetID string, refs []Ref) []byte {
 	if len(refs) == 0 || len(content) == 0 || !contenttype.IsTextual(contentType) {
 		return content
 	}
-	pairs := replacements(base, assetID, refs, v)
+	pairs := replacements(base, assetID, refs, q)
 	if len(pairs) == 0 {
 		return content
 	}
@@ -169,7 +170,7 @@ func (v FormViewer) Rewrite(content []byte, contentType, base, assetID string, r
 //
 // A reference with an empty URI or token contributes nothing: it could only
 // match everywhere or resolve to nothing.
-func replacements(base, assetID string, refs []Ref, viewer FormViewer) []string {
+func replacements(base, assetID string, refs []Ref, query FormQuery) []string {
 	ordered := make([]Ref, 0, len(refs))
 	for _, ref := range refs {
 		if ref.URI == "" || ref.RefToken == "" {
@@ -184,7 +185,7 @@ func replacements(base, assetID string, refs []Ref, viewer FormViewer) []string 
 	pairs := make([]string, 0, len(ordered)*2)
 	for _, ref := range ordered {
 		if ref.TargetKind == TargetForm {
-			pairs = append(pairs, ref.URI, formURL(base, ref.TargetID, viewer))
+			pairs = append(pairs, ref.URI, formURL(base, ref.TargetID, query))
 			continue
 		}
 		pairs = append(pairs, ref.URI, URL(base, assetID, ref.RefToken))
@@ -192,15 +193,15 @@ func replacements(base, assetID string, refs []Ref, viewer FormViewer) []string 
 	return pairs
 }
 
-// formURL is the absolute address of a form's page, with the viewer token the
-// reader is handed for it, if any.
-func formURL(base, endpoint string, viewer FormViewer) string {
+// formURL is the absolute address of a form's page, with the query this copy
+// of the asset hands it, if any.
+func formURL(base, endpoint string, query FormQuery) string {
 	u := strings.TrimRight(base, pathSep) + FormPagePrefix + url.PathEscape(endpoint)
-	if viewer == nil {
+	if query == nil {
 		return u
 	}
-	if tok := viewer(endpoint); tok != "" {
-		u += "?" + url.Values{FormViewerParam: {tok}}.Encode()
+	if q := query(endpoint); len(q) > 0 {
+		u += "?" + q.Encode()
 	}
 	return u
 }

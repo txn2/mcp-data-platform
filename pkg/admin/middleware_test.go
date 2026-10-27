@@ -368,7 +368,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		assert.Equal(t, []string{"admin"}, user.Roles)
 	})
 
-	t.Run("valid non-admin user returns nil", func(t *testing.T) {
+	t.Run("valid non-admin user is not admin", func(t *testing.T) {
 		mcpAuth := &mockMCPAuthenticator{
 			info: &middleware.UserInfo{UserID: "analyst-1", Roles: []string{testRoleAnalyst}},
 		}
@@ -379,7 +379,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		req.Header.Set("X-API-Key", "test-key")
 
 		user, err := pa.Authenticate(req)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, ErrNotAdmin)
 		assert.Nil(t, user)
 	})
 
@@ -441,7 +441,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		assert.Equal(t, "admin-2", user.UserID)
 	})
 
-	t.Run("no matching persona returns nil", func(t *testing.T) {
+	t.Run("no matching persona is not admin", func(t *testing.T) {
 		mcpAuth := &mockMCPAuthenticator{
 			info: &middleware.UserInfo{UserID: "unknown", Roles: []string{"unknown_role"}},
 		}
@@ -452,7 +452,7 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		req.Header.Set("X-API-Key", "test-key")
 
 		user, err := pa.Authenticate(req)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, ErrNotAdmin)
 		assert.Nil(t, user)
 	})
 
@@ -505,8 +505,33 @@ func TestPlatformAuthenticator_Authenticate(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 
 		user, err := pa.Authenticate(req)
+		require.ErrorIs(t, err, ErrNotAdmin, "a valid session that is not admin is refused, not unauthenticated")
+		assert.Nil(t, user)
+	})
+
+	t.Run("non-admin cookie with an admin token is the token's admin", func(t *testing.T) {
+		key := []byte("test-key-that-is-at-least-32-bytes-long!!")
+		cfg := browsersession.CookieConfig{Key: key, TTL: time.Hour}
+		token, tokenErr := browsersession.SignSession(
+			browsersession.SessionClaims{UserID: "analyst-cookie", Roles: []string{testRoleAnalyst}},
+			&cfg,
+		)
+		require.NoError(t, tokenErr)
+		pa := NewPlatformAuthenticator(
+			&mockMCPAuthenticator{info: &middleware.UserInfo{UserID: "admin-key", Roles: []string{"admin"}}},
+			"admin",
+			setupRegistry(),
+			WithBrowserSessionAuth(browsersession.NewAuthenticator(cfg)),
+		)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+		req.AddCookie(&http.Cookie{Name: browsersession.DefaultCookieName, Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
+		req.Header.Set("X-API-Key", "test-key")
+
+		user, err := pa.Authenticate(req)
 		require.NoError(t, err)
-		assert.Nil(t, user, "non-admin cookie should be rejected")
+		require.NotNil(t, user)
+		assert.Equal(t, "admin-key", user.UserID)
 	})
 }
 
@@ -542,6 +567,15 @@ func TestRequirePersona(t *testing.T) {
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+
+	t.Run("returns 403 for a caller who is not admin", func(t *testing.T) {
+		mid := RequirePersona(&mockAuthenticator{err: ErrNotAdmin})
+		w := httptest.NewRecorder()
+		mid(successHandler).ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody))
+
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, w.Body.String(), ErrNotAdmin.Error())
 	})
 
 	t.Run("returns 500 for auth error", func(t *testing.T) {

@@ -113,6 +113,7 @@ describe("apiFetch 401 session-expiry handling", () => {
   }
 
   beforeEach(() => {
+    sessionStorage.removeItem("mcp-portal-sign-in-redirect-at");
     useAuthStore.setState({
       user: null,
       authMethod: "cookie",
@@ -222,5 +223,33 @@ describe("apiFetch 401 session-expiry handling", () => {
     expect(res.status).toBe(401);
     expect(replace).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().sessionExpired).toBe(true);
+  });
+
+  it("does not send the browser to sign in again right after a sign-in (#2337)", async () => {
+    // A signed-in caller the server refuses with 401 is signed in again at
+    // once by the IdP and refused again. The second 401 within a minute of
+    // the redirect fails the call where it was made instead of looping.
+    const { replace } = mockLocation("/portal/knowledge", "", "#changesets");
+    mock401();
+    const apiFetch = await loadApiFetch();
+
+    await expect(apiFetch("/knowledge/changesets")).rejects.toMatchObject({ status: 401 });
+    expect(replace).toHaveBeenCalledTimes(1);
+
+    // Back from the sign-in: the session is fresh and the call is refused again.
+    useAuthStore.setState({ authMethod: "cookie", sessionExpired: false });
+    await expect(apiFetch("/knowledge/changesets")).rejects.toMatchObject({ status: 401 });
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+
+  it("redirects again once the last sign-in redirect is past the window", async () => {
+    sessionStorage.setItem("mcp-portal-sign-in-redirect-at", String(Date.now() - 120_000));
+    const { replace } = mockLocation("/portal/anywhere");
+    mock401();
+
+    const apiFetch = await loadApiFetch();
+    await expect(apiFetch("/anything")).rejects.toMatchObject({ status: 401 });
+    expect(replace).toHaveBeenCalledTimes(1);
   });
 });

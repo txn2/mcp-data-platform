@@ -98,6 +98,7 @@ func TestOne_DescribesAForm(t *testing.T) {
 	assert.Equal(t, false, out["bound"])
 	assert.Equal(t, true, out["is_form"])
 	assert.Equal(t, []string{"lake", "scratch"}, out["form_connections"])
+	assert.NotContains(t, out, "page_url", "an unbound form has no page")
 
 	req := setReq(Input{Endpoint: "contact", AuthMode: "public"})
 	req.Script = contact
@@ -110,6 +111,7 @@ func TestOne_DescribesAForm(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "webhook_form_contact", res.Table)
 	assert.NotContains(t, out, "form_connections")
+	assert.Equal(t, "https://data.example.com/forms/contact", out["page_url"], "#2331: the hosted page a site frames")
 
 	f.findErr = errors.New("db down")
 	_, err = h.Run(context.Background(), Request{Command: CmdList, Script: contact})
@@ -118,4 +120,10 @@ func TestOne_DescribesAForm(t *testing.T) {
 	out, err = h.Run(context.Background(), Request{Command: CmdList, Script: lookup})
 	require.NoError(t, err)
 	assert.NotContains(t, out, "is_form", "a script that is not a form says nothing")
+
+	_, err = h.Run(context.Background(), setReq(Input{Endpoint: "lookup", AuthMode: "public"}))
+	require.NoError(t, err)
+	out, err = h.Run(context.Background(), Request{Command: CmdList, Script: lookup})
+	require.NoError(t, err)
+	assert.NotContains(t, out, "page_url", "a bound endpoint that is not a form has no page")
 }

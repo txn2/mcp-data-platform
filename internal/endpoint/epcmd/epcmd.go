@@ -246,7 +246,14 @@ func (h *Handler) one(ctx context.Context, sc *script.Script) (map[string]any, e
 	out := h.fields(sc.Name, b)
 	out["bound"] = true
 	out["failures"] = failures
-	return out, h.describeForm(ctx, sc, out)
+	if err := h.describeForm(ctx, sc, out); err != nil {
+		return nil, err
+	}
+	if isForm, _ := out["is_form"].(bool); isForm {
+		// The hosted page a site frames with the embed snippet (#2331).
+		out["page_url"] = h.BaseURL + epform.PagePrefix + b.Name
+	}
+	return out, nil
 }
 
 // describeForm says, of a script that is a form, where its submissions are

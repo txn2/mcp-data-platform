@@ -178,6 +178,9 @@ func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input mana
 	if input.Exclusive != nil {
 		sc.Exclusive = *input.Exclusive
 	}
+	if err := h.eventRule.Set(ctx, sc, input.EventSource, resolveEmail(ctx), h.isAdminPersona(ctx)); err != nil {
+		return nil, errorResult(err.Error())
+	}
 	if errResult := h.applyStatus(ctx, sc, input); errResult != nil {
 		return nil, errResult
 	}
@@ -363,6 +366,7 @@ func scriptFields(sc *script.Script) map[string]any {
 		"owner_email": sc.OwnerEmail,
 		"category":    sc.Category, "tags": sc.Tags, "enabled": sc.Enabled, fieldStatus: sc.Status,
 		"exclusive":       sc.Exclusive,
+		"event_source":    sc.EventSource,
 		fieldVersion:      sc.Version,
 		"executable_note": script.ExecutionNote(sc),
 		"created_at":      sc.CreatedAt, "updated_at": sc.UpdatedAt,

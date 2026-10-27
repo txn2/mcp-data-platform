@@ -1,7 +1,8 @@
 # Writing a managed script
 
-An automation is work that runs on a schedule or when someone asks, keeps the
-record of every run, and carries its state from one run to the next. The
+An automation is work that runs on a schedule, when someone asks, or for each
+event a webhook source stores, keeps the record of every run, and carries its
+state from one run to the next. The
 platform builds an automation as a managed script, so a request to automate
 something, or to run it every Monday, is answered by writing one.
 
@@ -238,6 +239,15 @@ reads its source and versions, and on the portal its schedule and how its runs
 have gone; what a run was given, printed and wrote stays yours and an
 administrator's. An administrator can also move a script to another owner, which
 hands over all of that at once.
+
+A script can also run for each event a webhook source stores, a form's
+submissions among them: `manage_script command=update event_source=<source>`.
+Each event enqueues one run, which reads it as `run.event` (`id`, `type`, `key`,
+`received_at`, `source`, `payload`; a form submission's payload holds its
+`values`), and runs through the queue under your saved roles, as a fire does.
+You may name the source of a form you own (`form-<endpoint>`); an
+administrator any source. Past `scripts.events.max_queued` waiting event runs
+an event is recorded as `skipped_backlog` and not run.
 
 ## The dialect contract
 

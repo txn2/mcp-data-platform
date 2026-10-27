@@ -26,9 +26,9 @@ export function refSource(origin: string): string {
   return origin.replace(/\/+$/, "") + REF_PATH_PREFIX;
 }
 
-// The path a form an asset embeds is framed from (#2177): the page an
-// mcp:form:<endpoint> reference is rewritten to (epformpage.PathPrefix).
-export const FORM_PATH_PREFIX = "/portal/forms/";
+// The path a form an asset embeds is framed from (#2177, #2331): the page an
+// mcp:form:<endpoint> reference is rewritten to (epform.PagePrefix).
+export const FORM_PATH_PREFIX = "/forms/";
 
 /**
  * The form pages as a CSP source expression: the viewer's own origin and the

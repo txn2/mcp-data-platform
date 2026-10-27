@@ -83,4 +83,15 @@ func TestRunSummaryCarriesASkipsReason(t *testing.T) {
 
 	succeeded := &script.Run{ID: "r3", Status: script.RunStatusSucceeded}
 	assert.NotContains(t, runSummary(sc, succeeded), "reason")
+	assert.NotContains(t, runSummary(sc, succeeded), "event_id")
+
+	// #2332: an event run names its event, and a skipped one why.
+	backlog := &script.Run{
+		ID: "r4", Status: runstate.StatusSkippedBacklog, Trigger: runstate.TriggerEvent,
+		EventSource: "form-contact", EventID: "ev1", Error: "not run: 100 event runs of this script were already waiting",
+	}
+	got := runSummary(sc, backlog)
+	assert.Equal(t, "form-contact", got["event_source"])
+	assert.Equal(t, "ev1", got["event_id"])
+	assert.Contains(t, got["reason"], "already waiting")
 }

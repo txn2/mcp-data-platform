@@ -51,11 +51,13 @@ const (
 	TypeMultipleChoice = "multiple_choice"
 	TypeCheckbox       = "checkbox"
 	TypeHidden         = "hidden"
+	// TypeFile takes files, saved as managed resources (#2333).
+	TypeFile = "file"
 )
 
 // Types is every field type, in the order they are documented.
 var Types = []string{
-	TypeText, TypeLongText, TypeEmail, TypeNumber, TypeDate, TypeSingleChoice, TypeMultipleChoice, TypeCheckbox, TypeHidden,
+	TypeText, TypeLongText, TypeEmail, TypeNumber, TypeDate, TypeSingleChoice, TypeMultipleChoice, TypeCheckbox, TypeHidden, TypeFile,
 }
 
 // Bounds of a spec.
@@ -105,6 +107,13 @@ type Field struct {
 	// only on the owner's submissions view and through platform.decrypt.
 	// form_submit is handed it as typed.
 	Sensitive bool `json:"sensitive,omitempty"`
+	// MaxFiles, MaxBytes and Accept bound a file field (#2333): how many
+	// files, how large each may be, and the content types it takes, judged
+	// from each file's bytes ("image/png", or "image/*" for a family; none
+	// takes any type).
+	MaxFiles int      `json:"max_files,omitempty"`
+	MaxBytes int64    `json:"max_bytes,omitempty"`
+	Accept   []string `json:"accept,omitempty"`
 }
 
 // Sensitive names the spec's sensitive fields, in the order declared.
@@ -194,6 +203,9 @@ func (s *Spec) normalize() {
 		if f.MaxLength == 0 {
 			f.MaxLength = defaultLength(f.Type)
 		}
+		if f.Type == TypeFile {
+			f.normalizeFile()
+		}
 	}
 }
 
@@ -243,8 +255,12 @@ func (s Spec) validateFields() error {
 		}
 	}
 	for name := range s.Prefill {
-		if !seen[name] {
+		f, ok := s.field(name)
+		if !ok {
 			return fmt.Errorf("prefill names %q, which is not a declared field", name)
+		}
+		if f.Type == TypeFile {
+			return fmt.Errorf("prefill names file field %q; a file field starts empty", name)
 		}
 	}
 	return nil
@@ -268,6 +284,9 @@ func (f Field) validate() error {
 		return fmt.Errorf("field %q has max_length %d; it is from 1 to %d", f.Name, f.MaxLength, MaxLength)
 	case f.Min != nil && f.Max != nil && *f.Min > *f.Max:
 		return fmt.Errorf("field %q has min past max", f.Name)
+	}
+	if err := f.validateFile(); err != nil {
+		return err
 	}
 	return f.validateChoices()
 }

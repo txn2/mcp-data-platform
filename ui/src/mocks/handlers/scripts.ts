@@ -431,6 +431,39 @@ export const scriptHandlers = [
     },
   ),
 
+  // The webhook source a script runs for (#2332), and how its event runs
+  // stand. The contract moves, which is what the page reads the source from.
+  http.put(
+    `${PORTAL_BASE}/scripts/:id/event-source`,
+    async ({ params, request }) => {
+      const id = String(params.id);
+      const body = (await request.json()) as { source?: string };
+      const contract = contracts[id];
+      if (!contract) {
+        return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+      }
+      const source = body.source ?? "";
+      contract.event_source = source || undefined;
+      return HttpResponse.json({
+        source,
+        message: source ? `Saved. Each event source ${source} stores runs this script.` : "Saved. This script runs for no webhook source.",
+      });
+    },
+  ),
+  http.get(`${PORTAL_BASE}/scripts/:id/events`, ({ params }) => {
+    if (!contracts[String(params.id)]) {
+      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+    }
+    return HttpResponse.json({
+      pending: 2,
+      skipped_since: 1,
+      skipped_window_days: 7,
+      max_queued: 100,
+      last_event_run: "2026-10-26T09:30:00Z",
+      last_skipped_at: "2026-10-25T18:02:00Z",
+    });
+  }),
+
   // Documenting the script (#1369). It applies at once; the record and the
   // contract both move, because the page reads the contract and the listing
   // reads the record.

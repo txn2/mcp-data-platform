@@ -4,11 +4,14 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcollect"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -97,4 +100,38 @@ func TestDeleteAttachments_Refusals(t *testing.T) {
 	h.byURI = fakeByURI{list: func(resource.Filter) ([]resource.Resource, error) { return stuck, nil }}
 	assert.ErrorContains(t, h.DeleteAttachments(ctx, inbox), "still listed after its delete",
 		"a listing that never empties is reported rather than read forever")
+}
+
+var contactForm = whsource.Source{Name: "form-contact", Config: whsource.Config{Input: whsource.InputForm}}
+
+// #2333: a form's file is saved in its source's library under the folder the
+// source's attachments are removed from, at the address it was promised.
+func TestFormFiles(t *testing.T) {
+	h, w := newWindowResources(fakeByURI{})
+	h.adminPersona = "admin"
+	files := formFiles{r: h}
+	f := epcollect.File{
+		EventID: "ev1", At: time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC), Field: "photos",
+		Name: "logo.png", ContentType: "image/png", Data: []byte("png"),
+	}
+	folder := "webhooks/form-contact/attachments/2026-10-26/ev1/photos"
+	assert.Equal(t, resource.BuildURI("mcp", resource.ScopePersona, "admin", folder, "logo.png"), files.FileURI(contactForm, f))
+	assert.True(t, strings.HasPrefix(folder, whimap.AttachmentsFolder(contactForm.Name)+"/"), "removed with the source")
+
+	_, id, err := files.PutFile(ctx, contactForm, f)
+	require.NoError(t, err)
+	require.Len(t, w.created, 1)
+	got := w.created[0]
+	assert.Equal(t, folder, got.Path)
+	assert.Equal(t, "logo.png", got.Filename)
+	assert.Equal(t, "image/png", got.MIMEType)
+	assert.Equal(t, []string{"webhook", "form", "form-contact"}, got.Tags)
+	assert.Contains(t, got.Description, "the form contact")
+
+	require.NoError(t, files.DeleteFile(ctx, id))
+	assert.Empty(t, w.rows)
+
+	w.err["create"] = errBoom
+	_, _, err = files.PutFile(ctx, contactForm, f)
+	require.ErrorIs(t, err, errBoom)
 }

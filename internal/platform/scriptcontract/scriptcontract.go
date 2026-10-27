@@ -499,10 +499,10 @@ WHAT IS AVAILABLE
   platform.decrypt(form, payload)  A stored form submission's values,
       sensitive fields decrypted (see FORMS).
   print(...)  Goes to the run log (capped; anything larger is an export).
-  run.run_id, run.fire_time, run.params["name"], run.state  The frozen run
-      record. run.state is the script's state as it stood when the run was
-      created, {} for a script that has never saved any; read it with
-      run.state.get("key", default).
+  run.run_id, run.fire_time, run.params["name"], run.state, run.event  The
+      frozen run record. run.state is the script's state as it stood when the
+      run was created, {} for a script that has never saved any; read it with
+      run.state.get("key", default). run.event: an event run's event, or None.
       A parameter is typed string, int, float, bool, date, enum or connection.
       Declare a connection parameter for a connection the caller chooses rather
       than a string: the surfaces that ask for one offer the connections this

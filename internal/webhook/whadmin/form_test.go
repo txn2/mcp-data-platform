@@ -94,3 +94,13 @@ func TestUpdate_RefusesMakingASourceAForms(t *testing.T) {
 		assert.Contains(t, err.Error(), "only for a form's source", name)
 	}
 }
+
+// #2333: deleting a form's source removes the files its submissions carried,
+// which are saved under the source's attachments folder.
+func TestDelete_RemovesAFormsFiles(t *testing.T) {
+	r := newRig()
+	src, err := r.svc.CreateForm(ctx, formInput())
+	require.NoError(t, err)
+	require.NoError(t, r.svc.Delete(ctx, src.Name))
+	assert.Equal(t, []string{src.Name}, r.resources.attachments)
+}

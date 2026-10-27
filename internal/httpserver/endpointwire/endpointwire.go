@@ -53,7 +53,13 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 		},
 		Admin: reg.AdminRule(p.Config().Admin.Persona),
 	}
-	mountOver(mux, e, Authenticator(portal.NewAuthenticator(p.Authenticator(), opts...), personas), settings, author)
+	// An authenticated form opened directly sends a browser to sign in
+	// (#2331), where the deployment has a browser sign-in.
+	var signIn func(string) string
+	if p.BrowserSessionFlow() != nil {
+		signIn = epformpage.LoginURL
+	}
+	mountOver(mux, e, identity{auth: Authenticator(portal.NewAuthenticator(p.Authenticator(), opts...), personas), signIn: signIn}, settings, author)
 	if settings != nil && p.DB() != nil {
 		scripts := scriptstore.New(p.DB())
 		endpointapi.Register(mux, settings, endpointapi.Config{
@@ -64,16 +70,25 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 	}
 }
 
+// identity is how a request's caller is found: the authenticator, and where a
+// browser signs in (nil with no browser sign-in).
+type identity struct {
+	auth   func(r *http.Request) (*eprun.Caller, error)
+	signIn func(string) string
+}
+
 // mountOver registers the routes over the assembled feature; the settings
 // routes only when settings, the admin API's authentication, is not nil.
-func mountOver(mux *http.ServeMux, e *epwire.Endpoints, auth func(r *http.Request) (*eprun.Caller, error), settings func(http.Handler) http.Handler, author func(*http.Request) string) {
-	h := &ephttp.Handler{Runner: e.Runner, Checker: e.Checker, Authenticate: auth, ViewerKey: epform.ViewerKey(e.Runner.FormKey)}
+func mountOver(mux *http.ServeMux, e *epwire.Endpoints, id identity, settings func(http.Handler) http.Handler, author func(*http.Request) string) {
+	viewerKey := epform.ViewerKey(e.Runner.FormKey)
+	h := &ephttp.Handler{Runner: e.Runner, Checker: e.Checker, Authenticate: id.auth, ViewerKey: viewerKey}
 	if e.Refusals != nil {
 		h.Refused = e.Refusals.Refused
 	}
 	h.Mount(mux)
-	// The page a form is rendered on (#2177), with no session.
-	(&epformpage.Handler{Runner: e.Runner, BaseURL: e.Commands.BaseURL}).Mount(mux)
+	// The page a form is rendered on (#2177, #2331). It reads the session only
+	// to sign a viewer token for an authenticated form opened directly.
+	(&epformpage.Handler{Runner: e.Runner, BaseURL: e.Commands.BaseURL, ViewerKey: viewerKey, Session: id.auth, SignIn: id.signIn}).Mount(mux)
 	if settings == nil {
 		return
 	}

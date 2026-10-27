@@ -26,6 +26,7 @@ var runSelectColumns = []string{
 	"result", "progress_message", "progress_done", "progress_total", "progress_at",
 	"cancel_requested_at", "cancel_requested_by", "reclaims", "attempts", "claimed_at",
 	"heartbeat_at", "failure_cause", "created_at", "updated_at", "state_checkpoint",
+	"event_source", "event_id", "event",
 }
 
 // Positions in runSelectColumns the tests below set.
@@ -51,6 +52,7 @@ func runRow(status string, attempt int, outputs []byte) []driver.Value { //nolin
 		"", int64(0), []byte("{}"), nil, nil,
 		nil, "", nil, nil, nil, nil, "", 0, []byte("[]"), nil,
 		nil, "", rowTime, rowTime, false,
+		"", "", nil,
 	}
 }
 

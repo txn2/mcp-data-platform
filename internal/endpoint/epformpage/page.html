@@ -32,7 +32,7 @@ label, legend { display: block; font-weight: 600; margin: 0 0 4px; }
 fieldset { border: 0; padding: 0; margin: 0 0 16px; }
 .req { color: var(--error); margin-left: 2px; }
 .help { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
-input[type=text], input[type=email], input[type=number], input[type=date], select, textarea {
+input[type=text], input[type=email], input[type=number], input[type=date], input[type=file], select, textarea {
   width: 100%; padding: 8px 10px; font: inherit; color: var(--fg); background: var(--field);
   border: 1px solid var(--line); border-radius: 6px; }
 textarea { min-height: 120px; resize: vertical; }
@@ -46,6 +46,7 @@ button[disabled] { opacity: .6; cursor: progress; }
 .status { padding: 12px 14px; border-radius: 6px; border: 1px solid var(--line); }
 .status.ok { background: var(--ok-bg); color: var(--ok-fg); border-color: transparent; }
 .status.err { color: var(--error); }
+a { color: var(--accent); }
 #check:empty { display: none; }
 #check { margin-top: 16px; }
 @media (max-width: 480px) { body { padding: 12px; } button { width: 100%; } }

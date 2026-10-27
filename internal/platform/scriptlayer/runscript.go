@@ -324,6 +324,9 @@ func runSummary(sc *script.Script, run *script.Run) map[string]any {
 		"queries":    run.Metrics.Queries,
 		"outputs":    orEmptyOutputs(run.Outputs),
 	}
+	if run.EventID != "" { // the event an event run was enqueued for (#2332)
+		out["event_source"], out["event_id"] = run.EventSource, run.EventID
+	}
 	if run.StartedAt != nil {
 		out["started_at"] = run.StartedAt.UTC()
 	}
@@ -345,9 +348,10 @@ func runSummary(sc *script.Script, run *script.Run) map[string]any {
 		out["cancel_requested_by"] = run.CancelRequestedBy
 	}
 	// Why a fire produced nothing (#1986): the open run it waited on, what
-	// started that run and since when. The listing carries it so a reader of
-	// the history learns it without opening each skip.
-	if run.Status == script.RunStatusSkippedOverlap && run.Error != "" {
+	// started that run and since when; or why an event was not run (#2332).
+	// The listing carries it so a reader of the history learns it without
+	// opening each skip.
+	if (run.Status == script.RunStatusSkippedOverlap || run.Status == runstate.StatusSkippedBacklog) && run.Error != "" {
 		out["reason"] = run.Error
 	}
 	holderFields(out, run)

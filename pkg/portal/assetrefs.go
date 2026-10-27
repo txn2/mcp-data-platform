@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
@@ -322,19 +323,41 @@ func (h *Handler) serveRefs(r *http.Request, assetID, contentType string, data [
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 		return data
 	}
-	return h.formViewer(r).Rewrite(data, contentType,
+	return h.formQuery(r).Rewrite(data, contentType,
 		assetrefs.BaseURL(r, h.deps.PublicBaseURL), assetID, refs)
 }
 
-// formViewer signs, for the signed-in reader of r, the viewer token each
-// embedded form's page is handed (#2177): a form in an asset is framed with
-// the asset's sandbox and carries no session, so this is how an
-// authenticated form learns who submits it. A public read has no reader and
-// hands none. The token is signed against the hour, so the content served in
-// one hour is the same bytes and revalidates.
-func (h *Handler) formViewer(r *http.Request) assetrefs.FormViewer {
+// formQuery is what each form page an asset embeds is handed in its address:
+// the embed marker that lets the asset frame it, though the page refuses
+// sites its binding does not list (#2331), and, for the signed-in reader of r,
+// their viewer token (#2177). A form in an asset is framed with the asset's
+// sandbox and carries no session, so the viewer token is how an
+// authenticated form learns who submits it; a public read has no reader and
+// hands none. Both are signed against the hour, so the content served in one
+// hour is the same bytes and revalidates.
+func (h *Handler) formQuery(r *http.Request) assetrefs.FormQuery {
+	if len(h.deps.FormViewerKey) == 0 {
+		return nil
+	}
+	at := time.Now().UTC().Truncate(time.Hour)
+	embedKey := epform.EmbedKey(h.deps.FormViewerKey)
+	viewer := h.formViewer(r)
+	return func(endpoint string) url.Values {
+		q := url.Values{epform.EmbedParam: {epform.SignEmbed(embedKey, endpoint, at)}}
+		if viewer == nil {
+			return q
+		}
+		if tok, err := epform.SignViewer(h.deps.FormViewerKey, endpoint, *viewer, at); err == nil {
+			q.Set(epform.ViewerParam, tok)
+		}
+		return q
+	}
+}
+
+// formViewer is the signed-in reader of r as a form's viewer, nil for none.
+func (h *Handler) formViewer(r *http.Request) *epform.Viewer {
 	user := GetUser(r.Context())
-	if user == nil || len(h.deps.FormViewerKey) == 0 {
+	if user == nil {
 		return nil
 	}
 	v := epform.Viewer{UserID: user.UserID, Email: user.Email, Admin: h.access.IsAdmin(user)}
@@ -343,12 +366,5 @@ func (h *Handler) formViewer(r *http.Request) assetrefs.FormViewer {
 			v.Persona = info.Name
 		}
 	}
-	at := time.Now().UTC().Truncate(time.Hour)
-	return func(endpoint string) string {
-		tok, err := epform.SignViewer(h.deps.FormViewerKey, endpoint, v, at)
-		if err != nil {
-			return ""
-		}
-		return tok
-	}
+	return &v
 }

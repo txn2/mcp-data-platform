@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessreqwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/changesethttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
@@ -30,6 +31,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcelevel"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcesharewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/eventshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/submissionshttp"
@@ -213,6 +215,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		Resolver: deps.PersonaResolver, IsAdmin: isAdmin, Stored: platform.StoredConnections(p),
 	})
 	mountMentionAPI(mux, p, wrap, isAdmin)
+	changesethttp.Mount(mux, wrap, changesethttp.KnowledgeHandler(p), deps.PersonaResolver, isAdmin) // #2337
 	accessreqwire.Mount(mux, p, accessreqwire.Deps{
 		Wrap: wrap, IsAdmin: isAdmin, Notify: notify, AdminWrap: adminAuthIfEnabled(p), Author: adminEmail,
 	})
@@ -310,6 +313,8 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap f
 	postshttp.ForPortal(scripts, deps, notifywire.RunPosts(p)).Register(mux, wrap)
 	// A form's stored submissions and their export (#2180), the owner's.
 	submissionshttp.ForPortal(scripts, deps, formwire.Submissions(p)).Register(mux, wrap)
+	// The webhook source it runs for (#2332), and how its event runs stand.
+	eventshttp.ForPortal(scripts, deps, eventshttp.ConfigFor(p.DB(), p.RestEncryptor(), p.Config().Scripts.Events.MaxQueued)).Register(mux, wrap)
 }
 
 // scriptDeps assembles the surface-independent script handler dependencies,

@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbgdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents/sourcerule"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptpending"
@@ -143,6 +144,7 @@ type Handle struct {
 	recordings scriptrec.Store
 	gate       *scriptsave.Gate
 	endpoints  *epwire.Endpoints
+	eventRule  *sourcerule.Rule // who may name which webhook source (#2332)
 }
 
 // New assembles the script layer.
@@ -173,6 +175,9 @@ func New(cfg Config) *Handle {
 	}
 	if h.endpoints = cfg.Endpoints; h.endpoints != nil {
 		h.gate.Endpoint = h.endpoints.Commands.Bound
+	}
+	if cfg.DB != nil {
+		h.eventRule = sourcerule.NewRule(cfg.DB, h.store.GetByID)
 	}
 	h.gate.Libraries, _ = h.store.(scriptlib.Source)
 	h.versions, _ = h.store.(script.VersionStore)

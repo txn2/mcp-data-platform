@@ -131,7 +131,11 @@ func (r *Receiver) store(ctx context.Context, src whsource.Source, d delivery) (
 		}, false
 	}
 	if r.cfg.Spool != nil {
-		return nil, r.storeSpooled(ctx, src, d), false
+		why := r.storeSpooled(ctx, src, d)
+		if why == nil {
+			r.stored(ctx, src.Name, d.events)
+		}
+		return nil, why, false
 	}
 	stopping := &refusal{outcome: OutcomeWriteFailed, reason: "the platform is shutting down", status: http.StatusServiceUnavailable, retryAfter: retryStopping}
 	buf := r.bufferFor(src.Name)
@@ -159,6 +163,7 @@ func (r *Receiver) store(ctx context.Context, src whsource.Source, d delivery) (
 		}, false
 	}
 	r.observeAccepted(ctx, src.Name, d, res.stages)
+	r.stored(ctx, src.Name, d.events)
 	return nil, nil, false
 }
 

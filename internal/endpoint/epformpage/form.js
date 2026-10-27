@@ -1,13 +1,17 @@
 /*
- * A form the platform renders from the spec its endpoint answers (#2177).
+ * A form the platform renders from the spec its endpoint answers (#2177,
+ * #2331).
  *
  * The page reads its configuration from #form-config, fetches the form's spec
  * from /endpoints/{name} (passing on the query string it was opened with, so
  * form_spec(req) reads a link's token or id from req["query"]), renders the
  * fields, and posts the submission back with the form token the spec came
- * with. A viewer token in the form_viewer parameter is sent as X-Form-Viewer
- * and never passed to the form. A bot check the endpoint names is answered
- * with /botcheck/solver.js before each request it applies to.
+ * with. A viewer token, the one the page was signed for from the browser's
+ * session or the one in the form_viewer parameter, is sent as X-Form-Viewer;
+ * it and the embed marker are never passed to the form. A bot check the
+ * endpoint names is answered with /botcheck/solver.js before each request it
+ * applies to. Framed, the page posts its height to its parent, which the
+ * embed snippet sizes the frame by.
  */
 (function () {
   "use strict";
@@ -15,8 +19,9 @@
   var cfg = JSON.parse(document.getElementById("form-config").textContent);
   var app = document.getElementById("app");
   var params = new URLSearchParams(window.location.search);
-  var viewer = params.get(cfg.viewer_param);
+  var viewer = cfg.viewer || params.get(cfg.viewer_param);
   params.delete(cfg.viewer_param);
+  params.delete(cfg.embed_param);
   var theme = params.get(cfg.theme_param);
   params.delete(cfg.theme_param);
   if (theme === "dark" || theme === "light") {
@@ -36,6 +41,27 @@
 
   function status(text, kind) {
     app.replaceChildren(el("p", { "class": "status " + (kind || ""), role: kind === "err" ? "alert" : "status", text: text }));
+  }
+
+  // The height is posted to any parent: it says nothing but how tall the
+  // page is, and the snippet checks the message came from this origin.
+  function postHeight() {
+    if (window.parent === window) { return; }
+    window.parent.postMessage({ type: cfg.height_message, endpoint: cfg.endpoint, height: document.documentElement.scrollHeight }, "*");
+  }
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(postHeight).observe(document.body);
+  }
+  window.addEventListener("load", postHeight);
+
+  // signIn asks the person to sign in, in a tab of its own: a frame on
+  // another site is sent no session, and the sign-in brings that tab back to
+  // this form.
+  function signIn() {
+    app.replaceChildren(el("p", { "class": "status" }, [
+      document.createTextNode("Sign in to fill in this form. "),
+      el("a", { href: cfg.sign_in, target: "_blank", rel: "noopener", text: "Sign in" })
+    ]));
   }
 
   function checked(method) {
@@ -112,6 +138,10 @@
         var n = el("input", Object.assign({ type: "number", step: "any", min: f.min, max: f.max }, common));
         n.value = value == null ? "" : String(value);
         return n;
+      case "file":
+        // accept only guides the picker: the platform judges each file's
+        // type from its bytes.
+        return el("input", Object.assign({ type: "file", multiple: (f.max_files || 1) > 1, accept: (f.accept || []).join(",") || null }, common));
       default:
         var type = { email: "email", date: "date" }[f.type] || "text";
         var input = el("input", Object.assign({ type: type, maxlength: f.max_length, autocomplete: f.sensitive ? "off" : null }, common));
@@ -172,6 +202,9 @@
     var out = {};
     state.spec.fields.forEach(function (f) {
       var inputs = form.querySelectorAll('[name="' + f.name + '"]');
+      if (f.type === "file") {
+        return;
+      }
       if (f.type === "multiple_choice") {
         out[f.name] = Array.prototype.filter.call(inputs, function (i) { return i.checked; }).map(function (i) { return i.value; });
       } else if (f.type === "checkbox") {
@@ -204,15 +237,34 @@
     p.hidden = false;
   }
 
+  // body is the submission: JSON, or multipart/form-data when the form has
+  // a file field, which carries each chosen file under its field's name.
+  function body(form) {
+    var plain = values(form);
+    var files = state.spec.fields.filter(function (f) { return f.type === "file"; });
+    if (files.length === 0) { return { json: JSON.stringify(plain) }; }
+    var data = new FormData();
+    Object.keys(plain).forEach(function (name) {
+      var v = plain[name];
+      (Array.isArray(v) ? v : [v]).forEach(function (item) { data.append(name, item); });
+    });
+    files.forEach(function (f) {
+      var input = form.querySelector('[name="' + f.name + '"]');
+      Array.prototype.forEach.call((input && input.files) || [], function (file) { data.append(f.name, file, file.name); });
+    });
+    return { multipart: data };
+  }
+
   function submit(form) {
     var button = form.querySelector("button");
     if (button.disabled) { return; }
     button.disabled = true;
-    var body = JSON.stringify(values(form));
+    var sent = body(form);
     headers("POST")
       .then(function (h) {
-        h["Content-Type"] = "application/json";
-        return fetch(cfg.url, { method: "POST", headers: h, body: body, credentials: "omit" });
+        // A multipart body's Content-Type, with its boundary, is the browser's.
+        if (sent.json) { h["Content-Type"] = "application/json"; }
+        return fetch(cfg.url, { method: "POST", headers: h, body: sent.json || sent.multipart, credentials: "omit" });
       })
       .then(readJSON)
       .then(function (res) {
@@ -225,5 +277,11 @@
       .finally(function () { button.disabled = false; });
   }
 
-  load();
+  if (cfg.refused) {
+    status(cfg.refused, "err");
+  } else if (cfg.sign_in) {
+    signIn();
+  } else {
+    load();
+  }
 })();

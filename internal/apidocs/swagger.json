@@ -18555,6 +18555,224 @@
                 }
             }
         },
+        "/portal/knowledge/changesets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated knowledge changesets with optional filtering, for a caller who holds apply_knowledge (#2337). The same list the admin route answers.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "List changesets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by entity URN",
+                        "name": "entity_urn",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by applier",
+                        "name": "applied_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Filter by rollback state",
+                        "name": "rolled_back",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Changesets after this time (RFC 3339)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Changesets before this time (RFC 3339)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/changesethttp.changesetList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/knowledge/changesets/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one knowledge changeset, for a caller who holds apply_knowledge (#2337).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Get changeset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Changeset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Changeset"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/knowledge/changesets/{id}/rollback": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reverts what a changeset wrote, as the admin route does, for a caller who holds apply_knowledge (#2337); the caller is recorded as the one who rolled it back. Refused (409) when already rolled back or when a newer changeset has since touched the same aspect, and (422) when the changeset contains change types whose prior state was not captured.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Rollback changeset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Changeset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.RollbackResult"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/knowledge/insights": {
             "get": {
                 "security": [
@@ -21506,7 +21724,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, access mode (authenticated, public or bot_check), the callers an authenticated endpoint admits, the bot check a bot_check endpoint names and the methods it checks, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. A form (is_form) reports where its submissions are stored (form: source, table, connection, decrypt_personas) or, before its source is made, the connections it could be made on (form_connections). Restricted to the script's owner and to administrators.",
+                "description": "Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, access mode (authenticated, public or bot_check), the callers an authenticated endpoint admits, the bot check a bot_check endpoint names and the methods it checks, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. A form (is_form) reports where its submissions are stored (form: source, table, connection, decrypt_personas) or, before its source is made, the connections it could be made on (form_connections), and a bound form its hosted page (page_url, #2331), which a site frames when allowed_origins lists it. Restricted to the script's owner and to administrators.",
                 "produces": [
                     "application/json"
                 ],
@@ -21717,6 +21935,140 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/event-source": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Each event the named source stores enqueues one run of the script with trigger event, carrying the event as run.event (id, type, key, received_at, source, payload); the run executes through the run queue under the script's saved author roles, as a scheduled run does. An empty source runs it for none. An administrator may name any source; the owner only the source of a form they own (403 otherwise). Restricted to the script's owner and to administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Set the webhook source a script runs for",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The source",
+                        "name": "source",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/eventshttp.sourceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/eventshttp.sourceResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/events": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The script's pending event runs, the events skipped in the last seven days because max_queued event runs were already waiting (each recorded as a run with status skipped_backlog), the newest of each, and the bound (scripts.events.max_queued). Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "How a script's event runs stand",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/eventshttp.summaryResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -32599,6 +32951,29 @@
                 }
             }
         },
+        "changesethttp.changesetList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/knowledge.Changeset"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 8
+                }
+            }
+        },
         "channelhttp.ChannelShareRequest": {
             "type": "object",
             "properties": {
@@ -33581,6 +33956,56 @@
                 "values": {
                     "type": "object",
                     "additionalProperties": {}
+                }
+            }
+        },
+        "eventshttp.sourceRequest": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "description": "Source is the webhook source's name; empty runs the script for none.",
+                    "type": "string",
+                    "example": "form-contact"
+                }
+            }
+        },
+        "eventshttp.sourceResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "example": "Saved. Each event source form-contact stores runs this script."
+                },
+                "source": {
+                    "type": "string",
+                    "example": "form-contact"
+                }
+            }
+        },
+        "eventshttp.summaryResponse": {
+            "type": "object",
+            "properties": {
+                "last_event_run": {
+                    "type": "string"
+                },
+                "last_skipped_at": {
+                    "type": "string"
+                },
+                "max_queued": {
+                    "description": "MaxQueued is how many pending event runs the script may hold.",
+                    "type": "integer",
+                    "example": 100
+                },
+                "pending": {
+                    "type": "integer"
+                },
+                "skipped_since": {
+                    "type": "integer"
+                },
+                "skipped_window_days": {
+                    "description": "SkippedWindowDays is how far back skipped_since counts.",
+                    "type": "integer",
+                    "example": 7
                 }
             }
         },
@@ -39942,6 +40367,10 @@
                     "type": "boolean",
                     "example": true
                 },
+                "event_source": {
+                    "description": "EventSource is the webhook source the script runs for (#2332), empty\nwhen it runs for none.",
+                    "type": "string"
+                },
                 "exclusive": {
                     "description": "Exclusive is whether the script's runs may overlap: off, refuse or\nqueue (#1986, #2209).",
                     "allOf": [
@@ -40579,6 +41008,10 @@
                 "enabled": {
                     "type": "boolean",
                     "example": true
+                },
+                "event_source": {
+                    "description": "EventSource is the webhook source the script runs for (#2332): each\nevent it stores enqueues one run with trigger event. Empty runs for\nnone. Set by the owner or an administrator, as a schedule is.",
+                    "type": "string"
                 },
                 "exclusive": {
                     "description": "Exclusive is the owner's setting for runs of the script overlapping,\nwhatever started them (#1986, #2209). Under refuse the script has at\nmost one open (pending or running) run: a scheduled fire while a run is\nopen is skipped, and run_script or a portal run is refused naming the\nopen run. Under queue a second run is accepted and waits, pending, until\nno other run of the script is running. Under off runs may overlap and\nthe state check is the only guard.",

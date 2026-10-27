@@ -288,7 +288,7 @@ describe("buildCSP: the reference route", () => {
     // form page path a frame may frame (#2177), so the frame cannot reach the
     // portal API or the admin API.
     for (const mention of csp.split(/[\s;]+/).filter((t) => t.startsWith(origin))) {
-      expect([`${origin}/portal/refs/`, `${origin}/portal/forms/`]).toContain(mention);
+      expect([`${origin}/portal/refs/`, `${origin}/forms/`]).toContain(mention);
     }
   });
 
@@ -296,7 +296,7 @@ describe("buildCSP: the reference route", () => {
     const frame = buildCSP(origin)
       .split("; ")
       .find((d) => d.startsWith("frame-src"));
-    expect(frame).toBe(`frame-src ${origin}/portal/forms/`);
+    expect(frame).toBe(`frame-src ${origin}/forms/`);
     expect(buildCSP("")).not.toContain("frame-src");
     expect(formSource("null")).toBe("");
   });

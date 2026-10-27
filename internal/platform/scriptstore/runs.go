@@ -35,16 +35,16 @@ const runColumns = `id, script_id, script_version_id, version, trigger_kind, sta
 	COALESCE(schedule_id::text, ''), state_revision, state_read, state_written,
 	state_revision_written, result, progress_message, progress_done, progress_total,
 	progress_at, cancel_requested_at, cancel_requested_by, reclaims, attempts, claimed_at,
-	heartbeat_at, failure_cause, created_at, updated_at, state_checkpoint`
+	heartbeat_at, failure_cause, created_at, updated_at, state_checkpoint, event_source, event_id, event`
 
-// stateAtCreation is the VALUES fragment every run insert carries for the two
+// StateAtCreation is the VALUES fragment every run insert carries for the two
 // state columns pinned at creation (#1537): the revision the script's state
 // holds now and the object itself, or revision 0 and {} for a script with no
 // state row. Read in the insert rather than by the caller so the row and the
 // state it records cannot come from two different moments. $2 is the script
 // id in both inserts that carry it (Enqueue and insertScheduledRun), which
 // is what lets the fragment stay a constant the prepare gate can read.
-const stateAtCreation = `COALESCE((SELECT revision FROM script_state WHERE script_id = $2), 0),
+const StateAtCreation = `COALESCE((SELECT revision FROM script_state WHERE script_id = $2), 0),
 		        COALESCE((SELECT state FROM script_state WHERE script_id = $2), '{}'::jsonb)`
 
 // runSelect is the base SELECT for the run columns.
@@ -108,7 +108,7 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 	var (
 		paramsJSON, metricsJSON, outputsJSON []byte
 		stateRead, stateWritten              []byte
-		attemptsJSON                         []byte
+		attemptsJSON, eventJSON              []byte
 		revisionWritten                      sql.NullInt64
 		live                                 liveColumns
 	)
@@ -118,9 +118,16 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 		&metricsJSON, &outputsJSON, &r.ScheduleID, &r.StateRevision, &stateRead, &stateWritten,
 		&revisionWritten, &live.result, &live.message, &live.done, &live.total, &live.at,
 		&r.CancelRequestedAt, &r.CancelRequestedBy, &r.Reclaims, &attemptsJSON, &r.ClaimedAt,
-		&r.HeartbeatAt, &r.Cause, &r.CreatedAt, &r.UpdatedAt, &r.StateCheckpoint)
+		&r.HeartbeatAt, &r.Cause, &r.CreatedAt, &r.UpdatedAt, &r.StateCheckpoint,
+		&r.EventSource, &r.EventID, &eventJSON)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script run row: %w", err)
+	}
+	// event is NULL on every run but an event run (#2332).
+	if len(eventJSON) > 0 {
+		if err := json.Unmarshal(eventJSON, &r.Event); err != nil {
+			return nil, fmt.Errorf("unmarshal run event: %w", err)
+		}
 	}
 	live.apply(r)
 	if err := json.Unmarshal(attemptsJSON, &r.Attempts); err != nil {
@@ -205,7 +212,7 @@ func (s *Store) insertPending(ctx context.Context, r *script.Run) error {
 		                         status, params, requested_by, fire_time, scheduled_for,
 		                         state_revision, state_read, exclusive, queued)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, NOW()), COALESCE($10, NOW()),
-		        `+stateAtCreation+`, `+exclusiveAtCreation+`, `+queuedAtCreation+`)
+		        `+StateAtCreation+`, `+exclusiveAtCreation+`, `+queuedAtCreation+`)
 		RETURNING fire_time, scheduled_for, state_revision, state_read, created_at, updated_at`,
 		r.ID, r.ScriptID, r.VersionID, r.Version, r.Trigger, script.RunStatusPending,
 		params, r.RequestedBy, orNilTime(r.FireTime), orNilTime(r.ScheduledFor))
@@ -1018,7 +1025,7 @@ func (c *streakCount) add(r streakRow) {
 const exclusiveOpenIndex = "idx_script_runs_exclusive_open"
 
 // exclusiveAtCreation stamps a new run with its script's exclusive setting. $2
-// is the script id in both inserts that carry it, as for stateAtCreation.
+// is the script id in both inserts that carry it, as for StateAtCreation.
 //
 // FOR SHARE is what keeps the stamp and the setting from disagreeing: a save
 // changing the setting holds the script row until it commits, so an insert
