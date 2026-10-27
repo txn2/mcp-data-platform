@@ -52,7 +52,7 @@ func issue2228Persona(t *testing.T, admin *client, name, role string, priority i
 }
 
 // surfaces is what each surface says about one key. The admin API refuses a
-// non-administrator with 401.
+// non-administrator with 403 (#2337).
 type surfaces struct {
 	persona      string
 	portalAdmin  bool

@@ -8,6 +8,13 @@ if [ -f .env ]; then
   set +a
 fi
 
+# The key the platform encrypts stored secrets and a form's sensitive fields
+# with. Without one the platform stores them in plain text and refuses a form
+# with a sensitive field, so a checkout with no .env (every CI runner) ran a
+# different stack from one that has it (#2336). A key from .env or the shell
+# wins; this one is for the dev stack only.
+export ENCRYPTION_KEY="${ENCRYPTION_KEY:-58ebbd3d1ca6c9b7a855e755fffb25ab3d2c0c644ec629e796a91283ea53e891}"
+
 # Use the host's native platform for the local dev stack. A developer who
 # exports DOCKER_DEFAULT_PLATFORM=linux/amd64 (to build cluster images) would
 # otherwise force the amd64 variant of multi-arch images like
@@ -297,7 +304,9 @@ export DEV_AIR_LOG="/tmp/mcp-dev-air.log"
 export DEV_AIR_B_LOG="/tmp/mcp-dev-air-b.log"
 # Persist the resolved ports so `make dev-info` (a separate process that does
 # not inherit these exports) reprints the correct, possibly-relocated URLs.
-# Gitignored; overwritten each run.
+# ENCRYPTION_KEY is recorded so the replicas the acceptance suite starts, and
+# its criteria that read sealed values, use the key this stack was started
+# with. Gitignored; overwritten each run.
 cat > dev/.dev-ports.env <<EOF
 DEV_OFFSET=$DEV_OFFSET
 DEV_PG_PORT=$DEV_PG_PORT
@@ -315,6 +324,7 @@ DEV_API_PORT_B=$DEV_API_PORT_B
 DEV_PROXY_PORT=$DEV_PROXY_PORT
 DEV_AIR_LOG=$DEV_AIR_LOG
 DEV_AIR_B_LOG=$DEV_AIR_B_LOG
+ENCRYPTION_KEY=$ENCRYPTION_KEY
 EOF
 if [ "$DEV_OFFSET" != 0 ]; then
   info "Default ports busy — relocated the dev stack by +$DEV_OFFSET (pg:$DEV_PG_PORT api:$DEV_API_PORT s3:$DEV_S3_PORT ollama:$DEV_OLLAMA_PORT)"

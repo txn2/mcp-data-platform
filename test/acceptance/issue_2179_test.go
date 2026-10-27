@@ -298,18 +298,16 @@ func issue2179Key(t *testing.T) string {
 	return hex.EncodeToString(b)
 }
 
-// issue2179DevKey is the stack's field-encryption key, from the repository's
-// .env as dev/start.sh reads it.
+// issue2179DevKey is the field-encryption key the stack was started with,
+// which dev/start.sh records in dev/.dev-ports.env and `make acceptance`
+// sources into the environment.
 func issue2179DevKey(t *testing.T) string {
 	t.Helper()
-	root, _ := filepath.Abs("../..")
-	for _, kv := range issue2121DotEnv(filepath.Join(root, ".env")) {
-		if v, ok := strings.CutPrefix(kv, "ENCRYPTION_KEY="); ok && v != "" {
-			return v
-		}
+	key := os.Getenv("ENCRYPTION_KEY")
+	if key == "" {
+		t.Fatal("ENCRYPTION_KEY is not set; `make acceptance` loads it from dev/.dev-ports.env, which `make dev` writes")
 	}
-	t.Fatal("the repository's .env sets no ENCRYPTION_KEY")
-	return ""
+	return key
 }
 
 // TestIssue2179_ASubmissionMadeBeforeARotationStillDecrypts: a replica whose
