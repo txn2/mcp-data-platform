@@ -103,7 +103,9 @@ make --no-print-directory frontend-build > "$LOG_DIR/frontend-build.log" 2>&1 ||
   exit 1
 }
 echo "release-acceptance: no platform answers at $(platform_url); starting the dev stack (log: $LOG)."
-bash dev/start.sh > "$LOG" 2>&1 &
+# The criteria search and embed, so a stack without the embedding model fails
+# to start rather than failing them one by one (#2349).
+DEV_REQUIRE_EMBEDDER=1 bash dev/start.sh > "$LOG" 2>&1 &
 DEV_PID=$!
 
 stop_stack() {

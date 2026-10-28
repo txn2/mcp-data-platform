@@ -674,7 +674,11 @@ ok "IMAP server ready on :${DEV_IMAPS_PORT:-9993} (platform / app-password, IMAP
 # Wait for Ollama (the embedding provider for semantic indexing). The platform
 # degrades to lexical-only without it, so a failure here WARNS rather than aborts
 # the run — but it must be visible, not silent (the embedder being absent was
-# previously invisible until embed jobs started failing).
+# previously invisible until embed jobs started failing). DEV_REQUIRE_EMBEDDER=1
+# (set by scripts/release-acceptance.sh) makes it fatal: every criterion that
+# searches or embeds fails on a stack without the model, each naming its own
+# symptom, and on two of the E2E Nightly's groups the registry download failed
+# once and nine criteria failed after it (#2349).
 info "Waiting for Ollama embedder..."
 OLLAMA_READY=""
 for i in $(seq 1 60); do
@@ -689,13 +693,28 @@ if [ -n "$OLLAMA_READY" ]; then
   # Pull the embedding model the platform is configured to use. Cached in the
   # acme_ollama_data volume after the first run, so this is a fast no-op on
   # subsequent `make dev` runs.
+  # The download is from the Ollama registry and fails now and then on a CI
+  # runner; a pull resumes what an earlier attempt fetched, so it is retried.
   info "Pulling embedding model nomic-embed-text (first run downloads ~270MB)..."
-  if docker exec acme-dev-ollama ollama pull nomic-embed-text > /dev/null 2>&1; then
+  EMBED_MODEL_READY=""
+  for attempt in 1 2 3 4 5; do
+    if pull_out=$(docker exec acme-dev-ollama ollama pull nomic-embed-text 2>&1); then
+      EMBED_MODEL_READY=1
+      break
+    fi
+    echo -e "  ${BOLD}WARN${NC}: pull attempt $attempt of 5 failed: $(printf '%s' "$pull_out" | tail -n 1)" >&2
+    [ "$attempt" -lt 5 ] && sleep $((attempt * 5))
+  done
+  if [ -n "$EMBED_MODEL_READY" ]; then
     ok "Embedding model nomic-embed-text ready"
+  elif [ "${DEV_REQUIRE_EMBEDDER:-}" = "1" ]; then
+    fail "could not pull nomic-embed-text after 5 attempts; the acceptance criteria need the embedder (docker logs acme-dev-ollama)"
   else
     echo -e "  ${BOLD}WARN${NC}: failed to pull nomic-embed-text; semantic indexing will be disabled." >&2
     echo -e "        Retry with: docker exec acme-dev-ollama ollama pull nomic-embed-text" >&2
   fi
+elif [ "${DEV_REQUIRE_EMBEDDER:-}" = "1" ]; then
+  fail "Ollama did not become ready on :$DEV_OLLAMA_PORT; the acceptance criteria need the embedder (docker logs acme-dev-ollama)"
 else
   echo -e "  ${BOLD}WARN${NC}: Ollama did not become ready on :11434; semantic indexing will be disabled" >&2
   echo -e "        (the platform falls back to lexical ranking). Check 'docker logs acme-dev-ollama'." >&2
