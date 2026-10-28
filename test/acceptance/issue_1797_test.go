@@ -3,8 +3,10 @@
 package acceptance
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 )
 
 // Issue #1797: a row of the reader's own session timeline opened nothing.
@@ -34,6 +36,11 @@ const issue1797Purpose = "Acceptance for #1797: a session timeline row opens the
 //
 // search is deliberately one of them: it writes no call record, and it is the
 // kind of row that used to open nothing at all.
+//
+// The session read is this client's own, by the id platform_info gave it: the
+// first session in the caller's list belongs to whichever criterion called
+// last. A call's audit row is written after the call answers, so the timeline
+// is read until it holds both calls' rows, as a reader reopening the page would.
 func issue1797Session(t *testing.T, c *client) (sessionID string, timeline []any) {
 	t.Helper()
 
@@ -47,34 +54,27 @@ func issue1797Session(t *testing.T, c *client) (sessionID string, timeline []any
 	if status != http.StatusOK {
 		t.Fatalf("GET /portal/sessions: status %d: %v", status, out)
 	}
-	sessions, _ := out["data"].([]any)
-	if len(sessions) == 0 {
-		t.Fatalf("the caller has no sessions: %v", out)
-	}
-	first, _ := sessions[0].(map[string]any)
-	sessionID, _ = first["session_id"].(string)
-	if sessionID == "" {
-		sessionID, _ = first["id"].(string)
-	}
-	if sessionID == "" {
-		t.Fatalf("the session summary carries no id: %v", first)
-	}
 
-	status, detail := c.rest(http.MethodGet, "/api/v1/portal/sessions/"+sessionID, nil)
-	if status != http.StatusOK {
-		t.Fatalf("GET /portal/sessions/%s: status %d: %v", sessionID, status, detail)
-	}
-	timeline, _ = detail["timeline"].([]any)
-	if len(timeline) == 0 {
-		// Some shapes nest the entries under the session.
-		if inner, ok := detail["session"].(map[string]any); ok {
-			timeline, _ = inner["timeline"].([]any)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		status, detail := c.rest(http.MethodGet, "/api/v1/portal/sessions/"+c.sessionID, nil)
+		timeline, _ = detail["timeline"].([]any)
+		tools := map[string]bool{}
+		for _, entry := range timeline {
+			e, _ := entry.(map[string]any)
+			if e["purpose"] == issue1797Purpose {
+				tools[fmt.Sprint(e["tool_name"])] = true
+			}
 		}
+		if status == http.StatusOK && tools["search"] && tools["list_connections"] {
+			return c.sessionID, timeline
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("GET /portal/sessions/%s: status %d, rows %v after 30s; want this test's search and list_connections: %v",
+				c.sessionID, status, tools, detail)
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if len(timeline) == 0 {
-		t.Fatalf("the session carries no timeline: %v", detail)
-	}
-	return sessionID, timeline
 }
 
 func TestIssue1797_ATimelineRowOpensTheCallBehindIt(t *testing.T) {
