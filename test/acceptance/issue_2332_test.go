@@ -5,7 +5,6 @@ package acceptance
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -142,7 +141,12 @@ func TestIssue2332_ASubmissionRunsTheScriptThatNamesItsSource(t *testing.T) {
 
 // TestIssue2332_TenEventsRunTenTimesOneAtATime is criterion 3: ten
 // submissions received at once enqueue ten runs, each with its own event id,
-// and the script set to run one at a time runs them one after another.
+// and the script set to run one at a time runs every one of them to success.
+// That no two hold running at once is the idx_script_runs_queued_running
+// index's to enforce and TestRealDB_AQueuedRunWaitsForTheRunningOne's to
+// prove: a run's started_at is its claim transaction's NOW(), taken before the
+// claim waits on that index for the previous run's finish to commit, so the
+// stamps of two serial runs can cross by the length of that wait.
 func TestIssue2332_TenEventsRunTenTimesOneAtATime(t *testing.T) {
 	admin := connect(t)
 	form, _ := bindForm(t, admin, "acc-2332-burst", formFields, map[string]any{"auth_mode": "public"})
@@ -168,22 +172,14 @@ func TestIssue2332_TenEventsRunTenTimesOneAtATime(t *testing.T) {
 
 	runs := issue2332Runs(t, admin, name, 10)
 	ids := map[string]bool{}
-	type span struct{ start, end time.Time }
-	spans := make([]span, 0, len(runs))
 	for _, r := range runs {
 		ids[fmt.Sprint(r["event_id"])] = true
-		start, _ := time.Parse(time.RFC3339Nano, fmt.Sprint(r["started_at"]))
-		end, _ := time.Parse(time.RFC3339Nano, fmt.Sprint(r["finished_at"]))
-		spans = append(spans, span{start, end})
+		if r["status"] != "succeeded" {
+			t.Errorf("run %v for event %v ended %v: %v", r["id"], r["event_id"], r["status"], r["error"])
+		}
 	}
 	if len(runs) != 10 || len(ids) != 10 {
 		t.Fatalf("%d runs with %d event ids, want ten of each", len(runs), len(ids))
-	}
-	sort.Slice(spans, func(i, j int) bool { return spans[i].start.Before(spans[j].start) })
-	for i := 1; i < len(spans); i++ {
-		if spans[i].start.Before(spans[i-1].end) {
-			t.Fatalf("run %d started at %s, before the one before it ended at %s", i, spans[i].start, spans[i-1].end)
-		}
 	}
 }
 
