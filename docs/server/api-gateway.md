@@ -403,14 +403,16 @@ The `signed_jwt` config keys (`jwt_algorithm`, `jwt_client_secret`, `jwt_private
 
 | Key | Meaning | Default |
 |---|---|---|
-| `hmac_preset` | `standard_webhooks`, `github`, `stripe` or `platform`: a receiver's whole convention in one setting. A key set beside it overrides the preset's value for that key. | none |
+| `hmac_preset` | `standard_webhooks`, `github`, `stripe`, `platform`, `slack`, `zoom`, `teams`, `shopify`, `linear`, `gitlab` or `jira`: a receiver's whole convention in one setting, the same conventions an [inbound source's presets](webhooks.md#presets) verify. A key set beside it overrides the preset's value for that key. | none |
 | `hmac_algorithm` | `sha256`, `sha1`, `sha512` | `sha256` |
 | `hmac_encoding` | `hex`, `base64` | `hex` |
 | `hmac_signature_header` | The header the signature is written to | `X-Signature` |
 | `hmac_prefix` | Written before the signature, such as `sha256=` or `v1,` | empty |
-| `hmac_signed` | `body`; `timestamp.body` (the timestamp, a `.`, the body); or `id.timestamp.body` (the delivery id, a `.`, the timestamp, a `.`, the body, the Standard Webhooks form) | `body` |
+| `hmac_signed` | `body`; `timestamp.body` (the timestamp, a `.`, the body); `id.timestamp.body` (the delivery id, a `.`, the timestamp, a `.`, the body, the Standard Webhooks form); or a template over `{id}`, `{timestamp}` and `{body}` with the text between them, such as `v0:{timestamp}:{body}` | `body` |
 | `hmac_header_format` | Empty, or `stripe`, which writes `t=<timestamp>,v1=<signature>` into the signature header and signs the timestamp and the body | empty |
-| `hmac_timestamp_header` | The header the timestamp is written to; required when `hmac_signed` includes the timestamp, and refused with `stripe` | empty |
+| `hmac_header_pattern` | The signature header's layout over `{signature}` and `{timestamp}`, such as `{timestamp}\|{signature}` or `HMAC {signature}`. Replaces `hmac_prefix` and `hmac_header_format`. | empty |
+| `hmac_secret_encoding` | Empty for the secret as written, or `base64` for the bytes it decodes to (a Teams security token) | empty |
+| `hmac_timestamp_header` | The header the timestamp is written to; required when `hmac_signed` includes the timestamp, unless `hmac_header_pattern` names `{timestamp}`, and refused with `stripe` | empty |
 | `hmac_timestamp_unit` | `seconds`, `milliseconds` | `seconds` |
 | `hmac_id_header` | The header carrying the delivery id; required for `id.timestamp.body` | empty |
 

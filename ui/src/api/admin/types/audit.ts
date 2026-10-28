@@ -47,7 +47,10 @@ export interface AuditEvent {
 
 export interface AuditEventResponse {
   data: AuditEvent[];
+  /** Matching events, counted no further than 10,000 (#2272). */
   total: number;
+  /** The count stopped at the cap: there are at least `total`. */
+  total_capped?: boolean;
   page: number;
   per_page: number;
 }

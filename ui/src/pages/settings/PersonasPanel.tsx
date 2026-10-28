@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 import {
   usePersonas,
   usePersonaDetail,
@@ -110,6 +111,7 @@ export function PersonasPanel() {
   const [isCreating, setIsCreating] = useState(false);
   const [draft, setDraft] = useState<PersonaDraft>(emptyDraft());
   const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // What other objects still name the selected persona, from the editor's
   // summary: a delete lists them and confirms past them (#2257).
@@ -192,9 +194,8 @@ export function PersonasPanel() {
 
   const handleSaved = useCallback(() => {
     if (isCreating) {
-      const savedName = draft.name;
       setIsCreating(false);
-      setSelected(savedName);
+      setSelected(draft.name);
     }
     setDirty(false);
   }, [isCreating, draft.name]);

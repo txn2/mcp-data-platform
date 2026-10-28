@@ -616,8 +616,8 @@ func TestRefusalsStoreNothing(t *testing.T) {
 		{"not json", func() reply {
 			return h.post(t, "/hooks/esp", "application/json", `nope`, "X-Sig", sig(`nope`))
 		}, http.StatusBadRequest, "esp/invalid_body"},
-		{"form without payload", func() reply {
-			return h.post(t, "/hooks/esp", "application/x-www-form-urlencoded", `a=b`, "X-Sig", sig(`a=b`))
+		{"form with no fields", func() reply {
+			return h.post(t, "/hooks/esp", "application/x-www-form-urlencoded", ``, "X-Sig", sig(``))
 		}, http.StatusBadRequest, "esp/invalid_body"},
 	}
 	for _, tt := range tests {

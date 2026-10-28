@@ -101,7 +101,9 @@ External `$ref` resolution stays disabled at the parser regardless of source (pa
 
 Open a `kind: api` connection in the Connections page. The OpenAPI Catalog dropdown lists every catalog known to the platform; pick one and save. A `kind: graphql` connection has the same dropdown under Schema and documents, named Schema catalog, and leaving it empty is what makes the connection read its own endpoint. The model immediately sees the catalog's operations the next time it calls `api_discover` against that connection.
 
-A connection with no catalog selected (or an empty `catalog_id`) still works — the model can call `api_invoke_endpoint` with an explicit method and path. It just won't have discovery or schema retrieval via `api_discover`.
+A connection with no catalog selected (or an empty `catalog_id`) still works — the model can call `api_invoke_endpoint` with an explicit method and path. It just won't have discovery or schema retrieval via `api_discover`, and search finds none of its operations. That state is said wherever the connection appears (#2271): `PUT /api/v1/admin/connection-instances/api/{name}` saves it and answers with `warnings` naming the fix, the Connections list marks it **no catalog**, its detail pane offers to link or create one, and the APIs page lists it as **no catalog** rather than as 0 operations.
+
+Setting up an API is therefore two steps, which is what the route's description tells an agent configuring the platform through the admin API: create a catalog from the vendor's OpenAPI spec (or reuse one), then save the connection with `catalog_id` naming it. When no spec can be found, the agent says so to the person rather than reporting the setup as done.
 
 The legacy `openapi_spec` JSONB key (inline-only, per-connection) is no longer read by the toolkit. Connections that still carry it surface a banner in the editor prompting the operator to move the content into a catalog.
 

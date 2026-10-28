@@ -21,6 +21,8 @@ export interface WebhookForm {
   connection: string;
   persona: string;
   enabled: boolean;
+  /** A sender's convention by name; empty is a source configured by hand. */
+  preset: string;
   mode: WebhookAuthMode;
   secret: string;
   rotationOverlapHours: string;
@@ -33,6 +35,10 @@ export interface WebhookForm {
   signed: string;
   idHeader: string;
   headerFormat: string;
+  headerPattern: string;
+  secretEncoding: string;
+  timestampPath: string;
+  tokenPath: string;
   header: string;
   username: string;
   handshake: string;
@@ -60,6 +66,7 @@ export const EMPTY_FORM: WebhookForm = {
   connection: "",
   persona: "",
   enabled: true,
+  preset: "",
   mode: "hmac",
   secret: "",
   rotationOverlapHours: "24",
@@ -72,6 +79,10 @@ export const EMPTY_FORM: WebhookForm = {
   signed: "body",
   idHeader: "",
   headerFormat: "",
+  headerPattern: "",
+  secretEncoding: "",
+  timestampPath: "",
+  tokenPath: "",
   header: "",
   username: "",
   handshake: "none",
@@ -123,8 +134,10 @@ export function fromSource(s: WebhookSource): WebhookForm {
 
 function authFields(a: WebhookSource["auth"]): Partial<WebhookForm> {
   return {
+    preset: a.preset ?? "",
     mode: a.mode,
     ...hmacFields(a),
+    tokenPath: a.token_path ?? "",
     header: a.header ?? "",
     username: a.username ?? "",
   };
@@ -142,6 +155,16 @@ function hmacFields(a: WebhookSource["auth"]): Partial<WebhookForm> {
     signed: a.signed ?? EMPTY_FORM.signed,
     idHeader: a.id_header ?? "",
     headerFormat: a.header_format ?? "",
+    ...senderFields(a),
+  };
+}
+
+/** senderFields are the settings #2223 added to a stored source's auth. */
+function senderFields(a: WebhookSource["auth"]): Partial<WebhookForm> {
+  return {
+    headerPattern: a.header_pattern ?? "",
+    secretEncoding: a.secret_encoding ?? "",
+    timestampPath: a.timestamp_path ?? "",
   };
 }
 
@@ -251,16 +274,49 @@ function authOf(f: WebhookForm): WebhookSourceInput["auth"] {
   if (f.input === "imap") {
     return { mode: "imap", secret, username: str(f.username) };
   }
-  switch (f.mode) {
-    case "hmac":
-      return hmacAuthOf(f, secret);
-    case "header_token":
-      return { mode: "header_token", secret, header: str(f.header) };
-    case "basic":
-      return { mode: "basic", secret, username: str(f.username) };
-    default:
-      return { mode: "path_token", secret };
+  const preset = WEBHOOK_PRESETS[f.preset];
+  if (preset) {
+    return { mode: preset.mode, preset: f.preset, secret, tolerance_seconds: num(f.toleranceSeconds) };
   }
+  const build = MODE_AUTH[f.mode];
+  return build ? build(f, secret) : { mode: "path_token", secret };
+}
+
+type AuthBuilder = (f: WebhookForm, secret: string | undefined) => WebhookSourceInput["auth"];
+
+/** MODE_AUTH sends each hand-configured mode's settings and no others. */
+const MODE_AUTH: Partial<Record<WebhookAuthMode, AuthBuilder>> = {
+  hmac: (f, secret) => hmacAuthOf(f, secret),
+  ed25519: (f, secret) => ({
+    mode: "ed25519",
+    secret,
+    signature_header: str(f.signatureHeader),
+    encoding: f.encoding,
+    timestamp_header: str(f.timestampHeader),
+    tolerance_seconds: num(f.toleranceSeconds),
+    signed: str(f.signed),
+  }),
+  body_token: (f, secret) => ({ mode: "body_token", secret, token_path: str(f.tokenPath) }),
+  jwt: (f, secret) => ({ mode: "jwt", secret, header: str(f.header) }),
+  header_token: (f, secret) => ({ mode: "header_token", secret, header: str(f.header) }),
+  basic: (f, secret) => ({ mode: "basic", secret, username: str(f.username) }),
+};
+
+/** timestampSource reports whether the form names where a signed timestamp
+ * is read from: a header, the body, or the signature header's pattern. */
+export function timestampSource(f: WebhookForm): boolean {
+  return f.timestampHeader.trim() !== "" || f.timestampPath.trim() !== "" || f.headerPattern.includes("{timestamp}");
+}
+
+/** signsTimestamp reports whether a signed value covers a timestamp. */
+function signsTimestamp(signed: string): boolean {
+  return signed === "timestamp.body" || signed === "id.timestamp.body" || signed.includes("{timestamp}");
+}
+
+/** isTemplate reports whether a signed value is a template rather than one of
+ * the named forms. */
+export function isTemplate(signed: string): boolean {
+  return signed.includes("{");
 }
 
 /** hmacAuthOf sends the HMAC settings the header format reads: a Stripe
@@ -276,15 +332,19 @@ function hmacAuthOf(f: WebhookForm, secret: string | undefined): WebhookSourceIn
     tolerance_seconds: num(f.toleranceSeconds),
   };
   if (f.headerFormat === "stripe") {
-    return { ...common, header_format: "stripe" };
+    return { ...common, header_format: "stripe", secret_encoding: str(f.secretEncoding) };
   }
-  const signed = f.timestampHeader.trim() === "" ? "body" : f.signed;
+  const signed = f.signed;
+  const pattern = str(f.headerPattern);
   return {
     ...common,
-    prefix: str(f.prefix),
+    prefix: pattern ? undefined : str(f.prefix),
+    header_pattern: pattern,
+    secret_encoding: str(f.secretEncoding),
     timestamp_header: str(f.timestampHeader),
+    timestamp_path: str(f.timestampPath),
     signed,
-    id_header: signed === "id.timestamp.body" ? str(f.idHeader) : undefined,
+    id_header: signed === "id.timestamp.body" || signed.includes("{id}") ? str(f.idHeader) : undefined,
   };
 }
 
@@ -313,17 +373,33 @@ function createProblems(f: WebhookForm): string[] {
   return out;
 }
 
-/** modeProblems are the settings the chosen authentication mode needs. */
+/** modeProblems are the settings the chosen authentication mode needs. A
+ * preset sets them all. */
 function modeProblems(f: WebhookForm): string[] {
+  if (WEBHOOK_PRESETS[f.preset]) return [];
   const needs: Partial<Record<WebhookAuthMode, [string, string]>> = {
     hmac: [f.signatureHeader, "Name the header the signature is sent in."],
+    ed25519: [f.signatureHeader, "Name the header the signature is sent in."],
     header_token: [f.header, "Name the header the token is sent in."],
+    jwt: [f.header, "Name the header the token is sent in."],
+    body_token: [f.tokenPath, "Name where in the body the token is."],
     basic: [f.username, "Enter the username."],
   };
   const need = needs[f.mode];
   const out = need && need[0].trim() === "" ? [need[1]] : [];
-  if (f.mode === "hmac" && f.headerFormat !== "stripe" && f.timestampHeader.trim() !== "" &&
-    f.signed === "id.timestamp.body" && f.idHeader.trim() === "") {
+  return [...out, ...signedProblems(f)];
+}
+
+/** signedProblems are what the signed content names that the form does not
+ * say where to read. */
+function signedProblems(f: WebhookForm): string[] {
+  const out: string[] = [];
+  const signing = (f.mode === "hmac" && f.headerFormat !== "stripe") || f.mode === "ed25519";
+  if (!signing) return out;
+  if (signsTimestamp(f.signed) && !timestampSource(f)) {
+    out.push("The signed content includes a timestamp: name the header or the body path it is read from.");
+  }
+  if ((f.signed === "id.timestamp.body" || f.signed.includes("{id}")) && f.idHeader.trim() === "") {
     out.push("Name the header the delivery id is sent in.");
   }
   return out;
@@ -334,11 +410,62 @@ export const MODE_LABELS: Record<WebhookAuthMode, string> = {
   header_token: "Token in a header",
   basic: "Basic credentials",
   path_token: "Token in the URL",
+  ed25519: "Ed25519 signature",
+  body_token: "Token in the body",
+  jwt: "JSON Web Token",
   imap: "Mailbox login",
 };
 
 /** HTTP_MODES are the modes an http source chooses between. */
-export const HTTP_MODES: WebhookAuthMode[] = ["hmac", "header_token", "basic", "path_token"];
+export const HTTP_MODES: WebhookAuthMode[] = [
+  "hmac",
+  "ed25519",
+  "header_token",
+  "body_token",
+  "jwt",
+  "basic",
+  "path_token",
+];
+
+/** WebhookPreset is a sender a source can name instead of being configured
+ * by hand (#2223): the platform fills the mode, headers, signed content,
+ * encoding and setup check. */
+export interface WebhookPreset {
+  label: string;
+  mode: WebhookAuthMode;
+  /** What the sender calls the secret the source is given. */
+  secretLabel: string;
+}
+
+/** WEBHOOK_PRESETS are the platform's presets (whsource.PresetNames), in the
+ * order the form offers them. */
+export const WEBHOOK_PRESETS: Record<string, WebhookPreset> = {
+  standard_webhooks: { label: "Standard Webhooks", mode: "hmac", secretLabel: "Signing secret" },
+  github: { label: "GitHub", mode: "hmac", secretLabel: "Webhook secret" },
+  stripe: { label: "Stripe", mode: "hmac", secretLabel: "Signing secret" },
+  platform: { label: "Another platform deployment", mode: "hmac", secretLabel: "Signing secret" },
+  slack: { label: "Slack", mode: "hmac", secretLabel: "Signing secret" },
+  zoom: { label: "Zoom", mode: "hmac", secretLabel: "Secret token" },
+  mattermost: { label: "Mattermost", mode: "body_token", secretLabel: "Outgoing webhook token" },
+  teams: { label: "Microsoft Teams", mode: "hmac", secretLabel: "Security token" },
+  discord: { label: "Discord", mode: "ed25519", secretLabel: "Application public key" },
+  monday: { label: "monday.com", mode: "jwt", secretLabel: "Signing secret" },
+  shopify: { label: "Shopify", mode: "hmac", secretLabel: "Client secret" },
+  linear: { label: "Linear", mode: "hmac", secretLabel: "Signing secret" },
+  gitlab: { label: "GitLab", mode: "hmac", secretLabel: "Signing token" },
+  jira: { label: "Jira Cloud", mode: "hmac", secretLabel: "Secret" },
+  microsoft_graph: { label: "Microsoft Graph", mode: "body_token", secretLabel: "Client state" },
+};
+
+/** HANDSHAKES are the setup checks a source can answer. */
+export const HANDSHAKES: { value: string; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "cloudevents", label: "CloudEvents OPTIONS handshake" },
+  { value: "challenge_echo", label: "Echo a challenge (Slack, monday.com)" },
+  { value: "zoom", label: "Zoom URL validation" },
+  { value: "discord", label: "Discord PING" },
+  { value: "graph_validation", label: "Microsoft Graph validation token" },
+];
 
 /** senderURL is the address to give the sender. A path_token source's token
  * is a further path segment, shown as a placeholder: the secret is never read

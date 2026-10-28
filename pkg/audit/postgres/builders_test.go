@@ -64,10 +64,33 @@ func TestAuditQueryBuilders(t *testing.T) {
 		assert.Contains(t, query, "ORDER BY user_id")
 		assert.Equal(t, []any{start, end}, args)
 
-		pairs, pairArgs, err := buildDistinctPairsQuery(colUserID, colUserEmail, nil, nil)
+		pairs, pairArgs, err := buildDistinctPairsQuery(colUserID, colUserEmail, &start, &end)
 		require.NoError(t, err)
 		assert.Contains(t, pairs, "SELECT DISTINCT user_id, user_email")
-		assert.Len(t, pairArgs, 1, "only the non-empty-label predicate binds")
+		assert.Len(t, pairArgs, 3, "the non-empty-label predicate and the window bind")
+	})
+
+	// With no window each lookup walks its column's index (#2272).
+	t.Run("the distinct lookups are loose index scans with no time window", func(t *testing.T) {
+		query, args, err := buildDistinctQuery(colToolkitKind, nil, nil)
+		require.NoError(t, err)
+		assert.Contains(t, query, "WITH RECURSIVE v(val)")
+		assert.Contains(t, query, "a.toolkit_kind > v.val ORDER BY a.toolkit_kind LIMIT 1")
+		assert.Empty(t, args)
+
+		pairs, _, err := buildDistinctPairsQuery(colUserID, colUserEmail, nil, nil)
+		require.NoError(t, err)
+		assert.Contains(t, pairs, "CROSS JOIN LATERAL")
+		// Only user_id is indexed: labeling by email reads the rows.
+		byEmail, _, err := buildDistinctPairsQuery(colUserEmail, colUserID, nil, nil)
+		require.NoError(t, err)
+		assert.Contains(t, byEmail, "SELECT DISTINCT user_email, user_id")
+	})
+
+	t.Run("the bounded count stops at its limit", func(t *testing.T) {
+		query, _, err := buildCountUpToQuery(audit.QueryFilter{ToolName: "search"}, 10_001)
+		require.NoError(t, err)
+		assert.Contains(t, query, "SELECT COUNT(*) FROM (SELECT 1 FROM audit_logs WHERE tool_name = $1 LIMIT 10001) AS matching")
 	})
 
 	t.Run("every resolution renders its own bucket expression", func(t *testing.T) {

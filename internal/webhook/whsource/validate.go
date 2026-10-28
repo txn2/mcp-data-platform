@@ -1,6 +1,8 @@
 package whsource
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -89,12 +91,15 @@ func validateName(name string) error {
 
 // validateAuth checks the mode and the fields that mode needs.
 func validateAuth(a Auth) error {
+	if a.Preset != "" && !KnownPreset(a.Preset) {
+		return invalid("auth.preset must be one of %s", strings.Join(PresetNames(), ", "))
+	}
 	if a.Secret == "" {
 		return invalid("auth.secret is required")
 	}
 	check, ok := modeChecks[a.Mode]
 	if !ok {
-		return invalid("auth.mode must be one of hmac, header_token, basic or path_token")
+		return invalid("auth.mode must be one of hmac, header_token, basic, path_token, ed25519, body_token or jwt")
 	}
 	return check(a)
 }
@@ -120,6 +125,41 @@ var modeChecks = map[string]func(Auth) error{
 		}
 		return nil
 	},
+	AuthEd25519: validateEd25519,
+	AuthBodyToken: func(a Auth) error {
+		if _, err := jsonpath.Parse(a.TokenPath); err != nil {
+			return invalid("auth.token_path must name where in the body the token is: %v", err)
+		}
+		return nil
+	},
+	AuthJWT: func(a Auth) error {
+		if !validHeaderName(a.Header) {
+			return invalid("auth.header must name the header the token is sent in")
+		}
+		return nil
+	},
+}
+
+// ed25519PublicKeyBytes is the length of an Ed25519 public key.
+const ed25519PublicKeyBytes = 32
+
+// validateEd25519 checks the public key and the settings the signature is read
+// and checked with.
+func validateEd25519(a Auth) error {
+	if k, err := hex.DecodeString(a.Secret); err != nil || len(k) != ed25519PublicKeyBytes {
+		return invalid("auth.secret must be the sender's Ed25519 public key, %d bytes in hex", ed25519PublicKeyBytes)
+	}
+	if !validHeaderName(a.SignatureHeader) {
+		return invalid("auth.signature_header must name the header the signature is sent in")
+	}
+	if !hmacsig.ValidEncoding(a.Encoding) {
+		return invalid("auth.encoding must be hex or base64")
+	}
+	tmpl, err := hmacsig.CompileTemplate(signedOrBody(a.Signed))
+	if err != nil {
+		return invalid("auth.signed: %v", err)
+	}
+	return validateTimestampSource(a, tmpl)
 }
 
 // validateHMAC checks the settings an HMAC source signs with.
@@ -136,42 +176,124 @@ func validateHMAC(a Auth) error {
 	if !hmacsig.ValidFormat(a.HeaderFormat) {
 		return invalid("auth.header_format must be empty or stripe")
 	}
-	return validateTimestamp(a)
+	if err := validateSecretEncoding(a); err != nil {
+		return err
+	}
+	if err := validatePattern(a); err != nil {
+		return err
+	}
+	if a.HeaderFormat == HeaderFormatStripe {
+		if a.TimestampHeader != "" || a.IDHeader != "" || a.TimestampPath != "" {
+			return invalid("auth.header_format stripe carries the timestamp in the signature header; " +
+				"leave auth.timestamp_header, auth.timestamp_path and auth.id_header empty")
+		}
+		return validateTolerance(a)
+	}
+	tmpl, err := hmacsig.CompileTemplate(signedOrBody(a.Signed))
+	if err != nil {
+		return invalid("auth.signed must be body, timestamp.body, id.timestamp.body or a template over "+
+			"{id}, {timestamp} and {body}: %v", err)
+	}
+	return validateTimestampSource(a, tmpl)
 }
 
-// validateTimestamp checks the replay window and the signed bytes an HMAC
-// source may declare.
-func validateTimestamp(a Auth) error {
+// validateSecretEncoding checks how the secret is read, and that a base64
+// secret decodes.
+func validateSecretEncoding(a Auth) error {
+	if !hmacsig.ValidSecretEncoding(a.SecretEncoding) {
+		return invalid("auth.secret_encoding must be empty or base64")
+	}
+	if a.SecretEncoding == SecretBase64 {
+		if _, err := base64.StdEncoding.DecodeString(a.Secret); err != nil {
+			return invalid("auth.secret is not base64, which auth.secret_encoding base64 reads it as")
+		}
+	}
+	return nil
+}
+
+// validatePattern checks a header pattern, which replaces a prefix and a
+// format.
+func validatePattern(a Auth) error {
+	if a.HeaderPattern == "" {
+		return nil
+	}
+	if a.HeaderFormat != "" || a.Prefix != "" {
+		return invalid("auth.header_pattern lays out the whole signature header; leave auth.header_format and auth.prefix empty")
+	}
+	if _, err := hmacsig.CompilePattern(a.HeaderPattern); err != nil {
+		return invalid("auth.header_pattern: %v", err)
+	}
+	return nil
+}
+
+// validateTimestampSource checks that what the signed bytes name can be read
+// from the request: the timestamp from exactly one of a header, the body or
+// the signature header, and the delivery id from a header.
+func validateTimestampSource(a Auth, tmpl hmacsig.Template) error {
+	if err := validateSignedPlaces(a); err != nil {
+		return err
+	}
+	sources := timestampSources(a)
+	if sources > 1 {
+		return invalid("the timestamp is read from one place: set one of auth.timestamp_header, " +
+			"auth.timestamp_path or a header_pattern naming {timestamp}")
+	}
+	if tmpl.UsesTimestamp() && sources == 0 {
+		return invalid("auth.signed %q signs a timestamp; set auth.timestamp_header, auth.timestamp_path "+
+			"or a header_pattern naming {timestamp}", a.Signed)
+	}
+	if tmpl.UsesID() && a.IDHeader == "" {
+		return invalid("auth.signed %q signs a delivery id; set auth.id_header", a.Signed)
+	}
+	return validateTolerance(a)
+}
+
+// validateSignedPlaces checks the headers and body path a signed timestamp
+// and delivery id are read from.
+func validateSignedPlaces(a Auth) error {
 	if a.TimestampHeader != "" && !validHeaderName(a.TimestampHeader) {
 		return invalid("auth.timestamp_header is not a valid header name")
 	}
 	if a.IDHeader != "" && !validHeaderName(a.IDHeader) {
 		return invalid("auth.id_header is not a valid header name")
 	}
+	if a.TimestampPath != "" {
+		p, err := jsonpath.Parse(a.TimestampPath)
+		if err != nil || p.HasWildcard() {
+			return invalid("auth.timestamp_path must name one place in the body")
+		}
+	}
+	return nil
+}
+
+// timestampSources counts the places a source names to read its timestamp
+// from: a header, the body, and the signature header's pattern.
+func timestampSources(a Auth) int {
+	n := 0
+	for _, set := range []bool{
+		a.TimestampHeader != "", a.TimestampPath != "", strings.Contains(a.HeaderPattern, hmacsig.PlaceholderTimestamp),
+	} {
+		if set {
+			n++
+		}
+	}
+	return n
+}
+
+// validateTolerance checks the replay window.
+func validateTolerance(a Auth) error {
 	if a.ToleranceSeconds < 0 {
 		return invalid("auth.tolerance_seconds cannot be negative")
 	}
-	if a.HeaderFormat == HeaderFormatStripe {
-		if a.TimestampHeader != "" || a.IDHeader != "" {
-			return invalid("auth.header_format stripe carries the timestamp in the signature header; " +
-				"leave auth.timestamp_header and auth.id_header empty")
-		}
-		return nil
-	}
-	switch a.Signed {
-	case SignedBody:
-	case SignedTimestampBody:
-		if a.TimestampHeader == "" {
-			return invalid("auth.signed timestamp.body needs auth.timestamp_header")
-		}
-	case SignedIDTimestampBody:
-		if a.TimestampHeader == "" || a.IDHeader == "" {
-			return invalid("auth.signed id.timestamp.body needs auth.timestamp_header and auth.id_header")
-		}
-	default:
-		return invalid("auth.signed must be body, timestamp.body or id.timestamp.body")
-	}
 	return nil
+}
+
+// signedOrBody is what a source signs, the body when it names nothing.
+func signedOrBody(v string) string {
+	if v == "" {
+		return SignedBody
+	}
+	return v
 }
 
 // validHeaderName reports whether name is a header a request can carry.
@@ -181,8 +303,13 @@ func validHeaderName(name string) bool {
 
 // validateConfig checks the body, buffer, rate and retention settings.
 func validateConfig(c Config) error {
-	if c.Handshake != HandshakeNone && c.Handshake != HandshakeCloudEvents {
-		return invalid("config.handshake must be none or cloudevents")
+	switch c.Handshake {
+	case HandshakeNone, HandshakeCloudEvents, HandshakeChallengeEcho, HandshakeZoom, HandshakeDiscord, HandshakeGraphValidation:
+	default:
+		return invalid("config.handshake must be none, cloudevents, challenge_echo, zoom, discord or graph_validation")
+	}
+	if strings.ContainsAny(c.ChallengeField, ".[]$") {
+		return invalid("config.challenge_field must name a top-level field of the body")
 	}
 	if strings.TrimSpace(c.Persona) != c.Persona || strings.ContainsAny(c.Persona, "/ \t") {
 		return invalid("config.persona must be a persona name")
@@ -202,8 +329,12 @@ func validateConfig(c Config) error {
 		if path == "" {
 			continue
 		}
-		if _, err := jsonpath.Parse(path); err != nil {
+		p, err := jsonpath.Parse(path)
+		if err != nil {
 			return invalid("config.%s: %v", field, err)
+		}
+		if p.HasWildcard() {
+			return invalid("config.%s must name one place in the body; [*] is not allowed here", field)
 		}
 	}
 	return validateLimits(c)

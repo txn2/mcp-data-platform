@@ -1147,6 +1147,8 @@ Returns paginated audit events with optional filtering.
 }
 ```
 
+`total` counts the matching events no further than 10,000 (#2272): counting every match of an unfiltered view read the whole table on every load. When the count stops there the response also carries `"total_capped": true`, meaning at least that many, and the portal shows "of 10,000+". A narrower filter or time range reaches past it.
+
 ### Get Audit Event
 
 ```

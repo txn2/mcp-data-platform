@@ -75,3 +75,57 @@ func TestResourceUsage_RealDB_AggregatesReadEvents(t *testing.T) {
 	_, present := usage["res_usage_never"]
 	assert.False(t, present, "a resource never read has no entry")
 }
+
+// TestFilterValues_RealDB_LooseScanMatchesDistinct is #2272: the filter
+// dropdowns read each column through its index one value at a time, and that
+// lists exactly what SELECT DISTINCT lists, NULLs excluded, in order; the user
+// labels pair each user with a non-empty email; and the bounded count stops at
+// its limit and counts in full below it.
+func TestFilterValues_RealDB_LooseScanMatchesDistinct(t *testing.T) {
+	db := testdb.New(t)
+	store := New(db, Config{RetentionDays: 90})
+	ctx := context.Background()
+
+	for i, e := range []struct{ user, email, tool, kind, source string }{
+		{"u-b", "b@example.com", "trino_query", "trino", "mcp"},
+		{"u-a", "", "search", "search", "script"},
+		{"u-a", "a@example.com", "search", "search", "mcp"},
+		{"u-c", "c@example.com", "fetch", "", "portal"},
+		{"u-b", "b@example.com", "trino_query", "trino", "mcp"},
+	} {
+		ev := audit.NewEvent(e.tool).WithUser(e.user, e.email).WithToolkit(e.kind, e.kind).WithTransport("http", e.source).WithResult(i%2 == 0, "", 1)
+		require.NoError(t, store.Log(ctx, *ev))
+	}
+	// A row written before event_kind existed carries NULL there, and NULL is
+	// not a value a filter can choose.
+	_, err := db.ExecContext(ctx, `UPDATE audit_logs SET event_kind = NULL WHERE tool_name = 'fetch'`)
+	require.NoError(t, err)
+
+	for _, col := range []string{colUserID, colToolName, colToolkitKind, colSource, colEventKind} {
+		rows, err := db.QueryContext(ctx, `SELECT DISTINCT `+col+` FROM audit_logs WHERE `+col+` IS NOT NULL ORDER BY `+col)
+		require.NoError(t, err)
+		var want []string
+		for rows.Next() {
+			var v string
+			require.NoError(t, rows.Scan(&v))
+			want = append(want, v)
+		}
+		require.NoError(t, rows.Close())
+		got, err := store.Distinct(ctx, col, nil, nil)
+		require.NoError(t, err, col)
+		assert.Equal(t, want, got, col)
+	}
+
+	labels, err := store.DistinctPairs(ctx, colUserID, colUserEmail, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"u-a": "a@example.com", "u-b": "b@example.com", "u-c": "c@example.com"}, labels)
+
+	for limit, want := range map[int]int{3: 3, 5: 5, 50: 5} {
+		n, err := store.CountUpTo(ctx, audit.QueryFilter{}, limit)
+		require.NoError(t, err)
+		assert.Equal(t, want, n, "limit %d", limit)
+	}
+	n, err := store.CountUpTo(ctx, audit.QueryFilter{ToolName: "search"}, 10)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+}

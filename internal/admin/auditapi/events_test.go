@@ -3,6 +3,7 @@ package auditapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -322,4 +323,65 @@ func TestGetAuditStats(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
+}
+
+// boundedQuerier is a store that can stop counting, as the PostgreSQL one can.
+type boundedQuerier struct {
+	mockAuditQuerier
+	matching  int
+	limit     int
+	boundErr  error
+	countUsed bool
+}
+
+func (b *boundedQuerier) CountUpTo(_ context.Context, _ audit.QueryFilter, limit int) (int, error) {
+	b.limit = limit
+	return min(b.matching, limit), b.boundErr
+}
+
+func (b *boundedQuerier) Count(ctx context.Context, f audit.QueryFilter) (int, error) {
+	b.countUsed = true
+	return b.mockAuditQuerier.Count(ctx, f)
+}
+
+// TestListAuditEventsCapsTheTotal is #2272: the total is counted no further
+// than 10,000, and the response says when it stopped there.
+func TestListAuditEventsCapsTheTotal(t *testing.T) {
+	get := func(t *testing.T, q EventQuerier) (auditEventResponse, int) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		testMux(Config{Events: q}).ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+			"/api/v1/admin/audit/events", http.NoBody))
+		var body auditEventResponse
+		if w.Code == http.StatusOK {
+			require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		}
+		return body, w.Code
+	}
+
+	many := &boundedQuerier{matching: 20_000_000}
+	body, code := get(t, many)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, totalCap, body.Total)
+	assert.True(t, body.TotalCapped)
+	assert.Equal(t, totalCap+1, many.limit, "one past the cap tells a full count from a cut one")
+	assert.False(t, many.countUsed, "a store that can stop is never counted in full")
+
+	exact := &boundedQuerier{matching: totalCap}
+	body, _ = get(t, exact)
+	assert.Equal(t, totalCap, body.Total)
+	assert.False(t, body.TotalCapped, "exactly the cap is a full count")
+
+	few := &boundedQuerier{matching: 7}
+	body, _ = get(t, few)
+	assert.Equal(t, 7, body.Total)
+	assert.False(t, body.TotalCapped)
+
+	_, code = get(t, &boundedQuerier{boundErr: errors.New("db down")})
+	assert.Equal(t, http.StatusInternalServerError, code)
+
+	plain := &mockAuditQuerier{countResult: 12_345}
+	body, _ = get(t, plain)
+	assert.Equal(t, 12_345, body.Total, "a store that cannot stop is counted in full")
+	assert.False(t, body.TotalCapped)
 }

@@ -3,7 +3,38 @@
 // stored, and `previous_secret_until` how long the one before a rotation is
 // still accepted.
 
-export type WebhookAuthMode = "hmac" | "header_token" | "basic" | "path_token" | "imap";
+export type WebhookAuthMode =
+  | "hmac"
+  | "header_token"
+  | "basic"
+  | "path_token"
+  | "ed25519"
+  | "body_token"
+  | "jwt"
+  | "imap";
+
+/** WebhookHandshake is the sender setup check a source answers (#2223). */
+export type WebhookHandshake =
+  | "none"
+  | "cloudevents"
+  | "challenge_echo"
+  | "zoom"
+  | "discord"
+  | "graph_validation";
+
+/** Fields #2223 added to a source's auth, read and written alike. */
+interface WebhookAuthSenderFields {
+  /** A sender's whole convention by name; the settings left unset come from it. */
+  preset?: string;
+  /** The signature header's layout over {signature} and {timestamp}. */
+  header_pattern?: string;
+  /** Absent for the secret as written, or base64. */
+  secret_encoding?: string;
+  /** Where in the body the signed timestamp is. */
+  timestamp_path?: string;
+  /** Where in the body a body_token source's token is. */
+  token_path?: string;
+}
 
 /** WebhookInput is where a source's events come from: posted to it, read
  * from a mailbox the platform polls, each message one event (#2247), or a
@@ -49,7 +80,7 @@ export interface WebhookIMAPFolder {
   last_error?: string;
 }
 
-export interface WebhookAuthView {
+export interface WebhookAuthView extends WebhookAuthSenderFields {
   mode: WebhookAuthMode;
   secret_set: boolean;
   previous_secret_until?: string;
@@ -71,7 +102,9 @@ export interface WebhookConfig {
   input?: WebhookInput;
   imap?: WebhookIMAP;
   form?: WebhookFormBinding;
-  handshake?: "none" | "cloudevents";
+  handshake?: WebhookHandshake;
+  /** The body field a challenge_echo check carries; absent is challenge. */
+  challenge_field?: string;
   max_body_bytes?: number;
   split?: string;
   event_id_path?: string;
@@ -171,7 +204,7 @@ export interface WebhookSourceDetail {
   imap?: WebhookIMAPFolder[];
 }
 
-export interface WebhookAuthInput {
+export interface WebhookAuthInput extends WebhookAuthSenderFields {
   /** Empty for a form's source, which takes no auth. */
   mode: WebhookAuthMode | "";
   /** Write-only. Empty on an update keeps the stored secret. */

@@ -83,7 +83,7 @@ type source struct {
 // imported for its SQLSamples, so adding a package here is the whole of
 // "joining" it.
 var sampleSources = map[string]source{
-	"github.com/txn2/mcp-data-platform/pkg/audit/postgres":            {auditpg.SQLSamples, 0},
+	"github.com/txn2/mcp-data-platform/pkg/audit/postgres":            {auditpg.SQLSamples, 1},
 	"github.com/txn2/mcp-data-platform/pkg/resource":                  {resource.SQLSamples, 19},
 	"github.com/txn2/mcp-data-platform/internal/portal/portalstore":   {portalstore.SQLSamples, 13},
 	"github.com/txn2/mcp-data-platform/pkg/prompt/postgres":           {promptpg.SQLSamples, 5},

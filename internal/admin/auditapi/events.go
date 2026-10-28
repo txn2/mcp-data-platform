@@ -1,6 +1,7 @@
 package auditapi
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -11,10 +12,43 @@ import (
 
 // auditEventResponse wraps a paginated list of audit events.
 type auditEventResponse struct {
-	Data    []audit.Event `json:"data"`
-	Total   int           `json:"total" example:"196"`
-	Page    int           `json:"page" example:"1"`
-	PerPage int           `json:"per_page" example:"50"`
+	Data []audit.Event `json:"data"`
+	// Total is how many events match, counted no further than 10,000
+	// (#2272); TotalCapped says it stopped there, so there are at least that
+	// many.
+	Total       int  `json:"total" example:"196"`
+	TotalCapped bool `json:"total_capped,omitempty" example:"false"`
+	Page        int  `json:"page" example:"1"`
+	PerPage     int  `json:"per_page" example:"50"`
+}
+
+// totalCap is the most matching events the listing counts. Counting every
+// match of an unfiltered view reads the whole table on every load and every
+// refresh, which on tens of millions of rows is seconds (#2272); nobody pages
+// to the ten-thousandth event, and a narrower filter is how to reach it.
+const totalCap = 10_000
+
+// boundedCounter is a store that can stop counting at a limit. The platform's
+// PostgreSQL store is one; a store that is not is counted in full.
+type boundedCounter interface {
+	CountUpTo(ctx context.Context, filter audit.QueryFilter, limit int) (int, error)
+}
+
+// countEvents counts the events matching filter, no further than totalCap
+// where the store can stop, and reports whether it stopped there.
+func (h *handler) countEvents(ctx context.Context, filter audit.QueryFilter) (total int, capped bool, err error) {
+	bc, ok := h.cfg.Events.(boundedCounter)
+	if !ok {
+		total, err = h.cfg.Events.Count(ctx, filter)
+		return total, false, err //nolint:wrapcheck // the handler answers 500 without the cause
+	}
+	if total, err = bc.CountUpTo(ctx, filter, totalCap+1); err != nil {
+		return 0, false, err //nolint:wrapcheck // as above
+	}
+	if total > totalCap {
+		return totalCap, true, nil
+	}
+	return total, false, nil
 }
 
 // auditFiltersResponse holds unique values for dropdown filters.
@@ -46,7 +80,7 @@ const (
 // listAuditEvents handles GET /api/v1/admin/audit/events.
 //
 // @Summary      List audit events
-// @Description  Returns paginated audit events with optional filtering.
+// @Description  Returns paginated audit events with optional filtering. total counts matching events no further than 10,000; total_capped says it stopped there.
 // @Tags         Audit
 // @Produce      json
 // @Param        user_id       query  string  false  "Filter by user ID"
@@ -109,7 +143,7 @@ func (h *handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	countFilter := filter
 	countFilter.Limit = 0
 	countFilter.Offset = 0
-	total, err := h.cfg.Events.Count(r.Context(), countFilter)
+	total, capped, err := h.countEvents(r.Context(), countFilter)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to count audit events")
 		return
@@ -121,10 +155,11 @@ func (h *handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 
 	page := filter.Offset/effectiveLimit + 1
 	httpjson.WriteJSON(w, http.StatusOK, auditEventResponse{
-		Data:    events,
-		Total:   total,
-		Page:    page,
-		PerPage: effectiveLimit,
+		Data:        events,
+		Total:       total,
+		TotalCapped: capped,
+		Page:        page,
+		PerPage:     effectiveLimit,
 	})
 }
 

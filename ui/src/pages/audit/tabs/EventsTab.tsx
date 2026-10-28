@@ -89,7 +89,13 @@ export function EventsTab({ onNavigate }: { onNavigate?: (path: string) => void 
       />
 
       {(data?.total ?? 0) > PER_PAGE && (
-        <Pager page={page} perPage={PER_PAGE} total={data?.total ?? 0} onPage={setPage} />
+        <Pager
+          page={page}
+          perPage={PER_PAGE}
+          total={data?.total ?? 0}
+          atLeast={data?.total_capped}
+          onPage={setPage}
+        />
       )}
 
       {selectedEvent && (

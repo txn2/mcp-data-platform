@@ -321,6 +321,19 @@ CREATE TABLE audit_logs (
 | `idx_audit_logs_tool_name` | `tool_name` | Tool usage analytics |
 | `idx_audit_logs_success` | `success` | Failure investigation |
 | `idx_audit_logs_created_date` | `created_date` | Partition pruning, retention cleanup |
+| `idx_audit_logs_toolkit_kind`, `idx_audit_logs_source`, `idx_audit_logs_event_kind` | `toolkit_kind`, `source`, `event_kind` | The events view's filter dropdowns (migration 000223, #2272) |
+
+### The events view on a large table
+
+The portal's audit events view (`GET /api/v1/admin/audit/events` and `GET /api/v1/admin/audit/events/filters`) reads a bounded amount of `audit_logs` however large it grows (#2272):
+
+- The total counts matching events no further than 10,000 and says when it stopped (`total_capped`).
+- Each filter dropdown lists its column's values with a loose index scan: the smallest value, then the next above it, one index probe per value, rather than a read of every row. The user labels take one row per user the same way. With a `start_time` or `end_time` the dropdowns read that range's rows instead.
+- A NULL is never offered as a value.
+
+Measured on 20 million rows over 90 days (200 users, 60 tools; PostgreSQL 16, warm cache), opening the view went from 10.2 s to 39 ms: the total from 653 ms to 1 ms, the six dropdown queries from 1.2 to 1.9 s each to 1 to 29 ms, and the total with a search typed from 15.2 s to 391 ms. Page 1 and page 150 of the list read 1 ms and 2 ms both before and after; the list was never the slow part.
+
+Migration 000223 builds the three dropdown indexes. On that table it took 27 seconds, during which writes to `audit_logs` wait.
 
 ## Querying Audit Logs
 

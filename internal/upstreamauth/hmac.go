@@ -35,6 +35,8 @@ const (
 	cfgKeyHMACTimestampHeader = "hmac_timestamp_header"
 	cfgKeyHMACTimestampUnit   = "hmac_timestamp_unit"
 	cfgKeyHMACIDHeader        = "hmac_id_header"
+	cfgKeyHMACHeaderPattern   = "hmac_header_pattern"
+	cfgKeyHMACSecretEncoding  = "hmac_secret_encoding" // #nosec G101 -- a config key's name, not a credential
 )
 
 // Units an hmac timestamp is written in.
@@ -63,7 +65,8 @@ type HMACConfig struct {
 	Encoding string
 	// Prefix is written before the signature.
 	Prefix string
-	// Signed is body, timestamp.body or id.timestamp.body.
+	// Signed is body, timestamp.body, id.timestamp.body, or a template
+	// over {id}, {timestamp} and {body} (#2223).
 	Signed string
 	// HeaderFormat is empty, or stripe for t=<timestamp>,v1=<signature>.
 	HeaderFormat    string
@@ -76,6 +79,11 @@ type HMACConfig struct {
 	// IDHeader carries the delivery id. A caller that sets it chooses the
 	// id; otherwise one is generated per request.
 	IDHeader string
+	// HeaderPattern lays the signature header out over {signature} and
+	// {timestamp}, in place of a prefix or a format (#2223).
+	HeaderPattern string
+	// SecretEncoding is empty for the secret as written, or base64.
+	SecretEncoding string
 }
 
 // parseHMAC reads an hmac connection's settings: the preset first, then each
@@ -85,6 +93,7 @@ func parseHMAC(cfg map[string]any) HMACConfig {
 	if p, ok := hmacsig.LookupPreset(h.Preset); ok {
 		h.Algorithm, h.Encoding, h.Prefix, h.Signed, h.HeaderFormat = p.Algorithm, p.Encoding, p.Prefix, p.Signed, p.Format
 		h.SignatureHeader, h.TimestampHeader, h.IDHeader = p.SignatureHeader, p.TimestampHeader, p.IDHeader
+		h.HeaderPattern, h.SecretEncoding = p.HeaderPattern, p.SecretEncoding
 	}
 	h.Algorithm = cfgmap.StringDefault(cfg, cfgKeyHMACAlgorithm, or(h.Algorithm, hmacsig.AlgorithmSHA256))
 	h.Encoding = cfgmap.StringDefault(cfg, cfgKeyHMACEncoding, or(h.Encoding, hmacsig.EncodingHex))
@@ -95,6 +104,8 @@ func parseHMAC(cfg map[string]any) HMACConfig {
 	h.TimestampHeader = cfgmap.StringDefault(cfg, cfgKeyHMACTimestampHeader, h.TimestampHeader)
 	h.TimestampUnit = cfgmap.StringDefault(cfg, cfgKeyHMACTimestampUnit, HMACTimestampSeconds)
 	h.IDHeader = cfgmap.StringDefault(cfg, cfgKeyHMACIDHeader, h.IDHeader)
+	h.HeaderPattern = cfgmap.StringDefault(cfg, cfgKeyHMACHeaderPattern, h.HeaderPattern)
+	h.SecretEncoding = cfgmap.StringDefault(cfg, cfgKeyHMACSecretEncoding, h.SecretEncoding)
 	if h.HeaderFormat == hmacsig.FormatStripe {
 		h.Signed = hmacsig.SignedTimestampBody
 	}
@@ -105,6 +116,7 @@ func parseHMAC(cfg map[string]any) HMACConfig {
 func (h HMACConfig) scheme() hmacsig.Scheme {
 	return hmacsig.Scheme{
 		Algorithm: h.Algorithm, Encoding: h.Encoding, Prefix: h.Prefix, Signed: h.Signed, Format: h.HeaderFormat,
+		HeaderPattern: h.HeaderPattern, SecretEncoding: h.SecretEncoding,
 	}
 }
 
@@ -125,7 +137,7 @@ func (c Config) validateHMACAuth() error {
 	}
 	if h.Preset != "" {
 		if _, ok := hmacsig.LookupPreset(h.Preset); !ok {
-			return c.errf("invalid %s %q (want standard_webhooks, github, stripe or platform)", cfgKeyHMACPreset, h.Preset)
+			return c.errf("invalid %s %q (want one of %s)", cfgKeyHMACPreset, h.Preset, strings.Join(hmacsig.PresetNames(), ", "))
 		}
 	}
 	if err := c.validateHMACScheme(); err != nil {
@@ -143,13 +155,33 @@ func (c Config) validateHMACScheme() error {
 	case !hmacsig.ValidEncoding(h.Encoding):
 		return c.errf("invalid %s %q (want hex or base64)", cfgKeyHMACEncoding, h.Encoding)
 	case !hmacsig.ValidSigned(h.Signed):
-		return c.errf("invalid %s %q (want body, timestamp.body or id.timestamp.body)", cfgKeyHMACSigned, h.Signed)
+		return c.errf("invalid %s %q (want body, timestamp.body, id.timestamp.body or a template over {id}, {timestamp} and {body})",
+			cfgKeyHMACSigned, h.Signed)
+	case !hmacsig.ValidSecretEncoding(h.SecretEncoding):
+		return c.errf("invalid %s %q (want empty or base64)", cfgKeyHMACSecretEncoding, h.SecretEncoding)
 	case !hmacsig.ValidFormat(h.HeaderFormat):
 		return c.errf("invalid %s %q (want empty or stripe)", cfgKeyHMACHeaderFormat, h.HeaderFormat)
 	case h.TimestampUnit != HMACTimestampSeconds && h.TimestampUnit != HMACTimestampMilliseconds:
 		return c.errf("invalid %s %q (want seconds or milliseconds)", cfgKeyHMACTimestampUnit, h.TimestampUnit)
-	case strings.ContainsAny(h.Prefix, "\r\n\x00"):
-		return c.errf("%s contains CR/LF/NUL", cfgKeyHMACPrefix)
+	case strings.ContainsAny(h.Prefix, "\r\n\x00"), strings.ContainsAny(h.HeaderPattern, "\r\n\x00"):
+		return c.errf("%s or %s contains CR/LF/NUL", cfgKeyHMACPrefix, cfgKeyHMACHeaderPattern)
+	}
+	return c.validateHMACPattern()
+}
+
+// validateHMACPattern checks a header pattern, which replaces a prefix and a
+// format.
+func (c Config) validateHMACPattern() error {
+	h := c.HMAC
+	if h.HeaderPattern == "" {
+		return nil
+	}
+	if h.HeaderFormat != "" || h.Prefix != "" {
+		return c.errf("%s lays out the whole signature header; leave %s and %s empty",
+			cfgKeyHMACHeaderPattern, cfgKeyHMACHeaderFormat, cfgKeyHMACPrefix)
+	}
+	if _, err := hmacsig.CompilePattern(h.HeaderPattern); err != nil {
+		return c.errf("invalid %s: %w", cfgKeyHMACHeaderPattern, err)
 	}
 	return nil
 }
@@ -174,7 +206,8 @@ func (c Config) validateHMACHeaders() error {
 		}
 		return nil
 	}
-	if h.scheme().UsesTimestamp() && h.TimestampHeader == "" {
+	inPattern := strings.Contains(h.HeaderPattern, hmacsig.PlaceholderTimestamp)
+	if h.scheme().UsesTimestamp() && h.TimestampHeader == "" && !inPattern {
 		return c.errf("%s is required when %s is %q", cfgKeyHMACTimestampHeader, cfgKeyHMACSigned, h.Signed)
 	}
 	if h.scheme().UsesID() && h.IDHeader == "" {
@@ -223,7 +256,7 @@ func (a hmacAuth) Apply(req *http.Request) error {
 			"send a body, or sign a timestamp with %s timestamp.body", req.Method, cfgKeyHMACSigned, cfgKeyHMACSigned)
 	}
 	var ts string
-	if scheme.UsesTimestamp() {
+	if scheme.UsesTimestamp() || strings.Contains(h.HeaderPattern, hmacsig.PlaceholderTimestamp) {
 		ts = a.timestamp()
 		if h.TimestampHeader != "" {
 			req.Header.Set(h.TimestampHeader, ts)

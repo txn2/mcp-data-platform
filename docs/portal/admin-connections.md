@@ -12,7 +12,9 @@ The Connections page manages toolkit backend instances (Trino, S3, MCP gateway, 
 
 ![Connections](../images/screenshots/light/admin-admin-connections-light.webp#only-light)![Connections](../images/screenshots/dark/admin-admin-connections-dark.webp#only-dark)
 
-**Left pane** — Connection list grouped by kind (S3, Trino, ...), with source badges (**file** or **database**), descriptions, and tool counts.
+**Left pane** — Connection list grouped by kind (S3, Trino, ...), with source badges (**file** or **database**), descriptions, and tool counts. Above it, a search box narrows the list as you type, matching a connection's name, display name, kind and description (every word typed must match), and a kind filter shows one kind; the two combine (#2350). Both are kept in the page's address as `?q=` and `?type=`, beside the selected connection's `?kind=&name=`, so a filtered list can be linked and survives a reload. Clearing the search shows every connection again.
+
+**No catalog** — An API connection saved with no catalog is marked **no catalog** in the list, and its detail pane says **No catalog: discovery is off**, with **Link a catalog** (the editor's catalog picker) and **Create a catalog** (Admin > API Catalogs) (#2271). Such a connection answers calls by method and path, but `api_discover` returns none of its operations and search finds none of them, so the APIs page lists it as **no catalog** rather than as 0 operations. Saving one through the admin API answers with a `warnings` entry saying the same. A connection used only by method and path can stay as it is.
 
 **Right pane** — Selected connection detail showing:
 

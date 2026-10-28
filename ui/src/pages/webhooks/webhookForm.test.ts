@@ -62,8 +62,54 @@ describe("webhook form", () => {
       username: "u",
     });
     expect(toInput({ ...EMPTY_FORM, mode: "path_token" }, true).auth).toEqual({ mode: "path_token", secret: undefined });
-    const noTimestamp = toInput({ ...EMPTY_FORM, signatureHeader: "X", signed: "timestamp.body" }, true);
-    expect(noTimestamp.auth.signed).toBe("body");
+    const ready = { ...EMPTY_FORM, name: "esp", connection: "c", secret: "s", signatureHeader: "X" };
+    expect(problems({ ...ready, signed: "timestamp.body" }, true)).toEqual([
+      "The signed content includes a timestamp: name the header or the body path it is read from.",
+    ]);
+    expect(problems({ ...ready, signed: "{timestamp}|{body}", headerPattern: "{timestamp}|{signature}" }, true)).toEqual(
+      [],
+    );
+    expect(problems({ ...ready, signed: "{id}.{body}" }, true)).toEqual(["Name the header the delivery id is sent in."]);
+  });
+
+  it("sends a preset as its name, the secret and the tolerance (#2223)", () => {
+    const body = toInput({ ...EMPTY_FORM, preset: "discord", secret: "ab", signatureHeader: "ignored" }, true);
+    expect(body.auth).toEqual({ mode: "ed25519", preset: "discord", secret: "ab", tolerance_seconds: undefined });
+    expect(problems({ ...EMPTY_FORM, preset: "slack", name: "s", connection: "c", secret: "x" }, true)).toEqual([]);
+    expect(fromSource({ ...hmac, auth: { ...hmac.auth, preset: "slack" } }).preset).toBe("slack");
+  });
+
+  it("sends the settings the modes #2223 added read", () => {
+    expect(toInput({ ...EMPTY_FORM, mode: "body_token", tokenPath: "value[*].clientState" }, true).auth).toEqual({
+      mode: "body_token",
+      secret: undefined,
+      token_path: "value[*].clientState",
+    });
+    expect(toInput({ ...EMPTY_FORM, mode: "jwt", header: "Authorization" }, true).auth).toEqual({
+      mode: "jwt",
+      secret: undefined,
+      header: "Authorization",
+    });
+    const ed = toInput(
+      { ...EMPTY_FORM, mode: "ed25519", signatureHeader: "X-Sig", timestampHeader: "X-Ts", signed: "{timestamp}{body}" },
+      true,
+    ).auth;
+    expect(ed).toMatchObject({ mode: "ed25519", signature_header: "X-Sig", timestamp_header: "X-Ts", signed: "{timestamp}{body}" });
+    const verkada = toInput(
+      {
+        ...EMPTY_FORM,
+        signatureHeader: "Verkada-Signature",
+        prefix: "ignored",
+        headerPattern: "{timestamp}|{signature}",
+        signed: "{body}|{timestamp}",
+      },
+      true,
+    ).auth;
+    expect(verkada).toMatchObject({ header_pattern: "{timestamp}|{signature}", signed: "{body}|{timestamp}" });
+    expect(verkada.prefix).toBeUndefined();
+    expect(problems({ ...EMPTY_FORM, name: "s", connection: "c", secret: "x", mode: "body_token" }, true)).toEqual([
+      "Name where in the body the token is.",
+    ]);
   });
 
   it("sends a number only when one was entered", () => {

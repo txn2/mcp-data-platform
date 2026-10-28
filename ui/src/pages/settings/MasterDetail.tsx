@@ -23,14 +23,19 @@ export function MasterDetail({
 }
 
 export function DetailList({
+  header,
   footer,
   children,
 }: {
+  // header sits above the records and does not scroll with them: a list's
+  // search and filters.
+  header?: React.ReactNode;
   footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex w-56 shrink-0 flex-col overflow-hidden border-r bg-muted/10">
+      {header && <div className="space-y-2 border-b p-2">{header}</div>}
       <div className="flex-1 overflow-auto">{children}</div>
       {footer && <div className="border-t p-2">{footer}</div>}
     </div>

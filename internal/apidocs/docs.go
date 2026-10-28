@@ -2072,7 +2072,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns paginated audit events with optional filtering.",
+                "description": "Returns paginated audit events with optional filtering. total counts matching events no further than 10,000; total_capped says it stopped there.",
                 "produces": [
                     "application/json"
                 ],
@@ -4554,7 +4554,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates or updates a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it.",
+                "description": "Creates or updates a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it. An api connection is set up in two steps: a catalog from the vendor's OpenAPI spec (POST /api/v1/admin/api-catalogs, or an existing catalog), then this connection with config.catalog_id naming it. Saved without a catalog, the connection still works by method and path, and the response carries a warning that api_discover and search find none of its operations; if no spec can be found, say so to the person rather than reporting the setup done.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4594,7 +4594,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/platform.ConnectionInstance"
+                            "$ref": "#/definitions/admin.connectionSaveResponse"
                         }
                     },
                     "400": {
@@ -28543,6 +28543,42 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.connectionSaveResponse": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "created_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Production data warehouse"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "trino"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "acme-warehouse"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-01-15T14:30:00Z"
+                },
+                "warnings": {
+                    "description": "Warnings name what the connection will not do as saved, without\nrefusing it: an api connection with no catalog (#2271).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "admin.dismissRequest": {
             "type": "object",
             "properties": {
@@ -31039,8 +31075,13 @@ const docTemplate = `{
                     "example": 50
                 },
                 "total": {
+                    "description": "Total is how many events match, counted no further than 10,000\n(#2272); TotalCapped says it stopped there, so there are at least that\nmany.",
                     "type": "integer",
                     "example": 196
+                },
+                "total_capped": {
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -44904,11 +44945,17 @@ const docTemplate = `{
                     "type": "string",
                     "example": "stripe"
                 },
+                "header_pattern": {
+                    "description": "HeaderPattern lays the signature header out over {signature} and\n{timestamp}, in place of a prefix or a header format.",
+                    "type": "string",
+                    "example": "{timestamp}|{signature}"
+                },
                 "id_header": {
                     "type": "string",
                     "example": "webhook-id"
                 },
                 "mode": {
+                    "description": "Mode is hmac, header_token, basic, path_token, ed25519, body_token or\njwt. A preset sets it.",
                     "type": "string",
                     "example": "hmac"
                 },
@@ -44916,9 +44963,20 @@ const docTemplate = `{
                     "type": "string",
                     "example": "sha256="
                 },
+                "preset": {
+                    "description": "Preset names a sender's whole convention: standard_webhooks, github,\nstripe, platform, slack, zoom, mattermost, teams, discord, monday,\nshopify, linear, gitlab, jira or microsoft_graph (#2223). The settings\nleft unset are filled from it.",
+                    "type": "string",
+                    "example": "slack"
+                },
                 "secret": {
+                    "description": "Secret is write-only. For ed25519 it is the sender's public key in hex.",
                     "type": "string",
                     "example": "whsec_example"
+                },
+                "secret_encoding": {
+                    "description": "SecretEncoding is empty for the secret as written, or base64.",
+                    "type": "string",
+                    "example": "base64"
                 },
                 "signature_header": {
                     "type": "string",
@@ -44931,6 +44989,16 @@ const docTemplate = `{
                 "timestamp_header": {
                     "type": "string",
                     "example": "X-Timestamp"
+                },
+                "timestamp_path": {
+                    "description": "TimestampPath reads the signed timestamp from the body, in seconds or\nmilliseconds.",
+                    "type": "string",
+                    "example": "webhookTimestamp"
+                },
+                "token_path": {
+                    "description": "TokenPath is where in the body a body_token source's token is; a path\nthrough [*] requires every element to carry it.",
+                    "type": "string",
+                    "example": "value[*].clientState"
                 },
                 "tolerance_seconds": {
                     "type": "integer",
@@ -44957,6 +45025,9 @@ const docTemplate = `{
                 "header_format": {
                     "type": "string"
                 },
+                "header_pattern": {
+                    "type": "string"
+                },
                 "id_header": {
                     "type": "string"
                 },
@@ -44966,7 +45037,13 @@ const docTemplate = `{
                 "prefix": {
                     "type": "string"
                 },
+                "preset": {
+                    "type": "string"
+                },
                 "previous_secret_until": {
+                    "type": "string"
+                },
+                "secret_encoding": {
                     "type": "string"
                 },
                 "secret_set": {
@@ -44979,6 +45056,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "timestamp_header": {
+                    "type": "string"
+                },
+                "timestamp_path": {
+                    "type": "string"
+                },
+                "token_path": {
                     "type": "string"
                 },
                 "tolerance_seconds": {
@@ -45616,6 +45699,10 @@ const docTemplate = `{
             "properties": {
                 "buffer_limit": {
                     "type": "integer"
+                },
+                "challenge_field": {
+                    "description": "ChallengeField is the body field a challenge_echo handshake reads;\nempty is \"challenge\".",
+                    "type": "string"
                 },
                 "compact_every_minutes": {
                     "description": "CompactEveryMinutes is the length of the window a source's events are\npartitioned and compacted by: 60, the default, compacts each hour once\nit has ended; a shorter window compacts sooner, into more files. It\ndivides an hour evenly, so windows start on the hour and an hour is\nalways a whole number of them.",

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 import {
   useEffectiveConfig,
   useSetConfigEntry,
@@ -128,6 +129,9 @@ export function ConfigEditorPage({
 
   const [value, setValue] = useState(entry?.value ?? "");
   const [dirty, setDirty] = useState(false);
+  // A sidebar link, a tab close or a reload asks before an unsaved edit is
+  // lost (#2268).
+  useUnsavedChangesGuard(dirty);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const setEntry = useSetConfigEntry();

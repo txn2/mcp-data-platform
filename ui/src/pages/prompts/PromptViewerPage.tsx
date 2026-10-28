@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 import { MessageSquare } from "lucide-react";
 import { useMyPrompts, useUpdateMyPrompt, useDeleteMyPrompt, useCreateAsset, useSharedPrompts } from "@/api/portal/hooks";
 import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
@@ -184,6 +185,19 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
     setShareOpen(true);
   }, [prompt]);
 
+  // The edit form registers with the unsaved-changes guard, so a sidebar link,
+  // a tab close or a reload asks before an unsaved edit is lost (#2268).
+  const dirty = Boolean(
+    prompt &&
+      editing &&
+      (form.name !== prompt.name ||
+        form.display_name !== prompt.display_name ||
+        form.description !== prompt.description ||
+        form.content !== prompt.content ||
+        form.category !== prompt.category),
+  );
+  useUnsavedChangesGuard(dirty);
+
   if (isLoading) {
     return <LoadingIndicator />;
   }
@@ -209,14 +223,6 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
       />
     );
   }
-
-  const dirty = editing && (
-    form.name !== prompt.name ||
-    form.display_name !== prompt.display_name ||
-    form.description !== prompt.description ||
-    form.content !== prompt.content ||
-    form.category !== prompt.category
-  );
 
   return (
     <div className="space-y-4">

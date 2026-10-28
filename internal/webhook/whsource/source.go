@@ -28,7 +28,24 @@ const (
 	// AuthPathToken takes the secret as an extra path segment,
 	// /hooks/{name}/{token}, for a sender that can set nothing but a URL.
 	AuthPathToken = "path_token"
+	// AuthEd25519 checks an Ed25519 signature over the signed bytes with the
+	// sender's public key, which the source stores as its secret, in hex
+	// (#2223: Discord).
+	AuthEd25519 = "ed25519"
+	// AuthBodyToken compares a value read from the body, at TokenPath, with
+	// the secret (#2223: Mattermost, Microsoft Graph's clientState).
+	AuthBodyToken = "body_token"
+	// AuthJWT checks an HS256 JSON Web Token in a header, signed with the
+	// secret, honoring its exp (#2223: monday.com).
+	AuthJWT = "jwt"
 )
+
+// SecretBase64 reads an hmac source's secret as base64, the key being the
+// bytes it decodes to.
+const SecretBase64 = hmacsig.SecretBase64
+
+// DefaultJWTHeader is the header a jwt source reads its token from.
+const DefaultJWTHeader = "Authorization"
 
 // HMAC settings a source chooses between. They are hmacsig's, which the
 // platform's outbound hmac connections sign with too, so a source and a
@@ -63,7 +80,23 @@ const (
 	// abuse-protection OPTIONS request, which a sender that implements it
 	// sends before it delivers anything.
 	HandshakeCloudEvents = "cloudevents"
+	// HandshakeChallengeEcho answers a JSON body carrying a challenge with
+	// that challenge, before verification and before anything is stored
+	// (#2223: Slack's url_verification, monday.com).
+	HandshakeChallengeEcho = "challenge_echo"
+	// HandshakeZoom answers Zoom's endpoint.url_validation with the plain
+	// token and its HMAC under the source's secret. The request is verified
+	// first: an unverified answer would hand anyone the HMAC of any text.
+	HandshakeZoom = "zoom"
+	// HandshakeDiscord answers a verified PING with a PONG.
+	HandshakeDiscord = "discord"
+	// HandshakeGraphValidation answers a request carrying a validationToken
+	// query parameter with the token, as plain text (Microsoft Graph).
+	HandshakeGraphValidation = "graph_validation"
 )
+
+// DefaultChallengeField is the body field a challenge_echo source reads.
+const DefaultChallengeField = "challenge"
 
 // Defaults a source gets for every setting it leaves at zero.
 const (
@@ -119,7 +152,10 @@ type Source struct {
 // PreviousUntil, which is how a secret is rotated without a window in which
 // the sender's requests fail.
 type Auth struct {
-	Mode           string    `json:"mode"`
+	Mode string `json:"mode"`
+	// Preset names a sender's whole convention (#2223); the settings it
+	// leaves unset are filled from it.
+	Preset         string    `json:"preset,omitempty"`
 	Secret         string    `json:"secret,omitempty"`
 	PreviousSecret string    `json:"previous_secret,omitempty"`
 	PreviousUntil  time.Time `json:"previous_until,omitzero"`
@@ -136,6 +172,18 @@ type Auth struct {
 	IDHeader string `json:"id_header,omitempty"`
 	// HeaderFormat is empty for a prefix and a signature, or "stripe".
 	HeaderFormat string `json:"header_format,omitempty"`
+	// HeaderPattern lays the signature header out over {signature} and
+	// {timestamp}, as in "{timestamp}|{signature}" (#2223).
+	HeaderPattern string `json:"header_pattern,omitempty"`
+	// SecretEncoding is empty for the secret as written, or "base64".
+	SecretEncoding string `json:"secret_encoding,omitempty"`
+	// TimestampPath reads the timestamp from the body rather than a header,
+	// in seconds or milliseconds (Linear's webhookTimestamp).
+	TimestampPath string `json:"timestamp_path,omitempty"`
+
+	// BodyToken: where in the body the token is. A path through "[*]"
+	// requires every element to carry it.
+	TokenPath string `json:"token_path,omitempty"`
 
 	// HeaderToken.
 	Header string `json:"header,omitempty"`
@@ -152,12 +200,15 @@ type Config struct {
 	IMAP  *IMAP  `json:"imap,omitempty"`
 	Form  *Form  `json:"form,omitempty"`
 
-	Handshake     string `json:"handshake,omitempty"`
-	MaxBodyBytes  int64  `json:"max_body_bytes,omitempty"`
-	Split         string `json:"split,omitempty"`
-	EventIDPath   string `json:"event_id_path,omitempty"`
-	EventTypePath string `json:"event_type_path,omitempty"`
-	KeyPath       string `json:"key_path,omitempty"`
+	Handshake string `json:"handshake,omitempty"`
+	// ChallengeField is the body field a challenge_echo handshake reads;
+	// empty is "challenge".
+	ChallengeField string `json:"challenge_field,omitempty"`
+	MaxBodyBytes   int64  `json:"max_body_bytes,omitempty"`
+	Split          string `json:"split,omitempty"`
+	EventIDPath    string `json:"event_id_path,omitempty"`
+	EventTypePath  string `json:"event_type_path,omitempty"`
+	KeyPath        string `json:"key_path,omitempty"`
 
 	FlushMaxEvents     int   `json:"flush_max_events,omitempty"`
 	FlushMaxIntervalMS int64 `json:"flush_max_interval_ms,omitempty"`
@@ -220,6 +271,7 @@ func (s Source) CompactedTableName() string { return s.TableName() + "_compacted
 // WithDefaults returns the source with every zero setting replaced by its
 // default.
 func (s Source) WithDefaults() Source {
+	s = s.withPreset()
 	s.Config = s.Config.withDefaults()
 	s.Auth = s.Auth.withDefaults()
 	return s
@@ -268,7 +320,22 @@ func (c Config) withDefaults() Config {
 // withDefaults fills the zero settings of an HMAC source's auth. The other
 // modes have no settings that default.
 func (a Auth) withDefaults() Auth {
-	if a.Mode != AuthHMAC {
+	switch a.Mode {
+	case AuthJWT:
+		if a.Header == "" {
+			a.Header = DefaultJWTHeader
+		}
+		return a
+	case AuthEd25519:
+		if a.Encoding == "" {
+			a.Encoding = EncodingHex
+		}
+		if a.ToleranceSeconds == 0 && (a.TimestampHeader != "" || a.TimestampPath != "") {
+			a.ToleranceSeconds = int(DefaultTolerance / time.Second)
+		}
+		return a
+	case AuthHMAC:
+	default:
 		return a
 	}
 	if a.Algorithm == "" {
@@ -283,7 +350,7 @@ func (a Auth) withDefaults() Auth {
 	if a.Signed == "" {
 		a.Signed = SignedBody
 	}
-	if (a.TimestampHeader != "" || a.HeaderFormat == HeaderFormatStripe) && a.ToleranceSeconds == 0 {
+	if a.ChecksTimestamp() && a.ToleranceSeconds == 0 {
 		a.ToleranceSeconds = int(DefaultTolerance / time.Second)
 	}
 	return a
@@ -322,7 +389,25 @@ func (c Config) CompactedRetention() time.Duration {
 func (a Auth) Scheme() hmacsig.Scheme {
 	return hmacsig.Scheme{
 		Algorithm: a.Algorithm, Encoding: a.Encoding, Prefix: a.Prefix, Signed: a.Signed, Format: a.HeaderFormat,
+		HeaderPattern: a.HeaderPattern, SecretEncoding: a.SecretEncoding,
 	}
+}
+
+// ChecksTimestamp reports whether a signed request's timestamp is checked
+// against the tolerance window: one read from a header, from the body, or
+// from the signature header itself (the Stripe format, or a header pattern
+// naming {timestamp}).
+func (a Auth) ChecksTimestamp() bool {
+	return a.TimestampHeader != "" || a.TimestampPath != "" || a.HeaderFormat == HeaderFormatStripe ||
+		strings.Contains(a.HeaderPattern, hmacsig.PlaceholderTimestamp)
+}
+
+// Challenge is the body field a challenge_echo handshake reads.
+func (c Config) Challenge() string {
+	if c.ChallengeField == "" {
+		return DefaultChallengeField
+	}
+	return c.ChallengeField
 }
 
 // Tolerance is how far a signed timestamp may be from the receiver's clock.

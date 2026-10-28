@@ -82,5 +82,7 @@ describe("splitCounts", () => {
   it("counts accepted apart from every other outcome", () => {
     expect(splitCounts({ accepted: 5, unauthorized: 2, too_large: 1 })).toEqual({ accepted: 5, rejected: 3 });
     expect(splitCounts({})).toEqual({ accepted: 0, rejected: 0 });
+    expect(splitCounts({ accepted: 1, setup_check: 4 })).toEqual({ accepted: 1, rejected: 0 });
+    expect(outcomeLabel("setup_check")).toBe("Setup check");
   });
 });

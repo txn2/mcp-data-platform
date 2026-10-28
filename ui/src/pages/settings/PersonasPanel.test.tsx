@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { hasUnsavedChanges } from "@/lib/navigationGuard";
 import type { PersonaDetail } from "@/api/admin/types";
 
 // The panel's hooks are mocked so the persona list and detail can be put in
@@ -16,13 +17,23 @@ vi.mock("./PersonaEditor", () => ({
   PersonaEditor: ({
     selectedName,
     draft,
+    onUpdate,
+    onSave,
   }: {
     selectedName: string | null;
     draft: { serviceAccount: boolean };
+    onUpdate: (partial: { displayName: string }) => void;
+    onSave: () => void;
   }) => (
     <div>
       <span data-testid="editing">{selectedName}</span>
       <span data-testid="service-account">{String(draft.serviceAccount)}</span>
+      <button type="button" onClick={() => onUpdate({ displayName: "Edited" })}>
+        edit
+      </button>
+      <button type="button" onClick={onSave}>
+        saved
+      </button>
     </div>
   ),
 }));
@@ -92,5 +103,14 @@ describe("PersonasPanel", () => {
   it("opens the first persona with no link", () => {
     render(<PersonasPanel />);
     expect(screen.getByTestId("editing")).toHaveTextContent("analyst");
+  });
+
+  it("registers an unsaved draft with the navigation guard until it is saved (#2268)", () => {
+    render(<PersonasPanel />);
+    expect(hasUnsavedChanges()).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "edit" }));
+    expect(hasUnsavedChanges()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "saved" }));
+    expect(hasUnsavedChanges()).toBe(false);
   });
 });
