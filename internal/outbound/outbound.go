@@ -181,7 +181,7 @@ func Transport(base http.RoundTripper, o Options) http.RoundTripper {
 		otelOpts = append(otelOpts, otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator()))
 	}
 	return &transport{
-		next:       useragent.Transport(otelhttp.NewTransport(base, otelOpts...)),
+		next:       useragent.Transport(otelhttp.NewTransport(spanURL{base: base}, otelOpts...)),
 		base:       base,
 		kind:       o.Kind,
 		connection: o.Connection,
@@ -214,11 +214,14 @@ var connectionKinds = map[Kind]bool{KindAPI: true, KindGraphQL: true, KindMCP: t
 
 // RoundTrip sends the request through the chain and records it. The error
 // is returned as the layer below produced it, so a caller's errors.As on a
-// *url.Error, a *BlockedError or a timeout keeps working.
+// *url.Error, a *BlockedError or a timeout keeps working; the URL a
+// *url.Error names is scrubbed first, so no caller that shows the error
+// shows a credential the request carried in its URL (#2358).
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	start := time.Now()
 	resp, err := t.next.RoundTrip(req)
 	d := time.Since(start)
+	_ = ScrubError(req.Context(), err)
 
 	status := 0
 	if resp != nil {

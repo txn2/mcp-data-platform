@@ -462,3 +462,72 @@ func TestDecodeKeys(t *testing.T) {
 	assert.Len(t, keys[1], KeyLength)
 	assert.Empty(t, DecodeKeys(""), "an unset ENCRYPTION_KEY_PREVIOUS is no key")
 }
+
+// An S3 session token and session_login headers are encrypted at rest (#2359).
+func TestSessionCredentialsAreEncrypted(t *testing.T) {
+	e, err := NewFieldEncryptor(testKey(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := map[string]any{"session_token": "tok-1", "session_login_headers": map[string]any{"X-Login-Key": "lk-1"}, "region": "us"}
+	enc, err := e.EncryptSensitiveFields(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := enc["session_token"].(string); !strings.HasPrefix(s, encryptedPrefix) {
+		t.Errorf("session_token stored as %q, want encrypted", s)
+	}
+	h, _ := enc["session_login_headers"].(map[string]any)
+	if v, _ := h["X-Login-Key"].(string); !strings.HasPrefix(v, encryptedPrefix) {
+		t.Errorf("session_login_headers stored as %v, want encrypted values", h)
+	}
+	dec, err := e.DecryptSensitiveFields(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dh, _ := dec["session_login_headers"].(map[string]any)
+	if dec["session_token"] != "tok-1" || dh["X-Login-Key"] != "lk-1" || dec["region"] != "us" {
+		t.Errorf("round trip gave %v", dec)
+	}
+}
+
+// A value SealBound wrote opens only for its own binding, and never through
+// Open; a value Seal wrote never opens through OpenBound (#2355).
+func TestSealBoundOpensOnlyForItsBinding(t *testing.T) {
+	enc, err := NewFieldEncryptor(testKey(t))
+	require.NoError(t, err)
+	g := NewRestFieldEncryptor(enc)
+	sealed, err := g.SealBound("form:a\x00field:ssn", "123")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(sealed, boundPrefix))
+
+	got, err := g.OpenBound("form:a\x00field:ssn", sealed)
+	require.NoError(t, err)
+	assert.Equal(t, "123", got)
+	_, err = g.OpenBound("form:b\x00field:ssn", sealed)
+	require.Error(t, err)
+	_, err = g.Open(sealed)
+	require.Error(t, err)
+
+	plain, err := g.Seal("456")
+	require.NoError(t, err)
+	_, err = g.OpenBound("form:a\x00field:ssn", plain)
+	require.Error(t, err)
+
+	off := NewRestFieldEncryptor(nil)
+	_, err = off.SealBound("x", "y")
+	require.ErrorIs(t, err, ErrDisabled)
+	_, err = off.OpenBound("x", sealed)
+	require.ErrorIs(t, err, ErrDisabled)
+
+	oldKey := testKey(t)
+	before, err := NewFieldEncryptor(oldKey)
+	require.NoError(t, err)
+	kept, err := NewRestFieldEncryptor(before).SealBound("b", "kept")
+	require.NoError(t, err)
+	after, err := NewFieldEncryptor(testKey(t), oldKey)
+	require.NoError(t, err)
+	got, err = NewRestFieldEncryptor(after).OpenBound("b", kept)
+	require.NoError(t, err, "a previous key opens a bound value")
+	assert.Equal(t, "kept", got)
+}

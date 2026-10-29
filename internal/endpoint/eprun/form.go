@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 )
 
 // The keys a form's answers carry.
@@ -30,6 +31,9 @@ type invocation struct {
 	name    string
 	args    starlark.Tuple
 	respond func(starlark.Value) (Response, error)
+	// sensitive holds a form submission's sensitive values, which a failure's
+	// text never carries into a stored row (#2360). Nil for anything else.
+	sensitive *secretref.Redactor
 }
 
 // invocationFor is what t calls for req (#2176): handle(req) on a script that
@@ -57,7 +61,64 @@ func (r *Runner) invocationFor(ctx context.Context, t *Target, req Request, reqV
 		resp := errorResponse(http.StatusBadRequest, "the submission could not be read")
 		return nil, &resp
 	}
-	return &invocation{name: epform.SubmitName, args: starlark.Tuple{reqValue, sv}, respond: r.submitResponse(ctx, sub)}, nil
+	return &invocation{
+		name: epform.SubmitName, args: starlark.Tuple{reqValue, sv}, respond: r.submitResponse(ctx, sub),
+		sensitive: sensitiveValues(ok.spec.Sensitive(), ok.values),
+	}, nil
+}
+
+// sensitiveValues records each sensitive field's submitted value under the
+// field's name, so a failure's text has it replaced, raw and escaped (#2360).
+func sensitiveValues(names []string, values map[string]any) *secretref.Redactor {
+	if len(names) == 0 {
+		return nil
+	}
+	red := &secretref.Redactor{}
+	for _, name := range names {
+		addValue(red, name, values[name])
+	}
+	return red
+}
+
+// addValue records one submitted value: a string as it is, each element of a
+// list of choices, anything else as its JSON.
+func addValue(red *secretref.Redactor, name string, v any) {
+	switch t := v.(type) {
+	case nil:
+	case string:
+		red.Add(name, t)
+	case []any:
+		for _, e := range t {
+			addValue(red, name, e)
+		}
+	case []string:
+		for _, e := range t {
+			red.Add(name, e)
+		}
+	default:
+		if b, err := json.Marshal(t); err == nil {
+			red.Add(name, string(b))
+		}
+	}
+}
+
+// sensitiveError is a failure whose text has a submission's sensitive values
+// replaced; Unwrap keeps the error it came from.
+type sensitiveError struct {
+	msg string
+	err error
+}
+
+func (e sensitiveError) Error() string { return e.msg }
+func (e sensitiveError) Unwrap() error { return e.err }
+
+// redactFailure is err with red's values replaced in its text, or err when
+// there is nothing to replace.
+func redactFailure(red *secretref.Redactor, err error) error {
+	if err == nil || red.Empty() {
+		return err
+	}
+	return sensitiveError{msg: red.Error(err), err: err}
 }
 
 // prepareFiles names where a submission's files will be saved before

@@ -226,6 +226,12 @@ func (r *Runner) run(ctx context.Context, t *Target, req Request, sessionID stri
 	if refusal != nil {
 		return *refusal, nil
 	}
+	resp, err := r.invoke(ctx, t, sessionID, call)
+	return resp, redactFailure(call.sensitive, err)
+}
+
+// invoke runs call in the request's own session.
+func (r *Runner) invoke(ctx context.Context, t *Target, sessionID string, call *invocation) (Response, error) {
 	caller, cleanup, err := r.connect(ctx, t, sessionID)
 	if err != nil {
 		return errorResponse(http.StatusInternalServerError, "the endpoint could not start"), err

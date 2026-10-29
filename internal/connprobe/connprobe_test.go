@@ -77,3 +77,27 @@ func TestFailure_LeavesOrdinaryErrorsAlone(t *testing.T) {
 		t.Errorf("error = %q, want %q", got, text)
 	}
 }
+
+// A password holding an apostrophe, a credential in a query string and a
+// key=value DSN are scrubbed from a failure's text (#2358).
+func TestFailureScrubsEveryCredentialForm(t *testing.T) {
+	cases := map[string]string{
+		"apostrophe in userinfo": `parse "trino://admin:it's-s3cret@trino:8080": invalid port`,
+		"query parameter":        `Get "https://api.example.com/v1?page=2&api_key=s3cret&x=1": dial tcp: refused`,
+		"query password":         `open postgres://db/x?sslmode=disable&password=s3cret failed`,
+		"key=value dsn":          `cannot connect: host=db user=app password=s3cret dbname=x`,
+		"token parameter":        `refused (access_token=s3cret)`,
+	}
+	for name, msg := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := connprobe.Failure("could not reach", errors.New(msg))
+			if strings.Contains(r.Error, "s3cret") || !strings.Contains(r.Error, "[REDACTED]") {
+				t.Errorf("error = %q, want the credential replaced", r.Error)
+			}
+		})
+	}
+	r := connprobe.Failure("x", errors.New(`Get "https://api.example.com/v1?page=2": refused`))
+	if !strings.Contains(r.Error, "page=2") {
+		t.Errorf("error = %q, want a parameter that is not a credential kept", r.Error)
+	}
+}

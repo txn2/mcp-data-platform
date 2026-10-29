@@ -112,3 +112,29 @@ func TestProbeConnection_InternalHandler(t *testing.T) {
 		t.Errorf("detail does not say why nothing was dialed: %q", res.Detail)
 	}
 }
+
+// A connection that sends its api_key in the query string is tested against a
+// closed upstream: the failure names the address, never the key (#2358).
+func TestProbeConnection_UnreachableNamesNoQueryKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	tk := NewMulti(MultiConfig{})
+	if err := tk.AddConnection("vendor", map[string]any{
+		"base_url": srv.URL, "connect_timeout": "5s", "call_timeout": "10s",
+		"auth_mode": "api_key", "credential": "k3y-2358-probe", "api_key_placement": "query", "api_key_param": "key",
+	}); err != nil {
+		t.Fatalf("adding the connection: %v", err)
+	}
+	t.Cleanup(func() { _ = tk.Close() })
+	srv.Close()
+
+	res := tk.ProbeConnection(context.Background(), "vendor")
+	if res.OK {
+		t.Fatal("a closed upstream was reported as healthy")
+	}
+	if strings.Contains(res.Error, "k3y-2358-probe") || strings.Contains(res.Detail, "k3y-2358-probe") {
+		t.Errorf("the failure carries the key: %+v", res)
+	}
+	if !strings.Contains(res.Error, "key=REDACTED") {
+		t.Errorf("error = %q, want the parameter named with its value replaced", res.Error)
+	}
+}

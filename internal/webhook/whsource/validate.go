@@ -99,9 +99,17 @@ func validateAuth(a Auth) error {
 	}
 	check, ok := modeChecks[a.Mode]
 	if !ok {
-		return invalid("auth.mode must be one of hmac, header_token, basic, path_token, ed25519, body_token or jwt")
+		modes := AuthModes()
+		return invalid("auth.mode must be one of %s or %s", strings.Join(modes[:len(modes)-1], ", "), modes[len(modes)-1])
 	}
 	return check(a)
+}
+
+// AuthModes lists the auth modes a source can name, in the order the portal
+// offers them. Every mode has a check in modeChecks, which a test holds them
+// to, and #2354's criterion sends a request in each.
+func AuthModes() []string {
+	return []string{AuthHMAC, AuthHeaderToken, AuthBasic, AuthPathToken, AuthEd25519, AuthBodyToken, AuthJWT}
 }
 
 // modeChecks are the settings each auth mode needs.

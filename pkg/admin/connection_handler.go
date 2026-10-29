@@ -668,24 +668,15 @@ const (
 const cfgKeyGoogleIdentity = "google_service_account_identity"
 
 // connectionSensitiveKeys lists config keys that contain secrets and must be
-// redacted when returning connection instances via the API.
-var connectionSensitiveKeys = []string{
-	sensKeyPassword, sensKeySecretAccessKey, sensKeySecretKey,
-	sensKeyToken, sensKeyAccessToken, sensKeyRefreshToken, sensKeyAPIKey,
-	sensKeyCredential,
-	sensKeyClientSecret, sensKeyOAuthClientSecret, sensKeyOAuth2ClientSecret,
-	sensKeyMTLSClientKeyPEM,
-	sensKeyJWTClientSecret, sensKeyJWTPrivateKeyPEM,
-	sensKeyPathSecret, sensKeySessionLoginSecret,
-	sensKeyGoogleServiceAccountJSON,
-}
+// redacted when returning connection instances via the API. It is the
+// encryption layer's own set, so a key encrypted at rest is always redacted on
+// read (#2359).
+var connectionSensitiveKeys = fieldcrypt.SensitiveConfigKeyList()
 
 // nestedMapSensitiveKeys lists config keys whose value is itself a
 // map of strings; the inner values must be redacted while the inner
-// names remain visible. Mirrors fieldcrypt.SensitiveNestedMapKeyList().
-var nestedMapSensitiveKeys = []string{
-	fieldcrypt.CfgKeyStaticHeaders,
-}
+// names remain visible. It is the encryption layer's nested-map set.
+var nestedMapSensitiveKeys = fieldcrypt.SensitiveNestedMapKeyList()
 
 // platformInternalKeys lists config keys injected by the platform at runtime
 // (e.g., elicitation, progress) that should not be exposed in admin API

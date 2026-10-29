@@ -57,7 +57,12 @@ type Prober interface {
 
 // urlCredentials matches the userinfo of a URL — the "user:secret@" a DSN
 // carries — in free error text.
-var urlCredentials = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@"']*:[^\s/@"']*@`)
+var urlCredentials = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@"]*:[^\s/@"]*@`)
+
+// credentialParams finds a credential written as key=value: a URL query
+// parameter (?password=..., &api_key=...) or a key=value DSN (password=...),
+// whose value runs to the next separator (#2358).
+var credentialParams = regexp.MustCompile(`(?i)((?:^|[?&;\s,(])[a-z0-9_.-]*(?:password|passwd|pwd|secret|token|api_?key|apikey|credential|signature|sig)[a-z0-9_.-]*=)[^\s&;,)"']*`)
 
 // Failure builds a failed result from an error, so every kind's failure
 // reads the same way.
@@ -71,7 +76,7 @@ var urlCredentials = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@"']*:
 func Failure(detail string, err error) Result {
 	r := Result{Detail: detail}
 	if err != nil {
-		r.Error = urlCredentials.ReplaceAllString(err.Error(), "${1}[REDACTED]@")
+		r.Error = credentialParams.ReplaceAllString(urlCredentials.ReplaceAllString(err.Error(), "${1}[REDACTED]@"), "${1}[REDACTED]")
 	}
 	return r
 }

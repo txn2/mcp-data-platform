@@ -144,3 +144,23 @@ func gz(t *testing.T, s string) []byte {
 	require.NoError(t, zw.Close())
 	return buf.Bytes()
 }
+
+func TestBuildRedactsBeforeSplitAndHash(t *testing.T) {
+	p := paths(t, whsource.Config{Split: "$.value"})
+	p.Redact = func(doc any) {
+		m, _ := doc.(map[string]any)
+		items, _ := m["value"].([]any)
+		for _, item := range items {
+			if obj, ok := item.(map[string]any); ok {
+				delete(obj, "clientState")
+			}
+		}
+	}
+	evs, err := Build([]byte(`{"value":[{"clientState":"s","id":"1"},{"clientState":"s","id":"2"}]}`), p, received, "r")
+	require.NoError(t, err)
+	require.Len(t, evs, 2)
+	assert.JSONEq(t, `{"id":"1"}`, string(evs[0].Payload))
+	plain, err := Build([]byte(`{"value":[{"id":"1"}]}`), paths(t, whsource.Config{Split: "$.value"}), received, "r")
+	require.NoError(t, err)
+	assert.Equal(t, plain[0].ContentHash, evs[0].ContentHash, "the hash is of the payload without what was removed")
+}

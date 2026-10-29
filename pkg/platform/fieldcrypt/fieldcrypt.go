@@ -58,6 +58,7 @@ var sensitiveConfigKeys = map[string]bool{
 	"session_login_secret": true, // session_login credential written into the sign-in body
 
 	"google_service_account_json": true, // a Google service account's key file (#2061)
+	"session_token":               true, // s3 temporary credentials (#2359)
 }
 
 // CfgKeyStaticHeaders is the connection-config key whose value is a
@@ -66,13 +67,19 @@ var sensitiveConfigKeys = map[string]bool{
 // share one canonical name. The inner values are encrypted at rest.
 const CfgKeyStaticHeaders = "static_headers"
 
+// CfgKeySessionLoginHeaders is the session_login sign-in request's headers,
+// whose values can carry a credential (#2359). The inner values are encrypted
+// at rest like static_headers.
+const CfgKeySessionLoginHeaders = "session_login_headers"
+
 // sensitiveNestedMapKeys are top-level keys whose value is a
 // map[string]any whose inner string values are themselves secrets that
 // must be encrypted at rest. The shape is a separate set from
 // sensitiveConfigKeys because the encryption walk has to recurse one
 // level (not just encrypt the scalar at the top).
 var sensitiveNestedMapKeys = map[string]bool{
-	CfgKeyStaticHeaders: true,
+	CfgKeyStaticHeaders:       true,
+	CfgKeySessionLoginHeaders: true,
 }
 
 // SensitiveNestedMapKeyList returns the nested-map sensitive key set
@@ -301,18 +308,29 @@ func (e *FieldEncryptor) decryptNestedMap(parentKey string, raw any) (any, error
 
 // encrypt encrypts plaintext with AES-256-GCM and returns base64(nonce + ciphertext).
 func (e *FieldEncryptor) encrypt(plaintext string) (string, error) {
+	return e.encryptBound(nil, plaintext)
+}
+
+// encryptBound is encrypt with aad authenticated beside the ciphertext: the
+// value opens only for the same aad (#2355).
+func (e *FieldEncryptor) encryptBound(aad []byte, plaintext string) (string, error) {
 	nonce := make([]byte, e.gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", fmt.Errorf("generating nonce: %w", err)
 	}
 
-	ciphertext := e.gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	ciphertext := e.gcm.Seal(nonce, nonce, []byte(plaintext), aad)
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
 // decrypt decodes base64, splits nonce + ciphertext, and decrypts with AES-256-GCM:
 // with the current key, else with each previous key in turn.
 func (e *FieldEncryptor) decrypt(encoded string) (string, error) {
+	return e.decryptBound(nil, encoded)
+}
+
+// decryptBound is decrypt of a value encryptBound wrote for aad.
+func (e *FieldEncryptor) decryptBound(aad []byte, encoded string) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return "", fmt.Errorf("decoding base64: %w", err)
@@ -324,12 +342,12 @@ func (e *FieldEncryptor) decrypt(encoded string) (string, error) {
 	}
 
 	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-	plaintext, err := e.gcm.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := e.gcm.Open(nil, nonce, ciphertext, aad)
 	for _, old := range e.previous {
 		if err == nil {
 			break
 		}
-		plaintext, err = old.Open(nil, nonce, ciphertext, nil)
+		plaintext, err = old.Open(nil, nonce, ciphertext, aad)
 	}
 	if err != nil {
 		return "", fmt.Errorf("decrypting: %w", err)
@@ -428,6 +446,41 @@ func (g *RestFieldEncryptor) Open(sealed string) (string, error) {
 	out, err := g.enc.decrypt(strings.TrimPrefix(sealed, encryptedPrefix))
 	if err != nil {
 		return "", fmt.Errorf("rest field open: %w", err)
+	}
+	return out, nil
+}
+
+// boundPrefix marks a value SealBound wrote, so it is never read as one Seal
+// wrote, nor the reverse.
+const boundPrefix = "encb:"
+
+// SealBound is Seal with the value bound to binding (#2355): OpenBound opens
+// it only for the same binding, and Open never opens it. A form seals each
+// sensitive field bound to its form and field, so a value sealed for one use
+// cannot be opened as another.
+func (g *RestFieldEncryptor) SealBound(binding, plaintext string) (string, error) {
+	if !g.Enabled() {
+		return "", ErrDisabled
+	}
+	out, err := g.enc.encryptBound([]byte(binding), plaintext)
+	if err != nil {
+		return "", fmt.Errorf("rest field seal: %w", err)
+	}
+	return boundPrefix + out, nil
+}
+
+// OpenBound decrypts a value SealBound wrote for binding. A value sealed for
+// another binding, or by Seal, is refused.
+func (g *RestFieldEncryptor) OpenBound(binding, sealed string) (string, error) {
+	if !g.Enabled() {
+		return "", ErrDisabled
+	}
+	if !strings.HasPrefix(sealed, boundPrefix) {
+		return "", errors.New("rest field open: the value is not sealed for this use")
+	}
+	out, err := g.enc.decryptBound([]byte(binding), strings.TrimPrefix(sealed, boundPrefix))
+	if err != nil {
+		return "", errors.New("rest field open: the value is not sealed for this use")
 	}
 	return out, nil
 }

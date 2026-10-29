@@ -260,18 +260,9 @@ Tool call arguments are logged for debugging and compliance. The `parameters` fi
 
 One bound applies before anything else: an argument value larger than 16KB is stored as `[TRUNCATED: <n> bytes]` rather than its content. An audit row records what was called, not what was carried — some tools take a payload as an argument (an object body written to storage, a file uploaded, a report a [managed script](../scripts/running.md) delivers on every scheduled fire), and storing those verbatim would put a second copy of that data in the audit table. A query, a prompt, or a path is far inside the bound and is recorded whole.
 
-A built-in baseline replaces the values of these well-known keys with `[REDACTED]` before storage:
+A built-in baseline replaces with `[REDACTED]`, before storage and at any depth of the arguments (#2356), the value of every key that names a secret: one containing `password`, `secret`, `token`, `api_key`, `apikey`, `credential`, `private_key`, `authorization`, `cookie`, `_pem`, `service_account_json` or `dsn`, or ending in `_key`, compared case-insensitively with `-` read as `_`, so `X-API-Key`, `previous_secret`, `session_token`, `client_secret`, `mtls_client_key_pem` and `Ocp-Apim-Subscription-Key` are all caught. Every value under `static_headers` and `session_login_headers` is replaced with its header name kept, and a test holds the baseline to every key the platform encrypts at rest. A key ending in `_path`, `_header`, `_name`, `_names`, `_set`, `_url`, `_encoding`, `_until`, `_at`, `_count`, `_type`, `_placement`, `_id` or `_ids` names or describes a secret rather than holding one (`token_path`, `secret_name`) and is kept. A string argument that holds a JSON object or array, such as an `api_invoke_endpoint` body sent as text, is read and redacted the same way, and so is one written as a query: a form-encoded body (`user=ann&password=...`) or a path or URL carrying one (`/v1/items?api_key=...`). A string holding whitespace (a sentence, a SQL statement) is never read as a query. A call whose `path` is an admin route that sets a stored secret (`/admin/secrets`) has the `value` in its body replaced too, so a secret created through the `platform-admin` connection never reaches `audit_logs`.
 
-- `password`
-- `secret`
-- `token`
-- `api_key`
-- `authorization`
-- `credentials`
-
-This baseline matching is case-sensitive and exact. A parameter named `user_password` would **not** be caught by it (only `password` is matched). It is a safety net, not a substitute for configuring your own sensitive argument names.
-
-For your own keys, set `audit.redact_keys`, a case-insensitive list of top-level argument keys whose values are masked in the middleware, before the event ever leaves the request path. Nested keys are not matched (top-level only, by design). For tools whose inputs cannot be made safe to retain even with redaction, set `audit.log_parameters: false` to drop the arguments entirely. A `result` key a tool reports about the call's outcome is not an argument value and is recorded either way; with arguments dropped it is all `parameters` holds.
+For your own keys, set `audit.redact_keys`, a case-insensitive list of top-level argument keys whose values are masked in the middleware, before the event ever leaves the request path. These are matched at the top level only; the baseline above already covers nested secrets. For tools whose inputs cannot be made safe to retain even with redaction, set `audit.log_parameters: false` to drop the arguments entirely. A `result` key a tool reports about the call's outcome is not an argument value and is recorded either way; with arguments dropped it is all `parameters` holds.
 
 ## Delivery semantics
 

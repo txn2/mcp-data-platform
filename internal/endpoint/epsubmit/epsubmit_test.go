@@ -60,7 +60,7 @@ func row(t *testing.T, id string, at time.Time, sub epcollect.Submission) map[st
 	t.Helper()
 	c := &epcollect.Collector{Sealer: sealer(t)}
 	sub.Endpoint = "apply"
-	_, body, err := c.Event(sub)
+	_, body, err := c.Event(sub, "form-apply")
 	require.NoError(t, err)
 	return map[string]any{"event_id": id, "received_at": at.Format("2006-01-02 15:04:05.000000"), "payload": string(body)}
 }

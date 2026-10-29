@@ -175,3 +175,20 @@ func TestFillConfigKeys(t *testing.T) {
 		t.Errorf("out of scope: %v", err)
 	}
 }
+
+// Into puts a Redactor that outlives one call on a context, and a value
+// filled under it is recorded there (#2357).
+func TestIntoRecordsOnTheGivenRedactor(t *testing.T) {
+	installSource(t, func(_ context.Context, name, _ string) (string, error) { return "v4lue-" + name, nil })
+	r := &Redactor{}
+	ctx := Into(context.Background(), r)
+	if FromContext(ctx) != r {
+		t.Fatal("FromContext does not return the Redactor Into put there")
+	}
+	if _, err := FillConnection(ctx, "c", "{{secret:k}}", Raw); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.String("echo v4lue-k"); got != "echo "+Redaction("k") {
+		t.Fatalf("String = %q; the filled value was not recorded", got)
+	}
+}

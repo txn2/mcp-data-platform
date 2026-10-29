@@ -134,10 +134,9 @@ const (
 // so every distinct field name that may carry a secret must appear here
 // in its canonical (lowercase) form.
 //
-// MUST be a superset of pkg/platform/fieldcrypt.go::sensitiveConfigKeys
-// — any field the encryption layer treats as a secret must also be
-// redacted here, or a misconfigured deployment (ENCRYPTION_KEY unset,
-// plaintext at rest) leaks through /api/admin/config.
+// isSensitiveKey also reads the encryption layer's set
+// (connectionSensitiveKeys), and redactMap its nested-map set, so any field
+// encrypted at rest is redacted here too (#2359).
 // TestSensitiveKeysCoverFieldcryptSet locks this in.
 var sensitiveKeys = []string{
 	sensKeyKey,
@@ -618,6 +617,10 @@ func redactMap(m map[string]any) {
 			redactSensitiveValue(m, k, v)
 			continue
 		}
+		if isSensitiveNestedMapKey(k) {
+			m[k] = redactNestedMapValues(v)
+			continue
+		}
 		switch val := v.(type) {
 		case map[string]any:
 			redactMap(val)
@@ -657,5 +660,12 @@ func redactSlice(s []any) {
 
 // isSensitiveKey checks if a key matches any sensitive pattern.
 func isSensitiveKey(key string) bool {
-	return slices.Contains(sensitiveKeys, strings.ToLower(key))
+	k := strings.ToLower(key)
+	return slices.Contains(sensitiveKeys, k) || slices.Contains(connectionSensitiveKeys, k)
+}
+
+// isSensitiveNestedMapKey reports whether a key's value is a map whose inner
+// values are secrets, such as static_headers (#2359).
+func isSensitiveNestedMapKey(key string) bool {
+	return slices.Contains(nestedMapSensitiveKeys, strings.ToLower(key))
 }

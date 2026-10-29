@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -24,6 +25,10 @@ const (
 type upstreamClient struct {
 	session *mcp.ClientSession
 	cfg     Config
+	// filled holds every stored secret the session's requests filled into
+	// the connection's credential or client_credentials client, so a tool
+	// result or error that repeats one is redacted (#2357).
+	filled *secretref.Redactor
 }
 
 // dialDeps bundles the wire-time dependencies dial needs to build an
@@ -45,7 +50,8 @@ func dial(ctx context.Context, cfg Config, deps dialDeps) (*upstreamClient, erro
 	if cfg.AuthMode == AuthModeOAuth && deps.TokenProvider == nil {
 		return nil, errors.New("gateway: oauth connection requires a token provider; none wired")
 	}
-	httpClient := buildHTTPClient(cfg, deps.TokenProvider)
+	filled := &secretref.Redactor{}
+	httpClient := buildHTTPClient(cfg, deps.TokenProvider, filled)
 
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    clientName,
@@ -88,7 +94,7 @@ func dial(ctx context.Context, cfg Config, deps dialDeps) (*upstreamClient, erro
 		return nil, fmt.Errorf("connect to %s: %w", cfg.Endpoint, err)
 	}
 
-	return &upstreamClient{session: session, cfg: cfg}, nil
+	return &upstreamClient{session: session, cfg: cfg, filled: filled}, nil
 }
 
 // listTools fetches the current tool catalog from the upstream,
@@ -107,16 +113,61 @@ func (u *upstreamClient) listTools(ctx context.Context) ([]*mcp.Tool, error) {
 	return tools, nil
 }
 
-// callTool forwards a call to the upstream, returning the raw result.
+// callTool forwards a call to the upstream and returns its result with every
+// stored secret the connection filled replaced, in the result and in an error
+// (#2357).
 func (u *upstreamClient) callTool(ctx context.Context, name string, args any) (*mcp.CallToolResult, error) {
 	res, err := u.session.CallTool(upstreamContext(ctx), &mcp.CallToolParams{
 		Name:      name,
 		Arguments: args,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("call tool %s: %w", name, err)
+		return nil, redactedError{msg: u.filled.String(fmt.Sprintf("call tool %s: %v", name, err)), err: err}
 	}
+	redactResult(u.filled, res)
 	return res, nil
+}
+
+// redactedError is an upstream error whose message has the connection's
+// filled secrets replaced; Unwrap keeps the error it came from.
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e redactedError) Error() string { return e.msg }
+func (e redactedError) Unwrap() error { return e.err }
+
+// redactResult replaces every value r recorded in a tool result's text, its
+// embedded resources' text and its structured content.
+func redactResult(r *secretref.Redactor, res *mcp.CallToolResult) {
+	if res == nil || r.Empty() {
+		return
+	}
+	for _, c := range res.Content {
+		switch v := c.(type) {
+		case *mcp.TextContent:
+			v.Text = r.String(v.Text)
+		case *mcp.EmbeddedResource:
+			if v.Resource != nil {
+				v.Resource.Text = r.String(v.Resource.Text)
+			}
+		}
+	}
+	if res.StructuredContent == nil {
+		return
+	}
+	b, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		res.StructuredContent = nil
+		return
+	}
+	var out any
+	if json.Unmarshal(r.Bytes(b), &out) != nil {
+		res.StructuredContent = nil
+		return
+	}
+	res.StructuredContent = out
 }
 
 // upstreamContext returns the context an outbound request to the upstream runs
@@ -167,7 +218,7 @@ func (u *upstreamClient) close() error {
 // tokenProvider is required when AuthMode is "oauth" and ignored otherwise;
 // pass nil for the non-OAuth modes. No client timeout: the SDK bounds each
 // request by its context, and the standalone stream would outlive any.
-func buildHTTPClient(cfg Config, tp tokenProvider) *http.Client {
+func buildHTTPClient(cfg Config, tp tokenProvider, filled *secretref.Redactor) *http.Client {
 	var base http.RoundTripper
 	if std, ok := http.DefaultTransport.(*http.Transport); ok {
 		base = std.Clone()
@@ -178,6 +229,7 @@ func buildHTTPClient(cfg Config, tp tokenProvider) *http.Client {
 			credential:    cfg.Credential,
 			connection:    cfg.ConnectionName,
 			tokenProvider: tp,
+			filled:        filled,
 			base:          base,
 		}
 	}
@@ -203,7 +255,9 @@ type authRoundTripper struct {
 	// oauth2.ReuseTokenSource. Either way, the round-tripper itself
 	// holds no token state of its own.
 	tokenProvider tokenProvider
-	base          http.RoundTripper
+	// filled records the stored secrets each request fills (#2357).
+	filled *secretref.Redactor
+	base   http.RoundTripper
 }
 
 // RoundTrip adds the configured auth header to req and delegates to the base.
@@ -224,11 +278,12 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 // to the MCP client, which the gateway forwarder then attributes back as
 // upstream:<connection>: errors in the audit log.
 func (a *authRoundTripper) applyAuth(req *http.Request) error {
+	ctx := secretref.Into(req.Context(), a.filled)
 	switch a.mode {
 	case AuthModeBearer, AuthModeAPIKey:
 		// A credential naming a stored secret is read as each request is
 		// sent, so a rotated secret is used from the next one on (#2066).
-		credential, err := secretref.FillConnection(req.Context(), a.connection, a.credential, secretref.Raw)
+		credential, err := secretref.FillConnection(ctx, a.connection, a.credential, secretref.Raw)
 		if err != nil {
 			return fmt.Errorf("gateway: %w", err)
 		}
@@ -241,7 +296,7 @@ func (a *authRoundTripper) applyAuth(req *http.Request) error {
 		if a.tokenProvider == nil {
 			return errors.New("oauth: token provider not configured")
 		}
-		token, err := a.tokenProvider.Token(req.Context())
+		token, err := a.tokenProvider.Token(ctx)
 		if err != nil {
 			return fmt.Errorf("oauth: %w", err)
 		}

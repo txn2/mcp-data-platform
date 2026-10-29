@@ -42,7 +42,7 @@ func (d *Decrypter) Decrypt(ctx context.Context, req scripttoken.DecryptRequest)
 			"set with manage_script endpoint_set", req.Form, req.Persona, strings.Join(personas, ", "))
 	}
 	stored, sensitive := PayloadValues(req.Payload)
-	values, err = Reveal(d.Sealer, stored, sensitive)
+	values, err = Reveal(d.Sealer, src.Name, stored, sensitive)
 	if err != nil {
 		d.audit(ctx, req, src, sensitive, "failed: "+err.Error())
 		return nil, nil, err

@@ -141,3 +141,54 @@ func TestStore_ASensitiveFieldNeedsAnEncryptionKey(t *testing.T) {
 	resp = f.serve(t, Request{Method: "GET"})
 	assert.Equal(t, http.StatusOK, resp.Status, string(resp.Body))
 }
+
+const failingSensitiveForm = `
+def form_spec(req):
+    """An application with an SSN."""
+    return {"fields": [{"name": "ssn", "type": "text", "sensitive": True}, {"name": "note", "type": "text"}]}
+
+def form_submit(req, values):
+    """Reads the SSN as a number, which fails on a dashed one and names it."""
+    return {"confirmation": str(int(values["ssn"]))}
+`
+
+// #2360: a form_submit that fails on a sensitive value records the failure
+// with the value replaced, in the owner's failure row and the audit row.
+func TestStore_AFailureNeverRecordsASensitiveValue(t *testing.T) {
+	f := newFixture(t, failingSensitiveForm)
+	now := time.Unix(1_800_000_000, 0)
+	f.runner.FormKey, f.runner.Now = formKey, func() time.Time { return now }
+	enc, err := fieldcrypt.NewFieldEncryptor(formKey)
+	require.NoError(t, err)
+	f.runner.SetCollector(&epcollect.Collector{Sources: formSource{found: true}, Writer: &deliveries{}, Sealer: fieldcrypt.NewRestFieldEncryptor(enc)})
+	_, token := showForm(t, f, nil)
+	now = now.Add(5 * time.Second)
+
+	resp, _ := submitForm(t, f, "application/json", `{"ssn":"123-45-6789","note":"hello","form_token":"`+token+`"}`)
+	assert.Equal(t, http.StatusInternalServerError, resp.Status)
+	require.Len(t, f.bindings.failures, 1)
+	failure := f.bindings.failures[0].Error
+	assert.NotContains(t, failure, "123-45-6789")
+	assert.Contains(t, failure, "[REDACTED:ssn]", "the failure still says which field it was")
+	assert.Contains(t, failure, "invalid literal", "and what went wrong")
+	last := f.audit.events[len(f.audit.events)-1]
+	assert.NotContains(t, last.ErrorMessage, "123-45-6789")
+}
+
+// #2360: every shape a submitted value takes is recorded for redaction.
+func TestSensitiveValuesRecordsEveryShape(t *testing.T) {
+	red := sensitiveValues([]string{"ssn", "picks", "tags", "income", "empty"}, map[string]any{
+		"ssn": "123-45-6789", "picks": []any{"red", "blue"}, "tags": []string{"vip"}, "income": 52000, "empty": nil,
+	})
+	got := red.String("123-45-6789 red blue vip 52000")
+	for _, v := range []string{"123-45-6789", "red", "blue", "vip", "52000"} {
+		assert.NotContains(t, got, v)
+	}
+	assert.Nil(t, sensitiveValues(nil, map[string]any{"a": "b"}))
+	plain := errors.New("x")
+	assert.Same(t, plain, redactFailure(nil, plain), "nothing to replace keeps the error")
+	inner := errors.New("bad 123-45-6789")
+	wrapped := redactFailure(red, inner)
+	assert.Equal(t, "bad [REDACTED:ssn]", wrapped.Error())
+	assert.ErrorIs(t, wrapped, inner, "the failure it came from is still reachable")
+}

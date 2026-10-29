@@ -550,3 +550,32 @@ func TestSyncPartitions(t *testing.T) {
 	r.tables.err["target"] = errors.New("no scratch target")
 	require.Error(t, r.svc.SyncPartitions(ctx, "esp"))
 }
+
+// With no ENCRYPTION_KEY, a save that writes a source's secret is refused, as
+// a form's sensitive fields are; a save that keeps the stored secret, and an
+// ed25519 source's public key, are not (#2362).
+func TestSecretRefusedWithoutEncryption(t *testing.T) {
+	r := newRig()
+	_, err := r.svc.Create(ctx, input())
+	require.NoError(t, err, "the stored source predates the deployment losing its key")
+	r.svc.deps.NoEncryption = true
+
+	other := input()
+	other.Name = "esp2"
+	_, err = r.svc.Create(ctx, other)
+	require.ErrorIs(t, err, ErrCannotEncrypt)
+	assert.ErrorIs(t, err, whsource.ErrInvalid)
+
+	_, err = r.svc.Update(ctx, "esp", Update{Auth: whsource.Auth{Mode: whsource.AuthHMAC, Secret: "k2", SignatureHeader: "X-Sig"}})
+	require.ErrorIs(t, err, ErrCannotEncrypt, "rotating writes a new secret")
+
+	off := false
+	_, err = r.svc.Update(ctx, "esp", Update{Enabled: &off, Auth: whsource.Auth{Mode: whsource.AuthHMAC, SignatureHeader: "X-Sig"}})
+	require.NoError(t, err, "a save that keeps the stored secret is not refused")
+
+	discord := input()
+	discord.Name = "discord"
+	discord.Auth = whsource.Auth{Mode: whsource.AuthEd25519, Secret: strings.Repeat("ab", 32), SignatureHeader: "X-Signature-Ed25519"}
+	_, err = r.svc.Create(ctx, discord)
+	require.NoError(t, err, "an ed25519 source's secret is the sender's public key")
+}

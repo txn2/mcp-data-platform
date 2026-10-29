@@ -4,9 +4,10 @@
 // An event is the envelope the receiver adds around what the sender posted:
 // when it was received, which replica received it, the sender's id, type and
 // key for it when the source says where to find them, and the posted JSON as
-// text. The payload is never transformed: a reader extracts what it needs
-// from it with json_extract_scalar, and a sender adding a field never changes
-// the table.
+// text. The payload is not transformed beyond removing what the source's
+// Paths.Redact takes out (the token a body_token source verified, #2353): a
+// reader extracts what it needs from it with json_extract_scalar, and a sender
+// adding a field never changes the table.
 package whevent
 
 import (
@@ -54,6 +55,10 @@ func (e Event) Window(length time.Duration) time.Time { return e.ReceivedAt.UTC(
 // Paths are a source's parsed JSON paths. A nil path is unset.
 type Paths struct {
 	Split, EventID, EventType, Key *jsonpath.Path
+	// Redact, when set, takes what must not be stored out of the decoded
+	// document before it is split, so each event's payload, content hash and
+	// id are computed without it (#2353).
+	Redact func(doc any)
 }
 
 // ParsePaths reads the paths a source configures. Validation already refused
@@ -128,6 +133,9 @@ func Build(jsonBody []byte, paths Paths, receivedAt time.Time, replica string) (
 		return nil, ErrNotJSON
 	}
 
+	if paths.Redact != nil {
+		paths.Redact(doc)
+	}
 	items := []any{doc}
 	if paths.Split != nil {
 		v, ok := paths.Split.Lookup(doc)

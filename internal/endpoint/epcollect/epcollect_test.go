@@ -20,7 +20,7 @@ import (
 
 var testKey = []byte("0123456789abcdef0123456789abcdef")
 
-func sealer(t *testing.T) Sealer {
+func sealer(t *testing.T) *fieldcrypt.RestFieldEncryptor {
 	t.Helper()
 	enc, err := fieldcrypt.NewFieldEncryptor(testKey)
 	require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestStore_SealsSensitiveFieldsAndRecordsTheSubmitter(t *testing.T) {
 	assert.Equal(t, map[string]any{"user_id": "u1", "email": "ana@example.com", "auth_type": "oidc"}, payload[KeySubmitter])
 
 	values, sensitive := PayloadValues(payload)
-	opened, err := Reveal(sealer(t), values, sensitive)
+	opened, err := Reveal(sealer(t), "form-apply", values, sensitive)
 	require.NoError(t, err)
 	assert.Equal(t, "Ana", opened["name"])
 	assert.Equal(t, "123-45-6789", opened["ssn"])
@@ -132,23 +132,62 @@ func TestStore_APublicFormWithNoSensitiveField(t *testing.T) {
 
 func TestReveal_Refusals(t *testing.T) {
 	s := sealer(t)
-	same, err := Reveal(nil, map[string]any{"a": 1}, nil)
+	same, err := Reveal(nil, "form-apply", map[string]any{"a": 1}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"a": 1}, same)
 
-	_, err = Reveal(fieldcrypt.NewRestFieldEncryptor(nil), map[string]any{"ssn": "enc:x"}, []string{"ssn"})
+	_, err = Reveal(fieldcrypt.NewRestFieldEncryptor(nil), "form-apply", map[string]any{"ssn": "encb:x"}, []string{"ssn"})
 	require.ErrorContains(t, err, "ENCRYPTION_KEY")
-	_, err = Reveal(s, map[string]any{"ssn": 5}, []string{"ssn"})
+	_, err = Reveal(s, "form-apply", map[string]any{"ssn": 5}, []string{"ssn"})
 	require.ErrorContains(t, err, "not encrypted")
-	_, err = Reveal(s, map[string]any{"ssn": "enc:AAAA"}, []string{"ssn"})
-	require.ErrorContains(t, err, "decrypting")
-	notJSON, err := s.Seal("not json")
+	_, err = Reveal(s, "form-apply", map[string]any{"ssn": "encb:AAAA"}, []string{"ssn"})
+	require.ErrorContains(t, err, "not sealed by this form")
+	notJSON, err := s.SealBound(Binding("form-apply", "ssn"), "Not json")
 	require.NoError(t, err)
-	_, err = Reveal(s, map[string]any{"ssn": notJSON}, []string{"ssn"})
-	require.ErrorContains(t, err, "reading")
-	missing, err := Reveal(s, map[string]any{"a": 1}, []string{"ssn"})
+	_, err = Reveal(s, "form-apply", map[string]any{"ssn": notJSON}, []string{"ssn"})
+	require.ErrorContains(t, err, "does not hold a submitted value")
+	assert.NotContains(t, err.Error(), "N", "the refusal never quotes what it opened")
+	missing, err := Reveal(s, "form-apply", map[string]any{"a": 1}, []string{"ssn"})
 	require.NoError(t, err, "a sensitive field a submission did not hold is skipped")
 	assert.Equal(t, map[string]any{"a": 1}, missing)
+}
+
+// #2355: a value opens only for the form and field it was sealed for, and a
+// value the platform sealed for anything else (a stored secret, another
+// form, a value sealed before fields were bound) opens nothing through
+// Reveal; RevealStored, for rows read from the form's own source, shows one
+// sealed before fields were bound as unreadable.
+func TestReveal_OpensOnlyWhatTheFormSealed(t *testing.T) {
+	s := sealer(t)
+	ours, err := s.SealBound(Binding("form-apply", "ssn"), `"123-45-6789"`)
+	require.NoError(t, err)
+	got, err := Reveal(s, "form-apply", map[string]any{"ssn": ours}, []string{"ssn"})
+	require.NoError(t, err)
+	assert.Equal(t, "123-45-6789", got["ssn"])
+
+	otherForm, err := s.SealBound(Binding("form-other", "ssn"), `"999-99-9999"`)
+	require.NoError(t, err)
+	otherField, err := s.SealBound(Binding("form-apply", "income"), `52000`)
+	require.NoError(t, err)
+	storedSecret, err := s.Seal(`{"private_key":"-----BEGIN"}`)
+	require.NoError(t, err)
+	for name, sealed := range map[string]string{"another form": otherForm, "another field": otherField, "a stored secret": storedSecret} {
+		_, err := Reveal(s, "form-apply", map[string]any{"ssn": sealed}, []string{"ssn"})
+		require.Error(t, err, name)
+		assert.NotContains(t, err.Error(), "999", name)
+		assert.NotContains(t, err.Error(), "BEGIN", name)
+	}
+
+	legacy, err := s.Seal(`"111-11-1111"`)
+	require.NoError(t, err)
+	_, err = Reveal(s, "form-apply", map[string]any{"ssn": legacy}, []string{"ssn"})
+	require.Error(t, err, "a script cannot open a value sealed before fields were bound")
+	old, err := RevealStored(s, "form-apply", map[string]any{"ssn": legacy}, []string{"ssn"})
+	require.NoError(t, err)
+	assert.Equal(t, SealedUnbound, old["ssn"], "the owner's view shows it as unreadable and opens nothing")
+	ok, err := RevealStored(s, "form-apply", map[string]any{"ssn": ours}, []string{"ssn"})
+	require.NoError(t, err)
+	assert.Equal(t, "123-45-6789", ok["ssn"], "a value the form sealed reads in the owner's view")
 }
 
 func TestPayloadValues(t *testing.T) {
@@ -175,7 +214,7 @@ func (r *recordAudit) Log(_ context.Context, e middleware.AuditEvent) error {
 func storedPayload(t *testing.T) map[string]any {
 	t.Helper()
 	c := &Collector{Sealer: sealer(t)}
-	_, body, err := c.Event(Submission{Spec: spec(), Values: map[string]any{"name": "Ana", "ssn": "123-45-6789", "income": 1}})
+	_, body, err := c.Event(Submission{Spec: spec(), Values: map[string]any{"name": "Ana", "ssn": "123-45-6789", "income": 1}}, "form-apply")
 	require.NoError(t, err)
 	var p map[string]any
 	require.NoError(t, json.Unmarshal(body, &p))

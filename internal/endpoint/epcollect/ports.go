@@ -17,9 +17,11 @@ type Writer interface {
 	Deliver(ctx context.Context, src whsource.Source, event whevent.Event, body []byte) error
 }
 
-// Sealer encrypts a sensitive value (fieldcrypt's RestFieldEncryptor).
+// Sealer encrypts a sensitive value (fieldcrypt's RestFieldEncryptor). A
+// value is sealed bound to its form and field and opened only for them
+// (#2355).
 type Sealer interface {
 	Enabled() bool
-	Seal(plaintext string) (string, error)
-	Open(sealed string) (string, error)
+	SealBound(binding, plaintext string) (string, error)
+	OpenBound(binding, sealed string) (string, error)
 }

@@ -138,15 +138,42 @@ sender sends what its documentation says.
 
 #### Modes
 
+No source stores its secret in its events (#2353, #2354): once a request is
+verified, every value in its body equal to the source's secret (or the
+previous secret, during a rotation's overlap) is removed, at any depth, before
+its events, ids and content hashes are made: an object member is deleted, an
+array element becomes `null`. That is the token a `body_token` sender puts at
+`token_path`, and a token any other sender repeats in its body. So no stored
+event, compacted file or event run holds it, and a delivery verified before
+and after a rotation is the same event. A value that is not the secret is the
+sender's own and is kept. An `ed25519` source's secret is the sender's public
+key and is left in place.
+
+Every mode's secret is encrypted when stored, and a deployment with no
+`ENCRYPTION_KEY` refuses a save that writes one (#2362), as it refuses a
+form's sensitive fields: creating a source with a secret, or rotating it, is
+answered 400 naming `ENCRYPTION_KEY`. An `ed25519` source's secret is the
+sender's public key and is saved either way. A source stored before the key
+was removed keeps working, and a save that leaves its secret as it is
+succeeds.
+
 | `auth.mode` | What a request carries | Settings |
 |---|---|---|
 | `hmac` | A signature of the body in a header | `algorithm` (`sha256` default, `sha1`, `sha512`), `signature_header`, `encoding` (`hex` default, `base64`), `secret_encoding` (empty for the secret as written, or `base64` for the bytes it decodes to), `prefix` (such as `sha256=`), `signed` (see below), the timestamp from one of `timestamp_header`, `timestamp_path` or a `header_pattern` naming `{timestamp}`, with `tolerance_seconds` (default 300), `id_header`, and the signature header's layout: `header_format` (empty, or `stripe` for `t=<timestamp>,v1=<signature>` with the timestamp inside the signature header) or `header_pattern`. |
 | `ed25519` | An Ed25519 signature in a header | The secret is the sender's public key, 32 bytes in hex. `signature_header`, `encoding`, `signed`, `timestamp_header` or `timestamp_path`, `tolerance_seconds`. |
 | `header_token` | The secret itself in a header | `header` |
-| `body_token` | The secret itself in the body | `token_path`: where in a JSON body, or which field of a form body. A path through `[*]` (`value[*].clientState`) requires every element to carry the token; one element without it refuses the whole request. |
+| `body_token` | The secret itself in the body | `token_path`: where in a JSON body, or which field of a form body. A path through `[*]` (`value[*].clientState`) requires every element to carry the token; one element without it refuses the whole request. The token is removed from what is stored, as every mode's secret is (see below). |
 | `jwt` | An HS256 JSON Web Token in a header, with or without `Bearer ` | `header` (default `Authorization`). The token is verified with the secret; its `exp` is honored when present. |
 | `basic` | HTTP Basic credentials, the secret as the password | `username` |
 | `path_token` | The secret as a further path segment, `/hooks/{name}/{secret}`, for a sender that can set nothing but a URL | none |
+
+Upgrading from v1.152.1: a `body_token` source (the `mattermost` and
+`microsoft_graph` presets) stored its token in every event it received on that
+release, and any source stored a secret its sender repeated in the body, in
+the raw segments, the compacted files and the `script_runs.event` of each
+event run. Rotate the secret of each such source, with no overlap, and
+change it at the sender; the copies already stored then no longer authenticate
+anything.
 
 `signed` is `body` (the default), `timestamp.body`, `id.timestamp.body`, or a
 template over `{id}`, `{timestamp}` and `{body}` with the text between them:

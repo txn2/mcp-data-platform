@@ -259,6 +259,45 @@ func (v *Verifier) verifyBodyToken(secrets []string, req Request) error {
 	return nil
 }
 
+// Redact removes the source's secret from doc, the decoded document a
+// request's events are built from, so no source stores it (#2353, #2354):
+// every object member, at any depth, whose value is one of the secrets valid
+// at now is deleted, and every such array element is set to null so the
+// elements after it keep their indexes. That is the token a body_token sender
+// puts at token_path, in each element of a "[*]" path, and a token any other
+// sender repeats in its body. A value that is not the secret is the sender's
+// own and is kept. An ed25519 source's secret is the sender's public key,
+// which is no secret, and leaves doc as it is.
+func (v *Verifier) Redact(doc any, now time.Time) {
+	if v.auth.Mode == whsource.AuthEd25519 {
+		return
+	}
+	secrets := v.auth.Secrets(now)
+	removeSecrets(doc, func(s string) bool { return matchAny(s, secrets, ErrMissingToken, ErrBadToken) == nil })
+}
+
+// removeSecrets deletes from doc every string isSecret accepts.
+func removeSecrets(doc any, isSecret func(string) bool) {
+	switch t := doc.(type) {
+	case map[string]any:
+		for k, inner := range t {
+			if s, ok := inner.(string); ok && isSecret(s) {
+				delete(t, k)
+				continue
+			}
+			removeSecrets(inner, isSecret)
+		}
+	case []any:
+		for i, inner := range t {
+			if s, ok := inner.(string); ok && isSecret(s) {
+				t[i] = nil
+				continue
+			}
+			removeSecrets(inner, isSecret)
+		}
+	}
+}
+
 // formMediaType is the content type a form body is posted with.
 const formMediaType = "application/x-www-form-urlencoded"
 

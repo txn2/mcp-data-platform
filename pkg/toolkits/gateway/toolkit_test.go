@@ -1506,7 +1506,7 @@ func TestAuthRoundTripper_APIKeyInjectsHeader(t *testing.T) {
 // round-tripper under it, rather than leaving the SDK to its default client,
 // which sent no User-Agent and recorded nothing.
 func TestBuildHTTPClient_NoneIsOnTheChainWithoutAuth(t *testing.T) {
-	c := buildHTTPClient(Config{AuthMode: AuthModeNone, ConnectionName: "plain"}, nil)
+	c := buildHTTPClient(Config{AuthMode: AuthModeNone, ConnectionName: "plain"}, nil, nil)
 	if c == nil {
 		t.Fatal("expected a client for auth_mode=none")
 	}

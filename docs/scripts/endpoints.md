@@ -313,7 +313,12 @@ in two places, each audited as `form_decrypt` with the fields read:
   and Excel exports);
 - `platform.decrypt(form, payload)` in a script, whose run's persona must be
   among the form's `decrypt_personas` (set with `endpoint_set`); the
-  administrator always may.
+  administrator always may. It opens only a value that form sealed: each
+  sensitive field is sealed bound to its form's source and its field name
+  (#2355), so a value sealed for another form, another field or anything else
+  the platform encrypts (a stored secret, a connection credential) is refused
+  as not sealed by this form, and the refusal never repeats any part of what
+  it read.
 
 ```python
 def main():
@@ -323,6 +328,21 @@ def main():
         values = platform.decrypt("apply", row["payload"])
         print(values["name"], values["ssn"])
 ```
+
+A failed form request is recorded (the failed requests `endpoint_list`
+reports, and the `endpoint_request` audit row) with each sensitive field's
+submitted value replaced by `[REDACTED:<field>]`, so an error that repeats
+the value it choked on, such as `int()` on a dashed SSN, never stores it
+(#2360).
+
+Upgrading: a sensitive value stored before #2355 was sealed without its form
+and field, and is no longer decrypted anywhere. The owner's Submissions
+section and its exports show it as `[sealed before this release; not
+readable]`, and `platform.decrypt` refuses it. A value sealed without its form
+cannot be told apart from any other ciphertext the platform holds, so opening
+it from the form's table would let anyone who can write a row there read a
+stored secret. Only forms with sensitive fields created since #2179 hold such
+values.
 
 A recording keeps `[encrypted]` in place of each value `platform.decrypt`
 opened, so no recording, replay or test holds one. Rotating the key keeps old
@@ -602,6 +622,10 @@ def handle(req):
 
 - `claims` is a dict carried in the token, up to 4 KiB encoded, and `ttl` the
   seconds it lives, at most 30 days.
+- A run's recording keeps a mint's answer and a verify's `token` argument as
+  `[recorded token]` (#2361), so no recording holds a token that would be
+  accepted. A test replays a verify by its other arguments, whatever token
+  the script hands it.
 - `secret` names a stored secret (Admin > Secrets) whose `allow_connections`
   lists `script_token`. When its `allow_personas` names personas, one of them
   must be the persona the version's author roles resolve to; a script whose

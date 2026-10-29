@@ -130,7 +130,7 @@ func (p *clientCredentialsTokenProvider) fetchLocked(ctx context.Context) (strin
 	}
 	tok, err := cc.TokenSource(bound).Token()
 	if err != nil {
-		return "", fmt.Errorf("gateway: oauth client_credentials: %w", err)
+		return "", tokenError(err)
 	}
 	if tok == nil || tok.AccessToken == "" {
 		return "", errors.New("gateway: oauth client_credentials: empty access token")
@@ -278,4 +278,26 @@ func connoauthSourceFor(store connoauth.Store, events *authevents.Writer,
 		NewSource(store, connoauth.Key{Kind: connoauth.KindMCP, Name: connection}, connoauthConfigFor(cfg)).
 		WithEvents(events).
 		WithActor(authevents.SystemToolCall)
+}
+
+// tokenError is a failed client_credentials exchange reduced to what can be
+// shown: the identity provider's status and error code, never the response
+// body, which can carry a token from a partial grant, nor a URL, which can
+// carry credentials (#2357). The api and graphql kinds reduce theirs the same
+// way (internal/upstreamauth).
+func tokenError(err error) error {
+	if re, ok := errors.AsType[*oauth2.RetrieveError](err); ok {
+		status := 0
+		if re.Response != nil {
+			status = re.Response.StatusCode
+		}
+		if re.ErrorCode != "" {
+			return fmt.Errorf("gateway: oauth client_credentials: token endpoint answered %d %s", status, re.ErrorCode)
+		}
+		return fmt.Errorf("gateway: oauth client_credentials: token endpoint answered %d", status)
+	}
+	if ue, ok := errors.AsType[*url.Error](err); ok {
+		return fmt.Errorf("gateway: oauth client_credentials: token endpoint %s: %w", ue.Op, ue.Err)
+	}
+	return errors.New("gateway: oauth client_credentials: token exchange failed (details redacted)")
 }

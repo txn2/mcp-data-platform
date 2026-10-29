@@ -123,7 +123,7 @@ func (r *Reader) Recent(ctx context.Context, scriptID string, limit int, who Vie
 	}
 	opened := map[string]bool{}
 	for _, row := range rows {
-		got, err := r.read(row)
+		got, err := r.read(src.Name, row)
 		if err != nil {
 			return Page{}, err
 		}
@@ -166,14 +166,14 @@ type readRow struct {
 	sensitive []string
 }
 
-// read is one row as a submission.
-func (r *Reader) read(row map[string]any) (readRow, error) {
+// read is one row of the form's source named source as a submission.
+func (r *Reader) read(source string, row map[string]any) (readRow, error) {
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(text(row["payload"])), &payload); err != nil {
 		return readRow{}, fmt.Errorf("reading submission %s: %w", text(row["event_id"]), err)
 	}
 	values, sensitive := epcollect.PayloadValues(payload)
-	values, err := epcollect.Reveal(r.Sealer, values, sensitive)
+	values, err := epcollect.RevealStored(r.Sealer, source, values, sensitive)
 	if err != nil {
 		return readRow{}, fmt.Errorf("submission %s: %w", text(row["event_id"]), err)
 	}

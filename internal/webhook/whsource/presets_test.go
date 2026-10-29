@@ -135,3 +135,10 @@ func TestValidateHandshakesAndPaths(t *testing.T) {
 	assert.Equal(t, DefaultChallengeField, Config{}.Challenge())
 	assert.Equal(t, "token", Config{ChallengeField: "token"}.Challenge())
 }
+
+func TestAuthModesHaveChecks(t *testing.T) {
+	assert.Len(t, modeChecks, len(AuthModes()), "every check is a listed mode")
+	for _, m := range AuthModes() {
+		assert.Contains(t, modeChecks, m)
+	}
+}

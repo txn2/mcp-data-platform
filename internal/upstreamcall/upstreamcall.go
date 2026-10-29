@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 )
 
@@ -135,7 +136,7 @@ func (u *Upstream) send(req *http.Request) (*http.Response, error) {
 	// auth.Apply above, identical to the invoke path.
 	resp, err := u.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("upstreamcall: connection %q: %w", u.name, err)
+		return nil, fmt.Errorf("upstreamcall: connection %q: %w", u.name, outbound.ScrubError(req.Context(), err))
 	}
 	return resp, nil
 }
