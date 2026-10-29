@@ -48,9 +48,71 @@ Object.defineProperty(window,"Reveal",{
       hooked=true;
       value.configure({view:"print",pdfSeparateFragments:false});
       value.on("pdf-ready",function(){done("");});
+      keepScreenLayout();
     }
   }
 });
+// keepScreenLayout keeps a slide printed as it is laid out on screen (#2343).
+// The print view adds its class and measures the slides a frame later; the
+// observer runs between the two and makes two repairs:
+//
+// The print view moves each slide into a page wrapper, so a rule the document
+// writes for ".slides > section" (its height, a background it draws in
+// ::before) no longer matches. Each such rule in the document's own
+// stylesheets is repeated for the slide inside its wrapper. The runtime's own
+// stylesheets are left alone: their screen rules are not meant for print.
+//
+// The print view sets every section's padding to zero, so a deck that insets
+// its slides on the section printed them flush against the page's corner. Each
+// slide's padding is read with the print class lifted and set back on the
+// slide, where it outranks the print rule. A stack holds slides rather than
+// being one, and is left as the print view lays it out.
+function keepScreenLayout(){
+  var root=document.documentElement;
+  var watch=new MutationObserver(function(){
+    if(!root.classList.contains("reveal-print"))return;
+    watch.disconnect();
+    Array.prototype.forEach.call(document.styleSheets,function(sheet){
+      if(sheet.href&&sheet.href.indexOf("/portal/vendor/reveal/")>=0)return;
+      var rules;
+      try{rules=sheet.cssRules;}catch(e){return;}
+      repeatForPages(sheet,rules);
+    });
+    keepPadding(root);
+  });
+  watch.observe(root,{attributes:true,attributeFilter:["class"]});
+}
+var topSlide=/\.slides\s*>\s*section/;
+function repeatForPages(parent,rules){
+  for(var i=rules.length-1;i>=0;i--){
+    var r=rules[i];
+    if(!r.selectorText){
+      if(r.cssRules)repeatForPages(r,r.cssRules);
+      continue;
+    }
+    if(!topSlide.test(r.selectorText))continue;
+    var sel=r.selectorText.split(",").map(function(s){
+      return s.replace(topSlide,".slides > .pdf-page > section");
+    }).join(",");
+    try{parent.insertRule(sel+"{"+r.style.cssText+"}",i+1);}catch(e){}
+  }
+}
+function keepPadding(root){
+  var sides=["padding-top","padding-right","padding-bottom","padding-left"];
+  var slides=document.querySelectorAll(".reveal .slides section:not(.stack)");
+  root.classList.remove("reveal-print");
+  var onScreen=Array.prototype.map.call(slides,function(s){
+    var cs=getComputedStyle(s);
+    return sides.map(function(p){return cs.getPropertyValue(p);});
+  });
+  root.classList.add("reveal-print");
+  Array.prototype.forEach.call(slides,function(s,i){
+    sides.forEach(function(p,j){
+      var v=onScreen[i][j];
+      if(v&&v!=="0px")s.style.setProperty(p,v,"important");
+    });
+  });
+}
 /*map-tracker:start*/
 (function(){
 var maps=[];

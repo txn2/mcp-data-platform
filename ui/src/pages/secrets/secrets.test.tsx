@@ -113,6 +113,52 @@ describe("Secrets list", () => {
     wraps(screen.getByText("reporting-analyst"));
   });
 
+  it("narrows the table by name, description, connection and persona, and clears (#2352)", () => {
+    window.history.replaceState(null, "", "/portal/admin/secrets");
+    at("/admin/secrets");
+    const search = screen.getByRole("textbox", { name: "Search secrets" });
+    const rows = () => screen.getAllByRole("row").slice(1).map((r) => r.textContent ?? "");
+
+    fireEvent.change(search, { target: { value: "PORTAL_" } });
+    expect(rows()).toHaveLength(2);
+    expect(rows().join()).toContain("portal_password");
+    expect(rows().join()).toContain("portal_mfa");
+
+    fireEvent.change(search, { target: { value: "export call" } });
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toContain("billing_api_key");
+
+    fireEvent.change(search, { target: { value: "google-drive" } });
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toContain("reporting_service_account");
+
+    // A persona name finds the secrets that list it and the ones no persona
+    // list restricts, since those are allowed for every persona.
+    fireEvent.change(search, { target: { value: "finance" } });
+    expect(rows().map((r) => r.split("{{")[0])).toEqual(["portal_password", "billing_api_key", "portal_mfa"]);
+
+    fireEvent.change(search, { target: { value: "nothing-like-this" } });
+    expect(screen.getByText("No secrets match.")).toBeTruthy();
+
+    fireEvent.change(search, { target: { value: "" } });
+    expect(rows()).toHaveLength(4);
+  });
+
+  it("keeps the search in the address, and reads it back on a reload (#2352)", () => {
+    window.history.replaceState(null, "", "/portal/admin/secrets");
+    at("/admin/secrets");
+    fireEvent.change(screen.getByRole("textbox", { name: "Search secrets" }), {
+      target: { value: "billing api" },
+    });
+    expect(window.location.search).toBe("?q=billing+api");
+
+    cleanup();
+    at("/admin/secrets");
+    expect((screen.getByRole("textbox", { name: "Search secrets" }) as HTMLInputElement).value).toBe("billing api");
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    window.history.replaceState(null, "", "/portal/admin/secrets");
+  });
+
   it("says when there is none, and when the list cannot be read", () => {
     h.list = { data: { secrets: [] }, isLoading: false, isError: false };
     at("/admin/secrets");

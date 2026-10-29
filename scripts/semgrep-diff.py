@@ -21,9 +21,12 @@ run on exactly that.
 it. That is the scope for .semgrep/, whose rules are defects wherever they sit:
 `make semgrep` already holds the whole tree to them, so a finding in a file the
 branch touched is the branch's, and reporting it here answers in seconds what
-verify's static lane answered fifteen minutes in (#2145).
+verify's static lane answered fifteen minutes in (#2145). `make semgrep` also
+runs the p/golang registry ruleset, so `make semgrep-changed` names it beside
+.semgrep/: an open-redirect finding on a new http.Redirect passed every
+preverify gate and failed verify's static lane (#2339).
 
-Usage: semgrep-diff.py [--whole-files] <config-path>
+Usage: semgrep-diff.py [--whole-files] <config>...
 """
 
 import json
@@ -103,10 +106,11 @@ def untracked_go_files() -> list[str]:
     return [p for p in out.splitlines() if p]
 
 
-def findings(config: str, files: list[str]) -> list[dict]:
+def findings(configs: list[str], files: list[str]) -> list[dict]:
     """Scan the changed files and return Semgrep's results."""
+    flags = [f for c in configs for f in ("--config", c)]
     out = subprocess.run(
-        ["semgrep", "scan", "--config", config, "--json", "--quiet", "--"] + files,
+        ["semgrep", "scan", *flags, "--json", "--quiet", "--"] + files,
         capture_output=True, text=True, check=False,
     )
     if not out.stdout:
@@ -122,10 +126,10 @@ def main() -> None:
     args = sys.argv[1:]
     whole = "--whole-files" in args
     args = [a for a in args if a != "--whole-files"]
-    if len(args) != 1:
-        print("Usage: semgrep-diff.py [--whole-files] <config-path>", file=sys.stderr)
+    if not args:
+        print("Usage: semgrep-diff.py [--whole-files] <config>...", file=sys.stderr)
         sys.exit(1)
-    config = args[0]
+    config = " ".join(args)
 
     base = merge_base()
     changed = changed_lines(base)
@@ -140,7 +144,7 @@ def main() -> None:
         return
 
     hits = []
-    for r in findings(config, files):
+    for r in findings(args, files):
         path = r["path"]
         span = range(r["start"]["line"], r["end"]["line"] + 1)
         if whole or any(line in changed.get(path, ()) for line in span):

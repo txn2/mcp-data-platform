@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -272,11 +274,66 @@ func TestSemgrepChangedRefusesTheBranchsFindings(t *testing.T) {
 }
 
 // TestSemgrepChangedRunsEveryRuleFile pins that make semgrep-changed hands the
-// script the whole .semgrep/ directory, whole-file scoped.
+// script every config make semgrep scans the whole tree with, whole-file
+// scoped. p/golang was missing from it, so an open-redirect finding on a new
+// http.Redirect passed every preverify gate and failed verify (#2339).
 func TestSemgrepChangedRunsEveryRuleFile(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "Makefile"))
 	require(t, err)
-	if indexOf(recipe(t, string(raw), "semgrep-changed"), "scripts/semgrep-diff.py --whole-files .semgrep/") < 0 {
-		t.Error("make semgrep-changed does not run the whole .semgrep/ directory over the changed files")
+	whole := strings.Join(recipe(t, string(raw), "semgrep"), "\n")
+	configs := regexp.MustCompile(`--config (\S+)`).FindAllStringSubmatch(whole, -1)
+	if len(configs) < 2 {
+		t.Fatalf("make semgrep names %d configs, want p/golang and .semgrep/: %s", len(configs), whole)
 	}
+	changed := strings.Join(recipe(t, string(raw), "semgrep-changed"), "\n")
+	if !strings.Contains(changed, "scripts/semgrep-diff.py --whole-files ") {
+		t.Fatalf("make semgrep-changed does not run the script whole-file: %s", changed)
+	}
+	for _, c := range configs {
+		if !strings.Contains(changed, " "+c[1]) {
+			t.Errorf("make semgrep scans with %s and make semgrep-changed does not", c[1])
+		}
+	}
+}
+
+// redirectRule stands in for p/golang's open-redirect rule, which the
+// registry serves and a test cannot fetch offline.
+const redirectRule = `rules:
+  - id: redirect-from-request
+    languages: [go]
+    severity: ERROR
+    message: redirect target read from the request
+    pattern: http.Redirect($W, $R, $R.URL.Query().Get(...), $C)
+`
+
+// redirectFile adds, on line 6, an http.Redirect to a target the request names.
+const redirectFile = `package wh
+
+import "net/http"
+
+func back(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, r.URL.Query().Get("next"), http.StatusFound)
+}
+`
+
+// TestSemgrepChangedRunsEveryConfigItIsGiven holds the script to reporting the
+// findings of every config named, not only the first (#2339).
+func TestSemgrepChangedRunsEveryConfigItIsGiven(t *testing.T) {
+	requireSemgrep(t)
+	// #nosec G304 -- slogRule is this package's constant rule path.
+	rule, err := os.ReadFile(filepath.Join("..", "..", slogRule))
+	require(t, err)
+	const tracked, added = "internal/webhook/wh/wh.go", "internal/webhook/wh/back.go"
+	root := newGitRepo(t, semgrepDiffScript, map[string]string{
+		slogRule:             string(rule),
+		"rules/redirect.yml": redirectRule,
+		tracked:              slogBase,
+	})
+	writeFile(t, root, tracked, slogWarnInCtx)
+	writeFile(t, root, added, redirectFile)
+	out, passed := runScript(t, root, []string{semgrepDiffScript, "--whole-files", "rules/redirect.yml", ".semgrep/"}, nil)
+	assertOutput(t, out, passed, expect{want: []string{
+		added + ":6:", "[redirect-from-request]",
+		tracked + ":11:", "[slog-without-context-in-context-function]",
+	}})
 }

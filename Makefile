@@ -478,16 +478,17 @@ semgrep-diff:
 	@echo "Running diff-scoped Semgrep..."
 	@python3 scripts/semgrep-diff.py .semgrep-diff/
 
-## semgrep-changed: Run the .semgrep/ rules over the Go files this branch changed (#2145)
+## semgrep-changed: Run p/golang and the .semgrep/ rules over the Go files this branch changed (#2145, #2339)
 ##
 ## `semgrep` holds the whole tree to .semgrep/ in verify-static, one of the
 ## parallel lanes, so a finding there used to fail verify after the Go, Docker
 ## and UI lanes had run. The tree passes them on main, so a finding in a file
 ## the branch touched is the branch's: this reports it whole-file, in seconds,
-## in preverify-fast.
+## in preverify-fast. It names every config `semgrep` names, p/golang included
+## (#2339), and test/gates/semgrep_diff_test.go holds the two lists together.
 semgrep-changed:
-	@echo "Running .semgrep/ rules on changed files..."
-	@python3 scripts/semgrep-diff.py --whole-files .semgrep/
+	@echo "Running p/golang and .semgrep/ rules on changed files..."
+	@python3 scripts/semgrep-diff.py --whole-files p/golang .semgrep/
 
 ## codeql: Run CodeQL analysis (requires codeql CLI)
 codeql:

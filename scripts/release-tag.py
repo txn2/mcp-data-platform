@@ -100,8 +100,38 @@ def check_nightly(tag: str) -> int:
         tests = []
     named = ", ".join(tests) if tests else "no test named in its log"
     print(f"FAIL release tag: {tag}: the most recent E2E Nightly on main {run.conclusion} ({run.url}, "
-          f"{run.created}): {named}. Fix it and dispatch the nightly again, {override}.", file=sys.stderr)
+          f"{run.created}): {named}. {after_red_run(tag, run)} {override}.", file=sys.stderr)
     return 1
+
+
+def after_red_run(tag: str, run: "e2e_nightly.Run") -> str:
+    """What to do about a red run, given where it ran relative to the tag (#2310).
+
+    A fix merged after the red run leaves it the latest verdict until another
+    run finishes, so the refusal says the run is older than the tag's commit and
+    whether a run on a newer commit is already queued or running.
+    """
+    if not run.head_sha or not older_than(run.head_sha, commit_of(tag)):
+        return "Fix it and dispatch the nightly again,"
+    try:
+        pending = [r for r in e2e_nightly.pending_runs() if r.head_sha != run.head_sha]
+    except (OSError, subprocess.CalledProcessError):
+        pending = []
+    older = f"It ran on {run.head_sha[:12]}, older than {tag}'s commit {commit_of(tag)[:12]}"
+    if pending:
+        r = pending[0]
+        state = "running" if r.status == "in_progress" else r.status
+        return f"{older}; a nightly on {r.head_sha[:12]} is {state} ({r.url}): tag again when it passes,"
+    return (f"{older}, and no nightly on a newer commit is queued or running: dispatch one "
+            f"(`gh workflow run {e2e_nightly.WORKFLOW} --ref main`) and tag again when it passes,")
+
+
+def older_than(sha: str, commit: str) -> bool:
+    """Whether sha is a proper ancestor of commit; False when sha is not in this clone."""
+    if sha == commit:
+        return False
+    out = subprocess.run(["git", "merge-base", "--is-ancestor", sha, commit], capture_output=True, check=False)
+    return out.returncode == 0
 
 
 def check(tag: str) -> int:

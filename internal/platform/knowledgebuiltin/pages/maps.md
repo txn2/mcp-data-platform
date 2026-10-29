@@ -22,10 +22,16 @@ flowchart LR
   S["Admin > Settings > Maps<br/>regions fetched from OpenStreetMap"] --> M
 ```
 
-Name nothing on a CDN or a public tile host. A map that loads its runtime or
-its tiles from elsewhere sends every view to a third party, goes blank on a
-closed network, and draws an empty thumbnail, and the reader cannot tell
-which happened.
+Load the map runtime, its style and its tiles from the deployment, never from a
+CDN or a public tile host. A public tile host receives every view of the map,
+and a map whose runtime or tiles live elsewhere goes blank on a closed network,
+where the reader cannot tell why.
+
+Other libraries in the same document, a chart beside the map for instance, may
+come from a public CDN where that is the right tool. Such a library renders
+wherever the reader's browser can reach the CDN, and the thumbnail draws it
+wherever the deployment's renderer can, since the renderer fetches public files
+for the page it draws; on a closed network it goes blank.
 
 ## What this deployment serves
 

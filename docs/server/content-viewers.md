@@ -379,7 +379,11 @@ the served slide runtime is printed in the runtime's print view with every
 build step of a slide on one page, so the PDF has one page per slide, each at
 its last step, in the deck's own colors. A deck that sets `view` or
 `pdfSeparateFragments` in its own `Reveal.initialize` options keeps its own
-setting. The document loads only its declared references and the served
+setting. A slide prints laid out as on screen (#2343): the print view moves
+each slide into a page wrapper and zeroes its padding, so the print step
+repeats each of the document's own `.slides > section` rules for the slide in
+its wrapper (its height, a background drawn in `::before`) and sets each
+slide's screen padding back on it. The document loads only its declared references and the served
 runtime from the platform, and public URLs through the same egress guard
 thumbnails use.
 
