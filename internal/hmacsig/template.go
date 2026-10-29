@@ -1,10 +1,9 @@
 package hmacsig
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
+	"hash"
 	"strings"
 )
 
@@ -93,53 +92,65 @@ func (t Template) UsesID() bool { return hasKind(t.segs, segID) }
 // UsesTimestamp reports whether the signed bytes include the timestamp.
 func (t Template) UsesTimestamp() bool { return hasKind(t.segs, segTimestamp) }
 
-// scratchBytes is the room WriteTo holds for the text around the body without
+// scratchBytes is the room Hash holds for the text around the body without
 // growing: every sender's id, timestamp and separators fit in it.
 const scratchBytes = 128
 
-// WriteTo writes the signed bytes to w, so the body is never copied to put
+// Hash writes the signed bytes into h, so the body is never copied to put
 // text in front of it. The text around the body is gathered into one buffer,
 // allocated once per call and reused after the body, rather than written a
-// segment at a time: a short write of a string to a hash copies it.
-func (t Template) WriteTo(w io.Writer, id, timestamp string, body []byte) {
+// segment at a time: a short write of a string to a hash copies it. It takes
+// a hash.Hash rather than an io.Writer: the id and timestamp are a request's
+// headers, and they go into a MAC, never to a response.
+func (t Template) Hash(h hash.Hash, id, timestamp string, body []byte) {
 	if t.bodyOnly {
-		_, _ = w.Write(body)
+		_, _ = h.Write(body)
 		return
 	}
 	var pending []byte
 	for _, s := range t.segs {
-		var text string
-		switch s.kind {
-		case segLiteral:
-			text = s.text
-		case segID:
-			text = id
-		case segTimestamp:
-			text = timestamp
-		case segBody:
+		if s.kind == segBody {
 			if len(pending) > 0 {
-				_, _ = w.Write(pending)
+				_, _ = h.Write(pending)
 				pending = pending[:0]
 			}
-			_, _ = w.Write(body)
+			_, _ = h.Write(body)
 			continue
 		}
 		if pending == nil {
 			pending = make([]byte, 0, scratchBytes)
 		}
-		pending = append(pending, text...)
+		pending = append(pending, segmentText(s, id, timestamp)...)
 	}
 	if len(pending) > 0 {
-		_, _ = w.Write(pending)
+		_, _ = h.Write(pending)
 	}
 }
 
 // Bytes is the signed bytes as one slice, for a verifier that needs the whole
 // message rather than a stream (Ed25519).
 func (t Template) Bytes(id, timestamp string, body []byte) []byte {
-	b := bytes.NewBuffer(make([]byte, 0, len(body)))
-	t.WriteTo(b, id, timestamp, body)
-	return b.Bytes()
+	out := make([]byte, 0, len(body))
+	for _, s := range t.segs {
+		if s.kind == segBody {
+			out = append(out, body...)
+			continue
+		}
+		out = append(out, segmentText(s, id, timestamp)...)
+	}
+	return out
+}
+
+// segmentText is what a segment other than the body contributes.
+func segmentText(s segment, id, timestamp string) string {
+	switch s.kind {
+	case segID:
+		return id
+	case segTimestamp:
+		return timestamp
+	default:
+		return s.text
+	}
 }
 
 // Pattern is a signature header's layout, compiled from text such as

@@ -199,7 +199,7 @@ func (c Compiled) TimestampInHeader() bool {
 // bytes into the HMAC segment by segment.
 func (c Compiled) MAC(secret, id, timestamp string, body []byte) []byte {
 	mac := hmac.New(c.newHash, c.key(secret))
-	c.tmpl.WriteTo(mac, id, timestamp, body)
+	c.tmpl.Hash(mac, id, timestamp, body)
 	return mac.Sum(nil)
 }
 
