@@ -579,10 +579,10 @@ test is the gate.
 - Never commit secrets or credentials
 - Run `gosec ./...` before submitting PRs
 - Two Semgrep configurations run, and they are scoped differently. `.semgrep/`
-  runs over the whole tree (`make semgrep`), because a finding there is a defect
-  wherever it sits; `make semgrep-changed` runs it over the files your branch
-  changed in `make preverify`, so a finding fails in seconds rather than in
-  verify's static lane (#2145). `.semgrep-diff/` runs against the lines your branch changed
+  runs over the whole tree with the `p/golang` registry ruleset (`make semgrep`),
+  because a finding there is a defect wherever it sits; `make semgrep-changed`
+  runs both over the files your branch changed in `make preverify`, so a finding
+  fails in seconds rather than in verify's static lane (#2145, #2339). `.semgrep-diff/` runs against the lines your branch changed
   (`make semgrep-diff`), because its rules refuse a syntactic shape that a
   diff-scoped CI check rejects with reasoning Semgrep does not have -- the
   allocation-size rule matches 55 places in this tree and CodeQL flags none of
@@ -640,7 +640,11 @@ To release over it anyway, tag with an annotation carrying a line
 `release-without-nightly: <reason>`. A candidate is not held to the rule, since
 it may carry the fix. A red night opens one issue titled "E2E Nightly is
 failing" naming the failing tests, comments on it on each later red night, and
-a green night closes it.
+a green night closes it. A merge to main whose pull request closes that issue
+dispatches the nightly on main at once (`e2e-nightly-on-fix.yml`), and when a
+tag is refused over a red run that ran on an older commit than the tag's, the
+refusal says so and names the run on a newer commit that is queued or running,
+or that none is (#2310).
 
 A pull request that changes how the dev stack starts or how the suite is
 launched (`dev/`, the `Makefile`, `scripts/acceptance*`,

@@ -1,6 +1,7 @@
 package gates
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,6 +60,7 @@ case "$1 $2" in
   "run list") cat "$FAKE/runs.json" ;;
   "run view") cat "$FAKE/log.txt" ;;
   "issue list") cat "$FAKE/issues.json" ;;
+  "api graphql") cat "$FAKE/graphql.json" ;;
   *) printf '%s\n' "$*" >> "$FAKE/calls.txt" ;;
 esac
 `)
@@ -257,5 +259,116 @@ func TestNightlyReport_OneTrackingIssue(t *testing.T) {
 	}
 	if calls = report(fakeGH(t, root, "[]", "", "[]"), "success"); calls != "" {
 		t.Errorf("a green night with no issue open wrote to GitHub:\n%s", calls)
+	}
+}
+
+// redOnOlderCommit is a red nightly on sha, and pending is a run queued or
+// running on another commit, as gh run list reports them.
+func redOnOlderCommit(sha, pending string) string {
+	runs := `{"databaseId": 13, "status": "completed", "conclusion": "failure", "url": "https://example.com/runs/13", "createdAt": "2026-10-07T07:00:00Z", "headSha": "` + sha + `"}`
+	if pending != "" {
+		runs = `{"databaseId": 14, "status": "in_progress", "conclusion": "", "url": "https://example.com/runs/14", "createdAt": "2026-10-08T09:00:00Z", "headSha": "` + pending + `"}, ` + runs
+	}
+	return "[" + runs + "]"
+}
+
+// TestReleaseTag_ARedNightlyOlderThanTheTag is #2310's second criterion: a
+// final tag refused over a red nightly that ran on an older commit says so, and
+// names the run on a newer commit that is queued or running, or that none is.
+func TestReleaseTag_ARedNightlyOlderThanTheTag(t *testing.T) {
+	root, commits := releaseRepo(t)
+	runIn(t, root, "git", "tag", "v1.140.0", commits[3])
+	tagCommit, redCommit := commits[3][:12], commits[2][:12]
+
+	cases := []struct {
+		name   string
+		runs   string
+		expect expect
+	}{
+		{
+			name: "a run on a newer commit is running",
+			runs: redOnOlderCommit(commits[2], commits[3]),
+			expect: expect{want: []string{
+				"https://example.com/runs/13", "It ran on " + redCommit + ", older than v1.140.0's commit " + tagCommit,
+				"a nightly on " + tagCommit + " is running (https://example.com/runs/14)", "release-without-nightly",
+			}},
+		},
+		{
+			name: "no run on a newer commit is queued or running",
+			runs: redOnOlderCommit(commits[2], ""),
+			expect: expect{want: []string{
+				"older than v1.140.0's commit " + tagCommit, "no nightly on a newer commit is queued or running",
+				"gh workflow run e2e-nightly.yml --ref main",
+			}},
+		},
+		{
+			name:   "a red run on the tag's own commit is not older",
+			runs:   redOnOlderCommit(commits[3], ""),
+			expect: expect{want: []string{"Fix it and dispatch the nightly again"}, mustNot: []string{"older than"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := fakeGH(t, root, tc.runs, failedLog, "[]")
+			out, ok := runScript(t, root, []string{releaseTagScript, "check", "v1.140.0"}, env)
+			assertOutput(t, out, ok, tc.expect)
+		})
+	}
+}
+
+// closingPRs is the GraphQL answer for the pull requests a commit was merged
+// from: one pull request, merged or not, closing issues with these titles.
+func closingPRs(merged bool, titles ...string) string {
+	issues := make([]string, 0, len(titles))
+	for i, title := range titles {
+		issues = append(issues, fmt.Sprintf(`{"number": %d, "title": %q}`, 7+i, title))
+	}
+	return fmt.Sprintf(`{"data": {"repository": {"object": {"associatedPullRequests": {"nodes": [`+
+		`{"number": 2309, "merged": %t, "closingIssuesReferences": {"nodes": [%s]}}]}}}}}`, merged, strings.Join(issues, ", "))
+}
+
+// TestNightlyRerunOnFix is #2310's first criterion: a push to main whose pull
+// request closes the tracking issue dispatches the nightly on main, and any
+// other push dispatches nothing.
+func TestNightlyRerunOnFix(t *testing.T) {
+	root, _ := releaseRepo(t)
+	cases := []struct {
+		name     string
+		graphql  string
+		dispatch bool
+	}{
+		{"a merge closing the tracking issue dispatches", closingPRs(true, "fix: something else", "E2E Nightly is failing"), true},
+		{"a merge closing other issues does not", closingPRs(true, "fix: something else", "E2E Nightly is failing again?"), false},
+		{"an unmerged pull request does not", closingPRs(false, "E2E Nightly is failing"), false},
+		{"a commit pushed with no pull request does not", `{"data": {"repository": {"object": {"associatedPullRequests": {"nodes": []}}}}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := fakeGH(t, root, "[]", "", "[]")
+			writeFile(t, root, "fake/graphql.json", tc.graphql)
+			env = append(env, "GITHUB_REPOSITORY=txn2/example")
+			out, ok := runScript(t, root, []string{nightlyScript, "rerun-on-fix", "9a20e05a953dc21ce32df7e94d04b97d679b09cf"}, env)
+			if !ok {
+				t.Fatalf("rerun-on-fix failed: %s", out)
+			}
+			calls, _ := os.ReadFile(filepath.Join(root, "fake", "calls.txt")) // #nosec G304 -- under the test's temp root
+			require(t, os.RemoveAll(filepath.Join(root, "fake", "calls.txt")))
+			if got := strings.Contains(string(calls), "workflow run e2e-nightly.yml --ref main"); got != tc.dispatch {
+				t.Errorf("dispatched = %t, want %t; gh calls:\n%s\noutput: %s", got, tc.dispatch, calls, out)
+			}
+		})
+	}
+}
+
+// TestNightlyRerunOnFixRunsOnEveryPushToMain pins the workflow that asks: every
+// push to main, the pushed commit, and the token scope a dispatch needs.
+func TestNightlyRerunOnFixRunsOnEveryPushToMain(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "e2e-nightly-on-fix.yml"))
+	require(t, err)
+	workflow := string(raw)
+	for _, want := range []string{"push:\n    branches: [main]", "actions: write", `scripts/e2e_nightly.py rerun-on-fix "$GITHUB_SHA"`} {
+		if !strings.Contains(workflow, want) {
+			t.Errorf("e2e-nightly-on-fix.yml does not contain %q", want)
+		}
 	}
 }

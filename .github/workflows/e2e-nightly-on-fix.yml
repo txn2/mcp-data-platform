@@ -1,0 +1,36 @@
+# Dispatches the E2E Nightly when a merge to main closes its tracking issue
+# (#2310).
+#
+# A pull request that fixes a red nightly merges, and the release tag rule still
+# refuses a final tag: the latest nightly on main is the red run from before the
+# merge, and nothing runs it again until the next 07:00 UTC schedule. v1.151.1
+# was refused that way on the merge of the fix for #2299. The check reads the
+# pull request the pushed commit was merged from and dispatches the nightly
+# only when that pull request closes the "E2E Nightly is failing" issue
+# (scripts/e2e_nightly.py rerun-on-fix).
+name: E2E Nightly on fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch the nightly when a merge closes its tracking issue
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/e2e_nightly.py rerun-on-fix "$GITHUB_SHA"

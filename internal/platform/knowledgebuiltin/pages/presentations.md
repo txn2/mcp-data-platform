@@ -40,12 +40,17 @@ document loads it from this deployment, by root-relative path:
 | `/portal/vendor/reveal/plugin/markdown.js` | Markdown slides; defines `RevealMarkdown` |
 | `/portal/vendor/reveal/plugin/zoom.js` | alt-click to magnify a region; defines `RevealZoom` |
 
-Name these paths exactly, and name nothing on a CDN. The paths are answered by
-the same origin the asset page and the share link are served from, which is
-what makes a deck render on a network that admits only this deployment, and
-what keeps it inside the share viewer's script policy. A CDN script would load
-on an open network and go blank on a closed one, and the reader who gets the
-blank deck cannot tell which it was.
+Load the runtime and theme from these paths exactly, never a copy of reveal.js
+from a CDN. They are answered by the same origin the asset page and the share
+link are served from, so the deck renders on any network that reaches this
+deployment.
+
+A slide may use any other library where it is the right tool, served by the
+platform or loaded from a public CDN. A CDN library renders wherever the
+reader's browser can reach that CDN, and the tile and the exported PDF draw it
+wherever the deployment's renderer can, since the renderer fetches public files
+for the page it draws. On a closed network it goes blank, and the reader cannot
+tell why, so a deck meant for one uses only what the deployment serves.
 
 ## The skeleton
 

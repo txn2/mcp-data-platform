@@ -397,8 +397,8 @@ func TestCoverageExclusionsAgree(t *testing.T) {
 // dist: no such file or directory" before a test ran. The go tool skips a
 // directory whose name starts with "_" or "." when it expands ./..., so the
 // output directory is named _dist and every file that reads from it names the
-// same directory: the release workflow's provenance globs and MCPB steps, the
-// MCPB build script, the Makefile's clean target and .gitignore.
+// same directory: the release workflow's provenance globs, the Makefile's
+// clean target and .gitignore.
 func TestReleaseOutputDirectoryIsSkippedByGoTool(t *testing.T) {
 	goreleaser := readRepoFile(t, ".goreleaser.yml")
 	dist := firstSubmatch(t, goreleaser, `(?m)^dist:\s*(\S+)\s*$`, ".goreleaser.yml dist")
@@ -421,7 +421,6 @@ func TestReleaseOutputDirectoryIsSkippedByGoTool(t *testing.T) {
 		text string
 	}{
 		{".github/workflows/release.yml", readRepoFile(t, ".github", "workflows", "release.yml")},
-		{"mcpb/build.sh", readRepoFile(t, "mcpb", "build.sh")},
 	}
 	stale := regexp.MustCompile(`(^|[^\w./-])dist/`)
 	for _, r := range readers {

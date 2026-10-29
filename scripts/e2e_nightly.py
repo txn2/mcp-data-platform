@@ -10,8 +10,16 @@ release, and a red night notified no one. This module is both halves.
                   when it is already open, naming the failing tests and the run;
                   a passing night comments on that issue and closes it.
 
-scripts/release-tag.py imports latest_run and run_failures to refuse a final
-tag while the most recent nightly on main failed.
+  rerun-on-fix <sha>   run on every push to main (.github/workflows/
+                  e2e-nightly-on-fix.yml): when the pull request merged as <sha>
+                  closes the tracking issue, dispatch the nightly on main, so
+                  the fix is measured that day rather than at the next 07:00
+                  UTC run, and a final tag is not refused over the red run from
+                  before the fix (#2310).
+
+scripts/release-tag.py imports latest_run, pending_runs and run_failures to
+refuse a final tag while the most recent nightly on main failed, and to say
+whether a run on a newer commit is already on its way.
 
 Every GitHub read and write goes through the gh CLI, which reads the repository
 from the checkout's origin and the token from GH_TOKEN.
@@ -33,6 +41,9 @@ TRACKING_TITLE = "E2E Nightly is failing"
 # A run that was cancelled or skipped says nothing about the suite; the verdict
 # is the most recent run that finished one way or the other.
 DECISIVE = {"success", "failure", "timed_out"}
+# A run in any of these states has not finished and will report.
+PENDING = {"queued", "in_progress", "waiting", "pending", "requested"}
+RUN_FIELDS = "databaseId,status,conclusion,url,createdAt,headSha"
 FAIL_RE = re.compile(r"--- FAIL: (\S+)")
 
 
@@ -54,21 +65,34 @@ class Run:
     conclusion: str
     url: str
     created: str
+    head_sha: str = ""
+    status: str = "completed"
 
     @property
     def failed(self) -> bool:
         return self.conclusion != "success"
 
 
+def runs() -> list[Run]:
+    """The nightly's most recent runs on main, newest first, in any state."""
+    out = gh("run", "list", "--workflow", WORKFLOW, "--branch", "main", "--limit", "30", "--json", RUN_FIELDS)
+    return [Run(id=int(r["databaseId"]), conclusion=r.get("conclusion") or "", url=r.get("url", ""),
+                created=r.get("createdAt", ""), head_sha=r.get("headSha", ""),
+                status=r.get("status") or "completed")
+            for r in json.loads(out or "[]")]
+
+
 def latest_run() -> Run | None:
     """The most recent nightly on main that passed or failed, or None."""
-    out = gh("run", "list", "--workflow", WORKFLOW, "--branch", "main", "--status", "completed",
-             "--limit", "20", "--json", "databaseId,conclusion,url,createdAt")
-    for r in json.loads(out or "[]"):
-        if r.get("conclusion") in DECISIVE:
-            return Run(id=int(r["databaseId"]), conclusion=r["conclusion"], url=r.get("url", ""),
-                       created=r.get("createdAt", ""))
+    for r in runs():
+        if r.status == "completed" and r.conclusion in DECISIVE:
+            return r
     return None
+
+
+def pending_runs() -> list[Run]:
+    """The nightly's runs on main that are queued or running, newest first."""
+    return [r for r in runs() if r.status in PENDING]
 
 
 def run_failures(run: Run) -> list[str]:
@@ -126,13 +150,57 @@ def report(conclusion: str, log: Path) -> int:
     return 0
 
 
+# The pull requests a commit was merged from, and the issues each one closes.
+CLOSES_QUERY = """query($owner: String!, $name: String!, $sha: String!) {
+  repository(owner: $owner, name: $name) {
+    object(expression: $sha) {
+      ... on Commit {
+        associatedPullRequests(first: 5) {
+          nodes { number merged closingIssuesReferences(first: 50) { nodes { number title } } }
+        }
+      }
+    }
+  }
+}"""
+
+
+def closed_tracking_issue(sha: str) -> tuple[int, int] | None:
+    """(pull request, issue) when the pull request merged as sha closes the tracking issue."""
+    owner, _, name = os.environ.get("GITHUB_REPOSITORY", "").partition("/")
+    out = gh("api", "graphql", "-f", f"query={CLOSES_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+             "-f", f"sha={sha}")
+    commit = (json.loads(out or "{}").get("data") or {}).get("repository", {}).get("object") or {}
+    for pr in commit.get("associatedPullRequests", {}).get("nodes", []):
+        if not pr.get("merged"):
+            continue
+        for issue in pr.get("closingIssuesReferences", {}).get("nodes", []):
+            if issue.get("title") == TRACKING_TITLE:
+                return int(pr["number"]), int(issue["number"])
+    return None
+
+
+def rerun_on_fix(sha: str) -> int:
+    found = closed_tracking_issue(sha)
+    if found is None:
+        print(f"e2e nightly: {sha[:12]} closes no tracking issue; nothing to dispatch.")
+        return 0
+    pr, issue = found
+    gh("workflow", "run", WORKFLOW, "--ref", "main")
+    print(f"e2e nightly: #{pr} closed #{issue}; dispatched the nightly on main.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("report")
     p.add_argument("conclusion", help="the test step's outcome: success or failure")
     p.add_argument("log", type=Path, help="the go test output the step wrote")
+    f = sub.add_parser("rerun-on-fix")
+    f.add_argument("sha", help="the commit pushed to main")
     args = parser.parse_args()
+    if args.command == "rerun-on-fix":
+        return rerun_on_fix(args.sha)
     return report(args.conclusion, args.log)
 
 
