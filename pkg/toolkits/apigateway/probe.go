@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/connprobe"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 )
 
@@ -51,6 +52,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
+		err = outbound.ScrubError(req.Context(), err)
 		return connprobe.Failure(upstreamauth.UnreachedSubject(name, c.cfg.BaseURL, err), err)
 	}
 	defer func() { _ = resp.Body.Close() }()

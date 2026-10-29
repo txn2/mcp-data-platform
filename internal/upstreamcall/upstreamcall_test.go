@@ -179,3 +179,36 @@ func TestAccessors(t *testing.T) {
 		t.Errorf("BaseURL() = %q", u.BaseURL())
 	}
 }
+
+// queryAuth puts the credential in the query string, as an api_key connection
+// with api_key_placement query does.
+type queryAuth struct{ key string }
+
+func (a queryAuth) Apply(req *http.Request) error {
+	q := req.URL.Query()
+	q.Set("api_key", a.key)
+	req.URL.RawQuery = q.Encode()
+	return nil
+}
+
+// A delivery to an upstream that cannot be reached fails with an error that
+// names the connection and the address, never the key the query carried; a
+// channel's last_error is that text (#2358).
+func TestDo_UnreachableErrorNamesNoQueryKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	base := srv.URL
+	client := srv.Client()
+	srv.Close()
+	u := New(Config{Name: "chat", BaseURL: base, Client: client, Auth: queryAuth{key: "k3y-2358-notify"}})
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, base+"/send", http.NoBody) //nolint:errcheck // fixed inputs
+	resp, err := u.Do(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatal("a closed upstream answered")
+	}
+	if strings.Contains(err.Error(), "k3y-2358-notify") {
+		t.Errorf("err = %v; the key reached the error text", err)
+	}
+}

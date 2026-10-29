@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,4 +150,50 @@ func TestVerifyCompilesEachCall(t *testing.T) {
 	unknown, err := Compile(whsource.Source{Auth: whsource.Auth{Mode: "telepathy"}})
 	require.NoError(t, err, "a form's source has no mode and is still served")
 	assert.ErrorIs(t, unknown.Verify(Request{}, now), ErrUnknownMode)
+}
+
+func TestRedactRemovesTheVerifiedToken(t *testing.T) {
+	doc := func(s string) map[string]any {
+		var m map[string]any
+		require.NoError(t, json.Unmarshal([]byte(s), &m))
+		return m
+	}
+	t.Run("mattermost", func(t *testing.T) {
+		v := compiled(t, whsource.Auth{Preset: whsource.PresetMattermost, Secret: "tok"})
+		d := doc(`{"token":"tok","text":"hi"}`)
+		v.Redact(d, now)
+		assert.Equal(t, map[string]any{"text": "hi"}, d)
+	})
+	t.Run("graph, every item", func(t *testing.T) {
+		v := compiled(t, whsource.Auth{Preset: whsource.PresetMicrosoftGraph, Secret: "state"})
+		d := doc(`{"value":[{"clientState":"state","id":"1"},{"clientState":"state","id":"2"}]}`)
+		v.Redact(d, now)
+		assert.Equal(t, map[string]any{"value": []any{map[string]any{"id": "1"}, map[string]any{"id": "2"}}}, d)
+	})
+	t.Run("the previous secret, inside its overlap", func(t *testing.T) {
+		a := whsource.Auth{Preset: whsource.PresetMattermost, Secret: "old"}.Rotate("new", time.Hour, now)
+		v := compiled(t, a)
+		d := doc(`{"token":"old"}`)
+		v.Redact(d, now)
+		assert.Empty(t, d)
+	})
+	t.Run("a value that is not a secret is kept", func(t *testing.T) {
+		v := compiled(t, whsource.Auth{Preset: whsource.PresetMattermost, Secret: "tok"})
+		d := doc(`{"token":"someone-else"}`)
+		v.Redact(d, now)
+		assert.Equal(t, map[string]any{"token": "someone-else"}, d)
+	})
+	t.Run("a header token a sender repeats in its body", func(t *testing.T) {
+		v := compiled(t, whsource.Auth{Mode: whsource.AuthHeaderToken, Header: "X-Token", Secret: "tok"})
+		d := doc(`{"token":"tok","nested":{"list":["tok","other"]},"id":"1"}`)
+		v.Redact(d, now)
+		assert.Equal(t, map[string]any{"nested": map[string]any{"list": []any{nil, "other"}}, "id": "1"}, d)
+	})
+	t.Run("an ed25519 public key is no secret", func(t *testing.T) {
+		key := strings.Repeat("ab", 32)
+		v := compiled(t, whsource.Auth{Preset: whsource.PresetDiscord, Secret: key})
+		d := doc(`{"key":"` + key + `"}`)
+		v.Redact(d, now)
+		assert.Equal(t, map[string]any{"key": key}, d)
+	})
 }

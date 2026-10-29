@@ -284,9 +284,16 @@ func assemble(pt parts) (*Webhooks, error) {
 		Windows: windows, Objects: pt.objects, Resources: pt.resources, Bucket: pt.bucket,
 		Changed: w.receiver.Reload, NewID: newRegistrationID, Logger: slog.Default(),
 		PersonaExists: pt.personaExists, MemoryLimit: procload.MemoryLimit,
-		Mailbox: whimap.NewMailbox(whimap.NewMarks(db)),
+		Mailbox: whimap.NewMailbox(whimap.NewMarks(db)), NoEncryption: !encrypts(pt.encryptor),
 	})
 	return w, nil
+}
+
+// encrypts reports whether e encrypts what it is given rather than passing it
+// through, which the rest encryptor does with no ENCRYPTION_KEY.
+func encrypts(e whsource.Encryptor) bool {
+	en, ok := e.(interface{ Enabled() bool })
+	return ok && en.Enabled()
 }
 
 // orDefault is v, or def when v is not positive.

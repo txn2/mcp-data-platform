@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
@@ -113,7 +114,7 @@ func (c *Collector) Store(ctx context.Context, sub Submission) error {
 		}
 		saved = ids
 	}
-	event, body, err := c.Event(sub)
+	event, body, err := c.Event(sub, src.Name)
 	if err == nil {
 		err = c.Writer.Deliver(ctx, src, event, body)
 		if err != nil {
@@ -127,12 +128,13 @@ func (c *Collector) Store(ctx context.Context, sub Submission) error {
 	return nil
 }
 
-// Event is the event sub is stored as, and the payload's JSON: its values
-// with each sensitive one sealed, the fields in the order the spec declared
-// them, the sensitive fields' names, and the submitter.
-func (c *Collector) Event(sub Submission) (whevent.Event, []byte, error) {
+// Event is the event sub is stored as in the form's source named source, and
+// the payload's JSON: its values with each sensitive one sealed bound to that
+// source and its field, the fields in the order the spec declared them, the
+// sensitive fields' names, and the submitter.
+func (c *Collector) Event(sub Submission, source string) (whevent.Event, []byte, error) {
 	sensitive := sub.Spec.Sensitive()
-	values, err := c.seal(sub.Values, sensitive)
+	values, err := c.seal(source, sub.Values, sensitive)
 	if err != nil {
 		return whevent.Event{}, nil, err
 	}
@@ -169,8 +171,9 @@ func (c *Collector) Event(sub Submission) (whevent.Event, []byte, error) {
 }
 
 // seal is values with each sensitive one replaced by the ciphertext of its
-// JSON, so a number, a box or a list of choices reads back as what it was.
-func (c *Collector) seal(values map[string]any, sensitive []string) (map[string]any, error) {
+// JSON, so a number, a box or a list of choices reads back as what it was,
+// bound to the form's source and the field.
+func (c *Collector) seal(source string, values map[string]any, sensitive []string) (map[string]any, error) {
 	if len(sensitive) == 0 {
 		return values, nil
 	}
@@ -183,7 +186,7 @@ func (c *Collector) seal(values map[string]any, sensitive []string) (map[string]
 		if err != nil {
 			return nil, fmt.Errorf("encoding sensitive field %q: %w", name, err)
 		}
-		sealed, err := c.Sealer.Seal(string(plain))
+		sealed, err := c.Sealer.SealBound(Binding(source, name), string(plain))
 		if err != nil {
 			return nil, fmt.Errorf("encrypting sensitive field %q: %w", name, err)
 		}
@@ -192,10 +195,39 @@ func (c *Collector) seal(values map[string]any, sensitive []string) (map[string]
 	return out, nil
 }
 
-// Reveal is values with each sensitive field opened: what Seal wrote, read
-// back as the value it was. A field that is not a sealed string is refused,
-// since a sensitive field was never stored any other way.
-func Reveal(s Sealer, values map[string]any, sensitive []string) (map[string]any, error) {
+// Binding is what a sensitive field of the form whose source is named source
+// is sealed bound to (#2355).
+func Binding(source, field string) string {
+	return "form:" + source + "\x00field:" + field
+}
+
+// Reveal is values with each sensitive field opened: what the form whose
+// source is named source sealed, read back as the value it was. Only a value
+// sealed bound to that form and field opens, so a payload a script assembles
+// opens nothing sealed for anything else (#2355). A field that is not a
+// sealed string is refused, since a sensitive field was never stored any
+// other way.
+func Reveal(s Sealer, source string, values map[string]any, sensitive []string) (map[string]any, error) {
+	return openFields(s, source, values, sensitive, false)
+}
+
+// SealedUnbound stands in the owner's Submissions view for a sensitive value
+// sealed before fields were bound to their form (#2355). It is never
+// decrypted: a value sealed without its form is indistinguishable from any
+// other ciphertext the platform holds, which a row written into the form's
+// table could carry.
+const SealedUnbound = "[sealed before this release; not readable]"
+
+// RevealStored is Reveal for rows read from the form's own source: a value
+// sealed before fields were bound reads as SealedUnbound rather than failing
+// the row.
+func RevealStored(s Sealer, source string, values map[string]any, sensitive []string) (map[string]any, error) {
+	return openFields(s, source, values, sensitive, true)
+}
+
+// openFields opens each of sensitive in values; with unbound, a value sealed
+// before fields were bound to their form reads as SealedUnbound.
+func openFields(s Sealer, source string, values map[string]any, sensitive []string, unbound bool) (map[string]any, error) {
 	if len(sensitive) == 0 {
 		return values, nil
 	}
@@ -208,22 +240,38 @@ func Reveal(s Sealer, values map[string]any, sensitive []string) (map[string]any
 		if !ok {
 			continue
 		}
-		sealed, isString := v.(string)
-		if !isString {
-			return nil, fmt.Errorf("sensitive field %q is not encrypted", name)
-		}
-		plain, err := s.Open(sealed)
+		decoded, err := openField(s, source, name, v, unbound)
 		if err != nil {
-			return nil, fmt.Errorf("decrypting sensitive field %q: %w", name, err)
-		}
-		var decoded any
-		if err := json.Unmarshal([]byte(plain), &decoded); err != nil {
-			return nil, fmt.Errorf("reading sensitive field %q: %w", name, err)
+			return nil, err
 		}
 		out[name] = decoded
 	}
 	return out, nil
 }
+
+// openField opens one sensitive field's stored value v.
+func openField(s Sealer, source, name string, v any, unbound bool) (any, error) {
+	sealed, isString := v.(string)
+	if !isString {
+		return nil, fmt.Errorf("sensitive field %q is not encrypted", name)
+	}
+	if unbound && strings.HasPrefix(sealed, unboundPrefix) {
+		return SealedUnbound, nil
+	}
+	plain, err := s.OpenBound(Binding(source, name), sealed)
+	if err != nil {
+		return nil, fmt.Errorf("sensitive field %q was not sealed by this form, or not with a key this deployment holds", name)
+	}
+	var decoded any
+	if json.Unmarshal([]byte(plain), &decoded) != nil {
+		// The decoder's error quotes what it read; this one never does.
+		return nil, fmt.Errorf("sensitive field %q does not hold a submitted value", name)
+	}
+	return decoded, nil
+}
+
+// unboundPrefix begins a value sealed before fields were bound to their form.
+const unboundPrefix = "enc:"
 
 func (c *Collector) now() time.Time {
 	if c.Now != nil {

@@ -550,7 +550,12 @@ duration histogram. `kind` is the closed set above (`api`, `graphql`, `mcp`,
 `util`, `oauth`, `oidc`, `embedding`, `notification`, `spec_fetch`,
 `promql`, `renderer`, `branding`, `maps`, `storage`, `import`, `bot_check`); `connection` is the operator's
 connection name, empty for a kind that has none; a transport failure (DNS,
-dial, TLS, timeout) is `status_class="other"`. A Semgrep rule
+dial, TLS, timeout) is `status_class="other"`. The span's `url.full`, and
+the URL a transport failure's error names, carry no credential (#2358): no
+userinfo, every query value replaced by `REDACTED` (the parameter names are
+kept), and a stored secret filled into the path replaced by its name, so an
+`api_key` sent as a query parameter reaches neither the trace backend, nor a
+connection test's answer, nor a notification channel's `last_error`. A Semgrep rule
 (`.semgrep/go-outbound-client.yml`) refuses an `http.Client` built anywhere
 else, so a new client cannot bypass the chain.
 

@@ -321,7 +321,7 @@ var exemptionClusterCountRe = regexp.MustCompile(`^(\d+) clusters:`)
 func cohesionAllowlist() map[string]cohesionExemption {
 	return map[string]cohesionExemption{
 		"pkg/audit": {
-			why:  "3 clusters: the event/writer core (59 decls), the timeseries query surface (11), and the breakdown query surface (8). The two analytics clusters share nothing with the write path.",
+			why:  "4 clusters: the event/writer core (59 decls), the timeseries query surface (11), the breakdown query surface (8), and the parameter sanitizer that strips secrets from a call's arguments at any depth before the event is stored (#2356). The two analytics clusters share nothing with the write path, and the sanitizer reads arguments only.",
 			exit: "extract the timeseries and breakdown query types into pkg/audit/analytics, leaving the event model and writers behind.",
 		},
 		"pkg/memory": {

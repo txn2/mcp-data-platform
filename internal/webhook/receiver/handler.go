@@ -97,7 +97,8 @@ func (r *Receiver) post(w http.ResponseWriter, req *http.Request, src served, to
 		r.answerSetup(w, src.Name, a)
 		return
 	}
-	if err := src.verifier.Verify(whauth.Request{Header: req.Header, PathToken: token, Body: body}, r.now()); err != nil {
+	verifiedAt := r.now()
+	if err := src.verifier.Verify(whauth.Request{Header: req.Header, PathToken: token, Body: body}, verifiedAt); err != nil {
 		r.refuse(w, d, refusal{outcome: OutcomeUnauthorized, reason: err.Error(), status: http.StatusUnauthorized}, nil)
 		return
 	}
@@ -110,7 +111,7 @@ func (r *Receiver) post(w http.ResponseWriter, req *http.Request, src served, to
 		r.refuse(w, d, refusal{outcome: OutcomeRateLimited, reason: "the source's rate limit was reached", status: http.StatusTooManyRequests, retryAfter: wait}, nil)
 		return
 	}
-	events, err := r.build(req, src, body)
+	events, err := r.build(req, src, body, verifiedAt)
 	if err != nil {
 		r.refuse(w, d, refusal{outcome: OutcomeInvalidBody, reason: err.Error(), status: http.StatusBadRequest}, nil)
 		return
@@ -185,13 +186,16 @@ func (r *Receiver) store(ctx context.Context, src whsource.Source, d delivery) (
 }
 
 // build turns the body into events. A form-encoded body carries its JSON in
-// the payload field.
-func (r *Receiver) build(req *http.Request, src served, body []byte) ([]whevent.Event, error) {
+// the payload field. The token the request was verified with at verifiedAt is
+// taken out first, so no event stores it (#2353).
+func (r *Receiver) build(req *http.Request, src served, body []byte, verifiedAt time.Time) ([]whevent.Event, error) {
 	doc, err := whevent.JSONBody(req.Header.Get("Content-Type"), body)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // whevent's refusal is the sentence the sender is answered with
 	}
-	return whevent.Build(doc, src.paths, r.now(), r.cfg.Replica) //nolint:wrapcheck // as above
+	paths := src.paths
+	paths.Redact = func(doc any) { src.verifier.Redact(doc, verifiedAt) }
+	return whevent.Build(doc, paths, r.now(), r.cfg.Replica) //nolint:wrapcheck // as above
 }
 
 // answerSetup answers a sender's setup check (#2223) and counts it as one,

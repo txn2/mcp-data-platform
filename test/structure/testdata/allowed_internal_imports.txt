@@ -169,6 +169,7 @@ internal/endpoint/eprun -> internal/platform/scriptsession
 internal/endpoint/eprun -> internal/platform/starlarkconv
 internal/endpoint/eprun -> internal/producedby
 internal/endpoint/eprun -> internal/scripttoken
+internal/endpoint/eprun -> internal/secretref
 internal/endpoint/eprun -> pkg/audit
 internal/endpoint/eprun -> pkg/middleware
 internal/endpoint/eprun -> pkg/observability
@@ -728,6 +729,7 @@ internal/opsobs -> pkg/observability
 internal/outbound -> internal/connstate
 internal/outbound -> internal/egressguard
 internal/outbound -> internal/logsan
+internal/outbound -> internal/secretref
 internal/outbound -> internal/useragent
 internal/outbound -> pkg/observability
 internal/pagewalk -> internal/exportasync
@@ -1641,6 +1643,7 @@ internal/upstreamauth/googlekey -> internal/cfgmap
 internal/upstreamauth/sessionlogin -> internal/cfgmap
 internal/upstreamauth/sessionlogin -> internal/secretref
 internal/upstreamauth/sessionlogin -> internal/useragent
+internal/upstreamcall -> internal/outbound
 internal/upstreamcall -> internal/upstreamauth
 internal/useragent -> internal/buildinfo
 internal/webhook/compactor -> internal/bgloop

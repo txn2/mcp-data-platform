@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"go.starlark.net/starlark"
@@ -125,20 +126,55 @@ func mintArgs(claims *starlark.Dict, ttl int, secret string, endpoints *starlark
 	return map[string]any{"claims": c, "ttl": ttl, "secret": secret, "endpoints": names, "single_use": singleUse}, nil
 }
 
+// RecordedToken stands for a token in a recording (#2361): a mint's answer
+// and a verify's argument are kept with it in place of the token, so a
+// recording holds no token that would authenticate, and a test replays a
+// verify by its other arguments whatever token the script holds.
+const RecordedToken = "[recorded token]"
+
+// keyToken is where a mint's answer and a verify's arguments carry the token.
+const keyToken = "token"
+
 // call sends one mint or verify where the run's calls go.
 func (h Host) call(tool string, args map[string]any) (map[string]any, error) {
 	if h.Testing {
 		if h.Replay == nil {
 			return nil, errors.New("this test has no recording to answer it from")
 		}
-		return h.Replay.CallTool(h.Ctx, tool, args) //nolint:wrapcheck // the recording's answer, named by the binding
+		return h.Replay.CallTool(h.Ctx, tool, recordedArgs(tool, args)) //nolint:wrapcheck // the recording's answer, named by the binding
 	}
 	if h.Live == nil {
 		return nil, errors.New("this deployment issues no tokens here")
 	}
 	out, err := h.Live.CallTool(h.Ctx, tool, args)
 	if h.Record != nil {
-		h.Record(tool, args, out, err)
+		h.Record(tool, recordedArgs(tool, args), recordedAnswer(tool, out), err)
 	}
 	return out, err //nolint:wrapcheck // the issuer's answer, named by the binding
+}
+
+// recordedArgs is a call's arguments as a recording keeps them: a verify's
+// token replaced by RecordedToken.
+func recordedArgs(tool string, args map[string]any) map[string]any {
+	if tool != CapabilityVerify {
+		return args
+	}
+	kept := maps.Clone(args)
+	if _, ok := kept[keyToken]; ok {
+		kept[keyToken] = RecordedToken
+	}
+	return kept
+}
+
+// recordedAnswer is a call's answer as a recording keeps it: a mint's token
+// replaced by RecordedToken.
+func recordedAnswer(tool string, out map[string]any) map[string]any {
+	if tool != CapabilityMint || out == nil {
+		return out
+	}
+	kept := maps.Clone(out)
+	if _, ok := kept[keyToken]; ok {
+		kept[keyToken] = RecordedToken
+	}
+	return kept
 }

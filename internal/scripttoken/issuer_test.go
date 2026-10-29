@@ -241,3 +241,37 @@ func TestHost_Refusals(t *testing.T) {
 		})
 	}
 }
+
+// #2361: a run's recording keeps a mint's answer and a verify's argument with
+// RecordedToken in place of the token, and a test replays the verify by its
+// other arguments whatever token it is handed.
+func TestRecordingHoldsNoToken(t *testing.T) {
+	type rec struct {
+		tool      string
+		args, out map[string]any
+	}
+	var got []rec
+	record := func(tool string, args, out map[string]any, _ error) { got = append(got, rec{tool, args, out}) }
+
+	live := &fakeCaller{out: map[string]any{"token": "eyJ.live.token"}}
+	_, err := exec(t, Host{Ctx: context.Background(), Live: live, Record: record},
+		`result = platform.mint_token(claims={"sub": "a"}, ttl=60, secret="k")`)
+	require.NoError(t, err)
+	verify := &fakeCaller{out: map[string]any{"valid": true}}
+	_, err = exec(t, Host{Ctx: context.Background(), Live: verify, Record: record},
+		`result = platform.verify_token(token="eyJ.live.token", secret="k")`)
+	require.NoError(t, err)
+	assert.Equal(t, "eyJ.live.token", verify.args["token"], "the issuer is sent the real token")
+
+	require.Len(t, got, 2)
+	assert.Equal(t, RecordedToken, got[0].out["token"])
+	assert.Equal(t, RecordedToken, got[1].args["token"])
+	assert.Equal(t, "k", got[1].args["secret"])
+
+	replay := &fakeCaller{out: map[string]any{"valid": true}}
+	_, err = exec(t, Host{Ctx: context.Background(), Testing: true, Replay: replay},
+		`result = platform.verify_token(token="anything", secret="k")`)
+	require.NoError(t, err)
+	assert.Equal(t, RecordedToken, replay.args["token"], "a test looks the verify up as it was recorded")
+	assert.Nil(t, recordedAnswer(CapabilityMint, nil))
+}

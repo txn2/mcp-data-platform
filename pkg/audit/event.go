@@ -250,29 +250,3 @@ func NewEventID() string {
 	_, _ = rand.Read(bytes)
 	return base64.RawURLEncoding.EncodeToString(bytes)
 }
-
-// SanitizeParameters removes sensitive parameters from the event.
-func SanitizeParameters(params map[string]any) map[string]any {
-	if params == nil {
-		return nil
-	}
-
-	sensitiveKeys := map[string]bool{
-		"password":      true,
-		"secret":        true,
-		"token":         true,
-		"api_key":       true,
-		"authorization": true,
-		"credentials":   true,
-	}
-
-	sanitized := make(map[string]any)
-	for k, v := range params {
-		if sensitiveKeys[k] {
-			sanitized[k] = "[REDACTED]"
-		} else {
-			sanitized[k] = v
-		}
-	}
-	return sanitized
-}

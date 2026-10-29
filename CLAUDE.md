@@ -77,6 +77,20 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 6. **Omission over fabrication.** A gap stated honestly is better than a fabricated answer stated confidently. When in doubt, leave it out.
 
+## CRITICAL - Security Design Before Code
+
+v1.152.1 shipped a webhook auth mode that stored the secret it verified in every event (#2353), and the review that followed found eight more places a secret reached somewhere it should not (#2355-#2362). Every test was green each time. Tests check what a feature does; none of them asks where a secret goes. That question is answered at design time, written down, and then tested.
+
+1. **Threat model first.** Any change that touches untrusted input, a credential or secret, authorization, encryption, or what is stored, logged, served or indexed starts with a threat model written in chat, before the first edit, so it can change the design. It answers:
+   - the trust boundaries the change crosses, and who is on each side;
+   - every secret the change receives, holds or derives, and every sink it could reach (database rows, object storage, the spool, logs, audit rows, the call catalog, the search and embedding index, script runs and recordings, API responses, error text, span attributes, metric labels), and why it does not reach each one;
+   - what an unauthenticated caller, a caller with a weaker persona, and a caller who can write to a table the feature reads can make it do;
+   - every documented promise the change must keep (write-only secrets, redaction on read, encryption at rest), checked against the docs, not memory.
+2. **Every "never" is a criterion.** Each sink the threat model rules out becomes an acceptance criterion that searches that sink, through the real surface, for the secret (as written, base64, hex, URL- and JSON-escaped). A criterion that only checks the feature works does not count.
+3. **A separate security review before `make verify`.** After the correctness review, review the diff again as an attacker holding the threat model: what can be read that should not be, what can be opened that was sealed for something else, what an error repeats. A finding a scanner, a reviewer or another agent reports after the PR is recorded as a miss of this review.
+4. **No tag while a security finding is open.** Before a release, list open issues that report a secret reaching a sink, an authorization bypass, or a decryption oracle; any one blocks the tag.
+5. **One list per rule.** What is encrypted at rest, redacted when a connection is read and redacted in the config export all read the encryption layer's key sets (`pkg/platform/fieldcrypt`), and `TestSanitizeParametersCoversEveryEncryptedKey` fails when the audit sanitizer would store one of those keys' values. A second hand-kept copy is how `session_token` was described as encrypted and stored in clear (#2359).
+
 ## Code Standards
 
 1. **Idiomatic Go**: All code must follow idiomatic Go patterns and conventions. Use `gofmt`, follow Effective Go guidelines, and adhere to Go Code Review Comments.

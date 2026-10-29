@@ -148,7 +148,7 @@ func issue2179Ciphertext(t *testing.T, where, payload string) {
 	}
 	values, _ := p["values"].(map[string]any)
 	ssn, _ := values["ssn"].(string)
-	if !strings.HasPrefix(ssn, "enc:") || fmt.Sprint(p["sensitive"]) != "[ssn]" {
+	if !strings.HasPrefix(ssn, "encb:") || fmt.Sprint(p["sensitive"]) != "[ssn]" {
 		t.Fatalf("%s holds ssn %q, sensitive %v; want ciphertext", where, ssn, p["sensitive"])
 	}
 }
@@ -336,7 +336,7 @@ func TestIssue2179_ASubmissionMadeBeforeARotationStillDecrypts(t *testing.T) {
 	deadline := time.Now().Add(time.Minute)
 	for {
 		got := endpointRequest(t, admin.base, http.MethodGet, "/api/v1/portal/scripts/"+scriptID+"/submissions", bearer(devAPIKey()), "")
-		if got.status == http.StatusInternalServerError && strings.Contains(got.body, "decrypting") {
+		if got.status == http.StatusInternalServerError && strings.Contains(got.body, "not with a key this deployment holds") {
 			return // the new submission is under the new key, which the stack does not hold
 		}
 		if time.Now().After(deadline) {

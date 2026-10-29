@@ -62,6 +62,23 @@ type Deps struct {
 	// Mailbox checks an imap source's mailbox when it is saved and reports
 	// its folders' polls (#2247); nil leaves both out.
 	Mailbox Mailbox
+	// NoEncryption is set when the deployment has no ENCRYPTION_KEY, so a
+	// secret would be stored as written. A save that writes a secret is then
+	// refused, as a form's sensitive fields are (#2362).
+	NoEncryption bool
+}
+
+// ErrCannotEncrypt refuses a save that would store a source's secret as
+// written, on a deployment with no ENCRYPTION_KEY (#2362).
+var ErrCannotEncrypt = whsource.Refusal("the source's secret is encrypted when stored, and this deployment has no ENCRYPTION_KEY")
+
+// checkEncryption refuses writing secret when it would be stored in clear. An
+// ed25519 source's secret is the sender's public key, which is no secret.
+func (s *Service) checkEncryption(mode, secret string) error {
+	if !s.deps.NoEncryption || secret == "" || mode == whsource.AuthEd25519 {
+		return nil
+	}
+	return ErrCannotEncrypt //nolint:wrapcheck // ErrInvalid is what a surface renders
 }
 
 // Service manages sources.
@@ -194,6 +211,9 @@ func (s *Service) checkPersonas(personas []string) error {
 
 func (s *Service) createSource(ctx context.Context, src whsource.Source) (whsource.Source, error) {
 	src = src.WithDefaults()
+	if err := s.checkEncryption(src.Auth.Mode, src.Auth.Secret); err != nil {
+		return whsource.Source{}, err
+	}
 	if src.IsForm() && src.Config.Form != nil {
 		if err := s.checkPersonas(src.Config.Form.DecryptPersonas); err != nil {
 			return whsource.Source{}, err
@@ -336,6 +356,9 @@ func (s *Service) Update(ctx context.Context, name string, u Update) (whsource.S
 	auth := u.Auth
 	auth.Secret, auth.PreviousSecret, auth.PreviousUntil = cur.Auth.Secret, cur.Auth.PreviousSecret, cur.Auth.PreviousUntil
 	next.Auth = auth.Rotate(u.Auth.Secret, u.RotationOverlap, s.deps.Now())
+	if err := s.checkEncryption(next.WithDefaults().Auth.Mode, u.Auth.Secret); err != nil {
+		return whsource.Source{}, err
+	}
 	next.Config = u.Config
 	next.Config.Persona = cur.Config.Persona
 	next.Config.Input = cur.WithDefaults().Config.Input

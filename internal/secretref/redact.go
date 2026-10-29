@@ -221,6 +221,13 @@ func WithRedactor(ctx context.Context) (context.Context, *Redactor) {
 	return context.WithValue(ctx, ctxKey{}, r), r
 }
 
+// Into returns ctx carrying r, so values filled under ctx are recorded on a
+// Redactor that outlives one call: an mcp connection's session sends its
+// credential on requests no tool call's context reaches (#2357).
+func Into(ctx context.Context, r *Redactor) context.Context {
+	return context.WithValue(ctx, ctxKey{}, r)
+}
+
 // FromContext is the call's Redactor, or nil when the call made none, which
 // every method treats as empty.
 func FromContext(ctx context.Context) *Redactor {
