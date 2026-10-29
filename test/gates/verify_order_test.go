@@ -1,8 +1,11 @@
 package gates
 
 import (
+	"maps"
 	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -51,94 +54,143 @@ func stepAt(lines []string, step string) int {
 	return -1
 }
 
-// TestVerifyReportsTheCheapGatesFirst pins #1856: the diff-scoped gates run in
-// verify's serial preamble, before the lanes fan out, and the Go lane runs the
-// changed-package schedule lane before the whole module's unit run, so either
-// kind of failure is reported in minutes rather than at the end of a run.
-func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
+// stepRunner is the command every step of verify and its lanes runs through,
+// which prints what the step cost (#2369).
+const stepRunner = "python3 scripts/verify-step.py $(MAKE) "
+
+// timedStep is one row of scripts/verify-steps.tsv.
+type timedStep struct {
+	group, name, after string
+	seconds            float64
+}
+
+// stepTable reads scripts/verify-steps.tsv, keeping each group's rows in order.
+func stepTable(t *testing.T) map[string][]timedStep {
+	t.Helper()
+	groups := map[string][]timedStep{}
+	for n, line := range strings.Split(readRepoFile(t, "scripts/verify-steps.tsv"), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		f := strings.Split(line, "\t")
+		if len(f) != 4 {
+			t.Fatalf("scripts/verify-steps.tsv line %d has %d columns, want 4: %q", n+1, len(f), line)
+		}
+		secs, err := strconv.ParseFloat(f[2], 64)
+		if err != nil {
+			t.Fatalf("scripts/verify-steps.tsv line %d: seconds %q: %v", n+1, f[2], err)
+		}
+		groups[f[0]] = append(groups[f[0]], timedStep{group: f[0], name: f[1], seconds: secs, after: f[3]})
+	}
+	return groups
+}
+
+// steps returns the targets a recipe runs through the step runner, in order,
+// and fails on a recipe line that runs a target without it.
+func steps(t *testing.T, makefile, target string) []string {
+	t.Helper()
+	var out []string
+	for _, l := range recipe(t, makefile, target) {
+		if name, ok := strings.CutPrefix(strings.TrimPrefix(l, "@"), stepRunner); ok {
+			out = append(out, name)
+			continue
+		}
+		if strings.Contains(l, "--no-print-directory") && !strings.Contains(l, "-j4 verify-checks") {
+			t.Errorf("%s runs %q without %s, so its cost is not printed", target, l, stepRunner)
+		}
+	}
+	return out
+}
+
+// assertGroupOrder checks that a recipe runs exactly the table's steps for the
+// group, in the table's order, and that the table runs them cheapest first,
+// apart from a step that reads another step's output.
+func assertGroupOrder(t *testing.T, target string, ran []string, rows []timedStep, ascending bool) {
+	t.Helper()
+	names := make([]string, len(rows))
+	for i, r := range rows {
+		names[i] = r.name
+	}
+	if !slices.Equal(ran, names) {
+		t.Errorf("%s runs\n  %v\nscripts/verify-steps.tsv lists\n  %v", target, ran, names)
+	}
+	last := -1.0
+	for i, r := range rows {
+		if r.after != "-" {
+			if j := slices.Index(names, r.after); j < 0 || j > i {
+				t.Errorf("%s: %s reads %s's output but runs before it", target, r.name, r.after)
+			}
+			continue
+		}
+		if ascending && r.seconds < last {
+			t.Errorf("%s: %s (%.1fs) runs after a step that costs %.1fs; the cheapest step runs first", target, r.name, r.seconds, last)
+		}
+		last = max(last, r.seconds)
+	}
+}
+
+// TestVerifyRunsTheCheapestStepFirst pins #2369: verify and each of its lanes
+// run their steps in the order scripts/verify-steps.tsv records, the table is
+// in ascending order of measured cost (a step reading another's output aside,
+// and the steps that rewrite the tree, which run first in their own order), and
+// every step prints its cost.
+func TestVerifyRunsTheCheapestStepFirst(t *testing.T) {
 	raw, err := os.ReadFile("../../Makefile")
 	require(t, err)
 	makefile := string(raw)
+	table := stepTable(t)
 
-	verify := recipe(t, makefile, "verify")
-	fast, lanes := indexOf(verify, "preverify-fast"), indexOf(verify, "verify-checks")
-	if fast < 0 || lanes < 0 || fast > lanes {
-		t.Errorf("verify runs preverify-fast at %d and the lanes at %d; the cheap gates must come first", fast, lanes)
+	verify := steps(t, makefile, "verify")
+	rewrite := len(table["rewrite"])
+	if len(verify) < rewrite {
+		t.Fatalf("verify runs %v; it must start with the %d steps that rewrite the tree", verify, rewrite)
+	}
+	assertGroupOrder(t, "verify (rewrite)", verify[:rewrite], table["rewrite"], false)
+	assertGroupOrder(t, "verify (preamble)", verify[rewrite:], table["preamble"], true)
+	for _, lane := range []string{"verify-go", "verify-static", "verify-docker", "verify-ui"} {
+		assertGroupOrder(t, lane, steps(t, makefile, lane), table[lane], true)
+	}
+	if len(table) != 6 {
+		t.Errorf("scripts/verify-steps.tsv has groups %v; want rewrite, preamble and the four lanes", slices.Sorted(maps.Keys(table)))
+	}
+	if !strings.Contains(strings.Join(recipe(t, makefile, "verify"), "\n"), "-j4 verify-checks") {
+		t.Error("verify no longer starts its lanes together")
+	}
+	if strings.Contains(makefile, "\npreverify") {
+		t.Error("the Makefile still has a preverify target; verify is the one gate (#2369)")
 	}
 
-	// Lint runs serially after the fast gates and before the lanes, and not
-	// again inside them.
-	lint := -1
-	for i, l := range verify {
-		if strings.HasSuffix(l, "--no-print-directory lint") {
-			lint = i
-		}
-	}
-	if lint < fast || lint > lanes {
-		t.Errorf("verify runs lint at %d, preverify-fast at %d and the lanes at %d; lint must run between them", lint, fast, lanes)
-	}
+	// Lint runs once, in the preamble, not again inside a lane.
 	for _, l := range recipe(t, makefile, "verify-static") {
-		if strings.HasSuffix(l, "--no-print-directory lint") {
+		if strings.HasSuffix(l, " lint") {
 			t.Errorf("verify-static still runs lint inside the lanes")
 		}
 	}
-
-	for _, gate := range []string{"semgrep-diff", "semgrep-changed", "doc-check", "docs-build", "acceptance-check", "state-readers-check", "builtin-pages-check", "e2e-copy-check", "route-manifest-check", "route-conformance-check", "dead-code"} {
-		if indexOf(recipe(t, makefile, "preverify-fast"), gate) < 0 {
-			t.Errorf("preverify-fast does not run %s", gate)
-		}
-		if indexOf(recipe(t, makefile, "verify-go"), gate) >= 0 {
-			t.Errorf("verify-go still runs %s after the unit run", gate)
-		}
-	}
-
-	// The API description and the UI lint are decided in preverify-fast
-	// (#2030), and run once in verify: an annotation edited after the last
-	// `make swagger`, or a UI function over the complexity limit, otherwise
-	// passes preverify and fails verify. swagger-check comes first because
-	// it rewrites internal/apidocs, which the conversion and
-	// state-readers-check read.
-	fastGates := recipe(t, makefile, "preverify-fast")
-	sw, conv, st := stepAt(fastGates, "swagger-check"), stepAt(fastGates, "apidocs-openapi3-check"), stepAt(fastGates, "state-readers-check")
-	if sw != 0 || conv < sw || st < conv {
-		t.Errorf("preverify-fast runs swagger-check at %d, apidocs-openapi3-check at %d and state-readers-check at %d; swagger-check must be first, then the conversion, then the readers", sw, conv, st)
-	}
-	if stepAt(fastGates, "frontend-lint") < 0 {
-		t.Error("preverify-fast does not run frontend-lint")
-	}
-	for _, gate := range []string{"swagger-check", "apidocs-openapi3-check"} {
-		if stepAt(verify, gate) >= 0 {
-			t.Errorf("verify runs %s itself as well as through preverify-fast", gate)
-		}
-	}
+	// The UI lint is decided in the preamble (#2030) and runs once.
 	if stepAt(recipe(t, makefile, "verify-ui"), "frontend-lint") >= 0 {
-		t.Error("verify-ui still runs frontend-lint, which preverify-fast already ran")
-	}
-
-	// preverify runs nothing verify runs again in full (#2039). The schedule
-	// lane, its UI half and the real-DB lane used to follow lint here (#1929,
-	// #1947); on a change to pkg/platform they cost as much as verify, so the
-	// pre-gate doubled the time to a commit instead of saving a run. They run
-	// once, in verify and in CI.
-	pre := recipe(t, makefile, "preverify")
-	for _, lane := range []string{"schedule-lane", "schedule-lane-ui", "realdb-lane"} {
-		if stepAt(pre, lane) >= 0 {
-			t.Errorf("preverify runs %s, which verify runs again in full; the pre-gate must stay cheap (#2039)", lane)
-		}
-	}
-	if stepAt(pre, "lint") < 0 {
-		t.Error("preverify does not run lint")
+		t.Error("verify-ui still runs frontend-lint, which the preamble already ran")
 	}
 	if !strings.Contains(strings.Join(recipe(t, makefile, "test-realdb"), "\n"), "$(REALDB_PKGS)") {
 		t.Errorf("test-realdb does not run $(REALDB_PKGS), so realdb-lane cannot narrow it")
 	}
-
-	goLane := recipe(t, makefile, "verify-go")
-	if s, u := indexOf(goLane, "schedule-lane"), indexOf(goLane, "test"); s < 0 || u < 0 || s > u {
-		t.Errorf("verify-go runs schedule-lane at %d and test at %d; the changed packages must come first", s, u)
-	}
 	assertOneUnitRun(t, makefile)
 	assertStaticChecksInALane(t, makefile)
+}
+
+// TestVerifyStepPrintsItsCost pins #2369's runner: a step's cost is printed
+// as it ends, and its exit code is verify's.
+func TestVerifyStepPrintsItsCost(t *testing.T) {
+	root := newGitRepo(t, "scripts/verify-step.py", map[string]string{
+		"fake-make": "#!/bin/sh\n[ \"$1\" = --no-print-directory ] || exit 9\necho \"ran $2\"\n[ \"$2\" = good ]\n",
+	})
+	require(t, os.Chmod(filepath.Join(root, "fake-make"), 0o700)) // #nosec G302 -- a test fixture the test runs
+	fake := filepath.Join(root, "fake-make")
+
+	out, ok := runScript(t, root, []string{"scripts/verify-step.py", fake, "good"}, nil)
+	assertOutput(t, out, ok, expect{pass: true, want: []string{"ran good", "[step good: ", "s ok]"}})
+
+	out, ok = runScript(t, root, []string{"scripts/verify-step.py", fake, "bad"}, nil)
+	assertOutput(t, out, ok, expect{pass: false, want: []string{"ran bad", "[step bad: ", "s failed (1)]"}})
 }
 
 // assertOneUnitRun pins #2053's first ask: a verify prints "Running tests..."
@@ -263,23 +315,36 @@ func TestVerifyReleaseRunsInOneInvocation(t *testing.T) {
 	}
 }
 
-// TestPreverifyChecksMigrationsOnBothMajors pins #2239: preverify runs the
-// migration gate on every pinned PostgreSQL major when the diff touches a
-// migration, and the step reads the diff (tracked and untracked) to decide.
-func TestPreverifyChecksMigrationsOnBothMajors(t *testing.T) {
+// TestVerifyChecksMigrationsOnBothMajors pins #2239: verify runs the
+// migration gate on every pinned PostgreSQL major in its preamble when the
+// diff touches a migration, the step reads the diff (tracked and untracked) to
+// decide, and the Docker lane does not check the same migrations again (#2369).
+func TestVerifyChecksMigrationsOnBothMajors(t *testing.T) {
 	data, err := os.ReadFile("../../Makefile")
 	if err != nil {
 		t.Fatalf("read Makefile: %v", err)
 	}
 	makefile := string(data)
-	if stepAt(recipe(t, makefile, "preverify"), "migrate-check-diff") < 0 {
-		t.Fatal("preverify does not run migrate-check-diff")
+	if stepAt(recipe(t, makefile, "verify"), "migrate-check-diff") < 0 {
+		t.Fatal("verify does not run migrate-check-diff")
 	}
-	step := strings.Join(recipe(t, makefile, "migrate-check-diff"), "\n")
-	for _, want := range []string{"git diff --name-only", "git ls-files --others", "$(MIGRATIONS_DIR)", "migrate-check"} {
-		if !strings.Contains(step, want) {
-			t.Errorf("migrate-check-diff does not contain %q, so it cannot decide from the diff", want)
+	if stepAt(recipe(t, makefile, "verify-docker"), "migrate-check") >= 0 || stepAt(recipe(t, makefile, "verify-docker"), "migrate-check-lane") < 0 {
+		t.Error("verify-docker runs migrate-check unconditionally; a migration the preamble checked is checked twice")
+	}
+	_, macro, found := strings.Cut(makefile, "\nmigrations_changed = ")
+	macro, _, _ = strings.Cut(macro, "\nmigrate-check-diff:")
+	for _, want := range []string{"git diff --name-only", "git ls-files --others", "$(MIGRATIONS_DIR)"} {
+		if !found || !strings.Contains(macro, want) {
+			t.Errorf("migrations_changed does not contain %q, so it cannot decide from the diff", want)
 		}
+	}
+	diff := strings.Join(recipe(t, makefile, "migrate-check-diff"), "\n")
+	lane := strings.Join(recipe(t, makefile, "migrate-check-lane"), "\n")
+	if !strings.Contains(diff, "$(migrations_changed)") || !strings.Contains(diff, `[ -z "$$changed" ]`) || !strings.Contains(diff, "migrate-check") {
+		t.Errorf("migrate-check-diff does not run migrate-check on a changed migration:\n%s", diff)
+	}
+	if !strings.Contains(lane, "$(migrations_changed)") || !strings.Contains(lane, `[ -n "$$changed" ]`) || !strings.Contains(lane, "migrate-check") {
+		t.Errorf("migrate-check-lane does not run migrate-check only when the preamble did not:\n%s", lane)
 	}
 	if !strings.Contains(makefile, "MIGRATIONS_DIR := pkg/database/migrate/migrations") {
 		t.Error("MIGRATIONS_DIR does not name the migration directory")
@@ -289,31 +354,28 @@ func TestPreverifyChecksMigrationsOnBothMajors(t *testing.T) {
 	}
 }
 
-// TestPreverifyRunsTheGatesOnlyVerifyRan pins #2186: three gates that failed a
-// verify after preverify passed on the #2171-#2174 branch run in preverify,
+// TestVerifyRunsTheLaneGatesFirstOnTheDiff pins #2186: three gates that failed
+// verify in its lanes on the #2171-#2174 branch run first in its preamble,
 // scoped to the diff. The standalone gosec is invoked as verify-static invokes
 // it, the route-template gate runs alone and only on a changed registration,
-// and the mocked-route conformance test runs by itself in preverify-fast.
-func TestPreverifyRunsTheGatesOnlyVerifyRan(t *testing.T) {
+// and the mocked-route conformance test runs by itself.
+func TestVerifyRunsTheLaneGatesFirstOnTheDiff(t *testing.T) {
 	raw, err := os.ReadFile("../../Makefile")
 	require(t, err)
 	makefile := string(raw)
 
-	pre := recipe(t, makefile, "preverify")
-	for _, gate := range []string{"security-diff", "route-template-diff"} {
+	pre := recipe(t, makefile, "verify")
+	for _, gate := range []string{"security-diff", "route-template-diff", "route-conformance-check"} {
 		if stepAt(pre, gate) < 0 {
-			t.Errorf("preverify does not run %s", gate)
+			t.Errorf("verify does not run %s", gate)
 		}
-	}
-	if stepAt(recipe(t, makefile, "preverify-fast"), "route-conformance-check") < 0 {
-		t.Error("preverify-fast does not run route-conformance-check")
 	}
 	if got := strings.Join(recipe(t, makefile, "route-conformance-check"), "\n"); !strings.Contains(got, "vitest run src/mocks/route-conformance.test.ts") {
 		t.Errorf("route-conformance-check runs %q, not the conformance test alone", got)
 	}
 
 	gosec := strings.Join(recipe(t, makefile, "security-diff"), "\n")
-	if !strings.Contains(gosec, "preverify-diff.py gosec-packages") || !strings.Contains(gosec, "GOOS=linux gosec $$pkgs") {
+	if !strings.Contains(gosec, "verify-diff.py gosec-packages") || !strings.Contains(gosec, "GOOS=linux gosec $$pkgs") {
 		t.Errorf("security-diff does not run verify's gosec over the changed packages:\n%s", gosec)
 	}
 	if !strings.Contains(strings.Join(recipe(t, makefile, "security"), "\n"), "GOOS=linux gosec ./...") {
@@ -321,7 +383,7 @@ func TestPreverifyRunsTheGatesOnlyVerifyRan(t *testing.T) {
 	}
 
 	routes := strings.Join(recipe(t, makefile, "route-template-diff"), "\n")
-	for _, want := range []string{"preverify-diff.py routes-changed", "REALDB_PKGS=./internal/httpserver/", "REALDB_RUN=TestEveryRouteReportsItsTemplate_RealDB"} {
+	for _, want := range []string{"verify-diff.py routes-changed", "REALDB_PKGS=./internal/httpserver/", "REALDB_RUN=TestEveryRouteReportsItsTemplate_RealDB"} {
 		if !strings.Contains(routes, want) {
 			t.Errorf("route-template-diff does not contain %q", want)
 		}
@@ -331,16 +393,16 @@ func TestPreverifyRunsTheGatesOnlyVerifyRan(t *testing.T) {
 	}
 }
 
-// TestPreverifySmokesAChangedDevStack pins #2248: preverify runs dev-smoke when
-// the diff (tracked and untracked) changes a file under dev/ and skips it
+// TestVerifySmokesAChangedDevStack pins #2248 and #2369: verify runs dev-smoke
+// when the diff (tracked and untracked) changes a file under dev/ and skips it
 // otherwise, and dev-smoke fails, saying so, when no stack answers.
-func TestPreverifySmokesAChangedDevStack(t *testing.T) {
+func TestVerifySmokesAChangedDevStack(t *testing.T) {
 	raw, err := os.ReadFile("../../Makefile")
 	require(t, err)
 	makefile := string(raw)
 
-	if stepAt(recipe(t, makefile, "preverify"), "dev-smoke-diff") < 0 {
-		t.Fatal("preverify does not run dev-smoke-diff")
+	if stepAt(recipe(t, makefile, "verify"), "dev-smoke-diff") < 0 {
+		t.Fatal("verify does not run dev-smoke-diff")
 	}
 	step := strings.Join(recipe(t, makefile, "dev-smoke-diff"), "\n")
 	for _, want := range []string{"git diff --name-only", "git ls-files --others", "$(DEV_DIR)", "skipped", "dev-smoke"} {

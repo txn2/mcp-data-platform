@@ -24510,7 +24510,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Opens a new feedback thread (and its first event) on an asset, collection, prompt, knowledge page, or the standalone channel.",
+                "description": "Opens a new feedback thread (and its first event) on an asset, collection, prompt, knowledge page, or the standalone channel. Anyone who can view the target may open one; the standalone channel and knowledge pages are open to every signed-in person. The author is the caller. kind is comment, question, correction, rating, approval, rejection or suggestion; visibility is internal (the default, the organization's own people) or shared (everyone who can open the target, external people included), and a thread a person of an external persona opens is shared whatever it says. The MCP tool manage_feedback opens a thread through this route with action=create.",
                 "consumes": [
                     "application/json"
                 ],
@@ -34200,7 +34200,18 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "kind": {
-                    "type": "string"
+                    "description": "Kind is what the thread is; it sets the type of its first event.",
+                    "type": "string",
+                    "enum": [
+                        "comment",
+                        "question",
+                        "correction",
+                        "rating",
+                        "approval",
+                        "rejection",
+                        "suggestion"
+                    ],
+                    "example": "comment"
                 },
                 "knowledge_page_id": {
                     "type": "string"
@@ -34215,7 +34226,16 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "target_type": {
-                    "type": "string"
+                    "description": "TargetType names the one target the thread hangs off; standalone is the\ngeneral channel and carries no id.",
+                    "type": "string",
+                    "enum": [
+                        "asset",
+                        "collection",
+                        "prompt",
+                        "knowledge_page",
+                        "standalone"
+                    ],
+                    "example": "asset"
                 },
                 "target_version": {
                     "type": "integer"
@@ -34226,6 +34246,10 @@ const docTemplate = `{
                 "visibility": {
                     "description": "Visibility is internal (the default) or shared (#2227). A thread a\nperson of an external persona opens is shared whatever this says.",
                     "type": "string",
+                    "enum": [
+                        "internal",
+                        "shared"
+                    ],
                     "example": "internal"
                 }
             }

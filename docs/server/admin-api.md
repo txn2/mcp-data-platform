@@ -1675,8 +1675,19 @@ What each kind asks:
 | `trino` | `SELECT 1` against the coordinator; on a scratch connection that accepts writes, also a call of each partition procedure on a table that does not exist (see below) |
 | `s3` | a bucket listing |
 | `graphql` | an introspection query at the endpoint |
-| `api` | `GET /` at the base URL, through the connection's own client and credential |
+| `api` | a `GET` through the connection's own client and credential: a read operation its catalog declares that takes no parameter, else `/` at the base URL (see below) |
 | `mcp` | a `tools/list` over the live upstream session |
+
+An `api` connection's answer is read by where the `GET` went (#2368). A 401
+anywhere, and a 403 on an operation the catalog declares, is the upstream
+rejecting the credential, and the test fails. A 403 at `/` when the catalog
+declares no callable read is reported as the credential not reaching `/`, and
+the test passes: a key scoped to a few operations is refused there while
+working everywhere it is meant to. A `session_login` connection signs in first,
+so an answered `GET` means the sign-in returned a session, and the detail says
+the credential works; a sign-in that fails is reported as `could not sign in`.
+The detail names the method and path asked for and the status, never a token,
+a secret or the response body.
 
 **Response** (`200 OK`) — the connection answered:
 

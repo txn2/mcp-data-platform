@@ -254,9 +254,9 @@ var actionTools = map[string]actionRule{
 	"manage_resource": {arg: "action", reads: set("get", "list"), writes: set(
 		"create", "replace_content", "update", "delete", "extract",
 	)},
-	// manage_feedback: reply, resolve and the two validation verbs write.
+	// manage_feedback: create, reply, resolve and the two validation verbs write.
 	"manage_feedback": {arg: "action", reads: set("list", "get"), writes: set(
-		"reply", "resolve", "request_validation", "respond_validation",
+		"create", "reply", "resolve", "request_validation", "respond_validation",
 	)},
 	// memory_manage: the three listings read. An empty command renders the
 	// tool's help, which persists nothing.

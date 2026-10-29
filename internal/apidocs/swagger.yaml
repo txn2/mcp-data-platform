@@ -5143,6 +5143,16 @@ definitions:
       collection_id:
         type: string
       kind:
+        description: Kind is what the thread is; it sets the type of its first event.
+        enum:
+        - comment
+        - question
+        - correction
+        - rating
+        - approval
+        - rejection
+        - suggestion
+        example: comment
         type: string
       knowledge_page_id:
         type: string
@@ -5153,6 +5163,16 @@ definitions:
       requires_resolution:
         type: boolean
       target_type:
+        description: |-
+          TargetType names the one target the thread hangs off; standalone is the
+          general channel and carries no id.
+        enum:
+        - asset
+        - collection
+        - prompt
+        - knowledge_page
+        - standalone
+        example: asset
         type: string
       target_version:
         type: integer
@@ -5162,6 +5182,9 @@ definitions:
         description: |-
           Visibility is internal (the default) or shared (#2227). A thread a
           person of an external persona opens is shared whatever this says.
+        enum:
+        - internal
+        - shared
         example: internal
         type: string
     type: object
@@ -31413,7 +31436,14 @@ paths:
       consumes:
       - application/json
       description: Opens a new feedback thread (and its first event) on an asset,
-        collection, prompt, knowledge page, or the standalone channel.
+        collection, prompt, knowledge page, or the standalone channel. Anyone who
+        can view the target may open one; the standalone channel and knowledge pages
+        are open to every signed-in person. The author is the caller. kind is comment,
+        question, correction, rating, approval, rejection or suggestion; visibility
+        is internal (the default, the organization's own people) or shared (everyone
+        who can open the target, external people included), and a thread a person
+        of an external persona opens is shared whatever it says. The MCP tool manage_feedback
+        opens a thread through this route with action=create.
       parameters:
       - description: Thread to create
         in: body

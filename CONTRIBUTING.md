@@ -154,6 +154,11 @@ test: add tests for persona filtering
   patch-coverage`, mirroring the Codecov patch check)
 - Test both success and failure paths
 - Use descriptive test names: `TestFunctionName_Scenario_ExpectedResult`
+- Run `make verify` once, when the change is done. It is the one gate, the
+  same suite CI runs: it runs its cheapest checks first, so most failures are
+  reported in the first minute, and prints what each step cost
+  (`scripts/verify-steps.tsv` holds the order, #2369). While you work, run the
+  narrow tests for what you changed instead.
 
 Example:
 ```go
@@ -581,7 +586,7 @@ test is the gate.
 - Two Semgrep configurations run, and they are scoped differently. `.semgrep/`
   runs over the whole tree with the `p/golang` registry ruleset (`make semgrep`),
   because a finding there is a defect wherever it sits; `make semgrep-changed`
-  runs both over the files your branch changed in `make preverify`, so a finding
+  runs both over the files your branch changed early in `make verify`, so a finding
   fails in seconds rather than in verify's static lane (#2145, #2339). `.semgrep-diff/` runs against the lines your branch changed
   (`make semgrep-diff`), because its rules refuse a syntactic shape that a
   diff-scoped CI check rejects with reasoning Semgrep does not have -- the

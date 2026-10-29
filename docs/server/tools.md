@@ -31,7 +31,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
 | Portal | `manage_table` | Make a stored CSV or JSON-lines file queryable as a table and manage what is registered over it (register, list, unregister), or check that a table could be registered on a connection (check). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |
 | Portal | `manage_resource` | Manage a file in the managed resource library (create, replace_content, update, get, list, delete, extract): the files a saved asset references, and the members of a stored archive written out as files of their own. A replacement keeps the resource's id, URI and filename, so every asset referencing it serves the new bytes without being re-saved; `create` with `if_exists=replace` makes landing one rolling file idempotent, and a delete is refused while anything still points at the file |
-| Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
+| Portal | `manage_feedback` | Review, open and respond to feedback (list pending across everything, create, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
 | Platform | `show_prompts` | Render the prompt library as an interactive browser for the human (presentation-only; call only when the user wants to see their prompts) |
@@ -1150,18 +1150,24 @@ Corrective, self-describing envelopes carrying `{code, category, message, hint}`
 
 ### manage_feedback
 
-Review and respond to human feedback on your work. Feedback is its own tool (rather than actions on `manage_asset`) so an agent discovers it by name. Threads live on an asset, collection, or prompt, or on the shared general channel.
+Review, open and respond to feedback. Feedback is its own tool (rather than actions on `manage_asset`) so an agent discovers it by name. Threads live on an asset, collection, prompt or knowledge page, or on the shared general channel.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | list, get, reply, resolve, request_validation, respond_validation |
-| `asset_id` / `collection_id` / `prompt_id` | string | No | - | Scope a `list` to one target |
-| `target_type` | string | No | - | `standalone` scopes a `list` to the general channel |
+| `action` | string | Yes | - | list, create, get, reply, resolve, request_validation, respond_validation |
+| `asset_id` / `collection_id` / `prompt_id` | string | No | - | Scope a `list` to one target, or the target `create` opens a thread on |
+| `knowledge_page_id` | string | No | - | The knowledge page `create` opens a thread on |
+| `target_type` | string | No | - | `standalone` scopes a `list` to, or opens a `create` on, the general channel |
 | `thread_id` | string | Conditional | - | Required for get, reply, resolve, request_validation, respond_validation |
-| `body` | string | Conditional | - | Reply text (required for reply) |
-| `status` / `validation_state` / `requires_resolution` | - | No | - | Filters for a targeted `list` |
+| `body` | string | Conditional | - | Comment text (required for reply, and for create, where it is the first comment) |
+| `kind` | string | No | `comment` | For create: comment, question, correction, rating, approval, rejection, suggestion |
+| `title` | string | No | - | For create: the thread's title |
+| `visibility` | string | No | `internal` | For create: `internal` (the organization's own people) or `shared` (everyone who can open the target, external people included) |
+| `anchor` | object or string | No | - | For create: where in the target the thread points, a JSON object or a string holding one |
+| `target_version` | integer | No | - | For create: the target version the thread was written against |
+| `status` / `validation_state` / `requires_resolution` | - | No | - | Filters for a targeted `list`; `requires_resolution` also marks a new thread from `create` |
 | `validation_result` | string | Conditional | - | `validated` or `disputed` (required for respond_validation) |
 | `validation_reason` | string | No | - | Optional reason recorded on the validation event |
 | `limit` / `offset` | integer | No | 50 | Pagination |
@@ -1170,13 +1176,14 @@ Review and respond to human feedback on your work. Feedback is its own tool (rat
 
 - **list (no target)**: The entry point for "review and act on any pending feedback." Returns the caller's pending feedback across **the assets and collections they own or can edit AND the shared general channel** — unresolved threads they did not author — plus any threads awaiting their validation. Newest first. (Prompt-thread feedback is reached by targeting the prompt with `prompt_id`, admin-only; it is not part of the no-target feed.)
 - **list (with a target)**: Threads on one asset/collection/prompt or the standalone channel, filterable by status / validation_state / requires_resolution.
+- **create**: Open a new thread, with `body` as its first comment, on exactly one of `asset_id`, `collection_id`, `prompt_id`, `knowledge_page_id`, or `target_type=standalone` (#2371). It is opened through the portal's own route, `POST /api/v1/portal/threads`, served inside the process as the caller, so the portal's terms apply unchanged: anyone who can view the target may comment on it, the standalone channel and knowledge pages are open to every signed-in person, a persona whose portal Feedback area is off is refused, the caller is the author, a thread a person of an external persona opens is shared, and the mentions and notifications are the portal's. A refusal is the portal's own words and status. It needs the HTTP server, which serves the portal; under stdio it answers that the HTTP API is not served.
 - **get**: One thread plus its full event timeline.
-- **reply**: Append a comment to a thread.
+- **reply**: Append a comment to a thread. Without a `thread_id` the error names `action=create`.
 - **resolve**: Mark a thread resolved.
 - **request_validation**: Route a validation request to the thread author.
 - **respond_validation**: The thread author (or an admin) records `validated`/`disputed`; disputing re-opens the thread.
 
-**Access:** scoped to the assets and collections the caller owns or can edit (admins see all). General-channel threads are readable and replyable by any authenticated caller, and resolved only by the thread author or an admin. `memory_capture thread_ids=[...]` folds a thread into the knowledge loop and resolves it, gated by the same owns-or-edit check.
+**Access:** `create` is the portal's rule, above. Everything else is scoped to the assets and collections the caller owns or can edit (admins see all), and a thread's author also gets and replies to it when the portal lets them read it, which is how a viewer follows a thread they opened. General-channel threads are readable and replyable by any authenticated caller, and resolved only by the thread author or an admin. `memory_capture thread_ids=[...]` folds a thread into the knowledge loop and resolves it, gated by the same owns-or-edit check.
 
 ---
 

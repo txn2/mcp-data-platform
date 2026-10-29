@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -130,6 +131,7 @@ const (
 	// manage_feedback action names (#618). Feedback is its own tool so agents can
 	// discover it by name; these are the values of its "action" field.
 	fbActionList              = "list"
+	fbActionCreate            = "create"
 	fbActionGet               = "get"
 	fbActionReply             = "reply"
 	fbActionResolve           = "resolve"
@@ -242,6 +244,16 @@ type manageFeedbackInput struct {
 	ThreadID     string `json:"thread_id,omitempty"`
 	Body         string `json:"body,omitempty"`
 
+	// create (#2371): the knowledge page a thread may hang off, and the
+	// thread's own fields as POST /api/v1/portal/threads takes them. Anchor
+	// is a JSON object or a string holding one.
+	KnowledgePageID string `json:"knowledge_page_id,omitempty"`
+	Kind            string `json:"kind,omitempty"`
+	Title           string `json:"title,omitempty"`
+	Visibility      string `json:"visibility,omitempty"`
+	Anchor          any    `json:"anchor,omitempty"`
+	TargetVersion   int    `json:"target_version,omitempty"`
+
 	// Filters for a targeted list.
 	Status             string `json:"status,omitempty"`
 	ValidationState    string `json:"validation_state,omitempty"`
@@ -353,8 +365,11 @@ type Toolkit struct {
 	// the composition root calls once the notification substrate exists. Both
 	// nil (stdio deployments, no database) leaves an agent-authored reply
 	// silent and its mention tokens ordinary text.
-	notifier        portal.Notifier
-	mentions        portal.MentionResolver
+	notifier portal.Notifier
+	mentions portal.MentionResolver
+	// self is the platform's own HTTP handler, through which manage_feedback
+	// opens a thread as its caller (#2371); see SetSelfHandler.
+	self            selfcall.Handler
 	actions         map[string]manageActionHandler
 	feedbackActions map[string]feedbackActionHandler
 
@@ -611,6 +626,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"or can edit AND the shared general channel (newest first, excluding your own threads, plus any " +
 			"awaiting your validation) — use this to 'review and act on any pending feedback'. " +
 			"Call action=list with an asset_id/collection_id/prompt_id (or target_type=standalone) to scope to one target. " +
+			"action=create opens a new thread with its first comment (body) on exactly one of asset_id, collection_id, " +
+			"prompt_id, knowledge_page_id, or target_type=standalone, on the terms the portal sets: anyone who can view " +
+			"the target may comment on it, and the thread is authored by you; kind is comment (default), question, " +
+			"correction, rating, approval, rejection or suggestion; visibility is internal (default, your organization's " +
+			"people) or shared (everyone who can open the target, external people included). " +
 			"Other actions: get (a thread + its timeline), reply (post a comment), resolve (mark resolved), " +
 			"request_validation, respond_validation (the thread author records validated/disputed via validation_result). " +
 			"memory_capture thread_ids=[...] folds a thread into the knowledge loop and resolves it.",
@@ -861,7 +881,7 @@ func (t *Toolkit) handleManageFeedback(ctx context.Context, _ *mcp.CallToolReque
 	handler, ok := t.feedbackActions[input.Action]
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: list, get, reply, resolve, request_validation, respond_validation",
+			"invalid action %q: must be one of: list, create, get, reply, resolve, request_validation, respond_validation",
 			input.Action)), nil, nil
 	}
 	return handler(ctx, input)
@@ -900,6 +920,7 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 func (t *Toolkit) buildFeedbackActions() map[string]feedbackActionHandler {
 	return map[string]feedbackActionHandler{
 		fbActionList:              t.handleListThreads,
+		fbActionCreate:            t.handleCreateThread,
 		fbActionGet:               t.handleGetThread,
 		fbActionReply:             t.handleReplyThread,
 		fbActionResolve:           t.handleResolveThread,

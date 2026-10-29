@@ -218,7 +218,11 @@ func (w *Worker) drawResource(ctx context.Context, r resource.Resource) error {
 		if err := w.deps.Resources.SetThumbnail(ctx, r.ID, resource.ThumbnailCapture{
 			Variant: d.variant, S3Key: d.key, CapturedAt: r.UpdatedAt, Renderer: Renderer,
 		}); err != nil {
-			slog.ErrorContext(ctx, "thumbnails: recording a resource's tile failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+			if errors.Is(err, resource.ErrNoSuchResource) {
+				w.discardGone(ctx, r.ID, stored)
+				return nil
+			}
+			slog.ErrorContext(ctx, "thumbnails: recording a resource's tile failed", logKeyResource, logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 			return nil
 		}
 		// A revision moves the file to a new key, so the tile drawn from
@@ -234,15 +238,34 @@ func (w *Worker) drawResource(ctx context.Context, r resource.Resource) error {
 	case unfinished != nil:
 		return unfinished
 	case reason != "":
-		if err := w.deps.Resources.RecordThumbnailFailure(ctx, r.ID, reason, r.UpdatedAt); err != nil {
-			slog.ErrorContext(ctx, "thumbnails: recording a resource's failure failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+		err := w.deps.Resources.RecordThumbnailFailure(ctx, r.ID, reason, r.UpdatedAt)
+		switch {
+		case errors.Is(err, resource.ErrNoSuchResource):
+			w.discardGone(ctx, r.ID, nil)
+		case err != nil:
+			slog.ErrorContext(ctx, "thumbnails: recording a resource's failure failed", logKeyResource, logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 	default:
 		if err := w.deps.Resources.HoldThumbnailWork(ctx, r.ID, 0, 0); err != nil {
-			slog.WarnContext(ctx, "thumbnails: ending a resource's claim failed; it lapses with its lease", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+			slog.WarnContext(ctx, "thumbnails: ending a resource's claim failed; it lapses with its lease", logKeyResource, logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 	}
 	return nil
+}
+
+// discardGone ends the work on a resource deleted while its tile was drawn
+// (#2367): no tile is owed, so nothing is logged above DEBUG, and the tiles
+// already stored for it are removed, since no row will ever name them.
+func (w *Worker) discardGone(ctx context.Context, id string, stored []drawn) {
+	slog.DebugContext(ctx, "thumbnails: the resource was deleted while its tile was drawn; nothing recorded",
+		logKeyResource, logsan.SanitizeForLog(id))
+	for _, d := range stored {
+		sctx, cancel := context.WithTimeout(ctx, storageTimeout)
+		if err := w.deps.ResourceBlobs.DeleteObject(sctx, w.deps.ResourceBucket, d.key); err != nil {
+			slog.WarnContext(ctx, "thumbnails: removing a deleted resource's tile failed", "key", logsan.SanitizeForLog(d.key), logKeyError, logsan.SanitizeForLog(err.Error()))
+		}
+		cancel()
+	}
 }
 
 // drawCollection composes a collection's mosaics from the member tiles its

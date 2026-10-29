@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Print the packages whose real-database tests a branch can break (#1947).
 
-make preverify runs the RealDB tests of these packages against one Postgres
-(make test-realdb REALDB_PKGS=...), so a change that breaks one fails there
-rather than in make verify's Docker lane, which then has to run in full a
-second time. On #1913 the save gates refused scripts that three RealDB tests in
-pkg/platform created; pkg/platform imports internal/platform/scriptlayer, which
-the branch changed, and preverify never compiled a test behind the integration
-build tag.
+make realdb-lane runs the RealDB tests of these packages against one Postgres
+(make test-realdb REALDB_PKGS=...), by hand while working, so a change that
+breaks one is found before make verify's Docker lane. On #1913 the save gates
+refused scripts that three RealDB tests in pkg/platform created; pkg/platform
+imports internal/platform/scriptlayer, which the branch changed, and no cheap
+step compiled a test behind the integration build tag.
 
 A package is printed when it holds a RealDB test and it has a changed Go file
 against the base branch or imports -- directly, transitively, or from a test --

@@ -1,0 +1,64 @@
+# The order make verify runs its steps in, and what each one costs (#2369).
+#
+# Columns: group, step, seconds, after.
+#
+#   group    rewrite: the steps that write the working tree, run first in this
+#            order because every later step reads what they produce.
+#            preamble: verify's serial steps before the lanes.
+#            verify-go, verify-static, verify-docker, verify-ui: one lane each.
+#   seconds  the step's measured wall clock when it runs. A diff-scoped step
+#            costs a tenth of a second when the diff gives it nothing to do;
+#            the figure here is its cost when it runs.
+#   after    a step this one reads the output of, so it runs after that step
+#            whatever it costs; "-" when it has none.
+#
+# Outside the rewrite group, the steps without an "after" run cheapest first,
+# so the cheapest check that can fail fails first. TestVerifyRunsTheCheapestStepFirst
+# (test/gates/verify_order_test.go) fails when the Makefile runs a step this
+# table does not list, in a different order, or when a group here is out of
+# ascending order. Each step prints "[step <name>: <seconds>s ok]" as it ends
+# (scripts/verify-step.py); when a step's cost moves, update its figure here and
+# move it to where the figure puts it.
+#
+# Measured 2026-10-29 on an 18-core machine, one step at a time, against the
+# diff of PR #2370. test, test-realdb and release-check are their lanes'
+# totals from that day's verify less the steps measured alone; each runs after
+# a step it depends on, so its figure orders nothing.
+rewrite	tools-check	0.5	-
+rewrite	fmt	0.9	-
+rewrite	embed-clean	0.2	-
+rewrite	swagger-check	3.1	-
+preamble	acceptance-check	0.2	-
+preamble	state-readers-check	0.2	-
+preamble	builtin-pages-check	0.2	-
+preamble	apidocs-openapi3-check	0.5	-
+preamble	e2e-copy-check	0.8	-
+preamble	security-diff	0.9	-
+preamble	route-conformance-check	1.0	-
+preamble	route-manifest-check	1.6	-
+preamble	semgrep-diff	3.5	-
+preamble	dead-code	3.7	-
+preamble	docs-build	4.2	-
+preamble	doc-check	4.3	-
+preamble	semgrep-changed	5.3	-
+preamble	frontend-lint	8.6	-
+preamble	e2e-standalone	21.0	-
+preamble	dev-smoke-diff	22.2	-
+preamble	route-template-diff	23.4	-
+preamble	migrate-check-diff	31.5	-
+preamble	vet-tags	49.8	-
+preamble	lint	387.8	-
+verify-go	bench-report-check	0.4	-
+verify-go	bench-test	1.6	-
+verify-go	schedule-lane	141.4	-
+verify-go	test	338.0	-
+verify-go	coverage-summary	2.7	test
+verify-go	patch-coverage-check	0.2	test
+verify-static	bench-lint	3.1	-
+verify-static	semgrep	9.7	-
+verify-static	security	55.6	-
+verify-docker	migrate-check-lane	31.5	-
+verify-docker	test-realdb	301.0	-
+verify-ui	schedule-lane-ui	53.7	-
+verify-ui	frontend-e2e	104.7	-
+verify-ui	release-check	169.0	frontend-e2e

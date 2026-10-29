@@ -89,9 +89,11 @@ func TestCIRunsTheChangedCriteriaAndTheStandaloneE2E(t *testing.T) {
 	raw, err = os.ReadFile(filepath.Join("..", "..", "Makefile"))
 	require(t, err)
 	verify := recipe(t, string(raw), "verify")
-	tags, standalone, lanes := indexOf(verify, "vet-tags"), indexOf(verify, "e2e-standalone"), indexOf(verify, "verify-checks")
-	if standalone < 0 || standalone < tags || standalone > lanes {
-		t.Errorf("verify runs vet-tags at %d, e2e-standalone at %d and the lanes at %d; e2e-standalone must run between them", tags, standalone, lanes)
+	// Where in the preamble it runs is its cost's to decide (#2369,
+	// TestVerifyRunsTheCheapestStepFirst); it runs before the lanes.
+	standalone, lanes := indexOf(verify, "e2e-standalone"), indexOf(verify, "verify-checks")
+	if standalone < 0 || standalone > lanes {
+		t.Errorf("verify runs e2e-standalone at %d and the lanes at %d; e2e-standalone must run before them", standalone, lanes)
 	}
 	if !strings.Contains(strings.Join(recipe(t, string(raw), "e2e-standalone"), "\n"), "E2E_STANDALONE=1") {
 		t.Error("e2e-standalone does not set E2E_STANDALONE=1, so the tests that need the services are not skipped")
