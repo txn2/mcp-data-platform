@@ -76,3 +76,22 @@ func TestAfterVerification(t *testing.T) {
 	_, ok = AfterVerification(source(whsource.HandshakeNone, ""), []byte(`{"type":1}`))
 	assert.False(t, ok)
 }
+
+// A check whose value holds a character HTML gives meaning to is not
+// answered: no answer writes such a value back.
+func TestAValueWithMarkupIsNotEchoed(t *testing.T) {
+	const markup = `<script>alert(1)</script>`
+	_, ok := FromQuery(source(whsource.HandshakeGraphValidation, ""), url.Values{"validationToken": {markup}})
+	assert.False(t, ok, "graph_validation")
+	_, ok = BeforeVerification(source(whsource.HandshakeChallengeEcho, ""), []byte(`{"challenge":"a&b"}`))
+	assert.False(t, ok, "challenge_echo")
+	_, ok = AfterVerification(source(whsource.HandshakeZoom, "zs"), []byte(`{"event":"endpoint.url_validation","payload":{"plainToken":"`+`\"x>"}}`))
+	assert.False(t, ok, "zoom")
+	for _, v := range []string{"", "<", ">", "&", "'", `"`} {
+		_, ok = echoable(v)
+		assert.False(t, ok, v)
+	}
+	got, ok := echoable("Validation: Testing client application reachability")
+	require.True(t, ok)
+	assert.Equal(t, "Validation: Testing client application reachability", got)
+}

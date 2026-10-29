@@ -215,6 +215,10 @@ spool or the tables.
 
 A source without `cloudevents` answers `OPTIONS` with `405`.
 
+A challenge, plain token or validation token holding `<`, `>`, `&`, `'` or `"` is
+not answered as a check: no answer writes such a value back. The senders'
+values are opaque text without those characters.
+
 ### Sending to a webhook
 
 The platform signs outbound requests too. An `api` connection with

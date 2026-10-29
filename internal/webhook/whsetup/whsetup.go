@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"html"
 	"net/url"
 
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
@@ -62,8 +63,8 @@ func FromQuery(src whsource.Source, query url.Values) (Answer, bool) {
 	if src.Config.Handshake != whsource.HandshakeGraphValidation {
 		return Answer{}, false
 	}
-	token := query.Get(graphValidationParam)
-	if token == "" {
+	token, ok := echoable(query.Get(graphValidationParam))
+	if !ok {
 		return Answer{}, false
 	}
 	return Answer{ContentType: ContentText, Body: []byte(token)}, true
@@ -81,7 +82,20 @@ func BeforeVerification(src whsource.Source, body []byte) (Answer, bool) {
 	if !ok {
 		return Answer{}, false
 	}
+	if challenge, ok = echoable(challenge); !ok {
+		return Answer{}, false
+	}
 	return jsonAnswer(map[string]any{field: challenge})
+}
+
+// echoable is a value a setup check sends to be written back, or false when
+// it is empty or holds a character HTML gives meaning to (<, >, &, ' or ").
+// The senders' tokens and challenges are opaque text without them, and a
+// value with them is not answered rather than answered altered. The value
+// returned is the escaped one, which equals the value it accepts.
+func echoable(v string) (string, bool) {
+	escaped := html.EscapeString(v)
+	return escaped, v != "" && escaped == v
 }
 
 // challengeOf reads a challenge_echo check: a JSON object whose challenge
@@ -125,12 +139,16 @@ func AfterVerification(src whsource.Source, body []byte) (Answer, bool) {
 				PlainToken string `json:"plainToken"`
 			} `json:"payload"`
 		}
-		if json.Unmarshal(body, &check) != nil || check.Event != zoomValidationEvent || check.Payload.PlainToken == "" {
+		if json.Unmarshal(body, &check) != nil || check.Event != zoomValidationEvent {
+			return Answer{}, false
+		}
+		plain, ok := echoable(check.Payload.PlainToken)
+		if !ok {
 			return Answer{}, false
 		}
 		return jsonAnswer(map[string]any{
-			"plainToken":     check.Payload.PlainToken,
-			"encryptedToken": zoomEncryptedToken(src.Auth.Secret, check.Payload.PlainToken),
+			"plainToken":     plain,
+			"encryptedToken": zoomEncryptedToken(src.Auth.Secret, plain),
 		})
 	case whsource.HandshakeDiscord:
 		var check struct {
