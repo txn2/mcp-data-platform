@@ -55,6 +55,11 @@ func TestValidateHMACRefuses(t *testing.T) {
 		"timestamp without a hdr": {"hmac_signed": "timestamp.body"},
 		"id without a header":     {"hmac_signed": "id.timestamp.body", "hmac_timestamp_header": "X-Ts"},
 		"stripe with a ts header": {"hmac_header_format": "stripe", "hmac_timestamp_header": "X-Ts"},
+		"bad template":            {"hmac_signed": "{nonce}.{body}"},
+		"bad secret encoding":     {"hmac_secret_encoding": "hex"},
+		"pattern and prefix":      {"hmac_header_pattern": "{signature}", "hmac_prefix": "v0="},
+		"bad pattern":             {"hmac_header_pattern": "{signature}{timestamp}"},
+		"pattern with a newline":  {"hmac_header_pattern": "a\n{signature}"},
 	}
 	for name, keys := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -99,6 +104,24 @@ func TestHMACApply(t *testing.T) {
 	a.newID = func() (string, error) { return "", errors.New("no entropy") }
 	fail, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://r.example.com", strings.NewReader("body"))
 	assert.Error(t, a.Apply(fail))
+}
+
+// TestHMACPatternCarriesTheTimestamp signs with a header pattern naming
+// {timestamp}: no timestamp header is needed, and the timestamp is in the
+// signature header.
+func TestHMACPatternCarriesTheTimestamp(t *testing.T) {
+	at := time.Unix(1_790_000_000, 0)
+	c := hmacConfig(t, map[string]any{"hmac_signed": "{body}|{timestamp}", "hmac_header_pattern": "{timestamp}|{signature}"})
+	require.NoError(t, c.Validate())
+	a, err := newHMACAuth(c, func() time.Time { return at })
+	require.NoError(t, err)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://r.example.com", strings.NewReader("body"))
+	require.NoError(t, a.Apply(req))
+	ts, sig, ok := strings.Cut(req.Header.Get("X-Signature"), "|")
+	require.True(t, ok)
+	assert.Equal(t, "1790000000", ts)
+	assert.Len(t, sig, 64)
+	assert.Contains(t, hmacConfig(t, map[string]any{"hmac_preset": "nope"}).Validate().Error(), "teams")
 }
 
 func TestHMACApplyBodies(t *testing.T) {

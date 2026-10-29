@@ -1029,7 +1029,7 @@ func TestDistinct_Success(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"user_id"}).
 		AddRow("alice@acme.com").
 		AddRow("bob@acme.com")
-	mock.ExpectQuery("SELECT DISTINCT user_id FROM audit_logs").WillReturnRows(rows)
+	mock.ExpectQuery(`WITH RECURSIVE v\(val\) AS \(\(SELECT user_id FROM audit_logs WHERE user_id IS NOT NULL`).WillReturnRows(rows)
 
 	values, err := store.Distinct(context.Background(), "user_id", nil, nil)
 	assert.NoError(t, err)
@@ -1067,7 +1067,7 @@ func TestDistinct_ToolkitKindAllowed(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"toolkit_kind"}).
 		AddRow("api").
 		AddRow("trino")
-	mock.ExpectQuery("SELECT DISTINCT toolkit_kind FROM audit_logs").WillReturnRows(rows)
+	mock.ExpectQuery(`WITH RECURSIVE v\(val\) AS \(\(SELECT toolkit_kind FROM audit_logs WHERE toolkit_kind IS NOT NULL`).WillReturnRows(rows)
 
 	values, err := store.Distinct(context.Background(), "toolkit_kind", nil, nil)
 	assert.NoError(t, err)
@@ -1083,7 +1083,7 @@ func TestDistinct_SourceAllowed(t *testing.T) {
 	store := New(db, Config{RetentionDays: 90})
 
 	rows := sqlmock.NewRows([]string{"source"}).AddRow("mcp")
-	mock.ExpectQuery("SELECT DISTINCT source FROM audit_logs").WillReturnRows(rows)
+	mock.ExpectQuery(`WITH RECURSIVE v\(val\) AS \(\(SELECT source FROM audit_logs WHERE source IS NOT NULL`).WillReturnRows(rows)
 
 	values, err := store.Distinct(context.Background(), "source", nil, nil)
 	assert.NoError(t, err)
@@ -1111,7 +1111,7 @@ func TestDistinct_DBError(t *testing.T) {
 
 	store := New(db, Config{RetentionDays: 90})
 
-	mock.ExpectQuery("SELECT DISTINCT user_id FROM audit_logs").
+	mock.ExpectQuery(`WITH RECURSIVE v\(val\) AS \(\(SELECT user_id FROM audit_logs WHERE user_id IS NOT NULL`).
 		WillReturnError(errors.New("db down"))
 
 	values, err := store.Distinct(context.Background(), "user_id", nil, nil)
@@ -1129,7 +1129,7 @@ func TestDistinct_EmptyResult(t *testing.T) {
 	store := New(db, Config{RetentionDays: 90})
 
 	rows := sqlmock.NewRows([]string{"user_id"})
-	mock.ExpectQuery("SELECT DISTINCT user_id FROM audit_logs").WillReturnRows(rows)
+	mock.ExpectQuery(`WITH RECURSIVE v\(val\) AS \(\(SELECT user_id FROM audit_logs WHERE user_id IS NOT NULL`).WillReturnRows(rows)
 
 	values, err := store.Distinct(context.Background(), "user_id", nil, nil)
 	assert.NoError(t, err)
@@ -1147,7 +1147,7 @@ func TestDistinctPairs_Success(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"user_id", "user_email"}).
 		AddRow("uid-1", "alice@acme.com").
 		AddRow("uid-2", "bob@acme.com")
-	mock.ExpectQuery("SELECT DISTINCT user_id, user_email FROM audit_logs").
+	mock.ExpectQuery(`WITH RECURSIVE v\(val\) AS .* CROSS JOIN LATERAL \(SELECT a.user_email FROM audit_logs a`).
 		WillReturnRows(rows)
 
 	result, err := store.DistinctPairs(context.Background(), "user_id", "user_email", nil, nil)
@@ -1197,7 +1197,7 @@ func TestDistinctPairs_DBError(t *testing.T) {
 
 	store := New(db, Config{RetentionDays: 90})
 
-	mock.ExpectQuery("SELECT DISTINCT user_id, user_email FROM audit_logs").
+	mock.ExpectQuery(`WITH RECURSIVE v\(val\) AS .* CROSS JOIN LATERAL \(SELECT a.user_email FROM audit_logs a`).
 		WillReturnError(errors.New("db down"))
 
 	result, err := store.DistinctPairs(context.Background(), "user_id", "user_email", nil, nil)
@@ -1215,7 +1215,7 @@ func TestDistinctPairs_EmptyResult(t *testing.T) {
 	store := New(db, Config{RetentionDays: 90})
 
 	rows := sqlmock.NewRows([]string{"user_id", "user_email"})
-	mock.ExpectQuery("SELECT DISTINCT user_id, user_email FROM audit_logs").
+	mock.ExpectQuery(`WITH RECURSIVE v\(val\) AS .* CROSS JOIN LATERAL \(SELECT a.user_email FROM audit_logs a`).
 		WillReturnRows(rows)
 
 	result, err := store.DistinctPairs(context.Background(), "user_id", "user_email", nil, nil)

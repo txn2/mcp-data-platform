@@ -3,10 +3,12 @@
 // object member, and "[n]" for an array element, as in "$.data.events" or
 // "$.contact['id']" (#1870).
 //
-// It is the subset of JSONPath that addresses one value. There are no
-// wildcards, filters or recursive descent: a webhook source uses a path to
-// find its event array, and an event's id, type and key, and each of those is
-// one place in the document.
+// It is the subset of JSONPath that addresses one value, plus "[*]" for every
+// element of an array, which only LookupAll reads. There are no filters or
+// recursive descent: a webhook source uses a path to find its event array, and
+// an event's id, type and key, and each of those is one place in the
+// document. A token every item of an array must carry (Microsoft Graph's
+// value[*].clientState, #2223) is the one place "[*]" is read.
 package jsonpath
 
 import (
@@ -17,11 +19,12 @@ import (
 	"strings"
 )
 
-// step is one member name or one array index.
+// step is one member name, one array index, or every element of an array.
 type step struct {
 	name  string
 	index int
 	isIdx bool
+	isAll bool
 }
 
 // Path is a parsed path.
@@ -83,6 +86,9 @@ func bracketStep(rest string) (step, string, error) {
 		return step{}, "", errors.New("unclosed [")
 	}
 	inner, tail := rest[1:closing], rest[closing+1:]
+	if inner == "*" {
+		return step{isAll: true}, tail, nil
+	}
 	if len(inner) >= 2 && (inner[0] == '\'' || inner[0] == '"') && inner[len(inner)-1] == inner[0] {
 		return step{name: inner[1 : len(inner)-1]}, tail, nil
 	}
@@ -93,11 +99,55 @@ func bracketStep(rest string) (step, string, error) {
 	return step{index: n, isIdx: true}, tail, nil
 }
 
+// HasWildcard reports whether the path steps through every element of an
+// array ("[*]"), and so addresses many values rather than one.
+func (p Path) HasWildcard() bool {
+	for _, st := range p.steps {
+		if st.isAll {
+			return true
+		}
+	}
+	return false
+}
+
+// LookupAll returns every value the path addresses in doc: one for a path with
+// no "[*]", and one per element of each array a "[*]" steps through. It
+// reports false when any step is missing or of the wrong kind for any element,
+// and for a "[*]" over an empty array, since a value every element must carry
+// is then carried by none.
+func (p Path) LookupAll(doc any) ([]any, bool) {
+	cur := []any{doc}
+	for _, st := range p.steps {
+		next := make([]any, 0, len(cur))
+		for _, v := range cur {
+			if st.isAll {
+				arr, ok := v.([]any)
+				if !ok || len(arr) == 0 {
+					return nil, false
+				}
+				next = append(next, arr...)
+				continue
+			}
+			got, ok := Path{steps: []step{st}}.Lookup(v)
+			if !ok {
+				return nil, false
+			}
+			next = append(next, got)
+		}
+		cur = next
+	}
+	return cur, true
+}
+
 // Lookup returns the value the path addresses in doc, and false when any step
-// is missing or of the wrong kind.
+// is missing or of the wrong kind. A "[*]" step addresses no one value, so a
+// path holding one is never found; LookupAll reads it.
 func (p Path) Lookup(doc any) (any, bool) {
 	cur := doc
 	for _, st := range p.steps {
+		if st.isAll {
+			return nil, false
+		}
 		if st.isIdx {
 			arr, ok := cur.([]any)
 			if !ok || st.index >= len(arr) {

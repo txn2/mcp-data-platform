@@ -65,7 +65,32 @@ func interopCases() map[string]interopCase {
 			},
 			source: whsource.Auth{SignatureHeader: "X-Signature", Signed: "id.timestamp.body", TimestampHeader: "X-Ts", IDHeader: "X-Id"},
 		},
+		"preset slack (a template)": {
+			connection: map[string]any{"hmac_preset": "slack"},
+			source:     whsource.Auth{Preset: whsource.PresetSlack},
+		},
+		"preset jira": {
+			connection: map[string]any{"hmac_preset": "jira"},
+			source:     whsource.Auth{Preset: whsource.PresetJira},
+		},
+		"template and header pattern (#2223)": {
+			connection: map[string]any{"hmac_signed": "{body}|{timestamp}", "hmac_header_pattern": "{timestamp}|{signature}"},
+			source:     whsource.Auth{SignatureHeader: "X-Signature", Signed: "{body}|{timestamp}", HeaderPattern: "{timestamp}|{signature}"},
+		},
 	}
+}
+
+// TestOutboundTeamsAgreesWithInbound signs as the teams preset with a base64
+// security token, and verifies with a source given the same preset.
+func TestOutboundTeamsAgreesWithInbound(t *testing.T) {
+	const secret = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	body := []byte(`{"type":"message"}`)
+	req := signed(t, map[string]any{"hmac_preset": "teams"}, secret, body)
+	assert.True(t, strings.HasPrefix(req.Header.Get("Authorization"), "HMAC "))
+	src := whsource.Source{Name: "x", Connection: "c", Auth: whsource.Auth{Preset: whsource.PresetTeams, Secret: secret}}.WithDefaults()
+	require.NoError(t, whsource.Validate(src))
+	assert.NoError(t, Verify(src, Request{Header: req.Header, Body: body}, time.Now()))
+	assert.ErrorIs(t, Verify(src, Request{Header: req.Header, Body: []byte(`{"type":"messagE"}`)}, time.Now()), ErrBadSignature)
 }
 
 // signed sends body through an hmac connection's authenticator and returns the
@@ -95,7 +120,10 @@ func TestOutboundSignerAgreesWithInboundVerifier(t *testing.T) {
 	for name, tc := range interopCases() {
 		t.Run(name, func(t *testing.T) {
 			auth := tc.source
-			auth.Mode, auth.Secret = whsource.AuthHMAC, secret
+			if auth.Preset == "" {
+				auth.Mode = whsource.AuthHMAC
+			}
+			auth.Secret = secret
 			src := whsource.Source{Auth: auth}.WithDefaults()
 			valid := whsource.Source{Name: "x", Connection: "c", Auth: src.Auth}.WithDefaults()
 			require.NoError(t, whsource.Validate(valid))

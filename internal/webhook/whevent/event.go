@@ -31,7 +31,7 @@ const FormPayloadField = "payload"
 // Refusals a body can meet. Each is answered 400 and nothing is stored.
 var (
 	ErrNotJSON       = errors.New("the body is not JSON")
-	ErrNoPayload     = errors.New("the form has no payload field")
+	ErrNoPayload     = errors.New("the form has no fields")
 	ErrSplitNotArray = errors.New("the split path does not name an array in the body")
 )
 
@@ -88,21 +88,31 @@ func ParsePaths(c whsource.Config) (Paths, error) {
 	return out, nil
 }
 
-// JSONBody returns the JSON a request carries: the body itself, or the payload
-// field of a form. contentType is the request's Content-Type.
+// JSONBody returns the JSON a request carries: the body itself, the payload
+// field of a form that has one, or, for a form with none, an object of the
+// form's fields and their first values (#2223: Mattermost posts its outgoing
+// webhooks as plain form fields). contentType is the request's Content-Type.
 func JSONBody(contentType string, body []byte) ([]byte, error) {
 	mediaType, _, _ := mime.ParseMediaType(contentType)
 	if mediaType != "application/x-www-form-urlencoded" {
 		return body, nil
 	}
 	form, err := url.ParseQuery(string(body))
+	if err != nil || len(form) == 0 {
+		return nil, ErrNoPayload
+	}
+	if form.Has(FormPayloadField) {
+		return []byte(form.Get(FormPayloadField)), nil
+	}
+	fields := make(map[string]string, len(form))
+	for k := range form {
+		fields[k] = form.Get(k)
+	}
+	b, err := json.Marshal(fields)
 	if err != nil {
 		return nil, ErrNoPayload
 	}
-	if !form.Has(FormPayloadField) {
-		return nil, ErrNoPayload
-	}
-	return []byte(form.Get(FormPayloadField)), nil
+	return b, nil
 }
 
 // Build decodes a request's JSON and returns its events, all stamped with

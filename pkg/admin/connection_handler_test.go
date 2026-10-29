@@ -1224,7 +1224,39 @@ func TestSetConnectionInstance_APICatalogValidation(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
+		assert.NotContains(t, w.Body.String(), "warnings", "a connection with a catalog carries no warning")
 	})
+}
+
+// TestSetConnectionInstance_NoCatalogWarns is #2271: an api connection saved
+// with no catalog is saved, and the answer names what that means and the fix;
+// a connection of another kind, or one with a catalog, carries no warning.
+func TestSetConnectionInstance_NoCatalogWarns(t *testing.T) {
+	put := func(kind, body string) map[string]any {
+		h := connTestHandlerWithCatalogStore(&mockConnectionStore{}, apicatalog.NewMemoryStore())
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/connection-instances/"+kind+"/c", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		return out
+	}
+	for name, body := range map[string]string{
+		"absent": `{"config":{"base_url":"https://x"},"description":""}`,
+		"empty":  `{"config":{"base_url":"https://x","catalog_id":""},"description":""}`,
+	} {
+		out := put("api", body)
+		warnings, _ := out["warnings"].([]any)
+		require.Len(t, warnings, 1, name)
+		assert.Contains(t, warnings[0], "api_discover", name)
+		assert.Contains(t, warnings[0], "catalog_id", name)
+		assert.Equal(t, "c", out["name"], "the connection is saved and returned beside the warning")
+	}
+	trino := put("trino", `{"config":{"host":"localhost","port":8080,"user":"u"},"description":""}`)
+	assert.NotContains(t, trino, "warnings")
 }
 
 // TestRedactConnectionConfig_GoogleKeyIdentity is #2061's read: the key file

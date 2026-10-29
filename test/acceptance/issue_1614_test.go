@@ -135,10 +135,18 @@ func TestIssue1614_AnExcludedPrincipalsCallIsAuditedAndNotCataloged(t *testing.T
 	// The audit row is written, and written whole: an operator can still see
 	// exactly what the automated system did, which is what makes declining to
 	// catalog it safe.
-	events := admin.list("/api/v1/admin/audit/events?session_id=" + machine.sessionID +
-		"&tool_name=api_invoke_endpoint&per_page=50")
-	if len(events) == 0 {
-		t.Fatal("an excluded principal's call must still be audited; no audit event for the session")
+	// The audit row is written after the call answers, so it is read until it
+	// is there.
+	var events []any
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(250 * time.Millisecond) {
+		events = admin.list("/api/v1/admin/audit/events?session_id=" + machine.sessionID +
+			"&tool_name=api_invoke_endpoint&per_page=50")
+		if len(events) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("an excluded principal's call must still be audited; no audit event for the session after 30s")
+		}
 	}
 	ev, _ := events[0].(map[string]any)
 	for field, want := range map[string]string{

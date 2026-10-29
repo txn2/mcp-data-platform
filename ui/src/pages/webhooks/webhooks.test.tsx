@@ -393,7 +393,7 @@ describe("WebhookEditor", () => {
     h.detail = { data: undefined, isLoading: false, error: null };
     render(<WebhookEditor onBack={vi.fn()} onSaved={vi.fn()} />);
     fireEvent.change(screen.getByPlaceholderText("email-events"), { target: { value: "esp" } });
-    fireEvent.change(screen.getByLabelText(/^Secret/), { target: { value: "whsec" } });
+    fireEvent.change(screen.getByLabelText(/^Secret(?! encoding)/), { target: { value: "whsec" } });
     fireEvent.change(screen.getByPlaceholderText("X-Signature"), { target: { value: "X-Sig" } });
     // The connection select is a Radix select; the form model is covered in
     // webhookForm.test.ts, so this asserts the refusal names it.
@@ -410,6 +410,17 @@ describe("WebhookEditor", () => {
     const body = h.update.mock.calls[0]![0];
     expect(body.auth.secret).toBeUndefined();
     expect(body.name).toBeUndefined();
+  });
+
+  it("shows a preset source by its sender, with the secret named as that sender names it (#2223)", () => {
+    const discord = { ...busy, auth: { mode: "ed25519" as const, preset: "discord", secret_set: true } };
+    h.detail = { data: { source: discord, status: mockWebhookStatus[busy.name] }, isLoading: false, error: null };
+    render(<WebhookEditor name={busy.name} onBack={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByLabelText(/^Application public key/)).toBeInTheDocument();
+    expect(screen.queryByText("How a request proves it came from the sender")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("X-Signature-Ed25519")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(h.update.mock.calls[0]![0].auth).toMatchObject({ mode: "ed25519", preset: "discord" });
   });
 
   it("offers the rotation overlap once a new secret is typed", () => {

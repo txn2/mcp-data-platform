@@ -272,7 +272,8 @@ func authOf(a AuthInput) whsource.Auth {
 		Mode: a.Mode, Secret: a.Secret, Algorithm: a.Algorithm, SignatureHeader: a.SignatureHeader,
 		Encoding: a.Encoding, Prefix: a.Prefix, TimestampHeader: a.TimestampHeader,
 		ToleranceSeconds: a.ToleranceSeconds, Signed: a.Signed, Header: a.Header, Username: a.Username,
-		IDHeader: a.IDHeader, HeaderFormat: a.HeaderFormat,
+		IDHeader: a.IDHeader, HeaderFormat: a.HeaderFormat, Preset: a.Preset, HeaderPattern: a.HeaderPattern,
+		SecretEncoding: a.SecretEncoding, TimestampPath: a.TimestampPath, TokenPath: a.TokenPath,
 	}
 }
 
@@ -283,7 +284,8 @@ func viewOf(s whsource.Source) SourceView {
 		Mode: a.Mode, SecretSet: a.Secret != "", Algorithm: a.Algorithm, SignatureHeader: a.SignatureHeader,
 		Encoding: a.Encoding, Prefix: a.Prefix, TimestampHeader: a.TimestampHeader,
 		ToleranceSeconds: a.ToleranceSeconds, Signed: a.Signed, Header: a.Header, Username: a.Username,
-		IDHeader: a.IDHeader, HeaderFormat: a.HeaderFormat,
+		IDHeader: a.IDHeader, HeaderFormat: a.HeaderFormat, Preset: a.Preset, HeaderPattern: a.HeaderPattern,
+		SecretEncoding: a.SecretEncoding, TimestampPath: a.TimestampPath, TokenPath: a.TokenPath,
 	}
 	if a.PreviousSecret != "" && !a.PreviousUntil.IsZero() {
 		until := a.PreviousUntil.UTC()

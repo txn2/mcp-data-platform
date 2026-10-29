@@ -49,7 +49,10 @@ function plural(count: number, noun: string): string {
 /** connectionOption labels a connection by how much of it the reader reaches,
  * which is the number that moves when a deny rule applies. */
 function connectionOption(c: APIConnection): SourceOption {
-  return { value: c.name, label: c.name, hint: plural(c.operation_count, "operation") };
+  // A connection with no catalog has nothing to list, which is not the same as
+  // a catalog that lists nothing the caller reaches (#2271).
+  const hint = c.catalog_id ? plural(c.operation_count, "operation") : "no catalog";
+  return { value: c.name, label: c.name, hint };
 }
 
 /** useBrowseSources lists what the reader may browse in this scope. */

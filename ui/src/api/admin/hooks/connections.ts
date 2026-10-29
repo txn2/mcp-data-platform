@@ -26,7 +26,10 @@ export function useSetConnectionInstance() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ kind, name, ...body }: { kind: string; name: string; config: Record<string, unknown>; description?: string }) =>
-      apiFetch<ConnectionInstance>(`/connection-instances/${kind}/${name}`, {
+      // A save answers with warnings beside the connection, such as an api
+      // connection saved with no catalog (#2271); the Connections list and
+      // the connection's page show the same state from the effective list.
+      apiFetch<ConnectionInstance & { warnings?: string[] }>(`/connection-instances/${kind}/${name}`, {
         method: "PUT",
         body: JSON.stringify(body),
       }),

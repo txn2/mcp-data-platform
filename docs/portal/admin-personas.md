@@ -32,6 +32,8 @@ The **Identity** section warns when another persona lists one of the persona's r
 
 ![Persona API endpoint rules](../images/screenshots/light/admin-admin-persona-api-routes-light.webp#only-light)![Persona API endpoint rules](../images/screenshots/dark/admin-admin-persona-api-routes-dark.webp#only-dark)
 
+An editor with unsaved changes asks **Discard unsaved changes?** before it is left: for another persona, through the sidebar, or by closing or reloading the tab (#2268). A save clears it. The connection editor, the configuration editors (Admin > Instructions and the like), a prompt being edited and a resource's source editor ask the same way.
+
 **Instructions** holds two texts, **Tool descriptions** and **Agent instructions**, each either added to the platform's text or replacing it.
 
 **Portal access** sets one level per portal area. Each control's help names the AI-side tool that is governed elsewhere. On an external persona the rows External sets are locked, each with the saved choice beside what applies ("Set by External: None. Saved choice: Edit."), Resources offers None or **Their own folder**, and an **Uploads** checkbox lets its people upload files to their own folder (#2290). **Earlier versions** shows the persona's people the earlier versions of an asset shared with them, off by default, and **External files** (None, View, Manage) reaches every external person's own folder under **External files** on the Resources page. On the administrator persona every row is locked: administrators have every area.

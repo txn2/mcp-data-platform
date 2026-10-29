@@ -60,6 +60,15 @@ func SQLSamples() map[string]string {
 	add("buildDistinctPairsQuery", func() (string, []any, error) {
 		return buildDistinctPairsQuery(colUserID, colUserEmail, &start, &end)
 	})
+	add("buildCountUpToQuery", func() (string, []any, error) { return buildCountUpToQuery(full, 10_001) })
+	// With no time range, each dropdown and the user labels are loose index
+	// scans (#2272), one per column the dropdowns read.
+	for _, col := range []string{colUserID, colToolName, colToolkitKind, colSource, colEventKind} {
+		add("buildDistinctQuery/loose/"+col, func() (string, []any, error) { return buildDistinctQuery(col, nil, nil) })
+	}
+	add("buildDistinctPairsQuery/loose", func() (string, []any, error) {
+		return buildDistinctPairsQuery(colUserID, colUserEmail, nil, nil)
+	})
 	add("buildOverviewQuery", func() (string, []any, error) { return buildOverviewQuery(metrics) })
 	add("buildPerformanceQuery", func() (string, []any, error) { return buildPerformanceQuery(metrics) })
 	add("buildEnrichmentQuery", func() (string, []any, error) { return buildEnrichmentQuery(metrics) })

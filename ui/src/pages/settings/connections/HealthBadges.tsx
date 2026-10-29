@@ -96,6 +96,55 @@ export function GatewayHealthBadge({
   );
 }
 
+// NOCATALOG_TOOLTIP says what an api connection with no catalog does not do
+// (#2271).
+const NOCATALOG_TOOLTIP =
+  "No catalog: discovery is off. The connection works by method and path, but api_discover and search find none of its operations.";
+
+// NoCatalogBadge marks an api connection with no catalog on the connection
+// list (#2271). It is a warning, not a fault: a connection used only by method
+// and path works as it is.
+export function NoCatalogBadge() {
+  return (
+    <Badge variant="warning" title={NOCATALOG_TOOLTIP} aria-label={NOCATALOG_TOOLTIP}>
+      <Dot className="bg-amber-500" />
+      no catalog
+    </Badge>
+  );
+}
+
+// NoCatalogNotice is the connection viewer's account of an api connection
+// with no catalog, and the two ways to give it one: link a catalog in the
+// editor, or create one from the vendor's spec.
+export function NoCatalogNotice({ onLink }: { onLink?: () => void }) {
+  return (
+    <SectionCard
+      title={
+        <span className="flex items-center gap-2">
+          <AlertCircle className="size-4 text-amber-600 dark:text-amber-400" />
+          No catalog: discovery is off
+        </span>
+      }
+    >
+      <p className="text-sm text-muted-foreground">
+        This connection works by method and path, but api_discover returns none of its operations and
+        search finds none of them, so other people&apos;s agents cannot learn what it does. Link the
+        catalog built from the vendor&apos;s OpenAPI spec, or create one.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+        {onLink && (
+          <button type="button" className="font-medium text-primary underline" onClick={onLink}>
+            Link a catalog
+          </button>
+        )}
+        <a className="font-medium text-primary underline" href="/portal/admin/api-catalogs">
+          Create a catalog
+        </a>
+      </div>
+    </SectionCard>
+  );
+}
+
 // GatewayHealthDetail renders the full reachability detail for a selected
 // gateway connection: reachable/unreachable, the last successful call time,
 // and the last error. Surfaces in the detail pane so an operator diagnosing a

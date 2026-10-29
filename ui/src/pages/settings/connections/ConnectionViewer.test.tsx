@@ -129,3 +129,37 @@ describe("ConnectionViewer — a connection carrying both OAuth vocabularies", (
     ).not.toBeInTheDocument();
   });
 });
+
+// An api connection with no catalog works, and nothing can discover what it
+// does (#2271): the viewer says so and offers both fixes.
+describe("ConnectionViewer for an api connection with no catalog", () => {
+  it("says discovery is off and offers to link or create a catalog", async () => {
+    const onEdit = vi.fn();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <ConnectionViewer
+          connection={connection({ kind: "api", name: "acme-erp", config: { base_url: "https://erp.example.com" } })}
+          isReadOnly={false}
+          onEdit={onEdit}
+          onDeleted={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("No catalog: discovery is off")).toBeInTheDocument();
+    screen.getByRole("button", { name: "Link a catalog" }).click();
+    expect(onEdit).toHaveBeenCalledOnce();
+    expect(screen.getByRole("link", { name: "Create a catalog" })).toHaveAttribute("href", "/portal/admin/api-catalogs");
+  });
+
+  it("says nothing for an api connection with a catalog", () => {
+    renderViewer(connection({ kind: "api", name: "acme-crm", config: { catalog_id: "crm" } }));
+    expect(screen.queryByText("No catalog: discovery is off")).not.toBeInTheDocument();
+  });
+
+  it("offers only the create link on a file-declared connection", () => {
+    renderViewer(connection({ kind: "api", name: "acme-erp", config: {}, file_declared: true }));
+    expect(screen.getByText("No catalog: discovery is off")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Link a catalog" })).not.toBeInTheDocument();
+  });
+});

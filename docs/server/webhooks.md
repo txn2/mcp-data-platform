@@ -72,7 +72,8 @@ The sender is then given `https://platform.example.com/hooks/email-events`.
 | `connection` | The Trino connection whose scratch catalog holds the table. |
 | `enabled` | A disabled source answers `404`, the same answer as a name that is not a source. Default `true`. |
 | `auth` | How a request proves it came from the sender. See [Authentication](#authentication). |
-| `config.handshake` | `none` or `cloudevents`. See [The CloudEvents handshake](#the-cloudevents-handshake). |
+| `config.handshake` | The sender setup check the source answers: `none`, `cloudevents`, `challenge_echo`, `zoom`, `discord` or `graph_validation`. A preset sets it. See [Setup checks](#setup-checks). |
+| `config.challenge_field` | The body field a `challenge_echo` check carries. Default `challenge`. |
 | `config.max_body_bytes` | Default 1 MiB. A larger body gets `413` and is not stored. |
 | `config.split` | Unset: the body is one event. A JSON path to an array: each element is its own event, for senders that batch. `$` is a body that is itself an array. |
 | `config.event_id_path` | JSON path to the sender's event id, used to remove duplicates. Unset or absent from an event: the SHA-256 of the event's JSON (keys sorted) is used. |
@@ -91,6 +92,7 @@ The sender is then given `https://platform.example.com/hooks/email-events`.
 
 A JSON path is `$` for the document, `.name` or `['name']` for a member, and
 `[n]` for an array element: `$.data.events`, `$.contact['id']`, `$[0].id`.
+`[*]`, every element of an array, is read only by `auth.token_path`.
 
 The name, the connection and the persona do not change after creation. The
 table was created on that connection under that name, and the windows already
@@ -98,14 +100,87 @@ written are in that persona's library.
 
 ### Authentication
 
+#### Presets
+
+`auth.preset` names a sender, and the platform fills the mode, the headers, the
+signed bytes, the encodings and the setup check that sender uses. A setting the
+source sets itself is kept, so `tolerance_seconds` can be changed under a
+preset; the preset's mode always applies. The portal's source editor offers the
+presets under **Sender**.
+
+| `auth.preset` | The sender | The secret | What is checked | Setup check |
+|---|---|---|---|---|
+| `standard_webhooks` | A Standard Webhooks sender | The signing secret (`whsec_` and base64) | `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}` | |
+| `github` | GitHub | The webhook secret | `X-Hub-Signature-256: sha256=<hex>` over the body | |
+| `stripe` | Stripe | The endpoint's signing secret | `Stripe-Signature: t=...,v1=<hex>` over `{timestamp}.{body}` | |
+| `platform` | Another deployment's hmac connection | The signing secret | `X-Signature: sha256=<hex>` over `{timestamp}.{body}`, `X-Timestamp` | |
+| `slack` | Slack | The app's signing secret | `X-Slack-Signature: v0=<hex>` over `v0:{timestamp}:{body}`, `X-Slack-Request-Timestamp` | `challenge_echo` |
+| `zoom` | Zoom | The app's secret token | `x-zm-signature: v0=<hex>` over `v0:{timestamp}:{body}`, `x-zm-request-timestamp` | `zoom` |
+| `mattermost` | A Mattermost outgoing webhook | The outgoing webhook's token | The `token` field of the form or JSON body | |
+| `teams` | A Microsoft Teams outgoing webhook | The security token, as Teams shows it (base64) | `Authorization: HMAC <base64>` over the body, keyed by the decoded token | |
+| `discord` | Discord interactions | The application's public key, in hex | Ed25519 `X-Signature-Ed25519` over `{timestamp}{body}`, `X-Signature-Timestamp` | `discord` |
+| `monday` | monday.com, for a webhook created with an integration app token | The app's signing secret | An HS256 JWT in `Authorization`, its `exp` honored | `challenge_echo` |
+| `shopify` | Shopify | The app's client secret | `X-Shopify-Hmac-SHA256: <base64>` over the body | |
+| `linear` | Linear | The webhook's signing secret | `Linear-Signature: <hex>` over the body, and `webhookTimestamp` (milliseconds) in the body within 60 seconds | |
+| `gitlab` | GitLab, with a signing token | The signing token (`whsec_` and base64) | As `standard_webhooks` | |
+| `jira` | Jira Cloud | The webhook's secret | `X-Hub-Signature: sha256=<hex>` over the body | |
+| `microsoft_graph` | Microsoft Graph change and lifecycle notifications | The `clientState` the subscription was created with | Every item of `value[]` carries the `clientState` | `graph_validation` |
+
+A Graph source usually also sets `config.split: "$.value"`, so each
+notification is its own event. A sender that expects a reply posted back into a
+chat (a Slack slash command, a Mattermost or Teams outgoing webhook, a Discord
+interaction that needs a response) is an [endpoint](../scripts/endpoints.md)'s
+job: a source stores what it is sent and answers `202`.
+
+The requests were built for the platform's tests from each sender's published
+documentation; the first delivery from a real account is what confirms a
+sender sends what its documentation says.
+
+#### Modes
+
 | `auth.mode` | What a request carries | Settings |
 |---|---|---|
-| `hmac` | A signature of the body in a header | `algorithm` (`sha256` default, `sha1`, `sha512`), `signature_header`, `encoding` (`hex` default, `base64`), `prefix` (such as `sha256=`), `timestamp_header` with `tolerance_seconds` (default 300), `signed` (`body` default; `timestamp.body`, which signs the timestamp, a `.`, and the body; or `id.timestamp.body`, the Standard Webhooks form, which signs the `id_header` value, a `.`, the timestamp, a `.`, and the body), `header_format` (empty, or `stripe` for `t=<timestamp>,v1=<signature>` with the timestamp inside the signature header). |
+| `hmac` | A signature of the body in a header | `algorithm` (`sha256` default, `sha1`, `sha512`), `signature_header`, `encoding` (`hex` default, `base64`), `secret_encoding` (empty for the secret as written, or `base64` for the bytes it decodes to), `prefix` (such as `sha256=`), `signed` (see below), the timestamp from one of `timestamp_header`, `timestamp_path` or a `header_pattern` naming `{timestamp}`, with `tolerance_seconds` (default 300), `id_header`, and the signature header's layout: `header_format` (empty, or `stripe` for `t=<timestamp>,v1=<signature>` with the timestamp inside the signature header) or `header_pattern`. |
+| `ed25519` | An Ed25519 signature in a header | The secret is the sender's public key, 32 bytes in hex. `signature_header`, `encoding`, `signed`, `timestamp_header` or `timestamp_path`, `tolerance_seconds`. |
 | `header_token` | The secret itself in a header | `header` |
+| `body_token` | The secret itself in the body | `token_path`: where in a JSON body, or which field of a form body. A path through `[*]` (`value[*].clientState`) requires every element to carry the token; one element without it refuses the whole request. |
+| `jwt` | An HS256 JSON Web Token in a header, with or without `Bearer ` | `header` (default `Authorization`). The token is verified with the secret; its `exp` is honored when present. |
 | `basic` | HTTP Basic credentials, the secret as the password | `username` |
 | `path_token` | The secret as a further path segment, `/hooks/{name}/{secret}`, for a sender that can set nothing but a URL | none |
 
-With `timestamp_header` set, or `header_format: stripe`, a request whose
+`signed` is `body` (the default), `timestamp.body`, `id.timestamp.body`, or a
+template over `{id}`, `{timestamp}` and `{body}` with the text between them:
+`v0:{timestamp}:{body}` is Slack's, `{timestamp}{body}` Discord's. The three
+named forms are the templates `{body}`, `{timestamp}.{body}` and
+`{id}.{timestamp}.{body}`. `{body}` is required, and each placeholder appears
+at most once.
+
+`header_pattern` lays out a signature header that carries more than a prefix
+and a signature, over `{signature}` (required) and `{timestamp}` (optional),
+with literal text between them: `{timestamp}|{signature}`, or
+`HMAC {signature}`. It replaces `prefix` and `header_format`. A pattern naming
+any other placeholder, naming one twice, or putting two placeholders side by
+side is refused when the source is saved. A sender that writes
+`<timestamp>|<signature>` and signs `<body>|<timestamp>` is configuration:
+
+```json
+{
+  "mode": "hmac",
+  "secret": "...",
+  "algorithm": "sha256",
+  "encoding": "hex",
+  "signature_header": "Verkada-Signature",
+  "header_pattern": "{timestamp}|{signature}",
+  "signed": "{body}|{timestamp}"
+}
+```
+
+The template and the pattern are compiled when the source is loaded, and the
+signed bytes are written into the HMAC piece by piece, so the body is never
+copied; the timestamp window is checked before any hashing.
+
+With a timestamp read from a header, from the body, or from the signature
+header, a request whose
 timestamp is further than the tolerance from the platform's clock is refused
 even when its signature is right, which is what makes a replayed request fail.
 A timestamp above 10^12 is read as milliseconds. A signature header may carry
@@ -123,14 +198,26 @@ one until the overlap ends, so the sender can be moved to the new one with no
 window in which its requests fail. An update without `auth.secret` keeps the
 stored secret.
 
-### The CloudEvents handshake
+### Setup checks
 
-A sender that implements the CloudEvents HTTP webhook abuse-protection
-handshake sends an `OPTIONS` request carrying `WebHook-Request-Origin` before it
-delivers anything, and delivers nothing until it is answered. With
-`handshake: cloudevents` the source answers `200` with `WebHook-Allowed-Origin`
-echoing the origin, and `WebHook-Allowed-Rate` when the source has a rate
-limit. A source without the handshake answers `OPTIONS` with `405`.
+Several senders check an address before they deliver to it. A source answers
+the one `config.handshake` names. A check is answered `200`, counted under the
+outcome `setup_check` (neither accepted nor refused), and writes nothing to the
+spool or the tables.
+
+| `handshake` | The check | Answered | Verified first |
+|---|---|---|---|
+| `cloudevents` | `OPTIONS` carrying `WebHook-Request-Origin` (the CloudEvents abuse-protection handshake) | `WebHook-Allowed-Origin` echoing the origin, and `WebHook-Allowed-Rate` when the source has a rate limit | no |
+| `challenge_echo` | A JSON body whose `challenge` field (`challenge_field`) is a string and which carries nothing else but `token` and `type: url_verification` (Slack's `url_verification`, monday.com's challenge) | `{"challenge": "<the challenge>"}` | no: monday.com does not sign its challenge |
+| `zoom` | `{"event": "endpoint.url_validation", "payload": {"plainToken": ...}}` | `{"plainToken": ..., "encryptedToken": <hex HMAC-SHA256 of the plain token under the secret>}` | yes: answered unverified, it would hand anyone the HMAC of any text, which forges Zoom signatures |
+| `discord` | A PING, `{"type": 1}` | `{"type": 1}`; an unsigned PING gets `401`, which Discord's own check expects | yes |
+| `graph_validation` | A request carrying `?validationToken=` (a subscription's notification URL and its lifecycle notification URL alike) | `200 text/plain` with the decoded token, never inside HTML or JSON | no: the validation carries no `clientState` |
+
+A source without `cloudevents` answers `OPTIONS` with `405`.
+
+A challenge, plain token or validation token holding `<`, `>`, `&`, `'` or `"` is
+not answered as a check: no answer writes such a value back. The senders'
+values are opaque text without those characters.
 
 ### Sending to a webhook
 
@@ -298,10 +385,13 @@ Each request is handled in this order, and stops at the first refusal:
 |---|---|
 | The source exists and is enabled | `404`, the same body for both |
 | `OPTIONS` on a `cloudevents` source is answered here | |
+| A `graph_validation` check is answered here | |
 | The body is at most `max_body_bytes` | `413` |
+| A `challenge_echo` check is answered here | |
 | The request authenticates | `401`; nothing is stored |
+| A `zoom` or `discord` check is answered here | |
 | The rate limit | `429`, `Retry-After` |
-| The body is JSON (for a form post, its `payload` field is), and `split` names an array | `400` |
+| The body is JSON (for a form post, its `payload` field is, or, with no `payload` field, the form's fields are the event), and `split` names an array | `400` |
 | The request holds no more events than `buffer_limit` | `413`; a batch the buffer can never hold is not worth retrying |
 | The events fit in the source's buffer | `503`, `Retry-After: 1` |
 | The segment holding the events is written to object storage | `503`, `Retry-After: 5` |

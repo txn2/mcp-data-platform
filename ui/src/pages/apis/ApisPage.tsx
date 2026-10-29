@@ -124,6 +124,18 @@ function SourcePicker({
  * as a table so the two readings sit side by side and neither is a fallback for
  * the other: an operator with no catalog and a caller with no connection are
  * missing different things. */
+/** NO_CATALOG is what the portal says of a connection with no catalog
+ * (#2271): it works, and its operations cannot be listed. */
+const NO_CATALOG =
+  "This connection has no catalog, so discovery is off: its operations cannot be listed, read through api_discover, or found by search. It still answers calls by method and path. An administrator links a catalog built from the vendor's OpenAPI spec in Admin > Connections.";
+
+/** emptyMessage is what the index says when its source lists nothing: a
+ * connection with no catalog is told apart from one whose catalog lists
+ * nothing the reader reaches. */
+function emptyMessage(index: { connection?: { catalog_id?: string } }, noOperations: string): string {
+  return index.connection && !index.connection.catalog_id ? NO_CATALOG : noOperations;
+}
+
 const COPY: Record<ApisScope, { noSource: string; noOperations: string }> = {
   portal: {
     noSource:
@@ -252,7 +264,7 @@ export function ApisPage({ scope = "portal" }: { scope?: ApisScope } = {}) {
             selected={selected}
             onSelect={setSelected}
             loading={sources.isLoading || index.isLoading}
-            emptyMessage={copy.noOperations}
+            emptyMessage={emptyMessage(index, copy.noOperations)}
           />
         </aside>
         <section className="min-w-0 flex-1 overflow-hidden">

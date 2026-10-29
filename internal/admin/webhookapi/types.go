@@ -13,6 +13,7 @@ import (
 // AuthView is a source's authentication without its secrets.
 type AuthView struct {
 	Mode             string     `json:"mode"`
+	Preset           string     `json:"preset,omitempty"`
 	SecretSet        bool       `json:"secret_set"`
 	PreviousUntil    *time.Time `json:"previous_secret_until,omitempty"`
 	Algorithm        string     `json:"algorithm,omitempty"`
@@ -24,6 +25,10 @@ type AuthView struct {
 	Signed           string     `json:"signed,omitempty"`
 	IDHeader         string     `json:"id_header,omitempty"`
 	HeaderFormat     string     `json:"header_format,omitempty"`
+	HeaderPattern    string     `json:"header_pattern,omitempty"`
+	SecretEncoding   string     `json:"secret_encoding,omitempty"`
+	TimestampPath    string     `json:"timestamp_path,omitempty"`
+	TokenPath        string     `json:"token_path,omitempty"`
 	Header           string     `json:"header,omitempty"`
 	Username         string     `json:"username,omitempty"`
 }

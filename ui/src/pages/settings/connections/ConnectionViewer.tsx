@@ -13,7 +13,8 @@ import { ConnectionTestButton, canTestConnection } from "./ConnectionTestButton"
 import { ConnectionOAuthStatusCard } from "../ConnectionOAuthStatusCard";
 import { CONFIG_LABELS, kindColor } from "./constants";
 import { shadowedOAuthKeys, storedOAuthGrant } from "./oauthVocabulary";
-import { GatewayHealthDetail } from "./HealthBadges";
+import { GatewayHealthDetail, NoCatalogNotice } from "./HealthBadges";
+import { lacksCatalog } from "./connectionFilter";
 import { GraphQLSchemaCard } from "./GraphQLSchemaCard";
 
 // ConfigRows renders the raw config key/value pairs of a connection, using the
@@ -164,6 +165,12 @@ export function ConnectionViewer({
           </div>
         )}
       </div>
+
+      {/* An api connection with no catalog works, and nothing can discover
+          what it does (#2271). */}
+      {lacksCatalog(connection) && (
+        <NoCatalogNotice onLink={!isReadOnly && !fileOwned ? onEdit : undefined} />
+      )}
 
       {/* Every other kind's connection test. The mcp kind keeps the richer
           GatewayActionBar below, whose test can also probe a config that has

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/connsecretref"
@@ -91,6 +92,35 @@ func (h *Handler) validateConnectionCatalog(ctx context.Context, kind string, co
 		return "failed to validate catalog_id", false
 	}
 	return "", true
+}
+
+// noCatalogWarning is what a save of an api connection with no catalog answers
+// with (#2271): the connection works by method and path, and nothing about
+// its operations can be found.
+const noCatalogWarning = "No catalog is linked: api_discover returns no operations for this connection and " +
+	"search finds none of them. Create a catalog from the vendor's OpenAPI spec (POST /api/v1/admin/api-catalogs, " +
+	"or Admin > Catalogs) and set config.catalog_id, or link an existing one. A connection used only by method " +
+	"and path can stay as it is."
+
+// connectionWarnings are what a save answers with besides the connection,
+// without refusing it.
+func connectionWarnings(kind string, config map[string]any) []string {
+	if kind != connectionKindAPI {
+		return nil
+	}
+	if id, _ := config["catalog_id"].(string); strings.TrimSpace(id) != "" {
+		return nil
+	}
+	return []string{noCatalogWarning}
+}
+
+// connectionSaveResponse is a saved connection and the warnings its save
+// carries.
+type connectionSaveResponse struct {
+	platform.ConnectionInstance
+	// Warnings name what the connection will not do as saved, without
+	// refusing it: an api connection with no catalog (#2271).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // knownConnectionKinds lists the toolkit kinds that support multiple configurable
@@ -188,14 +218,14 @@ type setConnectionInstanceRequest struct {
 // setConnectionInstance handles PUT /api/v1/admin/connection-instances/{kind}/{name}.
 //
 // @Summary      Create or update connection instance
-// @Description  Creates or updates a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it.
+// @Description  Creates or updates a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it. An api connection is set up in two steps: a catalog from the vendor's OpenAPI spec (POST /api/v1/admin/api-catalogs, or an existing catalog), then this connection with config.catalog_id naming it. Saved without a catalog, the connection still works by method and path, and the response carries a warning that api_discover and search find none of its operations; if no spec can be found, say so to the person rather than reporting the setup done.
 // @Tags         Connections
 // @Accept       json
 // @Produce      json
 // @Param        kind  path  string                        true  "Toolkit kind (trino, s3, mcp, api, graphql)"
 // @Param        name  path  string                        true  "Instance name"
 // @Param        body  body  setConnectionInstanceRequest  true  "Connection instance data"
-// @Success      200   {object}  platform.ConnectionInstance
+// @Success      200   {object}  connectionSaveResponse
 // @Failure      400   {object}  problemDetail
 // @Failure      409   {object}  problemDetail
 // @Failure      500   {object}  problemDetail
@@ -332,8 +362,9 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 
 	h.activateConnection(inst)
 
+	warnings := connectionWarnings(kind, inst.Config)
 	inst.Config = redactConnectionConfig(inst.Config)
-	writeJSON(w, http.StatusOK, inst)
+	writeJSON(w, http.StatusOK, connectionSaveResponse{ConnectionInstance: inst, Warnings: warnings})
 }
 
 // deleteConnectionInstance handles DELETE /api/v1/admin/connection-instances/{kind}/{name}.

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { hasUnsavedChanges } from "@/lib/navigationGuard";
 
 const LIMIT = 32768;
 const ADVISORY = 12288;
@@ -182,5 +183,19 @@ describe("ConfigEditorPage size meter", () => {
     h.baseline = { data: undefined, isLoading: true };
     renderInstructions();
     expect(screen.queryByTestId("instruction-size-meter")).not.toBeInTheDocument();
+  });
+});
+
+// An unsaved edit registers with the navigation guard, so a sidebar link, a
+// tab close or a reload asks before it is lost (#2268).
+describe("ConfigEditorPage unsaved changes", () => {
+  it("registers while the value differs from the stored one", () => {
+    h.entryValue = "stored";
+    render(<ConfigEditorPage configKey="server.agent_instructions" label="Agent Instructions" description="d" />);
+    expect(hasUnsavedChanges()).toBe(false);
+    fireEvent.change(screen.getByTestId("editor"), { target: { value: "edited" } });
+    expect(hasUnsavedChanges()).toBe(true);
+    fireEvent.change(screen.getByTestId("editor"), { target: { value: "stored" } });
+    expect(hasUnsavedChanges()).toBe(false);
   });
 });

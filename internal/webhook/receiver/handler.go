@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whauth"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whsetup"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
@@ -34,6 +35,10 @@ const (
 	// segment was written. Unlike write_failed, its write goes on and may
 	// well store the events; a log line says how it ended.
 	OutcomeSenderGone = "sender_gone"
+	// OutcomeSetupCheck is a sender's setup check the source answered
+	// (#2223): it is neither an accepted event nor a refusal, and stores
+	// nothing.
+	OutcomeSetupCheck = "setup_check"
 )
 
 // Retry-After values, in seconds, for the answers a sender should retry.
@@ -79,13 +84,25 @@ func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // authentication, rate, body -- and accepts it once all four pass.
 func (r *Receiver) post(w http.ResponseWriter, req *http.Request, src served, token string, started time.Time) {
 	d := delivery{source: src.Name, started: started}
+	if a, ok := whsetup.FromQuery(src.Source, req.URL.Query()); ok {
+		r.answerSetup(w, src.Name, a)
+		return
+	}
 	body, status := readBody(req, src.Config.MaxBodyBytes)
 	if status != 0 {
 		r.refuse(w, d, refusal{outcome: OutcomeTooLarge, reason: "the body is larger than max_body_bytes", status: status}, nil)
 		return
 	}
-	if err := whauth.Verify(src.Source, whauth.Request{Header: req.Header, PathToken: token, Body: body}, r.now()); err != nil {
+	if a, ok := whsetup.BeforeVerification(src.Source, body); ok {
+		r.answerSetup(w, src.Name, a)
+		return
+	}
+	if err := src.verifier.Verify(whauth.Request{Header: req.Header, PathToken: token, Body: body}, r.now()); err != nil {
 		r.refuse(w, d, refusal{outcome: OutcomeUnauthorized, reason: err.Error(), status: http.StatusUnauthorized}, nil)
+		return
+	}
+	if a, ok := whsetup.AfterVerification(src.Source, body); ok {
+		r.answerSetup(w, src.Name, a)
 		return
 	}
 	if allowed, wait := r.allow(src.Source); !allowed {
@@ -175,6 +192,18 @@ func (r *Receiver) build(req *http.Request, src served, body []byte) ([]whevent.
 		return nil, err //nolint:wrapcheck // whevent's refusal is the sentence the sender is answered with
 	}
 	return whevent.Build(doc, src.paths, r.now(), r.cfg.Replica) //nolint:wrapcheck // as above
+}
+
+// answerSetup answers a sender's setup check (#2223) and counts it as one,
+// never as an accepted event; nothing is stored for it. The answer is the
+// sender's own value or one computed from it, written with nosniff.
+func (r *Receiver) answerSetup(w http.ResponseWriter, source string, a whsetup.Answer) {
+	r.count(source, OutcomeSetupCheck, http.StatusOK)
+	w.Header().Set("Content-Type", a.ContentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	// #nosec G705 -- a check's own value or one computed from it, as text/plain or JSON with nosniff, never HTML
+	_, _ = w.Write(a.Body)
 }
 
 // handshake answers the CloudEvents abuse-protection OPTIONS request on a

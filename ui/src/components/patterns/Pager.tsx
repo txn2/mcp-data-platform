@@ -15,12 +15,16 @@ export function Pager({
   page,
   perPage,
   total,
+  atLeast = false,
   onPage,
   className,
 }: {
   page: number;
   perPage: number;
   total: number;
+  // atLeast says the total is a count that stopped at a cap: there are at
+  // least that many, and the pages run to the cap (#2272).
+  atLeast?: boolean;
   onPage: (page: number) => void;
   className?: string;
 }) {
@@ -37,7 +41,8 @@ export function Pager({
       )}
     >
       <span className="tabular-nums">
-        Showing {first}&ndash;{last} of {total}
+        Showing {first}&ndash;{last} of {total.toLocaleString()}
+        {atLeast && "+"}
       </span>
       <div className="flex items-center gap-1">
         <Button
@@ -52,7 +57,8 @@ export function Pager({
           Prev
         </Button>
         <span className="px-1 tabular-nums">
-          Page {current} of {pageCount}
+          Page {current} of {pageCount.toLocaleString()}
+          {atLeast && "+"}
         </span>
         <Button
           type="button"

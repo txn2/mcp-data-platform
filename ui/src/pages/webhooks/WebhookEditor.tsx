@@ -7,7 +7,7 @@ import {
   useUpdateWebhookSource,
   useWebhookSource,
 } from "@/api/admin/hooks";
-import type { WebhookAuthMode, WebhookSource } from "@/api/admin/types";
+import type { WebhookSource } from "@/api/admin/types";
 import { useTableConnections } from "@/api/tables/hooks";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { PageHeader } from "@/components/patterns/PageHeader";
@@ -20,12 +20,11 @@ import {
   ConfigToggle,
 } from "@/pages/settings/connections/fields";
 import { MailboxGroup } from "./MailboxGroup";
+import { AuthGroup } from "./WebhookAuthGroup";
 import {
   EMPTY_FORM,
   fromSource,
   COMPACT_EVERY_MINUTES,
-  HTTP_MODES,
-  MODE_LABELS,
   problems,
   toInput,
   type WebhookForm,
@@ -206,7 +205,7 @@ function Refusals({ shown, error }: { shown: string[]; error: Error | null }) {
   );
 }
 
-type Setter = <K extends keyof WebhookForm>(key: K) => (value: WebhookForm[K]) => void;
+export type Setter = <K extends keyof WebhookForm>(key: K) => (value: WebhookForm[K]) => void;
 
 /** InputGroups are the settings of the source's input: a mailbox's, or a
  * posted source's authentication and events. A form's source has none: the
@@ -289,149 +288,6 @@ function SourceGroup({ form, creating, set }: { form: WebhookForm; creating: boo
     </ConfigGroup>
   );
 }
-
-function AuthGroup({ form, creating, set }: { form: WebhookForm; creating: boolean; set: Setter }) {
-  return (
-    <ConfigGroup title="Authentication">
-      <ConfigSelect
-        label="How a request proves it came from the sender"
-        value={form.mode}
-        onChange={(v) => set("mode")(v as WebhookAuthMode)}
-        options={HTTP_MODES.map((m) => ({ value: m, label: MODE_LABELS[m] }))}
-      />
-      <ConfigField
-        label={creating ? "Secret" : "New secret"}
-        required={creating}
-        sensitive
-        value={form.secret}
-        onChange={set("secret")}
-        help={creating ? "Never shown again after it is saved." : "Leave empty to keep the stored secret."}
-      />
-      {!creating && form.secret !== "" && (
-        <ConfigField
-          label="Keep accepting the previous secret for (hours)"
-          type="number"
-          value={form.rotationOverlapHours}
-          onChange={set("rotationOverlapHours")}
-          help="Time to move the sender to the new secret. 0 stops accepting the previous one at once."
-        />
-      )}
-      {form.mode === "hmac" && <HMACFields form={form} set={set} />}
-      {form.mode === "header_token" && (
-        <ConfigField label="Header" required mono value={form.header} onChange={set("header")} placeholder="X-Webhook-Token" />
-      )}
-      {form.mode === "basic" && (
-        <ConfigField label="Username" required value={form.username} onChange={set("username")} />
-      )}
-      {form.mode === "path_token" && (
-        <p className="text-xs text-muted-foreground">
-          The sender posts to /hooks/&lt;name&gt;/&lt;secret&gt;. Use this only for a sender that can set nothing but a
-          URL: the secret is in every log that records addresses.
-        </p>
-      )}
-      <ConfigSelect
-        label="CloudEvents handshake"
-        value={form.handshake}
-        onChange={set("handshake")}
-        options={[
-          { value: "none", label: "None" },
-          { value: "cloudevents", label: "Answer the CloudEvents OPTIONS handshake" },
-        ]}
-      />
-    </ConfigGroup>
-  );
-}
-
-function HMACFields({ form, set }: { form: WebhookForm; set: Setter }) {
-  const stripe = form.headerFormat === "stripe";
-  return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <ConfigField
-        label="Signature header"
-        required
-        mono
-        value={form.signatureHeader}
-        onChange={set("signatureHeader")}
-        placeholder={stripe ? "Stripe-Signature" : "X-Signature"}
-      />
-      <ConfigSelect
-        label="Header format"
-        value={form.headerFormat}
-        onChange={set("headerFormat")}
-        options={[
-          { value: "", label: "Prefix and signature" },
-          { value: "stripe", label: "Stripe" },
-        ]}
-      />
-      <ConfigSelect
-        label="Algorithm"
-        value={form.algorithm}
-        onChange={set("algorithm")}
-        options={[
-          { value: "sha256", label: "SHA-256" },
-          { value: "sha1", label: "SHA-1" },
-          { value: "sha512", label: "SHA-512" },
-        ]}
-      />
-      <ConfigSelect
-        label="Encoding"
-        value={form.encoding}
-        onChange={set("encoding")}
-        options={[
-          { value: "hex", label: "Hex" },
-          { value: "base64", label: "Base64" },
-        ]}
-      />
-      {!stripe && (
-        <>
-          <ConfigField label="Prefix" mono value={form.prefix} onChange={set("prefix")} placeholder="sha256=" />
-          <ConfigField
-            label="Timestamp header"
-            mono
-            value={form.timestampHeader}
-            onChange={set("timestampHeader")}
-            help="Refuses a request whose timestamp is outside the tolerance, even with a valid signature."
-          />
-        </>
-      )}
-      {(stripe || form.timestampHeader.trim() !== "") && (
-        <ConfigField
-          label="Tolerance (seconds)"
-          type="number"
-          value={form.toleranceSeconds}
-          onChange={set("toleranceSeconds")}
-          placeholder="300"
-        />
-      )}
-      {!stripe && form.timestampHeader.trim() !== "" && (
-        <ConfigSelect
-          label="Signed content"
-          value={form.signed}
-          onChange={set("signed")}
-          options={SIGNED_CONTENT}
-        />
-      )}
-      {!stripe && form.timestampHeader.trim() !== "" && form.signed === "id.timestamp.body" && (
-        <ConfigField
-          label="ID header"
-          required
-          mono
-          value={form.idHeader}
-          onChange={set("idHeader")}
-          placeholder="webhook-id"
-        />
-      )}
-    </div>
-  );
-}
-
-/** SIGNED_CONTENT are the bytes a signature can cover, named as the
- * connection editor names them. */
-const SIGNED_CONTENT = [
-  { value: "body", label: "Body" },
-  { value: "timestamp.body", label: "Timestamp and body" },
-  { value: "id.timestamp.body", label: "ID, timestamp and body" },
-];
 
 function EventsGroup({ form, set }: { form: WebhookForm; set: Setter }) {
   return (

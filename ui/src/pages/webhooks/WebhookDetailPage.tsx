@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { MODE_LABELS, senderURL, windowLength } from "./webhookForm";
+import { MODE_LABELS, senderURL, WEBHOOK_PRESETS, windowLength } from "./webhookForm";
 import { MailboxSection } from "./MailboxSection";
 import { FormSourceSection } from "./FormSourceSection";
 import { RejectionsTable } from "./RejectionsTable";
@@ -118,9 +118,12 @@ const DISABLED_TEXT: Record<NonNullable<WebhookSource["config"]["input"]>, strin
   form: "This source is disabled: the form's submissions are refused and nothing is stored.",
 };
 
-/** sourceKind names how a source takes its events, in the page's subtitle. */
+/** sourceKind names how a source takes its events, in the page's subtitle:
+ * the sender, for a source configured by preset (#2223). */
 function sourceKind(source: WebhookSource): string {
   if (source.config.input === "form") return "Form submissions";
+  const preset = WEBHOOK_PRESETS[source.auth.preset ?? ""];
+  if (preset) return preset.label;
   return MODE_LABELS[source.auth.mode] ?? source.auth.mode;
 }
 

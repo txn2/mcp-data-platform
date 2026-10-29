@@ -24,6 +24,8 @@ interface HMACPreset {
   headerFormat: string;
   timestampHeader: string;
   idHeader: string;
+  headerPattern: string;
+  secretEncoding: string;
 }
 
 const DEFAULTS: HMACPreset = {
@@ -35,18 +37,25 @@ const DEFAULTS: HMACPreset = {
   headerFormat: "",
   timestampHeader: "",
   idHeader: "",
+  headerPattern: "",
+  secretEncoding: "",
 };
 
+const STANDARD_WEBHOOKS: HMACPreset = {
+  ...DEFAULTS,
+  encoding: "base64",
+  signatureHeader: "webhook-signature",
+  prefix: "v1,",
+  signed: "id.timestamp.body",
+  timestampHeader: "webhook-timestamp",
+  idHeader: "webhook-id",
+};
+
+// SLACK_STYLE is the convention Slack and Zoom share.
+const SLACK_STYLE: HMACPreset = { ...DEFAULTS, prefix: "v0=", signed: "v0:{timestamp}:{body}" };
+
 export const HMAC_PRESETS: Record<string, HMACPreset> = {
-  standard_webhooks: {
-    ...DEFAULTS,
-    encoding: "base64",
-    signatureHeader: "webhook-signature",
-    prefix: "v1,",
-    signed: "id.timestamp.body",
-    timestampHeader: "webhook-timestamp",
-    idHeader: "webhook-id",
-  },
+  standard_webhooks: STANDARD_WEBHOOKS,
   github: { ...DEFAULTS, signatureHeader: "X-Hub-Signature-256", prefix: "sha256=" },
   stripe: { ...DEFAULTS, signatureHeader: "Stripe-Signature", signed: "timestamp.body", headerFormat: "stripe" },
   platform: {
@@ -55,6 +64,19 @@ export const HMAC_PRESETS: Record<string, HMACPreset> = {
     signed: "timestamp.body",
     timestampHeader: "X-Timestamp",
   },
+  slack: { ...SLACK_STYLE, signatureHeader: "X-Slack-Signature", timestampHeader: "X-Slack-Request-Timestamp" },
+  zoom: { ...SLACK_STYLE, signatureHeader: "x-zm-signature", timestampHeader: "x-zm-request-timestamp" },
+  teams: {
+    ...DEFAULTS,
+    encoding: "base64",
+    signatureHeader: "Authorization",
+    headerPattern: "HMAC {signature}",
+    secretEncoding: "base64",
+  },
+  shopify: { ...DEFAULTS, encoding: "base64", signatureHeader: "X-Shopify-Hmac-SHA256" },
+  linear: { ...DEFAULTS, signatureHeader: "Linear-Signature" },
+  gitlab: STANDARD_WEBHOOKS,
+  jira: { ...DEFAULTS, signatureHeader: "X-Hub-Signature", prefix: "sha256=" },
 };
 
 const PRESET_OPTIONS = [
@@ -63,6 +85,13 @@ const PRESET_OPTIONS = [
   { value: "github", label: "GitHub" },
   { value: "stripe", label: "Stripe" },
   { value: "platform", label: "Platform" },
+  { value: "slack", label: "Slack" },
+  { value: "zoom", label: "Zoom" },
+  { value: "teams", label: "Microsoft Teams" },
+  { value: "shopify", label: "Shopify" },
+  { value: "linear", label: "Linear" },
+  { value: "gitlab", label: "GitLab" },
+  { value: "jira", label: "Jira" },
 ];
 
 // An empty value on a select means the preset's value, or the platform's
@@ -89,10 +118,20 @@ const ENCODINGS = [
   { value: "base64", label: "Base64" },
 ];
 
+// TEMPLATE is the signed-content choice for a template rather than a named
+// form.
+const TEMPLATE = "template";
+
 const SIGNED = [
   { value: "body", label: "Body" },
   { value: "timestamp.body", label: "Timestamp and body" },
   { value: "id.timestamp.body", label: "ID, timestamp and body" },
+  { value: TEMPLATE, label: "Template" },
+];
+
+const SECRET_ENCODINGS = [
+  { value: "", label: "As written" },
+  { value: "base64", label: "Base64" },
 ];
 
 const HEADER_FORMATS = [
@@ -104,6 +143,12 @@ const TIMESTAMP_UNITS = [
   { value: "seconds", label: "Seconds" },
   { value: "milliseconds", label: "Milliseconds" },
 ];
+
+// isTemplate reports whether a signed value is a template rather than one of
+// the named forms.
+function isTemplate(signed: string): boolean {
+  return signed !== "" && !SIGNED.some((o) => o.value === signed && o.value !== TEMPLATE);
+}
 
 // str reads a config value as a string.
 function str(config: Record<string, unknown>, key: string): string {
@@ -129,6 +174,12 @@ export function HMACAuthFields({ config, onChange }: ConfigFormProps) {
         value={str(config, "hmac_preset")}
         onChange={set("hmac_preset")}
         options={PRESET_OPTIONS}
+      />
+      <ConfigSelect
+        label="Secret encoding"
+        value={str(config, "hmac_secret_encoding")}
+        onChange={set("hmac_secret_encoding")}
+        options={inherit(source, preset.secretEncoding, SECRET_ENCODINGS)}
       />
       <SchemeFields config={config} set={set} preset={preset} source={source} />
       {!stripe && <SignedFields config={config} set={set} preset={preset} source={source} />}
@@ -184,6 +235,14 @@ function SchemeFields({ config, set, preset, source }: PartProps) {
           options={inherit(source, preset.headerFormat, HEADER_FORMATS)}
         />
       </div>
+      <ConfigField
+        label="Header pattern"
+        help="Lays out the whole signature header over {signature} and {timestamp}, such as {timestamp}|{signature} or HMAC {signature}. Replaces the prefix and the header format."
+        value={str(config, "hmac_header_pattern")}
+        onChange={set("hmac_header_pattern")}
+        placeholder={preset.headerPattern || "(none)"}
+        mono
+      />
     </>
   );
 }
@@ -192,6 +251,12 @@ function SchemeFields({ config, set, preset, source }: PartProps) {
 // Stripe header format fixes itself.
 function SignedFields({ config, set, preset, source }: PartProps) {
   const signed = str(config, "hmac_signed") || preset.signed;
+  const ownSigned = str(config, "hmac_signed");
+  const template = isTemplate(ownSigned);
+  const presetSigned = isTemplate(preset.signed) ? TEMPLATE : preset.signed;
+  // Choosing Template starts from the preset's template, or a common one.
+  const startTemplate = isTemplate(preset.signed) ? preset.signed : "{timestamp}.{body}";
+  const chooseSigned = (v: string) => set("hmac_signed")(v === TEMPLATE ? startTemplate : v);
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
@@ -205,28 +270,48 @@ function SignedFields({ config, set, preset, source }: PartProps) {
         />
         <ConfigSelect
           label="Signed content"
-          value={str(config, "hmac_signed")}
-          onChange={set("hmac_signed")}
-          options={inherit(source, preset.signed, SIGNED)}
+          value={template ? TEMPLATE : ownSigned}
+          onChange={chooseSigned}
+          options={inherit(source, presetSigned, SIGNED)}
         />
       </div>
-      {signed !== "body" && (
-        <div className="grid grid-cols-2 gap-3">
-          <ConfigField
-            label="Timestamp header"
-            value={str(config, "hmac_timestamp_header")}
-            onChange={set("hmac_timestamp_header")}
-            placeholder={preset.timestampHeader || "X-Timestamp"}
-            mono
-          />
-          <ConfigSelect
-            label="Timestamp unit"
-            value={str(config, "hmac_timestamp_unit") || "seconds"}
-            onChange={set("hmac_timestamp_unit")}
-            options={TIMESTAMP_UNITS}
-          />
-        </div>
+      {(template || (ownSigned === "" && isTemplate(preset.signed))) && (
+        <ConfigField
+          label="Signed template"
+          help="The signed bytes over {id}, {timestamp} and {body}, with the text between them, such as v0:{timestamp}:{body}."
+          value={ownSigned}
+          onChange={set("hmac_signed")}
+          placeholder={preset.signed}
+          mono
+        />
       )}
+      {signsTimestamp(signed) && <TimestampFields config={config} set={set} preset={preset} source={source} />}
     </>
+  );
+}
+
+// signsTimestamp reports whether the signed content covers a timestamp.
+function signsTimestamp(signed: string): boolean {
+  return signed === "timestamp.body" || signed === "id.timestamp.body" || signed.includes("{timestamp}");
+}
+
+// TimestampFields are the header the timestamp is written to and its unit.
+function TimestampFields({ config, set, preset }: PartProps) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <ConfigField
+        label="Timestamp header"
+        value={str(config, "hmac_timestamp_header")}
+        onChange={set("hmac_timestamp_header")}
+        placeholder={preset.timestampHeader || "X-Timestamp"}
+        mono
+      />
+      <ConfigSelect
+        label="Timestamp unit"
+        value={str(config, "hmac_timestamp_unit") || "seconds"}
+        onChange={set("hmac_timestamp_unit")}
+        options={TIMESTAMP_UNITS}
+      />
+    </div>
   );
 }

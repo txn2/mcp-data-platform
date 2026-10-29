@@ -67,3 +67,29 @@ func TestScalar(t *testing.T) {
 	assert.Equal(t, "[1,2]", Scalar([]any{json.Number("1"), json.Number("2")}))
 	assert.Equal(t, "", Scalar(func() {}))
 }
+
+func TestLookupAll(t *testing.T) {
+	doc := decode(t, `{"value":[{"s":"a"},{"s":"b"}],"one":{"s":"c"},"empty":[]}`)
+	p, err := Parse("value[*].s")
+	require.NoError(t, err)
+	assert.True(t, p.HasWildcard())
+	got, ok := p.LookupAll(doc)
+	require.True(t, ok)
+	assert.Equal(t, []any{"a", "b"}, got)
+	_, ok = p.Lookup(doc)
+	assert.False(t, ok, "a [*] path addresses no one value")
+
+	single, err := Parse("one.s")
+	require.NoError(t, err)
+	assert.False(t, single.HasWildcard())
+	got, ok = single.LookupAll(doc)
+	require.True(t, ok)
+	assert.Equal(t, []any{"c"}, got)
+
+	for _, path := range []string{"empty[*].s", "one[*]", "value[*].missing", "nope[*]"} {
+		q, err := Parse(path)
+		require.NoError(t, err)
+		_, ok := q.LookupAll(doc)
+		assert.False(t, ok, path)
+	}
+}

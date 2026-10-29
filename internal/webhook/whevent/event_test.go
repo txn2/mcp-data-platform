@@ -86,7 +86,10 @@ func TestJSONBody(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, `{"a":1}`, string(body))
 
-	_, err = JSONBody("application/x-www-form-urlencoded", []byte("other=x"))
+	body, err = JSONBody("application/x-www-form-urlencoded", []byte("token=t1&text=hi&text=again"))
+	require.NoError(t, err, "a form with no payload field is its fields")
+	assert.JSONEq(t, `{"token":"t1","text":"hi"}`, string(body))
+	_, err = JSONBody("application/x-www-form-urlencoded", []byte(""))
 	assert.ErrorIs(t, err, ErrNoPayload)
 	_, err = JSONBody("application/x-www-form-urlencoded", []byte("%zz"))
 	assert.ErrorIs(t, err, ErrNoPayload)

@@ -16,6 +16,7 @@ const COLORS: Record<string, string> = {
   spool_full: "hsl(55, 90%, 45%)",
   write_failed: "hsl(330, 81%, 60%)",
   invalid_body: "hsl(280, 65%, 60%)",
+  setup_check: "hsl(199, 89%, 48%)",
 };
 const OTHER = "hsl(215, 16%, 57%)";
 

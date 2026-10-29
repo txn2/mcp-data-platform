@@ -9,9 +9,22 @@ import type { EffectiveConnection } from "@/api/admin/types";
 import { markdownToPlainText } from "@/lib/markdownText";
 import { Cable } from "lucide-react";
 import { EmptyState } from "@/components/patterns/EmptyState";
+import { DISCARD_PROMPT, useUnsavedChangesGuard } from "@/lib/navigationGuard";
+import { FilterSelect } from "@/components/patterns/FilterSelect";
+import { SearchInput } from "@/components/patterns/SearchInput";
+import { AVAILABLE_KINDS } from "./connections/constants";
+import {
+  filterConnections,
+  kindOptions,
+  lacksCatalog,
+  readFilter,
+  writeFilter,
+  type ConnectionFilter,
+} from "./connections/connectionFilter";
 import {
   ConnectionOAuthHealthBadge,
   GatewayHealthBadge,
+  NoCatalogBadge,
 } from "./connections/HealthBadges";
 import { ConnectionViewer } from "./connections/ConnectionViewer";
 import { ConnectionEditor } from "./connections/ConnectionEditor";
@@ -60,20 +73,27 @@ export function ConnectionsPanel() {
     return null;
   })();
   const [selectedKey, setSelectedKey] = useState<string | null>(initialSelection);
+  // The search and kind filter (#2350) start from the address, so a filtered
+  // view can be linked and survives a reload.
+  const [filter, setFilter] = useConnectionFilter();
+  const filtered = useMemo(() => filterConnections(connections, filter), [connections, filter]);
   const [mode, setMode] = useState<"view" | "edit" | "create">("view");
   const [dirty, setDirty] = useState(false);
+  // A sidebar link, a tab close or a reload asks before an unsaved edit is
+  // lost (#2268); selecting another connection here asks below.
+  useUnsavedChangesGuard(dirty);
 
   // Group by kind. Sidebar order is alphabetical on kind; within a
   // kind, connections are listed in the order the backend returned.
   const grouped = useMemo(() => {
     const groups: Record<string, EffectiveConnection[]> = {};
-    for (const c of connections) {
+    for (const c of filtered) {
       const k = c.kind;
       if (!groups[k]) groups[k] = [];
       groups[k]!.push(c);
     }
     return groups;
-  }, [connections]);
+  }, [filtered]);
 
   // firstListed is the connection that appears at the top of the
   // sidebar — first item of the first (alphabetically) kind group.
@@ -127,7 +147,7 @@ export function ConnectionsPanel() {
 
   const handleSelect = useCallback(
     (c: EffectiveConnection) => {
-      if (dirty && !window.confirm("Discard unsaved changes?")) return;
+      if (dirty && !window.confirm(DISCARD_PROMPT)) return;
       setSelectedKey(`${c.kind}/${c.name}`);
       setMode("view");
       setDirty(false);
@@ -136,7 +156,7 @@ export function ConnectionsPanel() {
   );
 
   const handleCreate = useCallback(() => {
-    if (dirty && !window.confirm("Discard unsaved changes?")) return;
+    if (dirty && !window.confirm(DISCARD_PROMPT)) return;
     setSelectedKey(null);
     setMode("create");
     setDirty(false);
@@ -171,6 +191,11 @@ export function ConnectionsPanel() {
     <MasterDetail
       list={
         <DetailList
+          header={
+            connections.length > 0 && (
+              <ConnectionFilterBar connections={connections} filter={filter} onChange={setFilter} />
+            )
+          }
           footer={
             !isReadOnly && (
               <DetailListAddButton
@@ -188,45 +213,23 @@ export function ConnectionsPanel() {
                 <DetailListGroupLabel>{kind}</DetailListGroupLabel>
                 {items.map((c) => {
                   const key = `${c.kind}/${c.name}`;
-                  const health = oauthHealthByKey.get(key);
-                  const showHealth = Boolean(
-                    health?.has_oauth &&
-                      (health.needs_reauth || health.idp_error_code),
-                  );
                   return (
-                    <DetailListItem
+                    <ConnectionRow
                       key={key}
+                      connection={c}
+                      health={oauthHealthByKey.get(key)}
                       selected={selectedKey === key && mode !== "create"}
-                      onClick={() => handleSelect(c)}
-                    >
-                      <span className="block truncate font-mono text-sm font-medium">
-                        {c.name}
-                      </span>
-                      {(showHealth || c.health) && (
-                        <span className="mt-1 flex flex-wrap items-center gap-1">
-                          {showHealth && (
-                            <ConnectionOAuthHealthBadge health={health} />
-                          )}
-                          <GatewayHealthBadge health={c.health} />
-                        </span>
-                      )}
-                      {c.description && (
-                        <span className="mt-1 block truncate text-xs text-muted-foreground">
-                          {markdownToPlainText(c.description)}
-                        </span>
-                      )}
-                      {c.tools && c.tools.length > 0 && (
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          {c.tools.length} tools
-                        </span>
-                      )}
-                    </DetailListItem>
+                      onSelect={handleSelect}
+                    />
                   );
                 })}
               </div>
             ))}
           {connections.length === 0 && (
             <DetailListEmpty>No connection instances configured</DetailListEmpty>
+          )}
+          {connections.length > 0 && filtered.length === 0 && (
+            <DetailListEmpty>No connections match</DetailListEmpty>
           )}
         </DetailList>
       }
@@ -278,4 +281,103 @@ export function ConnectionsPanel() {
       )}
     </MasterDetail>
   );
+}
+
+// ConnectionFilterBar is the rail's search and kind filter (#2350).
+function ConnectionFilterBar({
+  connections,
+  filter,
+  onChange,
+}: {
+  connections: EffectiveConnection[];
+  filter: ConnectionFilter;
+  onChange: (update: (f: ConnectionFilter) => ConnectionFilter) => void;
+}) {
+  return (
+    <>
+      <SearchInput
+        aria-label="Search connections"
+        placeholder="Search connections"
+        value={filter.q}
+        onChange={(e) => {
+          const q = e.target.value;
+          onChange((f) => ({ ...f, q }));
+        }}
+        inputClassName="h-8 text-xs"
+      />
+      <FilterSelect
+        label="Filter by kind"
+        value={filter.type}
+        onChange={(type) => onChange((f) => ({ ...f, type }))}
+        options={kindOptions(connections, AVAILABLE_KINDS, filter.type)}
+        className="w-full"
+      />
+    </>
+  );
+}
+
+// ConnectionRow is one connection in the rail: its name, the health badges a
+// problem raises, its description and how many tools it registers.
+function ConnectionRow({
+  connection: c,
+  health,
+  selected,
+  onSelect,
+}: {
+  connection: EffectiveConnection;
+  health: ConnectionOAuthHealthSummary | undefined;
+  selected: boolean;
+  onSelect: (c: EffectiveConnection) => void;
+}) {
+  return (
+    <DetailListItem selected={selected} onClick={() => onSelect(c)}>
+      <span className="block truncate font-mono text-sm font-medium">{c.name}</span>
+      <RowBadges connection={c} health={health} />
+      {c.description && (
+        <span className="mt-1 block truncate text-xs text-muted-foreground">
+          {markdownToPlainText(c.description)}
+        </span>
+      )}
+      {c.tools && c.tools.length > 0 && (
+        <span className="mt-0.5 block text-xs text-muted-foreground">{c.tools.length} tools</span>
+      )}
+    </DetailListItem>
+  );
+}
+
+// RowBadges are the marks a connection's row carries: an OAuth problem, its
+// upstream's reachability, and an api connection with no catalog (#2271).
+function RowBadges({
+  connection: c,
+  health,
+}: {
+  connection: EffectiveConnection;
+  health: ConnectionOAuthHealthSummary | undefined;
+}) {
+  const showHealth = Boolean(health?.has_oauth && (health.needs_reauth || health.idp_error_code));
+  const noCatalog = lacksCatalog(c);
+  if (!showHealth && !c.health && !noCatalog) return null;
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-1">
+      {showHealth && <ConnectionOAuthHealthBadge health={health} />}
+      <GatewayHealthBadge health={c.health} />
+      {noCatalog && <NoCatalogBadge />}
+    </span>
+  );
+}
+
+// useConnectionFilter is the rail's search and kind filter (#2350), read from
+// the address when the page opens and written back to it as it changes,
+// beside the selection's own parameters.
+function useConnectionFilter(): [ConnectionFilter, React.Dispatch<React.SetStateAction<ConnectionFilter>>] {
+  const [filter, setFilter] = useState<ConnectionFilter>(() =>
+    typeof window === "undefined" ? { q: "", type: "" } : readFilter(window.location.search),
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = writeFilter(new URLSearchParams(window.location.search), filter);
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [filter]);
+  return [filter, setFilter];
 }

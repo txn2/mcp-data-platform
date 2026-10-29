@@ -237,6 +237,27 @@ func buildCountQuery(filter audit.QueryFilter) (query string, args []any, err er
 	return render(applyAuditFilter(psq.Select("COUNT(*)").From("audit_logs"), filter), "count")
 }
 
+// buildCountUpToQuery renders a count that stops at limit matching rows: the
+// count reads no more of a large table than the limit (#2272).
+func buildCountUpToQuery(filter audit.QueryFilter, limit int) (query string, args []any, err error) {
+	inner := applyAuditFilter(psq.Select("1").From("audit_logs"), filter).Limit(uint64(max(limit, 0)))
+	return render(psq.Select("COUNT(*)").FromSelect(inner, "matching"), "bounded count")
+}
+
+// CountUpTo returns the number of audit events matching the filter, counting
+// no further than limit: a result equal to limit means at least that many.
+func (s *Store) CountUpTo(ctx context.Context, filter audit.QueryFilter, limit int) (int, error) {
+	query, args, err := buildCountUpToQuery(filter, limit)
+	if err != nil {
+		return 0, err
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("counting audit logs: %w", err)
+	}
+	return count, nil
+}
+
 // Count returns the number of audit events matching the filter.
 func (s *Store) Count(ctx context.Context, filter audit.QueryFilter) (int, error) {
 	query, args, err := buildCountQuery(filter)
@@ -252,16 +273,40 @@ func (s *Store) Count(ctx context.Context, filter audit.QueryFilter) (int, error
 }
 
 // buildDistinctQuery renders the distinct-values lookup for one filter column,
-// a function for the same reason buildQuery is.
+// a function for the same reason buildQuery is. With no time range it is a
+// loose index scan, which reads one index entry per distinct value; within a
+// range it reads the range's rows. A NULL is not a value a filter can choose.
 func buildDistinctQuery(column string, startTime, endTime *time.Time) (query string, args []any, err error) {
-	qb := psq.Select("DISTINCT " + column).From("audit_logs").OrderBy(column)
+	if startTime == nil && endTime == nil {
+		return looseScan(column) + " SELECT val FROM v WHERE val IS NOT NULL", nil, nil
+	}
+	qb := psq.Select("DISTINCT " + column).From("audit_logs").Where(sq.NotEq{column: nil}).OrderBy(column)
 	qb = withTimeRange(qb, startTime, endTime)
 	return render(qb, "distinct")
 }
 
+// looseScan is a recursive CTE v(val) walking column's index: its smallest
+// value, then repeatedly the smallest above the last, one index probe each, so
+// the distinct values of a table of tens of millions of rows are read in as
+// many probes as there are values (#2272). column is one the callers allow,
+// never caller input, and every column it is used with is indexed.
+func looseScan(column string) string {
+	return "WITH RECURSIVE v(val) AS (" +
+		"(SELECT " + column + " FROM audit_logs WHERE " + column + " IS NOT NULL ORDER BY " + column + " LIMIT 1)" +
+		" UNION ALL" +
+		" SELECT (SELECT a." + column + " FROM audit_logs a WHERE a." + column + " > v.val ORDER BY a." + column + " LIMIT 1)" +
+		" FROM v WHERE v.val IS NOT NULL)"
+}
+
 // buildDistinctPairsQuery renders the two-column distinct lookup that labels an
-// id with its display value.
+// id with its display value. Labeling users with no time range walks the
+// user_id index and reads one labeled row per user (#2272).
 func buildDistinctPairsQuery(col1, col2 string, startTime, endTime *time.Time) (query string, args []any, err error) {
+	if startTime == nil && endTime == nil && col1 == colUserID {
+		return looseScan(col1) +
+			" SELECT v.val, l." + col2 + " FROM v CROSS JOIN LATERAL (SELECT a." + col2 + " FROM audit_logs a" +
+			" WHERE a." + col1 + " = v.val AND a." + col2 + " <> '' LIMIT 1) l WHERE v.val IS NOT NULL", nil, nil
+	}
 	qb := psq.Select("DISTINCT " + col1 + ", " + col2).From("audit_logs").
 		Where(sq.NotEq{col2: ""}).OrderBy(col1)
 	qb = withTimeRange(qb, startTime, endTime)

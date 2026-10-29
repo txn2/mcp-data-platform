@@ -27,6 +27,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whauth"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
@@ -149,10 +150,11 @@ type Receiver struct {
 	reload  chan struct{}
 }
 
-// served is a source with its paths parsed once.
+// served is a source with its paths parsed and its verifier compiled once.
 type served struct {
 	whsource.Source
-	paths whevent.Paths
+	paths    whevent.Paths
+	verifier *whauth.Verifier
 }
 
 // limiter is a source's rate limiter and the settings it was built with, so a
@@ -301,18 +303,31 @@ func (r *Receiver) refresh(ctx context.Context) error {
 			// answered as for an unknown source (#2247).
 			continue
 		}
-		paths, err := whevent.ParsePaths(s.Config)
+		sv, err := serve(s)
 		if err != nil {
 			r.cfg.Logger.Warn("webhooks: source not served", "source", logsan.SanitizeForLog(s.Name),
 				logKeyError, logsan.SanitizeForLog(err.Error()))
 			continue
 		}
-		next[s.Name] = served{Source: s, paths: paths}
+		next[s.Name] = sv
 	}
 	r.mu.Lock()
 	r.sources = next
 	r.mu.Unlock()
 	return nil
+}
+
+// serve parses a source's paths and compiles its verifier.
+func serve(s whsource.Source) (served, error) {
+	paths, err := whevent.ParsePaths(s.Config)
+	if err != nil {
+		return served{}, fmt.Errorf("parsing the source's paths: %w", err)
+	}
+	v, err := whauth.Compile(s)
+	if err != nil {
+		return served{}, fmt.Errorf("compiling the source's verification: %w", err)
+	}
+	return served{Source: s, paths: paths, verifier: v}, nil
 }
 
 // lookup returns a source that is served: stored and enabled.

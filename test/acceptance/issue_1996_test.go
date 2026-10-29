@@ -230,10 +230,17 @@ func TestIssue1996_TheSecretIsNeverShown(t *testing.T) {
 		t.Errorf("the refusal = %q; it names the cause and never the secret", text)
 	}
 
-	events := c.list("/api/v1/admin/audit/events?session_id=" + c.sessionID + "&per_page=50")
-	if len(events) == 0 {
-		t.Fatal("the session has no audit events to read")
+	// The refusal's audit row is written after the call answers; until it is
+	// there, the read below would pass without the row it is about.
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(250 * time.Millisecond) {
+		if len(c.list("/api/v1/admin/audit/events?session_id="+c.sessionID+"&tool_name=api_invoke_endpoint&per_page=50")) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the refused call has no audit event in the session after 30s")
+		}
 	}
+	events := c.list("/api/v1/admin/audit/events?session_id=" + c.sessionID + "&per_page=50")
 	all, _ := json.Marshal(events)
 	if strings.Contains(string(all), issue1996Secret) {
 		t.Error("the audit log carries the signing secret")

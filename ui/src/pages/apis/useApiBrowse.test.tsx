@@ -52,9 +52,11 @@ describe("the browser's sources", () => {
         connections: [
           {
             name: "acme-billing",
+            catalog_id: "billing",
             operation_count: 1,
             specs: [],
           },
+          { name: "acme-erp", operation_count: 0, specs: [] },
         ],
       }),
     );
@@ -63,6 +65,8 @@ describe("the browser's sources", () => {
 
     expect(result.current.options).toEqual([
       { value: "acme-billing", label: "acme-billing", hint: "1 operation" },
+      // A connection with no catalog is told apart from 0 operations (#2271).
+      { value: "acme-erp", label: "acme-erp", hint: "no catalog" },
     ]);
   });
 

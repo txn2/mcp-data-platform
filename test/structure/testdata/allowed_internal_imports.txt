@@ -1658,6 +1658,7 @@ internal/webhook/receiver -> internal/logsan
 internal/webhook/receiver -> internal/webhook/whauth
 internal/webhook/receiver -> internal/webhook/whevent
 internal/webhook/receiver -> internal/webhook/whlayout
+internal/webhook/receiver -> internal/webhook/whsetup
 internal/webhook/receiver -> internal/webhook/whsource
 internal/webhook/receiver -> internal/webhook/whspool
 internal/webhook/receiver -> internal/webhook/whstore
@@ -1677,6 +1678,8 @@ internal/webhook/whalert -> internal/platform/levelalert
 internal/webhook/whalert -> internal/platform/settingsjson
 internal/webhook/whalert -> internal/webhook/whsource
 internal/webhook/whalert -> internal/webhook/whstore
+internal/webhook/whauth -> internal/hmacsig
+internal/webhook/whauth -> internal/webhook/jsonpath
 internal/webhook/whauth -> internal/webhook/whsource
 internal/webhook/whconfig -> internal/webhook/compactor
 internal/webhook/whconfig -> internal/webhook/receiver
@@ -1690,6 +1693,8 @@ internal/webhook/whimap -> internal/untrusted
 internal/webhook/whimap -> internal/webhook/whevent
 internal/webhook/whimap -> internal/webhook/whlayout
 internal/webhook/whimap -> internal/webhook/whsource
+internal/webhook/whsetup -> internal/webhook/whsource
+internal/webhook/whsetup -> internal/wirejson
 internal/webhook/whsource -> internal/hmacsig
 internal/webhook/whsource -> internal/indexpolicy
 internal/webhook/whsource -> internal/webhook/jsonpath

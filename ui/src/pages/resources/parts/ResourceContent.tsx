@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 import { FileWarning } from "lucide-react";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import {
@@ -202,9 +203,14 @@ function useSourceDraft(resource: Resource, body: ResourceBody): SourceDraft {
     setText,
   ]);
 
+  const hasChanges = dirty && content !== (body.text ?? "");
+  // A sidebar link, a tab close or a reload asks before an unsaved edit of the
+  // source is lost (#2268).
+  useUnsavedChangesGuard(hasChanges);
+
   return {
     content,
-    hasChanges: dirty && content !== (body.text ?? ""),
+    hasChanges,
     saveStatus,
     pending: replace.isPending,
     error: replace.error,

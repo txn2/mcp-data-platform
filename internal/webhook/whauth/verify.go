@@ -8,13 +8,25 @@
 package whauth
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/txn2/mcp-data-platform/internal/hmacsig"
+	"github.com/txn2/mcp-data-platform/internal/webhook/jsonpath"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 )
 
@@ -30,6 +42,7 @@ var (
 	ErrStaleTimestamp   = errors.New("the timestamp is outside the tolerance window")
 	ErrMissingToken     = errors.New("the token is missing")
 	ErrBadToken         = errors.New("the token does not match")
+	ErrExpiredToken     = errors.New("the token has expired")
 	ErrBadCredentials   = errors.New("the basic credentials do not match")
 	ErrUnknownMode      = errors.New("the source's auth mode is not recognized")
 )
@@ -43,18 +56,65 @@ type Request struct {
 	Body      []byte
 }
 
-// Verify reports whether req is authentic for src at now.
-func Verify(src whsource.Source, req Request, now time.Time) error {
-	secrets := src.Auth.Secrets(now)
-	switch src.Auth.Mode {
+// Verifier verifies requests for one source. Its signed-bytes template,
+// header pattern and body paths are compiled once, when the source is loaded,
+// so nothing about them is parsed per request (#2223).
+type Verifier struct {
+	auth whsource.Auth
+	// checksTimestamp is the source's ChecksTimestamp, read once.
+	checksTimestamp bool
+	scheme          hmacsig.Compiled
+	tokenPath       jsonpath.Path
+	tsPath          jsonpath.Path
+	hasTSPath       bool
+}
+
+// Compile builds the verifier for a source with its defaults applied. It
+// refuses a source whose settings do not compile, which Validate refuses too.
+// A mode it does not know compiles to a verifier that refuses every request:
+// a form's source has none, and is never posted to.
+func Compile(src whsource.Source) (*Verifier, error) {
+	a := src.Auth
+	v := &Verifier{auth: a, checksTimestamp: a.ChecksTimestamp()}
+	var err error
+	switch a.Mode {
+	case whsource.AuthHMAC, whsource.AuthEd25519:
+		if v.scheme, err = a.Scheme().Compile(); err != nil {
+			return nil, fmt.Errorf("compiling the signature scheme: %w", err)
+		}
+	case whsource.AuthBodyToken:
+		if v.tokenPath, err = jsonpath.Parse(a.TokenPath); err != nil {
+			return nil, fmt.Errorf("compiling the token path: %w", err)
+		}
+	}
+	if a.TimestampPath != "" {
+		if v.tsPath, err = jsonpath.Parse(a.TimestampPath); err != nil {
+			return nil, fmt.Errorf("compiling the timestamp path: %w", err)
+		}
+		v.hasTSPath = true
+	}
+	return v, nil
+}
+
+// Verify reports whether req is authentic at now.
+func (v *Verifier) Verify(req Request, now time.Time) error {
+	a := v.auth
+	secrets := a.Secrets(now)
+	switch a.Mode {
 	case whsource.AuthHMAC:
-		return verifyHMAC(src.Auth, secrets, req, now)
+		return v.verifyHMAC(secrets, req, now)
+	case whsource.AuthEd25519:
+		return v.verifyEd25519(secrets, req, now)
 	case whsource.AuthHeaderToken:
-		return matchAny(req.Header.Get(src.Auth.Header), secrets, ErrMissingToken, ErrBadToken)
+		return matchAny(req.Header.Get(a.Header), secrets, ErrMissingToken, ErrBadToken)
 	case whsource.AuthPathToken:
 		return matchAny(req.PathToken, secrets, ErrMissingToken, ErrBadToken)
 	case whsource.AuthBasic:
-		return verifyBasic(src.Auth, secrets, req.Header)
+		return verifyBasic(a, secrets, req.Header)
+	case whsource.AuthBodyToken:
+		return v.verifyBodyToken(secrets, req)
+	case whsource.AuthJWT:
+		return verifyJWT(a, secrets, req.Header, now)
 	}
 	return ErrUnknownMode
 }
@@ -86,39 +146,187 @@ func verifyBasic(a whsource.Auth, secrets []string, h http.Header) error {
 	return nil
 }
 
-// verifyHMAC checks the timestamp window first, then the signature over the
-// bytes the source's scheme signs. The scheme is hmacsig's, the one the
-// platform's outbound hmac connections sign with.
-func verifyHMAC(a whsource.Auth, secrets []string, req Request, now time.Time) error {
-	sent := strings.TrimSpace(req.Header.Get(a.SignatureHeader))
+// verifyHMAC checks the timestamp window first, so a stale request costs no
+// hashing, then the signature over the bytes the source's scheme signs. The
+// scheme is hmacsig's, the one the platform's outbound hmac connections sign
+// with.
+func (v *Verifier) verifyHMAC(secrets []string, req Request, now time.Time) error {
+	sent := strings.TrimSpace(req.Header.Get(v.auth.SignatureHeader))
 	if sent == "" {
 		return ErrMissingSignature
 	}
-	scheme := a.Scheme()
-	sig, err := scheme.Parse(sent)
+	sig, err := v.scheme.Parse(sent)
 	if err != nil {
 		return ErrBadSignature
 	}
-	ts := sig.Timestamp
-	if a.TimestampHeader != "" {
-		ts = strings.TrimSpace(req.Header.Get(a.TimestampHeader))
+	ts, id, err := v.signedValues(req, sig.Timestamp, now)
+	if err != nil {
+		return err
 	}
-	if a.TimestampHeader != "" || a.HeaderFormat == whsource.HeaderFormatStripe {
-		if err := checkTimestamp(ts, a.Tolerance(), now); err != nil {
-			return err
-		}
-	}
-	var id string
-	if scheme.UsesID() {
-		id = strings.TrimSpace(req.Header.Get(a.IDHeader))
-		if id == "" {
-			return ErrMissingID
-		}
-	}
-	if !scheme.Matches(sig, secrets, id, ts, req.Body) {
+	if !v.scheme.Matches(sig, secrets, id, ts, req.Body) {
 		return ErrBadSignature
 	}
 	return nil
+}
+
+// verifyEd25519 checks the timestamp window, then the Ed25519 signature over
+// the signed bytes with each public key the source holds.
+func (v *Verifier) verifyEd25519(keys []string, req Request, now time.Time) error {
+	sent := strings.TrimSpace(req.Header.Get(v.auth.SignatureHeader))
+	if sent == "" {
+		return ErrMissingSignature
+	}
+	sig, err := decodeSignature(v.auth.Encoding, sent)
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return ErrBadSignature
+	}
+	ts, id, err := v.signedValues(req, "", now)
+	if err != nil {
+		return err
+	}
+	msg := v.scheme.Template().Bytes(id, ts, req.Body)
+	for _, k := range keys {
+		pub, err := hex.DecodeString(k)
+		if err == nil && len(pub) == ed25519.PublicKeySize && ed25519.Verify(pub, msg, sig) {
+			return nil
+		}
+	}
+	return ErrBadSignature
+}
+
+// signedValues reads the timestamp and the delivery id the signed bytes name,
+// checking the timestamp against the tolerance window. inHeader is the
+// timestamp the signature header carried, if its layout carries one.
+func (v *Verifier) signedValues(req Request, inHeader string, now time.Time) (ts, id string, err error) {
+	a := v.auth
+	switch {
+	case a.TimestampHeader != "":
+		ts = strings.TrimSpace(req.Header.Get(a.TimestampHeader))
+	case v.hasTSPath:
+		ts = v.bodyTimestamp(req)
+	default:
+		ts = inHeader
+	}
+	if v.checksTimestamp {
+		if err := checkTimestamp(ts, a.Tolerance(), now); err != nil {
+			return "", "", err
+		}
+	}
+	if v.scheme.UsesID() {
+		id = strings.TrimSpace(req.Header.Get(a.IDHeader))
+		if id == "" {
+			return "", "", ErrMissingID
+		}
+	}
+	return ts, id, nil
+}
+
+// bodyTimestamp is the timestamp read from the body, empty when the body has
+// none there.
+func (v *Verifier) bodyTimestamp(req Request) string {
+	doc, ok := bodyDocument(req)
+	if !ok {
+		return ""
+	}
+	got, ok := v.tsPath.Lookup(doc)
+	if !ok {
+		return ""
+	}
+	return jsonpath.Scalar(got)
+}
+
+// verifyBodyToken compares the token read from the body with the secrets. A
+// path through "[*]" requires every element to carry a matching token: one
+// element without it refuses the whole request.
+func (v *Verifier) verifyBodyToken(secrets []string, req Request) error {
+	doc, ok := bodyDocument(req)
+	if !ok {
+		return ErrMissingToken
+	}
+	values, ok := v.tokenPath.LookupAll(doc)
+	if !ok {
+		return ErrMissingToken
+	}
+	for _, got := range values {
+		s, isString := got.(string)
+		if !isString {
+			return ErrMissingToken
+		}
+		if err := matchAny(s, secrets, ErrMissingToken, ErrBadToken); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// formMediaType is the content type a form body is posted with.
+const formMediaType = "application/x-www-form-urlencoded"
+
+// bodyDocument decodes the body a body-read setting looks in: a form's fields
+// as an object of their first values, or the JSON document.
+func bodyDocument(req Request) (any, bool) {
+	mediaType, _, _ := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if mediaType == formMediaType {
+		form, err := url.ParseQuery(string(req.Body))
+		if err != nil {
+			return nil, false
+		}
+		doc := make(map[string]any, len(form))
+		for k := range form {
+			doc[k] = form.Get(k)
+		}
+		return doc, true
+	}
+	dec := json.NewDecoder(bytes.NewReader(req.Body))
+	dec.UseNumber()
+	var doc any
+	if err := dec.Decode(&doc); err != nil {
+		return nil, false
+	}
+	return doc, true
+}
+
+// decodeSignature reads a signature written in hex or base64.
+func decodeSignature(encoding, v string) ([]byte, error) {
+	if encoding == whsource.EncodingBase64 {
+		if b, err := base64.StdEncoding.DecodeString(v); err == nil {
+			return b, nil
+		}
+		return base64.URLEncoding.DecodeString(v) //nolint:wrapcheck // the caller answers ErrBadSignature
+	}
+	return hex.DecodeString(strings.ToLower(v)) //nolint:wrapcheck // as above
+}
+
+// bearerPrefix is the scheme a token in an Authorization header may carry.
+const bearerPrefix = "bearer "
+
+// verifyJWT checks an HS256 JSON Web Token signed with one of the secrets. An
+// exp the token carries is honored; a token with none does not expire.
+func verifyJWT(a whsource.Auth, secrets []string, h http.Header, now time.Time) error {
+	tok := strings.TrimSpace(h.Get(a.Header))
+	if len(tok) >= len(bearerPrefix) && strings.EqualFold(tok[:len(bearerPrefix)], bearerPrefix) {
+		tok = strings.TrimSpace(tok[len(bearerPrefix):])
+	}
+	if tok == "" {
+		return ErrMissingToken
+	}
+	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithTimeFunc(func() time.Time { return now }))
+	expired := false
+	for _, secret := range secrets {
+		key := []byte(secret)
+		_, err := parser.Parse(tok, func(*jwt.Token) (any, error) { return key, nil })
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			expired = true
+		}
+	}
+	if expired {
+		return ErrExpiredToken
+	}
+	return ErrBadToken
 }
 
 // millisecondsFrom is the value above which a Unix timestamp is read as

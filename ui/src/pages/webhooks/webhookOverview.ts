@@ -16,7 +16,12 @@ export const OUTCOMES: { key: string; label: string }[] = [
   { key: "write_failed", label: "Write failed" },
   { key: "sender_gone", label: "Sender gone" },
   { key: "invalid_body", label: "Invalid body" },
+  { key: "setup_check", label: "Setup check" },
 ];
+
+/** SETUP_CHECK is a sender's setup check the source answered (#2223): it
+ * stores nothing and refuses nothing. */
+const SETUP_CHECK = "setup_check";
 
 /** outcomeLabel names an outcome; one the list does not know is shown with
  * its underscores as spaces, first letter capitalized. */
@@ -57,13 +62,13 @@ export const HEALTH_HINTS: Record<WebhookHealth, string> = {
 };
 
 /** splitCounts sums a count map into accepted requests and every other
- * outcome, which is a rejection. */
+ * outcome, which is a rejection. A setup check is neither. */
 export function splitCounts(counts: Record<string, number>): { accepted: number; rejected: number } {
   let accepted = 0;
   let rejected = 0;
   for (const [outcome, n] of Object.entries(counts)) {
     if (outcome === "accepted") accepted += n;
-    else rejected += n;
+    else if (outcome !== SETUP_CHECK) rejected += n;
   }
   return { accepted, rejected };
 }
