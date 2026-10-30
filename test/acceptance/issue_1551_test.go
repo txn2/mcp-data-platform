@@ -430,7 +430,7 @@ def main():
 	}
 	t.Cleanup(func() {
 		_, _, _ = owner.callRaw("manage_resource", map[string]any{
-			"action": "delete", "resource_id": resourceID,
+			"action": "delete", "reference": "mcp:resource:" + resourceID,
 		})
 	})
 
@@ -450,7 +450,7 @@ def main():
 	})
 	directID, _ := direct["resource_id"].(string)
 	t.Cleanup(func() {
-		_, _, _ = owner.callRaw("manage_resource", map[string]any{"action": "delete", "resource_id": directID})
+		_, _, _ = owner.callRaw("manage_resource", map[string]any{"action": "delete", "reference": "mcp:resource:" + directID})
 	})
 	ownLibrary := resourceScope1551(owner.call("fetch", map[string]any{
 		"reference": "mcp:resource:" + directID,

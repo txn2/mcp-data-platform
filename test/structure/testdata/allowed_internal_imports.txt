@@ -2250,6 +2250,7 @@ pkg/toolkits/memory -> pkg/registry
 pkg/toolkits/memory -> pkg/semantic
 pkg/toolkits/memory -> pkg/toolkit
 pkg/toolkits/portal -> internal/exporttrunc
+pkg/toolkits/portal -> internal/handlertransport
 pkg/toolkits/portal -> internal/httpjson
 pkg/toolkits/portal -> internal/indexpolicy
 pkg/toolkits/portal -> internal/logsan
@@ -2258,8 +2259,11 @@ pkg/toolkits/portal -> internal/portal/assetrefs
 pkg/toolkits/portal -> internal/portal/contentrefs
 pkg/toolkits/portal -> internal/portal/portaldomain
 pkg/toolkits/portal -> internal/producedby
+pkg/toolkits/portal -> internal/selfcall
+pkg/toolkits/portal -> internal/wirejson
 pkg/toolkits/portal -> pkg/contenttype
 pkg/toolkits/portal -> pkg/embedding
+pkg/toolkits/portal -> pkg/mcpcontext
 pkg/toolkits/portal -> pkg/middleware
 pkg/toolkits/portal -> pkg/portal
 pkg/toolkits/portal -> pkg/portal/knowledgepage

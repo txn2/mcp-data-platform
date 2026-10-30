@@ -24,7 +24,7 @@ branch touched is the branch's, and reporting it here answers in seconds what
 verify's static lane answered fifteen minutes in (#2145). `make semgrep` also
 runs the p/golang registry ruleset, so `make semgrep-changed` names it beside
 .semgrep/: an open-redirect finding on a new http.Redirect passed every
-preverify gate and failed verify's static lane (#2339).
+cheap gate and failed verify's static lane (#2339).
 
 Usage: semgrep-diff.py [--whole-files] <config>...
 """

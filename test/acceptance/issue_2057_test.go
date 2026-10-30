@@ -266,7 +266,7 @@ func TestIssue2057_AResourceDestinationRecordsTheCut(t *testing.T) {
 	landing, _ := out["resource"].(map[string]any)
 	id, _ := landing["resource_id"].(string)
 	t.Cleanup(func() {
-		_, _, _ = c.callRaw("manage_resource", map[string]any{"action": "delete", "resource_id": id, "force": true})
+		_, _, _ = c.callRaw("manage_resource", map[string]any{"action": "delete", "reference": "mcp:resource:" + id, "force": true})
 	})
 	if out["truncated"] != true || id == "" {
 		t.Fatalf("out = %v", out)

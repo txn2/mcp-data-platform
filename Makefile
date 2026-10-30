@@ -54,7 +54,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all migrate-check-diff build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
-	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
+	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check migrate-check-lane swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
 	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -484,7 +484,7 @@ semgrep-diff:
 ## parallel lanes, so a finding there used to fail verify after the Go, Docker
 ## and UI lanes had run. The tree passes them on main, so a finding in a file
 ## the branch touched is the branch's: this reports it whole-file, in seconds,
-## in preverify-fast. It names every config `semgrep` names, p/golang included
+## in verify's preamble. It names every config `semgrep` names, p/golang included
 ## (#2339), and test/gates/semgrep_diff_test.go holds the two lists together.
 semgrep-changed:
 	@echo "Running p/golang and .semgrep/ rules on changed files..."
@@ -937,36 +937,49 @@ verify-release: verify codeql mutate acceptance-release-check
 ## verify-release, and CI runs each on the pull request. Do not add `mutate` or
 ## `codeql` back to this per-commit target; see the comment in the recipe.
 verify:
+	@# Every step runs through scripts/verify-step.py, which prints what it
+	@# cost, and in the order scripts/verify-steps.tsv records: cheapest first,
+	@# so the cheapest check that can fail fails first (#2369).
+	@# TestVerifyRunsTheCheapestStepFirst fails when this order and that table
+	@# disagree.
+	@#
 	@# The steps that REWRITE the working tree run first, one at a time,
 	@# because everything after them reads what they produce: fmt rewrites
 	@# sources, embed-clean empties the UI embed directories, and
-	@# swagger-check, the first step of preverify-fast below, regenerates
-	@# internal/apidocs before any gate reads it. Each is its own $(MAKE)
-	@# line, so they stay ordered even when the outer make was given -j.
-	@$(MAKE) --no-print-directory tools-check
-	@$(MAKE) --no-print-directory fmt
-	@$(MAKE) --no-print-directory embed-clean
-	@# Then the tagged build, before the lanes fan out. It is here rather than
-	@# inside verify-static because the lanes start together under -j4: a failure
+	@# swagger-check regenerates internal/apidocs, which apidocs-openapi3-check
+	@# and state-readers-check read. Each is its own line, so they stay ordered
+	@# even when the outer make was given -j.
+	@python3 scripts/verify-step.py $(MAKE) tools-check
+	@python3 scripts/verify-step.py $(MAKE) fmt
+	@python3 scripts/verify-step.py $(MAKE) embed-clean
+	@python3 scripts/verify-step.py $(MAKE) swagger-check
+	@# Then every gate before the lanes, serially and cheapest first. All of
+	@# them run before the lanes start together under -j4, because a failure
 	@# reported from a lane does not stop verify-docker from having already
-	@# brought up the daemon and replayed the migrations. One second of serial
-	@# wall clock buys a broken integration-tagged file being reported before
-	@# any of that begins (#1799).
-	@$(MAKE) --no-print-directory vet-tags
-	@# Then the tagged e2e tests that need no service, about twenty seconds:
-	@# vet-tags compiles them and nothing else in verify runs them (#2342).
-	@$(MAKE) --no-print-directory e2e-standalone
-	@# Then the diff-scoped gates that read the change rather than a coverage
-	@# profile (#1856): about fifteen seconds together. They used to run at the
-	@# END of verify-go, behind the full race+coverage unit run, so a finding
-	@# in one was reported thirteen minutes in and cost a second full run to
-	@# learn whether the rest of the lane passed.
-	@$(MAKE) --no-print-directory preverify-fast
-	@# Then lint, still serial and before any lane starts. It used to run in
-	@# the lint lane beside the full unit run, so a lint finding was
-	@# reported only after every lane had been started, and the run it cost
-	@# was the whole of verify. Two minutes here answers it first.
-	@$(MAKE) --no-print-directory lint
+	@# brought up the daemon and replayed the migrations (#1799). The four
+	@# diff-scoped steps (security-diff, route-template-diff, migrate-check-diff,
+	@# dev-smoke-diff) skip in a tenth of a second when the diff gives them
+	@# nothing to do (#2186, #2239, #2248). lint is last: it is the costliest.
+	@python3 scripts/verify-step.py $(MAKE) acceptance-check
+	@python3 scripts/verify-step.py $(MAKE) state-readers-check
+	@python3 scripts/verify-step.py $(MAKE) builtin-pages-check
+	@python3 scripts/verify-step.py $(MAKE) apidocs-openapi3-check
+	@python3 scripts/verify-step.py $(MAKE) e2e-copy-check
+	@python3 scripts/verify-step.py $(MAKE) security-diff
+	@python3 scripts/verify-step.py $(MAKE) route-conformance-check
+	@python3 scripts/verify-step.py $(MAKE) route-manifest-check
+	@python3 scripts/verify-step.py $(MAKE) semgrep-diff
+	@python3 scripts/verify-step.py $(MAKE) dead-code
+	@python3 scripts/verify-step.py $(MAKE) docs-build
+	@python3 scripts/verify-step.py $(MAKE) doc-check
+	@python3 scripts/verify-step.py $(MAKE) semgrep-changed
+	@python3 scripts/verify-step.py $(MAKE) frontend-lint
+	@python3 scripts/verify-step.py $(MAKE) e2e-standalone
+	@python3 scripts/verify-step.py $(MAKE) dev-smoke-diff
+	@python3 scripts/verify-step.py $(MAKE) route-template-diff
+	@python3 scripts/verify-step.py $(MAKE) migrate-check-diff
+	@python3 scripts/verify-step.py $(MAKE) vet-tags
+	@python3 scripts/verify-step.py $(MAKE) lint
 	@# CodeQL is deliberately NOT here. It cannot join the concurrent phase:
 	@# its Go extractor uses autobuild, which finds this Makefile and runs the
 	@# default goal, so the step quietly regenerates swagger, runs the whole
@@ -1079,44 +1092,23 @@ verify-static-ui:
 ## the race unit suite three times per verify (#2053).
 verify-go:
 	@echo "[lane start $$(date +%T)] verify-go"
-	@# The schedule lane runs first (#1856): it covers only the changed
-	@# packages, so a failing changed test is reported in minutes rather than
-	@# after the whole module's unit run. The lane's length is unchanged.
-	@$(MAKE) --no-print-directory schedule-lane
-	@$(MAKE) --no-print-directory test
-	@$(MAKE) --no-print-directory coverage-summary
-	@$(MAKE) --no-print-directory patch-coverage-check
-	@$(MAKE) --no-print-directory bench-test
-	@$(MAKE) --no-print-directory bench-report-check
+	@# Cheapest first, as in verify's preamble (#2369): the benchmark module's
+	@# two checks take seconds, then the schedule lane, which covers only the
+	@# changed tests, so a failing changed test is reported in minutes rather
+	@# than after the whole module's unit run (#1856), then that unit run and
+	@# the two steps that read the coverage.out it writes.
+	@python3 scripts/verify-step.py $(MAKE) bench-report-check
+	@python3 scripts/verify-step.py $(MAKE) bench-test
+	@python3 scripts/verify-step.py $(MAKE) schedule-lane
+	@python3 scripts/verify-step.py $(MAKE) test
+	@python3 scripts/verify-step.py $(MAKE) coverage-summary
+	@python3 scripts/verify-step.py $(MAKE) patch-coverage-check
 	@echo "[lane done  $$(date +%T)] verify-go"
 
-## preverify-fast: the cheap gates verify runs before its lanes (#1856, #2030)
-## swagger-check and apidocs-openapi3-check (the API description is current and
-## converts to OpenAPI 3), semgrep-diff, semgrep-changed, doc-check, acceptance-check,
-## state-readers-check, builtin-pages-check, e2e-copy-check, route-manifest-check,
-## route-conformance-check, dead-code and frontend-lint read the change and the tree, not a coverage profile, so they answer in under a
-## minute. verify runs them in its serial preamble. swagger-check runs first
-## because it rewrites internal/apidocs, which state-readers-check reads.
-preverify-fast:
-	@$(MAKE) --no-print-directory swagger-check
-	@$(MAKE) --no-print-directory apidocs-openapi3-check
-	@$(MAKE) --no-print-directory semgrep-diff
-	@$(MAKE) --no-print-directory semgrep-changed
-	@$(MAKE) --no-print-directory doc-check
-	@$(MAKE) --no-print-directory docs-build
-	@$(MAKE) --no-print-directory acceptance-check
-	@$(MAKE) --no-print-directory state-readers-check
-	@$(MAKE) --no-print-directory builtin-pages-check
-	@$(MAKE) --no-print-directory e2e-copy-check
-	@$(MAKE) --no-print-directory route-manifest-check
-	@$(MAKE) --no-print-directory route-conformance-check
-	@$(MAKE) --no-print-directory dead-code
-	@$(MAKE) --no-print-directory frontend-lint
-
 ## realdb-lane: Run the RealDB tests of every changed package and every package importing one (#1947)
-## make preverify runs no test behind the integration build tag, so a change
-## that broke a real-database test was first reported by verify's Docker lane
-## (#1913: three pkg/platform tests creating scripts the save gates refused).
+## Run by hand while working on a change: a change that breaks a real-database
+## test is otherwise first reported by verify's Docker lane (#1913: three
+## pkg/platform tests creating scripts the save gates refused).
 ## scripts/realdb-lane.py names the packages; test-realdb runs them against
 ## one Postgres. Nothing to run is not a failure.
 realdb-lane:
@@ -1126,42 +1118,22 @@ realdb-lane:
 	$(MAKE) --no-print-directory test-realdb REALDB_PKGS="$$pkgs" || { \
 		echo "realdb-lane: reproduce with: make test-realdb REALDB_PKGS=\"$$pkgs\"" >&2; exit 1; }
 
-## preverify: the gates that decide most verify failures, in minutes (#1856)
-## preverify-fast, the patch-scoped lint, both halves of the schedule lane
-## (the changed Go packages, then the changed vitest files beside the full
-## suite, #1929), and the RealDB tests of the changed packages and every
-## package importing one (#1947). A branch that passes it fails verify only on
-## the full unit run, coverage, security, the rest of the real-DB lane, or the
-## rest of the UI lane.
-## preverify: The cheap gates and the patch-scoped lint, under a few minutes (#1856, #2039)
-## It runs nothing verify runs again in full: the schedule lane, its UI half and
-## the real-DB lane used to follow lint here (#1929, #1947) and on a change to
-## pkg/platform they cost as much as verify itself, so a pre-gate was no longer
-## one. Those three run once, in verify and in CI. What it adds to lint is scoped
-## to the diff (#2186, #2239, #2248): gosec over the changed packages, migrate-check
-## when a migration changed, the route-template gate when a mux registration
-## changed, and dev-smoke when a file under dev/ changed.
-preverify: preverify-fast
-	@$(MAKE) --no-print-directory lint
-	@$(MAKE) --no-print-directory security-diff
-	@$(MAKE) --no-print-directory migrate-check-diff
-	@$(MAKE) --no-print-directory route-template-diff
-	@$(MAKE) --no-print-directory dev-smoke-diff
-
 ## security-diff: Run the standalone gosec over the packages the diff changes (#2186)
 ## verify-static runs `gosec ./...`, which reads #nosec and not //nolint:gosec, so a
-## finding the patch lint passes failed verify. Same invocation, changed packages only.
+## finding the patch lint passes failed verify fifteen minutes in. Same invocation,
+## changed packages only, in verify's preamble, where it answers in a second.
 security-diff:
-	@pkgs="$$(python3 scripts/preverify-diff.py gosec-packages)"; \
+	@pkgs="$$(python3 scripts/verify-diff.py gosec-packages)"; \
 	if [ -z "$$pkgs" ]; then echo "security-diff: no production Go file changed; skipped"; exit 0; fi; \
 	echo "security-diff: gosec over $$(echo $$pkgs | wc -w | tr -d ' ') package(s)"; \
 	GOOS=linux gosec $$pkgs
 
 ## route-template-diff: Run the route-template gate when the diff changes a mux registration (#2186)
 ## TestEveryRouteReportsItsTemplate_RealDB fails a registration the test platform does
-## not mount, or one that reports no template, and ran only in verify's Docker lane.
+## not mount, or one that reports no template; the Docker lane runs it among every
+## RealDB test, minutes later, so verify's preamble runs it alone first.
 route-template-diff:
-	@if ! python3 scripts/preverify-diff.py routes-changed; then \
+	@if ! python3 scripts/verify-diff.py routes-changed; then \
 		echo "route-template-diff: no route registration changed; skipped"; exit 0; fi; \
 	$(MAKE) --no-print-directory test-realdb REALDB_PKGS=./internal/httpserver/ REALDB_RUN=TestEveryRouteReportsItsTemplate_RealDB
 
@@ -1169,13 +1141,27 @@ route-template-diff:
 ## The RealDB tests run on pg16 alone, so a migration PostgreSQL 17 refuses
 ## (#2169's 000209: an index function called by an unqualified name, which an
 ## index build on 17 resolves under search_path pg_catalog) passed every test
-## and failed verify's Docker lane. A diff with no migration skips it.
+## and failed verify's Docker lane. verify runs this in its preamble, so a
+## changed migration is checked before the lanes start; a diff with no
+## migration skips it.
 MIGRATIONS_DIR := pkg/database/migrate/migrations
+# migrations_changed sets $$changed to the migration files the branch changes
+# against main, committed, staged, unstaged or untracked.
+migrations_changed = base=$$(git merge-base origin/main HEAD 2>/dev/null || git merge-base main HEAD); \
+	changed=$$( { git diff --name-only $$base -- $(MIGRATIONS_DIR); git ls-files --others --exclude-standard -- $(MIGRATIONS_DIR); } | sort -u)
 migrate-check-diff:
-	@base=$$(git merge-base origin/main HEAD 2>/dev/null || git merge-base main HEAD); \
-	changed=$$( { git diff --name-only $$base -- $(MIGRATIONS_DIR); git ls-files --others --exclude-standard -- $(MIGRATIONS_DIR); } | sort -u); \
+	@$(migrations_changed); \
 	if [ -z "$$changed" ]; then echo "migrate-check-diff: no migration changed; skipped"; exit 0; fi; \
 	echo "migrate-check-diff: $$(echo $$changed | wc -w | tr -d ' ') migration file(s) changed"; \
+	$(MAKE) --no-print-directory migrate-check
+
+## migrate-check-lane: verify's Docker-lane migrate-check, skipped when its preamble already ran it (#2369)
+## When the diff changes a migration, migrate-check-diff ran migrate-check in
+## verify's preamble on this same tree; running it again here would check the
+## same migrations twice. Otherwise the lane runs it over every migration.
+migrate-check-lane:
+	@$(migrations_changed); \
+	if [ -n "$$changed" ]; then echo "migrate-check-lane: migrate-check-diff checked this tree's migrations in verify's preamble; skipped"; exit 0; fi; \
 	$(MAKE) --no-print-directory migrate-check
 
 ## verify-static: the static checks that read source and no coverage profile.
@@ -1187,22 +1173,23 @@ migrate-check-diff:
 ## They are chained rather than made dependent on each other, which would make
 ## a standalone `make bench-lint` pay for the main module's two-minute lint.
 ##
-## security (gosec + govulncheck + osv-scanner) and the whole-tree semgrep follow it. They
+## The whole-tree semgrep and security (gosec + govulncheck + osv-scanner)
+## follow it, cheapest first (#2369). They
 ## used to run in verify-go after the full race unit run, so a gosec finding
 ## failed verify fifteen minutes in with every test lane green (#2053); here
 ## they start with the other lanes and report in the first minutes.
 verify-static:
 	@echo "[lane start $$(date +%T)] verify-static"
-	@$(MAKE) --no-print-directory bench-lint
-	@$(MAKE) --no-print-directory security
-	@$(MAKE) --no-print-directory semgrep
+	@python3 scripts/verify-step.py $(MAKE) bench-lint
+	@python3 scripts/verify-step.py $(MAKE) semgrep
+	@python3 scripts/verify-step.py $(MAKE) security
 	@echo "[lane done  $$(date +%T)] verify-static"
 
 ## verify-docker: everything that wants the Docker daemon, and nothing else.
 verify-docker:
 	@echo "[lane start $$(date +%T)] verify-docker"
-	@$(MAKE) --no-print-directory migrate-check
-	@$(MAKE) --no-print-directory test-realdb
+	@python3 scripts/verify-step.py $(MAKE) migrate-check-lane
+	@python3 scripts/verify-step.py $(MAKE) test-realdb
 	@echo "[lane done  $$(date +%T)] verify-docker"
 
 ## verify-ui: the frontend steps, then the release build that rebuilds the UI
@@ -1210,9 +1197,9 @@ verify-docker:
 ## with the changed test files repeated beside it.
 verify-ui:
 	@echo "[lane start $$(date +%T)] verify-ui"
-	@$(MAKE) --no-print-directory schedule-lane-ui
-	@$(MAKE) --no-print-directory frontend-e2e
-	@$(MAKE) --no-print-directory release-check
+	@python3 scripts/verify-step.py $(MAKE) schedule-lane-ui
+	@python3 scripts/verify-step.py $(MAKE) frontend-e2e
+	@python3 scripts/verify-step.py $(MAKE) release-check
 	@echo "[lane done  $$(date +%T)] verify-ui"
 
 ## docs-serve: Serve documentation locally, with the pinned mkdocs docs-build installs

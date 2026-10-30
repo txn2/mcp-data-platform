@@ -276,7 +276,7 @@ func TestSemgrepChangedRefusesTheBranchsFindings(t *testing.T) {
 // TestSemgrepChangedRunsEveryRuleFile pins that make semgrep-changed hands the
 // script every config make semgrep scans the whole tree with, whole-file
 // scoped. p/golang was missing from it, so an open-redirect finding on a new
-// http.Redirect passed every preverify gate and failed verify (#2339).
+// http.Redirect passed every cheap gate and failed verify (#2339).
 func TestSemgrepChangedRunsEveryRuleFile(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "Makefile"))
 	require(t, err)

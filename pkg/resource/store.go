@@ -457,7 +457,7 @@ func (s *postgresStore) SetThumbnail(ctx context.Context, id string, t Thumbnail
 		return fmt.Errorf("recording thumbnail: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("resource not found: %s", id)
+		return goneError{id: id}
 	}
 	return nil
 }

@@ -14,7 +14,7 @@ import (
 
 // The dev-stack smoke (#2248): one call through the platform's own surfaces
 // per service `make dev` starts, run by `make dev-smoke` in under a minute and
-// by `make preverify` when the diff changes dev/. A change to the stack had no
+// by `make verify` when the diff changes dev/. A change to the stack had no
 // check short of the whole suite: the #2245 store over TLS passed the aws
 // CLI, which speaks HTTP/1.1, and refused the platform's HTTP/2, failing 368
 // criteria in a 45-minute run.
@@ -72,7 +72,7 @@ func TestDevSmoke_AResourceReadsBackFromTheTLSStore(t *testing.T) {
 		t.Fatalf("manage_resource create returned no resource_id: %v", created)
 	}
 	t.Cleanup(func() {
-		if _, text, err := c.callRaw("manage_resource", map[string]any{"action": "delete", "resource_id": id}); err != nil {
+		if _, text, err := c.callRaw("manage_resource", map[string]any{"action": "delete", "reference": "mcp:resource:" + id}); err != nil {
 			t.Logf("deleting resource %s: %v %s", id, err, text)
 		}
 	})

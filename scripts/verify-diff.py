@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Read the branch's diff for the preverify gates that verify runs in full (#2186).
+"""Read the branch's diff for the diff-scoped gates make verify runs first (#2186, #2369).
 
 Two of verify's gates had no cheap counterpart, and each failed a verify on
-the #2171-#2174 branch after make preverify passed:
+the #2171-#2174 branch after its cheap gates had passed:
 
   gosec-packages  print the packages with a changed non-test Go file, for the
                   standalone gosec. golangci-lint's gosec honours //nolint:gosec

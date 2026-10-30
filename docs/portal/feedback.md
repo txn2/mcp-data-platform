@@ -53,7 +53,7 @@ You can still type an address by hand. If it belongs to someone without access, 
 
 Being mentioned is its own notification category, separate from general comment activity, so someone who muted thread chatter still hears when a comment names them. The **Mentions of me** tab in the feedback inbox lists every thread where a comment addressed you.
 
-Agents leave feedback through the same path: a reply written with the `manage_feedback` tool carries mentions and fires the same notifications as one written in the portal, on deployments that run the HTTP server. Email delivery lives with that server, so a stdio-only deployment stores the reply but sends nothing.
+Agents leave feedback through the same path: `manage_feedback action=create` opens a thread through `POST /api/v1/portal/threads` as the calling person, so who may comment where is the portal's rule (#2371), and a reply written with the `manage_feedback` tool carries mentions and fires the same notifications as one written in the portal, on deployments that run the HTTP server. Email delivery lives with that server, so a stdio-only deployment stores the reply but sends nothing.
 
 ## Turning feedback into knowledge
 

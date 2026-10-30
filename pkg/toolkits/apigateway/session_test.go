@@ -17,9 +17,10 @@ import (
 // sessionUpstream signs in at /signin and accepts its token in X-Auth; it
 // records the tokens it is asked to sign out.
 type sessionUpstream struct {
-	mu       sync.Mutex
-	refuse   bool
-	signOuts []string
+	mu         sync.Mutex
+	refuse     bool
+	forbidRoot bool
+	signOuts   []string
 }
 
 func (u *sessionUpstream) serve(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +39,10 @@ func (u *sessionUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		if r.Header.Get("X-Auth") != "tok" {
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if u.forbidRoot && r.URL.Path == "/" {
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -78,6 +83,27 @@ func TestProbeConnection_SessionLoginSignsIn(t *testing.T) {
 	res := tk.ProbeConnection(context.Background(), "vendor")
 	if !res.OK || !strings.Contains(res.Detail, "HTTP 404") {
 		t.Fatalf("a signed-in probe was not reported as answered: %+v", res)
+	}
+}
+
+// A session_login connection's sign-in is its credential check (#2368): with
+// a session returned, a 403 at a base the catalog does not declare still
+// reports the credential working, and the detail carries neither the session
+// token nor the sign-in secret.
+func TestProbeConnection_SessionLoginForbiddenAtTheBase(t *testing.T) {
+	u := &sessionUpstream{forbidRoot: true}
+	tk := sessionToolkit(t, u)
+	t.Cleanup(func() { _ = tk.Close() })
+
+	res := tk.ProbeConnection(context.Background(), "vendor")
+	if !res.OK || !strings.Contains(res.Detail, "the sign-in returned a session, so the credential works") ||
+		!strings.Contains(res.Detail, "HTTP 403") {
+		t.Fatalf("a signed-in probe refused at / was not reported as a working credential: %+v", res)
+	}
+	for _, secret := range []string{"tok", "pat-secret"} {
+		if strings.Contains(res.Detail+res.Error, secret) {
+			t.Errorf("the probe's result carries %q: %+v", secret, res)
+		}
 	}
 }
 

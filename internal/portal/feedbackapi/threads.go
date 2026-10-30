@@ -35,8 +35,11 @@ const (
 // --- request/response types ---
 
 type createThreadRequest struct {
-	Kind               string          `json:"kind"`
-	TargetType         string          `json:"target_type"`
+	// Kind is what the thread is; it sets the type of its first event.
+	Kind string `json:"kind" enums:"comment,question,correction,rating,approval,rejection,suggestion" example:"comment"`
+	// TargetType names the one target the thread hangs off; standalone is the
+	// general channel and carries no id.
+	TargetType         string          `json:"target_type" enums:"asset,collection,prompt,knowledge_page,standalone" example:"asset"`
 	AssetID            string          `json:"asset_id"`
 	CollectionID       string          `json:"collection_id"`
 	PromptID           string          `json:"prompt_id"`
@@ -49,7 +52,7 @@ type createThreadRequest struct {
 	Rating             *int            `json:"rating"`
 	// Visibility is internal (the default) or shared (#2227). A thread a
 	// person of an external persona opens is shared whatever this says.
-	Visibility string `json:"visibility" example:"internal"`
+	Visibility string `json:"visibility" enums:"internal,shared" example:"internal"`
 }
 
 type appendEventRequest struct {
@@ -138,7 +141,7 @@ func (h *Handler) listThreads(w http.ResponseWriter, r *http.Request) {
 // createThread handles POST /api/v1/portal/threads.
 //
 // @Summary      Create a feedback thread
-// @Description  Opens a new feedback thread (and its first event) on an asset, collection, prompt, knowledge page, or the standalone channel.
+// @Description  Opens a new feedback thread (and its first event) on an asset, collection, prompt, knowledge page, or the standalone channel. Anyone who can view the target may open one; the standalone channel and knowledge pages are open to every signed-in person. The author is the caller. kind is comment, question, correction, rating, approval, rejection or suggestion; visibility is internal (the default, the organization's own people) or shared (everyone who can open the target, external people included), and a thread a person of an external persona opens is shared whatever it says. The MCP tool manage_feedback opens a thread through this route with action=create.
 // @Tags         Feedback
 // @Accept       json
 // @Produce      json

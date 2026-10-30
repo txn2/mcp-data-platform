@@ -37,6 +37,8 @@ const (
 
 	threadScopeErr = "specify target_type=standalone or exactly one of asset_id, collection_id, prompt_id"
 	threadsUnavail = "feedback threads are not available"
+	// threadIDRequired names the way to start a thread, which needs none (#2371).
+	threadIDRequired = "thread_id is required; to start a new thread, use action=create"
 )
 
 func (t *Toolkit) handleListThreads(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
@@ -254,7 +256,7 @@ func (t *Toolkit) handleRespondValidation(ctx context.Context, input manageFeedb
 		return toolkit.ErrorResult(threadsUnavail), nil, nil
 	}
 	if input.ThreadID == "" {
-		return toolkit.ErrorResult("thread_id is required"), nil, nil
+		return toolkit.ErrorResult(threadIDRequired), nil, nil
 	}
 	if input.ValidationResult != portal.ValidationStateValidated && input.ValidationResult != portal.ValidationStateDisputed {
 		return toolkit.ErrorResult("validation_result must be 'validated' or 'disputed'"), nil, nil
@@ -345,13 +347,17 @@ func (t *Toolkit) loadThread(ctx context.Context, threadID string, moderate bool
 		return nil, toolkit.ErrorResult(threadsUnavail)
 	}
 	if threadID == "" {
-		return nil, toolkit.ErrorResult("thread_id is required")
+		return nil, toolkit.ErrorResult(threadIDRequired)
 	}
 	thread, err := t.threadStore.GetThread(ctx, threadID)
 	if err != nil {
 		return nil, toolkit.ErrorResult("thread not found: " + err.Error())
 	}
-	if !t.callerCanActOnThread(ctx, thread, moderate) {
+	// A thread's author reads and replies to it on the portal's terms when
+	// the owner-or-editor rule does not reach it: a viewer who opened it with
+	// action=create (#2371).
+	if !t.callerCanActOnThread(ctx, thread, moderate) &&
+		(moderate || !t.callerIsThreadAuthor(ctx, thread) || !t.portalReaches(ctx, thread.ID)) {
 		return nil, toolkit.ErrorResult("you can only act on feedback for assets and collections you own or can edit")
 	}
 	return thread, nil

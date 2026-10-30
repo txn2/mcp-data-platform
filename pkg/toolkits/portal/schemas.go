@@ -258,32 +258,58 @@ var manageFeedbackSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["list", "get", "reply", "resolve", "request_validation", "respond_validation"],
-      "description": "Action to perform. list (with NO target = your pending feedback across the assets and collections you own or can edit AND the general channel, newest first, excluding your own threads, plus threads awaiting your validation; with a target = threads on that one asset/collection/prompt or the standalone channel). get (one thread + its timeline). reply (post a comment). resolve (mark resolved). request_validation (route a validation request to the thread author). respond_validation (the thread author records validated/disputed via validation_result)."
+      "enum": ["list", "create", "get", "reply", "resolve", "request_validation", "respond_validation"],
+      "description": "Action to perform. list (with NO target = your pending feedback across the assets and collections you own or can edit AND the general channel, newest first, excluding your own threads, plus threads awaiting your validation; with a target = threads on that one asset/collection/prompt or the standalone channel). create (open a new thread with body as its first comment, on exactly one of asset_id, collection_id, prompt_id, knowledge_page_id, or target_type=standalone; anyone who can view the target may, and you are the author). get (one thread + its timeline). reply (post a comment). resolve (mark resolved). request_validation (route a validation request to the thread author). respond_validation (the thread author records validated/disputed via validation_result)."
     },
     "asset_id": {
       "type": "string",
-      "description": "Scope list to one asset, or unused for thread-id actions"
+      "description": "Scope list to one asset, or the asset create opens a thread on; unused for thread-id actions"
     },
     "collection_id": {
       "type": "string",
-      "description": "Scope list to one collection"
+      "description": "Scope list to one collection, or the collection create opens a thread on"
     },
     "prompt_id": {
       "type": "string",
-      "description": "Scope list to one prompt"
+      "description": "Scope list to one prompt, or the prompt create opens a thread on"
+    },
+    "knowledge_page_id": {
+      "type": "string",
+      "description": "For create: the knowledge page to open a thread on"
     },
     "target_type": {
       "type": "string",
-      "description": "Use 'standalone' to scope list to the general channel (feedback not tied to an asset, collection, or prompt)"
+      "description": "Use 'standalone' to scope list to, or create a thread on, the general channel (feedback not tied to an asset, collection, prompt or knowledge page)"
     },
     "thread_id": {
       "type": "string",
-      "description": "Feedback thread ID (required for get, reply, resolve, request_validation, respond_validation)"
+      "description": "Feedback thread ID (required for get, reply, resolve, request_validation, respond_validation; to start a thread, use action=create)"
     },
     "body": {
       "type": "string",
-      "description": "Reply text (required for reply)"
+      "description": "Comment text (required for reply, and for create, where it is the thread's first comment)"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["comment", "question", "correction", "rating", "approval", "rejection", "suggestion"],
+      "description": "For create: what the thread is (default comment)"
+    },
+    "title": {
+      "type": "string",
+      "description": "For create: an optional title for the thread"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": ["internal", "shared"],
+      "description": "For create: internal (default) is seen by your organization's people; shared by everyone who can open the target, external people included. A thread opened by a person of an external persona is shared whatever this says"
+    },
+    "anchor": {
+      "description": "For create: where in the target the thread points, a JSON object (for example {\"line\": 12}) or a string holding one",
+      "anyOf": [{"type": "object"}, {"type": "string"}]
+    },
+    "target_version": {
+      "type": "integer",
+      "description": "For create: the version of the target the thread was written against"
     },
     "status": {
       "type": "string",
@@ -295,7 +321,7 @@ var manageFeedbackSchema = json.RawMessage(`{
     },
     "requires_resolution": {
       "type": "boolean",
-      "description": "Filter a targeted list to threads that do (true) or do not (false) require resolution"
+      "description": "Filter a targeted list to threads that do (true) or do not (false) require resolution; for create, whether the new thread requires resolution"
     },
     "validation_result": {
       "type": "string",

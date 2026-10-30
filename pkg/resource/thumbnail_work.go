@@ -26,6 +26,16 @@ type ThumbnailWork interface {
 
 var _ ThumbnailWork = (*postgresStore)(nil)
 
+// goneError is a thumbnail write to a resource row that no longer exists: the
+// file was deleted after the renderer claimed it, so no tile is owed (#2367).
+// It reads "resource not found: <id>", as the store's error always did, and
+// matches ErrNoSuchResource under errors.Is.
+type goneError struct{ id string }
+
+func (e goneError) Error() string { return "resource not found: " + e.id }
+
+func (goneError) Unwrap() error { return ErrNoSuchResource }
+
 // buildThumbnailClaim renders the statement ClaimThumbnailWork runs: it leases
 // up to limit due resources the renderer owes a tile and returns them.
 //
@@ -249,7 +259,7 @@ func (s *postgresStore) RecordThumbnailFailure(ctx context.Context, id, reason s
 		return fmt.Errorf("recording thumbnail failure: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("resource not found: %s", id)
+		return goneError{id: id}
 	}
 	return nil
 }

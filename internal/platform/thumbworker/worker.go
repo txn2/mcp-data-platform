@@ -73,6 +73,7 @@ const (
 const (
 	logKeyError      = "error"
 	logKeyCollection = "collection"
+	logKeyResource   = "resource"
 )
 
 // Tuning paces the worker. The zero value is the defaults; Config.Tuning is

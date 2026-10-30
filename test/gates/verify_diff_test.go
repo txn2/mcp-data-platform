@@ -16,11 +16,11 @@ func readRepoFile(t *testing.T, rel string) string {
 	return string(data)
 }
 
-// preverifyRepo is a repository holding scripts/preverify-diff.py and the
+// verifyDiffRepo is a repository holding scripts/verify-diff.py and the
 // schedule lane whose diff helpers it loads, with one route registered on main.
-func preverifyRepo(t *testing.T) string {
+func verifyDiffRepo(t *testing.T) string {
 	t.Helper()
-	return newGitRepo(t, "scripts/preverify-diff.py", map[string]string{
+	return newGitRepo(t, "scripts/verify-diff.py", map[string]string{
 		"go.mod":                       "module example.com/m\n\ngo 1.25\n",
 		"scripts/schedule-lane.py":     readRepoFile(t, "scripts/schedule-lane.py"),
 		"internal/web/routes.go":       "package web\n\nimport \"net/http\"\n\nfunc Register(mux *http.ServeMux) {\n\tmux.HandleFunc(\"GET /a\", nil)\n}\n",
@@ -30,31 +30,31 @@ func preverifyRepo(t *testing.T) string {
 	})
 }
 
-// TestPreverifyDiffNamesTheChangedPackagesForGosec pins #2186's gosec step: a
+// TestVerifyDiffNamesTheChangedPackagesForGosec pins #2186's gosec step: a
 // package with a changed production file is scanned, a package whose only
 // change is a test file is not (gosec does not read tests), and an untracked
 // file counts.
-func TestPreverifyDiffNamesTheChangedPackagesForGosec(t *testing.T) {
-	root := preverifyRepo(t)
+func TestVerifyDiffNamesTheChangedPackagesForGosec(t *testing.T) {
+	root := verifyDiffRepo(t)
 	writeFile(t, root, "internal/other/other_test.go", "package other\n\n// changed\n")
-	out, ok := runScript(t, root, []string{"scripts/preverify-diff.py", "gosec-packages"}, nil)
+	out, ok := runScript(t, root, []string{"scripts/verify-diff.py", "gosec-packages"}, nil)
 	if !ok || strings.TrimSpace(out) != "" {
 		t.Fatalf("a test-only change named packages for gosec: ok=%v %q", ok, out)
 	}
 
 	writeFile(t, root, "internal/web/new.go", "package web\n")
-	out, ok = runScript(t, root, []string{"scripts/preverify-diff.py", "gosec-packages"}, nil)
+	out, ok = runScript(t, root, []string{"scripts/verify-diff.py", "gosec-packages"}, nil)
 	if !ok || strings.TrimSpace(out) != "./internal/web" {
 		t.Fatalf("an untracked production file: ok=%v %q, want ./internal/web", ok, out)
 	}
 }
 
-// TestPreverifyDiffRunsTheRouteGateOnlyOnARegistration pins #2186's route
+// TestVerifyDiffRunsTheRouteGateOnlyOnARegistration pins #2186's route
 // step: an edit to a file that registers routes but leaves the registrations
 // alone skips the gate, and an added or removed registration runs it.
-func TestPreverifyDiffRunsTheRouteGateOnlyOnARegistration(t *testing.T) {
-	root := preverifyRepo(t)
-	routes := []string{"scripts/preverify-diff.py", "routes-changed"}
+func TestVerifyDiffRunsTheRouteGateOnlyOnARegistration(t *testing.T) {
+	root := verifyDiffRepo(t)
+	routes := []string{"scripts/verify-diff.py", "routes-changed"}
 
 	writeFile(t, root, "internal/web/routes.go", "package web\n\nimport \"net/http\"\n\n// Register mounts the routes.\nfunc Register(mux *http.ServeMux) {\n\tmux.HandleFunc(\"GET /a\", nil)\n}\n")
 	if out, ok := runScript(t, root, routes, nil); ok {
