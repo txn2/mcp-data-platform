@@ -265,11 +265,13 @@ func newAllowlistToolkitOver(t *testing.T, assets *inMemoryAssetStore) (*Toolkit
 
 // TestSaveAssetDescriptionMapsTheUsersWords pins #1995: the description an
 // agent reads when it chooses a tool says a PowerPoint, a report and a
-// spreadsheet are each made here, and that no local file is.
+// spreadsheet are each made here, and that no local file is; and #2373: a
+// chart or diagram in a document is drawn with a library, by the page that
+// names them.
 func TestSaveAssetDescriptionMapsTheUsersWords(t *testing.T) {
 	for _, want := range []string{
 		"PowerPoint", "platform-presentations", "markdown report", "spreadsheet is text/csv",
-		"no local file system", "nothing to install", "object storage is not where a document goes", "say what you are making instead",
+		"platform-visual-libraries", "not hand-drawn SVG", "no local file system", "nothing to install", "object storage is not where a document goes", "say what you are making instead",
 	} {
 		if !strings.Contains(saveToolDescription, want) {
 			t.Errorf("save_asset's description is missing %q", want)

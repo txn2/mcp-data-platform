@@ -17,6 +17,7 @@ package pglisten
 import (
 	"context"
 	"log/slog"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,17 +45,35 @@ const (
 	backoffCeiling = time.Minute
 )
 
+// pqListener is the part of *pq.Listener a Listener drives, so the start and
+// stop interleavings can be exercised without a server.
+type pqListener interface {
+	Listen(channel string) error
+	Close() error
+	NotificationChannel() <-chan *pq.Notification
+}
+
+// newPQListener opens pq's listener; tests replace it.
+var newPQListener = func(dsn string, onEvent pq.EventCallbackType) pqListener {
+	return pq.NewListener(dsn, backoffFloor, backoffCeiling, onEvent)
+}
+
 // Listener wakes its notifiers on every NOTIFY received on one channel.
 type Listener struct {
 	dsn       string
 	channel   string
 	notifiers []Notifier
-	listener  *pq.Listener
 	stopCh    chan struct{}
 	stopOnce  sync.Once
 	wg        sync.WaitGroup
 	started   atomic.Bool
 	state     *bgloop.Listen
+
+	// mu guards listener and stopped, so Stop reaches a connection Start is
+	// still waiting on and Start never begins receiving after Stop.
+	mu       sync.Mutex
+	listener pqListener
+	stopped  bool
 }
 
 // New constructs a Listener for the supplied DSN and channel. It does not
@@ -71,36 +90,62 @@ func New(dsn, channel string, notifiers ...Notifier) *Listener {
 // Start opens the LISTEN connection and spawns the receive goroutine. An
 // error means the woken workers degrade to their poll interval; the caller
 // decides whether that is fatal (it should not be).
+//
+// pq's Listen waits until a connection exists, so against a database that
+// never answers Start does not return on its own. Stop ends that wait: Start
+// then returns net.ErrClosed, which is also what a Start after Stop returns.
 func (l *Listener) Start(_ context.Context) error {
 	if !l.started.CompareAndSwap(false, true) {
 		return nil
 	}
-	pl := pq.NewListener(l.dsn, backoffFloor, backoffCeiling, l.onEvent)
+	pl := newPQListener(l.dsn, l.onEvent)
+	l.mu.Lock()
+	if l.stopped {
+		l.mu.Unlock()
+		_ = pl.Close()
+		return net.ErrClosed
+	}
+	l.listener = pl
+	l.mu.Unlock()
 	if err := pl.Listen(l.channel); err != nil {
 		_ = pl.Close()
+		l.mu.Lock()
+		l.listener = nil
+		l.mu.Unlock()
 		l.started.Store(false)
 		return err //nolint:wrapcheck // direct return so callers can errors.Is the underlying pq error
 	}
-	l.listener = pl
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.stopped {
+		return net.ErrClosed
+	}
 	l.wg.Add(1)
-	go l.run() // #nosec G118 -- background goroutine bounded by stopCh
+	go l.run(pl.NotificationChannel()) // #nosec G118 -- background goroutine bounded by stopCh
 	return nil
 }
 
-// Stop closes the LISTEN connection and waits for the receive goroutine.
+// Stop closes the LISTEN connection, ends a Start still waiting for one, and
+// waits for the receive goroutine. No connection event is logged after Stop
+// returns. pq's own reconnect goroutine may outlive it by one backoff sleep
+// before it sees the close and exits.
 func (l *Listener) Stop() {
 	l.stopOnce.Do(func() {
+		l.mu.Lock()
+		l.stopped = true
 		close(l.stopCh)
-		if l.listener != nil {
-			_ = l.listener.Close()
+		pl := l.listener
+		l.mu.Unlock()
+		if pl != nil {
+			_ = pl.Close()
 		}
 	})
 	l.wg.Wait()
 }
 
-func (l *Listener) run() {
+func (l *Listener) run(ch <-chan *pq.Notification) {
 	defer l.wg.Done()
-	l.consume(l.listener.NotificationChannel())
+	l.consume(ch)
 }
 
 // consume is the receive loop, taking the channel as a parameter so it can be
@@ -130,6 +175,11 @@ func (l *Listener) broadcast() {
 // onEvent logs pq.Listener lifecycle changes for operator visibility; the
 // listener reconnects on its own.
 func (l *Listener) onEvent(ev pq.ListenerEventType, err error) {
+	select {
+	case <-l.stopCh:
+		return // pq's goroutine outlives Stop by a backoff sleep; it reports nothing more
+	default:
+	}
 	l.state.Event(ev)
 	switch ev {
 	case pq.ListenerEventConnected:

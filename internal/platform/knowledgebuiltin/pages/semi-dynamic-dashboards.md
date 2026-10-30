@@ -104,3 +104,8 @@ platform.publish_data("revenue-dashboard", data)
 Author the document with a plausible initial payload in the island so it
 renders before the first refresh, and make the rendering code tolerate an
 empty structure.
+
+Draw the charts from that payload with a library, not hand-drawn SVG:
+mcp:knowledge_page:platform-visual-libraries gives Vega-Lite and the others at
+pinned versions, each with a skeleton that follows light and dark. A Vega-Lite
+spec takes the island's rows as `data: { values: data.regions }`.

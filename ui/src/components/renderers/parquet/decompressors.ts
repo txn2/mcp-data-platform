@@ -10,9 +10,9 @@ import { decompressLz4, decompressLz4Raw } from "hyparquet-compressors/src/lz4.j
  *
  * Imported one by one rather than through hyparquet-compressors' index, whose
  * `compressors` compiles a WebAssembly Snappy decoder the moment the module is
- * evaluated. The public share page serves under a Content-Security-Policy with
- * no 'wasm-unsafe-eval', where that compile throws and takes the whole viewer
- * chunk with it; hyparquet's own Snappy is plain JavaScript and needs nothing.
+ * evaluated. That compile is a cost every Parquet preview would pay for a codec
+ * hyparquet already decodes in plain JavaScript, and it throws wherever a page
+ * refuses WebAssembly, taking the whole viewer chunk with it.
  */
 export const decompressors: Compressors = {
   GZIP: (input, length) => gunzip(input, new Uint8Array(length)),

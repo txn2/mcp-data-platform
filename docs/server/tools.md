@@ -842,6 +842,8 @@ It is how every document is produced, in the words a user asks for it (#1995): a
 
 **Writing a presentation.** A deck is an HTML asset on the reveal.js runtime the platform serves at `/portal/vendor/reveal/` (#1767): the paths a deck names and why they are same-origin rather than a CDN, the document skeleton with one `<section>` per slide, Markdown slides, brand by reference, what the Present, Overview and Export PDF controls and the thumbnail do with it, and what the sandboxed frame does not allow (the speaker view's second window) ship as `mcp:knowledge_page:platform-presentations`, named by the same baseline.
 
+**Drawing a chart, diagram or animation.** A chart, flow, mind map, roadmap, network, graph or animation in a document is drawn by a library loaded from a public CDN, not hand-drawn SVG. The libraries (Vega-Lite, Mermaid, Markmap, D3 with d3-sankey, Frappe Gantt, Cytoscape.js, Graphviz, Rough.js and dotLottie) at pinned versions, a skeleton for each that follows light and dark and fits the frame, what changes on a slide, and the JSX form through esm.sh ship as `mcp:knowledge_page:platform-visual-libraries`, which the instruction baseline and `save_asset`'s description both name (#2373).
+
 ---
 
 ### manage_asset

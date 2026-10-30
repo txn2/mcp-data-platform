@@ -15,3 +15,4 @@ documents-that-fit-any-screen.md ui/src/components/renderers/HtmlRenderer.tsx in
 presentations.md ui/vite.config.ts ui/src/components/renderers/HtmlRenderer.tsx internal/portal/publicviewer/
 maps.md internal/maps/ internal/httpserver/maphttp/ internal/pmtiles/
 content-types-for-stored-files.md pkg/contenttype/ pkg/toolkits/portal/ internal/platform/tableregister/
+visual-libraries.md internal/portal/publicviewer/ ui/src/components/renderers/JsxRenderer.tsx ui/src/components/renderers/assetFrame.ts

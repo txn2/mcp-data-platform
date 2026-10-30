@@ -95,6 +95,11 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 //     lets a map read the basemap archive and the map runtime's glyphs from
 //     /portal/maps/ and /portal/vendor/maplibre/ on a plaintext deployment
 //     (#2068); a map on an https deployment is covered by `https:` too.
+//   - script-src 'wasm-unsafe-eval' — an HTML asset may draw with a library
+//     built on WebAssembly (Graphviz, the dotLottie player, #2373), and a
+//     WebAssembly module is compiled under this source. It compiles nothing
+//     from text: script that is already allowed to run gains no API it did
+//     not have, inside a frame whose origin is opaque.
 //
 // 'unsafe-eval' is deliberately absent: Sucrase transforms JSX in the parent
 // page and the iframe runs the result as a module, so no viewer path
@@ -102,7 +107,7 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 //
 //nolint:lll // CSP directives are necessarily long
 const baseCSP = "default-src 'none'; " +
-	"script-src 'self' 'unsafe-inline' blob: https:; " +
+	"script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https:; " +
 	"style-src 'self' 'unsafe-inline' https:; " +
 	"img-src * data: blob:; " +
 	"media-src 'self' blob: data:; " +

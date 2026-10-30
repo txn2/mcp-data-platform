@@ -94,6 +94,8 @@ func TestActiveDirectivesDenyPlaintextAndEval(t *testing.T) {
 				"the JSX import map resolves from esm.sh and HTML artifacts reference CDN libraries")
 			require.Contains(t, parsed["script-src"], "blob:",
 				"worker-src falls back through child-src to script-src, so dropping blob: refuses an artifact its own worker")
+			require.Contains(t, parsed["script-src"], "'wasm-unsafe-eval'",
+				"an HTML asset drawing with a WebAssembly library (Graphviz, dotLottie) compiles its module under this source (#2373)")
 		})
 	}
 }

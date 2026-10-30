@@ -114,7 +114,7 @@ func issue1983Streams(pdf []byte) string {
 			out.Write(raw)
 			out.WriteByte('\n')
 		}
-		rest = rest[end:]
+		rest = rest[end+len("endstream"):] // past the keyword, whose own "stream" is not the next stream
 	}
 	return out.String()
 }

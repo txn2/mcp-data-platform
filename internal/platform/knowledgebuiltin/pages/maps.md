@@ -27,11 +27,9 @@ CDN or a public tile host. A public tile host receives every view of the map,
 and a map whose runtime or tiles live elsewhere goes blank on a closed network,
 where the reader cannot tell why.
 
-Other libraries in the same document, a chart beside the map for instance, may
-come from a public CDN where that is the right tool. Such a library renders
-wherever the reader's browser can reach the CDN, and the thumbnail draws it
-wherever the deployment's renderer can, since the renderer fetches public files
-for the page it draws; on a closed network it goes blank.
+A chart beside the map, or any other figure in the same document, is drawn with
+a library loaded from a public CDN: mcp:knowledge_page:platform-visual-libraries
+names them.
 
 ## What this deployment serves
 
