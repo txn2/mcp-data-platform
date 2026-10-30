@@ -170,6 +170,10 @@ type saveAssetInput struct {
 	// managed resource by its mcp:// URI, another asset by its mcp:asset:<id>
 	// reference. Absent declares none.
 	References []string `json:"references,omitempty"`
+
+	// contentStructured reports that content arrived as a JSON object or
+	// array rather than a string (#2296); see decodeContent.
+	contentStructured bool
 }
 
 // manageAssetInput defines the input for manage_asset.
@@ -232,6 +236,10 @@ type manageAssetInput struct {
 	ContextBytes  int              `json:"context_bytes,omitempty"`
 	FromVersion   int              `json:"from_version,omitempty"`
 	ToVersion     int              `json:"to_version,omitempty"`
+
+	// contentStructured reports that content arrived as a JSON object or
+	// array rather than a string (#2296); see decodeContent.
+	contentStructured bool
 }
 
 // manageFeedbackInput defines the input for manage_feedback (#618).
@@ -785,7 +793,7 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err := portal.ValidateContentType(contentType); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
-	if refused := linkRefusal(input.Content, contentType); refused != nil {
+	if refused := contentRefusal(input.Content, contentType); refused != nil {
 		return refused, nil, nil
 	}
 	s3Key := t.buildS3Key(userID, assetID, contentType)
@@ -1062,7 +1070,11 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 		}
 	}
 	if hasContent {
-		if refused := linkRefusal(input.Content, updatedContentType(asset, input)); refused != nil {
+		ct := updatedContentType(asset, input)
+		if refusal := structuredContentRefusal(input.contentStructured, ct); refusal != "" {
+			return toolkit.ErrorResult(refusal), nil, nil
+		}
+		if refused := contentRefusal(input.Content, ct); refused != nil {
 			return refused, nil, nil
 		}
 	}
@@ -1631,6 +1643,9 @@ func validateSaveInput(input saveAssetInput) error {
 	}
 	if input.Content == "" {
 		return errors.New("content is required")
+	}
+	if refusal := structuredContentRefusal(input.contentStructured, input.ContentType); refusal != "" {
+		return errors.New(refusal)
 	}
 	if err := portal.ValidateDescription(input.Description); err != nil {
 		return fmt.Errorf(validationFmt, err)

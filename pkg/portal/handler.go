@@ -28,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/sharelink"
 	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/sourcecheck"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
@@ -1074,13 +1075,9 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := io.ReadAll(io.LimitReader(r.Body, MaxContentUploadBytes+1))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "failed to read request body")
-		return
-	}
-	if int64(len(data)) > MaxContentUploadBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit")
+	data, hErr := readContentBody(r)
+	if hErr != nil {
+		writeError(w, hErr.code, hErr.msg)
 		return
 	}
 
@@ -1088,6 +1085,10 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	// wins when specific, so editing a JSON asset keeps it JSON; when the
 	// asset was stored under a generic type, the new content settles it.
 	ct := ResolveContentType(asset.ContentType, data)
+	if err := sourcecheck.Check(ct, string(data)); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 
 	versionID := uuid.New().String()
 	versionedKey := portaldomain.AssetContentKey(h.deps.S3Prefix, asset.OwnerID, id, versionID, ExtensionForContentType(ct))
@@ -1119,6 +1120,19 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		Status:       statusUpdated,
 		TableChanges: h.followTables(r.Context(), id, version),
 	})
+}
+
+// readContentBody reads a content update's body, refusing one past the
+// upload limit.
+func readContentBody(r *http.Request) ([]byte, *httpError) {
+	data, err := io.ReadAll(io.LimitReader(r.Body, MaxContentUploadBytes+1))
+	if err != nil {
+		return nil, &httpError{http.StatusBadRequest, "failed to read request body"}
+	}
+	if int64(len(data)) > MaxContentUploadBytes {
+		return nil, &httpError{http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit"}
+	}
+	return data, nil
 }
 
 // followTables reports what a new version did to the tables registered over
@@ -2918,6 +2932,9 @@ func validateCreateAssetRequest(req createAssetRequest) (name, contentType strin
 	}
 	if int64(len(req.Content)) > MaxContentUploadBytes {
 		return "", "", &httpError{http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit"}
+	}
+	if vErr := sourcecheck.Check(contentType, req.Content); vErr != nil {
+		return "", "", &httpError{http.StatusUnprocessableEntity, vErr.Error()}
 	}
 	if vErr := ValidateDescription(strings.TrimSpace(req.Description)); vErr != nil {
 		return "", "", &httpError{http.StatusBadRequest, vErr.Error()}

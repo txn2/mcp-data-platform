@@ -25,7 +25,7 @@ export const THUMB_HEIGHT = 300;
  * raster file scaled to cover the tile; "pdf" is page one of a document, which
  * the tile page rasterizes itself.
  */
-export type CaptureFamily = "iframe" | "svg" | "csv" | "json" | "markdown" | "text" | "image" | "pdf";
+export type CaptureFamily = "iframe" | "svg" | "csv" | "diagram" | "json" | "markdown" | "text" | "image" | "pdf";
 
 /**
  * What the tile page draws each renderer kind as, or why it draws none.
@@ -48,6 +48,9 @@ export const CAPTURE_BY_RENDERER_KIND: Record<RendererKind, KindCapture> = {
   html: "iframe",
   jsx: "iframe",
   svg: "svg",
+  // A drawn source's tile is the drawing, by the viewer's own renderer.
+  graphviz: "diagram",
+  vegalite: "diagram",
   markdown: "markdown",
   json: "json",
   ndjson: "json",
@@ -101,6 +104,7 @@ const THEMEABLE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>([
   "iframe",
   "markdown",
   "csv",
+  "diagram",
   "json",
   "text",
 ]);
@@ -162,6 +166,10 @@ const CAPTURABLE_TYPES: CapturableType[] = [
   { type: "text/markdown", family: "markdown" },
   { type: "text/csv", family: "csv" },
   { type: "text/tab-separated-values", family: "csv" },
+  // Drawn sources, ahead of the "%+json" and "text/%" entries that would
+  // otherwise draw them as their source (#2296, #2303).
+  { type: "text/vnd.graphviz", family: "diagram" },
+  { type: "application/vnd.vegalite+json", family: "diagram" },
   // Both JSON families, and every vendor dialect by its structured suffix.
   // Which of the two is drawn is a refinement the tile page makes inside the
   // family.

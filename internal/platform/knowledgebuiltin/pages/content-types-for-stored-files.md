@@ -23,8 +23,10 @@ Two groups cannot be named that way.
   Detection never promotes content into one of these families from its bytes,
   deliberately, so that a mislabeled upload cannot turn itself into
   script-bearing content. They are stored only where an author declared them.
-- **Unstructured text**: Markdown, plain text, SQL, Python, CSS. Nothing in the
-  bytes tells them apart.
+- **Unstructured text**: Markdown, plain text, SQL, Python, CSS, and a Graphviz
+  DOT source. Nothing in the bytes tells them apart.
+- **A Vega-Lite spec** is JSON, and detection names it JSON: stored that way it
+  opens as a JSON tree, not a chart. Declare `application/vnd.vegalite+json`.
 
 Both groups land on `text/plain` when nothing is declared. Raw content is
 served with `X-Content-Type-Options: nosniff`, so `text/plain` is final: a
@@ -39,7 +41,7 @@ flowchart TD
   D -- "no, or text/plain<br/>or application/octet-stream" --> S{"Do the bytes name<br/>a family?"}
   S -- "JSON, NDJSON, CSV, TSV, XML, YAML,<br/>image, audio, video, PDF, archive, Parquet" --> N["Stored under the sniffed type"]
   S -- "SVG, HTML, JSX, JavaScript:<br/>never named from bytes" --> P["Stored text/plain"]
-  S -- "Markdown, plain text, SQL,<br/>Python, CSS: nothing to name" --> P
+  S -- "Markdown, plain text, SQL,<br/>Python, CSS, DOT: nothing to name" --> P
   P --> B["Served text/plain under nosniff,<br/>so it does not render"]
 ```
 
@@ -62,6 +64,13 @@ content travels inside a JSON document and a binary family has no way through
 in the first place. Aliases normalize, so declaring `text/xml` stores
 `application/xml`; membership is exact, so an invented `text/x-*` type is
 refused rather than admitted by a wildcard.
+
+Two of them are drawn rather than shown as text, and are checked before they
+are stored: a Graphviz source (`text/vnd.graphviz`) must parse, and a refusal
+names the line and column; a Vega-Lite spec (`application/vnd.vegalite+json`)
+must describe a view, and loads data only from inline values or a declared
+reference (`mcp://...` or `mcp:asset:...`), never from another URL. A spec may
+be sent to `save_asset` as the JSON object itself rather than a string.
 
 `manage_resource` takes these declarations in `content` too, and is not limited
 to them: the resource library keeps a denylist rather than a list of accepted

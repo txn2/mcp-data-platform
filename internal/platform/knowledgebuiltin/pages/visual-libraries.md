@@ -51,6 +51,12 @@ a document saved against one keeps working when a newer one ships.
 
 ## Vega-Lite
 
+A chart that IS the asset, with nothing around it, needs no page: save the
+spec itself as `application/vnd.vegalite+json` and the portal draws it, with
+its tile, on every surface. Its data is inline or a declared reference, and a
+script writes one with `platform.export(..., format = "vegalite")`. The
+skeleton below is for a chart inside a document or on a slide.
+
 A chart is one JSON object: data, mark, encodings. The interpreter is required:
 share links refuse the runtime compiler Vega uses by default, and with
 `ast: true` and the interpreter the same chart draws everywhere.
@@ -304,6 +310,11 @@ directly; `nodes` is every name that appears in them.
 ```
 
 ## Graphviz
+
+A graph that IS the asset needs no page: save the DOT source as
+`text/vnd.graphviz` and the portal draws it, laid out by the engine its
+`layout=` names. A script writes one with `format = "dot"`. The skeleton below
+is for a graph inside a document or on a slide.
 
 DOT, laid out by Graphviz compiled to WebAssembly. Choose the engine with
 `graphviz.layout(dot, "svg", "neato")`; `dot` is the default.

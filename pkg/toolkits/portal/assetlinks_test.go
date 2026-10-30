@@ -157,6 +157,28 @@ func TestPatchRefusesALinkItWrites(t *testing.T) {
 	}
 }
 
+// TestPatchRefusesASourceItCannotDraw pins the patch door's source check
+// (#2296, #2303): a patch that breaks a DOT source writes no version.
+func TestPatchRefusesASourceItCannotDraw(t *testing.T) {
+	tk, assets, versions := linkToolkit(t)
+	saved := decodeSave(t, mustSave(t, tk, nil))
+	before := len(versions.versions[saved.AssetID])
+	tk.s3Client = &mockS3Client{getBody: []byte("digraph { a -> b }"), getCT: "text/vnd.graphviz"}
+	asset, err := assets.Get(context.Background(), saved.AssetID)
+	require.NoError(t, err)
+	asset.ContentType = "text/vnd.graphviz"
+	assets.assets[saved.AssetID] = *asset
+
+	result, _, err := tk.handlePatch(refCtx(""), manageAssetInput{
+		Action: "patch", AssetID: saved.AssetID,
+		Edits: []textpatch.Edit{{Op: textpatch.OpReplace, Find: "a -> b", Replace: "a -> -> b"}},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError, resultText(t, result))
+	assert.Contains(t, resultText(t, result), "does not parse")
+	assert.Len(t, versions.versions[saved.AssetID], before)
+}
+
 // TestPatchReportsAnUndeclaredLoad covers the report on patch, a dry run
 // included, judged against the asset's existing declaration.
 func TestPatchReportsAnUndeclaredLoad(t *testing.T) {

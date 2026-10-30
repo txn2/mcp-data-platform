@@ -36,6 +36,8 @@ var extensions = map[string]string{
 	"application/gzip": ".gz",
 	"text/x-python":    ".py",
 	"text/css":         ".css",
+	Graphviz:           ".dot",
+	VegaLite:           ".vl.json",
 	"image/png":        ".png",
 	"image/jpeg":       ".jpg",
 	"image/gif":        ".gif",

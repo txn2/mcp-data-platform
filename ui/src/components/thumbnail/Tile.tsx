@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef } from "react";
 import Papa from "papaparse";
 import DOMPurify from "dompurify";
 import mermaid from "mermaid";
@@ -11,6 +11,15 @@ import { buildJsonLines, buildNdjsonRecords } from "@/components/thumbnail/JsonT
 import { DomBody, type DomKind } from "@/components/thumbnail/DomThumbnailBody";
 import { FLOW_TILE_TYPE, FlowTile } from "@/components/thumbnail/FlowTile";
 import { LIBRARY_TILE_TYPE, LibraryTile } from "@/components/thumbnail/LibraryTile";
+
+// The drawn sources load on demand, so only their tiles pay for Graphviz's
+// WebAssembly build and the Vega runtime.
+const GraphvizRenderer = lazy(() =>
+  import("@/components/renderers/GraphvizRenderer").then((m) => ({ default: m.GraphvizRenderer })),
+);
+const VegaLiteRenderer = lazy(() =>
+  import("@/components/renderers/VegaLiteRenderer").then((m) => ({ default: m.VegaLiteRenderer })),
+);
 
 /**
  * One document, as the platform hands it to the page its tile is drawn from
@@ -51,6 +60,7 @@ export function Tile({ data, dark, onDrawn }: { data: TileData; dark: boolean; o
   if (family === "iframe") return <DocumentTile data={data} onDrawn={onDrawn} />;
   if (family === "image") return <ImageTile data={data} onDrawn={onDrawn} />;
   if (family === "pdf") return <PdfTile data={data} onDrawn={onDrawn} />;
+  if (family === "diagram") return <DiagramTile data={data} dark={dark} onDrawn={onDrawn} />;
   const kind = domKind(data.contentType);
   if (kind) return <DomTile data={data} kind={kind} dark={dark} onDrawn={onDrawn} />;
   return <Unsupported contentType={data.contentType} onDrawn={onDrawn} />;
@@ -174,6 +184,44 @@ function PdfTile({ data, onDrawn }: { data: TileData; onDrawn: OnDrawn }) {
       ref={canvas}
       style={{ display: "block", width: THUMB_WIDTH, height: THUMB_HEIGHT }}
     />
+  );
+}
+
+/**
+ * A drawn source -- a Graphviz graph, a Vega-Lite chart -- drawn by the
+ * viewer's own renderer to fill the tile, on the scheme's background
+ * (#2296, #2303).
+ */
+function DiagramTile({ data, dark, onDrawn }: { data: TileData; dark: boolean; onDrawn: OnDrawn }) {
+  const scheme = dark ? DARK_SCHEME : LIGHT_SCHEME;
+  const drawn = useCallback(
+    (reason: string) => {
+      if (reason) onDrawn(reason);
+      else void afterPaint().then(() => onDrawn(""));
+    },
+    [onDrawn],
+  );
+  const content = data.content ?? "";
+  return (
+    <div
+      style={{
+        width: THUMB_WIDTH,
+        height: THUMB_HEIGHT,
+        overflow: "hidden",
+        boxSizing: "border-box",
+        padding: 16,
+        background: scheme.tokens.bg,
+        color: scheme.tokens.fg,
+      }}
+    >
+      <Suspense fallback={null}>
+        {normalizeContentType(data.contentType) === CT.vegalite ? (
+          <VegaLiteRenderer content={content} fit dark={dark} onDrawn={drawn} />
+        ) : (
+          <GraphvizRenderer content={content} fit onDrawn={drawn} />
+        )}
+      </Suspense>
+    </div>
   );
 }
 

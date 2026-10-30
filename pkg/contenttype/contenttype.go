@@ -88,6 +88,12 @@ const (
 	Parquet = "application/vnd.apache.parquet"
 	// OctetStream is the type for content of unknown or unrecognized shape.
 	OctetStream = "application/octet-stream"
+	// Graphviz is the canonical type for a Graphviz DOT source, which the
+	// portal draws as the graph it describes (#2303).
+	Graphviz = "text/vnd.graphviz"
+	// VegaLite is the canonical type for a Vega-Lite specification, which the
+	// portal draws as the chart it describes (#2296).
+	VegaLite = "application/vnd.vegalite+json"
 
 	// The Office document families. Each is a zip of XML parts, which is the
 	// only reason it is binary at all, and internal/docread reads one by
@@ -166,6 +172,13 @@ var aliases = map[string]string{
 	"text/x-python-script":         "text/x-python",
 	"application/x-python-code":    "text/x-python",
 	"application/x-zip-compressed": "application/zip",
+
+	// The drawn sources' other spellings (#2296, #2303).
+	"text/x-graphviz":                Graphviz,
+	"text/x-dot":                     Graphviz,
+	"application/x-graphviz":         Graphviz,
+	"application/x-vegalite+json":    VegaLite,
+	"application/vnd.vega-lite+json": VegaLite,
 }
 
 // activeTypes are the media types whose renderers execute author-supplied
@@ -316,7 +329,7 @@ func IsTextual(ct string) bool {
 		return true
 	}
 	switch norm {
-	case JSON, NDJSON, XML, YAML, SVG, JavaScript, "application/sql", "application/typescript":
+	case JSON, NDJSON, XML, YAML, SVG, JavaScript, VegaLite, "application/sql", "application/typescript":
 		return true
 	default:
 		return false

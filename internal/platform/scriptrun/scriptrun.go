@@ -452,7 +452,7 @@ type ExportRequest struct {
 	// string body instead, which Body then carries.
 	Rows []any
 	// Body is the document arm: a string the script composed, persisted
-	// verbatim. Valid for the document formats (markdown, text, html, jsx) and
+	// verbatim. Valid for the document formats (markdown, text, html, jsx, vegalite, dot) and
 	// nil for a tabular output — exactly one of Body and Rows is the content.
 	Body *string
 	// Destination is the destination the output goes to, already resolved from

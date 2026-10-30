@@ -1773,9 +1773,13 @@ format decides which are valid:
   `jsonl` and `parquet` accept only this shape, so a data feed another system
   parses stays well-formed by construction.
 - **A string body, written verbatim**, so a script can compose a document: an
-  HTML or JSX dashboard, a prose report, a hand-assembled markdown page. `html`
-  and `jsx` accept only this shape — they have no tabular serialization — and
-  `markdown` and `text` accept either. The body lands byte for byte, under the
+  HTML or JSX dashboard, a prose report, a hand-assembled markdown page, a
+  Vega-Lite spec (`vegalite`) or a Graphviz graph (`dot`). `html`, `jsx`,
+  `vegalite` and `dot` accept only this shape — they have no tabular
+  serialization — and `markdown` and `text` accept either. A `vegalite` spec
+  must describe a view and load data only from inline values or a declared
+  reference, and a `dot` source must parse; the run fails naming the output
+  otherwise, before anything is written. The body lands byte for byte, under the
   content type the portal already stores and renders for that kind of saved
   asset, so a script-published dashboard is patchable and shareable like any
   other document asset.
@@ -1800,7 +1804,7 @@ assembled document that ends up blank fails the run loudly instead of silently
 replacing the current version of a shared dashboard. Object keys carry the
 extension the platform assigns the document's content type — `.md`, `.txt`,
 `.html`, and `.html` for `jsx` too, the platform-wide key spelling for
-`text/jsx` objects.
+`text/jsx` objects; `.vl.json` for `vegalite` and `.dot` for `dot`.
 
 ### Excel workbooks
 

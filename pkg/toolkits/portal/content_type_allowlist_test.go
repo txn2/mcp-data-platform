@@ -23,6 +23,10 @@ type contentTypeDoorCase struct {
 	contentType string
 	content     string
 	accept      bool
+	// badSource marks a declaration that is admitted but whose content is a
+	// drawn source that cannot be stored (#2296, #2303): REST refuses it with
+	// 422 rather than the allowlist's 415.
+	badSource bool
 }
 
 // contentTypeDoorCases covers the families the doors take, an alias that has to
@@ -41,6 +45,16 @@ var contentTypeDoorCases = []contentTypeDoorCase{
 	{name: "pdf refused", contentType: "application/pdf", content: "not really a pdf", accept: false},
 	{name: "executable refused", contentType: "application/x-msdownload", content: "MZ payload", accept: false},
 	{name: "invented text subtype refused", contentType: "text/x-shellscript", content: "echo hi", accept: false},
+	{name: "dot graph", contentType: "text/vnd.graphviz", content: "digraph { a -> b }", accept: true},
+	{name: "dot that does not parse refused", contentType: "text/vnd.graphviz", content: "digraph { a -> -> b }", badSource: true},
+	{
+		name: "vega-lite spec", contentType: "application/vnd.vegalite+json",
+		content: `{"data":{"values":[{"a":1}]},"mark":"bar"}`, accept: true,
+	},
+	{
+		name: "vega-lite naming an external url refused", contentType: "application/vnd.vegalite+json",
+		content: `{"data":{"url":"https://example.com/d.csv"},"mark":"bar"}`, badSource: true,
+	},
 }
 
 // TestContentTypeAllowlistGovernsEveryStringContentDoor is the parity gate for
@@ -186,8 +200,11 @@ func restCreateAccepts(t *testing.T, tc contentTypeDoorCase) bool {
 	if w.Code == http.StatusCreated {
 		return true
 	}
-	require.Equal(t, http.StatusUnsupportedMediaType, w.Code,
-		"a refused declaration must be 415, got %d: %s", w.Code, w.Body.String())
+	want := http.StatusUnsupportedMediaType
+	if tc.badSource {
+		want = http.StatusUnprocessableEntity
+	}
+	require.Equal(t, want, w.Code, "a refused declaration must be %d, got %d: %s", want, w.Code, w.Body.String())
 	return false
 }
 

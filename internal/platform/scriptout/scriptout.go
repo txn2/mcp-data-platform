@@ -13,8 +13,10 @@ package scriptout
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
+	"github.com/txn2/mcp-data-platform/internal/sourcecheck"
 	"github.com/txn2/mcp-data-platform/internal/tablexlsx"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
@@ -47,6 +49,8 @@ var documentTypes = map[string]string{
 	"text":     contenttype.PlainText,
 	"html":     contenttype.HTML,
 	"jsx":      contenttype.JSX,
+	"vegalite": contenttype.VegaLite,
+	"dot":      contenttype.Graphviz,
 }
 
 // documentFormats is documentTypes' key set, for the refusal that lists them.
@@ -57,6 +61,12 @@ var documentFormats = func() map[string]bool {
 	}
 	return out
 }()
+
+// DocumentFormatSet returns the document formats, the formats a script writes
+// a string body under, as a set the caller may keep.
+func DocumentFormatSet() map[string]bool {
+	return maps.Clone(documentFormats)
+}
 
 // Rows serializes row dicts in a tabular format, projected onto columns, and
 // checks the result against the ceiling.
@@ -95,6 +105,11 @@ func Document(name, format, body string) ([]byte, Identity, error) {
 	if len(body) > MaxBytes {
 		return nil, Identity{}, fmt.Errorf("output %q is %d bytes, over the %d-byte limit; write a smaller document",
 			name, len(body), MaxBytes)
+	}
+	// A drawn source is held to the check every other door applies, so a
+	// script cannot store a spec save_asset would refuse (#2296, #2303).
+	if err := sourcecheck.Check(ct, body); err != nil {
+		return nil, Identity{}, fmt.Errorf("output %q: %w", name, err)
 	}
 	return []byte(body), Identity{ContentType: ct, Extension: contenttype.Extension(ct)}, nil
 }

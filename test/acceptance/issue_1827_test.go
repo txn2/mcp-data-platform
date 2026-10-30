@@ -32,7 +32,7 @@ var issue1827Enums = map[string][]string{
 		"create_collection", "list_collections", "get_collection", "update_collection",
 		"delete_collection", "set_sections",
 	},
-	"manage_feedback": {"list", "get", "reply", "resolve", "request_validation", "respond_validation"},
+	"manage_feedback": {"create", "list", "get", "reply", "resolve", "request_validation", "respond_validation"},
 	"memory_manage":   {"update", "forget", "list", "review_stale", "review_duplicates", "consolidate"},
 	"s3_object":       {"get", "metadata", "put", "copy", "delete", "presign"},
 	"notify":          {"list", "send", "publish"},

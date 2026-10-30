@@ -28,6 +28,9 @@ const HtmlRenderer = lazy(() => import("./HtmlRenderer").then((m) => ({ default:
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer").then((m) => ({ default: m.MarkdownRenderer })));
 const SvgRenderer = lazy(() => import("./SvgRenderer").then((m) => ({ default: m.SvgRenderer })));
 const CsvRenderer = lazy(() => import("./CsvRenderer").then((m) => ({ default: m.CsvRenderer })));
+// Each its own chunk: Graphviz carries its WebAssembly build, Vega its runtime.
+const GraphvizRenderer = lazy(() => import("./GraphvizRenderer").then((m) => ({ default: m.GraphvizRenderer })));
+const VegaLiteRenderer = lazy(() => import("./VegaLiteRenderer").then((m) => ({ default: m.VegaLiteRenderer })));
 
 interface Props {
   contentType: string;
@@ -111,6 +114,29 @@ function renderFromURL(entry: Resolution, { fileName, contentUrl, sizeBytes }: U
   return <Suspense fallback={<Loading />}>{media[entry.kind] ?? card}</Suspense>;
 }
 
+/** What a family that renders from text is handed. */
+interface TextViewProps {
+  entry: Resolution;
+  text: string;
+  fileName?: string;
+  controlsSlot?: HTMLElement | null;
+  pdfUrl?: string;
+}
+
+/** The viewer each family that renders from text already in hand is drawn by. */
+const TEXT_VIEWERS: Partial<Record<Resolution["kind"], (p: TextViewProps) => ReactNode>> = {
+  json: ({ text, fileName }) => <JsonRenderer content={text} fileName={fileName} />,
+  ndjson: ({ text, fileName }) => <NdjsonRenderer content={text} fileName={fileName} />,
+  code: ({ entry, text, fileName }) => <CodeRenderer content={text} language={entry.language} fileName={fileName} />,
+  table: ({ entry, text, fileName }) => <CsvRenderer content={text} fileName={fileName} delimiter={entry.delimiter} />,
+  jsx: ({ text }) => <JsxRenderer content={text} />,
+  svg: ({ text }) => <SvgRenderer content={text} />,
+  markdown: ({ text }) => <MarkdownRenderer content={text} />,
+  graphviz: ({ text }) => <GraphvizRenderer content={text} />,
+  vegalite: ({ text }) => <VegaLiteRenderer content={text} />,
+  html: ({ text, controlsSlot, pdfUrl }) => <HtmlRenderer content={text} controlsSlot={controlsSlot} pdfUrl={pdfUrl} />,
+};
+
 /** The families that render from text already in hand. */
 function renderFromText(
   entry: Resolution,
@@ -119,63 +145,16 @@ function renderFromText(
   controlsSlot?: HTMLElement | null,
   pdfUrl?: string,
 ): ReactNode {
-  switch (entry.kind) {
-    case "json":
-      return (
-        <Suspense fallback={<Loading />}>
-          <JsonRenderer content={text} fileName={fileName} />
-        </Suspense>
-      );
-    case "ndjson":
-      return (
-        <Suspense fallback={<Loading />}>
-          <NdjsonRenderer content={text} fileName={fileName} />
-        </Suspense>
-      );
-    case "code":
-      return (
-        <Suspense fallback={<Loading />}>
-          <CodeRenderer content={text} language={entry.language} fileName={fileName} />
-        </Suspense>
-      );
-    case "table":
-      return (
-        <Suspense fallback={<Loading />}>
-          <CsvRenderer content={text} fileName={fileName} delimiter={entry.delimiter} />
-        </Suspense>
-      );
-    case "jsx":
-      return (
-        <Suspense fallback={<Loading />}>
-          <JsxRenderer content={text} />
-        </Suspense>
-      );
-    case "svg":
-      return (
-        <Suspense fallback={<Loading />}>
-          <SvgRenderer content={text} />
-        </Suspense>
-      );
-    case "markdown":
-      return (
-        <Suspense fallback={<Loading />}>
-          <MarkdownRenderer content={text} />
-        </Suspense>
-      );
-    case "html":
-      return (
-        <Suspense fallback={<Loading />}>
-          <HtmlRenderer content={text} controlsSlot={controlsSlot} pdfUrl={pdfUrl} />
-        </Suspense>
-      );
-    default:
-      return (
-        <pre
-          data-feedback-anchorable
-          className="overflow-auto whitespace-pre-wrap rounded-lg border bg-card p-6 text-sm"
-        >
-          {text}
-        </pre>
-      );
+  const view = TEXT_VIEWERS[entry.kind];
+  if (view) {
+    return <Suspense fallback={<Loading />}>{view({ entry, text, fileName, controlsSlot, pdfUrl })}</Suspense>;
   }
+  return (
+    <pre
+      data-feedback-anchorable
+      className="overflow-auto whitespace-pre-wrap rounded-lg border bg-card p-6 text-sm"
+    >
+      {text}
+    </pre>
+  );
 }

@@ -224,6 +224,7 @@ export type FixtureTile =
 export function fixtureTile(id: string, contentType: string, content: string): FixtureTile {
   switch (captureFamily(contentType)) {
     case "csv":
+    case "diagram":
     case "markdown":
     case "json":
     case "text":

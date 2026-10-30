@@ -1270,6 +1270,7 @@ internal/platform/scriptlive -> internal/platform/starlarkconv
 internal/platform/scriptlive -> pkg/script
 internal/platform/scriptnotify -> internal/platform/starlarkconv
 internal/platform/scriptout -> internal/platform/starlarkconv
+internal/platform/scriptout -> internal/sourcecheck
 internal/platform/scriptout -> internal/tablexlsx
 internal/platform/scriptout -> pkg/contenttype
 internal/platform/scriptout -> pkg/toolkits/trino
@@ -1618,6 +1619,7 @@ internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/shutdown -> internal/inprocess
 internal/soap -> internal/xmltree
+internal/sourcecheck -> pkg/contenttype
 internal/tableavail -> pkg/query
 internal/tableparquet -> internal/tabletype
 internal/thumbdue -> internal/advisorylock
@@ -2068,6 +2070,7 @@ pkg/portal -> internal/portal/viewerlimit
 pkg/portal -> internal/producedby
 pkg/portal -> internal/producedview
 pkg/portal -> internal/selfcall
+pkg/portal -> internal/sourcecheck
 pkg/portal -> internal/wirejson
 pkg/portal -> pkg/audit
 pkg/portal -> pkg/blobserve
@@ -2260,6 +2263,7 @@ pkg/toolkits/portal -> internal/portal/contentrefs
 pkg/toolkits/portal -> internal/portal/portaldomain
 pkg/toolkits/portal -> internal/producedby
 pkg/toolkits/portal -> internal/selfcall
+pkg/toolkits/portal -> internal/sourcecheck
 pkg/toolkits/portal -> internal/wirejson
 pkg/toolkits/portal -> pkg/contenttype
 pkg/toolkits/portal -> pkg/embedding
