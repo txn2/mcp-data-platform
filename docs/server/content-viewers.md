@@ -447,7 +447,7 @@ viewer page, and the untrusted HTML and JSX assets it renders in `blob:` URL
 iframes, which inherit the creating document's policy. The page is served with:
 
 ```
-default-src 'none'; script-src 'self' 'unsafe-inline' blob: https:; style-src 'self' 'unsafe-inline' https:;
+default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https:; style-src 'self' 'unsafe-inline' https:;
 img-src * data: blob:; media-src 'self' blob: data:; object-src 'self';
 font-src * data:; connect-src 'self' https:;
 ```
@@ -479,6 +479,11 @@ blob: data:` for a collection, whose items open in a same-origin iframe.
   to it, so dropping it would refuse an artifact its own web worker. It widens
   nothing: a blob URL can only be minted by script that is already running,
   which `'unsafe-inline'` has already permitted.
+- `script-src 'wasm-unsafe-eval'` lets an HTML asset draw with a library built
+  on WebAssembly, such as Graphviz or the dotLottie player (#2373). It compiles
+  a WebAssembly module and nothing written as text, so script that is already
+  allowed to run gains no API it lacked, inside a frame whose origin is opaque.
+  A JSX artifact's own policy does not grant it.
 - `'unsafe-eval'` is not granted. Sucrase transforms JSX in the parent page and
   the frame runs the result as a module, so no viewer path evaluates source at
   runtime. An artifact that calls `eval` or `new Function` is refused.

@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -265,29 +266,24 @@ func (w *Worker) run(ctx context.Context) {
 // listen opens the LISTEN connection that wakes the worker when a row becomes
 // due (#2084) and returns what closes it. It is opened beside the loop rather
 // than before it: pq's Listen waits for a connection, and a database that is
-// not answering must leave the worker polling, not waiting. The close waits
-// for an open still under way, so a connection that comes up after the worker
-// stopped is closed too.
+// not answering must leave the worker polling, not waiting. The close stops
+// the listener whether or not it ever connected, and returns only once the
+// open has ended, so nothing it started outlives the worker (#2374).
 func (w *Worker) listen(ctx context.Context) func() {
 	if w.deps.DSN == "" {
 		return func() {}
 	}
-	started := make(chan *pglisten.Listener, 1)
+	l := pglisten.New(w.deps.DSN, thumbdue.NotifyChannel, w)
+	opened := make(chan struct{})
 	go func() {
-		l := pglisten.New(w.deps.DSN, thumbdue.NotifyChannel, w)
-		if err := l.Start(ctx); err != nil {
+		defer close(opened)
+		if err := l.Start(ctx); err != nil && !errors.Is(err, net.ErrClosed) {
 			slog.WarnContext(ctx, "thumbnails: not woken by new work; polling only", logKeyError, logsan.SanitizeForLog(err.Error()))
-			close(started)
-			return
 		}
-		started <- l
 	}()
 	return func() {
-		go func() {
-			if l, ok := <-started; ok {
-				l.Stop()
-			}
-		}()
+		l.Stop()
+		<-opened
 	}
 }
 

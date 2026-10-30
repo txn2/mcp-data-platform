@@ -460,7 +460,8 @@ const saveToolDescription = "Saves AI-generated content (JSX dashboard, HTML rep
 	"This is how every document is produced, whatever the user calls it: a PowerPoint, deck or slides is an " +
 	"HTML presentation on the served slide runtime (see mcp:knowledge_page:platform-presentations), which " +
 	"its page exports to PDF; a report, one pager, memo or markdown report is text/markdown or text/html; a " +
-	"spreadsheet is text/csv. There is no local file system to build a file in and nothing to install, and " +
+	"spreadsheet is text/csv. A chart, flow, mind map, roadmap, network or animation in a document is drawn " +
+	"with a CDN library, not hand-drawn SVG (see mcp:knowledge_page:platform-visual-libraries). There is no local file system to build a file in and nothing to install, and " +
 	"object storage is not where a document goes. When the user's word names a format this does not " +
 	"produce (a .pptx, an .xlsx), say what you are making instead, then make it. " +
 	"IMPORTANT: When creating content that should be saved, call this tool directly with the content " +

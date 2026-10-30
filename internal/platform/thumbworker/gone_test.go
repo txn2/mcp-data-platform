@@ -8,19 +8,39 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
+// logBuffer is a buffer the default logger writes to from any goroutine while
+// a test reads it (#2374).
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p) //nolint:wrapcheck // bytes.Buffer.Write never fails
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 // captureLogs routes the default logger to a buffer at DEBUG for the test.
-func captureLogs(t *testing.T) *bytes.Buffer {
+func captureLogs(t *testing.T) *logBuffer {
 	t.Helper()
-	var buf bytes.Buffer
+	buf := &logBuffer{}
 	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
-	return &buf
+	return buf
 }
 
 // TestDrawResource_AFileDeletedWhileDrawnEndsQuietly holds #2367: a resource

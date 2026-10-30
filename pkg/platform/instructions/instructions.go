@@ -156,6 +156,7 @@ const (
 	PageFitAnyScreen          = "platform-documents-that-fit-any-screen"
 	PagePresentations         = "platform-presentations"
 	PageMaps                  = "platform-maps"
+	PageVisualLibraries       = "platform-visual-libraries"
 	PageIndex                 = "platform-index"
 )
 
@@ -173,7 +174,7 @@ type baselinePage struct {
 var baselinePages = []baselinePage{
 	{
 		toolManageScript, PageWritingManagedScripts,
-		"the Starlark dialect, what a script may call and who decides, the draft and test loop",
+		"the dialect, what a script may call and who decides, the draft and test loop",
 	},
 	{
 		toolManageScript, PageReferenceScript,
@@ -181,19 +182,19 @@ var baselinePages = []baselinePage{
 	},
 	{
 		toolManageScript, PageScriptOutputs,
-		"where a script's output lands: a stable name refreshes, a dated name archives",
+		"a stable output name refreshes, a dated one archives",
 	},
 	{
 		toolManageScript, PageSemiDynamicDashboards,
-		"a whole document each run, or one whose data region a schedule refreshes",
+		"a whole document each run, or a data region a schedule refreshes",
 	},
 	{
 		toolSaveAsset, PageAssetReferences,
-		"the two reference forms and who can load a declared file",
+		"the two reference forms; who loads a declared file",
 	},
 	{
 		toolMemoryCapture, PageProvenanceCapture,
-		"naming sources so provenance is exact, and the loop from session knowledge to the catalog",
+		"exact provenance; session knowledge into the catalog",
 	},
 	{
 		toolSaveAsset, PageContentTypes,
@@ -201,15 +202,19 @@ var baselinePages = []baselinePage{
 	},
 	{
 		toolSaveAsset, PageFitAnyScreen,
-		"writing a document that fits the reader's screen",
+		"a document that fits the reader's screen",
 	},
 	{
 		toolSaveAsset, PagePresentations,
-		"a presentation, deck or PowerPoint: HTML on the served slide runtime",
+		"a deck or PowerPoint: HTML on the served slide runtime",
 	},
 	{
 		toolSaveAsset, PageMaps,
 		"a map: HTML on the served map runtime",
+	},
+	{
+		toolSaveAsset, PageVisualLibraries,
+		"charts, diagrams, motion: CDN libraries, not hand-drawn SVG",
 	},
 }
 
@@ -244,7 +249,7 @@ func pageIndex(has map[string]bool) string {
 	var reach string
 	switch {
 	case has[toolFetch]:
-		reach = "`fetch` one by the reference named here rather than waiting for a search to surface it:"
+		reach = "`fetch` one by the reference named here, not by waiting for a search:"
 	case has[toolSearch]:
 		reach = "`search` finds one by the slug named here:"
 	default:

@@ -75,6 +75,7 @@ const (
 	slugFitScreen     = "platform-documents-that-fit-any-screen"
 	slugPresentations = "platform-presentations"
 	slugMaps          = "platform-maps"
+	slugVisuals       = "platform-visual-libraries"
 	slugContentTypes  = knowledgepage.BuiltinSlugContentTypes
 )
 
@@ -135,7 +136,7 @@ var pageMetas = []pageMeta{
 		slug:    slugDashboards,
 		summary: "Choosing between composing a whole document every run and publishing one document whose data region a scheduled script refreshes: what each costs, and how platform.publish_data splices the id=\"data\" region.",
 		tags:    []string{"scripts", "dashboards", "assets"},
-		related: []string{slugOutputs, slugAssetRefs, slugFitScreen},
+		related: []string{slugOutputs, slugAssetRefs, slugFitScreen, slugVisuals},
 	},
 	{
 		file:    "asset-references-and-the-refresh-loop.md",
@@ -163,14 +164,21 @@ var pageMetas = []pageMeta{
 		slug:    slugPresentations,
 		summary: "Building a presentation as an HTML asset on the reveal.js runtime the platform serves: the paths a deck names and why they are same-origin, the document skeleton, one slide per section with vertical detail, Markdown slides, brand by reference, what the Present control and the thumbnail do with it, and what the portal frame does not allow.",
 		tags:    []string{"assets", "authoring", "presentations", "slides"},
-		related: []string{slugFitScreen, slugAssetRefs, slugContentTypes},
+		related: []string{slugFitScreen, slugVisuals, slugAssetRefs, slugContentTypes},
 	},
 	{
 		file:    "maps.md",
 		slug:    slugMaps,
 		summary: "Building a map as an HTML asset on the map runtime and basemap this deployment serves: which regions are ready and where each archive is, the document skeleton with light and dark styles, drawing points, a route and areas from GeoJSON, fitting the view, the attribution that stays on, what to do where no region covers the data, and state and county maps that need no basemap.",
 		tags:    []string{"assets", "authoring", "maps", "geospatial"},
-		related: []string{slugFitScreen, slugContentTypes, slugAssetRefs},
+		related: []string{slugFitScreen, slugVisuals, slugContentTypes, slugAssetRefs},
+	},
+	{
+		file:    "visual-libraries.md",
+		slug:    slugVisuals,
+		summary: "Drawing a chart, flow, mind map, roadmap, network, graph, sketch or animation with a library loaded from a public CDN instead of hand-drawn SVG: Vega-Lite, Mermaid, Markmap, d3-sankey, Frappe Gantt, Cytoscape.js, Graphviz, Rough.js and dotLottie at pinned versions, a skeleton for each that follows light and dark and fits the frame, their use on a slide and in a JSX asset.",
+		tags:    []string{"assets", "authoring", "charts", "diagrams", "animation"},
+		related: []string{slugPresentations, slugDashboards, slugFitScreen, slugAssetRefs},
 	},
 	{
 		file:    "content-types-for-stored-files.md",

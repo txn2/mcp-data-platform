@@ -45,12 +45,9 @@ from a CDN. They are answered by the same origin the asset page and the share
 link are served from, so the deck renders on any network that reaches this
 deployment.
 
-A slide may use any other library where it is the right tool, served by the
-platform or loaded from a public CDN. A CDN library renders wherever the
-reader's browser can reach that CDN, and the tile and the exported PDF draw it
-wherever the deployment's renderer can, since the renderer fetches public files
-for the page it draws. On a closed network it goes blank, and the reader cannot
-tell why, so a deck meant for one uses only what the deployment serves.
+A chart, a flow, a mind map or an animation on a slide is drawn with a library
+loaded from a public CDN: mcp:knowledge_page:platform-visual-libraries names
+them, with a skeleton for each and what changes on a slide.
 
 ## The skeleton
 
