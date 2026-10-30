@@ -29,6 +29,8 @@ export type RendererKind =
   | "html"
   | "jsx"
   | "svg"
+  | "graphviz"
+  | "vegalite"
   | "code"
   | "text"
   | "binary";
@@ -147,6 +149,10 @@ const REGISTRY: Record<string, RendererEntry> = {
   [CT.html]: { kind: "html", editable: true, source: "inline", language: "html", inlineLimit: TEXT_INLINE_LIMIT },
   [CT.jsx]: { kind: "jsx", editable: true, source: "inline", language: "javascript", inlineLimit: TEXT_INLINE_LIMIT },
   [CT.svg]: { kind: "svg", editable: true, source: "inline", language: "xml", inlineLimit: TEXT_INLINE_LIMIT },
+  // Drawn sources (#2296, #2303): the drawing is the view, the source one
+  // toggle away in the editor.
+  [CT.graphviz]: { kind: "graphviz", editable: true, source: "inline", inlineLimit: TEXT_INLINE_LIMIT },
+  [CT.vegalite]: { kind: "vegalite", editable: true, source: "inline", language: "json", inlineLimit: TEXT_INLINE_LIMIT },
   [CT.xml]: XML_ENTRY,
   [CT.yaml]: { kind: "code", editable: true, source: "inline", language: "yaml", inlineLimit: TEXT_INLINE_LIMIT },
   [CT.sql]: { kind: "code", editable: true, source: "inline", language: "sql", inlineLimit: TEXT_INLINE_LIMIT },
@@ -293,6 +299,8 @@ export function familyLabel(contentType: string): string {
     [CT.html]: "HTML",
     [CT.jsx]: "React component",
     [CT.svg]: "SVG",
+    [CT.graphviz]: "Graphviz graph",
+    [CT.vegalite]: "Vega-Lite chart",
     [CT.pdf]: "PDF",
     [CT.parquet]: "Parquet",
     // No viewer draws a workbook: it opens on the download card (#1849).

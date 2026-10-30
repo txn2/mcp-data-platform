@@ -71,12 +71,12 @@ var saveAssetSchema = json.RawMessage(`{
       "maxLength": 255
     },
     "content": {
-      "type": "string",
-      "description": "The asset content (JSX, HTML, SVG, Markdown, etc.)"
+      "type": ["string", "object", "array"],
+      "description": "The asset content (JSX, HTML, SVG, Markdown, a DOT graph, a Vega-Lite spec, etc.) as a string. For a JSON content type (application/json, application/vnd.vegalite+json) it may instead be the JSON object or array itself, stored as its JSON text."
     },
     "content_type": {
       "type": "string",
-      "description": "MIME type the asset is stored under. One of: application/json, application/octet-stream, application/sql, application/x-ndjson, application/xml, application/yaml, image/svg+xml, text/css, text/csv, text/html, text/javascript, text/jsx, text/markdown, text/plain, text/tab-separated-values, text/x-python. Anything else is refused: content arrives here as a string, so binary families (PDF, images, audio, video) belong in a managed resource instead."
+      "description": "MIME type the asset is stored under. One of: application/json, application/octet-stream, application/sql, application/x-ndjson, application/vnd.vegalite+json, application/xml, application/yaml, image/svg+xml, text/css, text/csv, text/html, text/javascript, text/jsx, text/markdown, text/plain, text/tab-separated-values, text/vnd.graphviz, text/x-python. Anything else is refused: content arrives here as a string, so binary families (PDF, images, audio, video) belong in a managed resource instead."
     },
     "description": {
       "type": "string",
@@ -147,8 +147,8 @@ var manageAssetSchemaBase = json.RawMessage(`{
       "description": "Share ID to revoke (required for revoke_share). Call list_shares to see the shares on an asset."
     },
     "content": {
-      "type": "string",
-      "description": "New content (for update action only — replaces S3 object)"
+      "type": ["string", "object", "array"],
+      "description": "New content (for update action only — replaces S3 object). A string, or for a JSON content type the JSON object or array itself."
     },
     "max_versions": {
       "type": ["integer", "null"],

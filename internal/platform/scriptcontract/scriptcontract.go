@@ -125,11 +125,12 @@ WHAT IS AVAILABLE
                   append=False, scope=None, scope_id=None, index=None)
       Declare an output. rows is a list of dicts serialized in the declared
       format, or a string body written verbatim so a script can compose a
-      document: an HTML or JSX dashboard, a prose report, a hand-assembled
-      markdown page. Formats: csv, json, jsonl, parquet, xlsx, markdown, text,
-      html, jsx. csv, json, jsonl and parquet require rows, so a data feed
-      stays well-formed by construction; html and jsx take only a string body;
-      markdown and text accept either; xlsx takes a dict of sheets.
+      document: an HTML or JSX dashboard, a prose report, a markdown page, a
+      chart. Formats: csv, json, jsonl, parquet, xlsx, markdown, text, html,
+      jsx, vegalite, dot. csv, json, jsonl and parquet require rows, so a data
+      feed stays well-formed by construction; html, jsx, vegalite and dot take
+      only a string body; markdown and text accept either; xlsx takes a dict
+      of sheets.
       xlsx writes an Excel workbook from {"sheets": [{"name": "Summary",
       "columns": [...], "rows": [...], "column_types": {"net": "currency"},
       "freeze": "A2", "widths": {"name": 30}, "title": "..."}, ...]}. Rows are
@@ -192,7 +193,7 @@ WHAT IS AVAILABLE
       and declaring it lets everyone the asset is shared with load it,
       including anyone holding a public link. An empty list removes the
       asset's references; leaving the argument out leaves them alone. It
-      takes a string body in html, jsx, markdown or text written to
+      takes a string body in a document format written to
       "portal", and is refused before anything is written otherwise. A
       refusal fails the run, naming the output. Whether or not you pass it,
       the record carries "undeclared_references": every mcp:// URI and

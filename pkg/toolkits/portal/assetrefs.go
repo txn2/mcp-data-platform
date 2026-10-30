@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
+	"github.com/txn2/mcp-data-platform/internal/sourcecheck"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -24,6 +25,20 @@ const (
 	fieldReferenceGrant       = "reference_grant"
 	fieldUndeclaredReferences = "undeclared_references"
 )
+
+// contentRefusal refuses a body the platform will not store under its content
+// type: one that uses a reference as a link target, or a drawn source (a DOT
+// graph, a Vega-Lite spec) that cannot be drawn safely (#2296, #2303). It
+// returns nil for a body that can be stored.
+func contentRefusal(body, contentType string) *mcp.CallToolResult {
+	if refused := linkRefusal(body, contentType); refused != nil {
+		return refused
+	}
+	if err := sourcecheck.Check(contentType, body); err != nil {
+		return toolkit.ErrorResult(err.Error() + ". Nothing was written.")
+	}
+	return nil
+}
 
 // linkRefusal refuses a body that uses a reference as a link target (#1875),
 // naming each one, or returns nil when it uses none.

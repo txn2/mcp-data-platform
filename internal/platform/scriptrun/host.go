@@ -129,11 +129,13 @@ var (
 	rowFormats = map[string]bool{
 		"csv": true, "json": true, "jsonl": true, "markdown": true, "parquet": true, "text": true,
 	}
-	// documentFormats accept a string body written verbatim. html and jsx are
-	// ONLY here: they have no tabular serialization, and they map to the
-	// content types the portal already stores and renders for saved assets, so
-	// a script-published dashboard is patchable like any other document asset.
-	documentFormats = map[string]bool{"markdown": true, "text": true, "html": true, "jsx": true}
+	// documentFormats accept a string body written verbatim. html, jsx,
+	// vegalite and dot are ONLY here: they have no tabular serialization, and
+	// they map to the content types the portal already stores and renders for
+	// saved assets, so a script-published dashboard is patchable like any
+	// other document asset. The set is scriptout's, the serializer both runs
+	// share, so the two cannot disagree about what a document is.
+	documentFormats = scriptout.DocumentFormatSet()
 	// exportFormats is their union, for the unknown-format refusal, merged
 	// from the two sets the arms are checked against so it cannot drift.
 	exportFormats = func() map[string]bool {

@@ -104,6 +104,26 @@ rewrites a file already stored under the wrong type; replacing its content with
 an explicit `content_type` corrects it while keeping the id, the `mcp://` URI
 and the filename.
 
+### Drawn sources
+
+A Graphviz source and a Vega-Lite spec are checked before any door stores them
+(`internal/sourcecheck`): `save_asset`, `manage_asset` update and patch, the
+portal's inline create and content update (`422`), and a script's
+`platform.export` with `format = "dot"` or `"vegalite"`. A DOT source must
+parse, and the refusal names the line and column the parser stopped at. A spec
+must be a JSON object describing a view (a mark, a layer or a composition), and
+every `url` in it, a lookup's and an image channel's included, must be a
+managed-resource URI (`mcp://...`) or an asset reference (`mcp:asset:...`); the
+refusal names each URL that is neither. A static `href` is refused too, since
+the viewer follows no link. A spec's data that is a declared reference is
+served through the same rewrite as any other reference, so replacing the
+resource redraws the chart without a new version of the spec.
+
+`save_asset` and `manage_asset` take a JSON content type's content as the JSON
+object or array itself as well as a string; it is stored as its JSON text,
+indented, keys in the order sent. An object under a type that is not JSON is
+refused.
+
 ### Accepted types
 
 Detection settles what a payload *is*. What the platform will *store* is a
@@ -114,7 +134,8 @@ create), `save_asset`, and `manage_asset action=update` — accept one list:
 `text/markdown`, `text/plain`, `text/html`, `text/jsx`, `text/csv`,
 `text/tab-separated-values`, `image/svg+xml`, `application/json`,
 `application/x-ndjson`, `application/xml`, `application/yaml`,
-`text/javascript`, `text/css`, `text/x-python`, `application/sql` and
+`text/javascript`, `text/css`, `text/x-python`, `application/sql`,
+`text/vnd.graphviz`, `application/vnd.vegalite+json` and
 `application/octet-stream`. Aliases normalize first, so declaring `text/json` or
 `text/xml` works, and membership is exact: `text/*` is not a wildcard, because
 it would admit every `text/x-*` type a caller cares to invent. A refused write
@@ -176,6 +197,8 @@ content type renders identically wherever it is opened.
 | Tabular | `text/csv`, `text/tab-separated-values` | Sortable, searchable table; a row opens its record in a dialog | CodeMirror |
 | Images | `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/avif`, ... | Zoom and pan, checkerboard backing for transparency, dimensions and size readout, fit/actual-size toggle | None |
 | SVG | `image/svg+xml` | Sanitized inline render | Source editor |
+| Graphviz graph | `text/vnd.graphviz` (`.dot`) | Laid out in the browser by Graphviz compiled to WebAssembly, with the engine the source's `layout=` names (dot by default). The drawing is cleaned before it is placed: links are unwrapped to their content, `<image>`, `<script>` and `<foreignObject>` are removed, and no `href` or `on*` attribute survives, so a node's `URL="javascript:..."` draws as a plain node. Graphviz's default black ink and white page take the reader's scheme; a color the source chose is kept. A share page has a **View DOT** toggle (#2303) | Source editor |
+| Vega-Lite chart | `application/vnd.vegalite+json` (`.vl.json`) | Drawn by Vega with expressions interpreted (`vega-interpreter`, `ast: true`), so the share page's policy needs no `'unsafe-eval'`. Every load goes through one gate: a link is never followed, and data or an image loads only from a declared reference, by its `/portal/refs/` path on the page's own origin; a spec that names anything else draws with a notice naming what was refused. Selections work, the embed's action menu is off, and the chart follows the reader's light or dark scheme. A share page has a **View Spec** toggle (#2296) | Source editor (JSON) |
 | Audio | `audio/mpeg`, `audio/wav`, `audio/ogg`, `audio/mp4`, `audio/flac` | Native player with seek | None |
 | Video | `video/mp4`, `video/webm`, `video/ogg` | Native player with seek | None |
 | Parquet | `application/vnd.apache.parquet` | Read by byte range from the content URL, never whole (#1833) -- and the platform answers each of those ranges by reading that range from the store, not the object: a schema panel naming each column's Parquet type, whether it is nullable and the Trino type a registration declares it as (or why a registration refuses it); the file's row count, row groups, size, compression and writer; and the rows of one row group at a time, in the table the CSV viewer draws, with the download beside it | None |

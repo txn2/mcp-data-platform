@@ -48,9 +48,28 @@ func TestDocument(t *testing.T) {
 
 	_, _, err = Document("doc", "csv", "a,b")
 	require.ErrorContains(t, err, `output "doc": format "csv" is serialized from rows`)
-	assert.Contains(t, err.Error(), "[html jsx markdown text]")
+	assert.Contains(t, err.Error(), "[dot html jsx markdown text vegalite]")
 	_, _, err = Document("doc", "html", strings.Repeat("x", MaxBytes+1))
 	require.ErrorContains(t, err, "over the")
+}
+
+// TestDocument_DrawnSources pins that a script's vegalite and dot documents
+// are stored under their drawn types and held to the check save_asset applies
+// (#2296, #2303).
+func TestDocument_DrawnSources(t *testing.T) {
+	_, identity, err := Document("chart", "vegalite", `{"data":{"values":[]},"mark":"bar"}`)
+	require.NoError(t, err)
+	assert.Equal(t, "application/vnd.vegalite+json", identity.ContentType)
+	assert.Equal(t, ".vl.json", identity.Extension)
+	_, identity, err = Document("graph", "dot", "digraph { a -> b }")
+	require.NoError(t, err)
+	assert.Equal(t, "text/vnd.graphviz", identity.ContentType)
+
+	_, _, err = Document("chart", "vegalite", `{"data":{"url":"https://example.com/x.csv"},"mark":"bar"}`)
+	require.ErrorContains(t, err, `output "chart": the Vega-Lite spec loads "https://example.com/x.csv"`)
+	_, _, err = Document("graph", "dot", "digraph {")
+	require.ErrorContains(t, err, `output "graph": the DOT source does not parse`)
+	assert.True(t, DocumentFormatSet()["vegalite"])
 }
 
 func TestDataPayload(t *testing.T) {

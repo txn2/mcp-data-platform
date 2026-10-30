@@ -44,7 +44,19 @@ function guarded(children: ReactNode): ReactNode {
   );
 }
 
-function MarkdownWithSourceToggle({ content }: { content: string }) {
+/** What the source toggle names each family's source, for the families that have one. */
+const SOURCE_LABELS: Partial<Record<string, string>> = {
+  markdown: "View Markdown",
+  graphviz: "View DOT",
+  vegalite: "View Spec",
+};
+
+/**
+ * A family whose drawing is made from a readable source -- Markdown, a DOT
+ * graph, a Vega-Lite spec -- with that source one toggle away, as the asset
+ * page has it.
+ */
+function WithSourceToggle({ label, content, children }: { label: string; content: string; children: ReactNode }) {
   const [showSource, setShowSource] = useState(false);
   return (
     <>
@@ -54,12 +66,12 @@ function MarkdownWithSourceToggle({ content }: { content: string }) {
           onClick={() => setShowSource(!showSource)}
           className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent transition-colors"
         >
-          {showSource ? "View Rendered" : "View Markdown"}
+          {showSource ? "View Rendered" : label}
         </button>
       </div>
       {showSource
         ? <pre className="rounded-lg border bg-card p-6 text-sm overflow-auto whitespace-pre-wrap">{content}</pre>
-        : guarded(<MarkdownRenderer content={content} />)}
+        : guarded(children)}
     </>
   );
 }
@@ -122,19 +134,23 @@ if (dataEl) {
         fileName: name,
         content: serveFromURL ? undefined : content,
       });
+      const viewer = entry.kind === "markdown"
+        ? <MarkdownRenderer content={content} />
+        : (
+            <ContentRenderer
+              contentType={contentType}
+              content={serveFromURL ? undefined : content}
+              fileName={name}
+              contentUrl={contentURL || downloadURL}
+              sizeBytes={sizeBytes}
+              controlsSlot={document.getElementById("content-actions")}
+            />
+          );
+      const sourceLabel = serveFromURL ? undefined : SOURCE_LABELS[entry.kind];
       createRoot(root).render(
-        entry.kind === "markdown"
-          ? <MarkdownWithSourceToggle content={content} />
-          : guarded(
-              <ContentRenderer
-                contentType={contentType}
-                content={serveFromURL ? undefined : content}
-                fileName={name}
-                contentUrl={contentURL || downloadURL}
-                sizeBytes={sizeBytes}
-                controlsSlot={document.getElementById("content-actions")}
-              />,
-            ),
+        sourceLabel
+          ? <WithSourceToggle label={sourceLabel} content={content}>{viewer}</WithSourceToggle>
+          : guarded(viewer),
       );
     }
   }

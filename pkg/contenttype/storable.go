@@ -42,6 +42,8 @@ var storableTextTypes = map[string]bool{
 	"application/sql": true,
 	"text/x-python":   true,
 	"text/css":        true,
+	Graphviz:          true,
+	VegaLite:          true,
 }
 
 // IsStorableText reports whether a declared media type may be stored by a write

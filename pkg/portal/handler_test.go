@@ -1122,6 +1122,27 @@ func TestUpdateAssetContentSuccess(t *testing.T) {
 	assert.Equal(t, "updated", resp.Status)
 }
 
+// TestUpdateAssetContentRefusesASourceItCannotDraw pins the REST content
+// update door's source check (#2296, #2303): nothing is uploaded.
+func TestUpdateAssetContentRefusesASourceItCannotDraw(t *testing.T) {
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Graph", ContentType: "text/vnd.graphviz",
+		S3Bucket: "b", S3Key: "k", CurrentVersion: 1,
+	}
+	s3 := &mockS3Client{}
+	h := newTestHandlerWithVersions(
+		&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockVersionStore{createVersion: 2}, s3, &User{UserID: "u1"},
+	)
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/content",
+		strings.NewReader("digraph { a -> -> b }"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	assert.Contains(t, w.Body.String(), "does not parse")
+	assert.Empty(t, s3.putKey, "nothing is uploaded")
+}
+
 func TestUpdateAssetContentNoUser(t *testing.T) {
 	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
 

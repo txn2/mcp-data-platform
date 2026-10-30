@@ -141,7 +141,7 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 		return patchmcp.ErrorResult(err), nil, nil
 	}
 
-	if refused := linkRefusal(res.Body, asset.ContentType); refused != nil {
+	if refused := contentRefusal(res.Body, asset.ContentType); refused != nil {
 		return refused, nil, nil
 	}
 

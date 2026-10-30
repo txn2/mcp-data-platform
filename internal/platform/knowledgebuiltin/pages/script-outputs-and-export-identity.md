@@ -56,11 +56,14 @@ decides which are valid:
   `"json"` is refused, so a data feed another system parses stays well-formed
   by construction.
 - **A string body, written verbatim**, so a script can compose a document: an
-  HTML or JSX dashboard, a prose report, a hand-assembled markdown page. `html`
-  and `jsx` accept **only** a string body; `markdown` and `text` accept either.
+  HTML or JSX dashboard, a prose report, a hand-assembled markdown page, a
+  Vega-Lite spec (`vegalite`) or a Graphviz graph (`dot`) the portal draws.
+  `html`, `jsx`, `vegalite` and `dot` accept **only** a string body; `markdown`
+  and `text` accept either.
 
 So: tabular data goes out as `csv` or `json` from a list of dicts; a composed
-document goes out as `html`, `jsx`, `markdown`, or `text` from a string. An
+document goes out as `html`, `jsx`, `markdown`, `text`, `vegalite` or `dot`
+from a string. An
 empty document body is refused rather than published, so a conditionally
 assembled document that ends up blank fails the run loudly instead of silently
 replacing the current version of a shared dashboard.

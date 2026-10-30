@@ -58,6 +58,11 @@ var (
 
 	tableTypes = []string{"text/csv", "text/tab-separated-values"}
 
+	// diagramTypes are sources the viewer draws as a picture: a Graphviz graph
+	// and a Vega-Lite chart (#2296, #2303). They come before the JSON and text
+	// families, whose "%+json" and "text/%" would otherwise draw their source.
+	diagramTypes = []string{"text/vnd.graphviz", "application/vnd.vegalite+json"}
+
 	// Both JSON families, newline-delimited included, and every vendor dialect
 	// by its structured suffix; which of the two is drawn is a question only
 	// the capturer asks.
@@ -95,7 +100,7 @@ var (
 // archives, binaries -- has no renderer, keeps its content-type icon, and is
 // never offered for capture.
 var Capturable = slices.Concat(svgTypes, pdfTypes, documentTypes, markdownTypes, tableTypes,
-	jsonTypes, codeTypes, rasterTypes)
+	diagramTypes, jsonTypes, codeTypes, rasterTypes)
 
 // Themeable are the families drawn once per color scheme.
 //
@@ -109,7 +114,7 @@ var Capturable = slices.Concat(svgTypes, pdfTypes, documentTypes, markdownTypes,
 // forever.
 //
 // In Capturable's order, which is what the parity test compares.
-var Themeable = slices.Concat(documentTypes, markdownTypes, tableTypes, jsonTypes, codeTypes)
+var Themeable = slices.Concat(documentTypes, markdownTypes, tableTypes, diagramTypes, jsonTypes, codeTypes)
 
 // DefaultSourceLimit is the largest document a tile is drawn from unless the
 // deployment sets thumbnails.max_source_bytes. A tile is drawn by loading the

@@ -30,6 +30,8 @@ export const CT = {
   python: "text/x-python",
   pdf: "application/pdf",
   parquet: "application/vnd.apache.parquet",
+  graphviz: "text/vnd.graphviz",
+  vegalite: "application/vnd.vegalite+json",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   octet: "application/octet-stream",
 } as const;
@@ -78,6 +80,11 @@ const ALIASES: Record<string, string> = {
   "application/x-zip-compressed": "application/zip",
   "application/x-parquet": CT.parquet,
   "application/parquet": CT.parquet,
+  "text/x-graphviz": CT.graphviz,
+  "text/x-dot": CT.graphviz,
+  "application/x-graphviz": CT.graphviz,
+  "application/x-vegalite+json": CT.vegalite,
+  "application/vnd.vega-lite+json": CT.vegalite,
 };
 
 const ACTIVE = new Set<string>([CT.html, CT.jsx, CT.svg, CT.javascript]);
@@ -112,7 +119,7 @@ export function isGenericType(ct: string): boolean {
 export function isTextualType(ct: string): boolean {
   const n = normalizeContentType(ct);
   if (n.startsWith("text/")) return true;
-  const structured: string[] = [CT.json, CT.ndjson, CT.xml, CT.yaml, CT.svg, CT.javascript, CT.sql];
+  const structured: string[] = [CT.json, CT.ndjson, CT.xml, CT.yaml, CT.svg, CT.javascript, CT.sql, CT.vegalite];
   return structured.includes(n);
 }
 
@@ -138,6 +145,7 @@ const BY_EXTENSION: Record<string, string> = {
   htm: CT.html,
   jsx: CT.jsx,
   svg: CT.svg,
+  dot: CT.graphviz,
   pdf: CT.pdf,
   parquet: CT.parquet,
   xlsx: CT.xlsx,
