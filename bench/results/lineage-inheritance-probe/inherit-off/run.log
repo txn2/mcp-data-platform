@@ -1,0 +1,24 @@
+time=2026-10-30T17:47:49.230-07:00 level=INFO msg="attempt graded" task=li-mirror-average-amount-usd attempt=1 arm=a2 correct=true tool_calls=3 wall_ms=11269
+time=2026-10-30T17:48:03.811-07:00 level=INFO msg="attempt graded" task=li-mirror-average-amount-usd attempt=2 arm=a2 correct=true tool_calls=3 wall_ms=14564
+time=2026-10-30T17:48:17.184-07:00 level=INFO msg="attempt graded" task=li-mirror-average-amount-usd attempt=3 arm=a2 correct=true tool_calls=3 wall_ms=13366
+time=2026-10-30T17:48:31.300-07:00 level=INFO msg="attempt graded" task=li-mirror-average-amount-usd attempt=4 arm=a2 correct=true tool_calls=3 wall_ms=14107
+time=2026-10-30T17:48:43.333-07:00 level=INFO msg="attempt graded" task=li-mirror-completed-discount-usd attempt=1 arm=a2 correct=true tool_calls=3 wall_ms=12029
+time=2026-10-30T17:48:56.697-07:00 level=INFO msg="attempt graded" task=li-mirror-completed-discount-usd attempt=2 arm=a2 correct=true tool_calls=3 wall_ms=13346
+time=2026-10-30T17:49:11.451-07:00 level=INFO msg="attempt graded" task=li-mirror-completed-discount-usd attempt=3 arm=a2 correct=true tool_calls=3 wall_ms=14749
+time=2026-10-30T17:49:24.825-07:00 level=INFO msg="attempt graded" task=li-mirror-completed-discount-usd attempt=4 arm=a2 correct=true tool_calls=3 wall_ms=13368
+time=2026-10-30T17:49:38.671-07:00 level=INFO msg="attempt graded" task=li-mirror-completed-gross-usd attempt=1 arm=a2 correct=true tool_calls=3 wall_ms=13829
+time=2026-10-30T17:49:54.445-07:00 level=INFO msg="attempt graded" task=li-mirror-completed-gross-usd attempt=2 arm=a2 correct=true tool_calls=4 wall_ms=15770
+time=2026-10-30T17:50:13.200-07:00 level=INFO msg="attempt graded" task=li-mirror-completed-gross-usd attempt=3 arm=a2 correct=true tool_calls=4 wall_ms=18740
+time=2026-10-30T17:50:31.186-07:00 level=INFO msg="attempt graded" task=li-mirror-completed-gross-usd attempt=4 arm=a2 correct=true tool_calls=4 wall_ms=17973
+bench run: arm=a2 model=sonnet (claude-cli via 2.1.314 (Claude Code)) k=4
+  platform v1.152.5-dirty @ http://localhost:8098 | commit cc2c005da023 | seed 930 | tasks 38bfd13f6c2a
+  2026-10-31T00:47:37Z .. 2026-10-31T00:50:31Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+lineage     3      12    100.0%  100.0%        3.0        4.0        13829          0        1656              0
+
+task                            graded  correct  pass^k
+li-mirror-average-amount-usd        4        4  true
+li-mirror-completed-discount-usd      4        4  true
+li-mirror-completed-gross-usd       4        4  true
+results: build/bench-results/lineage-probe-off-20261030-174737/results-off.json

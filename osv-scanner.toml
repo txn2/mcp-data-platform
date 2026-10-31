@@ -19,3 +19,8 @@
 #   id = "GHSA-xxxx-xxxx-xxxx"
 #   ignoreUntil = 2027-01-14
 #   reason = "why it does not reach what we ship, and why there is no upgrade"
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2027-01-31
+reason = "minimatch globparts amplification, fixed only in 11.0.1. Every copy is build tooling that ships in nothing the platform serves and matches no glob a user supplies: minimatch 10.2.6 under eslint, @eslint/config-array, eslint-plugin-import-x, eslint-plugin-sonarjs and @typescript-eslint/typescript-estree (linting the UI source), and 5.1.9 under @redocly/openapi-core (openapi-typescript turning the platform's own swagger.json into types). No upgrade reaches them: the latest eslint (10.14.0) and its plugins require minimatch ^10, and 11 drops the makeRe export eslint imports; @redocly/openapi-core 1.x pins 5.1.9 exactly and openapi-typescript 7.13.0 (latest) requires it, and redocly calls the 5.x default export as a function, which 11 does not provide. Re-check when eslint accepts minimatch 11."

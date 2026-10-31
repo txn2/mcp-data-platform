@@ -1,0 +1,18 @@
+# Lineage-inheritance premise probe (issue #2379). Hand-written, not generated
+# by bench/seedgen: the mirror table is planted by seed/trino/lineage_mirror.sql
+# and seed/postgres/lineage_mirror.sql. Ground truth is computed from the
+# seeded orders rows, which the mirror copies.
+id: li-mirror-average-amount-usd
+suite: lineage
+prompt: Using the table memory.bench.orders_mirror, what is the average order amount in USD across all orders? Round to the nearest cent.
+arms:
+    - a2
+trap_classes:
+    - units_cents
+    - lineage_inherited
+budget_tool_calls: 30
+expected_sql: SELECT ROUND(AVG(amount) / 100e0, 2) AS avg_usd FROM memory.bench.orders_mirror
+grading:
+    kind: numeric
+    value: 1532.87
+    abs_tolerance: 0.01

@@ -1,0 +1,18 @@
+# Lineage-inheritance premise probe (issue #2379). Hand-written, not generated
+# by bench/seedgen: the mirror table is planted by seed/trino/lineage_mirror.sql
+# and seed/postgres/lineage_mirror.sql. Ground truth is computed from the
+# seeded orders rows, which the mirror copies.
+id: li-mirror-completed-discount-usd
+suite: lineage
+prompt: Using the table memory.bench.orders_mirror, what is the total discount in USD given on completed orders? Round to the nearest cent.
+arms:
+    - a2
+trap_classes:
+    - units_cents
+    - lineage_inherited
+budget_tool_calls: 30
+expected_sql: SELECT ROUND(SUM(discount) / 100e0, 2) AS discount_usd FROM memory.bench.orders_mirror WHERE status = 'completed'
+grading:
+    kind: numeric
+    value: 144042.64
+    abs_tolerance: 0.01
