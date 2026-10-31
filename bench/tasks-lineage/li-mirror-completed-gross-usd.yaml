@@ -1,0 +1,18 @@
+# Lineage-inheritance premise probe (issue #2379). Hand-written, not generated
+# by bench/seedgen: the mirror table is planted by seed/trino/lineage_mirror.sql
+# and seed/postgres/lineage_mirror.sql. Ground truth is computed from the
+# seeded orders rows, which the mirror copies.
+id: li-mirror-completed-gross-usd
+suite: lineage
+prompt: Using the table memory.bench.orders_mirror, what is the total gross amount in USD of completed orders? Round to the nearest cent.
+arms:
+    - a2
+trap_classes:
+    - units_cents
+    - lineage_inherited
+budget_tool_calls: 30
+expected_sql: SELECT ROUND(SUM(amount) / 100e0, 2) AS gross_usd FROM memory.bench.orders_mirror WHERE status = 'completed'
+grading:
+    kind: numeric
+    value: 1430603.83
+    abs_tolerance: 0.01

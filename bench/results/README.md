@@ -58,6 +58,15 @@ and the confirmatory matrix ran in full; every table recomputes offline via
 All families are under [`knowledge-pollution/`](knowledge-pollution/), indexed
 by [`knowledge-pollution/README.md`](knowledge-pollution/README.md).
 
+## Lineage-inheritance probe (closed)
+
+Summary: [`lineage-inheritance-probe/README.md`](lineage-inheritance-probe/README.md).
+Not a study. The probe killed the enrichment-tuning premise at ceiling (#2379).
+
+| Directory | What it is |
+| --- | --- |
+| [`lineage-inheritance-probe/`](lineage-inheritance-probe/) | `enrichment.lineage_inheritance` on vs off on a mirror table with a cents trap: 12/12 correct in both arms, the unit flagged as an assumption in 12/12 off-arm answers and 0/12 on-arm, with analyzer. |
+
 ## Search-first gate probe (closed)
 
 Summary: [`pk-gateprobe/pk-gateprobe-SUMMARY.md`](pk-gateprobe/pk-gateprobe-SUMMARY.md).

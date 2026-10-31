@@ -23,8 +23,10 @@ func TestArmConfigsDefineExactlySize(t *testing.T) {
 	}
 	// A glob that matches nothing would pass every assertion below without
 	// reading a single config.
-	if len(configs) != 4 {
-		t.Fatalf("found %d arm configs (%v), want the four a0-a3 configs", len(configs), configs)
+	// a0-a3, plus a2-noinherit (the lineage-inheritance probe, #2379), which
+	// runs the a2 tasks against the same pool.
+	if len(configs) != 5 {
+		t.Fatalf("found %d arm configs (%v), want a0-a3 and a2-noinherit", len(configs), configs)
 	}
 	for _, path := range configs {
 		t.Run(filepath.Base(path), func(t *testing.T) {
