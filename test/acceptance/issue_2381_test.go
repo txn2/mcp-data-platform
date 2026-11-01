@@ -32,6 +32,13 @@ import (
 
 const issue2381Key = "acceptance-2381-key"
 
+// issue2381Wait is how long each platform's client session lasts. The
+// criterion waits up to three minutes for a scan and six for the capped index
+// to embed its entries, which on a CI runner outlasts the suite's default
+// two-minute session; a session shorter than the wait ends it with "context
+// deadline exceeded" rather than with the platform's answer (#1738).
+const issue2381Wait = 8 * time.Minute
+
 const issue2381Config = `
 server:
   name: acceptance-2381
@@ -186,7 +193,7 @@ func TestIssue2381_ACappedIndexKeepsTablesAndReadsShort(t *testing.T) {
 	// First start: the catalog is scanned, the table curated.
 	first := startPlatform(t, issue2381ConfigFor(dsn, 5000))
 	first.serving(t, 3*time.Minute)
-	admin := connectAt(t, first.base, issue2381Key)
+	admin := connectAtFor(t, first.base, issue2381Key, issue2381Wait)
 	issue2381Fixture(t, admin)
 	ref := catalog.DatasetRef("trino", "dev", "memory", schema, "ledger").String()
 	issue2381Await(t, 3*time.Minute, "the scan cataloging the table, the fixture and platform-admin", func() bool {
@@ -203,16 +210,20 @@ func TestIssue2381_ACappedIndexKeepsTablesAndReadsShort(t *testing.T) {
 	capped := tables + 2
 	second := startPlatform(t, issue2381ConfigFor(dsn, capped))
 	second.serving(t, 3*time.Minute)
-	admin = connectAt(t, second.base, issue2381Key)
+	admin = connectAtFor(t, second.base, issue2381Key, issue2381Wait)
 
 	var cov map[string]any
 	var verdict string
-	issue2381Await(t, 4*time.Minute, "the capped index embedding its entries", func() bool {
+	issue2381Await(t, 6*time.Minute, "the capped index embedding its entries", func() bool {
 		kind := summaryKinds1837(t, admin)["catalog-datasets"]
 		cov, _ = kind["coverage"].(map[string]any)
 		verdict, _ = kind["verdict"].(string)
 		indexed, _ := cov["indexed"].(float64)
-		return int(indexed) == capped && verdict != "indexing"
+		if int(indexed) == capped && verdict != "indexing" {
+			return true
+		}
+		t.Logf("waiting on the capped index: verdict %q, coverage %v, want %d indexed", verdict, cov, capped)
+		return false
 	})
 	expected := issue2381Count(t, db, issue2381LiveDatasets) - issue2381Count(t, db, issue2381AdminOps)
 	if got, _ := cov["expected"].(float64); int(got) != expected || expected <= capped {
