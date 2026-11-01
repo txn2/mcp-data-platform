@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
@@ -36,12 +38,20 @@ type Source struct {
 	store      *Store
 	lister     Lister
 	maxEntries int
+	excluded   []Connection
 }
 
 // NewSource returns a Source over the mirror store and the catalog lister.
 // maxEntries caps how many datasets are mirrored.
 func NewSource(store *Store, lister Lister, maxEntries int) *Source {
 	return &Source{store: store, lister: lister, maxEntries: maxEntries}
+}
+
+// Excluding returns the source with the datasets of conns left out of the
+// mirror (#2381).
+func (s *Source) Excluding(conns ...Connection) *Source {
+	s.excluded = append(s.excluded, conns...)
+	return s
 }
 
 // Compile-time interface check.
@@ -76,73 +86,89 @@ func (s *Source) LoadItems(ctx context.Context, _ string) ([]indexjobs.Item, err
 	return items, nil
 }
 
-// enumerate pages the catalog until it is exhausted or the entry cap is
-// reached. Datasets are de-duplicated by URN because paging a live catalog can
-// repeat an entry when the underlying set shifts between calls, and a repeated
-// item id would make the mirrored count disagree with the item count.
-//
-// Paging advances by how many rows came back, never by how many were asked for,
-// and only an empty page ends the enumeration. A lister is free to return fewer
-// rows than requested, so treating a short page as the end of the corpus
-// truncates it at the first response (#1231). Advancing by the
-// returned length is correct whatever any layer below clamps to.
-//
-// A page that carries no indexable URN the corpus does not already hold ends the
-// enumeration as an error, not as a result: a lister that ignores Offset would
-// otherwise return the same rows forever, and stopping successfully would hand
-// LoadItems a corpus that is short through no decision of its own — which the
-// Sink's atomic replace would then prune the rest of the mirror down to. Failing
-// keeps the previous sweep's mirror intact and leaves the unit for the next
-// reconciler sweep, which is the fail-closed contract LoadItems documents.
+// enumerate reads the catalog one kind at a time, in IndexedKinds order, until
+// every kind is exhausted or the entry cap is reached, so the cap keeps the
+// kinds listed first (#2381). Datasets are de-duplicated by URN because paging
+// a live catalog can repeat an entry when the underlying set shifts between
+// calls, and a repeated item id would make the mirrored count disagree with
+// the item count.
 //
 // Reaching the cap is a decision rather than a surprise, so it returns what it
-// has and logs: coverage is reported against the mirror, so a truncated corpus
-// would otherwise read as full coverage on the Indexing dashboard. The log fires
-// whenever the cap stopped the paging, including the boundary case where the
-// catalog holds exactly max_entries datasets and nothing was actually dropped —
-// asking the catalog for one more page to tell those apart would cost a round
-// trip on every sweep of every capped deployment.
+// has and logs. The Sink's coverage is held to the catalog's own total, so a
+// truncated corpus reads short on the Indexing page rather than as complete.
+// The log fires whenever the cap stopped the paging, including the boundary
+// case where the catalog holds exactly max_entries datasets and nothing was
+// dropped: telling those apart would cost a round trip on every sweep.
 func (s *Source) enumerate(ctx context.Context) ([]Entry, error) {
 	var (
 		out  []Entry
 		seen = make(map[string]bool)
+		err  error
 	)
-	for offset := 0; offset < s.maxEntries; {
+	for _, kind := range IndexedKinds {
+		if out, err = s.enumerateKind(ctx, kind, out, seen); err != nil {
+			return nil, err
+		}
+		if len(out) >= s.maxEntries {
+			slog.WarnContext(ctx, "catalog index: enumeration stopped: entry cap reached; any catalog datasets beyond it are not indexed",
+				"max_entries", s.maxEntries, "indexed", s.maxEntries, "stopped_in_kind", kind)
+			return out[:s.maxEntries], nil
+		}
+	}
+	return out, nil
+}
+
+// enumerateKind pages one connection kind's datasets onto out until the kind is
+// exhausted or out reaches the cap.
+//
+// Paging advances by how many rows came back, never by how many were asked for,
+// and only an empty page ends the kind. A lister is free to return fewer rows
+// than requested, so treating a short page as the end truncates the corpus at
+// the first response (#1231).
+//
+// A page that carries no URN the enumeration has not already seen ends it as an
+// error, not as a result: a lister that ignores Offset would otherwise return
+// the same rows forever, and stopping successfully would hand LoadItems a corpus
+// that is short through no decision of its own, which the Sink's atomic replace
+// would then prune the rest of the mirror down to. An excluded dataset counts as
+// seen, so a page made entirely of them is progress, not a stall.
+func (s *Source) enumerateKind(ctx context.Context, kind string, out []Entry, seen map[string]bool) ([]Entry, error) {
+	for offset := 0; len(out) < s.maxEntries; {
 		results, err := s.lister.SearchTables(ctx, semantic.SearchFilter{
-			Query:  listQuery,
-			Limit:  min(pageSize, s.maxEntries-offset),
-			Offset: offset,
+			Query: listQuery, Platform: kind, Limit: pageSize, Offset: offset,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("catalogSource: enumerate catalog at offset %d: %w", offset, err)
+			return nil, fmt.Errorf("catalogSource: enumerate %s datasets at offset %d: %w", kind, offset, err)
 		}
 		if len(results) == 0 {
 			return out, nil
 		}
-		before := len(out)
-		out = appendUnseen(out, seen, results)
-		if len(out) == before {
+		var fresh int
+		out, fresh = s.appendUnseen(out, seen, results)
+		if fresh == 0 {
 			return nil, fmt.Errorf(
-				"catalogSource: enumerate stalled at offset %d: a page of %d rows held no dataset that was not already indexed, so the catalog is repeating rows or returning them without a URN (indexed %d)",
-				offset, len(results), len(out))
+				"catalogSource: enumerate stalled at %s offset %d: a page of %d rows held no dataset that was not already read, so the catalog is repeating rows or returning them without a URN (indexed %d)",
+				kind, offset, len(results), len(out))
 		}
 		offset += len(results)
 	}
-	slog.WarnContext(ctx, "catalog index: enumeration stopped: entry cap reached; any catalog datasets beyond it are not indexed",
-		"max_entries", s.maxEntries, "indexed", len(out))
 	return out, nil
 }
 
 // appendUnseen appends an entry for every result carrying a URN not already in
-// seen, marking those URNs seen, and returns the extended slice. An unchanged
-// length means the page held nothing the corpus does not already have, which is
-// what ends the enumeration.
-func appendUnseen(out []Entry, seen map[string]bool, results []semantic.TableSearchResult) []Entry {
+// seen and not on an excluded connection, marks every new URN seen, and returns
+// the extended slice with how many URNs were new. Zero new URNs means the page
+// held nothing the enumeration had not read, which is what reports a stall.
+func (s *Source) appendUnseen(out []Entry, seen map[string]bool, results []semantic.TableSearchResult) (extended []Entry, fresh int) {
 	for i := range results {
 		if results[i].URN == "" || seen[results[i].URN] {
 			continue
 		}
 		seen[results[i].URN] = true
+		fresh++
+		if s.isExcluded(results[i].URN) {
+			continue
+		}
 		out = append(out, Entry{
 			URN:         results[i].URN,
 			Name:        results[i].Name,
@@ -151,7 +177,20 @@ func appendUnseen(out []Entry, seen map[string]bool, results []semantic.TableSea
 			Domain:      results[i].Domain,
 		})
 	}
-	return out
+	return out, fresh
+}
+
+// isExcluded reports whether a dataset reference names a connection the index
+// leaves out.
+func (s *Source) isExcluded(urn string) bool {
+	if len(s.excluded) == 0 {
+		return false
+	}
+	ref, err := catalog.ParseRef(urn)
+	if err != nil {
+		return false
+	}
+	return slices.Contains(s.excluded, Connection{Kind: ref.ConnectionKind, Name: ref.Connection})
 }
 
 // OnSucceeded is a no-op: the ranked search reads catalog_datasets directly on

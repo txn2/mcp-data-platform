@@ -3,6 +3,7 @@
 package acceptance
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha1" //nolint:gosec // G505: no sender here signs with sha1; imported for the hash table below
@@ -72,10 +73,17 @@ func issue2223MAC(h func() hash.Hash, key, msg []byte) []byte {
 	return m.Sum(nil)
 }
 
-// issue2223FlipBody changes the last byte before the closing brace.
+// issue2223FlipBody changes the first character of the body's first string
+// value. The signature covers it and the body stays JSON, so the refusal is
+// always the signature's. Changing the byte before the closing brace turned a
+// Linear timestamp ending in 9 into ':' about one run in ten, and the request
+// was refused for an unreadable timestamp instead (#2378). A body with no
+// string value is returned unchanged, which the criterion reports as accepted.
 func issue2223FlipBody(r issue2223Request) issue2223Request {
 	b := append([]byte{}, r.body...)
-	b[len(b)-2]++
+	if i := bytes.Index(b, []byte(`":"`)); i >= 0 && i+3 < len(b) && b[i+3] != '"' {
+		b[i+3]++
+	}
 	r.body = b
 	return r
 }
@@ -126,17 +134,21 @@ func issue2223Senders() []issue2223Sender {
 				body := []byte(`{"type":2,"id":"` + marker + `"}`)
 				ts := issue2223Unix(now)
 				sig := hex.EncodeToString(ed25519.Sign(priv, append([]byte(ts), body...)))
-				return issue2223Request{contentType: "application/json", body: body,
-					header: map[string]string{"X-Signature-Ed25519": sig, "X-Signature-Timestamp": ts}}
+				return issue2223Request{
+					contentType: "application/json", body: body,
+					header: map[string]string{"X-Signature-Ed25519": sig, "X-Signature-Timestamp": ts},
+				}
 			},
 			tamper: issue2223FlipBody,
 		},
 		{
 			preset: "monday", secret: plain,
 			build: func(now time.Time, marker string, _ ed25519.PrivateKey) issue2223Request {
+				// The criterion's fixed sender secret, which the source under test is
+				// created with: it signs as monday.com does, so the receiver's check runs.
 				tok, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 					"exp": now.Add(5 * time.Minute).Unix(), "dat": map[string]any{"app_id": 1},
-				}).SignedString([]byte(issue2223Secret))
+				}).SignedString([]byte(issue2223Secret)) // nosemgrep: go.jwt-go.security.jwt.hardcoded-jwt-key
 				body := []byte(`{"event":{"type":"create_pulse","pulseId":"` + marker + `"}}`)
 				return issue2223Request{contentType: "application/json", body: body, header: map[string]string{"Authorization": tok}}
 			},
@@ -172,8 +184,10 @@ func issue2223Senders() []issue2223Sender {
 				body := []byte(`{"object_kind":"push","checkout_sha":"` + marker + `"}`)
 				ts := issue2223Unix(now)
 				sig := "v1," + base64.StdEncoding.EncodeToString(issue2223MAC(sha256.New, key, []byte(marker+"."+ts+"."+string(body))))
-				return issue2223Request{contentType: "application/json", body: body,
-					header: map[string]string{"webhook-id": marker, "webhook-timestamp": ts, "webhook-signature": sig}}
+				return issue2223Request{
+					contentType: "application/json", body: body,
+					header: map[string]string{"webhook-id": marker, "webhook-timestamp": ts, "webhook-signature": sig},
+				}
 			},
 			tamper: issue2223FlipBody,
 		},
@@ -438,8 +452,11 @@ func TestIssue2223_HeaderPatternVerkada(t *testing.T) {
 	}{
 		"one body byte changed": {issue2223FlipBody(issue2223Request{body: body}).body, sign(time.Now(), body), "the signature does not match"},
 		"outside the window":    {body, sign(time.Now().Add(-time.Hour), body), "the timestamp is outside the tolerance window"},
-		"no separator": {body, map[string]string{"Verkada-Signature": strings.Replace(sign(time.Now(), body)["Verkada-Signature"], "|", "", 1)},
-			"the signature does not match"},
+		"no separator": {
+			body,
+			map[string]string{"Verkada-Signature": strings.Replace(sign(time.Now(), body)["Verkada-Signature"], "|", "", 1)},
+			"the signature does not match",
+		},
 	} {
 		status, out := issue2223Post(t, name, issue2223Request{contentType: "application/json", body: tc.body, header: tc.header})
 		if status != http.StatusUnauthorized || !strings.Contains(out, tc.reason) {
@@ -516,10 +533,12 @@ func TestIssue2223_OutboundSignsAsBefore(t *testing.T) {
 			msg := h.Get("webhook-id") + "." + h.Get("webhook-timestamp") + "." + string(b)
 			return "webhook-signature", "v1," + base64.StdEncoding.EncodeToString(issue2223MAC(sha256.New, []byte(issue1996Secret), []byte(msg)))
 		}},
-		"body sha1 base64": {map[string]any{"hmac_algorithm": "sha1", "hmac_encoding": "base64", "hmac_prefix": "sha1="},
+		"body sha1 base64": {
+			map[string]any{"hmac_algorithm": "sha1", "hmac_encoding": "base64", "hmac_prefix": "sha1="},
 			func(h http.Header, b []byte) (string, string) {
 				return "X-Signature", "sha1=" + base64.StdEncoding.EncodeToString(issue2223MAC(issue2223Hash["sha1"], []byte(issue1996Secret), b))
-			}},
+			},
+		},
 	}
 	for name, s := range schemes {
 		conn := issue1996Connection(t, c, capture.URL, s.keys)

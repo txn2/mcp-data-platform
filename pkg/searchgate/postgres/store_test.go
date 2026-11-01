@@ -7,8 +7,10 @@ import (
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-data-platform/pkg/searchgate"
 )
 
 const testTTL = 30 * time.Minute
@@ -123,4 +125,18 @@ func TestIntervalString(t *testing.T) {
 	assert.Equal(t, "1800 seconds", intervalString(30*time.Minute))
 	assert.Equal(t, "1 seconds", intervalString(0))
 	assert.Equal(t, "1 seconds", intervalString(500*time.Millisecond))
+}
+
+func TestShared_PicksTheDatabaseWhenThereIsOne(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, ok := Shared(db, time.Minute).(*Store); !ok {
+		t.Error("with a database, Shared did not return the PostgreSQL store")
+	}
+	if _, ok := Shared(nil, time.Minute).(*searchgate.MemoryStore); !ok {
+		t.Error("without a database, Shared did not return the in-memory store")
+	}
 }

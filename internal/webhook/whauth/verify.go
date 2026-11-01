@@ -37,14 +37,19 @@ var (
 	ErrMissingSignature = errors.New("the signature header is missing")
 	ErrBadSignature     = errors.New("the signature does not match")
 	ErrMissingTimestamp = errors.New("the timestamp header is missing")
-	ErrMissingID        = errors.New("the delivery id header is missing")
-	ErrBadTimestamp     = errors.New("the timestamp is not a Unix time in seconds or milliseconds")
-	ErrStaleTimestamp   = errors.New("the timestamp is outside the tolerance window")
-	ErrMissingToken     = errors.New("the token is missing")
-	ErrBadToken         = errors.New("the token does not match")
-	ErrExpiredToken     = errors.New("the token has expired")
-	ErrBadCredentials   = errors.New("the basic credentials do not match")
-	ErrUnknownMode      = errors.New("the source's auth mode is not recognized")
+	// ErrMissingBodyTimestamp is refused for a source whose timestamp is a
+	// body field (Linear's webhookTimestamp); the refusal adds the field's
+	// path, which is the source's setting, not anything the sender wrote.
+	ErrMissingBodyTimestamp = errors.New("the timestamp field is missing from the body")
+	ErrUnreadableBody       = errors.New("the body is not JSON, so the timestamp in it could not be read")
+	ErrMissingID            = errors.New("the delivery id header is missing")
+	ErrBadTimestamp         = errors.New("the timestamp is not a Unix time in seconds or milliseconds")
+	ErrStaleTimestamp       = errors.New("the timestamp is outside the tolerance window")
+	ErrMissingToken         = errors.New("the token is missing")
+	ErrBadToken             = errors.New("the token does not match")
+	ErrExpiredToken         = errors.New("the token has expired")
+	ErrBadCredentials       = errors.New("the basic credentials do not match")
+	ErrUnknownMode          = errors.New("the source's auth mode is not recognized")
 )
 
 // Request is what verification reads from one request.
@@ -203,7 +208,10 @@ func (v *Verifier) signedValues(req Request, inHeader string, now time.Time) (ts
 	case a.TimestampHeader != "":
 		ts = strings.TrimSpace(req.Header.Get(a.TimestampHeader))
 	case v.hasTSPath:
-		ts = v.bodyTimestamp(req)
+		var tsErr error
+		if ts, tsErr = v.bodyTimestamp(req); tsErr != nil && v.checksTimestamp {
+			return "", "", tsErr
+		}
 	default:
 		ts = inHeader
 	}
@@ -221,19 +229,31 @@ func (v *Verifier) signedValues(req Request, inHeader string, now time.Time) (ts
 	return ts, id, nil
 }
 
-// bodyTimestamp is the timestamp read from the body, empty when the body has
-// none there.
-func (v *Verifier) bodyTimestamp(req Request) string {
+// bodyTimestamp is the timestamp read from the body. It is refused with
+// ErrUnreadableBody when the body cannot be read as a document at all, and with
+// ErrMissingBodyTimestamp, naming the source's path, when the field is absent
+// or empty: either way the sender is told where the platform looked, which is
+// never a header for such a source (#2378).
+func (v *Verifier) bodyTimestamp(req Request) (string, error) {
 	doc, ok := bodyDocument(req)
 	if !ok {
-		return ""
+		return "", ErrUnreadableBody
 	}
 	got, ok := v.tsPath.Lookup(doc)
-	if !ok {
-		return ""
+	if ts := jsonpath.Scalar(got); ok && ts != "" {
+		return ts, nil
 	}
-	return jsonpath.Scalar(got)
+	return "", missingBodyTimestampError{path: v.auth.TimestampPath}
 }
+
+// missingBodyTimestampError is ErrMissingBodyTimestamp naming the source's path.
+type missingBodyTimestampError struct{ path string }
+
+func (e missingBodyTimestampError) Error() string {
+	return ErrMissingBodyTimestamp.Error() + ": expected at " + e.path
+}
+
+func (missingBodyTimestampError) Unwrap() error { return ErrMissingBodyTimestamp }
 
 // verifyBodyToken compares the token read from the body with the secrets. A
 // path through "[*]" requires every element to carry a matching token: one

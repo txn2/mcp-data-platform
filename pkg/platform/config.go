@@ -1297,6 +1297,15 @@ type WorkflowConfig struct {
 	// QueryTools lists tool names that are gated by discovery.
 	// Defaults to trino_query and trino_execute.
 	QueryTools []string `yaml:"query_tools"`
+
+	// RequireSchema refuses SQL against a table whose columns the session has
+	// not read, returning its schema (#2386). Default on; false turns it off.
+	RequireSchema *bool `yaml:"require_schema"`
+}
+
+// IsRequireSchemaEnabled reports whether the schema gate refuses, default true.
+func (c *WorkflowConfig) IsRequireSchemaEnabled() bool {
+	return !isExplicitlyDisabled(c.RequireSchema)
 }
 
 // IsRequireSearchEnabled reports whether the search-first gate is enabled,

@@ -311,6 +311,7 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 		Description: "Export query results directly to a portal asset file (CSV, JSON, Markdown, or text). " +
 			"Use ONLY after you have validated the query shape with trino_query using a small LIMIT. " +
 			"Do NOT use this for data exploration. " +
+			toolkit.SchemaFirst + " " +
 			"Pass `resource` to land the result in a MANAGED RESOURCE at a path instead of a new asset: the same " +
 			"path next time is the NEXT VERSION of that one file, keeping its id, its mcp:// URI, the assets that " +
 			"reference it and the tables registered over it. That is the destination for a recurring export. " +

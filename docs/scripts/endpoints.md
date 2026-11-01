@@ -587,7 +587,11 @@ page says so.
 Turnstile and hCaptcha take the provider's `site_key`, which the widget is
 rendered with, and `secret_name`, a stored secret (Admin > Secrets) holding the
 provider's secret key, whose `allow_connections` names `bot_check` and which
-lists no personas. The key is read
+lists no personas. Settings > Bot checks stores that secret itself: choose
+**New secret** under Secret and enter a name and the provider's secret key, and
+the key is stored encrypted, limited to bot checks and to no persona, before the
+check is saved naming it. Admin > Secrets lists `bot_check` (and `script_token`)
+under **Platform uses**, beside the connections. The key is read
 on the server when a request is verified and never appears in a response or a
 log. `PlatformBotCheck.answer(name, {container})` renders the provider's widget
 into `container` and resolves with the token it produces. A provider token is

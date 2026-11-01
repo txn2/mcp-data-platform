@@ -18,8 +18,11 @@ import { ConfigField, ConfigGroup, ConfigSelect } from "@/pages/settings/connect
 import {
   choices,
   EMPTY_FORM,
+  forbidsPersonas,
   fromSecret,
+  isPlatformUse,
   placeholder,
+  PLATFORM_USES,
   problems,
   type SecretForm,
   toggled,
@@ -147,7 +150,21 @@ function EditorForm({
         chosen={form.connections}
         onChange={set("connections")}
       />
-      <PersonasGroup chosen={form.personas} onChange={set("personas")} />
+      <PlatformUsesGroup
+        chosen={form.connections}
+        onChange={(connections) =>
+          setForm((f) => ({
+            ...f,
+            connections,
+            personas: forbidsPersonas(connections) ? [] : f.personas,
+          }))
+        }
+      />
+      <PersonasGroup
+        chosen={form.personas}
+        onChange={set("personas")}
+        disabled={forbidsPersonas(form.connections)}
+      />
 
       <Refusals shown={shown} error={put.error as Error | null} />
       <Actions
@@ -328,6 +345,8 @@ function ConnectionsGroup({
   const known = (data?.connections ?? [])
     .filter((c) => SECRET_KINDS.includes(c.kind))
     .map((c) => c.name);
+  const uses = chosen.filter(isPlatformUse);
+  const connections = chosen.filter((n) => !isPlatformUse(n));
   return (
     <ConfigGroup title="Connections">
       <p className="text-xs text-muted-foreground">
@@ -337,11 +356,45 @@ function ConnectionsGroup({
       </p>
       <Checklist
         label="Connections"
-        names={choices(known, chosen)}
-        chosen={chosen}
-        onChange={onChange}
+        names={choices(known, connections).filter((n) => !isPlatformUse(n))}
+        chosen={connections}
+        onChange={(next) => onChange([...next, ...uses].sort())}
         empty={isLoading ? "Loading..." : "No API, GraphQL or MCP connection is configured."}
       />
+    </ConfigGroup>
+  );
+}
+
+/** PlatformUsesGroup offers the uses of a secret that are not connections,
+ * which the platform reads itself (#2388). They are kept in allow_connections
+ * under their reserved names, beside the connections. */
+function PlatformUsesGroup({
+  chosen,
+  onChange,
+}: {
+  chosen: string[];
+  onChange: (v: string[]) => void;
+}) {
+  return (
+    <ConfigGroup title="Platform uses">
+      <p className="text-xs text-muted-foreground">
+        Uses the platform reads the secret for itself, never sending it through a connection. A
+        secret bot checks use names no personas.
+      </p>
+      <fieldset aria-label="Platform uses" className="grid gap-1.5">
+        {PLATFORM_USES.map((u) => (
+          <label key={u.name} className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={chosen.includes(u.name)}
+              onChange={() => onChange(toggled(chosen, u.name))}
+            />
+            <span className="font-mono">{u.name}</span>
+            <span className="text-muted-foreground">{u.label}</span>
+          </label>
+        ))}
+      </fieldset>
     </ConfigGroup>
   );
 }
@@ -349,24 +402,28 @@ function ConnectionsGroup({
 function PersonasGroup({
   chosen,
   onChange,
+  disabled,
 }: {
   chosen: string[];
   onChange: (v: string[]) => void;
+  /** disabled is a secret bot checks use, which names no personas. */
+  disabled: boolean;
 }) {
   const { data, isLoading } = usePersonas();
   const known = (data?.personas ?? []).map((p) => p.name);
   return (
     <ConfigGroup title="Personas">
       <p className="text-xs text-muted-foreground">
-        The personas that may use the secret. With none chosen, any persona that
-        can reach one of its connections may. The administrator persona always
-        may.
+        {disabled
+          ? "A secret bot checks use names no personas: the platform reads it for every request a bot check answers."
+          : "The personas that may use the secret. With none chosen, any persona that can reach one of its connections may. The administrator persona always may."}
       </p>
       <Checklist
         label="Personas"
         names={choices(known, chosen)}
         chosen={chosen}
         onChange={onChange}
+        disabled={disabled}
         empty={isLoading ? "Loading..." : "No persona is defined."}
       />
     </ConfigGroup>
@@ -379,17 +436,19 @@ function Checklist({
   chosen,
   onChange,
   empty,
+  disabled = false,
 }: {
   label: string;
   names: string[];
   chosen: string[];
   onChange: (v: string[]) => void;
   empty: string;
+  disabled?: boolean;
 }) {
   if (names.length === 0)
     return <p className="text-sm text-muted-foreground">{empty}</p>;
   return (
-    <fieldset aria-label={label} className="grid gap-1.5 sm:grid-cols-2">
+    <fieldset aria-label={label} disabled={disabled} className="grid gap-1.5 sm:grid-cols-2 disabled:opacity-50">
       {names.map((n) => (
         <label key={n} className="flex items-center gap-2 text-sm">
           <input

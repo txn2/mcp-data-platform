@@ -12,6 +12,7 @@ const (
 	NameSessionEnrichmentCleanup = "session_enrichment_cleanup"
 	NameSessionErrorsCleanup     = "session_errors_cleanup"
 	NameSearchGateCleanup        = "search_gate_cleanup"
+	NameSchemaGateCleanup        = "schema_gate_cleanup"
 	NamePKCECleanup              = "pkce_cleanup"
 	NameSessionCleanup           = "session_cleanup"
 	NameOAuthCleanup             = "oauth_cleanup"

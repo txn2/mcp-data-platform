@@ -44,7 +44,7 @@ func (f *fakeScriptSearcher) Contract(_ context.Context, id string) (*script.Con
 // nothing.
 func runnableContract() *script.Contract {
 	return &script.Contract{
-		ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
+		ID: "5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Name: "daily-sales", DisplayName: "Daily Sales",
 		Description: "Yesterday's sales by region", OwnerEmail: "jane@example.com",
 		Status: script.StatusActive, Enabled: true,
 		Params:  []script.Param{{Name: "report_date", Required: true}},
@@ -124,7 +124,7 @@ func TestScriptsProvider_LexicalWhenTheRouterHasNoVector(t *testing.T) {
 // result cannot be ranked on text nobody is shown.
 func TestScriptsProvider_HitTextIsTheEmbeddedText(t *testing.T) {
 	sc := script.Script{
-		ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
+		ID: "5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Name: "daily-sales", DisplayName: "Daily Sales",
 		Description: "Yesterday's sales by region", Tags: []string{"revenue"},
 		Status: script.StatusActive, Enabled: true,
 	}
@@ -144,7 +144,7 @@ func TestScriptsProvider_HitTextIsTheEmbeddedText(t *testing.T) {
 func TestScriptsProvider_HitCarriesContractAndExecutionState(t *testing.T) {
 	s := &fakeScriptSearcher{scored: []script.ScoredScript{
 		{Score: 0.9, Script: script.Script{
-			ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
+			ID: "5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Name: "daily-sales", DisplayName: "Daily Sales",
 			Description: "Yesterday's sales by region", Status: script.StatusActive,
 			OwnerEmail: "jane@example.com", Enabled: true,
 			Params: []script.Param{{Name: "report_date", Required: true}},
@@ -159,8 +159,8 @@ func TestScriptsProvider_HitCarriesContractAndExecutionState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, hits, 2)
 	assert.Equal(t, SourceScripts, hits[0].Source)
-	assert.Equal(t, "script_1", hits[0].Ref)
-	assert.Equal(t, "mcp:script:script_1", hits[0].Reference)
+	assert.Equal(t, "5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", hits[0].Ref)
+	assert.Equal(t, "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", hits[0].Reference)
 	assert.Equal(t, script.StatusActive, hits[0].Status)
 	assert.Equal(t, "jane@example.com", hits[0].CapturedBy)
 	assert.Contains(t, hits[0].Text, "Daily Sales")
@@ -203,14 +203,14 @@ func TestScriptsProvider_FetchReturnsTheContractDocument(t *testing.T) {
 	c.Source = "def main():\n    # churn is ninety days\n    pass"
 	s := &fakeScriptSearcher{contract: c}
 
-	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
+	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a",
 		Caller{Email: "jane@example.com"})
 
 	require.NoError(t, err)
 	assert.True(t, owned)
 	require.NotNil(t, doc)
-	assert.Equal(t, "script_1", s.gotGetID)
-	assert.Equal(t, "mcp:script:script_1", doc.Reference)
+	assert.Equal(t, "5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", s.gotGetID)
+	assert.Equal(t, "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", doc.Reference)
 	assert.Equal(t, SourceScripts, doc.Source)
 	assert.Equal(t, "Daily Sales", doc.Title)
 	assert.Contains(t, doc.Body, "Runs: version 3, the latest saved version")
@@ -233,7 +233,7 @@ func TestScriptsProvider_FetchServesAnotherPersonsScript(t *testing.T) {
 	c.LastRun = &script.ContractRun{Version: 3, Outputs: []script.ContractOutput{{Name: "private-report"}}}
 	s := &fakeScriptSearcher{contract: c}
 
-	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
+	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a",
 		Caller{Email: "bob@example.com"})
 
 	require.NoError(t, err)
@@ -247,7 +247,7 @@ func TestScriptsProvider_FetchServesAnotherPersonsScript(t *testing.T) {
 	assert.Nil(t, content.LastRun)
 	assert.True(t, content.RunsWithheld)
 
-	admin, _, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
+	admin, _, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a",
 		Caller{Email: "root@example.com", IsAdmin: true})
 	require.NoError(t, err)
 	assert.Contains(t, admin.Body, "private-report", "an administrator reads it whole")
@@ -258,7 +258,7 @@ func TestScriptsProvider_FetchServesAnotherPersonsScript(t *testing.T) {
 func TestScriptsProvider_FetchRefusesAnUnidentifiedCaller(t *testing.T) {
 	s := &fakeScriptSearcher{contract: runnableContract()}
 
-	_, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1", Caller{})
+	_, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Caller{})
 
 	assert.True(t, owned)
 	require.ErrorIs(t, err, ErrNotFound)
@@ -291,7 +291,7 @@ func TestScriptsProvider_FetchListsOpenableOutputsAndCountsTheRest(t *testing.T)
 	p := NewScriptsProvider(s)
 	p.SetOutputs(outs)
 
-	doc, _, err := p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+	doc, _, err := p.Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Caller{Email: "bob@example.com"})
 
 	require.NoError(t, err)
 	assert.Equal(t, "bob@example.com", outs.caller.Email)
@@ -302,19 +302,19 @@ func TestScriptsProvider_FetchListsOpenableOutputsAndCountsTheRest(t *testing.T)
 	assert.Equal(t, 2, content.OutputsHidden)
 
 	outs.open, outs.hidden = nil, 3
-	doc, _, err = p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+	doc, _, err = p.Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Caller{Email: "bob@example.com"})
 	require.NoError(t, err)
 	assert.Contains(t, doc.Body, "Produced: 3 more you cannot open.")
 	assert.Empty(t, doc.References)
 
 	outs.more = true
-	doc, _, err = p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+	doc, _, err = p.Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Caller{Email: "bob@example.com"})
 	require.NoError(t, err)
 	assert.Contains(t, doc.Body, "Produced: 3 more you cannot open; these are its most recent outputs, and it wrote older ones too.")
 	outs.more = false
 
 	outs.err = errors.New("down")
-	doc, _, err = p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+	doc, _, err = p.Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Caller{Email: "bob@example.com"})
 	require.NoError(t, err, "a failed outputs read does not fail the fetch")
 	assert.Contains(t, doc.Body, "Produced: what this script produced could not be read.")
 	unavailable, ok := doc.Content.(scriptDocument)
@@ -324,7 +324,7 @@ func TestScriptsProvider_FetchListsOpenableOutputsAndCountsTheRest(t *testing.T)
 	outs.err = nil
 	outs.open = []ScriptOutput{{Kind: "resource", ID: "r1", Reference: "mcp:resource:r1"}}
 	outs.hidden = 0
-	doc, _, err = p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+	doc, _, err = p.Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Caller{Email: "bob@example.com"})
 	require.NoError(t, err)
 	assert.Contains(t, doc.Body, "Produced: r1 (mcp:resource:r1).", "an output with no name is shown by its id")
 }
@@ -344,7 +344,7 @@ func TestScriptsProvider_FetchMissingIsNotFound(t *testing.T) {
 func TestScriptsProvider_FetchStoreError(t *testing.T) {
 	s := &fakeScriptSearcher{getErr: errors.New("down")}
 
-	_, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "jane@example.com"})
+	_, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a", Caller{Email: "jane@example.com"})
 
 	assert.True(t, owned)
 	require.Error(t, err)
@@ -361,7 +361,7 @@ func TestScriptsProvider_FetchServesARetiredScript(t *testing.T) {
 	c.Refusal = "the script is deprecated and must not be executed"
 	s := &fakeScriptSearcher{contract: c}
 
-	doc, _, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
+	doc, _, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:5c0a1b2e-7d4f-4e21-9a3b-1f2e3d4c5b6a",
 		Caller{Email: "jane@example.com"})
 
 	require.NoError(t, err)
@@ -374,4 +374,18 @@ func TestScriptsProvider_FetchServesARetiredScript(t *testing.T) {
 // told "scripts" is a typo.
 func TestScriptsSourceIsKnown(t *testing.T) {
 	assert.Contains(t, KnownSources(), SourceScripts)
+}
+
+// TestScriptsProvider_FetchOfANonUUIDIDIsNotFound is #2383: a script fetched by
+// anything other than its UUID (an agent using the script's name) is the
+// not-found answer, and the store is never asked, since PostgreSQL refuses a
+// malformed UUID with an error rather than reporting it absent.
+func TestScriptsProvider_FetchOfANonUUIDIDIsNotFound(t *testing.T) {
+	s := &fakeScriptSearcher{getErr: errors.New(`pq: invalid input syntax for type uuid: "daily-sales"`)}
+	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:daily-sales",
+		Caller{Email: "jane@example.com"})
+	assert.True(t, owned, "a script reference is still the scripts provider's")
+	require.ErrorIs(t, err, ErrNotFound)
+	assert.Nil(t, doc)
+	assert.Empty(t, s.gotGetID, "the store is not asked for an id that cannot be a script's")
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogscan"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
@@ -129,4 +130,20 @@ func (s *stubLister) SearchTables(_ context.Context, f semantic.SearchFilter) ([
 	page := s.pages[s.calls]
 	s.calls++
 	return page, nil
+}
+
+func TestConfigExcludingDoesNotShareTheBackingArray(t *testing.T) {
+	base := Config{Excluded: make([]Connection, 0, 4)}
+	a := base.Excluding(Connection{Kind: "api", Name: "a"})
+	b := base.Excluding(Connection{Kind: "api", Name: "b"})
+	assert.Equal(t, []Connection{{Kind: "api", Name: "a"}}, a.Excluded)
+	assert.Equal(t, []Connection{{Kind: "api", Name: "b"}}, b.Excluded)
+	assert.Empty(t, base.Excluded)
+}
+
+// TestIndexedKindsAreTheKindsTheCatalogScanWrites holds IndexedKinds to the
+// kinds the catalog scan writes datasets under: a kind added there and not here
+// would never be mirrored (#2381).
+func TestIndexedKindsAreTheKindsTheCatalogScanWrites(t *testing.T) {
+	assert.ElementsMatch(t, []string{catalogscan.KindTrino, catalogscan.KindGraphQL, catalogscan.KindAPI}, IndexedKinds)
 }

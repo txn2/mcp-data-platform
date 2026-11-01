@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/internal/platform/retention"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -100,7 +101,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 			p.memory.IndexProducer()), p.resources.IndexProducers()...),
 		MemoryEmbedded:     p.memory.RecallOnEmbed(),
 		CatalogLister:      p.semanticProvider,
-		CatalogIndexConfig: p.config.Knowledge.CatalogIndex,
+		CatalogIndexConfig: p.config.Knowledge.CatalogIndex.Excluding(datasetindex.Connection{Kind: "api", Name: adminSelfConnectionName}),
 		ReconcileInterval:  p.config.Knowledge.IndexReconcileInterval,
 		ResourceBlobs:      p.resources.S3Client(),
 		ResourceBucket:     p.config.Resources.Managed.S3Bucket,

@@ -394,6 +394,19 @@ func (c *client) callRaw(name string, args map[string]any) (*mcp.CallToolResult,
 			return nil, "", err
 		}
 		text := firstText(res)
+		if res.IsError && strings.HasPrefix(text, "SCHEMA_REQUIRED") {
+			// The schema gate (#2386) refuses a statement against a table the
+			// session has not read and delivers that table's schema in the
+			// refusal. An agent reads it and sends the statement again; the
+			// suite does the same once, so a criterion about something else
+			// meets the gate the way a real client does. A criterion ABOUT the
+			// gate calls session.CallTool directly.
+			res, err = c.session.CallTool(c.ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+			if err != nil {
+				return nil, "", err
+			}
+			text = firstText(res)
+		}
 		if attempt >= rateLimitRetries || !res.IsError || !strings.Contains(text, "RATE_LIMITED") {
 			return res, text, nil
 		}

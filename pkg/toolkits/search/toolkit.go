@@ -14,11 +14,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
@@ -413,6 +415,10 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 // stale, unknown, or out-of-scope reference returns a structured found=false (not an
 // error), so a dangling citation is a normal answer; a real backend failure returns
 // a tool error.
+// fetchFailedMessage is the whole of what a caller is told when a provider
+// fails to read a reference it owns: the cause is in the server log.
+const fetchFailedMessage = "fetch failed: the platform could not read this reference; the cause was logged on the server, so try again or report the reference to an administrator"
+
 func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input fetchInput) (*mcp.CallToolResult, any, error) {
 	ref := strings.TrimSpace(input.Reference)
 	if ref == "" {
@@ -436,7 +442,11 @@ func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input
 					"reference form, or outside what you can access",
 			})
 		}
-		return toolkit.ErrorResult("fetch failed: " + err.Error()), nil, nil
+		// A provider's error carries whatever its store said, database
+		// error text included. It is logged here and never returned (#2383).
+		slog.ErrorContext(ctx, "fetch failed",
+			"reference", logsan.SanitizeForLog(ref), "error", logsan.SanitizeForLog(err.Error()))
+		return toolkit.ErrorResult(fetchFailedMessage), nil, nil
 	}
 
 	result, structured, err := structuredResult(fetchOutput{

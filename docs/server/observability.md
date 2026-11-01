@@ -1018,7 +1018,7 @@ arrive unreviewed.
 | `ok` | Tool returned successfully. |
 | `auth_err` | Authentication failed (no/invalid credential). |
 | `authz_err` | User authenticated but persona denied the tool. |
-| `gate_err` | The platform refused the call before the handler ran: the session gate (`platform_info` not yet called), the search-first gate (`SEARCH_REQUIRED`), a missing session handle or purpose, or the per-user rate limit. The specific gate is the audit row's `error_category`. |
+| `gate_err` | The platform refused the call before the handler ran: the session gate (`platform_info` not yet called), the search-first gate (`SEARCH_REQUIRED`), the schema gate (`SCHEMA_REQUIRED`), a missing session handle or purpose, or the per-user rate limit. The specific gate is the audit row's `error_category`. |
 | `declined` | The user answered no to an elicitation prompt (cost or PII consent). |
 | `validation_err` | Bad arguments, a missing feature or connection, or a not-found reference. |
 | `upstream_err` | Tool reached the upstream and the upstream returned an error (Trino query failure, S3 4xx/5xx, API 4xx/5xx, etc.). |

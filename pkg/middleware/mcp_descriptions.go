@@ -18,17 +18,19 @@ const (
 )
 
 // defaultDescriptionOverrides contains built-in description overrides that
-// guide agents toward discovery before running queries, and toward recording
-// the queries that worked afterwards.
+// guide agents toward discovery and the table's schema before running queries
+// (#2385), and toward recording the queries that worked afterwards.
 var defaultDescriptionOverrides = map[string]string{
 	toolNameTrinoQuery: "Execute a read-only SQL query against Trino and return results. " +
-		"IMPORTANT: Before writing SQL, call search to discover the table and " +
+		"Before writing SQL, call search to discover the table and " +
 		"understand its business context (descriptions, owners, tags, glossary terms, prior insights). " +
+		toolkit.SchemaFirst + " " +
 		"Only SELECT, SHOW, DESCRIBE, EXPLAIN, and WITH statements are allowed. " +
 		toolkit.CaptureRoute,
 	toolNameTrinoExecute: "Execute a SQL statement against Trino, including write operations. " +
-		"IMPORTANT: Before writing SQL, call search to discover the table and " +
+		"Before writing SQL, call search to discover the table and " +
 		"understand its business context (descriptions, owners, tags, glossary terms, prior insights). " +
+		toolkit.SchemaFirst + " " +
 		"Use trino_query for read-only SELECT queries. This tool should be used when " +
 		"you need to modify data or schema. " +
 		toolkit.CaptureRoute,

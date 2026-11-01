@@ -113,8 +113,21 @@ func TestBodyTimestampLinear(t *testing.T) {
 	assert.ErrorIs(t, v.Verify(Request{Header: headers("Linear-Signature", sig), Body: body}, now.Add(2*time.Minute)),
 		ErrStaleTimestamp, "Linear's window is a minute")
 	noTS := []byte(`{"action":"create"}`)
-	assert.ErrorIs(t, v.Verify(Request{Header: headers("Linear-Signature", hex.EncodeToString(sign(sha256.New, "lin", noTS))), Body: noTS}, now),
-		ErrMissingTimestamp)
+	missing := v.Verify(Request{Header: headers("Linear-Signature", hex.EncodeToString(sign(sha256.New, "lin", noTS))), Body: noTS}, now)
+	require.ErrorIs(t, missing, ErrMissingBodyTimestamp)
+	assert.Contains(t, missing.Error(), "webhookTimestamp", "the refusal names the body field it read")
+	assert.NotContains(t, missing.Error(), "header", "a body-timestamp source is never told about a header")
+	notJSON := []byte(`{"action":"create","webhookTimestamp":1:}`)
+	unreadable := v.Verify(Request{Header: headers("Linear-Signature", hex.EncodeToString(sign(sha256.New, "lin", notJSON))), Body: notJSON}, now)
+	require.ErrorIs(t, unreadable, ErrUnreadableBody)
+	assert.NotContains(t, unreadable.Error(), "header")
+}
+
+func TestHeaderTimestampStillNamesTheHeader(t *testing.T) {
+	body := []byte(`{"type":"event_callback"}`)
+	slack := compiled(t, whsource.Auth{Preset: whsource.PresetSlack, Secret: "sec"})
+	sig := "v0=" + hex.EncodeToString(sign(sha256.New, "sec", []byte("v0::"+string(body))))
+	assert.ErrorIs(t, slack.Verify(Request{Header: headers("X-Slack-Signature", sig), Body: body}, now), ErrMissingTimestamp)
 }
 
 func TestSlackAndZoomTemplates(t *testing.T) {

@@ -41,6 +41,7 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 		mwToolCall,
 		mwSessionGate,
 		mwWorkflowGate,
+		mwSchemaGate,
 		mwRateLimit,
 		mwReflexiveCapture,
 		mwErrorContract,

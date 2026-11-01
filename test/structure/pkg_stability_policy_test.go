@@ -111,10 +111,6 @@ func stabilityAllowlist() map[string]stabilityExemption {
 			why:  "the reference Postgres implementation of the prompt store contract, as for pkg/configstore/postgres.",
 			exit: "as for pkg/configstore/postgres.",
 		},
-		"pkg/searchgate/postgres": {
-			why:  "the reference Postgres implementation of the search-gate store contract, as for pkg/configstore/postgres.",
-			exit: "as for pkg/configstore/postgres.",
-		},
 		"pkg/session/postgres": {
 			why:  "the reference Postgres implementation of the session store passed to platform.WithSessionStore.",
 			exit: "as for pkg/configstore/postgres.",

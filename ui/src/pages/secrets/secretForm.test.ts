@@ -22,6 +22,13 @@ const secret = {
 };
 
 describe("secretForm", () => {
+  it("refuses personas on a secret bot checks use (#2388)", () => {
+    const form = { ...EMPTY_FORM, name: "ok", value: "hunter22", connections: ["bot_check"], personas: ["finance"] };
+    expect(problems(form, true)).toEqual([expect.stringContaining("names no personas")]);
+    expect(problems({ ...form, personas: [] }, true)).toEqual([]);
+    expect(problems({ ...form, connections: ["script_token"] }, true)).toEqual([]);
+  });
+
   it("refuses what the server refuses", () => {
     expect(problems(EMPTY_FORM, true)).toHaveLength(3);
     expect(

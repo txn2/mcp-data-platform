@@ -192,3 +192,23 @@ func TestDefaultDescriptions_CarryTheCaptureRoute(t *testing.T) {
 		t.Errorf("config override = %q, want it to win", custom[toolNameTrinoQuery])
 	}
 }
+
+// TestDefaultOverrides_SQLToolsRequireTheSchema pins #2385: the SQL tools'
+// built-in descriptions require the table's columns before SQL, the override
+// set names no non-SQL tool, and a deployment's own override still wins.
+func TestDefaultOverrides_SQLToolsRequireTheSchema(t *testing.T) {
+	merged := MergedDescriptionOverrides(nil)
+	for _, name := range []string{toolNameTrinoQuery, toolNameTrinoExecute} {
+		desc := merged[name]
+		assert.Contains(t, desc, toolkit.SchemaFirst, name)
+		assert.Contains(t, desc, "trino_describe_table", name)
+	}
+	for name := range merged {
+		assert.Truef(t, strings.HasPrefix(name, "trino_"),
+			"built-in override for non-SQL tool %q: the schema requirement is for SQL tools only", name)
+	}
+
+	custom := MergedDescriptionOverrides(map[string]string{toolNameTrinoQuery: "operator text"})
+	assert.Equal(t, "operator text", custom[toolNameTrinoQuery])
+	assert.Contains(t, custom[toolNameTrinoExecute], toolkit.SchemaFirst)
+}
