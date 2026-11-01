@@ -247,7 +247,7 @@ function WeekdayPicker({
   onChange: (days: number[]) => void;
 }) {
   const toggle = (day: number) =>
-    onChange(days.includes(day) ? days.filter((d) => d !== day) : [...days, day].sort());
+    onChange(days.includes(day) ? days.filter((d) => d !== day) : [...days, day].sort((a, b) => a - b));
   return (
     <div className="space-y-1.5">
       <Label>Days</Label>

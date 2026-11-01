@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { pathProblem } from "./pathRules";
+import { comparePaths } from "@/lib/sortByName";
 
 /**
  * Seed folder names offered for the first segment of a path.
@@ -68,7 +69,7 @@ const NEW_FOLDER = "__new__";
 function folderChoices(folders: string[], value: string): string[] {
   const all = new Set<string>([...folders, ...SEED_FOLDERS]);
   if (value) all.add(value);
-  return [...all].sort((a, b) => a.localeCompare(b));
+  return [...all].sort(comparePaths);
 }
 
 /**

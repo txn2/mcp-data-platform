@@ -13,6 +13,7 @@ import { displayPath, type ResourceRoot } from "../scopes";
 import { isUnder } from "../parts/tree";
 import type { Outcome, Picked } from "./actions";
 import { plural } from "./model";
+import { comparePaths } from "@/lib/sortByName";
 
 /** The frame every action dialog shares: a title, a body, Cancel and the action. */
 function Frame({
@@ -150,7 +151,7 @@ export function MoveDialog({
   const choices = folders
     .map((f) => f.path)
     .filter((p) => !picked.folders.some((f) => isUnder(p, f)))
-    .sort((a, b) => a.localeCompare(b));
+    .sort(comparePaths);
   const invalid = target === "";
   return (
     <Frame

@@ -21,6 +21,7 @@ import type {
   ThreadCounts,
   SignoffSummary,
 } from "../types";
+import { compareOrdinal } from "@/lib/sortByName";
 
 // THREAD_PAGE_SIZE matches the server-side default thread window and stays under
 // the API max (200), so the feedback lists load incrementally rather than
@@ -230,7 +231,7 @@ export function useThreadCounts(
   targetType: "asset" | "collection" | "knowledge_page",
   ids: string[],
 ) {
-  const sorted = [...ids].sort();
+  const sorted = [...ids].sort(compareOrdinal);
   return useQuery({
     queryKey: ["thread-counts", targetType, sorted],
     queryFn: () => {

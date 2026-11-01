@@ -35704,6 +35704,17 @@ const docTemplate = `{
         "maps.SettingsInput": {
             "type": "object",
             "properties": {
+                "allowed_origins": {
+                    "description": "AllowedOrigins are the sites besides the platform a browser may read\nthe map routes for (#2393). Omitted or empty serves the platform alone.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "https://www.example.com",
+                        "https://*.example.org"
+                    ]
+                },
                 "bucket": {
                     "type": "string"
                 },
@@ -35725,6 +35736,13 @@ const docTemplate = `{
         "maps.SettingsView": {
             "type": "object",
             "properties": {
+                "allowed_origins": {
+                    "description": "AllowedOrigins are the sites besides the platform a browser may read\nthe map routes for (#2393); never null.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "bucket": {
                     "type": "string"
                 },

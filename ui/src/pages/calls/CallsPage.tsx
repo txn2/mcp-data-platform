@@ -3,6 +3,7 @@ import { useAuditFilters, useCalls } from "@/api/admin/hooks";
 import { Pager } from "@/components/patterns/Pager";
 import { CallFilters, NO_CALL_FILTERS, type CallFilterState } from "./CallFilters";
 import { CallsTable } from "./CallsTable";
+import { sortNames } from "@/lib/sortByName";
 
 // CallsPage is the operator's catalog of recorded calls: every query and API
 // invocation the platform ran, whoever ran it, with what came of each.
@@ -86,5 +87,5 @@ export function connectionsIn(records?: { connection?: string }[]): string[] {
   for (const record of records ?? []) {
     if (record.connection) names.add(record.connection);
   }
-  return [...names].sort();
+  return sortNames(names);
 }

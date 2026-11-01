@@ -30,6 +30,7 @@ import {
   type WebhookForm,
   windowLength,
 } from "./webhookForm";
+import { sortOptions } from "@/lib/sortByName";
 
 // WebhookEditor creates a source, or changes one (#1870). The name, the
 // connection and the persona are chosen once: the table is created on that
@@ -253,10 +254,12 @@ function SourceGroup({ form, creating, set }: { form: WebhookForm; creating: boo
             onChange={set("connection")}
             options={[
               { value: "", label: connections.isLoading ? "Loading..." : "Choose a connection" },
-              ...(connections.data?.connections ?? []).map((c) => ({
-                value: c.name,
-                label: `${c.name} (${c.catalog}.${c.schema})`,
-              })),
+              ...sortOptions(
+                (connections.data?.connections ?? []).map((c) => ({
+                  value: c.name,
+                  label: `${c.name} (${c.catalog}.${c.schema})`,
+                })),
+              ),
             ]}
             help="The Trino connection whose scratch catalog holds the table. Its catalog must read the managed-resources store and allow register_partition."
           />
@@ -266,10 +269,12 @@ function SourceGroup({ form, creating, set }: { form: WebhookForm; creating: boo
             onChange={set("persona")}
             options={[
               { value: "", label: "Administrators only" },
-              ...(personas.data?.personas ?? []).map((p) => ({
-                value: p.name,
-                label: p.display_name || p.name,
-              })),
+              ...sortOptions(
+                (personas.data?.personas ?? []).map((p) => ({
+                  value: p.name,
+                  label: p.display_name || p.name,
+                })),
+              ),
             ]}
             help="Each compacted window's Parquet file is a resource in this persona's library. Querying the table is decided by the connection."
           />

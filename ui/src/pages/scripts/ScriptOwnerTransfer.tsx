@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { byName } from "@/lib/sortByName";
 
 // ScriptOwnerTransfer moves a script to another person (#1404). It is an
 // administrator's control and appears for nobody else: ownership is the whole
@@ -329,10 +330,13 @@ function OwnerSelect({
 
 // transferrableTo is who this script can be moved to: everybody who has signed
 // in, except the person who already has it. Offering the current owner would
-// offer a transfer that changes nothing but still writes a version.
+// offer a transfer that changes nothing but still writes a version. They are
+// listed by the label the picker shows (#2389).
 function transferrableTo(users: DirectoryUser[] | undefined, owner?: string): DirectoryUser[] {
   const current = (owner ?? "").toLowerCase();
-  return (users ?? []).filter((person) => person.email.toLowerCase() !== current);
+  return (users ?? [])
+    .filter((person) => person.email.toLowerCase() !== current)
+    .sort(byName(personLabel));
 }
 
 // personLabel is how somebody is recognized in the list: their name where the

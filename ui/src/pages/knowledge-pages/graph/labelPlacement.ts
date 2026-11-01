@@ -1,3 +1,4 @@
+import { compareOrdinal } from "@/lib/sortByName";
 /**
  * Label placement for the knowledge graph.
  *
@@ -73,7 +74,7 @@ export function placeLabels(
     (a, b) =>
       Number(alwaysShow.has(b.id)) - Number(alwaysShow.has(a.id)) ||
       b.priority - a.priority ||
-      a.id.localeCompare(b.id),
+      compareOrdinal(a.id, b.id),
   );
 
   const placed: Box[] = [];

@@ -121,3 +121,71 @@ func TestMiddleware_PublicReads(t *testing.T) {
 		t.Errorf("another path's policy changed: Allow-Origin = %q", got)
 	}
 }
+
+// The listener serves the public map paths only to the sites its check
+// allows (#2393): a refusal is a 403 with no CORS grant and a body that does
+// not repeat the site; an admitted read echoes the origin; both vary by the
+// headers the site is read from.
+func TestGated_PublicMapPaths(t *testing.T) {
+	served := 0
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { served++; w.WriteHeader(http.StatusPartialContent) })
+	h := Gated(func(r *http.Request) bool { return r.Header.Get("Origin") != "https://freeloader.test" })(inner)
+
+	do := func(method, path, origin string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(context.Background(), method, path, http.NoBody)
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+
+	for _, path := range []string{"/portal/maps/us.pmtiles", "/portal/maps/regions", "/portal/vendor/maplibre/maplibre-gl.js"} {
+		w := do(http.MethodGet, path, "https://freeloader.test")
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("%s: refused read = %d, want 403", path, w.Code)
+		}
+		if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("%s: refused read grants CORS %q", path, got)
+		}
+		if strings.Contains(w.Body.String(), "freeloader") {
+			t.Errorf("%s: refusal repeats the site: %q", path, w.Body.String())
+		}
+		if !strings.Contains(w.Header().Get("Vary"), "Origin") {
+			t.Errorf("%s: refusal does not vary by Origin", path)
+		}
+	}
+	if served != 0 {
+		t.Fatalf("a refused read reached the route %d times", served)
+	}
+
+	if w := do(http.MethodOptions, "/portal/maps/us.pmtiles", "https://freeloader.test"); w.Code != http.StatusForbidden {
+		t.Errorf("refused preflight = %d, want 403", w.Code)
+	}
+
+	w := do(http.MethodGet, "/portal/maps/us.pmtiles", "https://stores.example.com")
+	if w.Code != http.StatusPartialContent || served != 1 {
+		t.Fatalf("admitted read = %d (served %d)", w.Code, served)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://stores.example.com" {
+		t.Errorf("admitted read Allow-Origin = %q, want the origin", got)
+	}
+	if got := w.Header().Get("Vary"); !strings.Contains(got, "Origin") || !strings.Contains(got, "Referer") {
+		t.Errorf("Vary = %q, want Origin and Referer", got)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Errorf("public read grants credentials: %q", got)
+	}
+
+	if got := do(http.MethodGet, "/portal/maps/us.pmtiles", "null").Header().Get("Access-Control-Allow-Origin"); got != "null" {
+		t.Errorf("admitted sandboxed frame Allow-Origin = %q, want null", got)
+	}
+	if w := do(http.MethodGet, "/portal/maps/us.pmtiles", ""); w.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Errorf("a read naming no origin Allow-Origin = %q, want *", w.Header().Get("Access-Control-Allow-Origin"))
+	}
+
+	if w := do(http.MethodGet, "/api/v1/portal/assets", "https://freeloader.test"); w.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Error("the check applies to the public map paths only")
+	}
+}

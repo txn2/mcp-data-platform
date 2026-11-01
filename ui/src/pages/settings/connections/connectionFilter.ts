@@ -1,4 +1,5 @@
 import type { EffectiveConnection } from "@/api/admin/types";
+import { sortNames } from "@/lib/sortByName";
 
 // The Connections page's search and kind filter (#2350): what a connection is
 // matched on, the kinds offered, and how both are kept in the page's address
@@ -82,7 +83,7 @@ export function kindOptions(
 ): { value: string; label: string }[] {
   const present = new Set(list.map((c) => c.kind));
   if (current !== "") present.add(current);
-  const kinds = [...order.filter((k) => present.has(k)), ...[...present].filter((k) => !order.includes(k)).sort()];
+  const kinds = [...order.filter((k) => present.has(k)), ...sortNames([...present].filter((k) => !order.includes(k)))];
   return [{ value: "", label: "All kinds" }, ...kinds.map((k) => ({ value: k, label: kindLabel(k) }))];
 }
 

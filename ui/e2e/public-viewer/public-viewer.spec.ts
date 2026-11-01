@@ -445,3 +445,42 @@ test.describe("a slide deck share", () => {
     await expect(artifactFrame(page).locator("section.present")).toContainText("One idea per slide");
   });
 });
+
+// A share link opened on a phone (#2390): the header, the notice and the
+// feedback line take most of the screen above the document, so Expand shows
+// the document alone, edge to edge, and the back gesture closes it.
+test.describe("a share link on a phone", () => {
+  const DECK_TOKEN = "tok-intro-deck-public";
+  const PHONE = { width: 400, height: 800 };
+
+  test("Expand fills the screen with the document, and Back closes it", async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
+    await page.locator("#expand-toggle").click();
+    await expect(page).toHaveURL(/[?&]view=full/);
+    await expect(page.locator(".header")).toBeHidden();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    const frame = await page.locator(".content iframe").first().boundingBox();
+    expect(frame!.width).toBeGreaterThan(PHONE.width - 24);
+    expect(frame!.height).toBeGreaterThan(PHONE.height - 100);
+    await expect(artifactFrame(page).getByText("Presenting from the portal").first()).toBeVisible();
+
+    await page.goBack();
+    await expect(page.locator(".header")).toBeVisible();
+    await expect(page).not.toHaveURL(/view=full/);
+  });
+
+  test("a link with ?view=full opens expanded, and Close returns to the page", async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    await page.goto(`/portal/view/${DECK_TOKEN}?view=full`, { waitUntil: "networkidle" });
+    await expect(page.locator(".header")).toBeHidden();
+    await page.getByRole("button", { name: "Close" }).click();
+    await expect(page.locator(".header")).toBeVisible();
+    await expect(page).not.toHaveURL(/view=full/);
+  });
+
+  test("Expand is not offered at desktop width", async ({ page }) => {
+    await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
+    await expect(page.locator("#expand-toggle")).toBeHidden();
+  });
+});

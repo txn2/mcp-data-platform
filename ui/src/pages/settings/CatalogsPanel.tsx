@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { CatalogCreateForm } from "./catalogs/CatalogCreateForm";
 import { CatalogEditor } from "./catalogs/CatalogEditor";
 import { CatalogListItem } from "./catalogs/CatalogListItem";
+import { compareNames, sortNames } from "@/lib/sortByName";
 
 // Preserve the historical import surface: SpecsManager and SourceBadge
 // were exported from this module before the panel was decomposed into
@@ -77,7 +78,7 @@ export function CatalogsPanel() {
       groups[c.name]!.push(c);
     }
     for (const list of Object.values(groups)) {
-      list.sort((a, b) => (a.version ?? "").localeCompare(b.version ?? ""));
+      list.sort((a, b) => compareNames(a.version ?? "", b.version ?? ""));
     }
     return groups;
   }, [catalogs]);
@@ -148,8 +149,7 @@ export function CatalogsPanel() {
             </p>
           ) : (
             <ul className="divide-y">
-              {Object.keys(groupedByName)
-                .sort()
+              {sortNames(Object.keys(groupedByName))
                 .map((name) => {
                   const group = groupedByName[name]!;
                   // Single-version catalog: render the item directly. The

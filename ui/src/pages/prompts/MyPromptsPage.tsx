@@ -24,6 +24,7 @@ import {
   type SortDir,
   type SortKey,
 } from "./promptList";
+import { compareNames, sortNames } from "@/lib/sortByName";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -81,12 +82,12 @@ export function MyPromptsPage({ onNavigate }: Props) {
   const tagOptions = useMemo(() => {
     const tags = new Set<string>();
     for (const r of rows) for (const t of r.prompt.tags ?? []) tags.add(t);
-    return [...tags].sort();
+    return sortNames(tags);
   }, [rows]);
   const ownerOptions = useMemo(() => {
     const owners = new Set<string>();
     for (const r of rows) if (r.prompt.owner_email) owners.add(r.prompt.owner_email);
-    return [...owners].sort();
+    return sortNames(owners);
   }, [rows]);
 
   // handleSort toggles direction on the active column, or activates a new
@@ -133,7 +134,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
     const named = [...groups.entries()]
       .filter(([id]) => id !== "")
       .map(([id, list]) => ({ collection: collectionById.get(id), rows: list }))
-      .sort((a, b) => (a.collection?.name ?? "").localeCompare(b.collection?.name ?? ""));
+      .sort((a, b) => compareNames(a.collection?.name ?? "", b.collection?.name ?? ""));
     const rest = groups.get("");
     if (rest) named.push({ collection: undefined, rows: rest });
     return named;

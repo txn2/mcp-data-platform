@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -645,5 +646,20 @@ func TestCatalogFollowsThePortalCatalogLevel(t *testing.T) {
 	}
 	if status, _ := f.do(t, rolePortalNone, http.MethodGet, prefix+"/connections", nil); status != http.StatusForbidden {
 		t.Fatalf("catalog none: %d, want 403", status)
+	}
+}
+
+// The catalog's connection picker lists them in name order, whatever order
+// the toolkits were registered in (#2389).
+func TestReachableListsByName(t *testing.T) {
+	h := &Handler{deps: Deps{Connections: func() []Connection {
+		return []Connection{{Kind: "trino", Name: "conn-10"}, {Kind: "s3", Name: "Beta"}, {Kind: "trino", Name: "conn-2"}}
+	}}}
+	got := make([]string, 0, 3)
+	for _, c := range h.reachable(&caller{admin: true}) {
+		got = append(got, c.Name)
+	}
+	if want := []string{"Beta", "conn-2", "conn-10"}; !slices.Equal(got, want) {
+		t.Fatalf("reachable = %v, want %v", got, want)
 	}
 }

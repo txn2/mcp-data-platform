@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { LIFETIMES } from "./model";
+import { compareNames } from "@/lib/sortByName";
 
 /** Who can open a posted link: an asset's two modes, a file's two. */
 type PostAccess = "authenticated" | "public" | "existing";
@@ -39,6 +40,8 @@ export function kindLabel(kind: string): string {
  * destinations flattens the channels into the places a post can go: every
  * chat channel a Slack or Mattermost bot is in, every other channel as
  * itself, and a bot whose chat channels could not be read, shown with why.
+ * They are ordered by kind and then by label, the order the picker groups
+ * them in (#2389).
  */
 export function destinations(channels: PortalChannel[]): Destination[] {
   const out: Destination[] = [];
@@ -54,7 +57,7 @@ export function destinations(channels: PortalChannel[]): Destination[] {
     if (bot && !ch.target) continue;
     out.push({ ...base, key: ch.name, label: ch.kind === "email" ? ch.name : `#${ch.name}` });
   }
-  return out;
+  return out.sort((a, b) => compareNames(a.kind, b.kind) || compareNames(a.label, b.label));
 }
 
 /** The item a post shows. */

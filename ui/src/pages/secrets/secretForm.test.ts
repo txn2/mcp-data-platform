@@ -69,6 +69,13 @@ describe("secretForm", () => {
     expect(placeholder("mfa", "totp")).toBe("{{totp:mfa}}");
   });
 
+  // #2389: the checklist reads in name order, not code-unit order.
+  it("offers names case-insensitively with numbers in value order", () => {
+    expect(choices(["crm-10", "Billing", "crm-2"], ["archive"])).toEqual(["archive", "Billing", "crm-2", "crm-10"]);
+    expect(toggled(["crm-10", "Billing"], "crm-2")).toEqual(["Billing", "crm-2", "crm-10"]);
+    expect(choices([], [])).toEqual([]);
+  });
+
   // An authenticator seed (#2065) needs its seed to be created and is not
   // held to a value's length; changing kind needs the new kind's value.
   it("holds an authenticator seed to its own rules", () => {

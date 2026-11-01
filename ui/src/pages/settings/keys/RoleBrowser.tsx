@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { compareNames } from "@/lib/sortByName";
 
 // RoleBrowser lists every role any persona matches on, so a key's roles are
 // chosen from what the deployment actually grants rather than typed from
@@ -24,7 +25,7 @@ export function RoleBrowser({ onSelect }: { onSelect: (role: string) => void }) 
       roleMap.push({ role: r, persona: p.name, displayName: p.display_name });
     }
   }
-  roleMap.sort((a, b) => a.role.localeCompare(b.role));
+  roleMap.sort((a, b) => compareNames(a.role, b.role));
 
   if (roleMap.length === 0) return null;
 

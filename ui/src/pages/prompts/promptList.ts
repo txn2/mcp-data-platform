@@ -1,5 +1,6 @@
 import type { Prompt, PromptUsage } from "@/api/admin/types";
 import { matchesUsageFacet, usageSortValue, type UsageFacet } from "./promptUsage";
+import { compareNames } from "@/lib/sortByName";
 
 // List model for the two-bucket prompt library (#1010): row shape, facet
 // filtering, and sorting, kept out of the page component for testability and
@@ -61,7 +62,7 @@ export function sortRows(
     usage: key === "name" ? 0 : usageSortValue(key, usageMap?.[row.prompt.id]),
   }));
   decorated.sort((a, b) => {
-    const cmp = key === "name" ? a.name.localeCompare(b.name) : a.usage - b.usage;
+    const cmp = key === "name" ? compareNames(a.name, b.name) : a.usage - b.usage;
     return dir === "asc" ? cmp : -cmp;
   });
   return decorated.map((d) => d.row);

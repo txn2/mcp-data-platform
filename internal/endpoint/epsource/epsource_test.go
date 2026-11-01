@@ -134,4 +134,8 @@ func TestFindAndConnectionChoices(t *testing.T) {
 	assert.Equal(t, []string{}, m.ConnectionChoices(), "none is [], never null")
 	m.Connections = func() []string { return []string{"scratch"} }
 	assert.Equal(t, []string{"scratch"}, m.ConnectionChoices())
+	m.Connections = func() []string { return []string{} }
+	assert.Equal(t, []string{}, m.ConnectionChoices(), "an empty enumeration is [], never null")
+	m.Connections = func() []string { return []string{"scratch-10", "Ops", "scratch-2"} }
+	assert.Equal(t, []string{"Ops", "scratch-2", "scratch-10"}, m.ConnectionChoices(), "in name order (#2389)")
 }

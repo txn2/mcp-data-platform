@@ -496,14 +496,13 @@ func TestListEffectiveConnections(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		require.Len(t, body, 2)
 
-		// First: trino/prod from "both" sources
-		assert.Equal(t, "both", body[0].Source)
-		assert.Equal(t, "prod", body[0].Name)
-		assert.Equal(t, "DB override", body[0].Description)
-
-		// Second: s3/lake from database only
-		assert.Equal(t, "database", body[1].Source)
-		assert.Equal(t, "lake", body[1].Name)
+		// Listed by name (#2389): s3/lake from the database only, then
+		// trino/prod from both sources.
+		assert.Equal(t, "database", body[0].Source)
+		assert.Equal(t, "lake", body[0].Name)
+		assert.Equal(t, "both", body[1].Source)
+		assert.Equal(t, "prod", body[1].Name)
+		assert.Equal(t, "DB override", body[1].Description)
 	})
 
 	t.Run("empty state returns empty array", func(t *testing.T) {
@@ -739,7 +738,7 @@ func TestMergeConnections(t *testing.T) {
 		assert.Equal(t, []string{"trino_query"}, result[0].Tools)
 	})
 
-	t.Run("DB-only entries appended", func(t *testing.T) {
+	t.Run("DB-only entries are merged in by name", func(t *testing.T) {
 		live := []liveConnectionInfo{
 			{kind: "trino", name: "prod", connection: "prod", tools: []string{"trino_query"}},
 		}
@@ -749,8 +748,26 @@ func TestMergeConnections(t *testing.T) {
 
 		result := mergeConnections(live, db)
 		require.Len(t, result, 2)
-		assert.Equal(t, "file", result[0].Source)
-		assert.Equal(t, "database", result[1].Source)
+		assert.Equal(t, "database", result[0].Source)
+		assert.Equal(t, "file", result[1].Source)
+	})
+
+	// Every connection list a person picks from is in name order, case-
+	// insensitive with numbers compared by value, whatever order the toolkits
+	// were registered and the rows stored; a name held by two kinds is ordered
+	// by kind (#2389).
+	t.Run("listed by name, then kind", func(t *testing.T) {
+		live := []liveConnectionInfo{
+			{kind: "trino", name: "conn-10"}, {kind: "trino", name: "Beta"}, {kind: "trino", name: "shared"},
+		}
+		db := []platform.ConnectionInstance{
+			{Kind: "s3", Name: "conn-2"}, {Kind: "api", Name: "alpha"}, {Kind: "api", Name: "shared"},
+		}
+		got := make([]string, 0, 6)
+		for _, c := range mergeConnections(live, db) {
+			got = append(got, c.Kind+"/"+c.Name)
+		}
+		assert.Equal(t, []string{"api/alpha", "trino/Beta", "s3/conn-2", "trino/conn-10", "api/shared", "trino/shared"}, got)
 	})
 
 	t.Run("file-only connection attributed to system", func(t *testing.T) {

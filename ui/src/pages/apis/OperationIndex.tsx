@@ -4,6 +4,7 @@ import { SearchInput } from "@/components/patterns/SearchInput";
 import { cn } from "@/lib/utils";
 import type { APIOperationSummary } from "@/api/apis/types";
 import { MethodBadge } from "@/components/patterns/MethodBadge";
+import { compareNames, compareOrdinal } from "@/lib/sortByName";
 
 /** UNTAGGED is the group an operation with no tag falls into. */
 const UNTAGGED = "Untagged";
@@ -55,10 +56,10 @@ export function groupOperations(operations: APIOperationSummary[]): Group[] {
   const out = [...groups.values()];
   for (const group of out) {
     group.operations.sort(
-      (a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method),
+      (a, b) => compareNames(a.path, b.path) || compareOrdinal(a.method, b.method),
     );
   }
-  return out.sort((a, b) => a.spec.localeCompare(b.spec) || a.tag.localeCompare(b.tag));
+  return out.sort((a, b) => compareNames(a.spec, b.spec) || compareNames(a.tag, b.tag));
 }
 
 /** matches is the free-text filter: operation id, path and summary. */

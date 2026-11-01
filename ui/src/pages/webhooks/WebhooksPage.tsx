@@ -31,6 +31,7 @@ import {
   splitCounts,
   volumeSeries,
 } from "./webhookOverview";
+import { sortNames } from "@/lib/sortByName";
 
 // WebhooksPage is the overview of every inbound webhook source (#1870, #1979),
 // read in one request: the request volume by outcome, each source's health,
@@ -218,7 +219,7 @@ function VolumeSection({
   chosen: string;
   onSource: (s: string) => void;
 }) {
-  const names = data?.sources.map((s) => s.name) ?? [];
+  const names = sortNames(data?.sources.map((s) => s.name) ?? []);
   const series = useMemo(
     () => (data ? volumeSeries(data, chosen) : { buckets: [], outcomes: [], total: 0 }),
     [data, chosen],

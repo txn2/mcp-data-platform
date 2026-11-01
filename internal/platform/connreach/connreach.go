@@ -14,7 +14,9 @@ package connreach
 
 import (
 	"context"
+	"slices"
 
+	"github.com/txn2/mcp-data-platform/internal/namesort"
 	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -91,6 +93,9 @@ func (l *Lister) ForPersona(ctx context.Context, personaName string, unrestricte
 	for _, c := range out.Connections {
 		conns = append(conns, Connection{Name: value(c), Kind: c.Kind, Description: c.Description})
 	}
+	// A picker lists what it is given in order, so the order is a person's:
+	// by name, whatever order the toolkits were registered in (#2389).
+	slices.SortStableFunc(conns, func(a, b Connection) int { return namesort.Compare(a.Name, b.Name) })
 	return conns
 }
 

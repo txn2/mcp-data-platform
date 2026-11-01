@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface ViewerLayoutProps {
   /** Where the reader came from, offered as the header's Back link. */
@@ -48,6 +49,9 @@ export function ViewerLayout({
   children,
 }: ViewerLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(sidebarInitiallyOpen);
+  // On a phone the details open under the content, not beside it, so the
+  // toggle is an information icon rather than an arrow pointing sideways.
+  const isMobile = useIsMobile();
 
   return (
     // Below lg the sidebar is stacked under the content rather than beside it:
@@ -72,8 +76,10 @@ export function ViewerLayout({
                   size="icon-sm"
                   onClick={() => setSidebarOpen(!sidebarOpen)}
                   title={sidebarOpen ? "Hide details" : "Show details"}
+                  aria-label={sidebarOpen ? "Hide details" : "Show details"}
+                  aria-pressed={isMobile ? sidebarOpen : undefined}
                 >
-                  {sidebarOpen ? <ChevronRight /> : <ChevronLeft />}
+                  {isMobile ? <Info /> : sidebarOpen ? <ChevronRight /> : <ChevronLeft />}
                 </Button>
               )}
             </>

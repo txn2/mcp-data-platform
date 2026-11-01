@@ -7,6 +7,7 @@ import type { APIRouteConnection, APIRouteOperation } from "@/api/admin/types";
 import { operationKey, type RouteResolution } from "./apiRoutes";
 import { BUCKET_TINT, type Bucket } from "./tints";
 import type { StatusFilter } from "./types";
+import { byName } from "@/lib/sortByName";
 
 // The API-endpoint scope's list: every api-kind connection this deployment
 // serves and, under each, the operations its catalog declares, with the
@@ -97,7 +98,7 @@ export function ApiScopeGroups({
 
   return (
     <div className="px-5 py-3 xl:flex-1 xl:overflow-y-auto">
-      {connections.map((conn) => {
+      {[...connections].sort(byName((c) => c.name)).map((conn) => {
         const visible = conn.operations.filter(
           (op) =>
             matchesSearch(op, q) &&

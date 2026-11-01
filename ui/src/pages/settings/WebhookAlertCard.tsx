@@ -10,6 +10,7 @@ import { ChannelsPicker } from "./ChannelsPicker";
 import { SettingsCard } from "./panels";
 import { SaveButton, SaveFeedbackBanners, UpdatedByMeta } from "./settingsChrome";
 import { useSettingsDraft } from "./useSettingsDraft";
+import { sortNames } from "@/lib/sortByName";
 
 // WebhookAlertCard is the webhook receiver's alerts (#2149): every condition
 // that ends in lost or late data, with a warning and a critical threshold,
@@ -222,8 +223,8 @@ function SourceDefaults({ draft, onChange, disabled }: Editor) {
 function SourceOverrides({ draft, onChange, disabled }: Editor) {
   const { data } = useWebhookSourcesList();
   const [adding, setAdding] = useState("");
-  const names = Object.keys(draft.sources).sort();
-  const free = (data ?? []).filter((n) => !draft.sources[n]);
+  const names = sortNames(Object.keys(draft.sources));
+  const free = sortNames((data ?? []).filter((n) => !draft.sources[n]));
   const setRules = (name: string, rules: WebhookSourceRules | undefined) => {
     const next = { ...draft.sources };
     if (rules) next[name] = rules;

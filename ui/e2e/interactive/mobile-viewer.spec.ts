@@ -115,11 +115,19 @@ test.describe("The viewer fits a phone screen", () => {
   test("a shared asset's Feedback, Download and Save to My Assets are all reachable", async ({ page }) => {
     await openAtPhoneWidth(page, "/portal/assets/ast-ext-001");
     await showDetails(page);
-    for (const name of ["Feedback", "Download", "Save to My Assets"]) {
-      const box = await page.getByRole("button", { name }).boundingBox();
+    // Feedback and More are on the header row; Download and Save to My Assets
+    // are in More (#2390). Each is wholly on screen where it is drawn.
+    const expectOnScreen = async (name: string, box: { x: number; width: number } | null) => {
       expect(box, `${name} is not rendered`).not.toBeNull();
       expect(box!.x, `${name} starts off the left edge`).toBeGreaterThanOrEqual(-1);
       expect(box!.x + box!.width, `${name} ends past the right edge`).toBeLessThanOrEqual(PHONE.width + 1);
+    };
+    for (const name of ["Feedback", "More"]) {
+      await expectOnScreen(name, await page.getByRole("button", { name }).boundingBox());
+    }
+    await page.getByRole("button", { name: "More" }).click();
+    for (const name of ["Download", "Save to My Assets"]) {
+      await expectOnScreen(name, await page.getByRole("menuitem", { name }).boundingBox());
     }
   });
 
@@ -142,5 +150,54 @@ test.describe("The viewer fits a phone screen", () => {
     await openAtPhoneWidth(page, "/portal/automations/script-001");
     await expectNoSideScroll(page);
     await expectActionsOnScreen(page);
+  });
+});
+
+// On a phone an asset's header is one row and its content opens edge to edge
+// (#2390). ast-deck is an HTML document, the type whose frame scrolled inside
+// the page; the asset is the reader's own, so Share is a button and Download,
+// Add to collection and Delete are in More.
+test.describe("An asset on a phone (#2390)", () => {
+  test("keeps the header to one row of actions with the rest in More", async ({ page }) => {
+    await openAtPhoneWidth(page, "/portal/assets/ast-deck");
+    const actions = page.getByTestId("page-header-actions").first();
+    await expect(actions.getByRole("button", { name: "More" })).toBeVisible();
+    await expect(actions.getByRole("button", { name: /Download/ })).toHaveCount(0);
+    const rows = await actions.evaluate((row) => new Set(Array.from(row.children).map((el) => Math.round(el.getBoundingClientRect().top))).size);
+    expect(rows, "the header actions wrap onto more than one row").toBe(1);
+    await expectActionsOnScreen(page);
+    await actions.getByRole("button", { name: "More" }).click();
+    await expect(page.getByRole("menuitem", { name: "Download" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+  });
+
+  test("Expand fills the screen with the document, and Back closes it", async ({ page }) => {
+    await openAtPhoneWidth(page, "/portal/assets/ast-deck");
+    const frame = page.locator("iframe").first();
+    await expect(frame).toBeVisible();
+    await page.getByRole("button", { name: /Expand/ }).click();
+
+    const view = page.getByRole("dialog", { name: /./ }).filter({ has: page.locator("iframe") });
+    await expect(view).toBeVisible();
+    await expect(page).toHaveURL(/[?&]view=full/);
+    const box = await frame.boundingBox();
+    expect(box, "the frame is not drawn").not.toBeNull();
+    expect(box!.width, "the frame does not take the screen's width").toBeGreaterThan(PHONE.width - 24);
+    expect(box!.height, "the frame does not take the screen's height").toBeGreaterThan(PHONE.height - 80);
+    await expectNoSideScroll(page);
+
+    await page.goBack();
+    await expect(view).toHaveCount(0);
+    await expect(page).not.toHaveURL(/view=full/);
+    await expect(page.getByTestId("page-header-actions").first()).toBeVisible();
+  });
+
+  test("a link with ?view=full opens expanded, and Close returns to the page", async ({ page }) => {
+    await openAtPhoneWidth(page, "/portal/assets/ast-deck?view=full");
+    await expect(page.getByRole("button", { name: "Close" })).toBeVisible();
+    await page.getByRole("button", { name: "Close" }).click();
+    await expect(page.getByRole("button", { name: "Close" })).toHaveCount(0);
+    await expect(page).not.toHaveURL(/view=full/);
+    await expect(page).toHaveURL(/\/portal\/assets\/ast-deck$/);
   });
 });

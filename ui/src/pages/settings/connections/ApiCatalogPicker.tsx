@@ -5,6 +5,7 @@ import { useAPICatalogs } from "@/api/admin/hooks";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ConfigSelect } from "./fields";
+import { compareNames } from "@/lib/sortByName";
 
 // The catalogs admin page, reached from both surfaces below.
 export function catalogsHref(): string {
@@ -41,12 +42,14 @@ export function APICatalogPicker({
       value: "",
       label: emptyLabel,
     },
-    ...(catalogs ?? []).map((c) => ({
-      value: c.id,
-      label: `${c.display_name}${c.version ? ` (v${c.version})` : ""} — ${c.spec_count} spec${
-        c.spec_count === 1 ? "" : "s"
-      }`,
-    })),
+    ...[...(catalogs ?? [])]
+      .sort((a, b) => compareNames(a.display_name, b.display_name) || compareNames(a.version ?? "", b.version ?? ""))
+      .map((c) => ({
+        value: c.id,
+        label: `${c.display_name}${c.version ? ` (v${c.version})` : ""} — ${c.spec_count} spec${
+          c.spec_count === 1 ? "" : "s"
+        }`,
+      })),
   ];
   // A listbox shows nothing for a value it has no item for, so while the
   // catalog list is still loading (or if the referenced catalog was deleted)

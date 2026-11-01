@@ -1,4 +1,5 @@
 import type { FilterOption } from "@/components/patterns/FilterSelect";
+import { compareNames, compareOrdinal } from "@/lib/sortByName";
 
 /** Ascending or descending, the direction half of an ordering. */
 export type SortDir = "asc" | "desc";
@@ -146,7 +147,7 @@ export function sortRowsBy<T>(
     const cmp =
       typeof av === "number" && typeof bv === "number"
         ? av - bv
-        : String(av).localeCompare(String(bv));
-    return factor * (cmp !== 0 ? cmp : idOf(a).localeCompare(idOf(b)));
+        : compareNames(String(av), String(bv));
+    return factor * (cmp !== 0 ? cmp : compareOrdinal(idOf(a), idOf(b)));
   });
 }

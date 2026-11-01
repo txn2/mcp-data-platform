@@ -8,6 +8,7 @@ import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { sortNames } from "@/lib/sortByName";
 
 // ReconcilePage is a connection's scratch schema against its registrations
 // (#2136), for administrators: tables no registration holds, registrations
@@ -20,8 +21,8 @@ const LEFT_ALONE = "Not the platform's; left alone";
 export function ReconcilePage() {
   const connections = useTableConnections();
   const [picked, setPicked] = useState("");
-  const names = (connections.data?.connections ?? []).map((c) => c.name);
-  // The first connection until another is chosen: most deployments have one.
+  const names = sortNames((connections.data?.connections ?? []).map((c) => c.name));
+  // The first connection by name until another is chosen: most deployments have one.
   const connection = picked || names[0] || "";
   if (connections.isSuccess && names.length === 0) {
     return <p className="text-sm text-muted-foreground">No connection here holds a scratch schema.</p>;

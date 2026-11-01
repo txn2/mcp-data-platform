@@ -1,4 +1,5 @@
 import type { WebhookHistory, WebhookStatusOverview } from "@/api/admin/types";
+import { compareOrdinal, sortNames } from "@/lib/sortByName";
 
 // The webhooks page's history (#2150) as the rows its charts draw: one row per
 // bucket, a column per series, every bucket of the range present so a quiet
@@ -42,7 +43,7 @@ function add(rows: Map<string, Row>, at: string, column: string, n: number) {
 }
 
 function sorted(rows: Map<string, Row>): Row[] {
-  return [...rows.values()].sort((a, b) => a.at.localeCompare(b.at));
+  return [...rows.values()].sort((a, b) => compareOrdinal(a.at, b.at));
 }
 
 /** statusLabel is an HTTP status as the page names it. */
@@ -53,7 +54,7 @@ export function statusLabel(status: number): string {
 /** statusSeries is the requests by status per bucket, for one source or all. */
 export function statusSeries(data: WebhookStatusOverview, source: string): { rows: Row[]; statuses: string[] } {
   const points = data.history.statuses.filter((p) => !source || p.source === source);
-  const statuses = [...new Set(points.map((p) => statusLabel(p.http_status)))].sort();
+  const statuses = sortNames(new Set(points.map((p) => statusLabel(p.http_status))));
   const rows = rowsOf(data, statuses);
   for (const p of points) add(rows, p.at, statusLabel(p.http_status), p.count);
   return { rows: sorted(rows), statuses };
@@ -61,7 +62,7 @@ export function statusSeries(data: WebhookStatusOverview, source: string): { row
 
 /** replicaNames is every receiver the history names. */
 export function replicaNames(history: WebhookHistory): string[] {
-  return [...new Set(history.replicas.map((r) => r.replica))].sort();
+  return sortNames(new Set(history.replicas.map((r) => r.replica)));
 }
 
 /** flowSeries is each receiver's events received and written per bucket:
@@ -108,7 +109,7 @@ export function ackSeries(data: WebhookStatusOverview, source: string): Row[] {
   }
   return [...byAt.entries()]
     .filter(([, v]) => v.n > 0)
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => compareOrdinal(a, b))
     .map(([at, v]) => ({
       at, p50: v.p50, p99: v.p99, buffer: v.buffer / v.n, mark: v.mark / v.n, put: v.put / v.n,
     }));
@@ -127,7 +128,7 @@ export function compactionSeries(data: WebhookStatusOverview, source: string): C
   return data.history.compactions
     .filter((c) => !source || c.source === source)
     .map((c) => ({ at: key(c.at), source: c.source, lag: c.lag_seconds, duration: c.duration_ms / 1000 }))
-    .sort((a, b) => a.at.localeCompare(b.at));
+    .sort((a, b) => compareOrdinal(a.at, b.at));
 }
 
 /** bucketLabel is a bucket's time as the axis shows it: the time of day for

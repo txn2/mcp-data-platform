@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Map as MapIcon, RefreshCw, Trash2 } from "lucide-react";
 import {
   useAddMapRegion,
@@ -11,6 +11,8 @@ import {
 import type { MapBounds, MapRegion, MapSettings } from "@/api/admin/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { formatBytes } from "@/lib/format";
 import { ConfigField, ConfigSelect, ConfigToggle } from "./connections/fields";
@@ -37,6 +39,8 @@ interface FormState {
   bucket: string;
   max_zoom: string;
   source_url: string;
+  // allowed_origins as the textarea holds it: one site per line.
+  allowed_sites: string;
 }
 
 function formFrom(s: MapSettings): FormState {
@@ -46,7 +50,17 @@ function formFrom(s: MapSettings): FormState {
     bucket: s.bucket,
     max_zoom: String(s.max_zoom),
     source_url: s.source_url,
+    allowed_sites: (s.allowed_origins ?? []).join("\n"),
   };
+}
+
+// sitesFrom reads the Allowed sites textarea: one site per line, blank lines
+// dropped. The server checks and normalizes each.
+function sitesFrom(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
 }
 
 const ZOOM_OPTIONS = Array.from({ length: 15 }, (_, i) => ({
@@ -86,6 +100,7 @@ export function MapsCard() {
         bucket: form.bucket.trim(),
         max_zoom: parseInt(form.max_zoom, 10),
         source_url: form.source_url.trim(),
+        allowed_origins: sitesFrom(form.allowed_sites),
       },
       {
         onSuccess: () => {
@@ -165,6 +180,7 @@ export function MapsCard() {
                 mono
               />
             </div>
+            <AllowedSites value={form.allowed_sites} onChange={(v) => handleChange({ allowed_sites: v })} />
           </div>
           <RegionList regions={data.regions} />
           <AddRegion presets={data.presets} />
@@ -178,6 +194,35 @@ export function MapsCard() {
         </div>
       )}
     </SettingsCard>
+  );
+}
+
+// AllowedSites is the list of other websites the map routes are served to
+// (#2393). The platform's own pages are always served and are not listed.
+function AllowedSites({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const id = useId();
+  const helpID = `${id}-help`;
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs">
+        Allowed sites
+      </Label>
+      <Textarea
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={"https://www.example.com\nhttps://*.example.org"}
+        spellCheck={false}
+        rows={3}
+        aria-describedby={helpID}
+        className="font-mono text-xs"
+      />
+      <p id={helpID} className="text-xs text-muted-foreground">
+        Other websites that may draw maps from this deployment, one per line, as https://host or
+        https://*.domain for its subdomains. This deployment's own pages and share links are always served.
+        A browser on any other site is refused, so no one else's maps run on your bandwidth.
+      </p>
+    </div>
   );
 }
 

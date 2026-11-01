@@ -1,5 +1,6 @@
 import type { Folder, Resource, ResourceSort } from "@/api/resources/types";
 import { isUnder, segments } from "../parts/tree";
+import { compareNames, compareOrdinal } from "@/lib/sortByName";
 
 /**
  * One row of the listing: a folder or a file. They are one type because the
@@ -58,13 +59,13 @@ export function sortFolders(folders: Entry[], sort: ResourceSort): Entry[] {
 type FolderEntry = Extract<Entry, { kind: "folder" }>;
 
 function byName(a: Entry, b: Entry): number {
-  return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  return compareNames(a.name, b.name);
 }
 
 function byTime(a: Entry, b: Entry): number {
   const at = (a as FolderEntry).updatedAt ?? "";
   const bt = (b as FolderEntry).updatedAt ?? "";
-  return at.localeCompare(bt) || byName(a, b);
+  return compareOrdinal(at, bt) || byName(a, b);
 }
 
 function byCount(a: Entry, b: Entry): number {

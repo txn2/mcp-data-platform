@@ -175,6 +175,7 @@ internal/endpoint/eprun -> pkg/middleware
 internal/endpoint/eprun -> pkg/observability
 internal/endpoint/eprun -> pkg/script
 internal/endpoint/eprun -> pkg/session
+internal/endpoint/epsource -> internal/namesort
 internal/endpoint/epsource -> internal/webhook/whsource
 internal/endpoint/epstore -> internal/endpoint/epbinding
 internal/endpoint/epsubmit -> internal/endpoint/epcollect
@@ -367,6 +368,7 @@ internal/httpserver/attachhttp -> pkg/prompt/attachserve
 internal/httpserver/attachhttp -> pkg/resource
 internal/httpserver/catalogapi -> internal/httpjson
 internal/httpserver/catalogapi -> internal/logsan
+internal/httpserver/catalogapi -> internal/namesort
 internal/httpserver/catalogapi -> internal/portal/access
 internal/httpserver/catalogapi -> internal/wirejson
 internal/httpserver/catalogapi -> pkg/audit
@@ -834,6 +836,7 @@ internal/platform/connauth -> pkg/connoauth
 internal/platform/connauth -> pkg/platform/fieldcrypt
 internal/platform/connbackfill -> pkg/connview
 internal/platform/connbackfill -> pkg/registry
+internal/platform/connreach -> internal/namesort
 internal/platform/connreach -> internal/platform/connscope
 internal/platform/connreach -> pkg/connview
 internal/platform/connreach -> pkg/persona
@@ -1748,6 +1751,7 @@ pkg/admin -> internal/httpjson
 pkg/admin -> internal/httpobs
 pkg/admin -> internal/inprocess
 pkg/admin -> internal/logsan
+pkg/admin -> internal/namesort
 pkg/admin -> internal/platform/callrecord
 pkg/admin -> internal/platform/configenv
 pkg/admin -> internal/platform/configwarn

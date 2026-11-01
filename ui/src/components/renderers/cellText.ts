@@ -1,3 +1,5 @@
+import { compareNames } from "@/lib/sortByName";
+
 /**
  * How a value in a table cell is written, for every tabular viewer: the CSV
  * table, the JSON-lines table view and the Parquet grid (#1833).
@@ -42,5 +44,5 @@ export function compareCells(a: unknown, b: unknown): number {
     const y = b as number | bigint;
     return x < y ? -1 : x > y ? 1 : 0;
   }
-  return cellText(a).localeCompare(cellText(b));
+  return compareNames(cellText(a), cellText(b));
 }

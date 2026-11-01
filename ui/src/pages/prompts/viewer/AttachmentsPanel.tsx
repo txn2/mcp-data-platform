@@ -24,6 +24,7 @@ import {
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
 import { FormError, ListSkeleton } from "../primitives";
+import { sortNames } from "@/lib/sortByName";
 
 // AttachmentsPanel manages the reference material a prompt carries (#1013):
 // the template it fills, the checklist it follows, the brand asset it embeds.
@@ -335,7 +336,7 @@ function AttachmentPicker({ promptId, attached, onClose, onError }: PickerProps)
   // server reads the value as a path prefix, so picking one shows that folder
   // and everything beneath it.
   const folders = useMemo(
-    () => [...new Set((data?.resources ?? []).map((r) => r.path).filter(Boolean))].sort(),
+    () => sortNames(new Set((data?.resources ?? []).map((r) => r.path).filter(Boolean))),
     [data],
   );
 

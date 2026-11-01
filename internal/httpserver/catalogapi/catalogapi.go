@@ -18,10 +18,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/namesort"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
@@ -200,6 +202,7 @@ func (h *Handler) reachable(c *caller) []Connection {
 			out = append(out, conn)
 		}
 	}
+	slices.SortStableFunc(out, func(a, b Connection) int { return namesort.Compare(a.Name, b.Name) })
 	return out
 }
 

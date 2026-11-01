@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
@@ -50,7 +51,7 @@ func TestAssemble(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
-	svc := assemble(db, nil, "", "managed-resources", nil)
+	svc := assemble(db, nil, "", "managed-resources", nil, nil)
 	require.NotNil(t, svc)
 
 	mock.ExpectQuery("SELECT value, updated_by, updated_at FROM platform_settings").WillReturnError(sql.ErrNoRows)
@@ -77,7 +78,36 @@ func TestNilMapsMountsAndRunsNothing(t *testing.T) {
 	m.Mount(mux, func() func(http.Handler) http.Handler { t.Fatal("no admin routes without a surface"); return nil }, nil)
 	m.Start(context.Background())
 	m.Stop()
+	assert.Nil(t, m.SiteCheck(), "no surface, no site check")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/maps/regions", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// A save through the assembled service drops the allowed sites the gate read,
+// so the replica that saved them uses them on its next request (#2393).
+func TestSiteCheck_SaveIsSeenAtOnce(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	gate := maps.NewSiteGate(maps.NewReader(db).Settings, "")
+	m := &Maps{gate: gate, svc: assemble(db, nil, "", "managed-resources", nil, gate.Forget)}
+	check := m.SiteCheck()
+	req := func() *http.Request {
+		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/maps/us.pmtiles", http.NoBody)
+		r.Header.Set("Origin", "https://stores.example.com")
+		return r
+	}
+
+	mock.ExpectQuery("SELECT value, updated_by, updated_at FROM platform_settings").WillReturnError(sql.ErrNoRows)
+	assert.False(t, check(req()), "an unlisted site is refused")
+
+	mock.ExpectExec("INSERT INTO platform_settings").WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, m.svc.SaveSettings(context.Background(),
+		maps.SettingsInput{MaxZoom: 3, AllowedOrigins: []string{"https://stores.example.com"}}, "a"))
+	mock.ExpectQuery("SELECT value, updated_by, updated_at FROM platform_settings").WillReturnRows(
+		sqlmock.NewRows([]string{"value", "updated_by", "updated_at"}).
+			AddRow([]byte(`{"max_zoom":3,"allowed_origins":["https://stores.example.com"]}`), "a", time.Now()))
+	assert.True(t, check(req()), "the saved site is served on the next request")
+	require.NoError(t, mock.ExpectationsWereMet())
 }

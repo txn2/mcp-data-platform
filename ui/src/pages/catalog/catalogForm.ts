@@ -1,4 +1,5 @@
 import type { CatalogExclusion, CatalogScan, ConnectionInstance } from "@/api/admin/types";
+import { byName } from "@/lib/sortByName";
 
 // The Settings tab's editable form, and the translation to and from the
 // settings the API stores (#1918).
@@ -68,5 +69,5 @@ export function connectionOptions(
   for (const c of instances ?? []) seen.set(connectionKey(c.kind, c.name), `${c.name} (${c.kind})`);
   return [...seen.entries()]
     .map(([value, label]) => ({ value, label }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort(byName((o) => o.label));
 }

@@ -1,6 +1,7 @@
 import type { UserProfile } from "@/stores/auth";
 import { scopeLabel } from "./shared";
 import { resolvePortal } from "@/lib/portalAccess";
+import { sortNames } from "@/lib/sortByName";
 
 /** A resource library, named the way the create API names it. */
 export interface ScopeTarget {
@@ -124,7 +125,7 @@ function personasFor(user: UserProfile | null, personaNames: string[]): string[]
   if (!user) return [];
   const mine = [user.persona, ...personaAdminNames(user.roles ?? [])].filter(Boolean) as string[];
   const all = isPlatformAdmin(user) ? [...personaNames, ...mine] : mine;
-  return [...new Set(all)].sort((a, b) => a.localeCompare(b));
+  return sortNames(new Set(all));
 }
 
 function personaRoot(name: string): ResourceRoot {
@@ -425,11 +426,12 @@ export function moveTargets(user: UserProfile | null, personaNames: string[]): M
   // The caller's own personas are kept alongside the fetched list rather than
   // replaced by it, so an administrator whose persona list has not arrived yet
   // is still offered the personas they belong to and administer. Deduplicated
-  // because either source can name the same persona.
-  const personas = new Set<string>([
+  // because either source can name the same persona, and offered in name
+  // order between "My Resources" and the administrator's entries (#2389).
+  const personas = sortNames(new Set<string>([
     ...(admin ? personaNames : []),
     ...([user.persona, ...personaAdminNames(user.roles ?? [])].filter(Boolean) as string[]),
-  ]);
+  ]));
   for (const name of personas) {
     targets.push({
       scope: "persona",

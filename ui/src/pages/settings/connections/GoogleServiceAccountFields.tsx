@@ -13,6 +13,7 @@ import {
   update,
   type ConfigFormProps,
 } from "./fields";
+import { sortNames } from "@/lib/sortByName";
 
 // The Google service account block of the api and graphql connection editors
 // (#2061). A Google service account is one JSON key file an administrator
@@ -199,7 +200,7 @@ function StoredSecret({ config, onChange }: ConfigFormProps) {
   const secrets = useSecrets();
   const names = (secrets.data?.secrets ?? []).map((s) => s.name);
   const current = String(config[KEY_SECRET] ?? "");
-  const options = [...new Set([current, ...names].filter(Boolean))].map(
+  const options = sortNames(new Set([current, ...names].filter(Boolean))).map(
     (n) => ({ value: n, label: n }),
   );
   return (

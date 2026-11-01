@@ -127,6 +127,32 @@ describe("ScriptOwnerTransfer", () => {
     expect(screen.getByLabelText("New owner")).toHaveAttribute("role", "combobox");
   });
 
+  // #2389: people are listed by the label shown, whatever order the
+  // directory answered in.
+  it("lists the people by the label the picker shows", () => {
+    mockDirectory.mockReturnValue({
+      data: {
+        users: [
+          { email: "zed@example.com", first_name: "", last_name: "", confirmed: true },
+          { email: "marcus.webb@example.com", first_name: "Marcus", last_name: "Webb", confirmed: true },
+          { email: "adele@example.com", first_name: "adele", last_name: "Brown", confirmed: true },
+          { email: "user10@example.com", first_name: "", last_name: "", confirmed: true },
+          { email: "user2@example.com", first_name: "", last_name: "", confirmed: true },
+        ],
+        total: 5,
+      },
+    } as never);
+    renderControl();
+    fireEvent.click(screen.getByLabelText("New owner"));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "adele Brown — adele@example.com",
+      "Marcus Webb — marcus.webb@example.com",
+      "user2@example.com",
+      "user10@example.com",
+      "zed@example.com",
+    ]);
+  });
+
   it("offers each person by name and address", () => {
     renderControl();
     fireEvent.click(screen.getByLabelText("New owner"));

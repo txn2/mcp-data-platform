@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"cmp"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
@@ -9,11 +10,13 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/connsecretref"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/namesort"
 	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
@@ -626,6 +629,11 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 	if result == nil {
 		result = []effectiveConnection{}
 	}
+	// By name, then kind: the order a person scans a list of connections in,
+	// whatever order the toolkits were registered and the rows stored (#2389).
+	slices.SortStableFunc(result, func(a, b effectiveConnection) int {
+		return cmp.Or(namesort.Compare(a.Name, b.Name), namesort.Compare(a.Kind, b.Kind))
+	})
 	// Normalize Tools to a non-nil slice so the JSON wire shape is
 	// always [] for "no tools" instead of null. Some toolkits (notably
 	// the mcp gateway kind, which discovers tools per session) return

@@ -18,6 +18,7 @@ import { useDebounced } from "@/lib/useDebounced";
 import { MetadataPicker, type Candidate } from "./MetadataPicker";
 import { AddButton, MutationError } from "./primitives";
 import { refLabel } from "./utils";
+import { compareNames } from "@/lib/sortByName";
 
 // The editors for one aspect of a dataset or a column. Each writes the whole
 // aspect value through the one aspect write, so the history records exactly
@@ -305,7 +306,7 @@ export function PropertiesEditor({
   const properties = read ?? {};
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
-  const entries = Object.entries(properties).sort(([a], [b]) => a.localeCompare(b));
+  const entries = Object.entries(properties).sort(([a], [b]) => compareNames(a, b));
   const save = (next: Record<string, string>) =>
     write.mutate(
       {

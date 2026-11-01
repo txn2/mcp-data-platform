@@ -8,6 +8,7 @@ import { Pager } from "@/components/patterns/Pager";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScratchTablesTable } from "./ScratchTablesTable";
+import { sortNames } from "@/lib/sortByName";
 
 // ScratchTablesPage lists the scratch tables a deployment has registered
 // (#1472).
@@ -197,6 +198,6 @@ export function connectionOptions(
   if (selected) names.add(selected);
   return [
     { value: "", label: "All connections" },
-    ...[...names].sort().map((name) => ({ value: name, label: name })),
+    ...sortNames(names).map((name) => ({ value: name, label: name })),
   ];
 }

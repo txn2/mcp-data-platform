@@ -311,7 +311,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	hcfg.mcpServer = mcpServer
 	hcfg.observe.Mux = mux
 	// The observer is outermost (#1889): every request, a CORS preflight and a webhook included, is measured under its route template.
-	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), httpobs.Middleware(hcfg.observe)(corshttp.WithoutHooks(mux, corshttp.Middleware(mux)))), hcfg, hc)
+	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), httpobs.Middleware(hcfg.observe)(corshttp.WithoutHooks(mux, corshttp.Gated(streetMaps.SiteCheck())(mux)))), hcfg, hc)
 }
 
 // buildRootHandler constructs the MCP streamable HTTP handler with optional

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AuditFiltersResponse } from "@/api/admin/types";
 import { principalOptions } from "@/lib/formatUser";
+import { sortNames } from "@/lib/sortByName";
 
 // EventFilters is the events table's facet bar: free-text search, the five
 // dimensions the audit index is queryable on, and the export of whatever the
@@ -61,7 +62,7 @@ export function EventFilters({
         onChange={(toolName) => onChange({ toolName })}
         options={[
           { value: "", label: "All Tools" },
-          ...(filters?.tools ?? []).map((t) => ({ value: t, label: t })),
+          ...sortNames(filters?.tools ?? []).map((t) => ({ value: t, label: t })),
         ]}
       />
       <FilterSelect
@@ -71,7 +72,7 @@ export function EventFilters({
         onChange={(toolkitKind) => onChange({ toolkitKind })}
         options={[
           { value: "", label: "All Toolkits" },
-          ...(filters?.toolkit_kinds ?? []).map((k) => ({ value: k, label: k })),
+          ...sortNames(filters?.toolkit_kinds ?? []).map((k) => ({ value: k, label: k })),
         ]}
       />
       <FilterSelect
@@ -81,7 +82,7 @@ export function EventFilters({
         onChange={(source) => onChange({ source })}
         options={[
           { value: "", label: "All Sources" },
-          ...(filters?.sources ?? []).map((s) => ({ value: s, label: s })),
+          ...sortNames(filters?.sources ?? []).map((s) => ({ value: s, label: s })),
         ]}
       />
       <Input

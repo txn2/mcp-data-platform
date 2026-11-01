@@ -15,6 +15,7 @@ import type {
   SearchResponse,
 } from "../types";
 import { MIN_SEARCH_LEN } from "./shared";
+import { compareOrdinal } from "@/lib/sortByName";
 
 // KNOWLEDGE_PAGE_SIZE is the number of knowledge pages requested per page. It is
 // set to the store's search-limit cap (100): any larger value collapses to the
@@ -176,7 +177,7 @@ export function useDeleteKnowledgePage() {
  */
 export function useResolveRefs(urns: string[]) {
   // Stable key independent of order/duplication so identical ref sets share a cache entry.
-  const key = Array.from(new Set(urns)).sort().join("\n");
+  const key = Array.from(new Set(urns)).sort(compareOrdinal).join("\n");
   return useQuery({
     queryKey: ["knowledge-page-refs-resolve", key],
     queryFn: () =>

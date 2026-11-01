@@ -51,6 +51,8 @@ export interface MapSettings {
   bucket: string;
   max_zoom: number;
   source_url: string;
+  /** The other websites the map routes are served to (#2393). */
+  allowed_origins: string[];
   resolved_bucket: string;
   updated_by?: string;
   updated_at?: string;
@@ -67,7 +69,7 @@ export interface MapsView {
 
 export type MapSettingsInput = Pick<
   MapSettings,
-  "enabled" | "s3_connection" | "bucket" | "max_zoom" | "source_url"
+  "enabled" | "s3_connection" | "bucket" | "max_zoom" | "source_url" | "allowed_origins"
 >;
 
 /** MapRegionInput is a preset by id, or an id, a name and a box. */

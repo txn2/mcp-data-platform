@@ -13,6 +13,9 @@ type SettingsInput struct {
 	Bucket       string `json:"bucket"`
 	MaxZoom      int    `json:"max_zoom" example:"14"`
 	SourceURL    string `json:"source_url"`
+	// AllowedOrigins are the sites besides the platform a browser may read
+	// the map routes for (#2393). Omitted or empty serves the platform alone.
+	AllowedOrigins []string `json:"allowed_origins,omitempty" example:"https://www.example.com,https://*.example.org"`
 }
 
 // RegionInput adds a region: a preset by id, or a named box.

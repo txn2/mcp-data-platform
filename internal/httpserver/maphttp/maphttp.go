@@ -4,7 +4,8 @@
 // The archives hold public OpenStreetMap data, and they are read by a map
 // running in a sandboxed asset frame, whose origin is opaque, and from public
 // share links, neither of which carries a session. corshttp answers these
-// paths for any origin. PMTiles is read only by byte range, so the archive
+// paths for the platform itself and the sites the maps settings allow
+// (#2393). PMTiles is read only by byte range, so the archive
 // route is the tile server: each map view reads the header, a directory or
 // two, and the tiles it draws.
 package maphttp
@@ -42,8 +43,10 @@ type Service interface {
 // revalidate each use against the ETag. A refresh replaces the archive under
 // the same URL; a byte range kept from the old one and read beside the new
 // one's header would be a different build's tile, so nothing is reused
-// without the ETag matching.
-const archiveCacheControl = "public, no-cache"
+// without the ETag matching. It is private because the listener serves the
+// archive only to the sites the maps settings allow (#2393): a shared cache
+// keyed on the URL would hand one allowed read to every site.
+const archiveCacheControl = "private, no-cache"
 
 // Mount registers the routes. A nil service mounts nothing, and the portal
 // UI's catch-all answers the paths as it does any other.

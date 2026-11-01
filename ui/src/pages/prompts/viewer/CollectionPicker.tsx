@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { byName } from "@/lib/sortByName";
 
 // NO_COLLECTION is "not in any collection". The API takes the empty string for
 // it, which a Select item cannot carry, so it travels under a sentinel.
@@ -23,7 +24,7 @@ export function CollectionPicker({ prompt }: { prompt: Prompt }) {
   const assign = useAssignPromptCollection();
   const [error, setError] = useState<string | null>(null);
 
-  const collections = data?.data ?? [];
+  const collections = [...(data?.data ?? [])].sort(byName((c) => c.name));
 
   function handleChange(value: string) {
     setError(null);

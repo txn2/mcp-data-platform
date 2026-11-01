@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { sortOptions } from "@/lib/sortByName";
 
 // The one control set for a script's parameters, wherever somebody supplies
 // them: the schedule's bindings, a run asked for now (#1363), and a dry run of
@@ -424,10 +425,12 @@ function choicesFor(param: ScriptParam, connections?: ScriptConnectionChoice[]):
     case "enum":
       return (param.values ?? []).map((v) => ({ value: v, label: v }));
     case "connection":
-      return (connections ?? []).map((c) => ({
-        value: c.name,
-        label: c.description ? `${c.name} — ${c.description}` : c.name,
-      }));
+      return sortOptions(
+        (connections ?? []).map((c) => ({
+          value: c.name,
+          label: c.description ? `${c.name} — ${c.description}` : c.name,
+        })),
+      );
     default:
       return null;
   }

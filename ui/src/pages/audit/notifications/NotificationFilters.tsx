@@ -1,6 +1,7 @@
 import { FilterSelect } from "@/components/patterns/FilterSelect";
 import { Input } from "@/components/ui/input";
 import { STAT_TILES } from "./StatusTiles";
+import { sortNames } from "@/lib/sortByName";
 
 const CATEGORIES = [
   { value: "share", label: "Shares" },
@@ -66,7 +67,7 @@ export function NotificationFilters({
           onChange={onChannel}
           options={[
             { value: "", label: "All channels" },
-            ...channels.map((name) => ({ value: name, label: name })),
+            ...sortNames(channels).map((name) => ({ value: name, label: name })),
           ]}
         />
       )}

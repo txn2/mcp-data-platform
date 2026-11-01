@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import type { UsageFacet } from "./promptUsage";
 import { allFacets, facetsActive, type Facets } from "./promptList";
+import { sortOptions } from "@/lib/sortByName";
 
 // PromptFacetsBar narrows the library by collection, tag, status (My
 // Prompts), owner (Library), and usage (#1010). Rendered in browse mode only;
@@ -85,7 +86,7 @@ export function PromptFacetsBar({ facets, onChange, collections, tagOptions, own
         options={[
           { value: "", label: "All collections" },
           { value: "none", label: "Uncollected" },
-          ...collections.map((c) => ({ value: c.id, label: c.name })),
+          ...sortOptions(collections.map((c) => ({ value: c.id, label: c.name }))),
         ]}
       />
       <FacetSelect

@@ -5,6 +5,7 @@ import type { DirectoryUser } from "@/api/admin/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { byName } from "@/lib/sortByName";
 
 // displayName is how a person reads in the picker: their name when the
 // directory has one, otherwise the address it knows them by.
@@ -38,7 +39,7 @@ export function BindToUser({
   // Only people the platform has seen sign in can hold a key: the rest have no
   // recorded identity for one to resolve through.
   const people = useMemo(
-    () => (data?.users ?? []).filter((u) => u.confirmed),
+    () => (data?.users ?? []).filter((u) => u.confirmed).sort(byName(displayName)),
     [data],
   );
 
