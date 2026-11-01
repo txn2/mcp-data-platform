@@ -4260,6 +4260,7 @@ export const handlers = [
       bucket: String(body.bucket ?? ""),
       max_zoom: Number(body.max_zoom ?? 14),
       source_url: String(body.source_url ?? ""),
+      allowed_origins: Array.isArray(body.allowed_origins) ? body.allowed_origins.map(String) : [],
       updated_by: "sarah.chen@example.com",
       updated_at: new Date().toISOString(),
     };

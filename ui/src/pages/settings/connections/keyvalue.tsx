@@ -9,6 +9,7 @@ import {
   TableCell,
   TableRow,
 } from "@/components/ui/table";
+import { compareOrdinal } from "@/lib/sortByName";
 
 // The two map editors the connection forms use: a plain one for
 // catalog mappings and a masked one for static headers. Split out of
@@ -145,10 +146,10 @@ export function SensitiveKeyValueEditor({
     Object.entries(entries).map(([k, v]) => ({ id: nextID(), name: k, value: v })),
   );
   const lastKeySet = useRef(
-    Object.keys(entries).slice().sort().join(""),
+    Object.keys(entries).slice().sort(compareOrdinal).join(""),
   );
   useEffect(() => {
-    const k = Object.keys(entries).slice().sort().join("");
+    const k = Object.keys(entries).slice().sort(compareOrdinal).join("");
     if (k !== lastKeySet.current) {
       lastKeySet.current = k;
       setRows(
@@ -174,7 +175,7 @@ export function SensitiveKeyValueEditor({
       // Update lastKeySet to match what we're about to emit so the
       // useEffect above doesn't fire a redundant re-sync after our
       // own commit propagates back through the entries prop.
-      lastKeySet.current = Object.keys(out).slice().sort().join("");
+      lastKeySet.current = Object.keys(out).slice().sort(compareOrdinal).join("");
       onChange(out);
     },
     [onChange],

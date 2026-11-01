@@ -5,6 +5,7 @@ import sonarjs from "eslint-plugin-sonarjs";
 import importX from "eslint-plugin-import-x";
 import { createTypeScriptImportResolver } from "eslint-import-resolver-typescript";
 import tseslint from "typescript-eslint";
+import local from "./eslint-rules/index.js";
 
 // Frontend complexity/coupling/layering gates (#816), the frontend analog of
 // the Go `make verify` budgets: gocyclo <= 10 -> `complexity` <= 10, and
@@ -120,6 +121,17 @@ export default tseslint.config(
       "sonarjs/no-collapsible-if": "warn",
     },
   },
+  {
+    // One name order across the portal (#2389): a bare .sort() or a
+    // localeCompare is refused in source; names go through
+    // src/lib/sortByName.ts, other data passes an explicit comparator. The
+    // mocks stand in for the server, whose order the pages do not rely on.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/lib/sortByName.ts", "src/mocks/**", "**/*.test.{ts,tsx}"],
+    plugins: { local },
+    rules: { "local/no-bare-name-sort": "error" },
+  },
+
   {
     // Exempt machine-generated types and test/mock fixtures: these are not
     // hand-maintained component source, so complexity/size budgets are noise

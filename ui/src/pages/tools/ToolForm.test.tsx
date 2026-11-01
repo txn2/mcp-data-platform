@@ -148,14 +148,16 @@ describe("ToolForm connection picker", () => {
     expect(hiddenConnectionValue(container)).toBe("salesforce");
   });
 
-  it("renders an enabled picker listing availableConnections when none is bound", () => {
+  it("renders an enabled picker listing availableConnections by name when none is bound", () => {
     render(
       <ToolForm
         schema={apiToolSchema()}
         selectedConnection=""
         availableConnections={[
           conn("api", "salesforce"),
-          conn("api", "github"),
+          conn("api", "conn-10"),
+          conn("api", "GitHub"),
+          conn("api", "conn-2"),
         ]}
         isSubmitting={false}
         onSubmit={vi.fn()}
@@ -166,8 +168,10 @@ describe("ToolForm connection picker", () => {
 
     openListbox();
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "conn-2",
+      "conn-10",
+      "GitHub",
       "salesforce",
-      "github",
     ]);
   });
 

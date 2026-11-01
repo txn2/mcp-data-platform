@@ -276,7 +276,10 @@ func TestIssue2068_ABoxRegionIsFetchedIntoTheBucket(t *testing.T) {
 	if res.StatusCode != http.StatusPartialContent || len(head) != 127 || string(head[:7]) != "PMTiles" {
 		t.Fatalf("the archive's header read = %d, %d bytes %q", res.StatusCode, len(head), head[:min(len(head), 7)])
 	}
-	if res.Header.Get("Access-Control-Allow-Origin") != "*" {
+	// The sandboxed frame's opaque origin is echoed back, which a browser
+	// accepts as it accepts *; #2393 serves the archive to the sites it
+	// admits by name rather than to every origin.
+	if res.Header.Get("Access-Control-Allow-Origin") != "null" {
 		t.Errorf("the archive route did not answer an opaque origin: %v", res.Header)
 	}
 	minZ, maxZ := head[100], head[101]

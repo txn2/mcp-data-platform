@@ -16,6 +16,7 @@ import type { APIRouteRule } from "@/api/admin/types";
 import { Section } from "./primitives";
 import { renderPattern } from "./renderPattern";
 import { BUCKET_TINT, type Bucket } from "./tints";
+import { sortNames } from "@/lib/sortByName";
 
 // The API-endpoint scope's rule editor. It lists the persona's rules as they
 // were written and lets one be written by hand, which is what a pattern with no
@@ -216,7 +217,7 @@ function AddRuleForm({
         className="h-7 px-2 font-mono text-[11px]"
       />
       <datalist id={listID}>
-        {connectionNames.map((n) => (
+        {sortNames(connectionNames).map((n) => (
           <option key={n} value={n} />
         ))}
       </datalist>

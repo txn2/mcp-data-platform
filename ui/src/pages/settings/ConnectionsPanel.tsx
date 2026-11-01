@@ -36,6 +36,7 @@ import {
   DetailListItem,
   MasterDetail,
 } from "./MasterDetail";
+import { byName, compareNames } from "@/lib/sortByName";
 
 // ConnectionsPanel is the master/detail shell for connection instances: a
 // kind-grouped sidebar list on the left and, on the right, the read-only
@@ -83,8 +84,8 @@ export function ConnectionsPanel() {
   // lost (#2268); selecting another connection here asks below.
   useUnsavedChangesGuard(dirty);
 
-  // Group by kind. Sidebar order is alphabetical on kind; within a
-  // kind, connections are listed in the order the backend returned.
+  // Group by kind. Sidebar order is alphabetical on kind, and within a
+  // kind by connection name (#2389).
   const grouped = useMemo(() => {
     const groups: Record<string, EffectiveConnection[]> = {};
     for (const c of filtered) {
@@ -92,6 +93,7 @@ export function ConnectionsPanel() {
       if (!groups[k]) groups[k] = [];
       groups[k]!.push(c);
     }
+    for (const list of Object.values(groups)) list.sort(byName((c) => c.name));
     return groups;
   }, [filtered]);
 
@@ -101,7 +103,7 @@ export function ConnectionsPanel() {
   // operator sees in the left nav, instead of whatever sort order
   // the backend happens to return.
   const firstListed = useMemo(() => {
-    const kinds = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
+    const kinds = Object.keys(grouped).sort(compareNames);
     const first = kinds[0];
     if (!first) return null;
     return grouped[first]?.[0] ?? null;
@@ -207,7 +209,7 @@ export function ConnectionsPanel() {
           }
         >
           {Object.entries(grouped)
-            .sort(([a], [b]) => a.localeCompare(b))
+            .sort(([a], [b]) => compareNames(a, b))
             .map(([kind, items]) => (
               <div key={kind}>
                 <DetailListGroupLabel>{kind}</DetailListGroupLabel>

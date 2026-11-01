@@ -146,6 +146,16 @@ describe("the connection facet", () => {
     expect(options.map((o) => o.value)).toEqual(["", "acme-lake", "acme-scratch"]);
   });
 
+  // #2389: names in natural order, "All connections" kept first.
+  it("orders the connections by name, case-insensitively with numbers by value", () => {
+    const options = connectionOptions(
+      [row({ connection: "lake-10" }), row({ id: "reg_2", connection: "Archive" }), row({ id: "reg_3", connection: "lake-2" })],
+      undefined,
+    );
+
+    expect(options.map((o) => o.label)).toEqual(["All connections", "Archive", "lake-2", "lake-10"]);
+  });
+
   it("keeps the connection already chosen, so a facet cannot filter itself out of its own dropdown", () => {
     const options = connectionOptions([], "acme-scratch");
 

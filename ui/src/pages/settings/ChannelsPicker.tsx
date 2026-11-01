@@ -1,6 +1,7 @@
 import { useNotificationChannels } from "@/api/admin/hooks";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { byName, sortNames } from "@/lib/sortByName";
 
 // ChannelsPicker chooses the notification channels an alert is also posted to
 // (#1724), from the channels configured in the Notification Channels card.
@@ -20,9 +21,11 @@ export function ChannelsPicker({
   help: string;
 }) {
   const { data, isLoading } = useNotificationChannels();
-  const configured = data?.channels ?? [];
+  // Configured channels in name order; a chosen channel no longer configured
+  // is kept after them, so the list still shows everything the alert names.
+  const configured = [...(data?.channels ?? [])].sort(byName((c) => c.name));
   const known = new Set(configured.map((c) => c.name));
-  const missing = selected.filter((name) => !known.has(name));
+  const missing = sortNames(selected.filter((name) => !known.has(name)));
 
   function toggle(name: string) {
     onChange(selected.includes(name) ? selected.filter((n) => n !== name) : [...selected, name]);

@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { sortNames } from "@/lib/sortByName";
 
 const SCOPE_OPTIONS = [
   { value: "global", label: "Global" },
@@ -63,7 +64,7 @@ export function UploadTargets({
             {personaNames.length === 0 ? (
               <p className="px-1 py-1 text-xs text-muted-foreground">No personas configured</p>
             ) : (
-              personaNames.map((name) => (
+              sortNames(personaNames).map((name) => (
                 <Label
                   key={name}
                   className="cursor-pointer rounded px-2 py-1.5 font-normal hover:bg-muted"

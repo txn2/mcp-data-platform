@@ -2,6 +2,7 @@ import { Suspense, lazy, useState, useEffect, useCallback, useRef } from "react"
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { MobileSidebarOverlay } from "./MobileSidebarOverlay";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAuthStore } from "@/stores/auth";
 
 // Every page below is its own chunk. The shell used to import all of them
@@ -258,21 +259,6 @@ function readPath(): string {
   return route + search + hash;
 }
 
-const MOBILE_BREAKPOINT = 768;
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== "undefined" && window.innerWidth < MOBILE_BREAKPOINT,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-  return isMobile;
-}
-
 export function AppShell() {
   const [currentPath, setCurrentPath] = useState(readPath);
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -460,7 +446,10 @@ export function AppShell() {
   });
 
   return (
-    <div className="flex h-screen">
+    // dvh, not vh: on a phone 100vh is the height with the browser's own
+    // toolbars hidden, so the page's bottom sat under them (#2390). The side
+    // insets keep the page off a landscape phone's notch (viewport-fit=cover).
+    <div className="flex h-dvh pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
       {/* Desktop sidebar */}
       {!isMobile && (
         <Sidebar

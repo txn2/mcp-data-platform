@@ -42,7 +42,7 @@ export const mockMapRegions: MapRegion[] = [
 
 export const mockMaps: MapsView = {
   settings: {
-    enabled: true, s3_connection: "", bucket: "", max_zoom: 14, source_url: "",
+    enabled: true, s3_connection: "", bucket: "", max_zoom: 14, source_url: "", allowed_origins: [],
     resolved_bucket: "managed-resources", updated_by: "sarah.chen@example.com", updated_at: "2026-10-09T08:39:00Z",
   },
   regions: mockMapRegions,

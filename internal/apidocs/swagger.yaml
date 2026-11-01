@@ -6301,6 +6301,16 @@ definitions:
     type: object
   maps.SettingsInput:
     properties:
+      allowed_origins:
+        description: |-
+          AllowedOrigins are the sites besides the platform a browser may read
+          the map routes for (#2393). Omitted or empty serves the platform alone.
+        example:
+        - https://www.example.com
+        - https://*.example.org
+        items:
+          type: string
+        type: array
       bucket:
         type: string
       enabled:
@@ -6315,6 +6325,13 @@ definitions:
     type: object
   maps.SettingsView:
     properties:
+      allowed_origins:
+        description: |-
+          AllowedOrigins are the sites besides the platform a browser may read
+          the map routes for (#2393); never null.
+        items:
+          type: string
+        type: array
       bucket:
         type: string
       enabled:

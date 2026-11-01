@@ -6,6 +6,7 @@ import { SearchInput } from "@/components/patterns/SearchInput";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
 import { formatToolName } from "@/lib/formatToolName";
 import { cn } from "@/lib/utils";
+import { byName, compareNames } from "@/lib/sortByName";
 
 interface ToolsListProps {
   tools: ToolInfo[];
@@ -47,9 +48,9 @@ export function ToolsList({
       map.set(key, list);
     }
     for (const list of map.values()) {
-      list.sort((a, b) => a.name.localeCompare(b.name));
+      list.sort(byName((t) => t.name));
     }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return [...map.entries()].sort(([a], [b]) => compareNames(a, b));
   }, [filtered, groupBy]);
 
   return (

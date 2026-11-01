@@ -95,3 +95,19 @@ func TestNilListerAnswersNothing(t *testing.T) {
 	require.Nil(t, l, "no toolkit registry means no enumeration at all")
 	assert.Nil(t, l.ForPersona(context.Background(), "analyst", false))
 }
+
+// A picker lists what it is given in order, so the enumeration is in name
+// order -- case-insensitive, numbers by value -- whatever order the toolkits
+// were registered in (#2389).
+func TestForPersona_ListsByName(t *testing.T) {
+	toolkits := registry.NewRegistry()
+	for _, c := range []string{"conn-10", "Beta", "conn-2", "alpha"} {
+		require.NoError(t, toolkits.Register(&oneConnToolkit{kind: "trino", name: "i-" + c, conn: c}))
+	}
+	got := make([]string, 0, 4)
+	for _, c := range connreach.New(connreach.Deps{Toolkits: toolkits, Personas: persona.NewRegistry()}).
+		ForPersona(context.Background(), "admin", true) {
+		got = append(got, c.Name)
+	}
+	assert.Equal(t, []string{"alpha", "Beta", "conn-2", "conn-10"}, got)
+}

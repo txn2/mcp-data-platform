@@ -20,11 +20,32 @@ import (
 // browser may refuse, and these paths carry nothing a credential unlocks.
 var publicReadPrefixes = []string{maphttp.PathPrefix, "/portal/vendor/maplibre/"}
 
-// publicRead answers a read of a public path for any origin, without
-// credentials, and lets the reader send Range and see the headers a ranged
-// read is checked by.
-func publicRead(w http.ResponseWriter, r *http.Request, next http.Handler) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+// SiteCheck reports whether a read of a public map path is served for the
+// site that made it (#2393). nil serves every site.
+type SiteCheck func(*http.Request) bool
+
+// refusedSiteBody is the whole answer to a refused read. It never repeats the
+// site, which the caller chose.
+const refusedSiteBody = "This map is not served to this site.\n"
+
+// publicRead answers a read of a public path, without credentials, for a site
+// admit allows, and lets the reader send Range and see the headers a ranged
+// read is checked by. The answer varies by the headers the site is read
+// from, so no shared cache gives one site's answer to another.
+func publicRead(w http.ResponseWriter, r *http.Request, next http.Handler, admit SiteCheck) {
+	w.Header().Add("Vary", "Origin, Referer")
+	if admit != nil && !admit(r) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(refusedSiteBody))
+		return
+	}
+	allow := "*"
+	if admit != nil && r.Header.Get("Origin") != "" {
+		allow = r.Header.Get("Origin")
+	}
+	w.Header().Set("Access-Control-Allow-Origin", allow)
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Range, If-Match, If-None-Match, If-Range")
 	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, ETag, Accept-Ranges")
@@ -45,32 +66,49 @@ func isPublicRead(path string) bool {
 	return false
 }
 
-// Middleware adds CORS headers for browser-based MCP clients.
+// Middleware adds CORS headers for browser-based MCP clients, and serves the
+// public map paths to every site. It is the layer the in-process readers (the
+// tile worker, the PDF export, a script's self-call) go through; the listener
+// uses Gated.
 func Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isPublicRead(r.URL.Path) {
-			publicRead(w, r, next)
-			return
-		}
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			origin = "*"
-		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers",
-			"Content-Type, Authorization, Accept, X-API-Key, "+
-				"Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
-		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Max-Age", "86400")
+	return Gated(nil)(next)
+}
 
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+// Gated is Middleware with the public map paths served only to the sites
+// admit allows.
+func Gated(admit SiteCheck) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isPublicRead(r.URL.Path) {
+				publicRead(w, r, next, admit)
+				return
+			}
+			credentialed(w, r, next)
+		})
+	}
+}
+
+// credentialed answers every other path for the origin that asked, with
+// credentials.
+func credentialed(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = "*"
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers",
+		"Content-Type, Authorization, Accept, X-API-Key, "+
+			"Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
+	w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	next.ServeHTTP(w, r)
 }
 
 // ownCORSPrefixes are the routes that answer their own cross-origin

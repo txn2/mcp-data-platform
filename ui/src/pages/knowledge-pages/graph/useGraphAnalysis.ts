@@ -7,6 +7,7 @@ import {
   type Adjacency,
 } from "./graphAnalytics";
 import { buildGraphIndex, normalize, type GraphIndex } from "./graphModel";
+import { compareOrdinal } from "@/lib/sortByName";
 
 /**
  * MAX_ANALYSED_NODES bounds the O(V*E) betweenness pass. Above it the view falls
@@ -63,7 +64,7 @@ export function useGraphAnalysis(
 
     const topBridges = [...betweenness.entries()]
       .filter(([, s]) => s > 0)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .sort((a, b) => b[1] - a[1] || compareOrdinal(a[0], b[0]))
       .map(([id]) => id);
 
     return {

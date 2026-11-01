@@ -102,7 +102,7 @@ describe("where a post went (#2291)", () => {
       { name: "mm", kind: "mattermost", mode: "", carries: "", targets: [], targets_error: "token expired" },
       { name: "silent", kind: "slack", mode: "", carries: "", targets: [] },
     ]);
-    expect(out.map((d) => `${d.label} · ${d.kind}`)).toEqual(["#general · Slack", "ops-mail · Email", "#hooks · Webhook", "mm · Mattermost"]);
+    expect(out.map((d) => `${d.label} · ${d.kind}`)).toEqual(["ops-mail · Email", "mm · Mattermost", "#general · Slack", "#hooks · Webhook"]);
     expect(out.find((d) => d.channel === "mm")?.unavailable).toBe("token expired");
   });
 });

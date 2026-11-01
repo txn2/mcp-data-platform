@@ -211,6 +211,21 @@ describe("the libraries a resource can be moved to", () => {
     ]);
   });
 
+  // #2389: the personas between "My Resources" and the administrator's
+  // entries are in name order, whatever order the list arrived in.
+  it("orders the personas by name and keeps the pinned entries where they are", () => {
+    const targets = moveTargets(reader({ is_admin: true, persona: "analyst" }), ["ops-10", "Finance", "ops-2"]);
+    expect(targets.map((t) => t.label)).toEqual([
+      "My Resources",
+      "analyst persona",
+      "Finance persona",
+      "ops-2 persona",
+      "ops-10 persona",
+      "Global",
+      "A person's folder...",
+    ]);
+  });
+
   it("offers nobody anything when nobody is signed in", () => {
     expect(moveTargets(null, ["finance"])).toEqual([]);
   });

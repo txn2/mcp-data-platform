@@ -28,6 +28,7 @@ import {
   toggled,
   toInput,
 } from "./secretForm";
+import { sortNames } from "@/lib/sortByName";
 
 // SecretEditor creates a secret, or changes one (#2051). The value is
 // write-only: an edit shows an empty field, and leaving it empty keeps the
@@ -358,7 +359,7 @@ function ConnectionsGroup({
         label="Connections"
         names={choices(known, connections).filter((n) => !isPlatformUse(n))}
         chosen={connections}
-        onChange={(next) => onChange([...next, ...uses].sort())}
+        onChange={(next) => onChange(sortNames([...next, ...uses]))}
         empty={isLoading ? "Loading..." : "No API, GraphQL or MCP connection is configured."}
       />
     </ConfigGroup>

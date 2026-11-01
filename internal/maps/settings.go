@@ -47,6 +47,10 @@ type Settings struct {
 	// SourceURL is the archive a fetch extracts from. Empty is the current
 	// Protomaps daily build, resolved when each fetch starts.
 	SourceURL string `json:"source_url"`
+	// AllowedOrigins are the sites besides the platform itself a browser may
+	// read the map routes for (#2393), each scheme://host[:port] or
+	// scheme://*.domain. Empty serves the platform alone.
+	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 
 	UpdatedBy string    `json:"-"`
 	UpdatedAt time.Time `json:"-"`
@@ -68,6 +72,9 @@ func (s Settings) Validate() string {
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 			return "source_url must be an http or https URL of a .pmtiles archive, or empty for the current Protomaps build"
 		}
+	}
+	if _, err := NormalizeAllowedOrigins(s.AllowedOrigins); err != nil {
+		return err.Error()
 	}
 	return ""
 }

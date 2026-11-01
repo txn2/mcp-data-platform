@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { byName } from "@/lib/sortByName";
 
 // TablesPanel is the register / unregister surface for a stored file, shared
 // by the managed-resource viewer and the asset viewer (#1327). One panel
@@ -163,7 +164,7 @@ function usePanelData(
     eligible ? id : undefined,
   );
 
-  const connections = connectionQuery.data?.connections ?? [];
+  const connections = [...(connectionQuery.data?.connections ?? [])].sort(byName((c) => c.name));
   const registrations = registrationQuery.data?.table_registrations ?? [];
   return {
     visible: eligible && (connections.length > 0 || registrations.length > 0),

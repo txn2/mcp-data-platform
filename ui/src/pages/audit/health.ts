@@ -1,4 +1,5 @@
 import type { PromVectorResponse, PromMatrixResponse } from "@/api/observability/types";
+import { byName } from "@/lib/sortByName";
 
 // Per-node health queries. Each is a raw per-process gauge, so Prometheus
 // returns one series PER node (one scrape target = one pod), labeled with
@@ -55,7 +56,7 @@ export function mergeNodeMetrics(
       if (Number.isFinite(v)) node[key] = v;
     }
   }
-  return [...byNode.values()].sort((a, b) => a.label.localeCompare(b.label));
+  return [...byNode.values()].sort(byName((n) => n.label));
 }
 
 // Per-node RANGE queries for the trend charts. Each returns one matrix

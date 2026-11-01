@@ -4,6 +4,7 @@ import type {
 } from "@/api/observability/types";
 import type { KindLatency } from "@/components/charts/IndexLatencyTrack";
 import type { ThroughputPoint } from "@/components/charts/IndexThroughputTimeline";
+import { compareNames } from "@/lib/sortByName";
 
 // PromQL for the Indexing dashboard's Throughput and Embed latency panels
 // (#1837), and the adapters that turn the answers into what the charts take.
@@ -98,7 +99,7 @@ export function vectorsToLatency(
       count: Math.round(c),
     });
   }
-  return rows.sort((x, y) => x.kind.localeCompare(y.kind));
+  return rows.sort((x, y) => compareNames(x.kind, y.kind));
 }
 
 function byKind(resp: PromVectorResponse | undefined): Map<string, number> {

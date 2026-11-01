@@ -5,6 +5,7 @@ import type { Folder as FolderRow } from "@/api/resources/types";
 import { cn } from "@/lib/utils";
 import { EXTERNAL_FILES_LABEL, EXTERNAL_PREFIX, externalRoot, PEOPLE_LABEL, personRoot, type ResourceRoot } from "../scopes";
 import { folderEntries } from "./model";
+import { byName } from "@/lib/sortByName";
 
 /** Where the page is standing: a top-level folder and a path inside it. */
 export interface Place {
@@ -179,9 +180,7 @@ function Children({
 }) {
   const kids = useMemo(
     () =>
-      folderEntries(folders, at).sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
-      ),
+      folderEntries(folders, at).sort(byName((e) => e.name)),
     [folders, at],
   );
   return (

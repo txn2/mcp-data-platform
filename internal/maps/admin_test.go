@@ -122,6 +122,35 @@ func TestSaveSettings(t *testing.T) {
 	require.ErrorContains(t, ts.SaveSettings(ctx, SettingsInput{MaxZoom: 14}, "a"), "down")
 }
 
+// The allowed sites are stored normalized, a malformed one is refused by
+// name, and an empty list is stored as none and read back as [] (#2393).
+func TestSaveSettings_AllowedOrigins(t *testing.T) {
+	ts := newTestService(t, nil)
+	ctx := context.Background()
+	require.NoError(t, ts.SaveSettings(ctx, SettingsInput{
+		MaxZoom:        14,
+		AllowedOrigins: []string{"https://Stores.Example.com:443", "https://stores.example.com", "http://localhost:3000"},
+	}, "a"))
+	got, _ := ts.settings.Get(ctx)
+	assert.Equal(t, []string{"https://stores.example.com", "http://localhost:3000"}, got.AllowedOrigins)
+	v, err := ts.View(ctx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, got.AllowedOrigins, v.Settings.AllowedOrigins)
+
+	var ie *InputError
+	err = ts.SaveSettings(ctx, SettingsInput{MaxZoom: 14, AllowedOrigins: []string{"http://example.com"}}, "a")
+	require.ErrorAs(t, err, &ie)
+	assert.Contains(t, err.Error(), `"http://example.com"`)
+
+	require.NoError(t, ts.SaveSettings(ctx, SettingsInput{MaxZoom: 14, AllowedOrigins: []string{}}, "a"))
+	got, _ = ts.settings.Get(ctx)
+	assert.Nil(t, got.AllowedOrigins)
+	v, err = ts.View(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, v.Settings.AllowedOrigins, "an empty list is [], never null")
+	assert.Empty(t, v.Settings.AllowedOrigins)
+}
+
 func TestView(t *testing.T) {
 	ts := newTestService(t, nil)
 	ctx := context.Background()

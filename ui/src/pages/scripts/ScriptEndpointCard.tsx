@@ -23,6 +23,7 @@ import { ACCESS_LABELS, PUBLIC_NOTE, accessLabel, callersSummary } from "./endpo
 import { FormEmbed } from "./endpoints/FormEmbed";
 import { FormStorageFields, formStorage } from "./endpoints/FormStorageFields";
 import { formatBytes, formatWhen } from "./runFormat";
+import { byName } from "@/lib/sortByName";
 
 // ScriptEndpointCard is the script's endpoint (#2171): the HTTP route at
 // /endpoints/{name} that runs its handle(req) on each request, the binding's
@@ -468,7 +469,7 @@ function BotCheckFields({
   onToggle: (m: string) => void;
 }) {
   const { data } = useBotChecks();
-  const checks = data?.checks ?? [];
+  const checks = [...(data?.checks ?? [])].sort(byName((c) => c.name));
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <Field id="endpoint-bot-check" label="Bot check">

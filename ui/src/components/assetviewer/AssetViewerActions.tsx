@@ -1,8 +1,16 @@
 import type { ReactNode } from "react";
-import { Share2, Trash2, Download, Copy, FolderPlus } from "lucide-react";
+import { Share2, Trash2, Download, Copy, FolderPlus, MoreHorizontal } from "lucide-react";
 import type { SharePermission } from "@/api/portal/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { MutationLike } from "./types";
 
 interface AssetViewerActionsProps {
@@ -26,8 +34,99 @@ interface AssetViewerActionsProps {
 }
 
 /** What the reader can do to this asset, for the viewer header's action slot.
- * The way back, the title and the sidebar toggle belong to ViewerLayout. */
-export function AssetViewerActions({
+ * The way back, the title and the sidebar toggle belong to ViewerLayout. On a
+ * phone the actions are one row: Share, when it is the reader's, stays a
+ * button and the rest are in a More menu (#2390). */
+export function AssetViewerActions(props: AssetViewerActionsProps) {
+  const isMobile = useIsMobile();
+  return isMobile ? <CompactActions {...props} /> : <FullActions {...props} />;
+}
+
+function SharedBadge({ isOwner, sharePermission }: Pick<AssetViewerActionsProps, "isOwner" | "sharePermission">) {
+  if (isOwner) return null;
+  return <Badge variant="warning">Shared{sharePermission === "editor" ? " (Editor)" : " (Viewer)"}</Badge>;
+}
+
+function CompactActions(props: AssetViewerActionsProps) {
+  const { toolbarExtra, isOwner, canShare = true, sharePermission, onShare } = props;
+  return (
+    <>
+      <SharedBadge isOwner={isOwner} sharePermission={sharePermission} />
+      {toolbarExtra}
+      {isOwner && canShare && (
+        <Button size="icon-sm" onClick={onShare} title="Share" aria-label="Share">
+          <Share2 />
+        </Button>
+      )}
+      <MoreMenu {...props} />
+    </>
+  );
+}
+
+function hasMoreItems(p: AssetViewerActionsProps): boolean {
+  return !!p.onDownload || !!p.onAddToCollection || !!p.copyMutation || p.isOwner;
+}
+
+/** Every action but Share, as the items of the More menu; none when there is
+ * nothing to put in it. */
+function MoreMenu(props: AssetViewerActionsProps) {
+  if (!hasMoreItems(props)) return null;
+  return <MoreMenuItems {...props} />;
+}
+
+function MoreMenuItems({
+  isOwner,
+  copyMutation,
+  onDelete,
+  onDownload,
+  onCopyToMyAssets,
+  onAddToCollection,
+}: AssetViewerActionsProps) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="icon-sm" title="More" aria-label="More">
+          <MoreHorizontal />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {onDownload && (
+          <DropdownMenuItem onSelect={onDownload}>
+            <Download />
+            Download
+          </DropdownMenuItem>
+        )}
+        {onAddToCollection && (
+          <DropdownMenuItem onSelect={onAddToCollection}>
+            <FolderPlus />
+            Add to collection
+          </DropdownMenuItem>
+        )}
+        {copyMutation && (
+          <DropdownMenuItem onSelect={onCopyToMyAssets} disabled={copyMutation.isPending}>
+            <Copy />
+            {copyMutation.isPending ? "Copying..." : "Save to My Assets"}
+          </DropdownMenuItem>
+        )}
+        {isOwner && <DeleteItem separated={!!onDownload || !!onAddToCollection} onDelete={onDelete} />}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function DeleteItem({ separated, onDelete }: { separated: boolean; onDelete: () => void }) {
+  return (
+    <>
+      {separated && <DropdownMenuSeparator />}
+      <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+        <Trash2 />
+        Delete
+      </DropdownMenuItem>
+    </>
+  );
+}
+
+function FullActions({
   toolbarExtra,
   isOwner,
   canShare = true,
@@ -44,11 +143,7 @@ export function AssetViewerActions({
       {toolbarExtra}
       {/* An asset the reader does not own says so, and says what they may
           do with it, before any of the actions below are read. */}
-      {!isOwner && (
-        <Badge variant="warning">
-          Shared{sharePermission === "editor" ? " (Editor)" : " (Viewer)"}
-        </Badge>
-      )}
+      <SharedBadge isOwner={isOwner} sharePermission={sharePermission} />
       {isOwner && (
         <Button
           variant="outline"

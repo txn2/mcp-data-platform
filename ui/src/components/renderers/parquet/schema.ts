@@ -1,4 +1,5 @@
 import type { FileMetaData, LogicalType, SchemaElement } from "hyparquet";
+import { sortNames } from "@/lib/sortByName";
 
 /**
  * A Parquet file's columns as the portal shows them, and the Trino type each
@@ -269,5 +270,5 @@ export function codecsOf(metadata: FileMetaData): string[] {
       if (chunk.meta_data?.codec) seen.add(chunk.meta_data.codec);
     }
   }
-  return [...seen].sort();
+  return sortNames(seen);
 }

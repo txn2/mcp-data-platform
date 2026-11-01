@@ -35,8 +35,9 @@ const fetchTimeout = 5 * time.Minute
 // admin routes are mounted for. A nil Maps (no database) mounts and runs
 // nothing.
 type Maps struct {
-	svc *maps.Service
-	p   *platform.Platform
+	svc  *maps.Service
+	gate *maps.SiteGate
+	p    *platform.Platform
 }
 
 // Build returns the maps surface, or nil without a database.
@@ -45,8 +46,19 @@ func Build(p *platform.Platform) *Maps {
 		return nil
 	}
 	cfg := p.Config()
-	return &Maps{p: p, svc: assemble(p.DB(), cfg.Toolkits, cfg.Resources.Managed.S3Connection,
-		cfg.Resources.Managed.S3Bucket, p.PortalKnowledgePageStore())}
+	gate := maps.NewSiteGate(maps.NewReader(p.DB()).Settings, cfg.Portal.PublicBaseURL)
+	return &Maps{p: p, gate: gate, svc: assemble(p.DB(), cfg.Toolkits, cfg.Resources.Managed.S3Connection,
+		cfg.Resources.Managed.S3Bucket, p.PortalKnowledgePageStore(), gate.Forget)}
+}
+
+// SiteCheck is what the listener's CORS layer serves the public map routes
+// by (#2393): the platform itself and the sites the maps settings allow. A
+// deployment with no maps surface checks nothing.
+func (m *Maps) SiteCheck() func(*http.Request) bool {
+	if m == nil {
+		return nil
+	}
+	return m.gate.Admit
 }
 
 // Mount registers the public archive routes and, when the admin API is on,
@@ -80,7 +92,7 @@ func (m *Maps) Stop() {
 
 // assemble builds the service from what Build reads off the platform.
 func assemble(db *sql.DB, toolkits map[string]any, defaultConn, defaultBucket string,
-	pages knowledgepage.Store,
+	pages knowledgepage.Store, saved func(),
 ) *maps.Service {
 	buckets := &bucketCache{
 		toolkits: toolkits, defaultConn: defaultConn, defaultBucket: defaultBucket,
@@ -93,6 +105,9 @@ func assemble(db *sql.DB, toolkits map[string]any, defaultConn, defaultBucket st
 			Kind: outbound.KindMaps, Timeout: fetchTimeout, CheckRedirect: outbound.FollowRedirects,
 		}),
 		Changed: func(ctx context.Context) {
+			if saved != nil {
+				saved()
+			}
 			if err := knowledgebuiltin.Reconcile(context.WithoutCancel(ctx), pages, reader); err != nil {
 				slog.WarnContext(ctx, "maps: refreshing the maps knowledge page",
 					"error", logsan.SanitizeForLog(err.Error()))

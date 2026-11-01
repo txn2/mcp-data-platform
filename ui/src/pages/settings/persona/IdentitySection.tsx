@@ -7,6 +7,7 @@ import type { EffectiveAccess, AccountType, RoleOverlap } from "@/api/admin/type
 import { Field } from "./primitives";
 import { EditorSection } from "./sections";
 import type { PersonaDraft } from "./types";
+import { compareOrdinal } from "@/lib/sortByName";
 
 const ACCOUNT_TYPES: { value: AccountType; label: string; help: string }[] = [
   { value: "internal", label: "Internal people", help: "People of the organization, signed in through its identity provider." },
@@ -35,7 +36,7 @@ function accountTypePatch(t: AccountType): Partial<PersonaDraft> {
 /** winner is the persona that resolves for a person holding the shared role. */
 function winner(draft: PersonaDraft, o: RoleOverlap): string {
   if (o.priority !== draft.priority) return o.priority > draft.priority ? o.persona : draft.name;
-  return [o.persona, draft.name].sort()[0] ?? draft.name;
+  return [o.persona, draft.name].sort(compareOrdinal)[0] ?? draft.name;
 }
 
 /** roleWarnings are the server's facts about who else a role reaches. */

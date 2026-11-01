@@ -27,6 +27,9 @@ type SettingsView struct {
 	Bucket       string `json:"bucket"`
 	MaxZoom      int    `json:"max_zoom"`
 	SourceURL    string `json:"source_url"`
+	// AllowedOrigins are the sites besides the platform a browser may read
+	// the map routes for (#2393); never null.
+	AllowedOrigins []string `json:"allowed_origins"`
 	// ResolvedBucket is the bucket archives are written to: Bucket, or the
 	// managed-resources bucket when that is empty.
 	ResolvedBucket string     `json:"resolved_bucket"`
@@ -60,6 +63,7 @@ func (s *Service) View(ctx context.Context, bucketOf ResolvedBucket) (View, erro
 	v := SettingsView{
 		Enabled: settings.Enabled, S3Connection: settings.S3Connection, Bucket: settings.Bucket,
 		MaxZoom: settings.MaxZoom, SourceURL: settings.SourceURL, UpdatedBy: settings.UpdatedBy,
+		AllowedOrigins: append([]string{}, settings.AllowedOrigins...),
 	}
 	if bucketOf != nil {
 		v.ResolvedBucket = bucketOf(settings)
@@ -77,10 +81,15 @@ func (s *Service) View(ctx context.Context, bucketOf ResolvedBucket) (View, erro
 func (s *Service) SaveSettings(ctx context.Context, in SettingsInput, author string) error {
 	settings := Settings{
 		Enabled: in.Enabled, S3Connection: in.S3Connection, Bucket: in.Bucket,
-		MaxZoom: in.MaxZoom, SourceURL: in.SourceURL,
+		MaxZoom: in.MaxZoom, SourceURL: in.SourceURL, AllowedOrigins: in.AllowedOrigins,
 	}
 	if msg := settings.Validate(); msg != "" {
 		return inputErr("%s", msg)
+	}
+	// Validate refused a malformed entry, so this normalizes and cannot fail.
+	settings.AllowedOrigins, _ = NormalizeAllowedOrigins(in.AllowedOrigins)
+	if len(settings.AllowedOrigins) == 0 {
+		settings.AllowedOrigins = nil
 	}
 	if err := s.d.Settings.Set(ctx, settings, author); err != nil {
 		return err //nolint:wrapcheck // the store's error names what it was writing

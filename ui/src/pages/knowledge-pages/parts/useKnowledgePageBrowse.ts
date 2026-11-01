@@ -8,6 +8,7 @@ import {
 import type { KnowledgePage } from "@/api/portal/types";
 import { useDebounced } from "@/lib/useDebounced";
 import type { KnowledgeView } from "./ViewToggle";
+import { compareNames, compareOrdinal } from "@/lib/sortByName";
 
 /**
  * useKnowledgePageBrowse holds how the reader has narrowed the knowledge corpus
@@ -52,13 +53,13 @@ export function useKnowledgePageBrowse() {
   const tagCounts = useMemo(() => {
     const m = new Map<string, number>();
     for (const p of allPages) for (const t of p.tags) m.set(t, (m.get(t) ?? 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || compareNames(a[0], b[0]));
   }, [allPages]);
 
   // Browse list: filter by the selected tag, newest first.
   const browsePages = useMemo(() => {
     const filtered = tag ? allPages.filter((p) => p.tags.includes(tag)) : allPages;
-    return [...filtered].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return [...filtered].sort((a, b) => compareOrdinal(b.updated_at, a.updated_at));
   }, [allPages, tag]);
 
   const pages: KnowledgePage[] = searching

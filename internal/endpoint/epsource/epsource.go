@@ -9,8 +9,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/namesort"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 )
 
@@ -92,7 +94,10 @@ func (m *Maker) ConnectionChoices() []string {
 	if m.Connections == nil {
 		return []string{}
 	}
-	return append([]string{}, m.Connections()...)
+	// In name order, the order the form's picker lists them in (#2389).
+	out := append([]string{}, m.Connections()...)
+	slices.SortStableFunc(out, namesort.Compare)
+	return out
 }
 
 func (m *Maker) existing(ctx context.Context, src whsource.Source, req SourceRequest) (SourceResult, error) {

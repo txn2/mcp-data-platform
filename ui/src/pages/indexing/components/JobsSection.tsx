@@ -5,6 +5,7 @@ import { type IndexJob, type IndexKindSummary } from "@/api/admin/indexjobs";
 import { FilterSelect } from "@/components/patterns/FilterSelect";
 import { JobTable } from "./jobtable";
 import { Section } from "./panels";
+import { sortNames } from "@/lib/sortByName";
 
 // JOB_STATUSES is the drill-down's status facet, in queue order.
 const JOB_STATUSES = ["pending", "running", "succeeded", "failed"];
@@ -50,7 +51,7 @@ export function JobsSection({
           onChange={setKindFilter}
           options={[
             { value: "", label: "All kinds" },
-            ...kinds.map((k) => ({ value: k.kind, label: k.kind })),
+            ...sortNames(kinds.map((k) => k.kind)).map((k) => ({ value: k, label: k })),
           ]}
         />
         <FilterSelect

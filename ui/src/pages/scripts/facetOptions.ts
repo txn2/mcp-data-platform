@@ -1,4 +1,5 @@
 import type { FilterOption } from "@/components/patterns/FilterSelect";
+import { compareNames } from "@/lib/sortByName";
 
 // facetOptions is a facet's vocabulary, ordered by how many items carry each
 // value and then alphabetically — the order the chips were in, so a reader
@@ -17,7 +18,7 @@ export function facetOptions<T>(
     }
   }
   const options = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .sort((a, b) => b[1] - a[1] || compareNames(a[0], b[0]))
     .map(([value, count]) => ({ value, label: `${value} (${count})` }));
   return [{ value: "", label: allLabel }, ...options];
 }

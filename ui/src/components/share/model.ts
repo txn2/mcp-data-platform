@@ -1,4 +1,5 @@
 import type { Share, SharePermission } from "@/api/portal/types";
+import { compareOrdinal } from "@/lib/sortByName";
 
 /**
  * The share dialog's reading of an item's shares (#2291): who has access, the
@@ -47,7 +48,7 @@ export interface ShareGroups {
 /** groupShares sorts an item's shares into what the dialog shows. */
 export function groupShares(shares: Share[], now: number): ShareGroups {
   const active = shares.filter((s) => live(s, now));
-  const byCreated = (a: Share, b: Share) => a.created_at.localeCompare(b.created_at);
+  const byCreated = (a: Share, b: Share) => compareOrdinal(a.created_at, b.created_at);
   const links = active.filter((s) => isGeneralLink(s, now)).sort(byCreated);
   return {
     grants: active.filter(named).sort(byCreated),

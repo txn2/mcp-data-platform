@@ -16,6 +16,7 @@ import type {
   ToolSchema,
   ToolParameterSchema,
 } from "@/api/admin/types";
+import { sortNames } from "@/lib/sortByName";
 
 interface ToolFormProps {
   schema: ToolSchema;
@@ -190,7 +191,7 @@ function ConnectionField({
 }) {
   const bound = !!selectedConnection;
   const none = !bound && availableConnections.length === 0;
-  const names = availableConnections.map((c) => c.name);
+  const names = sortNames(availableConnections.map((c) => c.name));
   const replayed = typeof initialValue === "string" ? initialValue : "";
   return (
     <>

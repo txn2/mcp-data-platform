@@ -2,7 +2,7 @@
 <html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{{.Name}}</title>
     {{/* Open Graph / Twitter Card metadata for link previews on Slack,
          iMessage, Twitter/X, LinkedIn, etc. ShareURL and OGImageURL are
@@ -74,6 +74,11 @@
             display: flex;
             flex-direction: column;
             min-height: 100vh;
+            min-height: 100dvh;
+            /* viewport-fit=cover lets the page reach a landscape phone's
+               notch; the side insets keep the content off it (#2390). */
+            padding-left: env(safe-area-inset-left);
+            padding-right: env(safe-area-inset-right);
         }
         .header {
             box-sizing: border-box;
@@ -255,6 +260,54 @@
            full-width row; the control that follows it in the DOM takes
            margin-left:auto so the controls and platform brand stay
            right-aligned on the first row. */
+        /* Expand (#2390): on a phone the header, the notice and the feedback
+           line take most of the screen above the content. Expanded, the
+           content fills the viewport inside its safe area under one bar that
+           names it and closes it, and is the only thing that scrolls. The
+           content's elements stay where they are, so a document's frame is
+           not reloaded. */
+        .expand-toggle { display: none; }
+        .expanded-bar { display: none; }
+        body.expanded .header, body.expanded .notice, body.expanded .feedback-cta { display: none; }
+        body.expanded .content {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            background: var(--bg);
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+        body.expanded .expanded-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--page-border);
+            /* .content > div grows; the bar is its own height. */
+            flex: none;
+        }
+        body.expanded .expanded-bar span {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        body.expanded #content-root { padding: 8px; overflow: auto; min-height: 0; }
+        .expanded-close {
+            background: none;
+            border: 1px solid var(--page-border);
+            border-radius: 6px;
+            padding: 4px 10px;
+            cursor: pointer;
+            color: var(--text);
+            font: inherit;
+            font-size: 13px;
+        }
+        @media (max-width: 767px) {
+            .expand-toggle { display: flex; }
+        }
         @media (max-width: 640px) {
             .header { flex-wrap: wrap; padding: 12px 16px; gap: 8px; }
             .header-center { order: 1; flex-basis: 100%; flex-wrap: wrap; }
@@ -365,6 +418,9 @@
             {{if .IsGuest}}<span class="badge">Viewing as guest</span>{{end}}
         </div>
         <div class="content-actions" id="content-actions"></div>
+        <button class="info-toggle expand-toggle" id="expand-toggle" aria-label="Expand" title="Show the content full screen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
         <button class="info-toggle" id="info-toggle" aria-label="Asset info" title="Asset info">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
         </button>
@@ -400,6 +456,7 @@
     {{end}}
     {{end}}
     <div class="content">
+        {{if not .Embedded}}<div class="expanded-bar" id="expanded-bar"><span>{{.Name}}</span><button class="expanded-close" id="expanded-close">Close</button></div>{{end}}
         <style>{{.ContentViewerCSS}}</style>
         <div id="content-root">
             <p style="color:var(--text-muted);padding:16px">Loading...</p>
@@ -490,6 +547,46 @@
         document.addEventListener("keydown", function(e) {
             if (e.key === "Escape" && !infoModal.hidden) hideInfo();
         });
+
+        // Expand (#2390). ?view=full opens it, so a link can open the asset
+        // straight into it. Opening adds a history entry, so the phone's back
+        // gesture closes it; a page opened expanded has no entry under it,
+        // and closing removes the parameter in place.
+        var expandBtn = document.getElementById("expand-toggle");
+        var expandedClose = document.getElementById("expanded-close");
+        function isExpanded() {
+            return new URLSearchParams(location.search).get("view") === "full";
+        }
+        function urlWith(on) {
+            var u = new URL(location.href);
+            if (on) u.searchParams.set("view", "full"); else u.searchParams.delete("view");
+            return u.pathname + u.search + u.hash;
+        }
+        function syncExpanded() {
+            var on = isExpanded();
+            document.body.classList.toggle("expanded", on);
+            var root = document.querySelector(".content");
+            if (on) { root.setAttribute("role", "dialog"); root.setAttribute("aria-modal", "true"); root.setAttribute("aria-label", document.title); }
+            else { root.removeAttribute("role"); root.removeAttribute("aria-modal"); root.removeAttribute("aria-label"); }
+        }
+        function expand() {
+            if (isExpanded()) return;
+            history.pushState({ expandedView: true }, "", urlWith(true));
+            syncExpanded();
+            expandedClose.focus();
+        }
+        function closeExpanded() {
+            if (history.state && history.state.expandedView) { history.back(); return; }
+            history.replaceState(history.state, "", urlWith(false));
+            syncExpanded();
+        }
+        expandBtn.addEventListener("click", expand);
+        expandedClose.addEventListener("click", closeExpanded);
+        window.addEventListener("popstate", syncExpanded);
+        document.addEventListener("keydown", function(e) {
+            if (e.key === "Escape" && infoModal.hidden && isExpanded()) closeExpanded();
+        });
+        syncExpanded();
     })();
     </script>
     {{end}}

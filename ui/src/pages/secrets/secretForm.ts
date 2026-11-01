@@ -1,4 +1,5 @@
 import type { Secret, SecretInput, SecretKind } from "@/api/admin/types";
+import { sortNames } from "@/lib/sortByName";
 
 // The Secrets editor's form (#2051): what the person typed, the checks the
 // server would refuse it for, and the body a save sends. The rules mirror
@@ -121,12 +122,12 @@ export function toInput(form: SecretForm): SecretInput {
 export function toggled(list: string[], item: string): string[] {
   return list.includes(item)
     ? list.filter((x) => x !== item)
-    : [...list, item].sort();
+    : sortNames([...list, item]);
 }
 
 /** choices is the names to offer: the ones known, and any the secret already
  * names that are not among them (a connection since removed), so saving never
  * drops one silently. */
 export function choices(known: string[], chosen: string[]): string[] {
-  return [...new Set([...known, ...chosen])].sort();
+  return sortNames(new Set([...known, ...chosen]));
 }

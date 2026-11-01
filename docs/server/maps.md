@@ -34,6 +34,7 @@ API:
 | Bucket | the managed-resources bucket | Where archives are written. |
 | Maximum zoom | 14 | The deepest zoom a fetch extracts, 1 to 15. |
 | Source | the newest Protomaps daily build | A URL of a `.pmtiles` archive to extract from instead, such as a mirror you host. |
+| Allowed sites | none | Other websites a browser may draw maps for from this deployment, one per line, each `https://host[:port]` or `https://*.domain` for any of its subdomains (`http` only for `localhost` and loopback addresses). This deployment's own pages and share links are always served. See [Who is served](#who-is-served). |
 
 A change to the maximum zoom or the source applies to the next fetch of each
 region. A change to the connection or the bucket leaves the archives already
@@ -134,13 +135,59 @@ platform can reach. It must answer byte ranges.
 | `/portal/maps/{id}.pmtiles` | none | the region's archive, by byte range, with an `ETag` that changes when a refresh replaces it; 404 when maps are off or the region has no archive |
 | `/portal/vendor/maplibre/...` | none | MapLibre GL JS 6.4.1, the PMTiles protocol 4.5.0, the Protomaps basemap style 5.7.2, its glyphs and sprites, TopoJSON client 3.1.0 and the us-atlas 3.0.1 boundaries, each with its license |
 
-The archive is public OpenStreetMap data and is read from a sandboxed asset
-frame, whose origin is opaque, and from public share links, so these paths
-need no session and answer CORS for any origin, without credentials, with
-`Range` allowed and `Content-Range` exposed. The share viewer's policy needs
-no change: an asset frame is an `srcdoc` document that inherits the viewer's
-`connect-src 'self'`, which grants the platform's own origin on a plaintext
-deployment too.
+These paths need no session: the archive is public OpenStreetMap data, and
+it is read from a sandboxed asset frame, whose origin is opaque, and from
+public share links, neither of which carries one. They answer CORS without
+credentials, with `Range` allowed and `Content-Range` exposed. The share
+viewer's policy needs no change: an asset frame is an `srcdoc` document that
+inherits the viewer's `connect-src 'self'`, which grants the platform's own
+origin on a plaintext deployment too.
+
+### Who is served
+
+The archive route is a tile server, so it is served only to the sites a
+deployment chooses, and not to every website that finds it. Each read of
+`/portal/maps/` and `/portal/vendor/maplibre/` is judged by the site a browser
+says made it: its `Origin`, or the origin of its `Referer` when the `Origin` is
+absent or `null`.
+
+| The read names | Answer |
+|---|---|
+| this deployment: the host the request arrived on, or the origin of `portal.public_base_url` | served |
+| a site on **Allowed sites** | served |
+| `Origin: null` and no `Referer` (a sandboxed frame, such as the platform's own asset frames) | served |
+| no `Origin` and no `Referer` (curl, a script, a browser whose extension strips the `Referer`) | served |
+| any other site | `403`, with no CORS grant |
+
+A browser does not let a page set its own `Origin` or `Referer`, so a page on
+an unlisted site cannot have its visitors' browsers served. Two things are
+not stopped, and the check does not claim to stop them: a client outside a
+browser can send any header it likes, and pays for every tile it downloads;
+and a site that puts its map in a sandboxed frame sends what the platform's
+own asset frames send, which the platform cannot tell apart.
+
+An admitted read's `Access-Control-Allow-Origin` echoes its origin, and every
+answer varies by `Origin` and `Referer`. The archive answers
+`Cache-Control: private, no-cache`, so a shared cache in front of the platform
+does not store one allowed read and serve it to everyone. A change to the
+allowed sites is in force on the replica that saved it at once, and on the
+others within ten seconds. The tile worker and Export PDF read these paths
+in-process and are not judged.
+
+To draw maps on an allowed site, load MapLibre and the PMTiles protocol from
+`/portal/vendor/maplibre/` on this deployment (or your own copies), register
+the protocol, and point the source at the archive's absolute URL, keeping the
+OpenStreetMap attribution on:
+
+```html
+<script src="https://platform.example.com/portal/vendor/maplibre/maplibre-gl.js"></script>
+<script src="https://platform.example.com/portal/vendor/maplibre/pmtiles.js"></script>
+<script>
+  maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
+  // style: the Protomaps style from /portal/vendor/maplibre/, with its source url set to
+  // "pmtiles://https://platform.example.com/portal/maps/united-states.pmtiles"
+</script>
+```
 
 The glyphs and sprites the style draws with are not published to npm; they
 are checked in under `ui/vendor/maplibre/` at a pinned commit of
@@ -179,7 +226,7 @@ served boundaries.
 | Method and path | What it does |
 |---|---|
 | `GET /api/v1/admin/settings/maps` | the settings, every region with its state and archive, the presets, the upload prefix |
-| `PUT /api/v1/admin/settings/maps` | `enabled`, `s3_connection`, `bucket`, `max_zoom`, `source_url` |
+| `PUT /api/v1/admin/settings/maps` | `enabled`, `s3_connection`, `bucket`, `max_zoom`, `source_url`, `allowed_origins` (a JSON array; omitted or empty serves this deployment alone; a malformed entry is refused by name) |
 | `POST /api/v1/admin/settings/maps/regions` | `{"preset": "united-states"}`, or `{"id", "name", "bounds": {"min_lon", "min_lat", "max_lon", "max_lat"}}`; 201 with the queued region |
 | `POST /api/v1/admin/settings/maps/regions/{id}/refresh` | queue a fetch of the newest build at the current maximum zoom; 409 while the region is being fetched |
 | `DELETE /api/v1/admin/settings/maps/regions/{id}` | remove the region and its archive (an uploaded file included) |

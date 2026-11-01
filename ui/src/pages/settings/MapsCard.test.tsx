@@ -88,7 +88,22 @@ describe("MapsCard", () => {
     fireEvent.change(screen.getByPlaceholderText("https://"), { target: { value: " https://mirror.example.com/p.pmtiles " } });
     fireEvent.click(screen.getByRole("button", { name: /Save/ }));
     expect(save).toHaveBeenCalledWith(
-      { enabled: false, s3_connection: "", bucket: "", max_zoom: 14, source_url: "https://mirror.example.com/p.pmtiles" },
+      { enabled: false, s3_connection: "", bucket: "", max_zoom: 14, source_url: "https://mirror.example.com/p.pmtiles", allowed_origins: [] },
+      expect.anything(),
+    );
+  });
+
+  it("shows and saves the allowed sites, one per line", () => {
+    const v = view();
+    v.settings.allowed_origins = ["https://stores.example.com"];
+    mockHooks(v);
+    render(<MapsCard />);
+    const field = screen.getByLabelText("Allowed sites");
+    expect(field).toHaveValue("https://stores.example.com");
+    fireEvent.change(field, { target: { value: " https://stores.example.com \n\nhttps://*.example.org\r\n" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save/ }));
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ allowed_origins: ["https://stores.example.com", "https://*.example.org"] }),
       expect.anything(),
     );
   });

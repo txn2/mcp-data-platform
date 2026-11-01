@@ -1,4 +1,5 @@
 import type { Prompt } from "@/api/admin/types";
+import { compareNames } from "@/lib/sortByName";
 
 // Sorting for the admin prompt table. The admin view sorts on the columns it
 // alone shows (scope, owner, enabled), which is why it does not share the
@@ -30,7 +31,7 @@ export function sortPrompts(prompts: Prompt[], key: SortKey, dir: SortDir): Prom
   const value = sortValues[key];
   const list = [...prompts];
   list.sort((a, b) => {
-    const cmp = value(a).localeCompare(value(b));
+    const cmp = compareNames(value(a), value(b));
     return dir === "asc" ? cmp : -cmp;
   });
   return list;

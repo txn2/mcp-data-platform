@@ -12,6 +12,7 @@ import { BOT_CHECK_USE, botCheckSecretInput, isBotCheckSecret, newSecretProblems
 import { SettingsCard } from "./panels";
 import { SaveButton, SaveFeedbackBanners, UpdatedByMeta } from "./settingsChrome";
 import { useSettingsDraft } from "./useSettingsDraft";
+import { byName } from "@/lib/sortByName";
 
 // BotChecksSettingsCard is the list of named bot checks a bot_check endpoint
 // picks from (#2173, #2259): each the platform's own proof of work, or
@@ -347,7 +348,7 @@ function ProviderFields({
   onNewSecret: (next: NewSecret | null) => void;
 }) {
   const { data } = useSecrets();
-  const usable = (data?.secrets ?? []).filter(isBotCheckSecret);
+  const usable = (data?.secrets ?? []).filter(isBotCheckSecret).sort(byName((sec) => sec.name));
   const choose = (value: string) => {
     if (value === NEW_SECRET) {
       onNewSecret({ name: "", key: "" });

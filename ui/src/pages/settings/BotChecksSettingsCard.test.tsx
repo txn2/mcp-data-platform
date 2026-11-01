@@ -73,6 +73,23 @@ describe("BotChecksSettingsCard (#2259)", () => {
     expect(within(rows[1]!).getByText("No endpoint")).toBeInTheDocument();
   });
 
+  // #2389: the stored secrets are offered in name order, with a secret the
+  // check names that is no longer usable and "New secret" after them.
+  it("offers the secrets by name, the stale one and New secret last", () => {
+    withChecks({
+      key_available: true,
+      checks: [check("signup", { provider: "turnstile", site_key: "site", secret_name: "gone-key" })],
+    });
+    vi.mocked(useSecrets).mockReturnValue({
+      data: { secrets: [secret("zeta-key", ["bot_check"]), secret("key-10", ["bot_check"]), secret("Alpha", ["bot_check"]), secret("key-2", ["bot_check"])] },
+    } as never);
+    render(<BotChecksSettingsCard isReadOnly={false} />);
+    fireEvent.click(screen.getByText("signup"));
+    const editor = screen.getByRole("region", { name: "Bot check signup" });
+    const options = within(within(editor).getByLabelText("Secret")).getAllByRole("option").map((o) => o.textContent);
+    expect(options).toEqual(["Choose a stored secret", "Alpha", "key-2", "key-10", "zeta-key", "gone-key", "New secret"]);
+  });
+
   it("opens a check on row click and saves its edited difficulty", () => {
     render(<BotChecksSettingsCard isReadOnly={false} />);
     fireEvent.click(screen.getByText("default"));

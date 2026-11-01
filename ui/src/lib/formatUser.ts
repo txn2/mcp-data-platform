@@ -6,6 +6,8 @@
 // arrive here carrying the same email and are indistinguishable on their label
 // alone; the kind and the name are what separate them (#1523).
 
+import { compareNames } from "@/lib/sortByName";
+
 export type PrincipalKind = "user" | "script" | "apikey";
 
 export interface Principal {
@@ -77,7 +79,7 @@ export function principalOptions(
       const principal = parsePrincipal(id, labels?.[id]);
       return { value: id, label: labelOf(principal), kind: principal.kind };
     })
-    .sort((a, b) => rank[a.kind] - rank[b.kind] || a.label.localeCompare(b.label));
+    .sort((a, b) => rank[a.kind] - rank[b.kind] || compareNames(a.label, b.label));
 
   // Two people can still read alike: one address reaches the facet under two
   // subjects when someone is known to two issuers or was re-registered under a

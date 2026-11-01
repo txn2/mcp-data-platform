@@ -7,6 +7,9 @@ import { exceedsInlineLimit, readsByRange, rendersFromURL } from "@/components/r
 import { useContentUrl } from "@/lib/useContentUrl";
 import { ContentLoadError, SaveControls, TooLarge, VersionControls, ViewModeToggle } from "./contentControls";
 import { pendingState, type PendingState } from "./pendingState";
+import { ExpandButton, ExpandedView } from "./ExpandedView";
+import { useExpandedView } from "./useExpandedView";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { MutationLike, ViewMode } from "./types";
 
 const SourceEditor = lazy(() =>
@@ -77,6 +80,10 @@ export function AssetContentView({
   // (Present, Overview, Export PDF) render rather than on a row of their own
   // (#1769). Held as state so the renderer re-renders once the row exists.
   const [controlsSlot, setControlsSlot] = useState<HTMLElement | null>(null);
+  // On a phone the content opens edge to edge (#2390). A link with ?view=full
+  // opens it that way at any width; the control is offered on a phone, where
+  // the page around the content is what crowds it.
+  const expand = useContentExpand(canEditSource, viewMode, viewingOldVersion);
 
   return (
     <>
@@ -107,39 +114,56 @@ export function AssetContentView({
           <span className="text-xs text-muted-foreground">Viewing v{selectedVersion} (read-only)</span>
         )}
         <div ref={setControlsSlot} data-testid="content-controls" className="ml-auto flex flex-wrap items-center gap-2" />
+        <ExpandButton offered={expand.offered} onClick={expand.open} />
       </div>
 
       {/* Content display */}
-      {viewingOldVersion ? (
-        versionContentLoading ? (
-          <LoadingIndicator />
+      <ExpandedView expanded={expand.expanded} title={asset.name} onClose={expand.close}>
+        {viewingOldVersion ? (
+          versionContentLoading ? (
+            <LoadingIndicator />
+          ) : (
+            <VersionContent
+              asset={asset}
+              versions={versions}
+              selectedVersion={selectedVersion}
+              versionContent={versionContent}
+              contentUrl={contentUrl}
+              controlsSlot={controlsSlot}
+            />
+          )
         ) : (
-          <VersionContent
+          <CurrentContent
             asset={asset}
-            versions={versions}
-            selectedVersion={selectedVersion}
-            versionContent={versionContent}
+            content={content}
+            contentError={contentError}
+            onRetryContent={onRetryContent}
             contentUrl={contentUrl}
+            canEditSource={canEditSource}
+            viewMode={viewMode}
+            editedContent={editedContent}
+            hasChanges={hasChanges}
+            onSourceChange={onSourceChange}
             controlsSlot={controlsSlot}
           />
-        )
-      ) : (
-        <CurrentContent
-          asset={asset}
-          content={content}
-          contentError={contentError}
-          onRetryContent={onRetryContent}
-          contentUrl={contentUrl}
-          canEditSource={canEditSource}
-          viewMode={viewMode}
-          editedContent={editedContent}
-          hasChanges={hasChanges}
-          onSourceChange={onSourceChange}
-          controlsSlot={controlsSlot}
-        />
-      )}
+        )}
+      </ExpandedView>
     </>
   );
+}
+
+/** Whether Expand is offered and showing. The source editor is never
+ * expanded: it is a form with its own Save, not content to read. */
+function useContentExpand(canEditSource: boolean, viewMode: ViewMode, viewingOldVersion: boolean) {
+  const editing = canEditSource && viewMode === "source" && !viewingOldVersion;
+  const isMobile = useIsMobile();
+  const view = useExpandedView();
+  return {
+    offered: isMobile && !editing,
+    expanded: view.expanded && !editing,
+    open: view.expand,
+    close: view.close,
+  };
 }
 
 function VersionContent({

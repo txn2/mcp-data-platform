@@ -1,4 +1,5 @@
 import type { Folder } from "@/api/resources/types";
+import { comparePaths } from "@/lib/sortByName";
 
 /** Path arithmetic over folder paths, which the file manager and the dialogs share. */
 
@@ -26,5 +27,5 @@ export function joinPath(at: string, name: string): string {
 
 /** Every folder path the library holds, for a picker's completions. */
 export function folderPaths(folders: Folder[]): string[] {
-  return folders.map((f) => f.path).sort((a, b) => a.localeCompare(b));
+  return folders.map((f) => f.path).sort(comparePaths);
 }

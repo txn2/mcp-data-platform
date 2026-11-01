@@ -15,6 +15,7 @@ import type {
   APIOperationSummary,
 } from "@/api/apis/types";
 import type { OperationSelection } from "./OperationIndex";
+import { sortOptions } from "@/lib/sortByName";
 
 // What the browser reads, per scope, behind one shape.
 //
@@ -63,13 +64,15 @@ export function useBrowseSources(scope: ApisScope): BrowseSources {
 
   const options = useMemo(() => {
     if (isAdmin) {
-      return (catalogsQ.data ?? []).map((c) => ({
-        value: c.id,
-        label: c.display_name || c.name,
-        hint: plural(c.spec_count, "spec"),
-      }));
+      return sortOptions(
+        (catalogsQ.data ?? []).map((c) => ({
+          value: c.id,
+          label: c.display_name || c.name,
+          hint: plural(c.spec_count, "spec"),
+        })),
+      );
     }
-    return (connectionsQ.data?.connections ?? []).map(connectionOption);
+    return sortOptions((connectionsQ.data?.connections ?? []).map(connectionOption));
   }, [isAdmin, catalogsQ.data, connectionsQ.data]);
 
   return { options, isLoading: isAdmin ? catalogsQ.isLoading : connectionsQ.isLoading };

@@ -7,6 +7,7 @@ import type {
   FlowRole,
   ScriptFlow,
 } from "@/api/portal/hooks/scriptFlow";
+import { compareNames } from "@/lib/sortByName";
 
 // The pure half of the Flow tab (#1906): how a step's card is worded and sized,
 // what a selection lights up, and which cards a range of source lines
@@ -325,7 +326,7 @@ export function groupCalls(calls: FlowOtherCall[]): CallGroup[] {
       calls: list,
     });
   }
-  return out.sort((a, b) => b.failed - a.failed || b.calls.length - a.calls.length || a.tool.localeCompare(b.tool));
+  return out.sort((a, b) => b.failed - a.failed || b.calls.length - a.calls.length || compareNames(a.tool, b.tool));
 }
 
 // callGroupText is one group as the side panel reads it:

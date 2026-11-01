@@ -2795,6 +2795,8 @@ AI-generated dashboards, reports, and visualizations saved via `save_asset`. Gri
 
 **Thumbnails and how they stay current.** The platform draws every tile itself (#1787), in a headless Chrome (`chromedp/headless-shell`, pinned by digest) that runs as a second container in the platform's pod and is reached over the DevTools protocol at `thumbnails.renderer_url` (default `http://127.0.0.1:9222`). A worker in every replica claims owed rows with a lease (`FOR UPDATE SKIP LOCKED`, `thumbnail_claimed_until`), opens a tile page -- the content-viewer bundle's second entry, `ui/src/tile-entry.tsx`, carrying the document as JSON -- and screenshots it once the page reports itself drawn: HTML and JSX in the viewer's own frame at 1280x960, painted at full size and reduced to 800x600 with a Catmull-Rom filter (a browser asked for the small picture paints body text a few pixels tall, #1789), everything else laid out at 400x300 and painted at twice the density, scrollbars hidden. A PDF's tile is rasterized rather than borrowed from the viewer's frame (#1794): the tile page rasterizes page one with pdf.js onto a canvas sized in device pixels and scaled to cover, in a chunk loaded by a PDF tile and nothing else (the worker file is served from the viewer's own chunk directory, which is why `.mjs` is servable there). A PDF reaches the page by URL like a raster image rather than through the page's JSON payload (`isBinary`) and is drawn once for both schemes. It is one of the families past the 1 MB source bound: `thumbtypes.LargeSourceLimit` holds a PDF, a CSV and a TSV to 32 MB, because each is drawn from part of the file rather than all of it -- page one of a PDF, and for a table the head of the file, which the worker cuts at a record boundary (`headFor`, 64 records or 256 KiB) before the tile page is built, since the tile is the header row and ten rows and the rest used to be parsed and discarded (#1802). Both stores ask the bound as a CASE over the content type (`thumbtypes.SourceLimitExpr`) so the raise reaches those families alone, and `thumbtypes.LargeSourceFamilies` and `HeadDrawnFamilies` are the one Go statement of which they are, held to the browser's copy by a parity test. A document that is password-protected, damaged or not a PDF settles with its reason and keeps its icon. Every family except SVG, PDF and raster images is drawn once per colour scheme with `prefers-color-scheme` emulated: the families laid out on the portal's surface take the scheme's background, and HTML and JSX answer it through their own stylesheets as they do in the viewer's frame (#1789). Raising the renderer generation (`thumbnail_renderer`) redraws every stored tile once in the background, and the old tile serves until its replacement lands; the generation is on the asset, resource and collection-item JSON (`thumbnail_renderer`, `asset_thumbnail_renderer`) and the portal puts it in the tile URL (`&r=`) beside the version, because a redraw keeps the version and the thumbnail route is cacheable for an hour. A collection's mosaic is composed twice, light from its members' light tiles and dark from their dark tiles, the dark one stored beside the light one at `portal/collections/<id>/thumbnail_dark.png` and served by `GET /api/v1/portal/collections/{id}/thumbnail?variant=dark` (the light mosaic when a collection has no dark one yet); the mosaic's source signature carries each member's dark version, so a member's new dark tile recomposes it. The portal root sets `color-scheme` from its resolved theme (`:root { color-scheme: light }`, `:root.dark { color-scheme: dark }` in `ui/src/theme.css`, shared by the portal and the public share viewer), which every document frame inherits and which a framed document's `prefers-color-scheme` resolves against, so an HTML or JSX asset follows the reader's theme choice rather than the operating system (#1789). The browser paints it, so the tile is what the viewer shows; it replaced html2canvas 1.4.1, a JavaScript reimplementation of CSS painting that could not draw a CSS transform (a reveal.js deck became a sliver in the corner, #1784) and painted an inset box-shadow as a solid fill (#1787). The renderer never reaches the network: every page runs in its own browser context behind a dead proxy, every request of the page, its frames and its workers is intercepted and answered by the platform (its own routes in-process, a public URL fetched through `internal/egressguard`), and the socket constructors are removed before any script runs. A row is owed a tile when it has none, has one of an older version (an asset's `thumbnail_version`, a resource's `thumbnail_captured_at` against `updated_at`), one drawn by an older renderer generation (`thumbnail_renderer`), or one under a legacy filename; a version write leaves the stored tile serving until the new one lands. A document that cannot be drawn is recorded (`thumbnail_failure`, and the version or file time it was tried at) and not tried again until it changes or its owner clears the tile; the reason is on the file's Thumbnail panel, where Recapture (`DELETE .../thumbnail`) discards the tile and the failure and the panel polls the row until the new tile arrives; the control is disabled while the row says a tile is owed, since the draw it would ask for is already under way, and presses never queue work (a clear resets columns on the row, the worker leases the row, and the clear does not touch the lease). The light variant is drawn and stored first, so a failure can stand beside a stored tile, and the panel names the part that failed from the tile's own stamp: a light tile of the current version means only the dark tile failed, a light tile of an earlier version means this version could not be drawn and the reader is looking at the previous one, no tile means the file has none (#1791). The worker's in-process requests to the platform's own routes carry `viewerlimit.InProcess` on their context and are admitted by the public viewer's rate limiter without being counted: every one presents the loopback address, so counted they shared one bucket and a document drawn after it ran dry was recorded as not drawable although every file it names exists (#1791). A collection's mosaic of its first four drawn members is composed by the same renderer and redrawn when that signature (`thumbnail_source`) changes. The browser capture routes (`PUT` asset, admin asset, collection and resource thumbnail, and both `thumbnails/pending` lists) and the in-tab capture queue are gone. A JSX frame's policy grants the reference route to `font-src` as well as `img-src` and `connect-src`, so an `@font-face` rule naming a managed-resource font loads in the viewer and in the tile frame (#2062); a font the frame still could not load does not withhold the tile, since the page drew completely in its fallback face, while a failed image or data reference does. Migration 000182 clears the `file(s) this document links to could not be loaded` failures recorded before, on assets and resources, so those documents are drawn again. A document frame reports itself ready only once its styles are in (#2122): every stylesheet it names, including one a script added after load, has loaded or failed, its fonts have settled, and neither its styles nor its layout has changed for 400 ms, bounded at 6 s, which is what catches CSS written at run time such as the Tailwind Play CDN's. A JSX frame waits for its module to run, which is when every esm.sh module it imports has arrived, instead of a fixed two seconds. A public stylesheet or script the platform could not fetch for a reason that may pass (the network, a 429 or a 5xx) makes the attempt one that did not finish, counted as `thumbnail_render_failures_total{reason="subresource"}` and retried with backoff up to `max_attempts`, rather than a stored picture of unstyled text; one its server answers 404 is the document's own and is drawn without. The renderer keeps each public 200 answer it fetched for ten minutes (64 MB, oldest first, never one marked `no-store` or `private`), so a library of documents on one CDN does not fetch the same files for every tile. `thumbnails.allow_private_cidrs` names private prefixes a drawn document may load files from (an internal CDN); every other private, loopback, link-local and metadata address stays refused, and a prefix that does not parse stops the platform at start. The worker reads only due rows (#2084): `thumbnail_due_at` on resources, portal_assets and portal_collections is set by a trigger on every write the renderer did not make (and on a collection when a section, an item or a member's tile changes, migration 000189), a partial index holds only due rows, a pass takes rows owed nothing out of the due set a thousand at a time and claims from the rest, and a claim or hold writes its end time there. An idle claim over 500,000 rows reads one index page and no table row (about 2 ms). A changed owed rule (renderer generation, source bounds, drawable types) marks every row due once, 2,000 per statement under an advisory lock, recorded in `thumbnail_sweeps` (`internal/thumbdue`). A row becoming due notifies `thumbnail_due`, which wakes every replica's worker over LISTEN; an idle worker's wait doubles from `poll` to a minute.
 
+**On a phone (#2390).** Below 768px an asset's header actions are one row: Share (the owner's, when the persona allows sharing) stays a button and Download, Add to collection, Save to My Assets and Delete are in a More menu. Expand, on the row above the content, shows the content edge to edge inside the safe area with one bar (the asset's name and Close); it adds a history entry so the back gesture closes it, Esc closes it, the document's frame is not reloaded, and the address carries `?view=full`, so a link with it opens the asset expanded at any width. The share viewer (`/portal/view/{token}`) offers the same Expand in its header on a phone. The portal shell is sized in dvh with `viewport-fit=cover` and side safe-area insets.
+
 ## Collections
 Curated groups of assets organized into ordered sections with markdown descriptions. Grid/table list view with search, and the same ordering control as Assets minus size, which a collection does not have (`sort`, `dir` on `GET /api/v1/portal/collections`; same `updated_at DESC` default and same id tie-breaker). Collection viewer renders sections with markdown, asset cards with thumbnails, each in the reader's color mode: a collection item carries both capture keys and both capture versions out of the same join that populates its name and content type, so a tile asks for `variant=dark` exactly when a dark capture exists and carries the capture's version as its cache key, the same as an assets-grid card (#1468). The admin asset thumbnail route accepts the same `variant` parameter, since an administrator reading a collection someone else owns gets its tiles from there (#1292). The public share viewer's tiles are still light-only. Configurable thumbnail sizes (Large/Medium/Small/None). The knowledge pages that reference a collection are a Referenced by button to the left of Feedback in its header, with their count and a modal listing them (#1792); the prompt viewer, knowledge page detail, and glossary, domain and tag views keep the card. Sharing via links (token-based, time-limited, opening for signed-in users or, by explicit choice, for anyone) and user shares (email, Viewer/Editor permission, restricted to that recipient).
 
@@ -5456,7 +5458,7 @@ turned off.
 
 ## Turning maps on
 
-Maps are off by default. Open **Admin > Settings > Maps**, or use the admin
+Maps are off by default. Open **Admin > Settings > Maps** (`/portal/admin/settings/maps`), or use the admin
 API:
 
 | Setting | Default | What it is |
@@ -5464,8 +5466,13 @@ API:
 | Enabled | off | Serve the regions, run the fetch, and list the regions on the maps knowledge page. Off, the archive routes answer 404 and the archives stay in the bucket. |
 | S3 connection | the managed-resources connection | The S3 toolkit instance archives are written through. |
 | Bucket | the managed-resources bucket | Where archives are written. |
-| Maximum zoom | 14 | The deepest zoom a fetch extracts, 0 to 15. |
+| Maximum zoom | 14 | The deepest zoom a fetch extracts, 1 to 15. |
 | Source | the newest Protomaps daily build | A URL of a `.pmtiles` archive to extract from instead, such as a mirror you host. |
+| Allowed sites | none | Other websites a browser may draw maps for from this deployment, one per line, each `https://host[:port]` or `https://*.domain` for any of its subdomains (`http` only for `localhost` and loopback addresses). This deployment's own pages and share links are always served. See [Who is served](#who-is-served). |
+
+A change to the maximum zoom or the source applies to the next fetch of each
+region. A change to the connection or the bucket leaves the archives already
+written where they are: refresh each region to write it to the new place.
 
 Then add a region: a preset (the contiguous United States is offered first,
 then Alaska, Hawaii, Puerto Rico, Canada, Mexico, the United Kingdom and
@@ -5521,6 +5528,8 @@ disk.
   while another region's fetch is still running. Every read after the first asks for the same version of the
   file (`If-Match`); a source replaced mid-fetch fails the fetch rather than
   mixing two builds.
+- **Stopping the platform mid-fetch** cancels the fetch, removes what it
+  wrote, and leaves the region queued for the next pass on any replica.
 - **A read that fails is retried** three times, after 1, 4 and 9 seconds,
   when it timed out, its connection dropped, was refused with 429, or got a
   5xx. The read of the build index is retried the same way.
@@ -5542,7 +5551,8 @@ it in the bucket under `maps/uploads/`, named `{id}.pmtiles`, where the id is
 lowercase letters, digits and dashes. The next pass, within 30 seconds, reads
 its header and lists it as a ready region with the bounds, zooms and build
 date the archive carries; a file that is not an archive is listed as failed
-with the reason. Replacing the file replaces the region; deleting it removes
+with the reason. Keep at most 100 files there: past one listing's worth, the
+scan records what it read and forgets nothing, and logs why. Replacing the file replaces the region; deleting it removes
 the region. To extract on a machine that can reach the internet, the
 [pmtiles CLI](https://docs.protomaps.com/pmtiles/cli) does the same extract:
 `pmtiles extract https://build.protomaps.com/20261008.pmtiles us.pmtiles
@@ -5559,13 +5569,59 @@ platform can reach. It must answer byte ranges.
 | `/portal/maps/{id}.pmtiles` | none | the region's archive, by byte range, with an `ETag` that changes when a refresh replaces it; 404 when maps are off or the region has no archive |
 | `/portal/vendor/maplibre/...` | none | MapLibre GL JS 6.4.1, the PMTiles protocol 4.5.0, the Protomaps basemap style 5.7.2, its glyphs and sprites, TopoJSON client 3.1.0 and the us-atlas 3.0.1 boundaries, each with its license |
 
-The archive is public OpenStreetMap data and is read from a sandboxed asset
-frame, whose origin is opaque, and from public share links, so these paths
-need no session and answer CORS for any origin, without credentials, with
-`Range` allowed and `Content-Range` exposed. The share viewer's policy needs
-no change: an asset frame is an `srcdoc` document that inherits the viewer's
-`connect-src 'self'`, which grants the platform's own origin on a plaintext
-deployment too.
+These paths need no session: the archive is public OpenStreetMap data, and
+it is read from a sandboxed asset frame, whose origin is opaque, and from
+public share links, neither of which carries one. They answer CORS without
+credentials, with `Range` allowed and `Content-Range` exposed. The share
+viewer's policy needs no change: an asset frame is an `srcdoc` document that
+inherits the viewer's `connect-src 'self'`, which grants the platform's own
+origin on a plaintext deployment too.
+
+### Who is served
+
+The archive route is a tile server, so it is served only to the sites a
+deployment chooses, and not to every website that finds it. Each read of
+`/portal/maps/` and `/portal/vendor/maplibre/` is judged by the site a browser
+says made it: its `Origin`, or the origin of its `Referer` when the `Origin` is
+absent or `null`.
+
+| The read names | Answer |
+|---|---|
+| this deployment: the host the request arrived on, or the origin of `portal.public_base_url` | served |
+| a site on **Allowed sites** | served |
+| `Origin: null` and no `Referer` (a sandboxed frame, such as the platform's own asset frames) | served |
+| no `Origin` and no `Referer` (curl, a script, a browser whose extension strips the `Referer`) | served |
+| any other site | `403`, with no CORS grant |
+
+A browser does not let a page set its own `Origin` or `Referer`, so a page on
+an unlisted site cannot have its visitors' browsers served. Two things are
+not stopped, and the check does not claim to stop them: a client outside a
+browser can send any header it likes, and pays for every tile it downloads;
+and a site that puts its map in a sandboxed frame sends what the platform's
+own asset frames send, which the platform cannot tell apart.
+
+An admitted read's `Access-Control-Allow-Origin` echoes its origin, and every
+answer varies by `Origin` and `Referer`. The archive answers
+`Cache-Control: private, no-cache`, so a shared cache in front of the platform
+does not store one allowed read and serve it to everyone. A change to the
+allowed sites is in force on the replica that saved it at once, and on the
+others within ten seconds. The tile worker and Export PDF read these paths
+in-process and are not judged.
+
+To draw maps on an allowed site, load MapLibre and the PMTiles protocol from
+`/portal/vendor/maplibre/` on this deployment (or your own copies), register
+the protocol, and point the source at the archive's absolute URL, keeping the
+OpenStreetMap attribution on:
+
+```html
+<script src="https://platform.example.com/portal/vendor/maplibre/maplibre-gl.js"></script>
+<script src="https://platform.example.com/portal/vendor/maplibre/pmtiles.js"></script>
+<script>
+  maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
+  // style: the Protomaps style from /portal/vendor/maplibre/, with its source url set to
+  // "pmtiles://https://platform.example.com/portal/maps/united-states.pmtiles"
+</script>
+```
 
 The glyphs and sprites the style draws with are not published to npm; they
 are checked in under `ui/vendor/maplibre/` at a pinned commit of
@@ -5604,7 +5660,7 @@ served boundaries.
 | Method and path | What it does |
 |---|---|
 | `GET /api/v1/admin/settings/maps` | the settings, every region with its state and archive, the presets, the upload prefix |
-| `PUT /api/v1/admin/settings/maps` | `enabled`, `s3_connection`, `bucket`, `max_zoom`, `source_url` |
+| `PUT /api/v1/admin/settings/maps` | `enabled`, `s3_connection`, `bucket`, `max_zoom`, `source_url`, `allowed_origins` (a JSON array; omitted or empty serves this deployment alone; a malformed entry is refused by name) |
 | `POST /api/v1/admin/settings/maps/regions` | `{"preset": "united-states"}`, or `{"id", "name", "bounds": {"min_lon", "min_lat", "max_lon", "max_lat"}}`; 201 with the queued region |
 | `POST /api/v1/admin/settings/maps/regions/{id}/refresh` | queue a fetch of the newest build at the current maximum zoom; 409 while the region is being fetched |
 | `DELETE /api/v1/admin/settings/maps/regions/{id}` | remove the region and its archive (an uploaded file included) |

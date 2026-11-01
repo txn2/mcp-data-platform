@@ -15,6 +15,7 @@ import { markdownToPlainText } from "@/lib/markdownText";
 import { useDebounced } from "@/lib/useDebounced";
 import { PageCapNotice } from "./governance";
 import { ListSkeleton } from "./primitives";
+import { byName } from "@/lib/sortByName";
 
 // PAGE is how many datasets the list reads at once.
 const PAGE = 50;
@@ -48,7 +49,7 @@ export function CatalogList({ onOpen }: { onOpen: (ref: string) => void }) {
     limit: PAGE,
   });
   const results: DatasetSummary[] = search.data ?? [];
-  const conns = connections.data?.connections ?? [];
+  const conns = [...(connections.data?.connections ?? [])].sort(byName((c) => c.name));
 
   return (
     <div className="space-y-4">

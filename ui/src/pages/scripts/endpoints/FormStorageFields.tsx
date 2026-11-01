@@ -1,6 +1,7 @@
 import { usePersonas } from "@/api/admin/hooks";
 import type { ScriptEndpoint } from "@/api/portal/hooks/scriptEndpoint";
 import { Label } from "@/components/ui/label";
+import { sortNames } from "@/lib/sortByName";
 
 // formStorage says where a form's submissions are stored (#2178).
 export function formStorage(table: string, connection: string): string {
@@ -50,7 +51,7 @@ function ConnectionChoice({ choices, value, onChange }: { choices: string[]; val
         onChange={(e) => onChange(e.target.value)}
       >
         <option value="">Choose a connection</option>
-        {choices.map((c) => (
+        {sortNames(choices).map((c) => (
           <option key={c} value={c}>
             {c}
           </option>
@@ -68,7 +69,7 @@ function ConnectionChoice({ choices, value, onChange }: { choices: string[]; val
 function DecryptPersonas({ chosen, onChange }: { chosen: string[]; onChange: (v: string[]) => void }) {
   const { data, isLoading } = usePersonas();
   const known = (data?.personas ?? []).map((p) => p.name);
-  const names = [...new Set([...known, ...chosen])].sort();
+  const names = sortNames(new Set([...known, ...chosen]));
   const toggle = (n: string) => onChange(chosen.includes(n) ? chosen.filter((x) => x !== n) : [...chosen, n]);
   return (
     <fieldset className="space-y-1">

@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useResolvedDark } from "@/stores/theme";
+import { compareNames } from "@/lib/sortByName";
 
 type SortKey = "name" | "created_at";
 
@@ -185,7 +186,7 @@ function sortAssets(assets: Asset[], sortBy: SortKey, sortDir: "asc" | "desc"): 
   return [...assets].sort((a, b) => {
     const cmp =
       sortBy === "name"
-        ? a.name.localeCompare(b.name)
+        ? compareNames(a.name, b.name)
         : new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     return sortDir === "asc" ? cmp : -cmp;
   });

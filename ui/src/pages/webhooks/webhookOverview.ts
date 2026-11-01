@@ -1,4 +1,5 @@
 import type { WebhookHealth, WebhookStatusOverview } from "@/api/admin/types";
+import { sortNames } from "@/lib/sortByName";
 
 // What the webhooks overview (#1979) shows, as functions of the status
 // response: the labels of health and outcomes, the split of a source's
@@ -89,7 +90,7 @@ export function volumeSeries(
   const seen = new Set(points.map((p) => p.outcome));
   const outcomes = [
     ...OUTCOMES.map((o) => o.key).filter((k) => seen.has(k)),
-    ...[...seen].filter((k) => !OUTCOMES.some((o) => o.key === k)).sort(),
+    ...sortNames([...seen].filter((k) => !OUTCOMES.some((o) => o.key === k))),
   ];
   const byStart = new Map<number, VolumeBucket>();
   // Counts are kept per minute and read from the first whole minute at or
