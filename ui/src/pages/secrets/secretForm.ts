@@ -16,6 +16,34 @@ export interface SecretForm {
 }
 
 export const NAME_PATTERN = /^[a-z0-9][a-z0-9_.-]{0,62}$/;
+
+/** PlatformUse is a use of a secret that is not a connection: the platform
+ * reads the secret itself, and a secret is scoped to it by listing the use's
+ * reserved name in allow_connections (#2388). */
+export interface PlatformUse {
+  name: string;
+  label: string;
+  /** noPersonas is a use the platform refuses a secret naming personas for. */
+  noPersonas: boolean;
+}
+
+/** PLATFORM_USES are the reserved uses: internal/botcheck.SecretUse and
+ * internal/scripttoken.SecretUse. */
+export const PLATFORM_USES: PlatformUse[] = [
+  { name: "bot_check", label: "Bot checks: a Turnstile or hCaptcha secret key", noPersonas: true },
+  { name: "script_token", label: "Script tokens: the key platform.mint_token signs with", noPersonas: false },
+];
+
+/** isPlatformUse reports whether a name in allow_connections is a reserved use. */
+export function isPlatformUse(name: string): boolean {
+  return PLATFORM_USES.some((u) => u.name === name);
+}
+
+/** forbidsPersonas reports whether a chosen use refuses personas. */
+export function forbidsPersonas(connections: string[]): boolean {
+  return PLATFORM_USES.some((u) => u.noPersonas && connections.includes(u.name));
+}
+
 export const MIN_VALUE_LENGTH = 6;
 
 export const EMPTY_FORM: SecretForm = {
@@ -55,7 +83,9 @@ export function problems(form: SecretForm, creating: boolean, stored?: SecretKin
   }
   out.push(...valueProblems(form, creating, stored));
   if (form.connections.length === 0)
-    out.push("Choose at least one connection the secret may be sent through.");
+    out.push("Choose at least one connection or platform use for the secret.");
+  if (forbidsPersonas(form.connections) && form.personas.length > 0)
+    out.push("A secret bot checks use names no personas.");
   return out;
 }
 

@@ -718,6 +718,7 @@ Execution order (outermost to innermost):
 1. **MCPAppsMetadataMiddleware** - Injects `_meta.ui` into tools/list responses
 2. **MCPToolCallMiddleware** - Authenticates user, authorizes tool access, creates PlatformContext
 3. **MCPWorkflowGateMiddleware** - Search-first hard gate (#787): refuses query tools until `search` is called in the session, short-circuiting with a `SEARCH_REQUIRED` error before the handler runs. Default-on; disabled by `workflow.require_search: false`.
+   - **Schema gate** (`internal/platform/schemagate`, #2386, #2387), directly inner to it: refuses a SQL statement (`trino_query`, `trino_execute`, `trino_export`) against a table whose columns the session has not read, with `SCHEMA_REQUIRED` carrying the table's schema; adds the columns of a failed statement's tables to a column or type error. Default-on; the refusal is disabled by `workflow.require_schema: false`.
 4. **MCPAuditMiddleware** - Logs tool calls asynchronously (reads PlatformContext from ctx)
 5. **MCPSemanticEnrichmentMiddleware** - Adds cross-service context to results
 

@@ -14,6 +14,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/searchgate"
 )
 
 // Store implements searchgate.Store using PostgreSQL.
@@ -26,6 +28,17 @@ type Store struct {
 // the most recent MarkDiscovered.
 func New(db *sql.DB, ttl time.Duration) *Store {
 	return &Store{db: db, ttl: ttl}
+}
+
+// Shared returns the store a workflow gate keeps its records in: this
+// PostgreSQL store when there is a database, so a record written on one
+// replica is read on another (#789), and the in-memory store otherwise, which
+// is correct for a single replica.
+func Shared(db *sql.DB, ttl time.Duration) searchgate.Store {
+	if db != nil {
+		return New(db, ttl)
+	}
+	return searchgate.NewMemoryStore(ttl)
 }
 
 // MarkDiscovered records discovery for the scope, upserting its expiry. The

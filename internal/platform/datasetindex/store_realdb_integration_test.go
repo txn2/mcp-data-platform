@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogsemantic"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
@@ -88,10 +89,10 @@ func TestCatalogIndexRealDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, needs, "an aged-out sweep is how the periodic re-enumeration is scheduled")
 
-	indexed, expected, err := store.Coverage(ctx)
+	indexed, expected, err := store.Coverage(ctx, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 2, indexed)
-	assert.Equal(t, 2, expected)
+	assert.Zero(t, expected, "the expected half is the platform catalog's count, and this catalog is empty")
 
 	// The dedup pass reads back exactly what was written, including the
 	// dimension it derives from the stored vector.
@@ -127,15 +128,15 @@ func TestCatalogIndexRealDB(t *testing.T) {
 	after, err := store.ListVectors(ctx)
 	require.NoError(t, err)
 	assert.NotContains(t, after, shipments.URN)
-	_, expected, err = store.Coverage(ctx)
+	indexed, _, err = store.Coverage(ctx, nil)
 	require.NoError(t, err)
-	assert.Equal(t, 1, expected, "the pruned row is gone entirely, not just its vector")
+	assert.Equal(t, 1, indexed, "the pruned row is gone entirely, not just its vector")
 
 	// An empty enumeration clears the mirror.
 	require.NoError(t, store.ReplaceVectors(ctx, nil))
-	_, expected, err = store.Coverage(ctx)
+	indexed, _, err = store.Coverage(ctx, nil)
 	require.NoError(t, err)
-	assert.Zero(t, expected)
+	assert.Zero(t, indexed)
 
 	// One sync row per deployment: the CHECK (id) primary key makes that a
 	// constraint rather than a convention the code remembers.
@@ -214,4 +215,75 @@ func TestCatalogIndexNoticesACatalogChangeRealDB(t *testing.T) {
 	needs, err = store.NeedsSweep(ctx, "m", time.Hour)
 	require.NoError(t, err)
 	assert.True(t, needs, "a description written after the sync is read on the next check")
+}
+
+// TestCatalogIndexKeepsTablesWhenTheCapBindsRealDB is #2381 against the real
+// catalog and its real listing: API operations sort before every Trino table
+// by reference, yet with the cap binding the index keeps the tables, then the
+// GraphQL operations, then the API operations; the platform-admin
+// connection's operations are never mirrored; and coverage is held to the
+// catalog's own total less them, so a capped corpus reads short.
+func TestCatalogIndexKeepsTablesWhenTheCapBindsRealDB(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	cat := catalogstore.New(db)
+	put := func(ref catalog.Ref, typ catalog.DatasetType) {
+		t.Helper()
+		_, err := cat.PutDataset(ctx, catalog.DatasetInput{Ref: ref, Type: typ})
+		require.NoError(t, err)
+	}
+	for _, op := range []string{"listOrders", "getOrder", "createOrder"} {
+		put(catalog.DatasetRef("api", "crm", op), catalog.DatasetAPIOperation)
+	}
+	for _, op := range []string{"listPersonas", "getPersona"} {
+		put(catalog.DatasetRef("api", "platform-admin", op), catalog.DatasetAPIOperation)
+	}
+	put(catalog.DatasetRef("graphql", "gh", "query.repository"), catalog.DatasetGraphQLOperation)
+	orders := catalog.DatasetRef("trino", "w", "hive", "sales", "orders")
+	refunds := catalog.DatasetRef("trino", "w", "hive", "sales", "refunds")
+	put(orders, catalog.DatasetTable)
+	put(refunds, catalog.DatasetTable)
+	gone := catalog.DatasetRef("trino", "w", "hive", "sales", "retired")
+	put(gone, catalog.DatasetTable)
+	require.NoError(t, cat.MarkDatasetRemoved(ctx, gone))
+
+	lister := catalogsemantic.New(cat, nil)
+	excluded := []Connection{{Kind: "api", Name: "platform-admin"}}
+	store := NewStore(db)
+	sink := NewSink(store, "m", time.Hour).Excluding(excluded...)
+
+	items, err := NewSource(store, lister, 3).Excluding(excluded...).LoadItems(ctx, SourceID)
+	require.NoError(t, err)
+	got := make([]string, 0, len(items))
+	for _, it := range items {
+		got = append(got, it.ItemID)
+	}
+	assert.Equal(t, []string{orders.String(), refunds.String(), catalog.DatasetRef("graphql", "gh", "query.repository").String()}, got,
+		"with room for three, the tables are kept, then the GraphQL operation")
+	embed(t, store, items)
+	cov, err := sink.Coverage(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, indexjobs.Coverage{Indexed: 3, Expected: 6, ExpectedKnown: true}, cov,
+		"expected is every live dataset less platform-admin's, so the capped corpus reads short")
+
+	items, err = NewSource(store, lister, 100).Excluding(excluded...).LoadItems(ctx, SourceID)
+	require.NoError(t, err)
+	require.Len(t, items, 6)
+	for _, it := range items {
+		assert.NotContains(t, it.ItemID, "platform-admin", "the platform's own admin operations are not mirrored")
+	}
+	embed(t, store, items)
+	cov, err = sink.Coverage(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, indexjobs.Coverage{Indexed: 6, Expected: 6, ExpectedKnown: true}, cov)
+}
+
+// embed stores a vector for every item, as the worker would after a sweep.
+func embed(t *testing.T, store *Store, items []indexjobs.Item) {
+	t.Helper()
+	rows := make([]indexjobs.Vector, 0, len(items))
+	for i, it := range items {
+		rows = append(rows, indexjobs.Vector{ItemID: it.ItemID, Embedding: unitVector(i), Model: "m", TextHash: []byte(it.ItemID)})
+	}
+	require.NoError(t, store.ReplaceVectors(context.Background(), rows))
 }

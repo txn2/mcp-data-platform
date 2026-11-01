@@ -206,6 +206,54 @@ describe("Secret editor", () => {
     );
   });
 
+  // #2388: a reserved use the platform reads (a bot check's provider key) is
+  // offered as a Platform use rather than a connection; choosing bot_check
+  // clears and disables the personas, which such a secret names none of.
+  it("offers platform uses, and a bot check secret names no personas", () => {
+    at("/admin/secrets/new");
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "forms_turnstile" } });
+    fireEvent.change(screen.getByLabelText(/^Value/), { target: { value: "0x4AAA-secret" } });
+    fireEvent.click(screen.getByLabelText("finance"));
+    fireEvent.click(screen.getByLabelText(/^bot_check/));
+    expect(screen.getByRole("group", { name: "Personas" })).toBeDisabled();
+    expect((screen.getByLabelText("finance") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByLabelText(/^script_token/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create secret" }));
+    expect(h.put).toHaveBeenCalledWith(
+      {
+        name: "forms_turnstile",
+        body: {
+          description: "",
+          kind: "value",
+          value: "0x4AAA-secret",
+          allow_connections: ["bot_check"],
+          allow_personas: [],
+        },
+      },
+      expect.anything(),
+    );
+  });
+
+  it("keeps a stored secret's platform use apart from its connections when it is changed", () => {
+    h.one = {
+      data: { ...mockSecrets[0], allow_connections: ["bot_check", "selenium-grid"], allow_personas: [] },
+      isLoading: false,
+      error: null,
+    };
+    at("/admin/secrets/" + (mockSecrets[0] as { name: string }).name);
+    const connections = screen.getByRole("group", { name: "Connections" });
+    expect(connections.textContent).not.toContain("bot_check");
+    expect((screen.getByLabelText(/^bot_check/) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByLabelText("warehouse"));
+    fireEvent.click(screen.getByRole("button", { name: /Save/ }));
+    expect(h.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({ allow_connections: ["bot_check", "selenium-grid", "warehouse"] }),
+      }),
+      expect.anything(),
+    );
+  });
+
   // #2065: the seed is typed where the value would be, the kind is sent, and
   // a stored seed shows its parameters and, on request, its current code.
   it("creates an authenticator seed", () => {

@@ -753,8 +753,11 @@ internal/platform/auditwiring -> internal/platform/provenance
 internal/platform/auditwiring -> internal/platform/sqllineage
 internal/platform/auditwiring -> pkg/audit
 internal/platform/auditwiring -> pkg/audit/postgres
+internal/platform/auditwiring -> pkg/catalog
+internal/platform/auditwiring -> pkg/connid
 internal/platform/auditwiring -> pkg/middleware
 internal/platform/auditwiring -> pkg/observability
+internal/platform/auditwiring -> pkg/registry
 internal/platform/branding -> internal/logsan
 internal/platform/branding -> internal/outbound
 internal/platform/branding -> pkg/contenttype
@@ -843,6 +846,7 @@ internal/platform/connstored -> internal/logsan
 internal/platform/connstored -> internal/platform/cfgmap
 internal/platform/connstored -> pkg/connview
 internal/platform/connstored -> pkg/toolkits/apigateway/catalog
+internal/platform/datasetindex -> pkg/catalog
 internal/platform/datasetindex -> pkg/indexjobs
 internal/platform/datasetindex -> pkg/knowledge
 internal/platform/datasetindex -> pkg/semantic
@@ -1125,6 +1129,16 @@ internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
 internal/platform/runcontrol -> pkg/script
+internal/platform/schemagate -> internal/bgloop
+internal/platform/schemagate -> internal/logsan
+internal/platform/schemagate -> internal/sqltables
+internal/platform/schemagate -> pkg/catalog
+internal/platform/schemagate -> pkg/middleware
+internal/platform/schemagate -> pkg/registry
+internal/platform/schemagate -> pkg/searchgate
+internal/platform/schemagate -> pkg/searchgate/postgres
+internal/platform/schemagate -> pkg/semantic
+internal/platform/schemagate -> pkg/toolkits/trino
 internal/platform/scriptadmit -> internal/procload
 internal/platform/scriptalert -> internal/notification/notifyalert
 internal/platform/scriptalert -> pkg/notification
@@ -1961,6 +1975,7 @@ pkg/platform -> internal/platform/resourcetemplates
 pkg/platform -> internal/platform/resultbudget
 pkg/platform -> internal/platform/retention
 pkg/platform -> internal/platform/routepolicy
+pkg/platform -> internal/platform/schemagate
 pkg/platform -> internal/platform/scriptadmit
 pkg/platform -> internal/platform/scriptbgdraft
 pkg/platform -> internal/platform/scriptdraft
@@ -2025,7 +2040,6 @@ pkg/platform -> pkg/query/trino
 pkg/platform -> pkg/registry
 pkg/platform -> pkg/resource
 pkg/platform -> pkg/script
-pkg/platform -> pkg/searchgate
 pkg/platform -> pkg/searchgate/postgres
 pkg/platform -> pkg/semantic
 pkg/platform -> pkg/session
@@ -2133,6 +2147,7 @@ pkg/script -> internal/libraryuse
 pkg/script -> internal/runstate
 pkg/script -> internal/testreport
 pkg/script -> pkg/user
+pkg/searchgate/postgres -> pkg/searchgate
 pkg/semantic -> internal/logsan
 pkg/session -> internal/bgloop
 pkg/session -> internal/logsan
@@ -2289,6 +2304,7 @@ pkg/toolkits/s3 -> pkg/observability
 pkg/toolkits/s3 -> pkg/query
 pkg/toolkits/s3 -> pkg/semantic
 pkg/toolkits/s3 -> pkg/toolkit
+pkg/toolkits/search -> internal/logsan
 pkg/toolkits/search -> internal/opsobs
 pkg/toolkits/search -> internal/producedby
 pkg/toolkits/search -> internal/wirejson

@@ -16,6 +16,7 @@ type Sink struct {
 	store        *Store
 	currentModel string
 	syncInterval time.Duration
+	excluded     []Connection
 }
 
 // NewSink returns a Sink backed by the given store. currentModel is the
@@ -24,6 +25,13 @@ type Sink struct {
 // missing-embedding rows count as gaps.
 func NewSink(store *Store, currentModel string, syncInterval time.Duration) *Sink {
 	return &Sink{store: store, currentModel: currentModel, syncInterval: syncInterval}
+}
+
+// Excluding returns the sink with the datasets of conns left out of the total
+// its coverage is held to, as the Source leaves them out of the mirror.
+func (s *Sink) Excluding(conns ...Connection) *Sink {
+	s.excluded = append(s.excluded, conns...)
+	return s
 }
 
 // Compile-time interface checks.
@@ -75,14 +83,14 @@ func (s *Sink) FindGaps(ctx context.Context) ([]string, error) {
 	return []string{SourceID}, nil
 }
 
-// Coverage reports the catalog-datasets kind's indexed-vs-expected totals
-// (mirrored datasets carrying a vector vs all mirrored datasets). ExpectedKnown
-// is true: every mirrored dataset is expected to converge to one vector. It
-// describes the mirror, not the catalog — a corpus truncated by the entry cap
-// reports full coverage of what it mirrors, which is why the Source logs the
-// truncation.
+// Coverage reports the catalog-datasets kind's indexed-vs-expected totals:
+// mirrored datasets carrying a vector against the datasets the platform catalog
+// holds, less those on excluded connections. ExpectedKnown is true. Holding the
+// index to the catalog's total rather than to its own mirror is what makes a
+// corpus the entry cap truncated read short (degraded) instead of complete
+// (#2381).
 func (s *Sink) Coverage(ctx context.Context) (indexjobs.Coverage, error) {
-	indexed, expected, err := s.store.Coverage(ctx)
+	indexed, expected, err := s.store.Coverage(ctx, s.excluded)
 	if err != nil {
 		return indexjobs.Coverage{}, err
 	}

@@ -1,8 +1,10 @@
 package callrecord
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -576,5 +578,100 @@ func TestRecorderCatalogsAGraphQLCallItCannotParse(t *testing.T) {
 	}
 	if got.Method != "" || len(got.Targets) != 0 {
 		t.Errorf("record = %+v; nothing was inferred from a document that is not there", got)
+	}
+}
+
+// TestRecorderCompletesAPartlyQualifiedName is #2384: a statement naming
+// schema.table or a bare table hands the builder what it named, and the
+// builder completes it from the connection's configured catalog and schema.
+// A part the builder cannot complete names no dataset and is left out.
+func TestRecorderCompletesAPartlyQualifiedName(t *testing.T) {
+	t.Parallel()
+
+	var asked [][3]string
+	completing := func(_, connection, catalog, schema, table string) string {
+		asked = append(asked, [3]string{catalog, schema, table})
+		if connection != "acme" {
+			return ""
+		}
+		catalog, schema = cmp.Or(catalog, "iceberg"), cmp.Or(schema, "sales")
+		return "mcp:dataset:(trino,acme," + catalog + "." + schema + "." + table + ")"
+	}
+	store := &fakeStore{}
+	rec := NewRecorder(&fakeAudit{}, store, completing, Exclusion{})
+	for _, ev := range []audit.Event{
+		{
+			ID: "e1", ToolName: "trino_query", Connection: "acme", Success: true,
+			Parameters: map[string]any{"sql": "SELECT * FROM sales.orders JOIN regions ON true"},
+		},
+		{
+			ID: "e2", ToolName: "trino_query", Connection: "unknown", Success: true,
+			Parameters: map[string]any{"sql": "SELECT * FROM sales.orders"},
+		},
+	} {
+		if err := rec.Log(context.Background(), ev); err != nil {
+			t.Fatalf("Log: %v", err)
+		}
+	}
+
+	want := []string{"mcp:dataset:(trino,acme,iceberg.sales.orders)", "mcp:dataset:(trino,acme,iceberg.sales.regions)"}
+	if got := store.inserted[0].Targets; !slices.Equal(got, want) {
+		t.Errorf("targets = %v, want %v", got, want)
+	}
+	if got := store.inserted[1].Targets; len(got) != 0 {
+		t.Errorf("a connection the builder cannot resolve named targets %v, want none", got)
+	}
+	if asked[0] != [3]string{"", "sales", "orders"} || asked[1] != [3]string{"", "", "regions"} {
+		t.Errorf("the builder was asked %v, want the parts the statement named", asked)
+	}
+}
+
+// TestRecorderAddsTheOperationDatasetToAnAPICall is #2384's second criterion:
+// an api call's targets carry the catalog dataset of the operation it
+// addressed, beside its resource target, so a lookup by the dataset's
+// reference finds it; a call with no resource target gets neither.
+func TestRecorderAddsTheOperationDatasetToAnAPICall(t *testing.T) {
+	t.Parallel()
+
+	var asked []string
+	opRef := func(_ context.Context, connection, method, path, operationID string) string {
+		asked = append(asked, connection+" "+method+" "+path+" "+operationID)
+		op := operationID
+		if op == "" && path == "/v1/orders/7" {
+			op = "getOrder"
+		}
+		if op == "" {
+			return ""
+		}
+		return "mcp:dataset:(api," + connection + "," + op + ")"
+	}
+	store := &fakeStore{}
+	rec := NewRecorder(&fakeAudit{}, store, testURN, Exclusion{}, WithOperationRefs(opRef))
+	for _, params := range []map[string]any{
+		{"operation_id": "listOrders"},
+		{"method": "get", "path": "/v1/orders/7"},
+		{"method": "get", "path": "/v1/unmatched"},
+		{"operation_id": "getOrder_{id}"}, // a template no path value resolved
+	} {
+		if err := rec.Log(context.Background(), audit.Event{
+			ID: "e", ToolName: "api_invoke_endpoint", Connection: "crm", Success: true, Parameters: params,
+		}); err != nil {
+			t.Fatalf("Log: %v", err)
+		}
+	}
+
+	wants := [][]string{
+		{"api:crm:listOrders", "mcp:dataset:(api,crm,listOrders)"},
+		{"api:crm:GET /v1/orders/7", "mcp:dataset:(api,crm,getOrder)"},
+		{"api:crm:GET /v1/unmatched"},
+		{},
+	}
+	for i, want := range wants {
+		if got := store.inserted[i].Targets; !slices.Equal(got, want) && (len(got) != 0 || len(want) != 0) {
+			t.Errorf("call %d: targets = %v, want %v", i, got, want)
+		}
+	}
+	if len(asked) != 3 {
+		t.Errorf("the builder was asked %d times (%v), want once per call with a resource target", len(asked), asked)
 	}
 }

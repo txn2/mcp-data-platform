@@ -34,6 +34,7 @@ package datasetindex
 import (
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -61,7 +62,8 @@ const (
 	// DefaultMaxEntries caps how many datasets are mirrored. The cap bounds
 	// both the table and the embed pass's working set (one vector per entry is
 	// held in memory during a sweep). A deployment whose catalog exceeds it
-	// indexes the first page-order slice and logs the truncation; raise
+	// keeps the datasets IndexedKinds orders first, logs the truncation, and
+	// reads short of the catalog's total on the Indexing page; raise
 	// knowledge.catalog_index.max_entries to cover the rest.
 	DefaultMaxEntries = 5000
 )
@@ -83,7 +85,40 @@ type Config struct {
 	// MaxEntries caps how many datasets are mirrored. Zero uses
 	// DefaultMaxEntries.
 	MaxEntries int `yaml:"max_entries"`
+
+	// Excluded names the connections whose datasets the index leaves out,
+	// set by the platform rather than read from YAML: its own built-in
+	// platform-admin api connection, whose operations are the platform's
+	// admin API and are found through api_discover (#2381). Their datasets
+	// stay in the catalog and are fetched as any other; they are only not
+	// mirrored, and not counted in the coverage the index is held to.
+	Excluded []Connection `yaml:"-"`
 }
+
+// Connection names one connection by its kind and instance name, as a catalog
+// reference does: mcp:dataset:(<kind>,<name>,...).
+type Connection struct {
+	Kind string
+	Name string
+}
+
+// Excluding returns the config with conns added to the connections the index
+// leaves out.
+func (c Config) Excluding(conns ...Connection) Config {
+	c.Excluded = append(slices.Clone(c.Excluded), conns...)
+	return c
+}
+
+// IndexedKinds is the order the catalog is mirrored in, and so which datasets
+// are kept when MaxEntries binds: every table of a query engine connection
+// first, then GraphQL operations, then API operations, each in reference order.
+// A table is what an agent searches the catalog for, and a deployment with many
+// API connections holds thousands of operations that a reference order lists
+// first ("api" sorts before "trino"), which left curated tables out of the
+// index entirely (#2381). These are the kinds the catalog scan writes
+// datasets under; a dataset of any other kind is not mirrored and keeps the
+// index's coverage short of the catalog's total, which is where it shows.
+var IndexedKinds = []string{"trino", "graphql", "api"}
 
 // IsEnabled reports whether the catalog index is enabled, defaulting to true
 // when not explicitly set.
@@ -158,8 +193,9 @@ func RegisterConsumer(reg interface {
 }, db *sql.DB, lister Lister, currentModel string, cfg Config,
 ) error {
 	store := NewStore(db)
-	src := NewSource(store, lister, cfg.ResolvedMaxEntries())
-	if err := reg.Register(src, NewSink(store, currentModel, cfg.ResolvedSyncInterval())); err != nil {
+	src := NewSource(store, lister, cfg.ResolvedMaxEntries()).Excluding(cfg.Excluded...)
+	sink := NewSink(store, currentModel, cfg.ResolvedSyncInterval()).Excluding(cfg.Excluded...)
+	if err := reg.Register(src, sink); err != nil {
 		return fmt.Errorf("registering catalog-datasets index consumer: %w", err)
 	}
 	return nil

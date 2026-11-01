@@ -106,7 +106,6 @@ import (
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
-	"github.com/txn2/mcp-data-platform/pkg/searchgate"
 	searchgatepostgres "github.com/txn2/mcp-data-platform/pkg/searchgate/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -1484,28 +1483,15 @@ func (p *Platform) initWorkflow() {
 		return
 	}
 
-	sessionTimeout := p.config.Server.Streamable.SessionTimeout
-	if sessionTimeout == 0 {
-		sessionTimeout = defaultSessionTimeout
-	}
-
-	// The discovery signal must be shared across replicas: with only an
-	// in-memory store, a query load-balanced to a replica that did not handle
-	// the search is wrongly refused (#789). Use the Postgres store whenever a
-	// database is available (the same condition under which sessions
-	// externalize); fall back to in-memory for single-replica / no-DB runs.
-	var store searchgate.Store
-	if p.db != nil {
-		store = searchgatepostgres.New(p.db, sessionTimeout)
-	} else {
-		store = searchgate.NewMemoryStore(sessionTimeout)
-	}
+	ttl := p.config.Sessions.Handles.DiscoveryTTL(p.config.Server.Streamable.SessionTimeout)
+	// Shared across replicas when there is a database (#789).
+	store := searchgatepostgres.Shared(p.db, ttl)
 
 	p.workflowTracker = middleware.NewSessionWorkflowTracker(
 		p.config.Workflow.DiscoveryTools,
 		p.config.Workflow.QueryTools,
 		store,
-		sessionTimeout,
+		ttl,
 	)
 	p.workflowTracker.StartCleanup(1 * time.Minute)
 

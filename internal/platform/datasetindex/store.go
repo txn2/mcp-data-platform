@@ -223,14 +223,22 @@ func (s *Store) NeedsSweep(ctx context.Context, currentModel string, interval ti
 	return needs, nil
 }
 
-// Coverage returns the mirrored datasets carrying a vector and the total
-// mirrored, the two halves of the admin Indexing dashboard's ratio.
-func (s *Store) Coverage(ctx context.Context) (indexed, expected int, err error) {
+// Coverage returns the mirrored datasets carrying a vector and the datasets
+// the platform catalog holds that are not removed and not on an excluded
+// connection, the two halves of the admin Indexing dashboard's ratio (#2381).
+func (s *Store) Coverage(ctx context.Context, excluded []Connection) (indexed, expected int, err error) {
 	const q = `
-		SELECT COUNT(*) FILTER (WHERE embedding IS NOT NULL), COUNT(*)
-		  FROM catalog_datasets
+		SELECT
+			(SELECT COUNT(*) FROM catalog_datasets WHERE embedding IS NOT NULL),
+			(SELECT COUNT(*) FROM catalog_entities e
+			  WHERE e.kind = 'dataset' AND e.removed_at IS NULL
+			    AND (e.connection_kind || '/' || e.connection_name) <> ALL($1::text[]))
 	`
-	if err := s.db.QueryRowContext(ctx, q).Scan(&indexed, &expected); err != nil {
+	keys := make([]string, 0, len(excluded))
+	for _, c := range excluded {
+		keys = append(keys, c.Kind+"/"+c.Name)
+	}
+	if err := s.db.QueryRowContext(ctx, q, pq.Array(keys)).Scan(&indexed, &expected); err != nil {
 		return 0, 0, fmt.Errorf("datasetindex: coverage: %w", err)
 	}
 	return indexed, expected, nil

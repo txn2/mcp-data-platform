@@ -68,6 +68,14 @@ func (c SessionHandles) HandleTTL() time.Duration {
 	return DefaultSessionHandleTTL
 }
 
+// DiscoveryTTL is how long the workflow gates remember a search or a schema
+// read: the handle's lifetime, or the transport session timeout when that is
+// longer. The transport timeout alone (30 minutes by default) re-gated a
+// session that paused and went on under the same handle (#2382).
+func (c SessionHandles) DiscoveryTTL(transport time.Duration) time.Duration {
+	return max(transport, c.HandleTTL())
+}
+
 // Purpose configures the purpose argument: the one sentence the agent states
 // about the wider task a data-access call serves, advertised on the gated tools'
 // input schemas, taken off the request before the tool sees it, and recorded on

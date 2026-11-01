@@ -170,10 +170,21 @@ Modeled on `MCPSessionGateMiddleware`: it is positioned inner to `MCPToolCallMid
 **Replica-shared discovery state (#789):** the per-scope "has performed discovery" signal lives in a `searchgate.Store`. When a database is configured the tracker uses the Postgres store (`pkg/searchgate/postgres`), so discovery recorded on one replica is visible to a query handled by another; without a database it uses an in-memory store, which is correct only for single-replica deployments. Semantics:
 
 - **Single source of truth:** the shared store is authoritative; the tracker holds no replica-local "discovered" bit that could diverge from it, so the gate is consistent across replicas.
-- **Sliding window:** ongoing query activity by a discovered session refreshes the shared record (store writes throttled to at most once per half of the session timeout), so a long active session is not re-gated mid-workflow.
+- **Sliding window:** a discovery record lives as long as the platform session handle (`sessions.handles.ttl`, or the Streamable HTTP session timeout when longer, #2382), and ongoing activity by a discovered scope refreshes it (store writes throttled to at most once per half of that lifetime), so a long active session is not re-gated mid-workflow.
 - **Write resilience:** a failed discovery write persists nothing (there is no divergent local state); a forced discovery write always re-attempts, so the agent's next `search` retries persistence once writes recover.
 - **Fail-open on read error (deliberate):** the gate decision follows the read. A total store outage (reads fail) fails open (allows queries, logged) rather than blocking every one, since the gate is a workflow quality guard, not a security boundary.
 - **Fail-closed on write outage (deliberate):** a store that accepts reads but rejects writes leaves discovery un-persisted, so the read returns not-discovered and the caller is gated (`SEARCH_REQUIRED`) until writes recover. This is intentional: failing open on a write error would let one caller's transient write blip open the gate for everyone. If queries must proceed during a store-write outage, disable the gate (`workflow.require_search: false`).
+
+### Schema gate (internal/platform/schemagate)
+
+Refuses a SQL statement (`trino_query`, `trino_execute`, `trino_export`) against a table whose columns the caller has not read (#2386), and adds the columns of a failed statement's tables to its error when the failure is a wrong column or type (#2387). Registered directly inner to `MCPWorkflowGateMiddleware`, so `SEARCH_REQUIRED` comes first, and outer to the error contract, so it reads the normalized error.
+
+1. Only intercepts `tools/call` for the three SQL tools, plus `trino_describe_table` and `fetch`, whose successful results it records as reads
+2. The tables a statement names come from `internal/sqltables`, resolved against the call's connection defaults; `information_schema`, `system` and table functions are left out
+3. When any named table is unread, the schema of each is read from that Trino connection and the call is short-circuited with a `SCHEMA_REQUIRED` error carrying the columns; delivering them records the read. A table whose schema cannot be read does not hold the statement back
+4. A failed statement whose Trino `error_name` is a column or type error gets the columns appended to its error content
+
+Reads are stored in the search gate's `searchgate.Store` (the Postgres store when a database exists) under `DiscoveryScopeKey` plus the connection and table, with the search gate's lifetime. Managed script runs and the portal and REST shims are exempt. A read failure of the store lets the statement run. `workflow.require_schema: false` turns off the refusal; the failure columns stay.
 
 ### MCPResultTypeMiddleware
 

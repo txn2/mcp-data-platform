@@ -7,9 +7,10 @@ vi.mock("@/api/admin/hooks", () => ({
   usePutBotCheck: vi.fn(),
   useDeleteBotCheck: vi.fn(),
   useSecrets: vi.fn(),
+  usePutSecret: vi.fn(),
 }));
 
-import { useBotChecks, useDeleteBotCheck, usePutBotCheck, useSecrets } from "@/api/admin/hooks";
+import { useBotChecks, useDeleteBotCheck, usePutBotCheck, usePutSecret, useSecrets } from "@/api/admin/hooks";
 import { BotChecksSettingsCard } from "./BotChecksSettingsCard";
 
 // The named bot checks a bot_check endpoint picks from (#2259): a list, an
@@ -17,6 +18,7 @@ import { BotChecksSettingsCard } from "./BotChecksSettingsCard";
 
 const put = vi.fn();
 const del = vi.fn();
+const putSecret = vi.fn();
 
 function check(name: string, over: Partial<BotCheck> = {}): BotCheck {
   return {
@@ -52,6 +54,7 @@ beforeEach(() => {
   });
   vi.mocked(usePutBotCheck).mockReturnValue({ mutate: put, isPending: false } as never);
   vi.mocked(useDeleteBotCheck).mockReturnValue({ mutate: del, isPending: false } as never);
+  vi.mocked(usePutSecret).mockReturnValue({ mutate: putSecret, isPending: false } as never);
   vi.mocked(useSecrets).mockReturnValue({
     data: { secrets: [secret("turnstile-key", ["bot_check"]), secret("crm-token", ["crm"]), secret("scoped", ["bot_check"], ["analyst"])] },
   } as never);
@@ -104,7 +107,7 @@ describe("BotChecksSettingsCard (#2259)", () => {
     fireEvent.change(within(editor).getByLabelText("Name"), { target: { value: "forms" } });
     fireEvent.change(within(editor).getByLabelText("Provider"), { target: { value: "hcaptcha" } });
     const secrets = within(within(editor).getByLabelText("Secret")).getAllByRole("option").map((o) => o.textContent);
-    expect(secrets).toEqual(["Choose a stored secret", "turnstile-key"]);
+    expect(secrets).toEqual(["Choose a stored secret", "turnstile-key", "New secret"]);
     fireEvent.change(within(editor).getByLabelText("Site key"), { target: { value: "10000000-ffff" } });
     fireEvent.change(within(editor).getByLabelText("Secret"), { target: { value: "turnstile-key" } });
     fireEvent.click(save);
@@ -113,6 +116,68 @@ describe("BotChecksSettingsCard (#2259)", () => {
       expect.anything(),
     );
     expect(within(editor).queryByLabelText("Difficulty")).toBeNull();
+  });
+
+  // #2388: a provider check's secret key is stored from the check's own form,
+  // scoped to bot_check and no persona, and the check names it; the key goes to
+  // the secrets API alone and is never part of the check.
+  it("stores a new secret with the check, then saves the check naming it", () => {
+    render(<BotChecksSettingsCard isReadOnly={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "New bot check" }));
+    const editor = screen.getByRole("region", { name: "New bot check" });
+    fireEvent.change(within(editor).getByLabelText("Name"), { target: { value: "forms" } });
+    fireEvent.change(within(editor).getByLabelText("Provider"), { target: { value: "turnstile" } });
+    fireEvent.change(within(editor).getByLabelText("Site key"), { target: { value: "0x4AAA" } });
+    expect(within(editor).queryByLabelText("Secret key")).toBeNull();
+    fireEvent.change(within(editor).getByLabelText("Secret"), { target: { value: "__new_secret__" } });
+    fireEvent.change(within(editor).getByLabelText("Secret name"), { target: { value: "forms-turnstile" } });
+    fireEvent.change(within(editor).getByLabelText("Secret key"), { target: { value: "0x4AAA-secret-key" } });
+    expect(within(editor).getByLabelText("Secret key")).toHaveAttribute("type", "password");
+
+    putSecret.mockImplementation((_vars, opts) => opts.onSuccess({ name: "forms-turnstile" }));
+    fireEvent.click(within(editor).getByRole("button", { name: /Save/ }));
+    expect(putSecret).toHaveBeenCalledWith(
+      {
+        name: "forms-turnstile",
+        body: {
+          description: "Provider secret key for the forms bot check.",
+          kind: "value",
+          value: "0x4AAA-secret-key",
+          allow_connections: ["bot_check"],
+          allow_personas: [],
+        },
+      },
+      expect.anything(),
+    );
+    expect(put).toHaveBeenCalledWith(
+      { name: "forms", input: expect.objectContaining({ provider: "turnstile", secret_name: "forms-turnstile" }) },
+      expect.anything(),
+    );
+    expect(JSON.stringify(put.mock.calls)).not.toContain("0x4AAA-secret-key");
+  });
+
+  it("refuses a new secret whose name is taken or whose key is short, storing nothing", () => {
+    render(<BotChecksSettingsCard isReadOnly={false} />);
+    fireEvent.click(screen.getByText("signup"));
+    const editor = screen.getByRole("region", { name: "Bot check signup" });
+    fireEvent.change(within(editor).getByLabelText("Secret"), { target: { value: "__new_secret__" } });
+    fireEvent.change(within(editor).getByLabelText("Secret name"), { target: { value: "crm-token" } });
+    fireEvent.change(within(editor).getByLabelText("Secret key"), { target: { value: "abc" } });
+    fireEvent.click(within(editor).getByRole("button", { name: /Save/ }));
+    expect(within(editor).getByText(/A secret named crm-token already exists/)).toBeInTheDocument();
+    expect(within(editor).getByText(/at least 6 characters/)).toBeInTheDocument();
+    expect(putSecret).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
+
+    // Choosing a stored secret again leaves the new one behind.
+    fireEvent.change(within(editor).getByLabelText("Secret"), { target: { value: "turnstile-key" } });
+    expect(within(editor).queryByLabelText("Secret key")).toBeNull();
+    fireEvent.click(within(editor).getByRole("button", { name: /Save/ }));
+    expect(putSecret).not.toHaveBeenCalled();
+    expect(put).toHaveBeenCalledWith(
+      { name: "signup", input: expect.objectContaining({ secret_name: "turnstile-key" }) },
+      expect.anything(),
+    );
   });
 
   it("keeps what was typed into a new check when the list is read again", () => {

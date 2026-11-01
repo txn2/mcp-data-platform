@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -152,6 +154,12 @@ func (p *ScriptsProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 		return nil, false, nil //nolint:nilerr // a non-script reference is a decline, not a failure
 	}
 	if caller.Email == "" && caller.OnBehalfOf == "" {
+		return nil, true, ErrNotFound
+	}
+	// A script is stored under a UUID. Any other id (an agent fetching a
+	// script by its name) names no script, and the store would refuse it as
+	// malformed input rather than report it absent (#2383).
+	if _, err := uuid.Parse(parsed.ScriptID); err != nil {
 		return nil, true, ErrNotFound
 	}
 	c, err := p.searcher.Contract(ctx, parsed.ScriptID)

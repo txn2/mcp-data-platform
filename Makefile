@@ -2084,13 +2084,23 @@ bench-seed-catalog-empty:
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
 		< bench/seed/postgres/catalog_empty.sql
 
+# BENCH_RUN_RESET is what every bench run truncates first. The identity pool
+# hands out the same identities on every run against one database, so anything
+# keyed by identity that search can return would hand a run the answers an
+# earlier run gave: the search-first gate's discovery scopes, the audit rows the
+# session read model reads (search source "sessions"), and the call catalog
+# (search source "calls") with the tables that reference it, #2380. There is no
+# CASCADE, so a table that comes to reference one of these fails the reset
+# rather than being emptied unseen. test/gates/bench_reset_test.go pins it.
+BENCH_RUN_RESET := search_gate_discovery, audit_logs, call_records, call_record_fetches, call_record_reuse, api_endpoint_examples
+
 ## bench-run: Run the benchmark (ARM must match bench-up; LLM=anthropic|scripted|claude-cli, SUITE=, K=, MODEL=)
 bench-run:
 	@mkdir -p build/bench-results
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
-	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
+	@echo "Resetting what a prior run's identities left behind (search gate scopes, the audit rows sessions are read from, the call catalog)..."
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
-		-c "TRUNCATE search_gate_discovery"
+		-c "TRUNCATE $(BENCH_RUN_RESET)"
 	$(BUILD_DIR)/benchrun \
 		-url $(BENCH_URL) \
 		-credential $(BENCH_KEY) \
@@ -2113,9 +2123,9 @@ bench-smoke:
 bench-lifecycle:
 	@mkdir -p build/bench-results
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
-	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
+	@echo "Resetting what a prior run's identities left behind (search gate scopes, the audit rows sessions are read from, the call catalog)..."
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
-		-c "TRUNCATE search_gate_discovery"
+		-c "TRUNCATE $(BENCH_RUN_RESET)"
 	@out_dir="build/bench-results/lifecycle-a3-$$(date +%Y%m%d-%H%M%S)-$$$$"; \
 	mkdir "$$out_dir"; \
 	echo "Lifecycle results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \
@@ -2150,9 +2160,9 @@ bench-lifecycle-report:
 bench-supersede:
 	@mkdir -p build/bench-results
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
-	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
+	@echo "Resetting what a prior run's identities left behind (search gate scopes, the audit rows sessions are read from, the call catalog)..."
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
-		-c "TRUNCATE search_gate_discovery"
+		-c "TRUNCATE $(BENCH_RUN_RESET)"
 	@out_dir="build/bench-results/supersede-a3-$$(date +%Y%m%d-%H%M%S)-$$$$"; \
 	mkdir "$$out_dir"; \
 	echo "Supersede results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \
@@ -2190,7 +2200,7 @@ bench-cold-start:
 	@echo "Resetting cold-start state so the baseline is truly empty (search gate, prior insights/changesets, promoted knowledge pages and catalog curation persist in Postgres across runs)..."
 	@echo "  (CASCADE also clears portal_threads, which FK-references knowledge pages; the bench stack is disposable scratch state.)"
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
-		-c "TRUNCATE search_gate_discovery, memory_records, knowledge_changesets, portal_knowledge_pages, catalog_aspects, catalog_aspect_history CASCADE"
+		-c "TRUNCATE $(BENCH_RUN_RESET), memory_records, knowledge_changesets, portal_knowledge_pages, catalog_aspects, catalog_aspect_history CASCADE"
 	@out_dir="build/bench-results/cold-start-a3-$$(date +%Y%m%d-%H%M%S)-$$$$"; \
 	mkdir "$$out_dir"; \
 	echo "Cold-start results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \

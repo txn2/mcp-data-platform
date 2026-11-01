@@ -210,6 +210,11 @@ With a timestamp read from a header, from the body, or from the signature
 header, a request whose
 timestamp is further than the tolerance from the platform's clock is refused
 even when its signature is right, which is what makes a replayed request fail.
+A missing timestamp is refused naming where it was expected: "the timestamp
+header is missing" for a header, and for a body field (Linear's
+`webhookTimestamp`) "the timestamp field is missing from the body: expected at
+<path>", or "the body is not JSON, so the timestamp in it could not be read"
+when the body cannot be read at all.
 A timestamp above 10^12 is read as milliseconds. A signature header may carry
 several signatures separated by spaces, as a sender rotating its secret sends
 them; the request verifies when one matches. A Standard Webhooks secret

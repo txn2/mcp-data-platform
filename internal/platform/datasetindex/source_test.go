@@ -75,6 +75,9 @@ type corpusLister struct {
 }
 
 func (c *corpusLister) SearchTables(_ context.Context, f semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	if f.Platform != "trino" {
+		return nil, nil // the corpus is one kind's; the other kinds' passes find nothing
+	}
 	c.filters = append(c.filters, f)
 	if f.Offset >= len(c.corpus) {
 		return nil, nil
@@ -160,7 +163,7 @@ func TestLoadItemsFailsClosedOnAListerThatIgnoresOffset(t *testing.T) {
 	}
 
 	_, err := NewSource(store, lister, 10_000).LoadItems(context.Background(), SourceID)
-	require.ErrorContains(t, err, "stalled at offset 2",
+	require.ErrorContains(t, err, "stalled at trino offset 2",
 		"a corpus that stopped growing is short through no decision of ours: reporting it as complete would let the Sink's replace prune the mirror down to it")
 	assert.Equal(t, 2, lister.calls, "the second page adds nothing new, which is the stop condition")
 	assert.NoError(t, mock.ExpectationsWereMet(), "nothing is written when enumeration could not finish")
@@ -178,15 +181,14 @@ func TestLoadItemsStopsAtEntryCap(t *testing.T) {
 	items, err := NewSource(store, lister, 2).LoadItems(context.Background(), SourceID)
 	require.NoError(t, err)
 	assert.Len(t, items, 2, "the cap bounds the corpus")
-	require.Len(t, lister.filters, 1)
-	assert.Equal(t, 2, lister.filters[0].Limit, "the last page asks only for the remaining budget")
+	require.Len(t, lister.filters, 1, "the cap ends the enumeration without reading the other kinds")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
 // TestEntryCapTruncationIsLogged covers the one stop that reports a knowingly
-// short corpus as a success. Coverage is computed against the mirror, so that
-// corpus reads as full coverage on the Indexing dashboard and the log is the only
-// signal that recall is bounded. Not parallel: it swaps the default logger.
+// short corpus as a success: the log names the cap, and the Sink's coverage
+// against the catalog's total reads short. Not parallel: it swaps the default
+// logger.
 func TestEntryCapTruncationIsLogged(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
@@ -225,7 +227,7 @@ func TestLoadItemsDeduplicatesRepeatedURNs(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, items, 2)
 	assert.Equal(t, "urn:new", items[1].ItemID, "paging continued past the page that repeated an entry")
-	assert.Equal(t, 3, lister.calls, "the third call is the empty page that ends the corpus")
+	assert.Equal(t, 5, lister.calls, "the third call is the empty page that ends the first kind; one more for each other kind")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -300,4 +302,81 @@ func TestLoadItemsEmptyCatalog(t *testing.T) {
 func TestOnSucceededIsNoop(t *testing.T) {
 	t.Parallel()
 	NewSource(nil, nil, 1).OnSucceeded(SourceID)
+}
+
+// kindLister serves one corpus per connection kind, by offset, clamped to
+// clampAt rows a page.
+type kindLister struct {
+	byKind  map[string][]semantic.TableSearchResult
+	clampAt int
+	kinds   []string
+}
+
+func (k *kindLister) SearchTables(_ context.Context, f semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	if f.Offset == 0 {
+		k.kinds = append(k.kinds, f.Platform)
+	}
+	corpus := k.byKind[f.Platform]
+	if f.Offset >= len(corpus) {
+		return nil, nil
+	}
+	return corpus[f.Offset:min(f.Offset+min(f.Limit, k.clampAt), len(corpus))], nil
+}
+
+// TestLoadItemsKeepsKindsInOrderWhenCapped is #2381: the cap keeps every
+// table, then GraphQL operations, then API operations, whatever order the
+// catalog's references sort in, and every kind is read before the cap binds.
+func TestLoadItemsKeepsKindsInOrderWhenCapped(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+
+	lister := &kindLister{clampAt: 2, byKind: map[string][]semantic.TableSearchResult{
+		"api":     {result("mcp:dataset:(api,crm,a)", "a", ""), result("mcp:dataset:(api,crm,b)", "b", "")},
+		"graphql": {result("mcp:dataset:(graphql,gh,query.repo)", "q", "")},
+		"trino":   {result("mcp:dataset:(trino,w,c.s.t1)", "t1", ""), result("mcp:dataset:(trino,w,c.s.t2)", "t2", ""), result("mcp:dataset:(trino,w,c.s.t3)", "t3", "")},
+	}}
+	expectSyncOf(mock, 5)
+
+	items, err := NewSource(store, lister, 5).LoadItems(context.Background(), SourceID)
+	require.NoError(t, err)
+	got := make([]string, 0, len(items))
+	for _, it := range items {
+		got = append(got, it.ItemID)
+	}
+	assert.Equal(t, []string{
+		"mcp:dataset:(trino,w,c.s.t1)", "mcp:dataset:(trino,w,c.s.t2)", "mcp:dataset:(trino,w,c.s.t3)",
+		"mcp:dataset:(graphql,gh,query.repo)", "mcp:dataset:(api,crm,a)",
+	}, got)
+	assert.Equal(t, IndexedKinds, lister.kinds, "kinds are read in IndexedKinds order")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestLoadItemsLeavesOutExcludedConnections is #2381's platform-admin rule: an
+// excluded connection's datasets are not mirrored, and pages made entirely of
+// them are progress through the catalog rather than a stall.
+func TestLoadItemsLeavesOutExcludedConnections(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+
+	lister := &kindLister{clampAt: 2, byKind: map[string][]semantic.TableSearchResult{
+		"api": {
+			result("mcp:dataset:(api,platform-admin,listPersonas)", "p1", ""),
+			result("mcp:dataset:(api,platform-admin,getPersona)", "p2", ""),
+			result("mcp:dataset:(api,platform-admin,putPersona)", "p3", ""),
+			result("mcp:dataset:(api,platform-admin,deletePersona)", "p4", ""),
+			result("mcp:dataset:(api,platform-admin2,listThings)", "keep", ""),
+			result("not a reference", "unparsed", ""),
+		},
+	}}
+	expectSyncOf(mock, 2)
+
+	items, err := NewSource(store, lister, 100).Excluding(Connection{Kind: "api", Name: "platform-admin"}).
+		LoadItems(context.Background(), SourceID)
+	require.NoError(t, err)
+	require.Len(t, items, 2, "two whole pages of excluded operations are read past, not reported as a stall")
+	assert.Equal(t, "mcp:dataset:(api,platform-admin2,listThings)", items[0].ItemID)
+	assert.Equal(t, "not a reference", items[1].ItemID, "a reference that does not parse names no excluded connection")
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

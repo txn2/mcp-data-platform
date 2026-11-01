@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -218,15 +219,18 @@ func TestCoverage(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 
-	mock.ExpectQuery("SELECT COUNT").
+	// The expected half is the catalog's own count less the excluded
+	// connections, passed as kind/name keys (#2381).
+	mock.ExpectQuery("FROM catalog_entities").
+		WithArgs(pq.Array([]string{"api/platform-admin"})).
 		WillReturnRows(sqlmock.NewRows([]string{"indexed", "expected"}).AddRow(3, 5))
-	indexed, expected, err := store.Coverage(context.Background())
+	indexed, expected, err := store.Coverage(context.Background(), []Connection{{Kind: "api", Name: "platform-admin"}})
 	require.NoError(t, err)
 	assert.Equal(t, 3, indexed)
 	assert.Equal(t, 5, expected)
 
-	mock.ExpectQuery("SELECT COUNT").WillReturnError(errors.New("boom"))
-	_, _, err = store.Coverage(context.Background())
+	mock.ExpectQuery("SELECT").WillReturnError(errors.New("boom"))
+	_, _, err = store.Coverage(context.Background(), nil)
 	require.Error(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

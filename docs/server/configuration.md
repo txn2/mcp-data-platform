@@ -1144,7 +1144,7 @@ tuning:
 
 ## Search-First Gate Configuration
 
-A hard gate that refuses query tools until the agent calls `search` in the session. When a query tool (`trino_query`, `trino_execute`) is called before any discovery tool, the tool handler **does not run**; a `SEARCH_REQUIRED` error result is returned instructing the agent to call `search` first. Once `search` has been called at least once in a session, every subsequent query tool call in that session proceeds normally with no further check. The gate is enabled by default; set `require_search: false` to disable gating (and hinting) entirely.
+A hard gate that refuses query tools until the agent calls `search` in the session. When a query tool (`trino_query`, `trino_execute`) is called before any discovery tool, the tool handler **does not run**; a `SEARCH_REQUIRED` error result is returned instructing the agent to call `search` first. Once `search` has been called, every subsequent query tool call proceeds normally with no further check for as long as the platform session lasts: the search is remembered for the lifetime of the session handle `platform_info` mints (`sessions.handles.ttl`, 8 hours by default, extended while the session is in use), or the Streamable HTTP session timeout when that is longer. The gate is enabled by default; set `require_search: false` to disable gating (and hinting) entirely.
 
 ```yaml
 workflow:
@@ -1161,6 +1161,25 @@ workflow:
 
 !!! warning "Behavior change"
     `require_search` replaces the former `workflow.require_discovery_before_query` and its warn-after-execution behavior. It is a breaking rename (not aliased) and a hard gate: a deployment that never touched workflow gating will begin refusing `trino_query`/`trino_execute` until `search` is called once per session.
+
+## Schema Gate Configuration
+
+A hard gate on the SQL tools (`trino_query`, `trino_execute`, `trino_export`) that refuses a statement against a table whose columns the agent has not read. A search hit names a table and describes it but does not list its columns, so an agent that goes from a search hit straight to SQL writes the column names it expects. A wrong guess fails; a guess that happens to name a real column (filtering on `id` when the record id is `p_id`) returns rows that look right and are wrong, and nothing reports it.
+
+- The first statement against an unread table is refused with a `SCHEMA_REQUIRED` error before it runs. The refusal lists every such table's columns and types, with the column comments and the catalog's column descriptions and glossary terms, so the agent can correct the statement without another call. Delivering the schema counts as reading it: the same statement sent again runs.
+- A table's schema has been read after `trino_describe_table` of the table, `fetch` of its `mcp:dataset` reference, a `DESCRIBE` or `SHOW COLUMNS` statement, or a refusal or failure that delivered its columns.
+- A statement that fails because a column or a type is wrong (Trino's `COLUMN_NOT_FOUND`, `TYPE_MISMATCH`, `AMBIGUOUS_NAME`, `MISSING_COLUMN_NAME`, `INVALID_COLUMN_REFERENCE` or `FUNCTION_NOT_FOUND`) comes back with the columns of each table it names. A timeout, an access denial or an outage comes back unchanged. This holds with `require_schema: false` too.
+- Never refused: a statement naming no table the platform can pick out, `information_schema` and `system` tables, a table whose schema cannot be read (Trino's own error for it stands), a managed script's run, a portal or REST shim run, and every tool other than the three SQL tools.
+- Reads are kept per caller under the same scope as the search-first gate, in the same store (shared across replicas when there is a database), for as long as a search is remembered.
+
+```yaml
+workflow:
+  require_schema: false             # Default: true (gate on). false turns the refusal off.
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `require_schema` | bool | `true` | Refuse a SQL statement against a table whose columns the session has not read, returning the table's schema. Independent of `require_search`. |
 
 ## Session Gate Configuration
 
@@ -1392,7 +1411,7 @@ knowledge:
 | `catalog_index.enabled` | bool | `true` | Index the [platform catalog](catalog.md)'s dataset descriptions into the platform's own semantic search, so a fact applied to a description is reachable from a topical query that names no entity. Requires a database and an embedding provider; without either it is inert. Set `false` to opt out |
 | `catalog_index.sync_interval` | duration | `30m` | The longest the index goes without re-reading the catalog. A catalog that changed since the last read is re-read on the index queue's next check (`index_reconcile_interval`) whatever this says |
 | `index_reconcile_interval` | duration | `5m` | How often the index queue checks every index for work it owes: a catalog changed since its last read, a vector from an old embedding model. Lowering it makes a catalog change searchable sooner, at the cost of checking every index that often |
-| `catalog_index.max_entries` | int | `5000` | Cap on how many datasets are mirrored. The cap bounds both the table and one sweep's working set. A catalog larger than this indexes the first `max_entries` datasets in catalog order and logs the truncation |
+| `catalog_index.max_entries` | int | `5000` | Cap on how many datasets are mirrored. The cap bounds both the table and one sweep's working set. When it binds, the index keeps every Trino table first, then GraphQL operations, then API operations, each in reference order, and logs the truncation; the admin Indexing page holds the index to the catalog's own count and reads `degraded` while datasets are left out. The built-in `platform-admin` connection's operations are never indexed (they are the platform's own admin API, found through `api_discover`); they stay in the catalog and are fetched as any other dataset |
 | `verifiable_insights` | bool | `true` | Mark a delivered insight as checkable: when the catalog entity its claim is about resolves to a queryable table, the delivered record carries a `verifiable` block naming that table and connection, on every delivery surface (`search` insight hits, `fetch` of `mcp:insight:<id>`, and the `memory_context` enrichment block). Additive and absent whenever nothing resolves, so a deployment with no query provider is unaffected; it honors the persona connection boundary, and resolves without running the `COUNT(*)` that `enrichment.estimate_row_counts` enables. Set `false` to deliver insights with no marker |
 | `search_provider_timeout` | duration | `5s` | Per-provider deadline for the `search` fan-out arms. Each knowledge source (catalog, memory, insights, endpoints, …) is bounded by this, so one slow source drops out as a collected error while the rest still return, instead of stalling the whole search. Set a negative duration to disable the bound (a search then waits for its slowest provider). |
 | `search_embed_timeout` | duration | `5s` | Deadline for the serial intent-embedding step in `search`, independent of `search_provider_timeout`. A slow or unreachable embedder degrades to lexical ranking rather than stalling the search; because that silently loses semantic relevance, this knob lets you give a slow (cold or CPU-only) embedder more headroom to preserve `hybrid` ranking without loosening the fan-out bound. Set a negative duration to disable the bound. |

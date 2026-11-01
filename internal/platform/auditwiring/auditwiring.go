@@ -201,7 +201,8 @@ func Assemble(cfg Config) *Layer {
 	// call reference hands back no citation to a record that will not exist,
 	// and the store's sweep removes the ones written before the deployment
 	// declared the persona or before a run's calls were declined.
-	recorded := callrecord.NewRecorder(store, calls, cfg.BuildURN, calls.Exclusion())
+	recorded := callrecord.NewRecorder(store, calls, cfg.BuildURN, calls.Exclusion(),
+		callrecord.WithOperationRefs(operationRefs(cfg.Toolkits)))
 	// A statement that writes a table from what it reads records a lineage
 	// edge from each source to the table it wrote (#1922), on the same
 	// writer goroutine the call catalog uses.

@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/internal/platform/resultbudget"
+	"github.com/txn2/mcp-data-platform/internal/platform/schemagate"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -34,6 +35,7 @@ const (
 	mwToolCall            mwName = "tool_call" // auth/authz; writes PlatformContext via context.WithValue
 	mwSessionGate         mwName = "session_gate"
 	mwWorkflowGate        mwName = "workflow_gate"
+	mwSchemaGate          mwName = "schema_gate"
 	mwRateLimit           mwName = "rate_limit"
 	mwReflexiveCapture    mwName = "reflexive_capture"
 	mwTracing             mwName = "tracing"
@@ -120,6 +122,8 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// observed by the three middlewares above.
 		{Name: mwSessionGate, Requires: []mwName{mwToolCall}, Register: p.addSessionGateMiddleware},
 		{Name: mwWorkflowGate, Requires: []mwName{mwToolCall, mwSessionGate}, Register: p.addWorkflowGateMiddleware},
+		// Schema gate (#2386): after SEARCH_REQUIRED, outer to the error contract it reads.
+		{Name: mwSchemaGate, Requires: []mwName{mwToolCall, mwWorkflowGate}, Register: p.addSchemaGateMiddleware},
 
 		// Per-user rate limiter (#929): a safety net that refuses tools/call
 		// requests over a generous per-identity limit before they reach the
@@ -302,6 +306,13 @@ func (p *Platform) addWorkflowGateMiddleware() {
 			middleware.MCPWorkflowGateMiddleware(p.workflowTracker),
 		)
 	}
+}
+
+// addSchemaGateMiddleware installs the schema gate on the SQL tools (#2386, #2387).
+func (p *Platform) addSchemaGateMiddleware() {
+	mw, stop := schemagate.Wire(p.db, p.config.Sessions.Handles.DiscoveryTTL(p.config.Server.Streamable.SessionTimeout), p.toolkitRegistry, p.semanticProvider, p.config.Workflow.IsRequireSchemaEnabled())
+	p.lifecycle.OnStop(func(context.Context) error { stop(); return nil })
+	p.mcpServer.AddReceivingMiddleware(mw)
 }
 
 // addSessionGateMiddleware blocks non-exempt tools until platform_info is

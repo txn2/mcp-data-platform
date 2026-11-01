@@ -54,6 +54,23 @@ func KindForTool(tool string) string { return recordedTools[tool] }
 // this recorder reads carries the kind alongside the name.
 type URNBuilder func(connectionKind, connection, catalog, schema, table string) string
 
+// OperationRefBuilder names the catalog dataset an api call's operation is
+// cataloged as (mcp:dataset:(api,<instance>,<operation id>)), resolving a call
+// addressed by method and path to the operation it matched. It returns "" when
+// the call resolves to no operation the connection's specs name (#2384).
+type OperationRefBuilder func(ctx context.Context, connection, method, path, operationID string) string
+
+// Option configures a Recorder.
+type Option func(*Recorder)
+
+// WithOperationRefs gives the recorder the builder that adds an api call's
+// catalog dataset to its targets, so an entity lookup on the operation's
+// dataset finds the calls made to it. Without it an api record carries only
+// its resource target.
+func WithOperationRefs(b OperationRefBuilder) Option {
+	return func(r *Recorder) { r.opRef = b }
+}
+
 // Recorder catalogs data-access calls as they are audited.
 //
 // It is a decorator over the audit store rather than a middleware of its own,
@@ -71,6 +88,7 @@ type Recorder struct {
 	inner    audit.Logger
 	store    Store
 	urn      URNBuilder
+	opRef    OperationRefBuilder
 	excluded Exclusion
 }
 
@@ -81,11 +99,15 @@ type Recorder struct {
 // excluded is the rule for which calls are machinery and are not cataloged: the
 // personas the deployment named, and every managed script run. Its zero value
 // names no persona and still excludes runs (see exclusion.go).
-func NewRecorder(inner audit.Logger, store Store, urn URNBuilder, excluded Exclusion) audit.Logger {
+func NewRecorder(inner audit.Logger, store Store, urn URNBuilder, excluded Exclusion, opts ...Option) audit.Logger {
 	if store == nil {
 		return inner
 	}
-	return &Recorder{inner: inner, store: store, urn: urn, excluded: excluded}
+	r := &Recorder{inner: inner, store: store, urn: urn, excluded: excluded}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // Log writes the audit event, then catalogs it when it is a data-access call.
@@ -93,7 +115,7 @@ func NewRecorder(inner audit.Logger, store Store, urn URNBuilder, excluded Exclu
 // system of record, and the catalog is a reader of it.
 func (r *Recorder) Log(ctx context.Context, event audit.Event) error {
 	err := r.inner.Log(ctx, event)
-	if rec, ok := r.recordFrom(event); ok {
+	if rec, ok := r.recordFrom(ctx, event); ok {
 		r.catalog(ctx, rec)
 	}
 	//nolint:wrapcheck // the audit store's error is the caller's to interpret;
@@ -147,7 +169,7 @@ func (r *Recorder) catalog(ctx context.Context, rec Record) {
 // machinery -- a persona the deployment declared (#1614) or a managed script
 // run (#1624) -- whichever tool it called: the question the catalog answers is
 // not asked of an automated system's traffic.
-func (r *Recorder) recordFrom(ev audit.Event) (Record, bool) {
+func (r *Recorder) recordFrom(ctx context.Context, ev audit.Event) (Record, bool) {
 	kind := KindForTool(ev.ToolName)
 	if kind == "" || ev.ID == "" || r.excluded.Excludes(ev.Persona, ev.Source) {
 		return Record{}, false
@@ -175,6 +197,7 @@ func (r *Recorder) recordFrom(ev audit.Event) (Record, bool) {
 		describeGraphQL(&rec, ev.Parameters)
 	default:
 		describeAPI(&rec, ev.Parameters)
+		r.addOperationRef(ctx, &rec)
 	}
 	return rec, true
 }
@@ -228,18 +251,21 @@ func (r *Recorder) describeSQL(rec *Record, connectionKind string, params map[st
 // targets names the datasets a statement reads, as the URNs the catalog knows
 // them by.
 //
-// A reference the statement does not qualify to catalog.schema.table is left
-// out: the query engine resolves it against the session's own catalog, which
-// the audit row does not record, so any URN built from it would name a dataset
-// nobody asked for. A record with no targets is still a record; it is only
-// never declared superseded, since supersession compares targets.
+// A reference the statement does not qualify (schema.table, or a bare table)
+// is completed by the URN builder with the connection's configured catalog and
+// schema, which is what the query engine resolves it against: the SQL tools
+// take no catalog or schema of their own, so a call's session catalog is its
+// connection's (#2384). The builder names no dataset for a connection it cannot
+// resolve or a part it cannot complete, and such a reference is left out. A
+// record with no targets is still a record; it is only never declared
+// superseded, since supersession compares targets.
 func (r *Recorder) targets(connectionKind, connection, statement string) []string {
 	if r.urn == nil || statement == "" {
 		return nil
 	}
 	var urns []string
 	for _, ref := range sqltables.Extract(statement) {
-		if ref.Catalog == "" || ref.Schema == "" || ref.Table == "" {
+		if ref.Table == "" {
 			continue
 		}
 		if urn := r.urn(connectionKind, connection, ref.Catalog, ref.Schema, ref.Table); urn != "" {
@@ -261,9 +287,29 @@ func describeAPI(rec *Record, params map[string]any) {
 	}
 }
 
-// apiTargetPrefix opens the target of an API call. An API record's target is
-// not a dataset URN — there is no catalog entity for an endpoint — so it is
-// spelled distinctly rather than made to look like one.
+// addOperationRef adds the catalog dataset of the operation an api call
+// addressed to its targets, beside the resource target describeAPI set. The
+// resource target is what tells two calls to one operation with different path
+// values apart, and supersession compares the whole target list, so adding the
+// operation's dataset to both leaves that comparison as it was while a lookup
+// by the dataset's reference now finds the call (#2384). A call with no
+// resource target is left without one: it could not be told apart from
+// another call to the same operation, and the operation's dataset alone would
+// make the two compare as one.
+func (r *Recorder) addOperationRef(ctx context.Context, rec *Record) {
+	if r.opRef == nil || len(rec.Targets) == 0 {
+		return
+	}
+	if ref := r.opRef(ctx, rec.Connection, rec.Method, rec.Path, rec.OperationID); ref != "" {
+		rec.Targets = append(rec.Targets, ref)
+	}
+}
+
+// apiTargetPrefix opens the resource target of an API call: the operation with
+// its path values resolved, which names one resource rather than the
+// operation. The operation itself is a catalog dataset, and addOperationRef
+// adds its mcp:dataset reference as a second target; this one is spelled
+// distinctly because no catalog entity is a single resource.
 const apiTargetPrefix = "api:"
 
 // APITarget names the resource an API call addressed: its operation id with
