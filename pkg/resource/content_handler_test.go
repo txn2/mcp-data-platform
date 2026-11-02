@@ -896,6 +896,17 @@ func (f *failingS3) GetObject(ctx context.Context, bucket, key string) (body []b
 	return f.mockS3.GetObject(ctx, bucket, key)
 }
 
+// GetObjectRange fails with GetObject: an unavailable bucket refuses both
+// reads, and the content routes read by range first (#2395).
+func (f *failingS3) GetObjectRange(
+	ctx context.Context, bucket, key string, offset, length int64,
+) (body []byte, size int64, err error) {
+	if f.getErr != nil {
+		return nil, 0, f.getErr
+	}
+	return f.mockS3.GetObjectRange(ctx, bucket, key, offset, length)
+}
+
 func (f *failingS3) DeleteObject(ctx context.Context, bucket, key string) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
@@ -971,6 +982,27 @@ func TestPruneFailuresDoNotFailTheRevision(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestGetVersionContent_ReadByRange: a recorded revision streams as the
+// current content does (#2395).
+func TestGetVersionContent_ReadByRange(t *testing.T) {
+	fx := newVersionedHandler(t, okExtractor)
+	seedVersionedResource(t, fx.store, fx.s3, fx.versions)
+	fx.s3.wholeReads = 0
+
+	w := httptest.NewRecorder()
+	fx.handler.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/resources/res-1/versions/1/content", nil))
+	if w.Code != http.StatusOK || w.Body.String() != "hello,world\n" {
+		t.Fatalf("got %d %q", w.Code, w.Body.String())
+	}
+	if fx.s3.rangeReads == 0 || fx.s3.wholeReads != 0 {
+		t.Errorf("range reads = %d, whole reads = %d; want ranged only", fx.s3.rangeReads, fx.s3.wholeReads)
+	}
+	if len(fx.reads.events) != 1 {
+		t.Errorf("read events = %d, want 1", len(fx.reads.events))
+	}
 }
 
 func TestGetVersionContent_BlobReadFailureIsAServerError(t *testing.T) {

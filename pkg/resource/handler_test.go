@@ -292,6 +292,8 @@ type mockS3 struct {
 	objects map[string][]byte
 	// rangeReads counts GetObjectRange calls.
 	rangeReads int
+	// wholeReads counts GetObject calls.
+	wholeReads int
 }
 
 func newMockS3() *mockS3 {
@@ -319,6 +321,7 @@ func (m *mockS3) PutObjectStream(
 }
 
 func (m *mockS3) GetObject(_ context.Context, _, key string) (body []byte, contentType string, err error) {
+	m.wholeReads++
 	data, ok := m.objects[key]
 	if !ok {
 		return nil, "", fmt.Errorf("not found")
@@ -932,6 +935,64 @@ func TestHandleGetContent_Range(t *testing.T) {
 		t.Error("the range was served by reading the object whole")
 	}
 }
+
+// TestHandleGetContent_WholeObjectIsReadByRange is #2395's download criterion:
+// a GET with no Range header streams the object a block at a time instead of
+// holding it, records the read once, and answers a conditional GET with 304.
+func TestHandleGetContent_WholeObjectIsReadByRange(t *testing.T) {
+	fx := newVersionedHandler(t, okExtractor)
+	seedResource(fx.store, fx.s3, "res-1", ScopeGlobal, "", "user-123")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-1/content", http.NoBody)
+	rec := httptest.NewRecorder()
+	fx.handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "hello,world\n" {
+		t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+	}
+	if fx.s3.rangeReads == 0 || fx.s3.wholeReads != 0 {
+		t.Errorf("range reads = %d, whole reads = %d; want ranged only", fx.s3.rangeReads, fx.s3.wholeReads)
+	}
+	if len(fx.reads.events) != 1 {
+		t.Errorf("read events = %d, want one per request", len(fx.reads.events))
+	}
+
+	cond := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-1/content", http.NoBody)
+	cond.Header.Set("If-None-Match", rec.Header().Get("ETag"))
+	again := httptest.NewRecorder()
+	fx.handler.ServeHTTP(again, cond)
+	if again.Code != http.StatusNotModified {
+		t.Errorf("conditional GET = %d, want 304", again.Code)
+	}
+}
+
+// TestHandleGetContent_RangeFallbackRecordsOnce: a store that cannot read
+// ranges is served whole, and the read is recorded once, not once per path.
+func TestHandleGetContent_RangeFallbackRecordsOnce(t *testing.T) {
+	store, s3 := newMockStore(), newMockS3()
+	rec := &recordingRecorder{}
+	h := NewHandler(Deps{
+		Store: store, S3Client: newWholeOnly(s3), S3Bucket: "test-bucket", URIScheme: "mcp", ReadRecorder: rec,
+	}, okExtractor, nil)
+	seedResource(store, s3, "res-1", ScopeGlobal, "", "user-123")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-1/content", http.NoBody)
+	req.Header.Set("Range", "bytes=0-4")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusPartialContent || w.Body.String() != "hello" {
+		t.Fatalf("got %d %q", w.Code, w.Body.String())
+	}
+	if len(rec.events) != 1 {
+		t.Errorf("read events = %d, want 1", len(rec.events))
+	}
+}
+
+// wholeOnlyS3 hides the mock's ranged read, the way a store without one is.
+type wholeOnlyS3 struct{ S3Client }
+
+func newWholeOnly(m *mockS3) *wholeOnlyS3 { return &wholeOnlyS3{S3Client: m} }
 
 func TestHandleGetContent_NoS3(t *testing.T) {
 	store := newMockStore()

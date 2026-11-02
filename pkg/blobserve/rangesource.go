@@ -48,20 +48,6 @@ func NewRangeSource(size int64, read ReadRange) *RangeSource {
 	return &RangeSource{size: size, read: read}
 }
 
-// RangeSourceFor returns a source over an object when store can read ranges,
-// or nil when it cannot or the size is unknown, in which case the caller
-// serves the object's bytes as it did before.
-func RangeSourceFor(ctx context.Context, store any, bucket, key string, size int64) *RangeSource {
-	reader, ok := store.(RangeReader)
-	if !ok || size <= 0 {
-		return nil
-	}
-	return NewRangeSource(size, func(offset, length int64) ([]byte, error) {
-		body, _, err := reader.GetObjectRange(ctx, bucket, key, offset, length)
-		return body, err //nolint:wrapcheck // named by RangeSource.Read
-	})
-}
-
 // Read fills p from the current position, fetching a block when the bytes it
 // holds do not cover it.
 func (s *RangeSource) Read(p []byte) (int, error) {

@@ -37,6 +37,13 @@ export interface UserProfile {
    * server that predates the field, which allows it.
    */
   sharing?: boolean;
+  /**
+   * The https origins an HTML asset may frame and play media from (#2069).
+   * The portal's asset frame enforces this list, as the share viewer's policy
+   * does. Absent from a server that predates the field, where the frame
+   * enforces none.
+   */
+  embed_hosts?: string[];
 }
 
 type AuthMethod = "cookie" | "apikey" | null;

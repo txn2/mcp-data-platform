@@ -10071,6 +10071,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/settings/embed-hosts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the https origins an HTML asset may frame and load media from, in the portal and on share links (#2069), and the list the configuration file gives.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get the embed hosts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/embedhosts.Response"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the list. Each entry is an https host, optionally with a port or a leading *. label; a bare host gains https. An empty list turns embeds off. Anything else is refused naming the entry.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Set the embed hosts",
+                "parameters": [
+                    {
+                        "description": "The hosts",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/embedhosts.Request"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/embedhosts.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/maps": {
             "get": {
                 "security": [
@@ -13547,6 +13621,18 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "svg: answer a D2 source (text/vnd.d2) with the SVG the platform renders from it instead of its text (#2302)",
+                        "name": "render",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "dark: with render=svg, the dark drawing",
+                        "name": "theme",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -15128,6 +15214,18 @@ const docTemplate = `{
                         "name": "version",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "svg: answer a D2 source with the SVG the platform renders from it (#2302)",
+                        "name": "render",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "dark: with render=svg, the dark drawing",
+                        "name": "theme",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -33475,6 +33573,43 @@ const docTemplate = `{
                 }
             }
         },
+        "embedhosts.Request": {
+            "type": "object",
+            "properties": {
+                "hosts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "embedhosts.Response": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "description": "Configured is the list the configuration file gives (portal.embeds.hosts,\nelse the platform's default), which a saved list replaces.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "https://fast.wistia.net"
+                    ]
+                },
+                "hosts": {
+                    "description": "Hosts is the list in force.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "https://fast.wistia.net",
+                        "https://cdn.example.com"
+                    ]
+                }
+            }
+        },
         "endpointapi.Bucket": {
             "type": "object",
             "properties": {
@@ -38106,6 +38241,17 @@ const docTemplate = `{
                 "email": {
                     "type": "string",
                     "example": "analyst@example.com"
+                },
+                "embed_hosts": {
+                    "description": "EmbedHosts: hosts an HTML asset may frame and play media from (#2069), enforced in the asset frame.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "https://fast.wistia.net",
+                        "https://player.vimeo.com"
+                    ]
                 },
                 "is_admin": {
                     "type": "boolean",

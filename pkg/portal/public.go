@@ -11,10 +11,13 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/d2render"
+
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/embedhosts"
 	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
 	"github.com/txn2/mcp-data-platform/internal/portal/sharecache"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
@@ -243,7 +246,7 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 	}
 	contentJSON, _ := wirejson.Marshal(contentData) // #nosec G104 -- simple map marshaling cannot fail
 
-	csp := publicviewer.AssetCSP()
+	csp := publicviewer.AssetCSP(h.embedHosts(r))
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 
@@ -459,38 +462,47 @@ func (h *Handler) publicAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	serveShared(w, r, asset, data)
+}
+
+// serveShared writes a shared asset's content: a D2 source's drawing when it
+// is asked for (#2302), else the content as read.
+func serveShared(w http.ResponseWriter, r *http.Request, asset *Asset, data []byte) {
+	if d2render.Serve(w, r, asset.Name, asset.ContentType, data) {
+		return
+	}
 	blobserve.Serve(w, r, blobserve.Options{
-		Name:        asset.Name,
-		ContentType: asset.ContentType,
-		ModTime:     asset.UpdatedAt,
-		Data:        data,
-		Revalidate:  contenttype.IsTextual(asset.ContentType),
+		Name: asset.Name, ContentType: asset.ContentType, ModTime: asset.UpdatedAt,
+		Data: data, Revalidate: contenttype.IsTextual(asset.ContentType),
 	})
 }
 
-// serveAssetRange answers a byte-range request for an asset by reading only
-// the bytes asked for, and reports whether it answered.
-//
-// A viewer that reads one file many times by range -- the Parquet viewer reads
-// the footer, then a row group at a time (#1833) -- would otherwise pull the
-// whole object from the store once per request. It applies to binary content
-// only: textual content is rewritten at serve time and carries an ETag over
-// the result, both of which need the whole payload.
+// serveAssetRange answers an asset's binary content by range, with or without
+// a Range header (#1833, #2395), and reports whether it answered. Textual
+// content is rewritten at serve time and is read whole; a record naming no
+// type is served the old way, which takes the type stored with the object.
 func (h *Handler) serveAssetRange(w http.ResponseWriter, r *http.Request, assetID string) bool {
-	if r.Header.Get("Range") == "" || h.deps.S3Client == nil {
+	if h.deps.S3Client == nil {
 		return false
 	}
-	asset, err := h.deps.AssetStore.Get(r.Context(), assetID)
-	if err != nil || asset.DeletedAt != nil || contenttype.IsTextual(asset.ContentType) {
+	a, err := h.deps.AssetStore.Get(r.Context(), assetID)
+	if err != nil || a.DeletedAt != nil {
 		return false
 	}
-	return blobserve.ServeRanged(w, r, blobserve.Options{
-		Name:        asset.Name,
-		ContentType: asset.ContentType,
-		ModTime:     asset.UpdatedAt,
-	}, blobserve.Object{
-		Store: h.deps.S3Client, Bucket: asset.S3Bucket, Key: asset.S3Key, Size: asset.SizeBytes,
-	})
+	return h.serveRanged(w, r, blobserve.Options{Name: a.Name, ContentType: a.ContentType, ModTime: a.UpdatedAt}, blobserve.Object{Bucket: a.S3Bucket, Key: a.S3Key})
+}
+
+// serveVersionRange is serveAssetRange for one recorded version.
+func (h *Handler) serveVersionRange(w http.ResponseWriter, r *http.Request, name string, v *AssetVersion) bool {
+	return h.serveRanged(w, r, blobserve.Options{Name: name, ContentType: v.ContentType, ModTime: v.CreatedAt}, blobserve.Object{Bucket: v.S3Bucket, Key: v.S3Key})
+}
+
+func (h *Handler) serveRanged(w http.ResponseWriter, r *http.Request, opts blobserve.Options, obj blobserve.Object) bool {
+	if opts.ContentType == "" || contenttype.IsTextual(opts.ContentType) {
+		return false
+	}
+	obj.Store = h.deps.S3Client
+	return blobserve.ServeRanged(w, r, opts, obj)
 }
 
 // publicAssetError categorizes errors from fetchPublicAsset.
@@ -634,7 +646,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 		"updatedAt":     coll.UpdatedAt.UTC().Format(time.RFC3339),
 	})
 
-	csp := publicviewer.CollectionCSP()
+	csp := publicviewer.CollectionCSP(h.embedHosts(r))
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 
@@ -724,13 +736,7 @@ func (h *Handler) publicCollectionItemContent(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	blobserve.Serve(w, r, blobserve.Options{
-		Name:        asset.Name,
-		ContentType: asset.ContentType,
-		ModTime:     asset.UpdatedAt,
-		Data:        data,
-		Revalidate:  contenttype.IsTextual(asset.ContentType),
-	})
+	serveShared(w, r, asset, data)
 }
 
 // publicCollectionItemView renders the full public asset viewer for an item in a collection.
@@ -924,4 +930,9 @@ func collectionContainsAsset(coll *Collection, assetID string) bool {
 		}
 	}
 	return false
+}
+
+// embedHosts is the embed hosts list in force (#2069).
+func (h *Handler) embedHosts(r *http.Request) []string {
+	return embedhosts.From(r.Context(), h.deps.EmbedHosts)
 }

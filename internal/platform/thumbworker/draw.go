@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/d2render"
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -51,6 +53,11 @@ func (w *Worker) drawVariants(ctx context.Context, t target, variants []string) 
 	for _, v := range variants {
 		src := t.src
 		src.dark = v == portaldomain.ThumbnailVariantDark
+		src, why := drawnSource(ctx, src)
+		if why != "" {
+			recordDocumentFailure(ctx)
+			return stored, why, nil
+		}
 		png, err := w.render(ctx, w.tilePage(src))
 		if retry, why := outcome(err); retry || why != "" {
 			if retry {
@@ -374,4 +381,20 @@ func (w *Worker) memberTiles(ctx context.Context, source string) (light, dark []
 		light, dark = append(light, l), append(dark, d)
 	}
 	return light, dark
+}
+
+// drawnSource is the document the tile page draws for src: a D2 source as the
+// SVG the platform renders from it, in the variant's theme (#2302), since the
+// browser does not render D2. Any other document is drawn as it is. It returns
+// why a D2 source has no tile when it cannot be rendered.
+func drawnSource(ctx context.Context, src tileSource) (out tileSource, why string) {
+	if contenttype.Normalize(src.contentType) != contenttype.D2 {
+		return src, ""
+	}
+	svg, err := d2render.Render(ctx, string(src.content), src.dark)
+	if err != nil {
+		return src, "the diagram could not be drawn: " + err.Error()
+	}
+	src.contentType, src.content = contenttype.SVG, svg
+	return src, ""
 }

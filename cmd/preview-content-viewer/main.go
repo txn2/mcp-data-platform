@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
+	"github.com/txn2/mcp-data-platform/internal/portal/embedhosts"
 	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
@@ -115,7 +116,7 @@ func newHandler() http.HandlerFunc {
 		// The same policy the real share page runs under. Previewing the
 		// viewer without it is how a change that the browser refuses reaches a
 		// live share unnoticed.
-		w.Header().Set("Content-Security-Policy", publicviewer.AssetCSP())
+		w.Header().Set("Content-Security-Policy", publicviewer.AssetCSP(embedhosts.Defaults()))
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = viewerTpl.Execute(w, map[string]any{ // #nosec G104 -- template execution on ResponseWriter; error is logged by http.Server
 			"Name":             fmt.Sprintf("Preview: %s", typ),

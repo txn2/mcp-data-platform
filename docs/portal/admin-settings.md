@@ -36,6 +36,7 @@ address, so a link can open it directly:
 | Alerts | Connection revocations | `/portal/admin/settings/connection-revocations` |
 | Alerts | Run failures | `/portal/admin/settings/run-failures` |
 | Content | Maps | `/portal/admin/settings/maps` |
+| Content | Embed hosts | `/portal/admin/settings/embed-hosts` |
 | Access | Access requests | `/portal/admin/settings/access-requests` |
 
 `/portal/admin/settings` opens on **Email**. The nav marks **Email** when no
@@ -112,6 +113,8 @@ to be enabled untested. See [notification
 channels](../server/notifications.md#notification-channels).
 
 **Maps** sets the basemap a map asset draws on. See [Maps](../server/maps.md).
+
+**Embed hosts** lists the https hosts an HTML asset or slide deck may frame and play media from, one per line, in the portal and on share links alike (#2069). It starts from the configuration file's `portal.embeds.hosts` (by default the Wistia, YouTube and Vimeo players), and **Restore the configured list** puts that back in the draft. An entry the platform cannot write into a security policy (another scheme, a path, a bare `*`) is refused naming it, and an empty list turns embeds off. A YouTube or Vimeo video shows as its poster with a link that opens it in a new tab. It is the `portal_embeds` section, at `/api/v1/admin/settings/embed-hosts`. See [Content Types and Viewers](../server/content-viewers.md#the-public-viewers-policy).
 
 **Access requests** sets what a person who cannot open an item is shown when they ask for access ([Requesting access](assets.md#requesting-access)): **Show the item's name on the request page**, off by default, and **Requests expire after**, 14 days by default. It is the `access_requests` section, at `/api/v1/admin/settings/access-requests`.
 

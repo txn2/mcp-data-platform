@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/changesethttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/embedwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
@@ -104,6 +105,8 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	isAdmin := p.PersonaRegistry().AdminRule(p.Config().Admin.Persona)
 
 	brandName := portalBrandName(p)
+	embeds := embedwire.New(p.DB(), p.Config().Portal.Embeds)
+	embedwire.Mount(mux, embeds, p.DB(), adminAuthIfEnabled(p), adminEmail)
 
 	deps := portal.Deps{
 		AssetStore:                  p.PortalAssetStore(),
@@ -133,6 +136,8 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		// The upload ceiling the resource write routes apply, reported on /me
 		// so the upload dialog states this deployment's number (#1628).
 		ResourceMaxUploadBytes: p.Config().Resources.Managed.MaxUploadBytes,
+		// The hosts an HTML asset may frame and play media from (#2069).
+		EmbedHosts: embeds.Hosts,
 		// What produced an asset or a managed resource (#1569), and the lookup
 		// that says whether a script producer still exists.
 		Producers:           producedby.NewPostgres(p.DB()),

@@ -11,3 +11,12 @@
  * the page can fetch a declared file and draw it.
  */
 export const ASSET_FRAME_SANDBOX = "allow-scripts allow-downloads";
+
+/**
+ * The features an HTML asset's frame may hand the players it embeds (#2069):
+ * fullscreen for Present and a player's own button, and autoplay, protected
+ * media and picture-in-picture for a video player from the deployment's embed
+ * hosts. A player outside that list is refused by the frame's policy before it
+ * loads, so these reach only a listed host's frame.
+ */
+export const ASSET_FRAME_ALLOW = "fullscreen; autoplay; encrypted-media; picture-in-picture";

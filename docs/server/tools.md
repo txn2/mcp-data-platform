@@ -826,8 +826,8 @@ It is how every document is produced, in the words a user asks for it (#1995): a
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `name` | string | Yes | - | Display name for the asset (max 255 chars) |
-| `content` | string, object or array | Yes | - | The asset content (JSX, HTML, SVG, Markdown, a DOT graph, a Vega-Lite spec, etc.) as a string; for a JSON content type, the JSON object or array itself is accepted and stored as its JSON text |
-| `content_type` | string | Yes | - | MIME type the asset is stored under. One of `application/json`, `application/octet-stream`, `application/sql`, `application/vnd.vegalite+json`, `application/x-ndjson`, `application/xml`, `application/yaml`, `image/svg+xml`, `text/css`, `text/csv`, `text/html`, `text/javascript`, `text/jsx`, `text/markdown`, `text/plain`, `text/tab-separated-values`, `text/vnd.graphviz`, `text/x-python`; anything else is refused (see [Accepted types](content-viewers.md#accepted-types)) |
+| `content` | string, object or array | Yes | - | The asset content as a string; for a JSON content type, the JSON object or array itself is accepted and stored as its JSON text |
+| `content_type` | string | Yes | - | MIME type the asset is stored under, a text type such as `text/html`, `text/markdown`, `text/csv` or `application/json`. Any other is refused, and the refusal lists every accepted type; the schema leaves the list to the refusal so a new type does not grow every `tools/list` (see [Accepted types](content-viewers.md#accepted-types)) |
 | `description` | string | No | - | Description of the asset (max 2000 chars) |
 | `tags` | array | No | [] | Tags for categorization (max 20 tags, each max 100 chars) |
 | `sources` | array | No | session window | The calls this asset was built from, as the `call_id` (or `mcp:call:<id>` reference) each query and API invocation returns. Replaces the default window; only your own calls resolve (max 100) |

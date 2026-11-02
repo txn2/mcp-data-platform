@@ -16,6 +16,9 @@ flowchart LR
   Q --> D["dated work"] --> G["Frappe Gantt"]
   Q --> N["a network"] --> C["Cytoscape.js"]
   Q --> A["motion"] --> L["dotLottie"]
+  Q --> X["an architecture with containers"] --> D2["D2, as its own asset"]
+  Q --> E["a sketch people keep editing"] --> EX["Excalidraw, as its own asset"]
+  Q --> VID["a video clip"] --> VE["an embed from a listed host"]
 ```
 
 | Library | The right tool for | Loads from |
@@ -32,6 +35,10 @@ flowchart LR
 
 Use the version in the table. A different version may render differently, and
 a document saved against one keeps working when a newer one ships.
+
+Three formats are stored as assets of their own and drawn by the platform
+rather than loaded from a CDN inside a document: a D2 diagram, an Excalidraw
+scene and a Lottie animation. Each section below says what to save.
 
 ## Rules every skeleton follows
 
@@ -352,6 +359,61 @@ DOT, laid out by Graphviz compiled to WebAssembly. Choose the engine with
 </html>
 ```
 
+## D2
+
+D2 draws architecture and system diagrams: containers inside containers,
+labeled connections and automatic layout that holds up past the size where
+Mermaid's does. Save the source as `text/vnd.d2` and the platform renders it
+on the asset page, both kinds of share link and the tile, light and dark. An
+icon is a managed resource by its `mcp://` URI, declared in `references`; a
+source naming any other URL, or importing another file, is refused on save, as
+is one that does not compile, with the line.
+
+```d2
+direction: right
+users: Users {shape: person}
+vpc: VPC {
+  web: Web
+  api: API {icon: mcp://global/icons/api.svg}
+  db: Postgres {shape: cylinder}
+  web -> api: HTTPS
+  api -> db
+}
+users -> vpc.web
+```
+
+D2 is not drawn inside a document or on a slide: its browser build loads its
+layout engine in a way the share page's policy refuses. Inside a document, use
+Mermaid or Graphviz.
+
+## Excalidraw
+
+An Excalidraw scene is JSON an agent writes directly: shapes, arrows, text and
+groups, drawn in a hand-drawn style. Save it as
+`application/vnd.excalidraw+json`, as the object itself or a string, and a
+person with edit access keeps working on it in the portal; their save is a new
+version. Images go in the scene's `files` as `data:image/` URLs; a link names a
+reference; an element framing a web page is refused.
+
+```json
+{
+  "type": "excalidraw",
+  "version": 2,
+  "elements": [
+    {"id": "a", "type": "rectangle", "x": 0, "y": 0, "width": 180, "height": 80, "strokeColor": "#1e1e1e",
+     "backgroundColor": "#a5d8ff", "fillStyle": "hachure", "roughness": 1, "seed": 1, "version": 1},
+    {"id": "b", "type": "text", "x": 40, "y": 28, "width": 100, "height": 25, "text": "Ingest", "fontSize": 20,
+     "seed": 2, "version": 1},
+    {"id": "c", "type": "arrow", "x": 190, "y": 40, "width": 120, "height": 0,
+     "points": [[0, 0], [120, 0]], "seed": 3, "version": 1}
+  ],
+  "appState": {"viewBackgroundColor": "#ffffff"},
+  "files": {}
+}
+```
+
+Inside a document, the same hand-drawn look comes from Rough.js.
+
 ## Rough.js
 
 ```html
@@ -393,9 +455,16 @@ the page agree.
 
 ## dotLottie
 
-An animation made in a design tool is uploaded as a `.lottie` or Lottie JSON
-file and named by reference: `src: "mcp://..."` with the reference declared on
-`save_asset`. An animation written by hand goes in `data`, as here.
+An animation that IS the asset needs no page: save Lottie JSON as
+`application/vnd.lottie+json`, or upload a `.lottie` file to the resource
+library, and the portal plays it with play, pause and a scrubber, its tile the
+last frame. The portal's player runs no expressions, so a source carrying one
+is refused on save, as is one naming an image outside itself.
+
+Inside a document, an animation made in a design tool is uploaded as a
+`.lottie` or Lottie JSON file and named by reference: `src: "mcp://..."` with
+the reference declared on `save_asset`. An animation written by hand goes in
+`data`, as here.
 
 ```html
 <!DOCTYPE html>
@@ -500,6 +569,26 @@ export default function Flow() {
 
 Graphviz and dotLottie are built on WebAssembly, which a JSX asset's frame does
 not compile; use them in an HTML asset.
+
+## Video in a document or a deck
+
+A clip plays inside an HTML asset or a slide when its host is on the
+deployment's embed hosts list, which an administrator keeps under Admin >
+Settings > Embed hosts; the default lists the Wistia, YouTube and Vimeo
+players. The list holds in the portal and on share links alike, so a clip that
+plays for you plays for the people you share with, and one from a host off the
+list is blocked on both.
+
+- **Wistia**, or a deployment's own player on the list: its iframe embed.
+- **An MP4 on a listed CDN**: `<video controls src="https://cdn.example.com/clip.mp4">`.
+- **An uploaded clip**: `<video controls src="mcp://...">`, with the reference
+  declared on `save_asset`. It streams by range, so it seeks at any size.
+- **YouTube and Vimeo**: write their usual iframe embed. Their players do not
+  run inside the asset's frame, so the platform draws the video's poster with a
+  button that opens it on YouTube or Vimeo in a new tab.
+
+Give a `<video>` a `poster` image: the thumbnail and Export PDF draw a clip as
+its poster frame.
 
 ## Where it does not draw
 

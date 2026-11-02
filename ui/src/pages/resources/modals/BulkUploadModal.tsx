@@ -22,7 +22,7 @@ import type { SourceFile } from "../bulk/plan";
 
 // The ceiling the dialog assumes when the server has not reported one, which
 // is resource.MaxUploadBytes, as in the single-file dialog.
-const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
+const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024;
 
 /**
  * Uploading many files at once: a selection, a folder, or an archive, with the

@@ -146,11 +146,12 @@ func TestManageUpdateRefusesAChangeToAnOffAllowlistType(t *testing.T) {
 	assert.Equal(t, "text/x-log", stored.ContentType)
 }
 
-// TestSaveAssetSchemaAdvertisesTheEnforcedTypes keeps the advertised schema and
-// the enforced set in step. An agent picks its declaration from the schema, so a
-// type listed but refused sends it into a failure it cannot diagnose, and a type
-// accepted but unlisted is a capability nothing will use.
-func TestSaveAssetSchemaAdvertisesTheEnforcedTypes(t *testing.T) {
+// TestSaveAssetRefusalNamesTheEnforcedTypes keeps what an agent is told in
+// step with what is enforced, without the schema carrying the list on every
+// tools/list: the description names a few common types and says the refusal
+// lists the rest, and the refusal names every accepted type and no refused
+// one. A content type added later grows the refusal, never the description.
+func TestSaveAssetRefusalNamesTheEnforcedTypes(t *testing.T) {
 	var schema struct {
 		Properties struct {
 			ContentType struct {
@@ -159,12 +160,18 @@ func TestSaveAssetSchemaAdvertisesTheEnforcedTypes(t *testing.T) {
 		} `json:"properties"`
 	}
 	require.NoError(t, json.Unmarshal(saveAssetSchema, &schema))
-
 	described := schema.Properties.ContentType.Description
+	assert.Contains(t, described, "the refusal lists every type")
+	assert.NotContains(t, described, contenttype.Graphviz, "the schema no longer enumerates the accepted types")
+	assert.Less(t, len(described), 400)
+
+	err := portal.ValidateContentType(contenttype.XHTML)
+	require.Error(t, err)
+	refusal := strings.TrimPrefix(err.Error(), `unsupported content_type "application/xhtml+xml"`)
 	for _, ct := range contenttype.StorableTextTypes() {
-		assert.Contains(t, described, ct, "the schema must advertise every accepted type")
+		assert.Contains(t, refusal, ct, "the refusal must name every accepted type")
 	}
-	assert.NotContains(t, described, contenttype.XHTML, "the schema must not advertise a refused type")
+	assert.NotContains(t, refusal, contenttype.XHTML, "the refusal must not offer a refused type")
 }
 
 // --- door drivers ---

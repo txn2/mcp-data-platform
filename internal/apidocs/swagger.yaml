@@ -4632,6 +4632,33 @@ definitions:
           $ref: '#/definitions/scriptrun.WriteRecord'
         type: array
     type: object
+  embedhosts.Request:
+    properties:
+      hosts:
+        items:
+          type: string
+        type: array
+    type: object
+  embedhosts.Response:
+    properties:
+      configured:
+        description: |-
+          Configured is the list the configuration file gives (portal.embeds.hosts,
+          else the platform's default), which a saved list replaces.
+        example:
+        - https://fast.wistia.net
+        items:
+          type: string
+        type: array
+      hosts:
+        description: Hosts is the list in force.
+        example:
+        - https://fast.wistia.net
+        - https://cdn.example.com
+        items:
+          type: string
+        type: array
+    type: object
   endpointapi.Bucket:
     properties:
       2xx:
@@ -8215,6 +8242,15 @@ definitions:
       email:
         example: analyst@example.com
         type: string
+      embed_hosts:
+        description: 'EmbedHosts: hosts an HTML asset may frame and play media from
+          (#2069), enforced in the asset frame.'
+        example:
+        - https://fast.wistia.net
+        - https://player.vimeo.com
+        items:
+          type: string
+        type: array
       is_admin:
         example: false
         type: boolean
@@ -21727,6 +21763,54 @@ paths:
       summary: Update connection-revocation alert settings
       tags:
       - Settings
+  /admin/settings/embed-hosts:
+    get:
+      description: Returns the https origins an HTML asset may frame and load media
+        from, in the portal and on share links (#2069), and the list the configuration
+        file gives.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/embedhosts.Response'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get the embed hosts
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Replaces the list. Each entry is an https host, optionally with
+        a port or a leading *. label; a bare host gains https. An empty list turns
+        embeds off. Anything else is refused naming the entry.
+      parameters:
+      - description: The hosts
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/embedhosts.Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/embedhosts.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set the embed hosts
+      tags:
+      - Settings
   /admin/settings/maps:
     get:
       description: Returns whether maps are enabled, the S3 connection and bucket
@@ -24024,6 +24108,15 @@ paths:
         name: id
         required: true
         type: string
+      - description: 'svg: answer a D2 source (text/vnd.d2) with the SVG the platform
+          renders from it instead of its text (#2302)'
+        in: query
+        name: render
+        type: string
+      - description: 'dark: with render=svg, the dark drawing'
+        in: query
+        name: theme
+        type: string
       produces:
       - application/octet-stream
       responses:
@@ -25074,6 +25167,15 @@ paths:
         name: version
         required: true
         type: integer
+      - description: 'svg: answer a D2 source with the SVG the platform renders from
+          it (#2302)'
+        in: query
+        name: render
+        type: string
+      - description: 'dark: with render=svg, the dark drawing'
+        in: query
+        name: theme
+        type: string
       produces:
       - application/octet-stream
       responses:

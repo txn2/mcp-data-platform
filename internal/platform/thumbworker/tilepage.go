@@ -75,7 +75,8 @@ type tileSource struct {
 // through a JavaScript string on the way (#1794).
 func isBinary(contentType string) bool {
 	ct := strings.ToLower(contentType)
-	if strings.Contains(ct, "pdf") {
+	if strings.Contains(ct, "pdf") || strings.Contains(ct, "dotlottie") {
+		// A dotLottie archive is a zip the tile page unpacks (#2308).
 		return true
 	}
 	return strings.HasPrefix(ct, "image/") && !strings.Contains(ct, "svg")

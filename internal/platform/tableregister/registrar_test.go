@@ -150,6 +150,7 @@ func (f *fakeTrino) TableExists(_ context.Context, _, catalog, schema, table str
 // fakeObjects serves one directory of objects.
 type fakeObjects struct {
 	ranged    int
+	whole     int
 	body      []byte
 	bodyCT    string
 	getErr    error
@@ -159,6 +160,7 @@ type fakeObjects struct {
 }
 
 func (f *fakeObjects) GetObject(_ context.Context, _, _ string) (body []byte, contentType string, err error) {
+	f.whole++
 	if f.getErr != nil {
 		return nil, "", f.getErr
 	}
@@ -2154,4 +2156,22 @@ func TestRegister_AShortRecordDoesNotWithdrawTheCorrection(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, res.Correction)
 	assert.Len(t, h2.store.rows, 1)
+}
+
+// Issue #2069: a CSV over the bound is refused from its size alone, before the
+// file is read into memory, and the refusal names the format with no bound.
+func TestRegister_OversizeCSVIsRefusedBeforeItIsRead(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.objects.body = make([]byte, 3<<20) })
+	h.reg = New(Deps{
+		Store: h.store, Trino: h.trino,
+		Objects:  map[string]ObjectReader{KindAsset: h.objects},
+		MaxBytes: 2 << 20,
+		NewID:    func() (string, error) { return "reg_over", nil },
+	})
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(), Request{Connection: "scratch"})
+	require.ErrorIs(t, err, ErrRefused)
+	assert.Contains(t, err.Error(), "2 MB")
+	assert.Contains(t, err.Error(), "Parquet file registers at any size")
+	assert.Zero(t, h.objects.whole, "the file was not read whole to be refused")
+	assert.Positive(t, h.objects.ranged)
 }

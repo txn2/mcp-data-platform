@@ -20,6 +20,7 @@ import { ReviewAlertCard } from "./ReviewAlertCard";
 import { ScriptRunAlertCard } from "./ScriptRunAlertCard";
 import { BotChecksSettingsCard } from "./BotChecksSettingsCard";
 import { AccessRequestsSettingsCard } from "./AccessRequestsSettingsCard";
+import { EmbedHostsSettingsCard } from "./EmbedHostsSettingsCard";
 import { StorageSettingsCard } from "./StorageSettingsCard";
 import { WebhookAlertCard } from "./WebhookAlertCard";
 import { SettingsCard } from "./panels";
@@ -421,6 +422,7 @@ const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.Re
   webhooks: (ro) => <WebhookAlertCard isReadOnly={ro} />,
   storage: (ro) => <StorageSettingsCard isReadOnly={ro} />,
   maps: () => <MapsCard />,
+  "embed-hosts": (ro) => <EmbedHostsSettingsCard isReadOnly={ro} />,
   "bot-checks": (ro) => <BotChecksSettingsCard isReadOnly={ro} />,
   "access-requests": (ro) => <AccessRequestsSettingsCard isReadOnly={ro} />,
 };

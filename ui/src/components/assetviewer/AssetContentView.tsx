@@ -104,7 +104,9 @@ export function AssetContentView({
         />
         {afterVersion}
         <SaveControls
-          show={viewMode === "source" && !viewingOldVersion}
+          // In Preview too once there are edits: a scene is edited where it is
+          // drawn (#2306), and an edit made in Source survives the toggle.
+          show={(viewMode === "source" || hasChanges) && !viewingOldVersion}
           hasChanges={hasChanges}
           saveStatus={saveStatus}
           onSaveContent={onSaveContent}
@@ -279,10 +281,20 @@ function CurrentContent({
           contentUrl={storedContentUrl(hasChanges, media.src || contentUrl)}
           sizeBytes={asset.size_bytes}
           controlsSlot={controlsSlot}
+          onEdit={editInPlace(canEditSource, onSourceChange)}
         />
       )}
     </>
   );
+}
+
+/**
+ * What a family edited where it is drawn (an Excalidraw scene, #2306) hands
+ * its edits to: the page's draft, whose Save writes the version, for a reader
+ * who may edit, and nothing otherwise.
+ */
+function editInPlace(canEditSource: boolean, onSourceChange: (v: string) => void): ((v: string) => void) | undefined {
+  return canEditSource ? onSourceChange : undefined;
 }
 
 /** The URL the stored document is read from, or none while there are unsaved edits. */

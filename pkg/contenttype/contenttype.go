@@ -94,6 +94,19 @@ const (
 	// VegaLite is the canonical type for a Vega-Lite specification, which the
 	// portal draws as the chart it describes (#2296).
 	VegaLite = "application/vnd.vegalite+json"
+	// D2 is the canonical type for a D2 diagram source, which the platform
+	// renders to the diagram it describes (#2302).
+	D2 = "text/vnd.d2"
+	// Excalidraw is the canonical type for an Excalidraw scene, which the
+	// portal draws and its editors edit (#2306).
+	Excalidraw = "application/vnd.excalidraw+json"
+	// LottieJSON is the canonical type for a Lottie animation in its JSON
+	// form, which the portal plays (#2308).
+	LottieJSON = "application/vnd.lottie+json"
+	// DotLottie is a dotLottie archive: a zip holding one or more Lottie
+	// animations and their images (#2308). Binary, so it arrives as an
+	// uploaded managed resource rather than a string.
+	DotLottie = "application/zip+dotlottie"
 
 	// The Office document families. Each is a zip of XML parts, which is the
 	// only reason it is binary at all, and internal/docread reads one by
@@ -179,6 +192,13 @@ var aliases = map[string]string{
 	"application/x-graphviz":         Graphviz,
 	"application/x-vegalite+json":    VegaLite,
 	"application/vnd.vega-lite+json": VegaLite,
+	// The drawn sources added with #2302, #2306 and #2308.
+	"text/x-d2":                     D2,
+	"application/x-excalidraw+json": Excalidraw,
+	"application/x-lottie+json":     LottieJSON,
+	"application/lottie+json":       LottieJSON,
+	"application/x-dotlottie":       DotLottie,
+	"application/dotlottie":         DotLottie,
 }
 
 // activeTypes are the media types whose renderers execute author-supplied
@@ -329,7 +349,7 @@ func IsTextual(ct string) bool {
 		return true
 	}
 	switch norm {
-	case JSON, NDJSON, XML, YAML, SVG, JavaScript, VegaLite, "application/sql", "application/typescript":
+	case JSON, NDJSON, XML, YAML, SVG, JavaScript, VegaLite, Excalidraw, LottieJSON, "application/sql", "application/typescript":
 		return true
 	default:
 		return false
@@ -400,7 +420,7 @@ func detectAllowing(declared, filename string, prefix []byte, parquet bool) stri
 		return textFallback(norm)
 	}
 	if content := specificContentType(sniffed, prefix, parquet); content != "" {
-		return content
+		return refineByShape(content, filename, prefix)
 	}
 	if sniffed == PlainText {
 		// Textual but unstructured. Upgrading application/octet-stream to
@@ -497,6 +517,35 @@ func specificContentType(sniffed string, prefix []byte, parquet bool) string {
 		return Parquet
 	}
 	return ""
+}
+
+// refineByShape narrows a family the bytes identified to the drawn source
+// they are (#2308): a zip named .lottie is a dotLottie archive, which has no
+// signature of its own, and JSON shaped as a Lottie animation is one. Both
+// are passive, and each needs both signals the rest of detection needs.
+func refineByShape(content, filename string, prefix []byte) string {
+	switch {
+	case content == "application/zip" && TypeForFilename(filename) == DotLottie:
+		return DotLottie
+	case content == JSON && looksLottie(prefix):
+		return LottieJSON
+	}
+	return content
+}
+
+// looksLottie reports whether a JSON prefix carries the keys every Lottie
+// animation's top level has: its frame rate, in and out points, and layers.
+func looksLottie(prefix []byte) bool {
+	t := bytes.TrimSpace(prefix)
+	if len(t) == 0 || t[0] != '{' {
+		return false
+	}
+	for _, key := range []string{`"fr"`, `"ip"`, `"op"`, `"layers"`, `"v"`} {
+		if !bytes.Contains(t, []byte(key)) {
+			return false
+		}
+	}
+	return true
 }
 
 // DetectBytes is Detect over a complete payload, truncating to the sniff window.

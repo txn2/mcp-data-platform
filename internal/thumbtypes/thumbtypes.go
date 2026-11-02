@@ -61,7 +61,10 @@ var (
 	// diagramTypes are sources the viewer draws as a picture: a Graphviz graph
 	// and a Vega-Lite chart (#2296, #2303). They come before the JSON and text
 	// families, whose "%+json" and "text/%" would otherwise draw their source.
-	diagramTypes = []string{"text/vnd.graphviz", "application/vnd.vegalite+json"}
+	diagramTypes = []string{
+		"text/vnd.graphviz", "application/vnd.vegalite+json", "text/vnd.d2",
+		"application/vnd.excalidraw+json", "application/vnd.lottie+json", "application/zip+dotlottie",
+	}
 
 	// Both JSON families, newline-delimited included, and every vendor dialect
 	// by its structured suffix; which of the two is drawn is a question only

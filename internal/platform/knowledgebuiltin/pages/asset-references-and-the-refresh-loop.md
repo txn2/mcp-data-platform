@@ -45,6 +45,10 @@ list. Three forms go in it, and they are not interchangeable:
   declaration that uses it is refused naming both forms.
 - **Another saved asset by its `mcp:asset:<id>` reference**, exactly as a
   search hit or a fetch document carries it.
+
+  A video or audio file named this way, `<video controls src="mcp://...">`,
+  is served by byte range, so it plays and seeks at any size without being
+  read whole.
 - **A form by `mcp:form:<endpoint>`**: an endpoint whose script defines
   `form_spec` and `form_submit`. Frame it where it shows,
   `<iframe src="mcp:form:contact" style="width:100%;height:640px;border:0"></iframe>`;

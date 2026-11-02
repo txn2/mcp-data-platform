@@ -3,7 +3,10 @@ import { createPortal } from "react-dom";
 import { FileDown, LayoutGrid, Presentation } from "lucide-react";
 import { isSlideDeck, overviewMessage } from "@/lib/deck";
 import { downloadPdf } from "@/lib/pdfExport";
-import { ASSET_FRAME_SANDBOX } from "./assetFrame";
+import { OPEN_VIDEO_MESSAGE, videoWatchURL, withEmbedPolicy, withVideoCards } from "@/lib/videoCards";
+import { withLocalRefs } from "@/lib/localRefs";
+import { useAuthStore } from "@/stores/auth";
+import { ASSET_FRAME_ALLOW, ASSET_FRAME_SANDBOX } from "./assetFrame";
 import { withFormQuery } from "./formFrames";
 
 /**
@@ -66,6 +69,14 @@ interface Props {
  * backgrounds, and for a deck one page per slide at its last build step. A
  * browser's own print would drop the backgrounds unless the reader asked for
  * them, and would give every build step a page.
+ *
+ * Video (#2069): in the portal the document carries the deployment's embed
+ * hosts as its own frame-src and media-src policy, the list the share
+ * viewer's header already enforces, so an embed that plays here plays on a
+ * share link. A YouTube or Vimeo player, which cannot run in the frame's
+ * opaque origin, is drawn as a card (lib/videoCards.ts); its click asks this
+ * page to open the video, and only a message from this frame naming a YouTube
+ * or Vimeo video id is acted on.
  */
 export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -74,7 +85,21 @@ export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
   const [exportError, setExportError] = useState<string | null>(null);
   const deck = isSlideDeck(content);
   // A form the document embeds is handed this page's query string (#2177).
-  const framed = useMemo(() => withFormQuery(content, true), [content]);
+  const embedHosts = useAuthStore((s) => s.user?.embed_hosts);
+  const framed = useMemo(() => {
+    const carded = withVideoCards(withLocalRefs(withFormQuery(content, true)));
+    return embedHosts ? withEmbedPolicy(carded, embedHosts) : carded;
+  }, [content, embedHosts]);
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.source !== iframeRef.current?.contentWindow || e.data?.type !== OPEN_VIDEO_MESSAGE) return;
+      const url = videoWatchURL(e.data.video);
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   useEffect(() => {
     setCanPresent(fullscreenAvailable());
@@ -163,7 +188,7 @@ export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
       <iframe
         ref={iframeRef}
         sandbox={ASSET_FRAME_SANDBOX}
-        allow="fullscreen"
+        allow={ASSET_FRAME_ALLOW}
         srcDoc={framed}
         className="min-h-[60vh] w-full min-w-0 flex-1 rounded-lg border border-border"
         title="HTML Preview"

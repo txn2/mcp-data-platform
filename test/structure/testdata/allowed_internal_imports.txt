@@ -8,6 +8,7 @@ cmd/mcp-data-platform -> internal/tracelog
 cmd/mcp-data-platform -> pkg/observability
 cmd/mcp-data-platform -> pkg/platform
 cmd/preview-content-viewer -> internal/contentviewer
+cmd/preview-content-viewer -> internal/portal/embedhosts
 cmd/preview-content-viewer -> internal/portal/publicviewer
 cmd/preview-content-viewer -> internal/wirejson
 internal/admin/apiroutesapi -> internal/httpjson
@@ -119,6 +120,9 @@ internal/connsecretref -> internal/secretref
 internal/connsecretref -> internal/secretstore
 internal/connsecretref -> internal/upstreamauth/sessionlogin
 internal/connsecretref -> pkg/connoauth
+internal/d2render -> internal/httpjson
+internal/d2render -> pkg/blobserve
+internal/d2render -> pkg/contenttype
 internal/dbobs -> internal/sqltables
 internal/dbobs -> pkg/observability
 internal/docread -> pkg/contenttype
@@ -225,6 +229,7 @@ internal/httpserver -> internal/httpserver/attachhttp
 internal/httpserver -> internal/httpserver/catalogwire
 internal/httpserver -> internal/httpserver/changesethttp
 internal/httpserver -> internal/httpserver/corshttp
+internal/httpserver -> internal/httpserver/embedwire
 internal/httpserver -> internal/httpserver/endpointwire
 internal/httpserver -> internal/httpserver/formwire
 internal/httpserver -> internal/httpserver/gatewayhttp
@@ -410,6 +415,8 @@ internal/httpserver/channelhttp -> pkg/persona
 internal/httpserver/corshttp -> internal/endpoint/ephttp
 internal/httpserver/corshttp -> internal/httpserver/maphttp
 internal/httpserver/corshttp -> internal/webhook/receiver
+internal/httpserver/embedwire -> internal/platform/settingsjson
+internal/httpserver/embedwire -> internal/portal/embedhosts
 internal/httpserver/endpointwire -> internal/admin/botcheckapi
 internal/httpserver/endpointwire -> internal/admin/endpointapi
 internal/httpserver/endpointwire -> internal/endpoint/epform
@@ -1495,6 +1502,7 @@ internal/platform/taskwiring -> pkg/middleware
 internal/platform/taskwiring -> pkg/persona
 internal/platform/taskwiring -> pkg/session
 internal/platform/thumbworker -> internal/bgloop
+internal/platform/thumbworker -> internal/d2render
 internal/platform/thumbworker -> internal/headless
 internal/platform/thumbworker -> internal/inproc
 internal/platform/thumbworker -> internal/logsan
@@ -1506,6 +1514,7 @@ internal/platform/thumbworker -> internal/portal/assetrefs
 internal/platform/thumbworker -> internal/portal/portaldomain
 internal/platform/thumbworker -> internal/thumbdue
 internal/platform/thumbworker -> internal/thumbtypes
+internal/platform/thumbworker -> pkg/contenttype
 internal/platform/thumbworker -> pkg/observability
 internal/platform/thumbworker -> pkg/resource
 internal/platform/toolargs -> pkg/middleware
@@ -1566,6 +1575,8 @@ internal/portal/collitems -> internal/portal/portaldomain
 internal/portal/contentrefs -> pkg/contenttype
 internal/portal/contentrefs -> pkg/portal/knowledgepage
 internal/portal/contentrefs -> pkg/resource
+internal/portal/embedhosts -> internal/httpjson
+internal/portal/embedhosts -> internal/logsan
 internal/portal/externalfiles -> internal/httpjson
 internal/portal/externalfiles -> pkg/persona
 internal/portal/externalfiles -> pkg/resource
@@ -1600,6 +1611,7 @@ internal/portal/producerapi -> internal/portal/access
 internal/portal/producerapi -> internal/portal/portaldomain
 internal/portal/producerapi -> internal/producedby
 internal/portal/producerapi -> pkg/resource
+internal/portal/publicviewer -> internal/portal/embedhosts
 internal/portal/resourceshare -> internal/httpjson
 internal/portal/resourceshare -> internal/logsan
 internal/portal/resourceshare -> internal/portal/access
@@ -2005,6 +2017,7 @@ pkg/platform -> internal/platform/trinowiring
 pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
 pkg/platform -> internal/portal/assetrefs
+pkg/platform -> internal/portal/embedhosts
 pkg/platform -> internal/producedby
 pkg/platform -> internal/shutdown
 pkg/platform -> internal/swagger2
@@ -2063,6 +2076,7 @@ pkg/platform/instructions -> internal/agentinstructions
 pkg/platform/instructions -> pkg/persona
 pkg/platform/personastore -> pkg/persona
 pkg/portal -> internal/contentviewer
+pkg/portal -> internal/d2render
 pkg/portal -> internal/endpoint/epform
 pkg/portal -> internal/exporttrunc
 pkg/portal -> internal/httpjson
@@ -2074,6 +2088,7 @@ pkg/portal -> internal/portal/assetrefapi
 pkg/portal -> internal/portal/assetrefs
 pkg/portal -> internal/portal/callapi
 pkg/portal -> internal/portal/contenturl
+pkg/portal -> internal/portal/embedhosts
 pkg/portal -> internal/portal/feedbackapi
 pkg/portal -> internal/portal/portaldomain
 pkg/portal -> internal/portal/portalnoop

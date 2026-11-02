@@ -180,7 +180,7 @@ describe("the size ceiling the upload dialog states and enforces", () => {
     signIn();
     renderModal(false, { scope: "user", scope_id: SUBJECT });
 
-    expect(screen.getByText("Choose file (max 100 MB)")).toBeTruthy();
+    expect(screen.getByText("Choose file (max 1 GB)")).toBeTruthy();
   });
 
   it("accepts a file the raised ceiling admits, which the old constant refused", async () => {
