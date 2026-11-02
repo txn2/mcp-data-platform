@@ -248,6 +248,15 @@ func TestPoolConfig_SetsWhatTheEnvironmentWouldOtherwiseSupply(t *testing.T) {
 	assert.NotNil(t, pc.AfterRelease)
 }
 
+func TestPoolConfig_RefusesAPoolSizeOutOfBounds(t *testing.T) {
+	for _, n := range []int{0, -1, MaxMaxConns + 1, math.MaxInt32 + 1} {
+		cfg := baseConfig()
+		cfg.MaxConns = n
+		_, err := poolConfig(cfg, nil, nil)
+		require.Error(t, err, "max_conns %d", n)
+	}
+}
+
 func TestTLSConfig_PerMode(t *testing.T) {
 	caPEM, leaf := selfSigned(t)
 	cfg := baseConfig()

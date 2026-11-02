@@ -39,6 +39,12 @@ type ConnectGuard func(ctx context.Context, conn *pgx.Conn) error
 // clear), and the runtime parameters (so PGOPTIONS cannot add settings to the
 // operator's sessions).
 func poolConfig(c Config, guard ConnectGuard, tracer pgx.QueryTracer) (*pgxpool.Config, error) {
+	// Validate bounds max_conns too; the pool size is checked here as well
+	// because it is narrowed to int32 below, and a Config reaches this
+	// function from callers other than ParseConfig.
+	if c.MaxConns < 1 || c.MaxConns > MaxMaxConns {
+		return nil, fmt.Errorf("postgres: max_conns must be between 1 and %d", MaxMaxConns)
+	}
 	pc, err := pgxpool.ParseConfig(connString(c))
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %s", scrubConnString(err.Error()))
@@ -61,7 +67,7 @@ func poolConfig(c Config, guard ConnectGuard, tracer pgx.QueryTracer) (*pgxpool.
 	// with its parameters typed by that description (run.go). A cache would
 	// also be emptied behind pgx's back by the DISCARD ALL below.
 	cc.DefaultQueryExecMode = pgx.QueryExecModeExec
-	pc.MaxConns = int32(c.MaxConns) // #nosec G115 -- bounded by MaxMaxConns in Validate
+	pc.MaxConns = int32(c.MaxConns) // #nosec G115 -- bounded by the check at the top of this function
 	pc.MinConns = 0
 	if guard != nil {
 		pc.AfterConnect = guard
