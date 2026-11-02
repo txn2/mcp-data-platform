@@ -304,55 +304,33 @@ func TestConnectionVisibility_WithNothingToEnumerateShowsNothing(t *testing.T) {
 	assert.Empty(t, names)
 }
 
-// Issue #1634: a registration read by a compiled-in 100 MB while the write
-// routes read by the deployment's own ceiling, so a deployment that raised
-// resources.managed.max_upload_bytes stored files it could not register over.
-// The registrar is handed the same number the write routes use.
-func TestRegistrationMaxBytes_IsTheDeploymentsUploadCeiling(t *testing.T) {
+// registrationMaxBytes is the CSV or JSON-lines file a registration reads
+// whole: its own setting, else a deployment's own upload ceiling so one that
+// raised it keeps registering what it stores (#1634), else 100 MB, which stays
+// put although the upload default rose to 1 GiB (#2069).
+func TestRegistrationMaxBytes(t *testing.T) {
 	tests := []struct {
-		name       string
-		configured int64
-		want       int64
+		name         string
+		upload, regs int64
+		want         int64
 	}{
-		{
-			name:       "a configured ceiling is what a registration reads by",
-			configured: 262144000,
-			want:       262144000,
-		},
-		{
-			name: "a deployment that configures nothing keeps the shipped default",
-			want: resource.MaxUploadBytes,
-		},
-		{
-			name:       "a negative value selects the default rather than refusing every registration",
-			configured: -1,
-			want:       resource.MaxUploadBytes,
-		},
+		{name: "its own setting wins", upload: 262144000, regs: 50 << 20, want: 50 << 20},
+		{name: "a raised upload ceiling is what a registration reads by", upload: 262144000, want: 262144000},
+		{name: "a deployment that configures nothing reads 100 MB, not the 1 GiB upload default", want: tableregister.DefaultMaxBytes},
+		{name: "negative values select the default", upload: -1, regs: -1, want: tableregister.DefaultMaxBytes},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &platform.Config{}
-			cfg.Resources.Managed.MaxUploadBytes = tt.configured
+			cfg.Resources.Managed.MaxUploadBytes = tt.upload
+			cfg.Resources.Managed.TableRegistrationMaxBytes = tt.regs
 			assert.Equal(t, tt.want, registrationMaxBytes(cfg))
 		})
 	}
-
-	// The two bounds are one number, which is the property that stops a file
-	// being taken by one surface and refused by the other.
-	cfg := &platform.Config{}
-	cfg.Resources.Managed.MaxUploadBytes = 262144000
-	assert.Equal(t,
-		resource.NormalizeMaxUploadBytes(cfg.Resources.Managed.MaxUploadBytes),
-		registrationMaxBytes(cfg),
-		"the registration bound and the upload bound must be the same number")
-
-	// The shipped fallback the registrar carries is the same one an unset
-	// ceiling resolves to, so this change moves no deployment that set nothing.
-	assert.EqualValues(t, tableregister.DefaultMaxBytes, registrationMaxBytes(&platform.Config{}))
-
-	// A nil config cannot make a registration read by zero, which would refuse
-	// every file rather than the oversize ones.
-	assert.EqualValues(t, resource.MaxUploadBytes, registrationMaxBytes(nil))
+	assert.Less(t, int64(tableregister.DefaultMaxBytes), int64(resource.MaxUploadBytes),
+		"the default registration read is smaller than the default upload")
+	assert.EqualValues(t, tableregister.DefaultMaxBytes, registrationMaxBytes(nil),
+		"a nil config cannot make a registration read by zero")
 }
 
 // TestTableAdminConfig: the listing is always offered; the reconcile only

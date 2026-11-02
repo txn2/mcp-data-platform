@@ -31,6 +31,10 @@ export type RendererKind =
   | "svg"
   | "graphviz"
   | "vegalite"
+  | "d2"
+  | "excalidraw"
+  | "lottie"
+  | "dotlottie"
   | "code"
   | "text"
   | "binary";
@@ -153,6 +157,13 @@ const REGISTRY: Record<string, RendererEntry> = {
   // toggle away in the editor.
   [CT.graphviz]: { kind: "graphviz", editable: true, source: "inline", inlineLimit: TEXT_INLINE_LIMIT },
   [CT.vegalite]: { kind: "vegalite", editable: true, source: "inline", language: "json", inlineLimit: TEXT_INLINE_LIMIT },
+  // Drawn by the platform (#2302): the drawing is read from the content route.
+  [CT.d2]: { kind: "d2", editable: true, source: "inline", inlineLimit: TEXT_INLINE_LIMIT },
+  // Drawn and edited in the portal (#2306).
+  [CT.excalidraw]: { kind: "excalidraw", editable: true, source: "inline", language: "json", inlineLimit: TEXT_INLINE_LIMIT },
+  // Played (#2308): JSON in hand, or an uploaded archive read from its URL.
+  [CT.lottie]: { kind: "lottie", editable: true, source: "inline", language: "json", inlineLimit: TEXT_INLINE_LIMIT },
+  [CT.dotlottie]: { kind: "dotlottie", editable: false, source: "url", inlineLimit: null },
   [CT.xml]: XML_ENTRY,
   [CT.yaml]: { kind: "code", editable: true, source: "inline", language: "yaml", inlineLimit: TEXT_INLINE_LIMIT },
   [CT.sql]: { kind: "code", editable: true, source: "inline", language: "sql", inlineLimit: TEXT_INLINE_LIMIT },
@@ -301,6 +312,10 @@ export function familyLabel(contentType: string): string {
     [CT.svg]: "SVG",
     [CT.graphviz]: "Graphviz graph",
     [CT.vegalite]: "Vega-Lite chart",
+    [CT.d2]: "D2 diagram",
+    [CT.excalidraw]: "Excalidraw scene",
+    [CT.lottie]: "Lottie animation",
+    [CT.dotlottie]: "dotLottie animation",
     [CT.pdf]: "PDF",
     [CT.parquet]: "Parquet",
     // No viewer draws a workbook: it opens on the download card (#1849).

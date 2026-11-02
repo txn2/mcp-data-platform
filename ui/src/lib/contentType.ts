@@ -32,6 +32,10 @@ export const CT = {
   parquet: "application/vnd.apache.parquet",
   graphviz: "text/vnd.graphviz",
   vegalite: "application/vnd.vegalite+json",
+  d2: "text/vnd.d2",
+  excalidraw: "application/vnd.excalidraw+json",
+  lottie: "application/vnd.lottie+json",
+  dotlottie: "application/zip+dotlottie",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   octet: "application/octet-stream",
 } as const;
@@ -85,6 +89,12 @@ const ALIASES: Record<string, string> = {
   "application/x-graphviz": CT.graphviz,
   "application/x-vegalite+json": CT.vegalite,
   "application/vnd.vega-lite+json": CT.vegalite,
+  "text/x-d2": CT.d2,
+  "application/x-excalidraw+json": CT.excalidraw,
+  "application/x-lottie+json": CT.lottie,
+  "application/lottie+json": CT.lottie,
+  "application/x-dotlottie": CT.dotlottie,
+  "application/dotlottie": CT.dotlottie,
 };
 
 const ACTIVE = new Set<string>([CT.html, CT.jsx, CT.svg, CT.javascript]);
@@ -119,7 +129,7 @@ export function isGenericType(ct: string): boolean {
 export function isTextualType(ct: string): boolean {
   const n = normalizeContentType(ct);
   if (n.startsWith("text/")) return true;
-  const structured: string[] = [CT.json, CT.ndjson, CT.xml, CT.yaml, CT.svg, CT.javascript, CT.sql, CT.vegalite];
+  const structured: string[] = [CT.json, CT.ndjson, CT.xml, CT.yaml, CT.svg, CT.javascript, CT.sql, CT.vegalite, CT.excalidraw, CT.lottie];
   return structured.includes(n);
 }
 
@@ -146,6 +156,9 @@ const BY_EXTENSION: Record<string, string> = {
   jsx: CT.jsx,
   svg: CT.svg,
   dot: CT.graphviz,
+  d2: CT.d2,
+  excalidraw: CT.excalidraw,
+  lottie: CT.dotlottie,
   pdf: CT.pdf,
   parquet: CT.parquet,
   xlsx: CT.xlsx,

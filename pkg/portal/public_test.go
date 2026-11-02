@@ -549,7 +549,7 @@ func TestPublicViewDarkModeToggle(t *testing.T) {
 // --- publicCSP ---
 
 func TestPublicCSPUnified(t *testing.T) {
-	csp := publicviewer.AssetCSP()
+	csp := publicviewer.AssetCSP(nil)
 	assert.Contains(t, csp, "default-src 'none'")
 	assert.Contains(t, csp, "frame-src blob:")
 	assert.Contains(t, csp, "script-src")
@@ -1255,7 +1255,7 @@ func TestPublicCollectionItemView(t *testing.T) {
 }
 
 func TestPublicCollectionCSP(t *testing.T) {
-	csp := publicviewer.CollectionCSP()
+	csp := publicviewer.CollectionCSP(nil)
 	assert.Contains(t, csp, "default-src 'none'")
 	assert.Contains(t, csp, "frame-src 'self'")
 	assert.Contains(t, csp, "script-src")
@@ -1268,7 +1268,7 @@ func TestPublicCollectionCSP(t *testing.T) {
 	assert.Contains(t, csp, "connect-src")
 
 	// Regular public CSP should NOT contain 'self' in frame-src
-	regularCSP := publicviewer.AssetCSP()
+	regularCSP := publicviewer.AssetCSP(nil)
 	assert.NotContains(t, regularCSP, "frame-src 'self'")
 }
 

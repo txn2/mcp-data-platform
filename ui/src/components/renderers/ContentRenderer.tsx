@@ -31,6 +31,10 @@ const CsvRenderer = lazy(() => import("./CsvRenderer").then((m) => ({ default: m
 // Each its own chunk: Graphviz carries its WebAssembly build, Vega its runtime.
 const GraphvizRenderer = lazy(() => import("./GraphvizRenderer").then((m) => ({ default: m.GraphvizRenderer })));
 const VegaLiteRenderer = lazy(() => import("./VegaLiteRenderer").then((m) => ({ default: m.VegaLiteRenderer })));
+// The drawn sources of #2302, #2306 and #2308, each its own chunk.
+const D2Renderer = lazy(() => import("./D2Renderer").then((m) => ({ default: m.D2Renderer })));
+const ExcalidrawRenderer = lazy(() => import("./ExcalidrawRenderer").then((m) => ({ default: m.ExcalidrawRenderer })));
+const LottieRenderer = lazy(() => import("./LottieRenderer").then((m) => ({ default: m.LottieRenderer })));
 
 interface Props {
   contentType: string;
@@ -48,6 +52,11 @@ interface Props {
    * (#1769); the other families carry no controls.
    */
   controlsSlot?: HTMLElement | null;
+  /**
+   * An editor's change to a family edited in place, an Excalidraw scene
+   * (#2306). Absent, the family is drawn read-only.
+   */
+  onEdit?: (text: string) => void;
 }
 
 const Loading = () => (
@@ -62,7 +71,7 @@ const Loading = () => (
  * generic type before the server settled types at write time still reaches the
  * right viewer.
  */
-export function ContentRenderer({ contentType, content, fileName, contentUrl, sizeBytes, controlsSlot }: Props) {
+export function ContentRenderer({ contentType, content, fileName, contentUrl, sizeBytes, controlsSlot, onEdit }: Props) {
   // Resolution scans a prefix of the content when the declared type is
   // generic, so it is memoized rather than repeated on every parent re-render.
   const entry = useMemo(
@@ -77,7 +86,13 @@ export function ContentRenderer({ contentType, content, fileName, contentUrl, si
   if (entry.source === "url") {
     return renderFromURL(entry, { fileName, contentUrl, sizeBytes });
   }
-  return renderFromText(entry, content ?? "", fileName, controlsSlot, download ? pdfURLFor(contentUrl) : undefined);
+  return renderFromText(entry, content ?? "", {
+    fileName,
+    controlsSlot,
+    pdfUrl: download ? pdfURLFor(contentUrl) : undefined,
+    contentUrl,
+    onEdit,
+  });
 }
 
 interface URLProps {
@@ -109,6 +124,7 @@ function renderFromURL(entry: Resolution, { fileName, contentUrl, sizeBytes }: U
     video: <VideoRenderer {...common} contentType={entry.contentType} />,
     pdf: <PdfRenderer {...common} />,
     parquet: <ParquetRenderer {...common} />,
+    dotlottie: <LottieRenderer contentUrl={contentUrl} />,
   };
 
   return <Suspense fallback={<Loading />}>{media[entry.kind] ?? card}</Suspense>;
@@ -121,6 +137,10 @@ interface TextViewProps {
   fileName?: string;
   controlsSlot?: HTMLElement | null;
   pdfUrl?: string;
+  /** The stored document's route, which a D2 drawing is read from. */
+  contentUrl?: string;
+  /** An editor's change to a scene edited in place (#2306). */
+  onEdit?: (text: string) => void;
 }
 
 /** The viewer each family that renders from text already in hand is drawn by. */
@@ -134,20 +154,17 @@ const TEXT_VIEWERS: Partial<Record<Resolution["kind"], (p: TextViewProps) => Rea
   markdown: ({ text }) => <MarkdownRenderer content={text} />,
   graphviz: ({ text }) => <GraphvizRenderer content={text} />,
   vegalite: ({ text }) => <VegaLiteRenderer content={text} />,
+  d2: ({ text, contentUrl }) => <D2Renderer content={text} contentUrl={contentUrl} />,
+  excalidraw: ({ text, onEdit }) => <ExcalidrawRenderer content={text} onEdit={onEdit} />,
+  lottie: ({ text }) => <LottieRenderer content={text} />,
   html: ({ text, controlsSlot, pdfUrl }) => <HtmlRenderer content={text} controlsSlot={controlsSlot} pdfUrl={pdfUrl} />,
 };
 
 /** The families that render from text already in hand. */
-function renderFromText(
-  entry: Resolution,
-  text: string,
-  fileName?: string,
-  controlsSlot?: HTMLElement | null,
-  pdfUrl?: string,
-): ReactNode {
+function renderFromText(entry: Resolution, text: string, opts: Omit<TextViewProps, "entry" | "text">): ReactNode {
   const view = TEXT_VIEWERS[entry.kind];
   if (view) {
-    return <Suspense fallback={<Loading />}>{view({ entry, text, fileName, controlsSlot, pdfUrl })}</Suspense>;
+    return <Suspense fallback={<Loading />}>{view({ entry, text, ...opts })}</Suspense>;
   }
   return (
     <pre

@@ -51,6 +51,10 @@ export const CAPTURE_BY_RENDERER_KIND: Record<RendererKind, KindCapture> = {
   // A drawn source's tile is the drawing, by the viewer's own renderer.
   graphviz: "diagram",
   vegalite: "diagram",
+  d2: "diagram",
+  excalidraw: "diagram",
+  lottie: "diagram",
+  dotlottie: "diagram",
   markdown: "markdown",
   json: "json",
   ndjson: "json",
@@ -170,6 +174,12 @@ const CAPTURABLE_TYPES: CapturableType[] = [
   // otherwise draw them as their source (#2296, #2303).
   { type: "text/vnd.graphviz", family: "diagram" },
   { type: "application/vnd.vegalite+json", family: "diagram" },
+  // The platform renders a D2 source to SVG before the tile page sees it
+  // (thumbworker.drawnSource), so a D2 tile arrives as an SVG (#2302).
+  { type: "text/vnd.d2", family: "diagram" },
+  { type: "application/vnd.excalidraw+json", family: "diagram" },
+  { type: "application/vnd.lottie+json", family: "diagram" },
+  { type: "application/zip+dotlottie", family: "diagram" },
   // Both JSON families, and every vendor dialect by its structured suffix.
   // Which of the two is drawn is a refinement the tile page makes inside the
   // family.

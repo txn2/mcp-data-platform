@@ -23,10 +23,15 @@ Two groups cannot be named that way.
   Detection never promotes content into one of these families from its bytes,
   deliberately, so that a mislabeled upload cannot turn itself into
   script-bearing content. They are stored only where an author declared them.
-- **Unstructured text**: Markdown, plain text, SQL, Python, CSS, and a Graphviz
-  DOT source. Nothing in the bytes tells them apart.
-- **A Vega-Lite spec** is JSON, and detection names it JSON: stored that way it
-  opens as a JSON tree, not a chart. Declare `application/vnd.vegalite+json`.
+- **Unstructured text**: Markdown, plain text, SQL, Python, CSS, a Graphviz
+  DOT source and a D2 source. Nothing in the bytes tells them apart, though an
+  upload named `.dot` or `.d2` is named by its extension.
+- **A Vega-Lite spec and an Excalidraw scene** are JSON, and detection names
+  them JSON: stored that way they open as a JSON tree, not a chart or a
+  drawing. Declare `application/vnd.vegalite+json` or
+  `application/vnd.excalidraw+json`. A Lottie animation uploaded as JSON is
+  recognized by its top-level keys, and a zip uploaded under a `.lottie` name
+  as a dotLottie archive.
 
 Both groups land on `text/plain` when nothing is declared. Raw content is
 served with `X-Content-Type-Options: nosniff`, so `text/plain` is final: a
@@ -65,12 +70,25 @@ in the first place. Aliases normalize, so declaring `text/xml` stores
 `application/xml`; membership is exact, so an invented `text/x-*` type is
 refused rather than admitted by a wildcard.
 
-Two of them are drawn rather than shown as text, and are checked before they
-are stored: a Graphviz source (`text/vnd.graphviz`) must parse, and a refusal
-names the line and column; a Vega-Lite spec (`application/vnd.vegalite+json`)
-must describe a view, and loads data only from inline values or a declared
-reference (`mcp://...` or `mcp:asset:...`), never from another URL. A spec may
-be sent to `save_asset` as the JSON object itself rather than a string.
+Five of them are drawn rather than shown as text, and are checked before they
+are stored:
+
+- a Graphviz source (`text/vnd.graphviz`) must parse, and a refusal names the
+  line and column;
+- a Vega-Lite spec (`application/vnd.vegalite+json`) must describe a view, and
+  loads data only from inline values or a declared reference (`mcp://...` or
+  `mcp:asset:...`), never from another URL;
+- a D2 diagram (`text/vnd.d2`) must compile, may not import another file, and
+  names an icon or image only as a managed resource by its `mcp://` URI or an
+  inline `data:image/` URI; the platform renders it, laid out automatically;
+- an Excalidraw scene (`application/vnd.excalidraw+json`) carries its images in
+  its `files` as `data:image/` URLs, links only to a reference, and frames no
+  web page; a person with edit access keeps working on it in the portal;
+- a Lottie animation (`application/vnd.lottie+json`) carries no expressions and
+  embeds its images; bake expressions into keyframes before saving.
+
+A JSON one (a spec, a scene, an animation) may be sent to `save_asset` as the
+JSON object itself rather than a string.
 
 `manage_resource` takes these declarations in `content` too, and is not limited
 to them: the resource library keeps a denylist rather than a list of accepted

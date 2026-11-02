@@ -11,6 +11,8 @@ package publicviewer
 import (
 	"embed"
 	"html/template"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/embedhosts"
 )
 
 //go:embed templates/public_viewer.html templates/public_collection_viewer.html
@@ -87,7 +89,10 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 //     script, and on a plaintext deployment `https:` covers neither.
 //   - media-src and object-src 'self' — audio and video stream from the
 //     same-origin raw content endpoint, and PDFs render through an <object>
-//     pointed at it (ui/src/components/renderers/MediaRenderer.tsx).
+//     pointed at it (ui/src/components/renderers/MediaRenderer.tsx). media-src
+//     and frame-src also take the deployment's embed hosts (#2069,
+//     internal/portal/embedhosts): the video players and CDNs an HTML asset
+//     may frame or play from, and nothing else.
 //   - connect-src https: — no viewer path issues a request this directive
 //     governs; the page hands content URLs to elements instead. It is here
 //     for artifacts that call an API. 'self' rides along for the page's own
@@ -106,23 +111,37 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 // evaluates source at runtime.
 //
 //nolint:lll // CSP directives are necessarily long
-const baseCSP = "default-src 'none'; " +
-	"script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https:; " +
-	"style-src 'self' 'unsafe-inline' https:; " +
-	"img-src * data: blob:; " +
-	"media-src 'self' blob: data:; " +
-	"object-src 'self'; " +
-	"font-src * data:; " +
-	"connect-src 'self' https:;"
+func baseCSP(embeds string) string {
+	return "default-src 'none'; " +
+		"script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https:; " +
+		"style-src 'self' 'unsafe-inline' https:; " +
+		"img-src * data: blob:; " +
+		"media-src 'self' blob: data:" + embeds + "; " +
+		"object-src 'self'; " +
+		"font-src * data:; " +
+		"connect-src 'self' https:;"
+}
 
-// AssetCSP returns the Content-Security-Policy for the single-asset viewer.
-func AssetCSP() string {
-	return "frame-src blob: data: 'self'; " + baseCSP
+// embedSources renders the embed hosts as sources to append to a directive,
+// each re-checked by embedhosts so nothing else reaches the header.
+func embedSources(hosts []string) string {
+	if s := embedhosts.Sources(hosts); s != "" {
+		return " " + s
+	}
+	return ""
+}
+
+// AssetCSP returns the Content-Security-Policy for the single-asset viewer,
+// with the deployment's embed hosts.
+func AssetCSP(hosts []string) string {
+	embeds := embedSources(hosts)
+	return "frame-src blob: data: 'self'" + embeds + "; " + baseCSP(embeds)
 }
 
 // CollectionCSP returns the Content-Security-Policy for the collection viewer.
 // It adds 'self' to frame-src so the per-item asset viewer iframe, served from
 // the same origin, can load.
-func CollectionCSP() string {
-	return "frame-src 'self' blob: data:; " + baseCSP
+func CollectionCSP(hosts []string) string {
+	embeds := embedSources(hosts)
+	return "frame-src 'self' blob: data:" + embeds + "; " + baseCSP(embeds)
 }

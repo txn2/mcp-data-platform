@@ -433,6 +433,8 @@ tuning:
 #   max_versions: 100                                          # versions an asset keeps by default (default: 100; 0 keeps every version).
 #                                                              # A version past the cap is deleted with its stored content and thumbnails;
 #                                                              # the current version is never pruned. Any asset can override it.
+#   embeds:                                                    # https hosts an HTML asset may frame and play media from (#2069).
+#     hosts: [fast.wistia.net, fast.wistia.com, www.youtube-nocookie.com, www.youtube.com, player.vimeo.com]  # the default; [] turns embeds off
 #   implementor:                                               # optional implementor brand (far-left header zone)
 #     name: "ACME Corp"
 #     logo: "https://acme.com/logo.png"                        # any image format; linked by the viewer and share pages
@@ -500,11 +502,14 @@ tuning:
 #     # live content is never pruned. Below 2 is raised to 2.
 #     max_versions: 10          # default: 10
 #     # Largest file the upload and replace-content routes accept. Absent, zero
-#     # or negative keeps the 100 MB default. The number is resident heap for
-#     # the life of the request, per concurrent upload: the object is read into
-#     # one buffer and handed to blob storage as one, so size the container for
-#     # the ceiling times the uploads you expect at once before raising it.
-#     max_upload_bytes: 104857600   # default: 104857600 (100 MB)
+#     # or negative keeps the 1 GiB default. Uploads stream to storage and
+#     # downloads are read by range, so raising it raises what is stored, not
+#     # what is held in memory.
+#     max_upload_bytes: 1073741824   # default: 1073741824 (1 GiB)
+#     # Largest CSV or JSON-lines file a table registration reads, which it
+#     # holds in memory. Default: max_upload_bytes when set, else 100 MB.
+#     # Parquet registers at any size.
+#     table_registration_max_bytes: 104857600
 #   # How search indexes a resource whose writer did not say (#2111): full
 #   # (details and contents), metadata (details only) or none (found through
 #   # its folder). The first matching rule with index decides; max caps what a

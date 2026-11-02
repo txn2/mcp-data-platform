@@ -3,6 +3,7 @@ import Papa from "papaparse";
 import DOMPurify from "dompurify";
 import mermaid from "mermaid";
 import { buildJsxThumbnailHtml, injectCaptureScript } from "@/lib/thumbnail";
+import { withVideoCards } from "@/lib/videoCards";
 import { THUMB_HEIGHT, THUMB_WIDTH, captureFamily } from "@/lib/thumbnailSupport";
 import { CT, normalizeContentType } from "@/lib/contentType";
 import { resolveRenderer } from "@/components/renderers/registry";
@@ -19,6 +20,12 @@ const GraphvizRenderer = lazy(() =>
 );
 const VegaLiteRenderer = lazy(() =>
   import("@/components/renderers/VegaLiteRenderer").then((m) => ({ default: m.VegaLiteRenderer })),
+);
+const ExcalidrawRenderer = lazy(() =>
+  import("@/components/renderers/ExcalidrawRenderer").then((m) => ({ default: m.ExcalidrawRenderer })),
+);
+const LottieRenderer = lazy(() =>
+  import("@/components/renderers/LottieRenderer").then((m) => ({ default: m.LottieRenderer })),
 );
 
 /**
@@ -111,7 +118,7 @@ function DocumentTile({ data, onDrawn }: { data: TileData; onDrawn: OnDrawn }) {
   const content = data.content ?? "";
   const isJsx = data.contentType.toLowerCase().includes("jsx");
   const doc = useMemo(
-    () => (isJsx ? buildJsxThumbnailHtml(content) : injectCaptureScript(content)),
+    () => (isJsx ? buildJsxThumbnailHtml(content) : injectCaptureScript(withVideoCards(content))),
     [content, isJsx],
   );
 
@@ -215,11 +222,7 @@ function DiagramTile({ data, dark, onDrawn }: { data: TileData; dark: boolean; o
       }}
     >
       <Suspense fallback={null}>
-        {normalizeContentType(data.contentType) === CT.vegalite ? (
-          <VegaLiteRenderer content={content} fit dark={dark} onDrawn={drawn} />
-        ) : (
-          <GraphvizRenderer content={content} fit onDrawn={drawn} />
-        )}
+        <DiagramFor data={data} content={content} dark={dark} drawn={drawn} />
       </Suspense>
     </div>
   );
@@ -331,5 +334,21 @@ async function renderMermaidIn(
       // A diagram that does not parse stays a code block, which is what the
       // viewer shows for it too.
     }
+  }
+}
+
+/** The drawing a diagram-family tile shows, by its type (#2296, #2302, #2303, #2306, #2308). */
+function DiagramFor({ data, content, dark, drawn }: { data: TileData; content: string; dark: boolean; drawn: OnDrawn }) {
+  switch (normalizeContentType(data.contentType)) {
+    case CT.vegalite:
+      return <VegaLiteRenderer content={content} fit dark={dark} onDrawn={drawn} />;
+    case CT.excalidraw:
+      return <ExcalidrawRenderer content={content} still dark={dark} onDrawn={drawn} />;
+    case CT.lottie:
+      return <LottieRenderer content={content} still onDrawn={drawn} />;
+    case CT.dotlottie:
+      return <LottieRenderer contentUrl={data.contentURL} still onDrawn={drawn} />;
+    default:
+      return <GraphvizRenderer content={content} fit onDrawn={drawn} />;
   }
 }

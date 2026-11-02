@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/d2render"
+
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
@@ -356,6 +358,7 @@ type Deps struct {
 	// compiled into the page (#1628). Non-positive is reported as
 	// resource.MaxUploadBytes, the same value the write routes apply.
 	ResourceMaxUploadBytes int64
+	EmbedHosts             func(ctx context.Context) []string // hosts an HTML asset may embed (#2069); nil serves the default
 
 	// Producers is the record of what wrote each asset and each managed
 	// resource (#1569), read by the producer routes from the target end. Nil
@@ -741,6 +744,8 @@ type meResponse struct {
 	// or to a channel (#2241): false when their persona withholds it, always
 	// true for an administrator.
 	Sharing bool `json:"sharing" example:"true"`
+	// EmbedHosts: hosts an HTML asset may frame and play media from (#2069), enforced in the asset frame.
+	EmbedHosts []string `json:"embed_hosts" example:"https://fast.wistia.net,https://player.vimeo.com"`
 }
 
 // getMe handles GET /api/v1/portal/me.
@@ -769,6 +774,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		MaxUploadBytes: resource.NormalizeMaxUploadBytes(h.deps.ResourceMaxUploadBytes),
 		Portal:         h.access.Portal(user),
 		Sharing:        h.sharingAllowed(user),
+		EmbedHosts:     h.embedHosts(r),
 	}
 	// Cookie sessions carry a CSRF token the SPA echoes on mutations; API-key
 	// callers are exempt. Issued here since only /me needs it.
@@ -967,6 +973,8 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 // @Tags         Assets
 // @Produce      octet-stream
 // @Param        id  path  string  true  "Asset ID"
+// @Param        render  query  string  false  "svg: answer a D2 source (text/vnd.d2) with the SVG the platform renders from it instead of its text (#2302)"
+// @Param        theme   query  string  false  "dark: with render=svg, the dark drawing"
 // @Success      200  {file}  binary
 // @Failure      401  {object}  problemDetail
 // @Failure      403  {object}  problemDetail
@@ -1017,11 +1025,15 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	served := cmp.Or(contentType, asset.ContentType)
+	body := h.serveRefs(r, id, served, data)
+	if d2render.Serve(w, r, asset.Name, served, body) {
+		return
+	}
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        asset.Name,
 		ContentType: served,
 		ModTime:     asset.UpdatedAt,
-		Data:        h.serveRefs(r, id, served, data),
+		Data:        body,
 		Revalidate:  contenttype.IsTextual(served),
 	})
 }
@@ -1598,6 +1610,8 @@ func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
 // @Produce      octet-stream
 // @Param        id       path  string   true  "Asset ID"
 // @Param        version  path  integer  true  "Version number"
+// @Param        render   query  string  false  "svg: answer a D2 source with the SVG the platform renders from it (#2302)"
+// @Param        theme    query  string  false  "dark: with render=svg, the dark drawing"
 // @Success      200  {file}  binary
 // @Failure      400  {object}  problemDetail
 // @Failure      401  {object}  problemDetail
@@ -1650,6 +1664,9 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.serveVersionRange(w, r, asset.Name, ver) {
+		return
+	}
 	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), ver.S3Bucket, ver.S3Key)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve version content")
@@ -1661,11 +1678,15 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 	// version naming a resource the asset no longer references renders that
 	// image missing, which is the same thing a deleted resource does.
 	served := cmp.Or(contentType, ver.ContentType)
+	body := h.serveRefs(r, id, served, data)
+	if d2render.Serve(w, r, asset.Name, served, body) {
+		return
+	}
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        asset.Name,
 		ContentType: served,
 		ModTime:     ver.CreatedAt,
-		Data:        h.serveRefs(r, id, served, data),
+		Data:        body,
 		Revalidate:  contenttype.IsTextual(served),
 	})
 }

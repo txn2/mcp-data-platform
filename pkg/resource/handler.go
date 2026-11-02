@@ -848,21 +848,21 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A byte range of a stored file is read by range rather than by reading
-	// the whole object: the Parquet viewer reads the footer and then a row
-	// group at a time, which would otherwise pull the file once per request
-	// (#1833).
-	if r.Header.Get("Range") != "" {
-		h.recordRead(r.Context(), res, claims, contentSurface(r), 0)
-		if blobserve.ServeRanged(w, r, blobserve.Options{
-			Name:        res.Filename,
-			ContentType: res.MIMEType,
-			ModTime:     res.UpdatedAt,
-		}, blobserve.Object{
-			Store: h.deps.S3Client, Bucket: h.deps.S3Bucket, Key: res.S3Key, Size: res.SizeBytes,
-		}) {
-			return
-		}
+	// The object is read by range, a block at a time, whether or not the
+	// request names one: the Parquet viewer reads a footer and then a row
+	// group at a time (#1833), a <video> seeks, and a download of a file near
+	// the upload ceiling would otherwise be held whole in memory (#2395). The
+	// read is recorded once, before serving, so the audit row exists whether
+	// or not the client finishes.
+	h.recordRead(r.Context(), res, claims, contentSurface(r), 0)
+	if res.MIMEType != "" && blobserve.ServeRanged(w, r, blobserve.Options{
+		Name:        res.Filename,
+		ContentType: res.MIMEType,
+		ModTime:     res.UpdatedAt,
+	}, blobserve.Object{
+		Store: h.deps.S3Client, Bucket: h.deps.S3Bucket, Key: res.S3Key, Size: res.SizeBytes,
+	}) {
+		return
 	}
 
 	body, contentType, err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, res.S3Key)
@@ -875,12 +875,6 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, msgContentUnavailable)
 		return
 	}
-
-	// Recorded before serving so the audit row exists whether or not the client
-	// finishes the download. The bytes are already in memory at this point, so
-	// the record sits between the object read and the response rather than in
-	// front of the whole request.
-	h.recordRead(r.Context(), res, claims, contentSurface(r), 0)
 
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        res.Filename,

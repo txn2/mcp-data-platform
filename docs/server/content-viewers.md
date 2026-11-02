@@ -119,6 +119,21 @@ the viewer follows no link. A spec's data that is a declared reference is
 served through the same rewrite as any other reference, so replacing the
 resource redraws the chart without a new version of the spec.
 
+A D2 diagram, an Excalidraw scene and a Lottie animation are checked at the
+same doors. A D2 source (`text/vnd.d2`) must compile with D2's own compiler,
+and the refusal names the line; it may not import another file, and any URL in
+it (an icon, a link, an image in a markdown label) must be a managed resource
+by its `mcp://` URI or an inline `data:image/` URI (#2302). An Excalidraw scene
+(`application/vnd.excalidraw+json`) must be an object with `"type":
+"excalidraw"` and an `elements` array; an image in its `files` must be a
+`data:image/` URL, an element's `link` must be an `mcp://` or `mcp:asset:`
+reference, and an element that frames a web page (`embeddable`, `iframe`) is
+refused (#2306). A Lottie animation (`application/vnd.lottie+json`) must carry
+`fr`, `ip`, `op` and `layers`; an expression (a string under an animated
+property's `x`) is refused, since the portal's player has no expression
+support, and so is an image asset or font that names a file outside the
+animation (#2308).
+
 `save_asset` and `manage_asset` take a JSON content type's content as the JSON
 object or array itself as well as a string; it is stored as its JSON text,
 indented, keys in the order sent. An object under a type that is not JSON is
@@ -135,11 +150,15 @@ create), `save_asset`, and `manage_asset action=update` — accept one list:
 `text/tab-separated-values`, `image/svg+xml`, `application/json`,
 `application/x-ndjson`, `application/xml`, `application/yaml`,
 `text/javascript`, `text/css`, `text/x-python`, `application/sql`,
-`text/vnd.graphviz`, `application/vnd.vegalite+json` and
+`text/vnd.graphviz`, `application/vnd.vegalite+json`, `text/vnd.d2`,
+`application/vnd.excalidraw+json`, `application/vnd.lottie+json` and
 `application/octet-stream`. Aliases normalize first, so declaring `text/json` or
 `text/xml` works, and membership is exact: `text/*` is not a wildcard, because
 it would admit every `text/x-*` type a caller cares to invent. A refused write
-names the accepted types rather than failing silently.
+names the accepted types rather than failing silently, and the tool schema
+leaves the list to that refusal: `save_asset`'s `content_type` names a few
+common types and says the refusal lists the rest, so a type added to the
+platform grows the refusal, not every `tools/list`.
 
 The list is textual because these doors are. Content reaches them inside a JSON
 document, so a binary family has no way through in the first place; the list
@@ -199,6 +218,9 @@ content type renders identically wherever it is opened.
 | SVG | `image/svg+xml` | Sanitized inline render | Source editor |
 | Graphviz graph | `text/vnd.graphviz` (`.dot`) | Laid out in the browser by Graphviz compiled to WebAssembly, with the engine the source's `layout=` names (dot by default). The drawing is cleaned before it is placed: links are unwrapped to their content, `<image>`, `<script>` and `<foreignObject>` are removed, and no `href` or `on*` attribute survives, so a node's `URL="javascript:..."` draws as a plain node. Graphviz's default black ink and white page take the reader's scheme; a color the source chose is kept. A share page has a **View DOT** toggle (#2303) | Source editor |
 | Vega-Lite chart | `application/vnd.vegalite+json` (`.vl.json`) | Drawn by Vega with expressions interpreted (`vega-interpreter`, `ast: true`), so the share page's policy needs no `'unsafe-eval'`. Every load goes through one gate: a link is never followed, and data or an image loads only from a declared reference, by its `/portal/refs/` path on the page's own origin; a spec that names anything else draws with a notice naming what was refused. Selections work, the embed's action menu is off, and the chart follows the reader's light or dark scheme. A share page has a **View Spec** toggle (#2296) | Source editor (JSON) |
+| D2 diagram | `text/vnd.d2` (`.d2`) | Rendered to SVG by the platform with D2's Go library and its dagre layout (`internal/d2render`), on request from the content route (`?render=svg`, `&theme=dark` for the dark drawing), bounded by source size, a 10-second timeout and two renders at once, and cached by source. D2's browser build loads its layout engine with `new Function` in a `blob:` worker, which the share page's policy forbids, so the server renders for every surface: the asset page, both kinds of share link, the tile and the PDF. The SVG is cleaned before it is placed: links are unwrapped, nothing that runs survives, a stylesheet or attribute naming an outside address loses it, and an `<image>` stays only when it names the reference route, pointed at the page's own origin. D2's logs are discarded, so a source never reaches the platform's. The drawing is the saved source's; an edit is drawn once saved. A share page has a **View D2** toggle (#2302) | Source editor |
+| Excalidraw scene | `application/vnd.excalidraw+json` (`.excalidraw`) | Drawn in the portal by Excalidraw (`@excalidraw/excalidraw`, lazy-loaded). A reader with edit access edits the scene where it is drawn, and the page's **Save** writes a new version through `PUT /api/v1/portal/assets/{id}/content`, held to the same save check, so history and diff read it like any asset; embedding a web page is refused in the editor. A viewer-only reader and every share see it read-only. The tile is the scene exported to SVG, light and dark. Excalidraw fetches its handwriting fonts from its CDN. A share page has a **View Scene** toggle (#2306) | Edited in place; source editor (JSON) |
+| Lottie animation | `application/vnd.lottie+json` (`.lottie.json`), and a dotLottie archive `application/zip+dotlottie` (`.lottie`, uploaded as a managed resource) | Played by `lottie-web`'s light build, which has no expression support, so no part of an animation is evaluated as script, with play, pause and a frame scrubber. An image is kept only when it is inline (a `data:` URL, or a file inside the archive turned into one); a font path is dropped. A dotLottie archive is unpacked in the browser (`fflate`), refused past 64 MiB expanded. The tile is the last frame. A Lottie JSON upload is detected by its top-level `fr`, `ip`, `op`, `layers` and `v`, and a zip uploaded under a `.lottie` name as a dotLottie archive (#2308) | Source editor (JSON); a dotLottie archive is not editable |
 | Audio | `audio/mpeg`, `audio/wav`, `audio/ogg`, `audio/mp4`, `audio/flac` | Native player with seek | None |
 | Video | `video/mp4`, `video/webm`, `video/ogg` | Native player with seek | None |
 | Parquet | `application/vnd.apache.parquet` | Read by byte range from the content URL, never whole (#1833) -- and the platform answers each of those ranges by reading that range from the store, not the object: a schema panel naming each column's Parquet type, whether it is nullable and the Trino type a registration declares it as (or why a registration refuses it); the file's row count, row groups, size, compression and writer; and the rows of one row group at a time, in the table the CSV viewer draws, with the download beside it | None |
@@ -333,6 +355,20 @@ caller asks the upstream for one), and an upstream that states its own
   that a `text/plain` response is really HTML and run it.
 - **A parsed, parameter-free `Content-Type`**, so a stored value cannot smuggle
   anything into the header.
+- **Binary content is read by range, with or without a `Range` header** (#2395):
+  the resource, asset, version, signed-URL, public share and reference routes
+  read a block at a time from object storage, so a `<video>` seeking through a
+  referenced clip and a download of a file near the upload ceiling never hold
+  the object in memory. Before any header is written, one ranged read learns
+  the object's size from the store (the first block for a whole-object `GET`,
+  one byte for a ranged `GET` or a `HEAD`), so a missing object still answers
+  through the route's own error path rather than a `200` cut short, and an
+  object replaced in place by a writer that never touched its record is served
+  whole at the size the store reports. A streamed response carries a strong
+  `ETag` over the object's bucket, key, size and modification time, and a
+  conditional `GET` answers `304`. Textual content, which the serving rewrite
+  derives from the stored bytes, is still read whole and keeps its `ETag` over
+  the served body.
 - **`Content-Disposition: attachment` for scriptable document types** (HTML,
   XHTML, JSX, SVG, JavaScript, XML and any `+xml` dialect), which never render
   inline on the platform's own origin, and `inline` for the passive families a
@@ -477,6 +513,33 @@ font-src * data:; connect-src 'self' https:;
 
 plus `frame-src blob: data: 'self'` for a single asset, or `frame-src 'self'
 blob: data:` for a collection, whose items open in a same-origin iframe.
+
+`frame-src` and `media-src` also carry the deployment's embed hosts (#2069):
+the https video players and media hosts an HTML asset or slide deck may frame
+or play from. The list is `portal.embeds.hosts` in the configuration file
+(unset, the Wistia player and the YouTube and Vimeo hosts; empty, embeds off),
+replaced by an administrator's list under **Admin > Settings > Embed hosts**
+(`GET`/`PUT /api/v1/admin/settings/embed-hosts`, read again by each replica
+within fifteen seconds). Each entry is held to a policy host source (https, a
+host or a leading `*.` label, an optional port) and anything else is refused
+naming the entry, so the list cannot end a directive or widen the policy. The
+portal's asset frame enforces the same list: the document is framed with a
+`<meta>` policy limiting `frame-src` and `media-src` to the page's own origin
+and the list, reported to the browser on `GET /api/v1/portal/me` as
+`embed_hosts`, so an embed that plays in the portal plays on a share link and
+one off the list is blocked on both.
+
+The frame's sandbox (`allow-scripts allow-downloads`, no `allow-same-origin`)
+carries into every frame the asset opens. Checked in Chrome: the Wistia player
+and a `<video>` from a CDN play there; the YouTube and Vimeo players do not run
+in an opaque origin (a black frame, a placeholder without controls). A YouTube
+or Vimeo player iframe is therefore drawn as a card, the video's poster where
+the provider serves one at a fixed address, whose button asks the viewer page
+to open the video on the provider's site in a new tab. The page acts only on a
+message from that asset's own frame and rebuilds the address from the video id,
+so an asset can open a YouTube or Vimeo video and nothing else, and the frame
+gains no sandbox token. The tile draws the same card. Inline YouTube and Vimeo
+play needs the asset framed from an origin of its own (#2396).
 
 - `script-src 'unsafe-inline'` is required by both documents: the page's theme,
   expiry and modal handlers are inline, and a stored HTML asset's own

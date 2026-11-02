@@ -26,7 +26,7 @@ import { libraryCopy, targetKey, uploadTargets, withheldUploadPersonas, type Sco
 // routes apply when a deployment configures none (#1628). The deployment's own
 // ceiling arrives on /api/v1/portal/me and is what the dialog states and
 // enforces whenever it is there.
-const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
+const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024;
 
 interface UploadDraft {
   file: File | null;

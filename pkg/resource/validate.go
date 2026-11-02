@@ -21,8 +21,10 @@ const (
 	// as Deps.MaxUploadBytes (#1628). It bounds bytes streamed rather than
 	// bytes held: the upload path carries the file from the request into the
 	// multipart uploader without assembling it (#1631), so raising it raises
-	// what a deployment will store, not what it has to fit in memory.
-	MaxUploadBytes     = 100 << 20 // 100 MB
+	// what a deployment will store, not what it has to fit in memory. Every
+	// content download streams by range too (#2395), so 1 GiB stores a video
+	// without configuration (#2069).
+	MaxUploadBytes     = 1 << 30 // 1 GiB
 	MaxDescriptionLen  = 2000
 	MaxDisplayNameLen  = 200
 	MaxTagsPerResource = 20

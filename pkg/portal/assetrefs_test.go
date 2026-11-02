@@ -706,7 +706,8 @@ func TestPublicContentRevalidates(t *testing.T) {
 }
 
 // TestBinaryContentKeepsTheDefaultCache: a binary body is never rewritten, so
-// it is not revalidated either, and a seek through a video does not hash it.
+// it is not revalidated either, and a seek through a video does not hash it:
+// its ETag names the stored object (#2395), not the bytes.
 func TestBinaryContentKeepsTheDefaultCache(t *testing.T) {
 	f := newRefFixture(t, &User{UserID: "u1"}, true)
 	f.asset.ContentType = "video/mp4"
@@ -716,7 +717,7 @@ func TestBinaryContentKeepsTheDefaultCache(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "private", rec.Header().Get("Cache-Control"))
-	assert.Empty(t, rec.Header().Get("ETag"))
+	assert.True(t, strings.HasPrefix(rec.Header().Get("ETag"), `"o-`), "an object tag, not a hash of the body: %q", rec.Header().Get("ETag"))
 }
 
 // #2177, #2331: an asset embedding a form is served to a signed-in reader with

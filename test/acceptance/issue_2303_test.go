@@ -67,6 +67,12 @@ type drawnCase struct {
 	LeavesShareARow *bool           `json:"leavesShareARow,omitempty"`
 	Marks           *drawnMarks     `json:"marks,omitempty"`
 	Selection       *drawnSelection `json:"selection,omitempty"`
+	// The checks the drawn sources of #2302, #2306 and #2308 add.
+	EditorForOwnerOnly bool   `json:"editorForOwnerOnly,omitempty"`
+	ViewerShare        string `json:"viewerShare,omitempty"`
+	DrawAndSave        bool   `json:"drawAndSave,omitempty"`
+	Playback           bool   `json:"playback,omitempty"`
+	Page               string `json:"page,omitempty"`
 }
 
 type drawnMarks struct {
@@ -91,7 +97,8 @@ func runDrawnSuite(t *testing.T, cases []drawnCase) {
 	cmd := exec.Command("npx", "playwright", "test", "--config", "e2e/drawn-sources/playwright.config.ts")
 	cmd.Dir = filepath.Join(root, "ui")
 	cmd.Env = append(os.Environ(), "DRAWN_BASE_URL="+baseURL(), "DRAWN_CASES="+string(raw),
-		"DRAWN_SIGN_IN_EMAIL="+issue2373SignInEmail, "DRAWN_SIGN_IN_PASSWORD="+issue2373SignInPassword)
+		"DRAWN_SIGN_IN_EMAIL="+issue2373SignInEmail, "DRAWN_SIGN_IN_PASSWORD="+issue2373SignInPassword,
+		"DRAWN_READER_EMAIL=analyst@example.com", "DRAWN_READER_PASSWORD=analyst-password")
 	out, err := cmd.CombinedOutput()
 	t.Logf("playwright:\n%s", out)
 	if err != nil {

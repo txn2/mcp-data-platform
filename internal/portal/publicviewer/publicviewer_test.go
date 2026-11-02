@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
@@ -29,7 +30,7 @@ var requiredDirectives = []string{
 func TestAssetCSP(t *testing.T) {
 	t.Parallel()
 
-	csp := publicviewer.AssetCSP()
+	csp := publicviewer.AssetCSP(nil)
 	for _, directive := range requiredDirectives {
 		require.Containsf(t, csp, directive, "asset CSP is missing %q", directive)
 	}
@@ -39,7 +40,7 @@ func TestAssetCSP(t *testing.T) {
 func TestCollectionCSP(t *testing.T) {
 	t.Parallel()
 
-	csp := publicviewer.CollectionCSP()
+	csp := publicviewer.CollectionCSP(nil)
 	for _, directive := range requiredDirectives {
 		require.Containsf(t, csp, directive, "collection CSP is missing %q", directive)
 	}
@@ -73,8 +74,8 @@ func TestActiveDirectivesDenyPlaintextAndEval(t *testing.T) {
 	t.Parallel()
 
 	for name, csp := range map[string]string{
-		"asset":      publicviewer.AssetCSP(),
-		"collection": publicviewer.CollectionCSP(),
+		"asset":      publicviewer.AssetCSP(nil),
+		"collection": publicviewer.CollectionCSP(nil),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -116,7 +117,7 @@ func TestCSPsShareOneBase(t *testing.T) {
 		}
 		return out
 	}
-	require.Equal(t, strip(publicviewer.AssetCSP()), strip(publicviewer.CollectionCSP()))
+	require.Equal(t, strip(publicviewer.AssetCSP(nil)), strip(publicviewer.CollectionCSP(nil)))
 }
 
 func TestTemplatesParse(t *testing.T) {
@@ -146,4 +147,42 @@ func TestDefaultLogoIsSelfContainedSVG(t *testing.T) {
 	body := strings.ReplaceAll(logo, "http://www.w3.org/2000/svg", "")
 	require.NotContains(t, body, "http://")
 	require.NotContains(t, body, "https://")
+}
+
+// TestCSPCarriesTheEmbedHosts is #2069 on the share viewer: the embed hosts are
+// sources of frame-src and media-src and of nothing else, and an empty list
+// leaves both at the platform's own origin.
+func TestCSPCarriesTheEmbedHosts(t *testing.T) {
+	t.Parallel()
+	hosts := []string{"https://fast.wistia.net", "cdn.example.com"}
+	for name, csp := range map[string]string{
+		"asset":      publicviewer.AssetCSP(hosts),
+		"collection": publicviewer.CollectionCSP(hosts),
+	} {
+		d := directives(csp)
+		for _, dir := range []string{"frame-src", "media-src"} {
+			assert.Contains(t, d[dir], "https://fast.wistia.net", "%s %s", name, dir)
+			assert.Contains(t, d[dir], "https://cdn.example.com", "%s %s, a bare host gains https", name, dir)
+		}
+		for dir, sources := range d {
+			if dir == "frame-src" || dir == "media-src" {
+				continue
+			}
+			assert.NotContains(t, sources, "https://fast.wistia.net", "%s %s widened", name, dir)
+		}
+	}
+	off := directives(publicviewer.AssetCSP([]string{}))
+	assert.Equal(t, []string{"blob:", "data:", "'self'"}, off["frame-src"])
+	assert.Equal(t, []string{"'self'", "blob:", "data:"}, off["media-src"])
+}
+
+// TestCSPRefusesAHostThatWouldInjectADirective: a value that never passed
+// through the admin route's check still cannot end a directive in the header.
+func TestCSPRefusesAHostThatWouldInjectADirective(t *testing.T) {
+	t.Parallel()
+	csp := publicviewer.AssetCSP([]string{"https://ok.example.com", "evil.example.com; script-src *"})
+	assert.NotContains(t, csp, "script-src *")
+	assert.NotContains(t, csp, "evil.example.com")
+	assert.Equal(t, []string{"blob:", "data:", "'self'"}, directives(csp)["frame-src"],
+		"an invalid list adds nothing rather than part of itself")
 }

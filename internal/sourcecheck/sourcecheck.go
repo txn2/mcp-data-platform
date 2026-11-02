@@ -1,5 +1,7 @@
 // Package sourcecheck holds the checks a drawn source passes before it is
-// stored: a Graphviz DOT source (#2303) and a Vega-Lite specification (#2296).
+// stored: a Graphviz DOT source (#2303), a Vega-Lite specification (#2296), a
+// D2 diagram (#2302), an Excalidraw scene (#2306) and a Lottie animation
+// (#2308).
 //
 // The portal draws each in the reader's browser, so the source decides what
 // that browser does. A DOT source that does not parse would store an asset
@@ -44,6 +46,12 @@ func Check(contentType, body string) error {
 		return checkDOT(body)
 	case contenttype.VegaLite:
 		return checkVegaLite(body)
+	case contenttype.D2:
+		return checkD2(body)
+	case contenttype.Excalidraw:
+		return checkExcalidraw(body)
+	case contenttype.LottieJSON:
+		return checkLottie(body)
 	default:
 		return nil
 	}

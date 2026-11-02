@@ -1257,6 +1257,14 @@ function serveResourceTile(
   return svg ? new HttpResponse(svg, { headers: { "Content-Type": "image/svg+xml" } }) : null;
 }
 
+const mockEmbedHosts = [
+  "https://fast.wistia.net",
+  "https://fast.wistia.com",
+  "https://www.youtube-nocookie.com",
+  "https://www.youtube.com",
+  "https://player.vimeo.com",
+];
+
 export const handlers = [
   // Persona effective access and file shares (#2257, #2258). First, because
   // /api/v1/resources/shared-with-me would otherwise be read as a resource id.
@@ -1318,7 +1326,8 @@ export const handlers = [
       csrf_token: "mock-csrf-token",
       // What this deployment accepts for a resource upload (#1628). The stock
       // default, which is what a deployment that configures no ceiling has.
-      max_upload_bytes: 104857600,
+      max_upload_bytes: 1073741824,
+      embed_hosts: mockEmbedHosts,
       automations: true,
     }),
   ),
@@ -2958,6 +2967,14 @@ export const handlers = [
   }),
 
   // Admin > Settings > Access requests (#2090).
+  // Embed hosts (#2069).
+  http.get(`${ADMIN_BASE}/settings/embed-hosts`, () =>
+    HttpResponse.json({ hosts: mockEmbedHosts, configured: mockEmbedHosts }),
+  ),
+  http.put(`${ADMIN_BASE}/settings/embed-hosts`, async ({ request }) => {
+    const body = (await request.json()) as { hosts: string[] };
+    return HttpResponse.json({ hosts: body.hosts.map((h) => (h.startsWith("https://") ? h : `https://${h}`)), configured: mockEmbedHosts });
+  }),
   http.get(`${ADMIN_BASE}/settings/access-requests`, () => HttpResponse.json({ reveal_names: false, expire_days: 14 })),
   http.put(`${ADMIN_BASE}/settings/access-requests`, async ({ request }) => HttpResponse.json(await request.json())),
 

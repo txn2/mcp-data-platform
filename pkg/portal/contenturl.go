@@ -134,6 +134,9 @@ func (h *Handler) serveSignedContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "version not found")
 		return
 	}
+	if h.serveVersionRange(w, r, asset.Name, ver) {
+		return
+	}
 	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), ver.S3Bucket, ver.S3Key)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve content")

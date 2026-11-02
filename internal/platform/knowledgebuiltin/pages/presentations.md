@@ -47,7 +47,10 @@ deployment.
 
 A chart, a flow, a mind map or an animation on a slide is drawn with a library
 loaded from a public CDN: mcp:knowledge_page:platform-visual-libraries names
-them, with a skeleton for each and what changes on a slide.
+them, with a skeleton for each and what changes on a slide. A video clip on a
+slide comes from a host on the deployment's embed hosts list or from a clip
+you uploaded; the same page says which embeds play inside a deck and which
+draw as a link.
 
 ## The skeleton
 

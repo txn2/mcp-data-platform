@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { HtmlRenderer } from "./HtmlRenderer";
+import { useAuthStore } from "@/stores/auth";
 
 const DECK = `<!DOCTYPE html><html><head><script src="/portal/vendor/reveal/reveal.js"></script></head><body><div class="reveal"><div class="slides"><section>One</section></div></div></body></html>`;
 const DASHBOARD = `<!DOCTYPE html><html><head><title>Revenue</title></head><body><h1>Revenue</h1></body></html>`;
@@ -31,7 +32,7 @@ describe("HtmlRenderer", () => {
     // allow-downloads lets a download the reader starts go ahead (#2127);
     // there is still no allow-same-origin.
     expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-downloads");
-    expect(frame).toHaveAttribute("allow", "fullscreen");
+    expect(frame).toHaveAttribute("allow", "fullscreen; autoplay; encrypted-media; picture-in-picture");
   });
 
   it("offers no Present control where the browser cannot fullscreen", () => {
@@ -144,5 +145,54 @@ describe("HtmlRenderer", () => {
   it("offers no Export PDF without a PDF route", () => {
     render(<HtmlRenderer content={DECK} />);
     expect(screen.queryByRole("button", { name: /export pdf/i })).toBeNull();
+  });
+});
+
+describe("HtmlRenderer video embeds (#2069)", () => {
+  const PLAYER = `<!DOCTYPE html><html><head></head><body><iframe src="https://www.youtube.com/embed/M7lc1UVf-VE"></iframe></body></html>`;
+
+  afterEach(() => {
+    useAuthStore.setState({ user: null });
+  });
+
+  it("enforces the deployment's embed hosts inside the frame in the portal", () => {
+    useAuthStore.setState({ user: { user_id: "u1", roles: [], is_admin: false, embed_hosts: ["https://fast.wistia.net"] } });
+    const { container } = render(<HtmlRenderer content={DASHBOARD} />);
+    const doc = container.querySelector("iframe")!.getAttribute("srcdoc")!;
+    expect(doc).toContain(
+      `<meta http-equiv="Content-Security-Policy" content="frame-src 'self' blob: data: https://fast.wistia.net; media-src 'self' blob: data: https://fast.wistia.net">`,
+    );
+    expect(doc.indexOf("Content-Security-Policy")).toBeLessThan(doc.indexOf("<title>"));
+  });
+
+  it("adds no policy where no list was given: the share page's header carries it", () => {
+    const { container } = render(<HtmlRenderer content={DASHBOARD} />);
+    expect(container.querySelector("iframe")).toHaveAttribute("srcdoc", DASHBOARD);
+  });
+
+  it("opens a card's video only for a message from its own frame naming a YouTube or Vimeo id", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const { container } = render(<HtmlRenderer content={PLAYER} />);
+    const frame = container.querySelector("iframe")!;
+    expect(frame.getAttribute("srcdoc")).toContain(`data-mcp-video="youtube:M7lc1UVf-VE"`);
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { data: { type: "mcp:open-video", video: "youtube:M7lc1UVf-VE" }, source: window }));
+    });
+    expect(open).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "mcp:open-video", video: "https://evil.example.com" }, source: frame.contentWindow }),
+      );
+    });
+    expect(open).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "mcp:open-video", video: "youtube:M7lc1UVf-VE" }, source: frame.contentWindow }),
+      );
+    });
+    expect(open).toHaveBeenCalledWith("https://www.youtube.com/watch?v=M7lc1UVf-VE", "_blank", "noopener,noreferrer");
   });
 });

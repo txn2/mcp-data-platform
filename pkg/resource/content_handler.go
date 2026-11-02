@@ -455,6 +455,22 @@ func (h *Handler) handleGetVersionContent(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	h.recordRead(r.Context(), res, claims, SurfaceDownload, version)
+	// The served name carries the version: every revision shares the resource's
+	// filename, so downloading two of them would otherwise land two different
+	// files under one name.
+	opts := blobserve.Options{
+		Name:        fmt.Sprintf("v%d-%s", version, res.Filename),
+		ContentType: v.MIMEType,
+		ModTime:     v.CreatedAt,
+	}
+	// Read by range, as the current content is (#2395).
+	if v.MIMEType != "" && blobserve.ServeRanged(w, r, opts, blobserve.Object{
+		Store: h.deps.S3Client, Bucket: h.deps.S3Bucket, Key: v.S3Key, Size: v.SizeBytes,
+	}) {
+		return
+	}
+
 	body, contentType, err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, v.S3Key)
 	if err != nil {
 		slog.Error("resource version content: s3 get failed", msgError, err) //nolint:gosec // structured slog
@@ -465,17 +481,9 @@ func (h *Handler) handleGetVersionContent(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, msgContentUnavailable)
 		return
 	}
-
-	h.recordRead(r.Context(), res, claims, SurfaceDownload, version)
-	// The served name carries the version: every revision shares the resource's
-	// filename, so downloading two of them would otherwise land two different
-	// files under one name.
-	blobserve.Serve(w, r, blobserve.Options{
-		Name:        fmt.Sprintf("v%d-%s", version, res.Filename),
-		ContentType: cmp.Or(contentType, v.MIMEType),
-		ModTime:     v.CreatedAt,
-		Data:        body,
-	})
+	opts.ContentType = cmp.Or(contentType, v.MIMEType)
+	opts.Data = body
+	blobserve.Serve(w, r, opts)
 }
 
 // resolveVersion parses the version path parameter and loads that revision,

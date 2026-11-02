@@ -619,6 +619,10 @@ portal:
   max_versions: 100             # Versions an asset keeps by default (0 = unlimited)
   asset_refs:
     max: 20                     # References one asset may declare (1-100, default 20)
+  embeds:
+    hosts:                      # https hosts an HTML asset may frame and play media from (#2069)
+      - fast.wistia.net
+      - cdn.example.com
   deleted_retention_days: 30    # Days a deleted asset/collection/thread/page is kept before it is purged
   orphaned_producer_retention_days: 90  # Days a producer record outlives its file
   implementor:                                    # Optional implementor brand (left zone of public viewer header)
@@ -666,6 +670,7 @@ portal:
 | `orphaned_producer_retention_days` | int | `90` | How long the record of what produced an asset or managed resource outlives the file itself. `0` uses the default; a negative value keeps them |
 | `max_versions` | int | `100` | Versions an asset keeps when it carries no override of its own. A version pushed past the cap is deleted along with its stored content and thumbnails; the current version is never pruned. `0` keeps every version, and a negative value is refused at startup. Applied at the write, so an asset already over the cap is trimmed the next time it is written, not when this setting changes. An asset's owner can override it — see [Asset version retention](../portal/assets.md#version-retention) |
 | `asset_refs.max` | int | `20` | How many files one asset may reference (managed resources and other assets together). A declaration above it is refused, and the refusal states the number. `save_asset` and `manage_asset` advertise it in `references.maxItems`, so an agent plans its document around this deployment's number. The reference route's per-IP rate limit is `rate_limit` multiplied by this value, so a page declaring the cap's worth loads in one burst. Must be between `1` and `100`; anything else is refused at startup. See [Asset references](asset-references.md) |
+| `embeds.hosts` | list | Wistia (`fast.wistia.net`, `fast.wistia.com`), YouTube (`www.youtube-nocookie.com`, `www.youtube.com`), Vimeo (`player.vimeo.com`) | The https hosts an HTML asset or slide deck may frame (`frame-src`) and play media from (`media-src`), in the portal's asset frame and on share links alike (#2069). An entry is a host such as `player.example.com`, with `https://`, a port or a leading `*.` if it needs one; anything else (another scheme, a path, a bare `*`, punctuation) is refused at startup naming the entry. An empty list turns embeds off. An administrator's list saved under **Admin > Settings > Embed hosts** replaces this one. The Wistia player and a `<video>` from a listed CDN play inside the asset frame; a YouTube or Vimeo embed draws as a link that opens the video in a new tab (#2396). See [Content Types and Viewers](content-viewers.md#the-public-viewers-policy) |
 | `implementor.name` | string | - | Implementor display name shown in the left zone of the public viewer, the public collection viewer, the guest share landing page, and the access-denied page. Independent of `implementor.logo`: either one alone renders the implementor block |
 | `implementor.logo` | string | - | URL to the implementor logo, in any image format. The public viewer and the share pages link it with an `<img>` element; its origin is added to the `img-src` of the pages whose policy would otherwise block it. Renders with or without `implementor.name` |
 | `implementor.url` | string | - | Clickable link wrapping the implementor name and logo |
@@ -1551,7 +1556,8 @@ resources:
     s3_connection: "primary"  # name of the S3 toolkit instance holding the blobs
     s3_bucket: "managed-resources"
     max_versions: 10          # content revisions kept per resource
-    max_upload_bytes: 104857600   # largest file accepted (default 100 MB)
+    max_upload_bytes: 1073741824  # largest file accepted (default 1 GiB)
+    table_registration_max_bytes: 104857600  # largest CSV/JSON-lines file a registration reads (see below)
     extract:                      # manage_resource extract limits (#1879)
       max_member_bytes: 2147483648  # largest member, uncompressed (default 2 GiB)
       max_total_bytes: 4294967296   # selected members added up (default 4 GiB)
@@ -1566,7 +1572,8 @@ resources:
 | `s3_connection` | string | the S3 kind's `default:` | Name of the S3 toolkit instance used for blob storage |
 | `s3_bucket` | string | `managed-resources` | Bucket the uploaded bytes are written to |
 | `max_versions` | int | `10` | Content revisions a resource keeps, counting the current one. A revision past the cap prunes the oldest stored file; live content is never pruned. A non-positive value selects the default, and anything below `2` is raised to `2`, since a cap of `1` would keep no history at all |
-| `max_upload_bytes` | int | `104857600` (100 MB) | Largest file `POST /api/v1/resources` and `POST /api/v1/resources/{id}/content` accept. Absent, zero, or negative selects the default, so a deployment that sets nothing keeps today's 100 MB. The refusal message and the portal's file chooser both state this deployment's number — the browser reads it from `GET /api/v1/portal/me` rather than holding a copy. It bounds bytes streamed, not bytes held: see below. It is also the size a table registration will read an object by, so a file this deployment accepts is a file it can register a table over (#1634) |
+| `max_upload_bytes` | int | `1073741824` (1 GiB) | Largest file `POST /api/v1/resources` and `POST /api/v1/resources/{id}/content` accept. Absent, zero, or negative selects the default, so a deployment that sets nothing stores a video without configuration (#2069). The refusal message and the portal's file chooser both state this deployment's number — the browser reads it from `GET /api/v1/portal/me` rather than holding a copy. It bounds bytes streamed, not bytes held: see below |
+| `table_registration_max_bytes` | int | this deployment's `max_upload_bytes` when that is set, else `104857600` (100 MB) | Largest CSV or JSON-lines file a table registration reads, which it reads whole to learn its columns (#2069). Its size is read first, so a larger file is refused naming the number before it is read. A Parquet file is read by its footer and registers at any size. Absent, zero or negative selects the default, which keeps #1634 for a deployment that raised its upload ceiling |
 
 | `extract.max_member_bytes` | int | `2147483648` (2 GiB) | Largest a single archive member may be uncompressed for `manage_resource extract` |
 | `extract.max_total_bytes` | int | `4294967296` (4 GiB) | Most the selected members of one extraction may add up to, uncompressed |
@@ -1682,9 +1689,9 @@ single `PutObject` — MinIO refuses one above 16 MiB under the `aws-chunked`
 encoding the AWS SDK uses over HTTPS — takes a file of any size the ceiling
 allows.
 
-The **read** path has not changed shape: `GetObject` returns a `[]byte`, so
-serving a large managed resource still holds it. Size for reads, not for
-uploads.
+The **read** path streams too (#2395): every binary content route reads the
+object by range, a block at a time, with or without a `Range` header, so serving
+a large managed resource holds one block, not the file.
 
 Two things a raised ceiling does not change. Content indexing still stops at
 `MaxContentReadBytes` (8 MiB), so a file above that is indexed on its metadata
@@ -1692,11 +1699,9 @@ alone whatever the ceiling is. And an ingress or proxy in front of the platform
 enforces its own body limit: raise that too, or a request the platform would
 accept never reaches it.
 
-### The registration reads by the same number
+### What a registration reads
 
-A table registration reads the object it is pointed at — the header row, and whether a line-based reader can read the file at all, which only the rest of the bytes settle. It reads by this same ceiling, so the two surfaces cannot disagree: a file the write routes accept is a file a registration will read, and a file over the ceiling is refused by both with the same number.
-
-That read holds the object, unlike the upload. Sizing for registrations of large files is sizing for the read path.
+A table registration over a CSV or JSON-lines file reads the object it is pointed at — the header row, and whether a line-based reader can read the file at all, which only the rest of the bytes settle — and that read holds the object. It reads by `table_registration_max_bytes`: unset, the deployment's own `max_upload_bytes` when that is set (#1634), else 100 MB, which stayed where it was when the upload default rose to 1 GiB (#2069). The file's size is read before the file, so one over the number is refused naming it without being read. A Parquet file is read by its footer and registers at any size, which is the answer to a large table.
 
 ### The file part goes last
 

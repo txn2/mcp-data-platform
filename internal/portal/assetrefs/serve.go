@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -142,33 +143,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var opts blobserve.Options
 	if wantsThumbnail(r) {
-		opts, ok = s.thumbnailContent(w, r, ref)
-		if !ok {
-			return
+		if opts, ok := s.thumbnailContent(w, r, ref); ok {
+			blobserve.Serve(w, r, opts)
 		}
-		blobserve.Serve(w, r, opts)
 		return
 	}
+	download := wantsDownload(r)
 	switch ref.TargetKind {
 	case TargetResource:
-		opts, ok = s.resourceContent(w, r, ref.TargetID)
+		s.serveResource(w, r, ref.TargetID, download)
 	case TargetAsset:
-		opts, ok = s.assetContent(w, r, ref.TargetID)
+		s.serveAsset(w, r, ref.TargetID, download)
 	default:
 		// A kind this build does not know is data from a future version. It is
 		// answered as a missing target rather than guessed at, so an asset
 		// rolled back onto an older binary renders around the reference
 		// instead of serving the wrong bytes for it.
 		httpjson.WriteError(w, http.StatusNotFound, msgResourceMissing)
-		return
 	}
-	if !ok {
-		return
-	}
-	opts.ForceAttachment = wantsDownload(r)
-	blobserve.Serve(w, r, opts)
 }
 
 // wantsDownload reports whether the URL is a download anchor's, which serves
@@ -204,77 +197,95 @@ func (s *Server) reference(
 	return ref, true
 }
 
-// resourceContent reads a referenced managed resource's bytes.
-func (s *Server) resourceContent(
-	w http.ResponseWriter, r *http.Request, resourceID string,
-) (blobserve.Options, bool) {
+// serveResource answers with a referenced managed resource's bytes.
+//
+// The object is read by range, a block at a time, whether or not the request
+// names one (#2395). A <video> or <audio> element in an HTML asset issues many
+// range requests while it plays and seeks, and each used to pull the whole file
+// from storage and hold it in memory, on public share links as well.
+func (s *Server) serveResource(w http.ResponseWriter, r *http.Request, resourceID string, download bool) {
 	if !s.resourcesReady() {
 		httpjson.WriteError(w, http.StatusServiceUnavailable, msgStorageNotReady)
-		return blobserve.Options{}, false
+		return
 	}
 	res, err := s.deps.Resources.Get(r.Context(), resourceID)
 	if err != nil || res == nil {
 		httpjson.WriteError(w, http.StatusNotFound, msgResourceMissing)
-		return blobserve.Options{}, false
+		return
+	}
+	opts := blobserve.Options{
+		Name:            cmp.Or(res.Filename, res.DisplayName),
+		ContentType:     res.MIMEType,
+		ModTime:         res.UpdatedAt,
+		ForceAttachment: download,
+	}
+	if res.MIMEType != "" && blobserve.ServeRanged(w, r, opts, blobserve.Object{
+		Store: s.deps.Blobs, Bucket: s.deps.Bucket, Key: res.S3Key, Size: res.SizeBytes,
+	}) {
+		return
 	}
 	body, contentType, err := s.deps.Blobs.GetObject(r.Context(), s.deps.Bucket, res.S3Key)
 	if err != nil {
 		if resource.IsObjectNotFound(err) {
 			httpjson.WriteError(w, http.StatusNotFound, msgResourceMissing)
-			return blobserve.Options{}, false
+			return
 		}
 		contentFailed(w, "resource_id", res.ID, err)
-		return blobserve.Options{}, false
+		return
 	}
-	return blobserve.Options{
-		Name:        cmp.Or(res.Filename, res.DisplayName),
-		ContentType: cmp.Or(contentType, res.MIMEType),
-		ModTime:     res.UpdatedAt,
-		Data:        body,
-	}, true
+	opts.ContentType = cmp.Or(contentType, res.MIMEType)
+	opts.Data = body
+	blobserve.Serve(w, r, opts)
 }
 
-// assetContent reads a referenced asset's current stored content (#1488).
+// serveAsset answers with a referenced asset's current stored content (#1488).
 //
 // The bytes are the asset's own, read live on every request, which is the point
 // of the reference: a scheduled script rewrites the data file and the dashboard
 // that names it serves the new numbers with nothing re-saved and no version of
 // its own.
 //
-// The referenced asset's content is rewritten through its OWN references before
-// it is served, so a referenced page renders with its pictures rather than with
-// dead mcp:// URIs. That is one level and never a walk: the rewrite writes URLs,
-// and following one is the reader's next request, not this handler's recursion.
-// A cycle -- two assets referencing each other, or an asset referencing itself
-// -- therefore answers with content each time instead of being followed here.
-func (s *Server) assetContent(
-	w http.ResponseWriter, r *http.Request, assetID string,
-) (blobserve.Options, bool) {
+// Textual content is rewritten through the referenced asset's OWN references
+// before it is served, so a referenced page renders with its pictures rather
+// than with dead mcp:// URIs. That is one level and never a walk: the rewrite
+// writes URLs, and following one is the reader's next request, not this
+// handler's recursion. A cycle -- two assets referencing each other, or an
+// asset referencing itself -- therefore answers with content each time instead
+// of being followed here. Binary content is never rewritten and is read by
+// range (#2395).
+func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, assetID string, download bool) {
 	if !s.assetsReady() {
 		httpjson.WriteError(w, http.StatusServiceUnavailable, msgStorageNotReady)
-		return blobserve.Options{}, false
+		return
 	}
 	asset, err := s.deps.Assets.Get(r.Context(), assetID)
 	if err != nil || asset == nil || asset.DeletedAt != nil {
 		httpjson.WriteError(w, http.StatusNotFound, msgResourceMissing)
-		return blobserve.Options{}, false
+		return
+	}
+	opts := blobserve.Options{
+		Name:            asset.Name,
+		ContentType:     asset.ContentType,
+		ModTime:         asset.UpdatedAt,
+		ForceAttachment: download,
+	}
+	if asset.ContentType != "" && !contenttype.IsTextual(asset.ContentType) && blobserve.ServeRanged(w, r, opts, blobserve.Object{
+		Store: s.deps.AssetBlobs, Bucket: asset.S3Bucket, Key: asset.S3Key, Size: asset.SizeBytes,
+	}) {
+		return
 	}
 	body, contentType, err := s.deps.AssetBlobs.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
 	if err != nil {
 		if resource.IsObjectNotFound(err) {
 			httpjson.WriteError(w, http.StatusNotFound, msgResourceMissing)
-			return blobserve.Options{}, false
+			return
 		}
 		contentFailed(w, "target_asset_id", asset.ID, err)
-		return blobserve.Options{}, false
+		return
 	}
-	served := cmp.Or(asset.ContentType, contentType)
-	return blobserve.Options{
-		Name:        asset.Name,
-		ContentType: served,
-		ModTime:     asset.UpdatedAt,
-		Data:        s.rewriteTarget(r, asset, served, body),
-	}, true
+	opts.ContentType = cmp.Or(asset.ContentType, contentType)
+	opts.Data = s.rewriteTarget(r, asset, opts.ContentType, body)
+	blobserve.Serve(w, r, opts)
 }
 
 // rewriteTarget resolves the referenced asset's own references in the content

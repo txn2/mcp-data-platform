@@ -49,6 +49,9 @@ const SOURCE_LABELS: Partial<Record<string, string>> = {
   markdown: "View Markdown",
   graphviz: "View DOT",
   vegalite: "View Spec",
+  d2: "View D2",
+  excalidraw: "View Scene",
+  lottie: "View JSON",
 };
 
 /**

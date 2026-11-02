@@ -151,6 +151,12 @@ type Options struct {
 	// time cannot see a references change. Binary content is never rewritten,
 	// and is left to the default so a seek does not hash the whole object.
 	Revalidate bool
+
+	// ETag is a validator the caller holds without the body, written when
+	// Revalidate is not set. ServeRanged sets it from the object's identity,
+	// so a streamed download answers a conditional GET with 304 although its
+	// bytes were never in hand to hash (#2395).
+	ETag string
 }
 
 // revalidateCacheControl lets the authorized browser keep a Revalidate body and
@@ -200,6 +206,8 @@ func Serve(w http.ResponseWriter, r *http.Request, opts Options) {
 		w.Header().Set("Vary", "Cookie")
 		w.Header().Set("ETag", etag(opts.Data))
 		modTime = time.Time{}
+	} else if opts.ETag != "" {
+		w.Header().Set("ETag", opts.ETag)
 	}
 	if w.Header().Get("Cache-Control") == "" {
 		w.Header().Set("Cache-Control", DefaultCacheControl)
@@ -216,32 +224,73 @@ func Serve(w http.ResponseWriter, r *http.Request, opts Options) {
 	http.ServeContent(w, r, opts.Name, modTime, content)
 }
 
-// Object names the stored object a ranged read reads from: the store to ask,
-// where the object sits, and how many bytes it holds.
+// Object names the stored object a ranged read reads from: the store to ask
+// and where the object sits.
 type Object struct {
 	// Store is the blob store. A store that implements RangeReader can serve
 	// a range; one that does not leaves the caller to serve the bytes itself.
 	Store  any
 	Bucket string
 	Key    string
-	Size   int64
+	// Size is what the caller's record says the object holds. It is not
+	// trusted: an object can be replaced in place by a writer that never
+	// touches the record (a vendor drop, #1833), so the size served by is the
+	// one the store reports.
+	Size int64
 }
 
 // ServeRanged answers r by reading only the bytes the response needs, and
 // reports whether it did. It reports false, having written nothing, when the
-// store cannot read ranges or the object's size is unknown, and the caller
-// then serves the object's bytes as it otherwise would.
+// store cannot read ranges or cannot read the object at all (missing, empty,
+// unavailable), and the caller then serves the object's bytes as it otherwise
+// would, which answers a missing object with the caller's own 404.
 //
-// It is how a content endpoint serves a viewer that reads one file many times
-// by byte range: see Options.Source and RangeSource.
+// It is how every content endpoint serves binary content, with or without a
+// Range header (#2395): a viewer reading one file many times by range (#1833),
+// a <video> seeking through a referenced clip, and a download, none of which
+// holds the object in memory. Only the block being copied is held.
+//
+// Before any header is written, one ranged read learns the object's size from
+// the store: the first block for a whole-object GET, which is the first thing
+// the response sends anyway, and one byte for a ranged GET or a HEAD, whose
+// range is known only inside http.ServeContent.
 func ServeRanged(w http.ResponseWriter, r *http.Request, opts Options, obj Object) bool {
-	source := RangeSourceFor(r.Context(), obj.Store, obj.Bucket, obj.Key, obj.Size)
-	if source == nil {
+	reader, ok := obj.Store.(RangeReader)
+	if !ok {
 		return false
 	}
+	ctx := r.Context()
+	probe := int64(blockSize)
+	if r.Method == http.MethodHead || r.Header.Get("Range") != "" {
+		probe = 1
+	}
+	head, size, err := reader.GetObjectRange(ctx, obj.Bucket, obj.Key, 0, probe)
+	if err != nil || size <= 0 || len(head) == 0 {
+		return false
+	}
+	source := NewRangeSource(size, func(offset, length int64) ([]byte, error) {
+		body, _, err := reader.GetObjectRange(ctx, obj.Bucket, obj.Key, offset, length)
+		return body, err //nolint:wrapcheck // named by RangeSource.Read
+	})
+	if probe == blockSize {
+		source.block, source.start = head, 0
+	}
 	opts.Source = source
+	if opts.ETag == "" && !opts.Revalidate {
+		opts.ETag = ObjectETag(Object{Bucket: obj.Bucket, Key: obj.Key, Size: size}, opts.ModTime)
+	}
 	Serve(w, r, opts)
 	return true
+}
+
+// ObjectETag is a strong entity tag over a stored object's identity: where it
+// is, how many bytes it holds and when it last changed. Every write of an
+// object moves at least one of them, and it is computed without reading a byte,
+// which is what a streamed response needs.
+func ObjectETag(obj Object, modTime time.Time) string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%d\x00%d",
+		obj.Bucket, obj.Key, obj.Size, modTime.UnixNano()))
+	return `"o-` + hex.EncodeToString(sum[:16]) + `"`
 }
 
 // disposition builds the Content-Disposition header. Scriptable document types

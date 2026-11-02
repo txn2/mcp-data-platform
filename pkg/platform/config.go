@@ -34,6 +34,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/embedhosts"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whconfig"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -431,6 +432,7 @@ type PortalConfig struct {
 	RateLimit      PortalRateLimitConfig `yaml:"rate_limit"`
 	Export         PortalExportConfig    `yaml:"export"`     // trino_export configuration
 	AssetRefs      assetrefs.Config      `yaml:"asset_refs"` // per-asset reference cap (#2021)
+	Embeds         embedhosts.Config     `yaml:"embeds"`     // hosts an HTML asset may embed (#2069); see embedhosts.Config
 	// DeletedRetentionDays: days a deleted asset, collection, thread or page is
 	// kept before it is purged with its objects (#1904); 0 = 30, negative = forever.
 	DeletedRetentionDays int `yaml:"deleted_retention_days"`
@@ -1143,15 +1145,13 @@ type ManagedResourcesCfg struct {
 	// 2 is raised to 2 (a cap of 1 would keep no history at all).
 	MaxVersions int `yaml:"max_versions"`
 	// MaxUploadBytes is the largest file the resource write routes accept
-	// (#1628). Non-positive selects resource.MaxUploadBytes (100 MB), so a
-	// deployment that sets nothing behaves as it always has.
-	//
-	// It bounds bytes streamed rather than bytes held: the write carries the
-	// file from the request into the multipart uploader without assembling it
-	// (#1631). It is also the bound a table registration reads an object by,
-	// so a file this deployment accepts is a file it can register over.
-	// See docs/server/configuration.md.
+	// (#1628); non-positive selects resource.MaxUploadBytes (1 GiB, #2069). It
+	// bounds bytes streamed, not held (#1631, #2395). See configuration.md.
 	MaxUploadBytes int64 `yaml:"max_upload_bytes"`
+	// TableRegistrationMaxBytes is the largest CSV or JSON-lines file a table
+	// registration reads whole (#2069); non-positive selects MaxUploadBytes
+	// when set (#1634), else 100 MB. Parquet registers at any size.
+	TableRegistrationMaxBytes int64 `yaml:"table_registration_max_bytes"`
 	// Extract bounds manage_resource extract (#1879): the largest member, the
 	// most the selected members may add up to, how many entries an archive
 	// may hold, and how far a member may expand past its compressed size.
@@ -2061,7 +2061,7 @@ func (c *Config) Validate() error {
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
 	_, thumbSources := c.Thumbnails.SourceLimits()
-	for _, err := range []error{admission, runBudget, thumbs, thumbSources, dbobs.CheckPoolSize(c.Database.MaxOpenConns), c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
+	for _, err := range []error{admission, runBudget, thumbs, thumbSources, dbobs.CheckPoolSize(c.Database.MaxOpenConns), c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate(), c.Portal.Embeds.Validate()} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}

@@ -30,7 +30,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
-	"github.com/txn2/mcp-data-platform/pkg/resource"
 	portaltoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	trinotoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -102,24 +101,27 @@ func trinoConnectionNames(p *platform.Platform) func() []string {
 	}
 }
 
-// registrationMaxBytes is the object size a registration will read: the
-// deployment's own upload ceiling.
+// registrationMaxBytes is the largest CSV or JSON-lines file a registration
+// reads, which it reads whole (#2069): the deployment's
+// table_registration_max_bytes, else its max_upload_bytes when set, else
+// tableregister.DefaultMaxBytes.
 //
-// A registration reads the object it is pointed at, so the bound has to be the
-// largest object this deployment stores. Anything smaller is a platform
-// refusing to use a file it just accepted -- which is what a compiled-in
-// 100 MB became once #1628 let a deployment raise the write routes' ceiling
-// without raising this one (#1634).
-//
-// It is normalized the way the write routes normalize it, so the two numbers
-// are the same number and no file can be taken by one and refused by the
-// other. A deployment that configures nothing gets resource.MaxUploadBytes,
-// which is what tableregister.DefaultMaxBytes already was.
+// The middle step keeps #1634: a deployment that raised its upload ceiling
+// registers over the files it stores. The last step is what changed when the
+// upload default became 1 GiB: a deployment that configures nothing stores a
+// video without registering a 1 GiB CSV read into memory.
 func registrationMaxBytes(cfg *platform.Config) int64 {
 	if cfg == nil {
-		return resource.NormalizeMaxUploadBytes(0)
+		return tableregister.DefaultMaxBytes
 	}
-	return resource.NormalizeMaxUploadBytes(cfg.Resources.Managed.MaxUploadBytes)
+	m := cfg.Resources.Managed
+	switch {
+	case m.TableRegistrationMaxBytes > 0:
+		return m.TableRegistrationMaxBytes
+	case m.MaxUploadBytes > 0:
+		return m.MaxUploadBytes
+	}
+	return tableregister.DefaultMaxBytes
 }
 
 // tableRegistrarOnce caches the registrar per platform so the REST routes, the

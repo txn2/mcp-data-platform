@@ -522,6 +522,7 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/settings/maps",
     category: "admin",
   },
+  { slug: "admin-settings-embed-hosts", path: "/portal/admin/settings/embed-hosts", category: "admin" }, // #2069
   {
     // The named bot checks a bot_check endpoint picks from (#2173, #2259):
     // each check's provider, the endpoints using it, and the proof of work's

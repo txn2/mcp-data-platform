@@ -44,7 +44,7 @@ func TestDescribeUploadLimit(t *testing.T) {
 		limit int64
 		want  string
 	}{
-		{MaxUploadBytes, "100 MB"},
+		{MaxUploadBytes, "1 GB"},
 		{262144000, "250 MB"},
 		{0, "0 B"},
 		{512, "512 B"},
@@ -119,8 +119,8 @@ func TestCreate_UnsetCeilingRefusesByTheDefault(t *testing.T) {
 	h := newTestHandler(store, s3, okExtractor)
 	require.Zero(t, h.deps.MaxUploadBytes, "this case is a deployment that configures no ceiling")
 	assert.Equal(t, int64(MaxUploadBytes), h.maxUploadBytes())
-	assert.Equal(t, "100 MB", DescribeUploadLimit(h.maxUploadBytes()),
-		"the refusal a stock deployment writes is unchanged")
+	assert.Equal(t, "1 GB", DescribeUploadLimit(h.maxUploadBytes()),
+		"a stock deployment stores video-sized files (#2069)")
 }
 
 // TestReplaceContent_HonorsTheCeiling pins that the revision route applies the
