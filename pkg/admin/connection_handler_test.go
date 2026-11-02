@@ -1335,3 +1335,37 @@ func TestSetConnectionInstance_GoogleKeyFileForms(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "must be the key file")
 	assert.Empty(t, refused.setCalls)
 }
+
+// TestPutConnection_AnApplicationDatabaseAndATrinoConnectionCannotShareAName
+// holds the save to the routing rule: platform.query names a connection alone,
+// so one name must not be both kinds (#2428).
+func TestPutConnection_AnApplicationDatabaseAndATrinoConnectionCannotShareAName(t *testing.T) {
+	put := func(store *mockConnectionStore, path, body string) *httptest.ResponseRecorder {
+		h := connTestHandler(store, true)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+	appdbBody := `{"config":{"host":"db","database":"orders","user":"app","sslmode":"disable"}}`
+
+	trinoNamedOrders := &mockConnectionStore{getResult: &platform.ConnectionInstance{Kind: "trino", Name: "orders"}}
+	w := put(trinoNamedOrders, "/api/v1/admin/connection-instances/appdb/orders", appdbBody)
+	assert.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `\"orders\" is already a Trino connection`)
+	assert.Empty(t, trinoNamedOrders.setCalls, "nothing stored")
+
+	appdbNamedOrders := &mockConnectionStore{getResult: &platform.ConnectionInstance{Kind: "appdb", Name: "orders"}}
+	w = put(appdbNamedOrders, "/api/v1/admin/connection-instances/trino/orders", `{"config":{"host":"trino.local"}}`)
+	assert.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `is already an application database`)
+
+	// The same kind saved again is an update, not a clash.
+	w = put(appdbNamedOrders, "/api/v1/admin/connection-instances/appdb/orders", appdbBody)
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	// Another kind is never compared.
+	w = put(&mockConnectionStore{getResult: &platform.ConnectionInstance{Kind: "trino", Name: "orders"}},
+		"/api/v1/admin/connection-instances/s3/orders", `{"config":{"region":"us-east-1"}}`)
+	assert.NotEqual(t, http.StatusConflict, w.Code, w.Body.String())
+}

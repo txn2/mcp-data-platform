@@ -687,3 +687,26 @@ var (
 	_ RoleMapper            = (*mockRoleMapper)(nil)
 	_ middleware.Authorizer = (*Authorizer)(nil)
 )
+
+func TestAuthorizer_IsConnectionAuthorized(t *testing.T) {
+	reg := NewRegistry()
+	shopOnly := &Persona{Name: "builder", Tools: ToolRules{Allow: []string{"trino_query"}}, Connections: ConnectionRules{Allow: []string{"shop"}}}
+	mapper := &mockRoleMapper{mapToPersonaFunc: func(_ context.Context, _ []string) (*Persona, error) { return shopOnly, nil }}
+	auth := NewAuthorizer(reg, mapper)
+
+	ok, name, reason := auth.IsConnectionAuthorized(context.Background(), []string{"builder"}, "shop")
+	if !ok || name != "builder" || reason != "" {
+		t.Fatalf("shop: ok=%v name=%q reason=%q, want allowed", ok, name, reason)
+	}
+	ok, _, reason = auth.IsConnectionAuthorized(context.Background(), []string{"builder"}, "ledger")
+	if ok || reason != "connection ledger not allowed for persona: builder" {
+		t.Fatalf("ledger: ok=%v reason=%q, want refused", ok, reason)
+	}
+
+	failing := NewAuthorizer(reg, &mockRoleMapper{mapToPersonaFunc: func(context.Context, []string) (*Persona, error) {
+		return nil, errors.New("mapper error")
+	}})
+	if ok, _, reason := failing.IsConnectionAuthorized(context.Background(), nil, "shop"); ok || reason != "failed to determine persona" {
+		t.Fatalf("mapper error: ok=%v reason=%q", ok, reason)
+	}
+}

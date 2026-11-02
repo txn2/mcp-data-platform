@@ -3,7 +3,18 @@
 // import only what they render.
 
 // Connection kinds the create form offers. Kind is immutable after creation.
-export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api", "graphql", "postgres"];
+export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api", "graphql", "appdb"];
+
+// What a kind is called where a person reads it. A kind with no entry is shown
+// as its identifier. appdb is an application's own PostgreSQL database, reached
+// from scripts and endpoints, not a data source (#2428).
+const KIND_LABELS: Record<string, string> = {
+  appdb: "Application database",
+};
+
+export function kindLabel(kind: string): string {
+  return KIND_LABELS[kind] ?? kind;
+}
 
 // Kind badge colors for the list and viewer header.
 const KIND_COLORS: Record<string, string> = {
@@ -12,7 +23,7 @@ const KIND_COLORS: Record<string, string> = {
   mcp: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
   api: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",
   graphql: "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400",
-  postgres: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400",
+  appdb: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400",
 };
 
 export function kindColor(kind: string): string {
@@ -22,7 +33,7 @@ export function kindColor(kind: string): string {
 // Human labels for raw config keys, keyed by kind, used by the read-only
 // viewer's Configuration table.
 export const CONFIG_LABELS: Record<string, Record<string, string>> = {
-  postgres: {
+  appdb: {
     host: "Host",
     port: "Port",
     database: "Database",

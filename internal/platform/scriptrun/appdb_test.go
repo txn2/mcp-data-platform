@@ -1,0 +1,102 @@
+package scriptrun
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
+)
+
+// shopOnly serves one application database, "shop". Only HasConnection is
+// read here: the calls go through the run's Caller, as a session's would.
+type shopOnly struct{}
+
+func (shopOnly) HasConnection(name string) bool { return name == "shop" }
+func (shopOnly) Query(context.Context, postgres.Statement) (*postgres.Result, error) {
+	return &postgres.Result{}, nil
+}
+
+func (shopOnly) Execute(context.Context, postgres.Statement) (*postgres.Result, error) {
+	return &postgres.Result{}, nil
+}
+
+func installShop(t *testing.T) {
+	t.Helper()
+	scriptsession.InstallAppDB(scriptsession.AppDB{Runner: func() scriptsession.AppDBRunner { return shopOnly{} }})
+	t.Cleanup(func() { scriptsession.InstallAppDB(scriptsession.AppDB{}) })
+}
+
+func TestQuery_OnAnApplicationDatabaseBindsNatively(t *testing.T) {
+	installShop(t)
+	caller := &recordingCaller{}
+	result, err := execute(t, `
+res = platform.query("SELECT region FROM orders WHERE id = :id AND tag = ANY(:tags)", connection="shop", params={"id": 7, "tags": ["a", "b"]})
+print(res["rows"][0]["region"])
+`, caller, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "west\n", result.Log)
+	require.Len(t, caller.calls, 1)
+	call := caller.calls[0]
+	assert.Equal(t, scriptsession.AppDBQuery, call.name)
+	assert.Equal(t, "SELECT region FROM orders WHERE id = $1 AND tag = ANY($2)", call.args["sql"],
+		"no value is written into the statement")
+	assert.Equal(t, []any{int64(7), []any{"a", "b"}}, call.args["params"])
+	assert.Equal(t, "shop", call.args["connection"])
+	assert.Equal(t, DraftMaxRows, call.args["limit"])
+}
+
+func TestQuery_OnTrinoStillBindsLiterals(t *testing.T) {
+	installShop(t)
+	caller := &recordingCaller{}
+	_, err := execute(t, `platform.query("SELECT 1 WHERE r = :r", connection="warehouse", params={"r": "west"})`, caller, nil)
+	require.NoError(t, err)
+	require.Len(t, caller.calls, 1)
+	assert.Equal(t, ToolQuery, caller.calls[0].name)
+	assert.Equal(t, "SELECT 1 WHERE r = 'west'", caller.calls[0].args["sql"])
+}
+
+func TestExecute_OnAnApplicationDatabase(t *testing.T) {
+	installShop(t)
+	caller := &recordingCaller{}
+	_, err := execute(t, `platform.execute("INSERT INTO carts (customer) VALUES (:c)", connection="shop", params={"c": "ann"}, timeout_seconds=4)`, caller, nil)
+	require.NoError(t, err)
+	require.Len(t, caller.calls, 1)
+	assert.Equal(t, scriptsession.AppDBExecute, caller.calls[0].name)
+	assert.Equal(t, map[string]any{
+		"connection": "shop", "sql": "INSERT INTO carts (customer) VALUES ($1)", "params": []any{"ann"}, "timeout_seconds": 4,
+	}, caller.calls[0].args)
+}
+
+func TestExecute_OnAnApplicationDatabaseIsADraftWrite(t *testing.T) {
+	installShop(t)
+	caller := &recordingCaller{}
+	result, err := Run(context.Background(), Options{
+		Source: `platform.execute("DELETE FROM carts", connection="shop")`, Name: "test", RunID: "run_1",
+		FireTime: fireTime, Caller: caller, Writes: WritesRefused,
+	})
+	require.Error(t, err)
+	assert.Empty(t, caller.calls, "the barrier refuses before the statement runs")
+	require.NotNil(t, result)
+	require.NotNil(t, result.RefusedWrite)
+	assert.Equal(t, scriptsession.AppDBExecute, result.RefusedWrite.Tool)
+}
+
+func TestAppDB_BindingErrorsAndReservedNames(t *testing.T) {
+	installShop(t)
+	for _, tc := range []struct{ name, source, want string }{
+		{"list after IN", `platform.query("SELECT 1 WHERE id IN :ids", connection="shop", params={"ids": [1]})`, "write = ANY(:ids)"},
+		{"call by the reserved name", `platform.call("appdb.query", {"connection": "shop", "sql": "SELECT 1"})`, "appdb.query is not a tool"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			caller := &recordingCaller{}
+			_, err := execute(t, tc.source, caller, nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+			assert.Empty(t, caller.calls)
+		})
+	}
+}

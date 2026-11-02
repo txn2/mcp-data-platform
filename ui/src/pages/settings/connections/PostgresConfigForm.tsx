@@ -8,7 +8,7 @@ import {
   type ConfigFormProps,
 } from "./fields";
 
-// The TLS modes a postgres connection takes, as libpq names them (#2400).
+// The TLS modes an application database connection takes, as libpq names them (#2400).
 const SSL_MODES = [
   { value: "verify-full", label: "verify-full (default)" },
   { value: "verify-ca", label: "verify-ca" },
@@ -22,7 +22,7 @@ const text = (config: Record<string, unknown>, key: string) => String(config[key
 // intOrEmpty is a number field's value as the config stores it.
 const intOrEmpty = (v: string) => (v ? parseInt(v, 10) : "");
 
-// PostgresTLSFields is the TLS material a postgres connection presents and
+// PostgresTLSFields is the TLS material an application database connection presents and
 // trusts, shown unless sslmode is disable.
 function PostgresTLSFields({ config, onChange }: ConfigFormProps) {
   return (
@@ -85,7 +85,7 @@ function PostgresLimitFields({ config, onChange }: ConfigFormProps) {
   );
 }
 
-// Editor form for kind=postgres connections. Field names match
+// Editor form for kind=appdb connections (application databases, #2428). Field names match
 // pkg/toolkits/postgres's config keys.
 export function PostgresConfigForm({ config, onChange }: ConfigFormProps) {
   const sslmode = String(config.sslmode ?? "verify-full");
@@ -151,7 +151,7 @@ export function PostgresConfigForm({ config, onChange }: ConfigFormProps) {
         label="Read Only"
         checked={!!config.read_only}
         onChange={(v) => onChange(update(config, "read_only", v))}
-        help="Refuse postgres_execute on this connection, for every persona. postgres_query always runs in a read-only transaction."
+        help="Refuse platform.execute on this connection, for every script. platform.query always runs in a read-only transaction."
       />
     </>
   );

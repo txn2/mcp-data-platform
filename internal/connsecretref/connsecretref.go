@@ -29,7 +29,7 @@ const (
 	kindMCP     = "mcp"
 	kindTrino   = "trino"
 	kindS3      = "s3"
-	kindPG      = "postgres"
+	kindPG      = "appdb"
 )
 
 // builtKeys are the keys of the kinds that read their credential once, as

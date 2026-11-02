@@ -1329,7 +1329,6 @@ internal/platform/scriptrun -> internal/platform/scriptout/exportmeta
 internal/platform/scriptrun -> internal/platform/scriptout/exportrecord
 internal/platform/scriptrun -> internal/platform/scriptpace
 internal/platform/scriptrun -> internal/platform/scriptsession
-internal/platform/scriptrun -> internal/platform/scriptsql
 internal/platform/scriptrun -> internal/platform/scriptstmt
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/tooloutput
@@ -1366,11 +1365,13 @@ internal/platform/scriptsave -> pkg/script
 internal/platform/scriptsession -> internal/inprocess
 internal/platform/scriptsession -> internal/mcpobs
 internal/platform/scriptsession -> internal/scriptcallsite
+internal/platform/scriptsession -> pkg/toolkits/postgres
 internal/platform/scriptshow -> internal/wirejson
 internal/platform/scriptshow -> pkg/toolkit
 internal/platform/scriptsql -> internal/platform/starlarkconv
 internal/platform/scriptsrc -> pkg/resource
 internal/platform/scriptstmt -> internal/platform/scriptsession
+internal/platform/scriptstmt -> internal/platform/scriptsql
 internal/platform/scriptstmt -> internal/runstate
 internal/platform/scriptstore -> internal/libraryuse
 internal/platform/scriptstore -> internal/openrun
@@ -1525,6 +1526,8 @@ internal/platform/toolkitcfg -> internal/logsan
 internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> internal/secretref
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
+internal/platform/toolkitwire -> internal/platform/scriptsession
+internal/platform/toolkitwire -> pkg/middleware
 internal/platform/toolkitwire -> pkg/observability
 internal/platform/toolkitwire -> pkg/registry
 internal/platform/toolkitwire -> pkg/toolkits/postgres
@@ -1813,6 +1816,7 @@ pkg/admin -> pkg/toolkits/apigateway/catalogindex
 pkg/admin -> pkg/toolkits/gateway
 pkg/admin -> pkg/toolkits/gateway/enrichment
 pkg/admin -> pkg/toolkits/knowledge
+pkg/admin -> pkg/toolkits/postgres
 pkg/admin -> pkg/user
 pkg/audit -> pkg/observability
 pkg/audit/postgres -> internal/advisorylock

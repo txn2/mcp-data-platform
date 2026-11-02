@@ -1,7 +1,7 @@
--- The target database of the postgres connection kind (#2400): a small order
--- system the acceptance suite reads and writes through postgres_query and
--- postgres_execute. Applied once, on the first start of a fresh volume;
--- `make dev-down` removes the volume.
+-- The target database of the application database kind (#2400, #2428): a
+-- small order system the acceptance suite reads and writes through a script's
+-- platform.query and platform.execute. Applied once, on the first start of a
+-- fresh volume; `make dev-down` removes the volume.
 
 CREATE TABLE customers (
   id         serial PRIMARY KEY,

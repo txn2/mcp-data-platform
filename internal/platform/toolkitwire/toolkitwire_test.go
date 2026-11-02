@@ -1,11 +1,18 @@
 package toolkitwire
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -54,4 +61,60 @@ func TestPostgresGuardNeedsAPlatformDatabase(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	PostgresGuard([]registry.Toolkit{&recording{}, pg}, db)
+}
+
+// connChecker allows one connection and records the roles it was asked about.
+type connChecker struct{ roles []string }
+
+func (*connChecker) IsAuthorized(context.Context, string, []string, string, string) (allowed bool, persona, reason string) {
+	return true, "", ""
+}
+
+func (c *connChecker) IsConnectionAuthorized(_ context.Context, roles []string, conn string) (allowed bool, persona, reason string) {
+	c.roles = roles
+	if conn == "shop" {
+		return true, "builder", ""
+	}
+	return false, "builder", "connection " + conn + " not allowed for persona: builder"
+}
+
+// fixedAuthn authenticates every context as one user, or fails.
+type fixedAuthn struct {
+	user *middleware.UserInfo
+	err  error
+}
+
+func (a fixedAuthn) Authenticate(context.Context) (*middleware.UserInfo, error) { return a.user, a.err }
+
+func TestAppDB_InstallsTheLiveToolkitAndThePersonaCheck(t *testing.T) {
+	pg := postgreskit.NewMulti(postgreskit.MultiConfig{DefaultName: "x"})
+	t.Cleanup(func() { _ = pg.Close() })
+	toolkits := make([]registry.Toolkit, 0, 2)
+	toolkits = append(toolkits, &recording{})
+	all := func() []registry.Toolkit { return toolkits }
+	checker := &connChecker{}
+	AppDB(all, fixedAuthn{err: errors.New("no token")}, checker)
+	t.Cleanup(func() { scriptsession.InstallAppDB(scriptsession.AppDB{}) })
+
+	assert.False(t, scriptsession.IsAppDB("shop"), "no postgres toolkit registered yet")
+	require.NoError(t, pg.AddConnection("shop", map[string]any{"host": "localhost", "database": "shop", "user": "u", "sslmode": "disable"}))
+	toolkits = append(toolkits, pg)
+	assert.True(t, scriptsession.IsAppDB("shop"), "a toolkit the registry gains later is found")
+}
+
+func TestAuthorize(t *testing.T) {
+	checker := &connChecker{}
+	ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{Roles: []string{"dp_builder"}})
+	require.NoError(t, authorize(ctx, nil, checker, "shop"))
+	assert.Equal(t, []string{"dp_builder"}, checker.roles, "the run's pre-authenticated roles are checked")
+
+	err := authorize(ctx, nil, checker, "ledger")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `application database "ledger" is not allowed for this run`)
+
+	require.NoError(t, authorize(context.Background(), fixedAuthn{user: &middleware.UserInfo{Roles: []string{"r"}}}, checker, "shop"))
+	assert.Equal(t, []string{"r"}, checker.roles)
+	require.ErrorIs(t, authorize(context.Background(), fixedAuthn{err: errors.New("x")}, checker, "shop"), errNoIdentity)
+	require.ErrorIs(t, authorize(context.Background(), nil, checker, "shop"), errNoIdentity)
+	require.NoError(t, authorize(context.Background(), nil, nil, "anything"), "no persona check configured")
 }

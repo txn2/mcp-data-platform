@@ -22,8 +22,6 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Trino | `trino_list_connections` | List configured Trino connections |
 | S3 | `s3_list` | List buckets, or the objects in one bucket |
 | S3 | `s3_object` | Get, describe, upload, copy, delete, or presign one object |
-| PostgreSQL | `postgres_query` | Run one read-only statement on a [PostgreSQL connection](postgres.md) with bound parameters; typed columns and rows |
-| PostgreSQL | `postgres_execute` | Run one writing statement, or a `statements` list in one transaction that commits only if every statement succeeds |
 | Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, the glossary, tags, domains and data products, knowledge pages, memory, insights, feedback, assets, prompts, managed scripts, API endpoints, and connections |
 | Knowledge | `fetch` | Read a search result in full: dereferences any reference search emits (knowledge page, dataset, definition, asset, prompt, managed script, connection) to its complete content, under the same per-user scope |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
@@ -55,7 +53,7 @@ Data-access tools carry one argument the platform adds rather than the toolkit: 
 
 Write the question behind the call, not a restatement of the arguments: "Running a SQL query" is worthless to the person who later reads the row. Do not repeat argument values in it, and never put personal data, credentials, or secrets in it.
 
-By default the argument appears on `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `s3_object`, `s3_list`, `postgres_query`, `postgres_execute`, and every tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md). Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) do not carry it.
+By default the argument appears on `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `s3_object`, `s3_list`, and every tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md). Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) do not carry it.
 
 A call on one of these tools that states no purpose is refused with `PURPOSE_REQUIRED` (error category `purpose_required`); retry the same call with a purpose rather than looking for another tool. The refusal reaches only callers that thread a `session_id` handle, so an MCP App, a managed script, and the gateway REST shim are never refused for it. Both the gated set and the refusal are configurable — see [Purpose Configuration](configuration.md#purpose-configuration).
 
@@ -77,7 +75,7 @@ Clients are told by the specification to assume a tool is **not** read-only when
 
 The hint describes the tool, not the call. `manage_asset`, `manage_table`, `manage_resource`, `manage_prompt`, `manage_script`, `memory_manage` and `s3_object` all expose reads alongside writes, and each advertises the most it can do, so a list action on one of them is still a tool a client may confirm.
 
-These tools advertise `readOnlyHint: true`: `platform_info`, `search`, `fetch`, `list_connections`, `platform_find_tools`, `show_prompts`, `show_scripts`, `api_discover`, `graphql_discover`, `s3_list`, `postgres_query`, `trino_query`, `trino_explain`, `trino_browse`, `trino_describe_table`. Everything else advertises `readOnlyHint: false`.
+These tools advertise `readOnlyHint: true`: `platform_info`, `search`, `fetch`, `list_connections`, `platform_find_tools`, `show_prompts`, `show_scripts`, `api_discover`, `graphql_discover`, `s3_list`, `trino_query`, `trino_explain`, `trino_browse`, `trino_describe_table`. Everything else advertises `readOnlyHint: false`.
 
 A tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md) carries the upstream's own annotations unchanged, including none at all where the upstream publishes none. The two toolkits built on the `mcp-trino` and `mcp-s3` libraries take their annotations from those libraries, and an operator can override them per deployment under a toolkit's `annotations:` key.
 

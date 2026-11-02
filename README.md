@@ -108,7 +108,6 @@ Each feature links to its full documentation.
 | [Universal search](https://mcp-data-platform.txn2.com/knowledge/overview/) | One `search` tool fans a query across the catalog, knowledge pages, memory, insights, assets, prompts, and APIs; `fetch` dereferences any result |
 | [Workflow gating](https://mcp-data-platform.txn2.com/reference/middleware/) | Session-aware guidance that steers agents to discovery before SQL, with escalating warnings |
 | [Tools](https://mcp-data-platform.txn2.com/server/tools/) | Full tool reference for Trino, S3, knowledge, memory, portal, and gateway toolkits |
-| [PostgreSQL](https://mcp-data-platform.txn2.com/server/postgres/) | Read and write a PostgreSQL database: bound parameters, a statements list in one transaction, typed results, values kept out of audit, logs and spans |
 
 ### Knowledge and memory
 
@@ -129,6 +128,7 @@ Each feature links to its full documentation.
 | [REST invoke shim](https://mcp-data-platform.txn2.com/server/api-gateway/#rest-gateway-for-non-mcp-clients) | Call gateway endpoints from NiFi, Airflow, or `curl` under the same auth and audit pipeline |
 | [Self-configuration](https://mcp-data-platform.txn2.com/server/self-configuration/) | Admins manage personas, connections, and prompts by asking the agent instead of clicking |
 | [MCP Apps](https://mcp-data-platform.txn2.com/mcpapps/overview/) | Interactive UI panels rendered inline in the MCP host |
+| [Application databases](https://mcp-data-platform.txn2.com/server/appdb/) | An application's own PostgreSQL database, read and written by the scripts and endpoints it is built from: bound parameters, typed results, values kept out of audit, logs and spans |
 | [Go library](https://mcp-data-platform.txn2.com/library/overview/) | Import the platform as a library: custom toolkits, providers, and middleware |
 
 ### Security and operations

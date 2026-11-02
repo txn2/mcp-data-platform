@@ -26,8 +26,6 @@ const (
 	toolAPIExport     = "api_export"
 	toolGraphQLQuery  = "graphql_query"
 	toolGraphQLExport = "graphql_export"
-	toolPGQuery       = "postgres_query"
-	toolPGExecute     = "postgres_execute"
 )
 
 // recordedTools maps a tool name to the kind of record it produces.
@@ -39,8 +37,6 @@ var recordedTools = map[string]string{
 	toolAPIExport:     KindAPI,
 	toolGraphQLQuery:  KindGraphQL,
 	toolGraphQLExport: KindGraphQL,
-	toolPGQuery:       KindSQL,
-	toolPGExecute:     KindSQL,
 }
 
 // KindForTool returns the record kind a tool produces, or "" when the tool is
@@ -249,9 +245,6 @@ const graphqlTargetPrefix = "graphql:"
 // purpose, the connection and the outcome are still worth having.
 func (r *Recorder) describeSQL(rec *Record, connectionKind string, params map[string]any) {
 	rec.Statement = stringParam(params, "sql")
-	if rec.Statement == "" {
-		rec.Statement = statementsText(params)
-	}
 	rec.Targets = r.targets(connectionKind, rec.Connection, rec.Statement)
 }
 
@@ -280,21 +273,6 @@ func (r *Recorder) targets(connectionKind, connection, statement string) []strin
 		}
 	}
 	return urns
-}
-
-// statementsText is a postgres_execute statements list as one script, its
-// statements in order, so the record holds what the call ran (#2400). The
-// values each statement bound are not in the arguments the audit row keeps.
-func statementsText(params map[string]any) string {
-	list, _ := params["statements"].([]any)
-	parts := make([]string, 0, len(list))
-	for _, item := range list {
-		stmt, _ := item.(map[string]any)
-		if sql := stringParam(stmt, "sql"); sql != "" {
-			parts = append(parts, strings.TrimRight(strings.TrimSpace(sql), ";")+";")
-		}
-	}
-	return strings.Join(parts, "\n")
 }
 
 // describeAPI fills in the request line and the endpoint the call addressed.

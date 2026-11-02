@@ -18,7 +18,7 @@ const ConfigSchemaJSON = `{
     "max_conns": {"type": "integer", "description": "Pool size on each replica. Defaults to 5, at most 100."},
     "statement_timeout": {"type": "string", "description": "Longest one statement may run, as a Go duration (\"30s\"). Defaults to 30s, at most 10m. A call's timeout_seconds may only lower it."},
     "max_rows": {"type": "integer", "description": "Most rows one result returns. Defaults to 1000, at most 100000."},
-    "read_only": {"type": "boolean", "description": "Refuse postgres_execute on this connection, for every persona."},
+    "read_only": {"type": "boolean", "description": "Refuse platform.execute on this connection, for every script."},
     "description": {"type": "string", "description": "What this connection is, as list_connections and search report it."}
   }
 }`

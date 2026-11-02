@@ -1,21 +1,11 @@
 package postgres
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-)
-
-// Error codes a postgres tool answers a failure with, in the platform's
-// snake_case error registry.
-const (
-	codeStatementFailed = "statement_failed"
-	codeReadOnly        = "read_only_connection"
-	codeUnavailable     = "database_unavailable"
 )
 
 // StatementError is a PostgreSQL error as the caller reads it: everything the
@@ -93,46 +83,6 @@ func statementError(err error) *StatementError {
 		DataType:   pg.DataTypeName,
 		Position:   pg.Position,
 	}
-}
-
-// failureResult is a failed call's result. A PostgreSQL error is answered with
-// its value-free summary as the error and the whole StatementError in the
-// structured content and a second text block, for the caller. Any other error
-// (the database unreachable, the call's time spent) is answered with a scrubbed
-// sentence that names the connection.
-func failureResult(ctx context.Context, connection string, err error, stmt *int) *mcp.CallToolResult {
-	// A connection the server refused (a wrong password is 28P01) carries a
-	// PostgreSQL error inside pgconn's ConnectError; it is the connection that
-	// failed, not a statement.
-	if se := statementError(err); se != nil && !isConnectError(err) {
-		se.Statement = stmt
-		return statementFailure(se)
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return (&toolError{
-			code: codeStatementFailed, category: categoryFailed,
-			message: fmt.Sprintf("postgres: the statement on connection %q ran out of time", connection),
-			hint:    "Narrow the statement, or raise timeout_seconds up to the connection's statement_timeout.",
-		}).result()
-	}
-	return (&toolError{
-		code: codeUnavailable, category: categoryFailed,
-		message: fmt.Sprintf("postgres: connection %q could not reach its database: %s", connection, scrubDriverError(err)),
-		hint:    "Probe the connection from Admin > Connections; the database, its address or its credentials need attention.",
-	}).result()
-}
-
-func statementFailure(se *StatementError) *mcp.CallToolResult {
-	res := (&toolError{
-		code: codeStatementFailed, category: categoryClientInput,
-		message: se.summary(),
-		hint:    "The database refused the statement; the postgres field of this result has its message, detail and hint.",
-	}).result()
-	if m, ok := res.StructuredContent.(map[string]any); ok {
-		m["postgres"] = se
-	}
-	res.Content = append(res.Content, &mcp.TextContent{Text: callerText(se)})
-	return res
 }
 
 // callerText is the server's own account of the failure, for the caller.

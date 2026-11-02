@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/hex"
@@ -14,39 +13,31 @@ import (
 )
 
 // MaxParams is the most parameters one statement may bind. PostgreSQL's own
-// limit is 65535; a call carrying more than this is not a statement an agent
-// wrote by hand.
+// limit is 65535; a statement binding more than this is not one a script
+// author wrote.
 const MaxParams = 1000
 
-// errParamsShape is the refusal of params that is neither a list nor an object.
-var errParamsShape = errors.New("params must be a list (bound to $1, $2, ...) or an object (bound to @name)")
+// errParamsShape is the refusal of params that is neither a list nor a map.
+var errParamsShape = errors.New("params must be a list (bound to $1, $2, ...) or a map (bound to @name)")
 
 // boundStatement is one statement with its parameters in the order the
-// positional SQL binds them, still as the JSON the caller sent.
+// positional SQL binds them, still as the values the caller passed.
 type boundStatement struct {
 	sql  string
 	args []any
 }
 
-// bindParams reads params and returns the statement in positional form.
+// bindValues returns the statement in positional form.
 //
-// A list binds $1, $2, ... in order. An object binds @name placeholders, which
-// pgx rewrites to positional ones before the statement is sent; a placeholder
-// the object does not name, or a name no placeholder uses, is refused rather
-// than bound as NULL. Either way the values are sent as bound parameters and
-// never written into the SQL text.
-func bindParams(ctx context.Context, sql string, raw json.RawMessage) (boundStatement, error) {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+// A list binds $1, $2, ... in order. A map binds @name placeholders, which pgx
+// rewrites to positional ones before the statement is sent; a placeholder the
+// map does not name, or a name no placeholder uses, is refused rather than
+// bound as NULL. Either way the values are sent as bound parameters and never
+// written into the SQL text.
+func bindValues(ctx context.Context, sql string, params any) (boundStatement, error) {
+	switch t := params.(type) {
+	case nil:
 		return boundStatement{sql: sql}, nil
-	}
-	dec := json.NewDecoder(bytes.NewReader(trimmed))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return boundStatement{}, fmt.Errorf("params: %w", err)
-	}
-	switch t := v.(type) {
 	case []any:
 		if len(t) > MaxParams {
 			return boundStatement{}, fmt.Errorf("params: at most %d values", MaxParams)

@@ -88,6 +88,13 @@ branch with `testing.answer(tool, args, error = {...})`.
   placeholders and a `params` dict; the platform renders each value as a typed
   SQL literal. A date binds as a quoted string, so compare it against a DATE
   column as `DATE :day`.
+- **On an application database the values are bound, not rendered.** An
+  application's own PostgreSQL database (a connection of kind `appdb`) takes
+  the same `platform.query` and `platform.execute` with `:name` placeholders,
+  and each value is sent to PostgreSQL as a bound parameter read by its type.
+  A list binds as one array, so write `= ANY(:ids)`, not `IN :ids`. The
+  statements go straight to the database without a tool call, and
+  `platform.execute` there commits one statement.
 - **A truncated query result fails the run** rather than returning a partial
   answer. Aggregate in SQL, or narrow the query.
 - **`platform.query` is the read tool.** A statement that modifies state is

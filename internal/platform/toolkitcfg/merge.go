@@ -155,11 +155,11 @@ type StoredInstance struct {
 // rather than declared in the configuration file, and which therefore have to
 // exist as a live toolkit before there is anything to add to: the MCP gateway
 // (#338), the HTTP API gateway (#364), the graphql kind (#1277) and the
-// postgres kind (#2400).
-var dynamicKinds = []string{"mcp", "api", "graphql", "postgres"}
+// application database kind (#2400, #2428).
+var dynamicKinds = []string{"mcp", "api", "graphql", "appdb"}
 
 // storedKinds are the kinds a connection can be saved under.
-var storedKinds = map[string]bool{"trino": true, "s3": true, "mcp": true, "api": true, "graphql": true, "postgres": true}
+var storedKinds = map[string]bool{"trino": true, "s3": true, "mcp": true, "api": true, "graphql": true, "appdb": true}
 
 // MergeStored folds the saved connections into the toolkit configuration the
 // loader builds from, so a process starts serving them rather than taking each

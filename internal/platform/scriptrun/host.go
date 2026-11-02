@@ -10,7 +10,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptpace"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptsql"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
@@ -470,19 +469,12 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
 	}
-	bound, err := scriptsql.Bind(sql, params)
+	tool, call, err := scriptstmt.Call(false, connection, sql, params, timeout)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
-
-	call := map[string]any{argSQL: bound, "limit": h.opts.MaxRows}
-	if connection != "" {
-		call["connection"] = connection
-	}
-	if timeout != 0 {
-		call[scriptstmt.ArgTimeout] = timeout
-	}
-	out, err := h.callToolWith(ToolQuery, call, callOpts{noRetry: !retry})
+	call["limit"] = h.opts.MaxRows
+	out, err := h.callToolWith(tool, call, callOpts{noRetry: !retry})
 	if err != nil {
 		return h.failed(b, err, returnFailure)
 	}
@@ -522,6 +514,9 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	if tool == "" {
 		return nil, fmt.Errorf("in %s: tool is empty; name the tool to call, as %s(\"trino_execute\", {\"connection\": \"warehouse\", \"sql\": \"...\"})", b.Name(), b.Name())
 	}
+	if tool == scriptsession.AppDBQuery || tool == scriptsession.AppDBExecute {
+		return nil, fmt.Errorf("in %s: %s is not a tool; run a statement on an application database with platform.query or platform.execute", b.Name(), tool)
+	}
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
 	}
@@ -555,19 +550,12 @@ func (h *hostState) execute(_ *starlark.Thread, b *starlark.Builtin, args starla
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
 	}
-	bound, err := scriptsql.Bind(sql, params)
+	tool, payload, err := scriptstmt.Call(true, connection, sql, params, timeout)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
-	payload := map[string]any{argSQL: bound}
-	if connection != "" {
-		payload["connection"] = connection
-	}
-	if timeout != 0 {
-		payload[scriptstmt.ArgTimeout] = timeout
-	}
 	// No retry: a statement is never issued twice by the host.
-	return h.invoke(b, ToolExecute, payload, invokeOpts{returnFailure: returnFailure})
+	return h.invoke(b, tool, payload, invokeOpts{returnFailure: returnFailure})
 }
 
 // invoke issues one tool call for platform.call and platform.execute: the

@@ -1,18 +1,18 @@
-// Package postgres provides the platform's PostgreSQL connection kind: a
-// toolkit that reaches a PostgreSQL database an operator names, through the
-// platform's auth, persona, audit and enrichment pipeline (#2400).
+// Package postgres provides the application database connection kind (appdb):
+// an application's own PostgreSQL database, which the scripts and endpoints an
+// application is built from read and write (#2400, #2428).
 //
-// Trino is the platform's analytical engine and holds no transaction, row lock
-// or enforced constraint; this kind is the operational store. It registers two
-// tools however many connections it holds: postgres_query runs one statement in
-// a READ ONLY transaction, and postgres_execute runs one statement, or a list of
-// statements in one transaction that commits only when every one succeeds.
+// It is not a data source and registers no agent tool. Trino is the
+// platform's analytical engine and holds no transaction, row lock or enforced
+// constraint; this kind is an application's operational store. The script host
+// calls Query (one statement in a READ ONLY transaction) and Execute (one
+// statement committed in a transaction of its own) directly, for
+// platform.query and platform.execute, so an application's request path pays
+// no tool call per statement.
 //
 // Parameters are bound natively by the driver (jackc/pgx/v5) and never rendered
-// into the SQL text. A parameter's value is never recorded anywhere but the
-// database: the audit row and the call record keep its name and type
-// (pkg/audit's SQL parameter shapes), and a PostgreSQL error's DETAIL, which can
-// repeat a value, goes to the caller alone (errors.go).
+// into the SQL text, and a PostgreSQL error's DETAIL, which can repeat a value,
+// goes to the script alone (direct.go).
 package postgres
 
 import (
@@ -31,10 +31,10 @@ import (
 const (
 	// Kind is the connection-instance kind discriminator. Operators see it in
 	// the admin UI's connection picker.
-	Kind = "postgres"
+	Kind = "appdb"
 
 	// errPrefix names this kind in every message a refused save produces.
-	errPrefix = "postgres"
+	errPrefix = "appdb"
 
 	// DefaultPort is PostgreSQL's port.
 	DefaultPort = 5432
@@ -118,7 +118,7 @@ type Config struct {
 	StatementTimeout time.Duration
 	// MaxRows caps the rows one result returns.
 	MaxRows int
-	// ReadOnly refuses postgres_execute on this connection for every persona.
+	// ReadOnly refuses platform.execute on this connection for every script.
 	ReadOnly bool
 }
 

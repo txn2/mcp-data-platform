@@ -206,6 +206,11 @@ personas:
     connections:
       allow:
         - "*"
+      # The order system's application database is not this service's: a
+      # script it runs is refused at its first statement there (#2428).
+      deny:
+        - orders
+        - orders-ro
     context:
       description_prefix: |
         You are an automated ingestion job pulling records from upstream APIs.
@@ -501,10 +506,11 @@ toolkits:
   mcp:
     enabled: true
 
-  # The postgres connection kind (#2400) against the dev stack's target
-  # database (service postgres-target), separate from the platform's own.
-  # orders-ro is the same database refusing postgres_execute.
-  postgres:
+  # The application database kind (#2400, #2428) against the dev stack's
+  # target database (service postgres-target), separate from the platform's
+  # own. Its tools are reached from script and endpoint runs only. orders-ro
+  # is the same database refusing postgres_execute.
+  appdb:
     enabled: true
     instances:
       orders:
