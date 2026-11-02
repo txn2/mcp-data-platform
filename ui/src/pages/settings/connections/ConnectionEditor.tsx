@@ -16,6 +16,7 @@ import { S3ConfigForm } from "./S3ConfigForm";
 import { GatewayConfigForm } from "./GatewayConfigForm";
 import { ApiGatewayConfigForm } from "./ApiGatewayConfigForm";
 import { GraphQLConfigForm } from "./GraphQLConfigForm";
+import { PostgresConfigForm } from "./PostgresConfigForm";
 
 interface EditorProps {
   connection: EffectiveConnection | null; // null = create mode
@@ -173,6 +174,9 @@ export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }
                 connectionName={name}
                 isCreate={isCreate}
               />
+            )}
+            {kind === "postgres" && (
+              <PostgresConfigForm config={configObj} onChange={updateConfig} />
             )}
             {kind === "graphql" && (
               <GraphQLConfigForm

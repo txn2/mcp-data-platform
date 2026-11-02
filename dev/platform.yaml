@@ -501,6 +501,31 @@ toolkits:
   mcp:
     enabled: true
 
+  # The postgres connection kind (#2400) against the dev stack's target
+  # database (service postgres-target), separate from the platform's own.
+  # orders-ro is the same database refusing postgres_execute.
+  postgres:
+    enabled: true
+    instances:
+      orders:
+        host: "localhost"
+        port: ${DEV_PG_TARGET_PORT:-5442}
+        database: "orders"
+        user: "orders_app"
+        password: "orders_secret"
+        sslmode: "disable"
+        description: "ACME order system (dev target database)"
+      orders-ro:
+        host: "localhost"
+        port: ${DEV_PG_TARGET_PORT:-5442}
+        database: "orders"
+        user: "orders_app"
+        password: "orders_secret"
+        sslmode: "disable"
+        read_only: true
+        description: "ACME order system, read only"
+    default: orders
+
   # A deployment upgrading from DataHub (#2124): with DATAHUB_ENABLED=true the
   # platform imports the DataHub at DATAHUB_ENDPOINT into its catalog after the
   # first catalog scan. Off, the platform reads none of it.

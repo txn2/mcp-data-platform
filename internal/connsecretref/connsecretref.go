@@ -29,13 +29,16 @@ const (
 	kindMCP     = "mcp"
 	kindTrino   = "trino"
 	kindS3      = "s3"
+	kindPG      = "postgres"
 )
 
 // builtKeys are the keys of the kinds that read their credential once, as
 // they build their client (#1806), rather than as each request is sent; the
-// keys are pkg/toolkits/trino's and pkg/toolkits/s3's SecretKeys.
+// keys are pkg/toolkits/trino's, pkg/toolkits/s3's and pkg/toolkits/postgres's
+// SecretKeys.
 var builtKeys = map[string]map[string]bool{
 	kindTrino: {keyPassword: true},
+	kindPG:    {keyPassword: true},
 	kindS3:    {"access_key_id": true, "secret_access_key": true, "session_token": true},
 }
 

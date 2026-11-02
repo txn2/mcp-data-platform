@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/obs"
+	"github.com/txn2/mcp-data-platform/internal/platform/toolkitwire"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 
@@ -177,26 +178,13 @@ func (p *Platform) WireAPIGatewayMetrics() {
 	}
 }
 
-// metricsAware is implemented by toolkits that record their own metrics via a
-// SetMetrics injector (S3, apigateway, ...).
-type metricsAware interface {
-	SetMetrics(*observability.Metrics)
-}
-
 // WireToolkitMetrics pushes the recorder into every registered toolkit that
-// implements SetMetrics. It MUST run before the registry registers tool
-// handlers, so the recorder is in place for the first call. apigateway also implements
-// SetMetrics; wiring it here as well is idempotent (see WireAPIGatewayMetrics).
-// Runs when metrics OR tracing is enabled so toolkits that emit spans (S3)
-// are instrumented for tracing-only deployments; each toolkit's SetMetrics
-// decides what it installs given the (possibly disabled) recorder.
+// records its own metrics (internal/platform/toolkitwire). It MUST run before
+// the registry registers tool handlers, so the recorder is in place for the
+// first call; it runs when metrics OR tracing is enabled, since toolkits that
+// emit spans (S3) are instrumented for tracing-only deployments.
 func (p *Platform) WireToolkitMetrics() {
-	if !p.obs.Enabled() {
-		return
-	}
-	for _, tk := range p.toolkitRegistry.All() {
-		if ma, ok := tk.(metricsAware); ok {
-			ma.SetMetrics(p.obs.Metrics())
-		}
+	if p.obs.Enabled() {
+		toolkitwire.Metrics(p.toolkitRegistry.All(), p.obs.Metrics())
 	}
 }

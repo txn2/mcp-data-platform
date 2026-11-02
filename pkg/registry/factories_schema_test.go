@@ -11,7 +11,7 @@ import (
 // which is what makes "what does this connection take?" answerable through the
 // API instead of by reading the deployment's configuration file (#1805).
 func TestConnectionConfigSchema(t *testing.T) {
-	for _, kind := range []string{"trino", "s3", "api", "graphql", "mcp"} {
+	for _, kind := range []string{"trino", "s3", "api", "graphql", "mcp", "postgres"} {
 		raw := registry.ConnectionConfigSchema(kind)
 		if raw == nil {
 			t.Errorf("kind %q has no config schema", kind)

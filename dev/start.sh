@@ -259,6 +259,9 @@ if [ "$NEED_SHIFT" = 1 ]; then
   fi
 fi
 export DEV_PG_PORT=$((5432 + DEV_OFFSET))
+# The postgres connection kind's target database (#2400), beside the
+# platform's own in the same window.
+export DEV_PG_TARGET_PORT=$((5442 + DEV_OFFSET))
 export DEV_API_PORT=$((8080 + DEV_OFFSET))
 # The address both replicas advertise (portal.public_base_url in
 # dev/platform.yaml). It stays replica A's port: the second replica is started
@@ -310,6 +313,7 @@ export DEV_AIR_B_LOG="/tmp/mcp-dev-air-b.log"
 cat > dev/.dev-ports.env <<EOF
 DEV_OFFSET=$DEV_OFFSET
 DEV_PG_PORT=$DEV_PG_PORT
+DEV_PG_TARGET_PORT=$DEV_PG_TARGET_PORT
 DEV_API_PORT=$DEV_API_PORT
 DEV_S3_PORT=$DEV_S3_PORT
 DEV_S3_TLS_PORT=$DEV_S3_TLS_PORT
@@ -339,7 +343,7 @@ REPLICA_PORTS=()
 if [ "$DEV_REPLICAS" = 2 ]; then
   REPLICA_PORTS=("$DEV_API_PORT_B" "$DEV_PROXY_PORT" 9465)
 fi
-for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" "$DEV_SEAWEEDFS_MASTER_PORT" "$DEV_SEAWEEDFS_VOLUME_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9285 9286 9464 "$DEV_OLLAMA_PORT" "${REPLICA_PORTS[@]+"${REPLICA_PORTS[@]}"}"; do
+for port in "$DEV_PG_PORT" "$DEV_PG_TARGET_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" "$DEV_SEAWEEDFS_MASTER_PORT" "$DEV_SEAWEEDFS_VOLUME_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9285 9286 9464 "$DEV_OLLAMA_PORT" "${REPLICA_PORTS[@]+"${REPLICA_PORTS[@]}"}"; do
   if [ "$port" = "$DEV_API_PORT" ] || [ "$port" = "$DEV_API_PORT_B" ]; then
     api_port_free "$port" && continue
   else
@@ -606,6 +610,19 @@ print(json.dumps(c))')
     || fail "Could not register $KC_ORIGIN with Keycloak's portal client"
   ok "Keycloak portal client accepts $KC_ORIGIN (relocated stack)"
 fi
+
+# Wait for the postgres connection kind's target database (#2400).
+info "Waiting for the target PostgreSQL..."
+for i in $(seq 1 60); do
+  if docker exec acme-dev-postgres-target pg_isready -h 127.0.0.1 -U orders_app -d orders > /dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 60 ]; then
+    fail "the target PostgreSQL did not become ready within 60s (check 'docker logs acme-dev-postgres-target')"
+  fi
+  sleep 1
+done
+ok "Target PostgreSQL ready (orders on 127.0.0.1:$DEV_PG_TARGET_PORT)"
 
 # Wait for the mcp-test fixture. First run pulls the image, which can
 # take longer than the other waits — give it up to 60s before failing.

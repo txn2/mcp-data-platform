@@ -146,6 +146,7 @@ nav:
         - API Gateway Toolkit: server/api-gateway.md
         - API Catalogs: server/api-catalogs.md
         - GraphQL Toolkit: server/graphql-gateway.md
+      - PostgreSQL Toolkit: server/postgres.md
       - Operating Modes: server/operating-modes.md
       - Session Externalization: server/session-externalization.md
       - Data Retention: server/data-retention.md
