@@ -27,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
+	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
 
 // ConnectionStore abstracts platform.ConnectionStore for testability.
@@ -52,7 +53,7 @@ const (
 	connectionKindS3    = "s3"
 	connectionKindAPI   = "api"
 	connectionKindGQL   = "graphql"
-	connectionKindPG    = "postgres"
+	connectionKindPG    = "appdb"
 )
 
 // connectionCreatorSystem is the created_by attribution for connections
@@ -331,6 +332,13 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 
 	if err := registry.ValidateConnectionConfig(kind, req.Config); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
+		return
+	}
+	if msg := postgreskit.NameClash(kind, name, func(other string) bool {
+		held, err := h.deps.ConnectionStore.Get(r.Context(), other, name)
+		return err == nil && held != nil && held.Kind == other
+	}); msg != "" {
+		writeError(w, http.StatusConflict, msg)
 		return
 	}
 

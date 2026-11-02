@@ -63,6 +63,10 @@ func jsonValue(v any, typeName string) any {
 		return arrayValue(t, typeName)
 	case int64:
 		return intValue(t)
+	case int32:
+		return int64(t)
+	case int16:
+		return int64(t)
 	case float64:
 		return floatValue(t)
 	case float32:
@@ -75,7 +79,7 @@ func jsonValue(v any, typeName string) any {
 // bool, a decoded json document, or a pgtype value written as its text.
 func scalarValue(v any) any {
 	switch t := v.(type) {
-	case string, bool, int16, int32, int64, int, map[string]any:
+	case string, bool, int64, map[string]any:
 		return t
 	case pgtype.Time:
 		return pgTimeText(t)

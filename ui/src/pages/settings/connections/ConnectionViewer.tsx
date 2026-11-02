@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { GatewayActionBar, GatewayRulesDrawer } from "../GatewayActions";
 import { ConnectionTestButton, canTestConnection } from "./ConnectionTestButton";
 import { ConnectionOAuthStatusCard } from "../ConnectionOAuthStatusCard";
-import { CONFIG_LABELS, kindColor } from "./constants";
+import { CONFIG_LABELS, kindColor, kindLabel } from "./constants";
 import { shadowedOAuthKeys, storedOAuthGrant } from "./oauthVocabulary";
 import { GatewayHealthDetail, NoCatalogNotice } from "./HealthBadges";
 import { lacksCatalog } from "./connectionFilter";
@@ -125,7 +125,7 @@ export function ConnectionViewer({
             {/* Kind is a category, not a status, so it carries its own tint
                 from the shared kind palette on an outline badge. */}
             <Badge variant="outline" className={kindColor(connection.kind)}>
-              {connection.kind}
+              {kindLabel(connection.kind)}
             </Badge>
           </div>
           {connection.description && (

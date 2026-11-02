@@ -14,7 +14,7 @@ import (
 )
 
 // ErrPlatformDatabase refuses a connection that reached the platform's own
-// database. A caller with postgres_execute there could rewrite personas,
+// database. A script with platform.execute there could rewrite personas,
 // grants and the audit log.
 var ErrPlatformDatabase = errors.New("postgres: this connection reaches the platform's own database, which is never a connection target")
 

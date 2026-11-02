@@ -30,8 +30,13 @@ const TextResultKey = "text"
 // binding a script invokes becomes an ordinary tool call, crossing the same
 // authentication, authorization, gate, rate-limit, and audit middleware an
 // agent's call crosses, with no second implementation to keep in step.
+//
+// The one exception is an application database (#2428): AppDBQuery and
+// AppDBExecute are answered here, against the connection's pool, and never
+// reach the server.
 type SessionCaller struct {
 	session *mcp.ClientSession
+	appdb   *appdbCaller
 }
 
 // Connect opens an in-memory MCP session against server and returns the
@@ -62,7 +67,7 @@ func Connect(ctx context.Context, server *mcp.Server, label string) (*SessionCal
 		untrack()
 		return nil, nil, fmt.Errorf("opening a script session: %w", err)
 	}
-	return &SessionCaller{session: session}, func() {
+	return &SessionCaller{session: session, appdb: newAppDBCaller(ctx)}, func() {
 		_ = session.Close()
 		_ = serverSession.Close()
 		untrack()
@@ -74,6 +79,9 @@ func Connect(ctx context.Context, server *mcp.Server, label string) (*SessionCal
 // *RefusalError, so the engine can pace a rate-limit refusal; the error's text
 // is the result's own either way.
 func (c *SessionCaller) CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
+	if name == AppDBQuery || name == AppDBExecute {
+		return c.appdb.call(ctx, name, args)
+	}
 	params := &mcp.CallToolParams{Name: name, Arguments: args}
 	// Where in the script the call was made (#1907), for the audit row.
 	if site := scriptcallsite.From(ctx); site != nil {

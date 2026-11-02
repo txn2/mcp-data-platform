@@ -135,8 +135,6 @@ func TestDefaultPurposeToolsCoversTheDocumentedSet(t *testing.T) {
 		"api_export",
 		"s3_object",
 		"s3_list",
-		"postgres_query",
-		"postgres_execute",
 		"save_asset",
 		"manage_asset",
 		"kind:mcp",

@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -124,41 +123,33 @@ func TestJSONValue(t *testing.T) {
 	}
 }
 
-func TestBindParams(t *testing.T) {
+func TestBindValues(t *testing.T) {
 	ctx := context.Background()
-	b, err := bindParams(ctx, "SELECT 1", nil)
-	require.NoError(t, err)
-	assert.Empty(t, b.args)
-	b, err = bindParams(ctx, "SELECT 1", json.RawMessage(` null `))
+	b, err := bindValues(ctx, "SELECT 1", nil)
 	require.NoError(t, err)
 	assert.Empty(t, b.args)
 
-	b, err = bindParams(ctx, "SELECT $1, $2", json.RawMessage(`[12345678901234567890.5, "x"]`))
+	b, err = bindValues(ctx, "SELECT $1, $2", []any{json.Number("12345678901234567890.5"), "x"})
 	require.NoError(t, err)
 	assert.Equal(t, []any{json.Number("12345678901234567890.5"), "x"}, b.args)
 
-	b, err = bindParams(ctx, "SELECT @a, @b, @a, '@c' -- @d", json.RawMessage(`{"a": 1, "b": true}`))
+	b, err = bindValues(ctx, "SELECT @a, @b, @a, '@c' -- @d", map[string]any{"a": int64(1), "b": true})
 	require.NoError(t, err)
 	assert.Equal(t, "SELECT $1, $2, $1, '@c' -- @d", b.sql)
-	assert.Equal(t, []any{json.Number("1"), true}, b.args)
+	assert.Equal(t, []any{int64(1), true}, b.args)
 
-	_, err = bindParams(ctx, "SELECT @a", json.RawMessage(`{"a": 1, "b": 2}`))
+	_, err = bindValues(ctx, "SELECT @a", map[string]any{"a": 1, "b": 2})
 	require.Error(t, err, "a name no placeholder uses is refused")
-	_, err = bindParams(ctx, "SELECT 1", json.RawMessage(`[`))
-	require.Error(t, err)
-	_, err = bindParams(ctx, "SELECT 1", json.RawMessage(`7`))
+	_, err = bindValues(ctx, "SELECT 1", 7)
 	require.ErrorIs(t, err, errParamsShape)
 
-	tooMany := make([]any, MaxParams+1)
-	raw, _ := json.Marshal(tooMany)
-	_, err = bindParams(ctx, "SELECT 1", raw)
+	_, err = bindValues(ctx, "SELECT 1", make([]any, MaxParams+1))
 	require.Error(t, err)
-	bigObj := map[string]any{}
+	bigMap := map[string]any{}
 	for i := range MaxParams + 1 {
-		bigObj[string(rune('a'+i%26))+string(rune('a'+i/26%26))+string(rune('a'+i/676))] = 1
+		bigMap[string(rune('a'+i%26))+string(rune('a'+i/26%26))+string(rune('a'+i/676))] = 1
 	}
-	raw, _ = json.Marshal(bigObj)
-	_, err = bindParams(ctx, "SELECT 1", raw)
+	_, err = bindValues(ctx, "SELECT 1", bigMap)
 	require.Error(t, err)
 }
 
@@ -201,12 +192,6 @@ func TestEncodeArgs(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "$1")
 		})
-	}
-}
-
-func TestShapeBoundValuesCoversThisToolkitsTools(t *testing.T) {
-	for _, tool := range (&Toolkit{}).Tools() {
-		assert.True(t, audit.IsBoundValueTool(tool), "%s binds values the audit row must not keep", tool)
 	}
 }
 
@@ -335,7 +320,6 @@ func TestToolkit_ManagesConnections(t *testing.T) {
 	assert.Equal(t, Kind, tk.Kind())
 	assert.Equal(t, "a", tk.Name())
 	assert.Equal(t, "a", tk.Connection())
-	assert.Equal(t, []string{ToolQuery, ToolExecute}, tk.Tools())
 	tk.SetSemanticProvider(nil)
 	tk.SetQueryProvider(nil)
 	tk.SetMetrics(nil)
@@ -395,16 +379,13 @@ type atomicMetrics struct {
 	p atomic.Pointer[observability.Metrics]
 }
 
-func TestRegisterTools_AdvertisesBothTools(t *testing.T) {
+func TestToolkit_RegistersNoAgentTool(t *testing.T) {
 	tk := NewMulti(MultiConfig{DefaultName: "db"})
 	t.Cleanup(func() { _ = tk.Close() })
 	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil)
 	tk.RegisterTools(server)
-	assert.True(t, queryTool().Annotations.ReadOnlyHint)
-	assert.False(t, executeTool().Annotations.ReadOnlyHint)
-	var schema map[string]any
-	require.NoError(t, json.Unmarshal(querySchema, &schema))
-	require.NoError(t, json.Unmarshal(executeSchema, &schema))
+	assert.Empty(t, tk.Tools(), "an application database is reached from scripts, never by an agent tool")
+	assert.NotNil(t, tk.Tools(), "an empty list, never null")
 }
 
 func TestTracer_OpensASpanInsideATrace(t *testing.T) {
@@ -416,4 +397,13 @@ func TestTracer_OpensASpanInsideATrace(t *testing.T) {
 	require.True(t, ok)
 	assert.NotNil(t, st.span)
 	tr.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{Err: &pgconn.PgError{Code: "23505"}})
+}
+
+// TestJSONValue_IntegersAreInt64 holds the direct path's values to the types
+// a script's value conversion takes: int2 and int4 arrive from pgx as int16
+// and int32, which it does not (#2428).
+func TestJSONValue_IntegersAreInt64(t *testing.T) {
+	assert.Equal(t, int64(7), jsonValue(int16(7), "int2"))
+	assert.Equal(t, int64(7), jsonValue(int32(7), "int4"))
+	assert.Equal(t, []any{int64(1), nil}, jsonValue([]any{int32(1), nil}, "_int4"))
 }

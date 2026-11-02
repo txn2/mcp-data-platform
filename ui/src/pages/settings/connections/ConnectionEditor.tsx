@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AVAILABLE_KINDS } from "./constants";
+import { AVAILABLE_KINDS, kindLabel } from "./constants";
 import { ConfigSelect } from "./fields";
 import { useConnectionForm } from "./useConnectionForm";
 import { TrinoConfigForm } from "./TrinoConfigForm";
@@ -25,7 +25,7 @@ interface EditorProps {
   onDirtyChange: (dirty: boolean) => void;
 }
 
-const KIND_OPTIONS = AVAILABLE_KINDS.map((k) => ({ value: k, label: k }));
+const KIND_OPTIONS = AVAILABLE_KINDS.map((k) => ({ value: k, label: kindLabel(k) }));
 
 export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: EditorProps) {
   const {
@@ -175,7 +175,7 @@ export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }
                 isCreate={isCreate}
               />
             )}
-            {kind === "postgres" && (
+            {kind === "appdb" && (
               <PostgresConfigForm config={configObj} onChange={updateConfig} />
             )}
             {kind === "graphql" && (

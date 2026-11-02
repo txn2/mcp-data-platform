@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -13,8 +14,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 )
@@ -69,32 +68,35 @@ func newRealToolkit(t *testing.T, platform *sql.DB, conns map[string]map[string]
 	return tk
 }
 
-func execOK(t *testing.T, tk *Toolkit, in ExecuteInput) *ExecuteOutput {
+func execOK(t *testing.T, tk *Toolkit, st Statement) *Result {
 	t.Helper()
-	res, out, _ := tk.handleExecute(context.Background(), nil, in)
-	if res.IsError {
-		t.Fatalf("execute failed: %s", allText(res))
+	res, err := tk.Execute(context.Background(), st)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
 	}
-	return out.(*ExecuteOutput)
+	return res
 }
 
-func queryOK(t *testing.T, tk *Toolkit, in QueryInput) *QueryOutput {
+func queryOK(t *testing.T, tk *Toolkit, st Statement) *Result {
 	t.Helper()
-	res, out, _ := tk.handleQuery(context.Background(), nil, in)
-	if res.IsError {
-		t.Fatalf("query failed: %s", allText(res))
+	res, err := tk.Query(context.Background(), st)
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
 	}
-	return out.(*QueryOutput)
+	return res
 }
 
-func allText(res *mcp.CallToolResult) string {
-	var parts []string
-	for _, c := range res.Content {
-		if tc, ok := c.(*mcp.TextContent); ok {
-			parts = append(parts, tc.Text)
-		}
+// values decodes a JSON document the way a script's values arrive: numbers
+// keep every digit.
+func values(t *testing.T, doc string) any {
+	t.Helper()
+	dec := json.NewDecoder(strings.NewReader(doc))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		t.Fatal(err)
 	}
-	return strings.Join(parts, "\n")
+	return v
 }
 
 const typesDDL = `CREATE TABLE typed (
@@ -106,17 +108,17 @@ func TestTypeMapping_RealDB(t *testing.T) {
 	platform, _, target := realTarget(t)
 	tk := newRealToolkit(t, platform, map[string]map[string]any{"target": target})
 
-	execOK(t, tk, ExecuteInput{Connection: "target", SQL: typesDDL})
-	execOK(t, tk, ExecuteInput{
+	execOK(t, tk, Statement{Connection: "target", SQL: typesDDL})
+	execOK(t, tk, Statement{
 		Connection: "target",
 		SQL:        `INSERT INTO typed VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-		Params: json.RawMessage(`[1, 9007199254740993, "12345678901234.123456", 0.5,
+		Params: values(t, `[1, 9007199254740993, "12345678901234.123456", 0.5,
 			"2026-11-01T12:30:00+02:00", "2026-11-01", "2026-11-01T08:00:00", {"a":[1,2]}, [true],
 			"6f1c2c1e-7d2b-4b9e-9a51-0c4f0d1e2a3b", ["x","y \"q\""], [1,null,3], "AAEC", true, null]`),
 	})
 
-	byList := queryOK(t, tk, QueryInput{Connection: "target", SQL: `SELECT * FROM typed WHERE id = $1`, Params: json.RawMessage(`[1]`)})
-	byName := queryOK(t, tk, QueryInput{Connection: "target", SQL: `SELECT * FROM typed WHERE id = @id`, Params: json.RawMessage(`{"id": 1}`)})
+	byList := queryOK(t, tk, Statement{Connection: "target", SQL: `SELECT * FROM typed WHERE id = $1`, Params: []any{int64(1)}})
+	byName := queryOK(t, tk, Statement{Connection: "target", SQL: `SELECT * FROM typed WHERE id = @id`, Params: map[string]any{"id": int64(1)}})
 	a, _ := json.Marshal(byList.Rows)
 	b, _ := json.Marshal(byName.Rows)
 	if string(a) != string(b) {
@@ -143,53 +145,26 @@ func TestTypeMapping_RealDB(t *testing.T) {
 	}
 }
 
-func TestStatementsAreOneTransaction_RealDB(t *testing.T) {
-	platform, _, target := realTarget(t)
-	tk := newRealToolkit(t, platform, map[string]map[string]any{"target": target})
-	execOK(t, tk, ExecuteInput{Connection: "target", SQL: `CREATE TABLE people (email text PRIMARY KEY)`})
-
-	res, _, _ := tk.handleExecute(context.Background(), nil, ExecuteInput{
-		Connection: "target",
-		Statements: []StatementInput{
-			{SQL: `INSERT INTO people VALUES ($1)`, Params: json.RawMessage(`["a@example.com"]`)},
-			{SQL: `INSERT INTO people VALUES (@e)`, Params: json.RawMessage(`{"e":"b@example.com"}`)},
-			{SQL: `INSERT INTO people VALUES ($1)`, Params: json.RawMessage(`["a@example.com"]`)},
-		},
-	})
-	if !res.IsError {
-		t.Fatal("a statements list whose third statement fails succeeded")
-	}
-	if !strings.Contains(allText(res), "in statement 2") {
-		t.Errorf("failure does not name the statement: %s", allText(res))
-	}
-	got := queryOK(t, tk, QueryInput{Connection: "target", SQL: `SELECT count(*) FROM people`})
-	if n, _ := json.Marshal(got.Rows[0][0]); string(n) != "0" {
-		t.Fatalf("rows left after a failed list = %s, want 0", n)
-	}
-}
-
 func TestDetailReachesOnlyTheCaller_RealDB(t *testing.T) {
 	platform, _, target := realTarget(t)
 	tk := newRealToolkit(t, platform, map[string]map[string]any{"target": target})
-	execOK(t, tk, ExecuteInput{Connection: "target", SQL: `CREATE TABLE people (email text PRIMARY KEY)`})
+	execOK(t, tk, Statement{Connection: "target", SQL: `CREATE TABLE people (email text PRIMARY KEY)`})
 	const secret = "s3cret-value@example.com"
-	execOK(t, tk, ExecuteInput{Connection: "target", SQL: `INSERT INTO people VALUES ($1)`, Params: json.RawMessage(`["` + secret + `"]`)})
+	execOK(t, tk, Statement{Connection: "target", SQL: `INSERT INTO people VALUES ($1)`, Params: []any{secret}})
 
-	res, _, _ := tk.handleExecute(context.Background(), nil, ExecuteInput{
-		Connection: "target", SQL: `INSERT INTO people VALUES ($1)`, Params: json.RawMessage(`["` + secret + `"]`),
-	})
-	if !res.IsError {
-		t.Fatal("a duplicate insert succeeded")
+	_, err := tk.Execute(context.Background(), Statement{Connection: "target", SQL: `INSERT INTO people VALUES ($1)`, Params: []any{secret}})
+	failed, ok := errors.AsType[*FailedError](err)
+	if !ok {
+		t.Fatalf("a duplicate insert: err = %v, want a FailedError", err)
 	}
-	first := res.Content[0].(*mcp.TextContent).Text
-	if strings.Contains(first, secret) || strings.Contains(res.GetError().Error(), secret) {
-		t.Fatalf("the audit-read text repeats the value: %q / %q", first, res.GetError())
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("the error text repeats the value: %q", err)
 	}
-	if !strings.Contains(first, "23505") || !strings.Contains(first, "people_pkey") {
-		t.Errorf("summary lacks the SQLSTATE or constraint: %q", first)
+	if !strings.Contains(err.Error(), "23505") || !strings.Contains(err.Error(), "people_pkey") {
+		t.Errorf("summary lacks the SQLSTATE or constraint: %q", err)
 	}
-	if !strings.Contains(allText(res), secret) {
-		t.Errorf("the caller did not get the DETAIL: %s", allText(res))
+	if !strings.Contains(failed.CallerText(), secret) {
+		t.Errorf("the script did not get the DETAIL: %s", failed.CallerText())
 	}
 }
 
@@ -208,43 +183,37 @@ func TestOwnDatabaseIsRefused_RealDB(t *testing.T) {
 	if err := tk.AddConnection("own", own); err != nil {
 		t.Fatal(err)
 	}
-	res, _, _ := tk.handleQuery(context.Background(), nil, QueryInput{Connection: "own", SQL: "SELECT 1"})
-	if !res.IsError || !strings.Contains(allText(res), "platform's own database") {
-		t.Fatalf("a statement on the platform's database: %s", allText(res))
+	_, err := tk.Query(context.Background(), Statement{Connection: "own", SQL: "SELECT 1"})
+	if err == nil || !strings.Contains(err.Error(), "platform's own database") {
+		t.Fatalf("a statement on the platform's database: err = %v", err)
 	}
 }
 
-func TestSessionStateDoesNotOutliveACall_RealDB(t *testing.T) {
+func TestSessionStateDoesNotOutliveAStatement_RealDB(t *testing.T) {
 	platform, _, target := realTarget(t)
 	target[cfgKeyMaxConns] = 1
 	tk := newRealToolkit(t, platform, map[string]map[string]any{"target": target})
-	execOK(t, tk, ExecuteInput{Connection: "target", SQL: `SET search_path TO pg_catalog`})
-	got := queryOK(t, tk, QueryInput{Connection: "target", SQL: `SHOW search_path`})
+	execOK(t, tk, Statement{Connection: "target", SQL: `SET search_path TO pg_catalog`})
+	got := queryOK(t, tk, Statement{Connection: "target", SQL: `SHOW search_path`})
 	if v, _ := got.Rows[0][0].(string); v == "pg_catalog" {
-		t.Fatal("a session-level SET outlived the call that made it")
+		t.Fatal("a session-level SET outlived the statement that made it")
 	}
 }
 
 func TestQueryIsReadOnlyAndCapped_RealDB(t *testing.T) {
 	platform, _, target := realTarget(t)
 	tk := newRealToolkit(t, platform, map[string]map[string]any{"target": target})
-	execOK(t, tk, ExecuteInput{Connection: "target", SQL: `CREATE TABLE n (i int)`})
+	execOK(t, tk, Statement{Connection: "target", SQL: `CREATE TABLE n (i int)`})
 
-	res, _, _ := tk.handleQuery(context.Background(), nil, QueryInput{Connection: "target", SQL: `INSERT INTO n VALUES (1)`})
-	if !res.IsError || !strings.Contains(allText(res), "25006") {
-		t.Fatalf("a write through postgres_query: %s", allText(res))
+	_, err := tk.Query(context.Background(), Statement{Connection: "target", SQL: `INSERT INTO n VALUES (1)`})
+	if err == nil || !strings.Contains(err.Error(), "25006") {
+		t.Fatalf("a write through Query: err = %v", err)
 	}
-	got := queryOK(t, tk, QueryInput{Connection: "target", SQL: `SELECT g FROM generate_series(1, 1000000) g`, Limit: 5})
+	got := queryOK(t, tk, Statement{Connection: "target", SQL: `SELECT g FROM generate_series(1, 1000000) g`, Limit: 5})
 	if len(got.Rows) != 5 || !got.Truncated {
 		t.Fatalf("rows = %d truncated = %v, want 5 and true", len(got.Rows), got.Truncated)
 	}
-	res, _, _ = tk.handleExecute(context.Background(), nil, ExecuteInput{Connection: "target", Statements: []StatementInput{
-		{SQL: `INSERT INTO n VALUES (1)`}, {SQL: `COMMIT`}, {SQL: `INSERT INTO n VALUES ('x')`},
-	}})
-	if !res.IsError || !strings.Contains(allText(res), "COMMIT statement is not run") {
-		t.Fatalf("a COMMIT inside a statements list: %s", allText(res))
-	}
-	got = queryOK(t, tk, QueryInput{Connection: "target", SQL: `SELECT count(*) FROM n`})
+	got = queryOK(t, tk, Statement{Connection: "target", SQL: `SELECT count(*) FROM n`})
 	if n, _ := json.Marshal(got.Rows[0][0]); string(n) != "0" {
 		t.Fatalf("rows = %s, want 0", n)
 	}

@@ -24,14 +24,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
-// Tool names this toolkit registers.
-const (
-	// ToolQuery runs one statement in a READ ONLY transaction.
-	ToolQuery = "postgres_query"
-	// ToolExecute runs one statement, or a list in one transaction.
-	ToolExecute = "postgres_execute"
-)
-
 // Errors the connection registry answers with.
 var (
 	// ErrConnectionExists is returned when AddConnection names a connection
@@ -143,8 +135,10 @@ func (t *Toolkit) Name() string { return t.name }
 // Connection implements registry.Toolkit: the default connection's name.
 func (t *Toolkit) Connection() string { return t.defaultName }
 
-// Tools implements registry.Toolkit.
-func (*Toolkit) Tools() []string { return []string{ToolQuery, ToolExecute} }
+// Tools implements registry.Toolkit. An application database has no agent
+// tool: scripts and endpoints reach it through the host's platform.query and
+// platform.execute, which call Query and Execute directly (#2428).
+func (*Toolkit) Tools() []string { return []string{} }
 
 // SetSemanticProvider implements registry.Toolkit. Postgres tables are
 // enriched once the catalog scans them (#2401).
@@ -164,11 +158,8 @@ func (t *Toolkit) Close() error {
 	return nil
 }
 
-// RegisterTools registers postgres_query and postgres_execute.
-func (t *Toolkit) RegisterTools(s *mcp.Server) {
-	toolkit.AddTool(s, queryTool(), t.handleQuery)
-	toolkit.AddTool(s, executeTool(), t.handleExecute)
-}
+// RegisterTools implements registry.Toolkit and registers nothing (see Tools).
+func (*Toolkit) RegisterTools(*mcp.Server) {}
 
 // AddConnection implements toolkit.ConnectionManager.
 func (t *Toolkit) AddConnection(name string, config map[string]any) error {
@@ -306,7 +297,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	}
 	detail := fmt.Sprintf("PostgreSQL %s answered for database %s as %s", version, database, user)
 	if c.cfg.ReadOnly {
-		detail = fmt.Sprintf("%s; this connection is read_only and refuses postgres_execute", detail)
+		detail = fmt.Sprintf("%s; this connection is read_only and refuses platform.execute", detail)
 	}
 	return connprobe.Success(detail)
 }

@@ -9,8 +9,13 @@
 package toolkitwire
 
 import (
+	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
@@ -47,4 +52,58 @@ func PostgresGuard(toolkits []registry.Toolkit, platformDB *sql.DB) {
 			pg.SetConnectGuard(guard)
 		}
 	}
+}
+
+// connectionAuthorizer is the persona authorizer's connection check
+// (persona.Authorizer.IsConnectionAuthorized).
+type connectionAuthorizer interface {
+	IsConnectionAuthorized(ctx context.Context, roles []string, connection string) (allowed bool, personaName, reason string)
+}
+
+// AppDB installs what script sessions run application-database statements
+// with (#2428): the live postgres toolkit, read from all on every lookup so a
+// toolkit the registry gains later is the one used, and the check that the
+// run's persona may use the connection. With an authorizer that has no
+// connection check (no personas configured) every connection is allowed, as
+// every connection is to that deployment's tool calls.
+func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz middleware.Authorizer) {
+	runner := func() scriptsession.AppDBRunner {
+		for _, tk := range all() {
+			if pg, ok := tk.(*postgreskit.Toolkit); ok {
+				return pg
+			}
+		}
+		return nil
+	}
+	checker, _ := authz.(connectionAuthorizer)
+	scriptsession.InstallAppDB(scriptsession.AppDB{
+		Runner:    runner,
+		Authorize: func(ctx context.Context, connection string) error { return authorize(ctx, authn, checker, connection) },
+	})
+}
+
+// errNoIdentity refuses a statement from a session that carries no identity.
+var errNoIdentity = errors.New("the run carries no identity to authorize an application database with")
+
+// authorize resolves the session's roles and asks the persona authorizer.
+func authorize(ctx context.Context, authn middleware.Authenticator, checker connectionAuthorizer, connection string) error {
+	if checker == nil {
+		return nil
+	}
+	var roles []string
+	if u := middleware.GetPreAuthenticatedUser(ctx); u != nil {
+		roles = u.Roles
+	} else if authn != nil {
+		u, err := authn.Authenticate(ctx)
+		if err != nil || u == nil {
+			return errNoIdentity
+		}
+		roles = u.Roles
+	} else {
+		return errNoIdentity
+	}
+	if ok, _, reason := checker.IsConnectionAuthorized(ctx, roles, connection); !ok {
+		return fmt.Errorf("application database %q is not allowed for this run: %s", connection, reason)
+	}
+	return nil
 }

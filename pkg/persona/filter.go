@@ -348,6 +348,25 @@ func (a *Authorizer) IsAuthorized(ctx context.Context, _ string, roles []string,
 	return true, personaName, ""
 }
 
+// IsConnectionAuthorized authorizes a connection, with no tool, for the user
+// with the given roles: what a script run's statement on an application
+// database is checked against (#2428), since it reaches the connection through
+// the script host rather than a tool. Returns the resolved persona name and a
+// reason on denial.
+func (a *Authorizer) IsConnectionAuthorized(ctx context.Context, roles []string, connectionName string) (allowed bool, personaName, reason string) {
+	per, err := a.roleMapper.MapToPersona(ctx, roles)
+	if err != nil {
+		return false, "", "failed to determine persona"
+	}
+	if per != nil {
+		personaName = per.Name
+	}
+	if !a.filter.IsConnectionAllowed(per, connectionName) {
+		return false, personaName, "connection " + connectionName + " not allowed for persona: " + personaName
+	}
+	return true, personaName, ""
+}
+
 // IsAPIRouteAllowed authorizes the query's method and path on its HTTP
 // API gateway connection for the user with the given roles. Layered on
 // top of IsAuthorized: the caller (the api gateway toolkit) is

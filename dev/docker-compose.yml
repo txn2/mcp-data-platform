@@ -39,11 +39,12 @@ services:
       timeout: 3s
       retries: 10
 
-  # postgres-target: the database the postgres connection kind (#2400)
-  # connects to, separate from the platform's own above. dev/platform.yaml
-  # names it twice, as `orders` and as the read_only `orders-ro`; the
-  # acceptance suite reads and writes it through postgres_query and
-  # postgres_execute. Its schema is dev/fixtures/postgres-target.sql.
+  # postgres-target: the database the application database kind (#2400,
+  # #2428) connects to, separate from the platform's own above.
+  # dev/platform.yaml names it twice, as `orders` and as the read_only
+  # `orders-ro`; the acceptance suite reads and writes it through a script's
+  # platform.query and platform.execute. Its schema is
+  # dev/fixtures/postgres-target.sql.
   postgres-target:
     image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
     container_name: acme-dev-postgres-target
