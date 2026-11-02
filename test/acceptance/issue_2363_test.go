@@ -289,6 +289,8 @@ func baseConfig2363(kind string) map[string]any {
 		return map[string]any{"base_url": "http://127.0.0.1:9", "connect_timeout": "2s", "call_timeout": "5s"}
 	case "graphql":
 		return map[string]any{"endpoint_url": "http://127.0.0.1:9/graphql"}
+	case "postgres":
+		return map[string]any{"host": "127.0.0.1", "port": 9, "database": "acc2363", "user": "acc2363", "sslmode": "disable"}
 	}
 	return map[string]any{}
 }
@@ -322,7 +324,7 @@ func sensitiveKeys2363(t *testing.T, kind string) (flat, nested []string) {
 func (k *canary2363) driveConnections(admin *client) {
 	t := k.t
 	planted := 0
-	for _, kind := range []string{"trino", "s3", "mcp", "api", "graphql"} {
+	for _, kind := range []string{"trino", "s3", "mcp", "api", "graphql", "postgres"} {
 		flat, nested := sensitiveKeys2363(t, kind)
 		if len(flat)+len(nested) == 0 {
 			t.Errorf("%s's config schema names no key the encryption layer treats as secret", kind)
@@ -387,6 +389,8 @@ func (k *canary2363) callThrough(admin *client, kind, name string) {
 		k.call(admin, "graphql_query", map[string]any{"connection": name, "query": "{ __typename }", "purpose": purpose})
 	case "mcp":
 		k.call(admin, "list_connections", map[string]any{})
+	case "postgres":
+		k.call(admin, "postgres_query", map[string]any{"connection": name, "sql": "SELECT 1", "purpose": purpose})
 	}
 }
 

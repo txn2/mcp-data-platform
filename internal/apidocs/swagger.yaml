@@ -18014,7 +18014,7 @@ paths:
       description: 'Deletes a database-managed connection instance. A connection the
         platform configuration file declares is refused with 409: the file owns it.'
       parameters:
-      - description: Toolkit kind (trino, s3, mcp, api, graphql)
+      - description: Toolkit kind (trino, s3, mcp, api, graphql, postgres)
         in: path
         name: kind
         required: true
@@ -18049,7 +18049,7 @@ paths:
       description: Returns a single database-managed connection instance by kind and
         name.
       parameters:
-      - description: Toolkit kind (trino, s3, mcp, api, graphql)
+      - description: Toolkit kind (trino, s3, mcp, api, graphql, postgres)
         in: path
         name: kind
         required: true
@@ -18092,7 +18092,7 @@ paths:
         warning that api_discover and search find none of its operations; if no spec
         can be found, say so to the person rather than reporting the setup done.'
       parameters:
-      - description: Toolkit kind (trino, s3, mcp, api, graphql)
+      - description: Toolkit kind (trino, s3, mcp, api, graphql, postgres)
         in: path
         name: kind
         required: true

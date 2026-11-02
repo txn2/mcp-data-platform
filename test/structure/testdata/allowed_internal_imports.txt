@@ -1525,6 +1525,9 @@ internal/platform/toolkitcfg -> internal/logsan
 internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> internal/secretref
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
+internal/platform/toolkitwire -> pkg/observability
+internal/platform/toolkitwire -> pkg/registry
+internal/platform/toolkitwire -> pkg/toolkits/postgres
 internal/platform/tooloutput -> pkg/script
 internal/platform/toolratelimit -> internal/logsan
 internal/platform/toolratelimit -> pkg/middleware
@@ -2012,6 +2015,7 @@ pkg/platform -> internal/platform/thumbworker
 pkg/platform -> internal/platform/toolargs
 pkg/platform -> internal/platform/toolinventory
 pkg/platform -> internal/platform/toolkitcfg
+pkg/platform -> internal/platform/toolkitwire
 pkg/platform -> internal/platform/toolratelimit
 pkg/platform -> internal/platform/trinowiring
 pkg/platform -> internal/platform/userdir
@@ -2149,6 +2153,7 @@ pkg/registry -> pkg/semantic
 pkg/registry -> pkg/toolkits/apigateway
 pkg/registry -> pkg/toolkits/gateway
 pkg/registry -> pkg/toolkits/graphql
+pkg/registry -> pkg/toolkits/postgres
 pkg/registry -> pkg/toolkits/s3
 pkg/registry -> pkg/toolkits/trino
 pkg/resource -> internal/exporttrunc
@@ -2315,6 +2320,18 @@ pkg/toolkits/portal -> pkg/textpatch
 pkg/toolkits/portal -> pkg/textpatch/patchmcp
 pkg/toolkits/portal -> pkg/toolkit
 pkg/toolkits/portal -> pkg/user
+pkg/toolkits/postgres -> internal/advisorylock
+pkg/toolkits/postgres -> internal/apigwtls
+pkg/toolkits/postgres -> internal/cfgmap
+pkg/toolkits/postgres -> internal/connprobe
+pkg/toolkits/postgres -> internal/connstate
+pkg/toolkits/postgres -> internal/logsan
+pkg/toolkits/postgres -> internal/secretref
+pkg/toolkits/postgres -> internal/sqltables
+pkg/toolkits/postgres -> pkg/observability
+pkg/toolkits/postgres -> pkg/query
+pkg/toolkits/postgres -> pkg/semantic
+pkg/toolkits/postgres -> pkg/toolkit
 pkg/toolkits/s3 -> internal/connprobe
 pkg/toolkits/s3 -> internal/connstate
 pkg/toolkits/s3 -> internal/logsan

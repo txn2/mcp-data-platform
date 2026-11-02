@@ -7,6 +7,7 @@ import (
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
+	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -18,6 +19,7 @@ func RegisterBuiltinFactories(r *Registry) {
 	r.RegisterAggregateFactory(gatewaykit.Kind, GatewayAggregateFactory)
 	r.RegisterAggregateFactory(apigatewaykit.Kind, APIGatewayAggregateFactory)
 	r.RegisterAggregateFactory(graphqlkit.Kind, GraphQLAggregateFactory)
+	r.RegisterAggregateFactory(postgreskit.Kind, PostgresAggregateFactory)
 }
 
 // TrinoAggregateFactory creates a single multi-connection Trino toolkit
@@ -96,6 +98,18 @@ func GraphQLAggregateFactory(defaultName string, instances map[string]map[string
 	return graphqlkit.NewMulti(cfg), nil
 }
 
+// PostgresAggregateFactory creates the one postgres toolkit from all
+// configured instances (#2400). Building a pool opens no connection, so an
+// unreachable database does not hold up startup; an instance whose config does
+// not parse is logged and skipped.
+func PostgresAggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
+	cfg, err := postgreskit.ParseMultiConfig(defaultName, instances)
+	if err != nil {
+		return nil, fmt.Errorf("parsing postgres multi config: %w", err)
+	}
+	return postgreskit.NewMulti(cfg), nil
+}
+
 // ConnectionConfigSchema returns the JSON Schema of a kind's connection config,
 // or nil for a kind that declares none.
 //
@@ -117,6 +131,8 @@ func ConnectionConfigSchema(kind string) json.RawMessage {
 		return json.RawMessage(apigatewaykit.ConfigSchemaJSON)
 	case graphqlkit.Kind:
 		return json.RawMessage(graphqlkit.ConfigSchemaJSON)
+	case postgreskit.Kind:
+		return json.RawMessage(postgreskit.ConfigSchemaJSON)
 	default:
 		return nil
 	}
@@ -144,6 +160,8 @@ func ValidateConnectionConfig(kind string, cfg map[string]any) error {
 		_, err = apigatewaykit.ParseConfig(cfg)
 	case graphqlkit.Kind:
 		_, err = graphqlkit.ParseConfig(cfg)
+	case postgreskit.Kind:
+		_, err = postgreskit.ParseConfig(cfg)
 	default:
 		return nil
 	}

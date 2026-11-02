@@ -365,6 +365,9 @@ type Metrics struct {
 	// Platform-owned object storage and PostgreSQL statement instruments
 	// (#1896), metrics_deps.go.
 	deps depInstruments
+	// Statements sent to a postgres connection kind's database (#2400),
+	// metrics_postgres.go.
+	pg postgresInstruments
 
 	// DB connection-pool instruments, observed at scrape time from each
 	// registered pool's (*sql.DB).Stats(). The six instruments and the
@@ -680,6 +683,9 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 		return err
 	}
 	if err := m.registerDepInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerPostgresInstruments(meter); err != nil {
 		return err
 	}
 	if err := m.registerCapacityInstruments(meter); err != nil {

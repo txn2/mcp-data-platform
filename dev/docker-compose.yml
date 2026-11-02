@@ -39,6 +39,29 @@ services:
       timeout: 3s
       retries: 10
 
+  # postgres-target: the database the postgres connection kind (#2400)
+  # connects to, separate from the platform's own above. dev/platform.yaml
+  # names it twice, as `orders` and as the read_only `orders-ro`; the
+  # acceptance suite reads and writes it through postgres_query and
+  # postgres_execute. Its schema is dev/fixtures/postgres-target.sql.
+  postgres-target:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    container_name: acme-dev-postgres-target
+    environment:
+      POSTGRES_USER: orders_app
+      POSTGRES_PASSWORD: orders_secret
+      POSTGRES_DB: orders
+    ports:
+      - "127.0.0.1:${DEV_PG_TARGET_PORT:-5442}:5432"
+    volumes:
+      - acme_postgres_target_data:/var/lib/postgresql/data
+      - ./fixtures/postgres-target.sql:/docker-entrypoint-initdb.d/01-orders.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U orders_app -d orders"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
   # mcp-test: deterministic MCP fixture used by `make dev` to exercise
   # the platform's mcp-gateway connector against a real upstream.
   # dev/start.sh registers this as the `mcp-test-fixture` MCP connection
@@ -489,6 +512,7 @@ services:
 
 volumes:
   acme_postgres_data:
+  acme_postgres_target_data:
   acme_seaweed_data:
   acme_seaweed_resources_data:
   acme_ollama_data:

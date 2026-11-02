@@ -4511,7 +4511,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Toolkit kind (trino, s3, mcp, api, graphql)",
+                        "description": "Toolkit kind (trino, s3, mcp, api, graphql, postgres)",
                         "name": "kind",
                         "in": "path",
                         "required": true
@@ -4568,7 +4568,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Toolkit kind (trino, s3, mcp, api, graphql)",
+                        "description": "Toolkit kind (trino, s3, mcp, api, graphql, postgres)",
                         "name": "kind",
                         "in": "path",
                         "required": true
@@ -4634,7 +4634,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Toolkit kind (trino, s3, mcp, api, graphql)",
+                        "description": "Toolkit kind (trino, s3, mcp, api, graphql, postgres)",
                         "name": "kind",
                         "in": "path",
                         "required": true

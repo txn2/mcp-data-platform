@@ -3,7 +3,7 @@
 // import only what they render.
 
 // Connection kinds the create form offers. Kind is immutable after creation.
-export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api", "graphql"];
+export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api", "graphql", "postgres"];
 
 // Kind badge colors for the list and viewer header.
 const KIND_COLORS: Record<string, string> = {
@@ -12,6 +12,7 @@ const KIND_COLORS: Record<string, string> = {
   mcp: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
   api: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",
   graphql: "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400",
+  postgres: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400",
 };
 
 export function kindColor(kind: string): string {
@@ -21,6 +22,22 @@ export function kindColor(kind: string): string {
 // Human labels for raw config keys, keyed by kind, used by the read-only
 // viewer's Configuration table.
 export const CONFIG_LABELS: Record<string, Record<string, string>> = {
+  postgres: {
+    host: "Host",
+    port: "Port",
+    database: "Database",
+    user: "User",
+    password: "Password",
+    sslmode: "SSL Mode",
+    tls_ca_bundle_pem: "TLS CA Bundle",
+    mtls_client_cert_pem: "mTLS Client Certificate",
+    mtls_client_key_pem: "mTLS Client Key",
+    max_conns: "Pool Size",
+    statement_timeout: "Statement Timeout",
+    max_rows: "Row Cap",
+    read_only: "Read Only",
+    description: "Description",
+  },
   trino: {
     host: "Host",
     port: "Port",

@@ -55,6 +55,7 @@ export function useConnectionForm({
       case "mcp": return Boolean(configObj.endpoint);
       case "api": return Boolean(configObj.base_url);
       case "graphql": return Boolean(configObj.endpoint_url);
+      case "postgres": return Boolean(configObj.host && configObj.database && configObj.user);
       default: return true;
     }
   }, [kind, configObj]);

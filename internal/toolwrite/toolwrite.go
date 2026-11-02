@@ -157,6 +157,9 @@ var readOnlyTools = map[string]bool{
 	// graphql_query are ruled on by what they send.
 	"api_discover":     true,
 	"graphql_discover": true,
+	// PostgreSQL's read tool runs one statement in a READ ONLY transaction
+	// that is always rolled back, so nothing it does persists (#2400).
+	"postgres_query": true,
 }
 
 // writeTools is every tool whose every call persists something. They are named
@@ -179,6 +182,8 @@ var writeTools = map[string]bool{
 	"trino_export":   true,
 	"api_export":     true,
 	"graphql_export": true,
+	// PostgreSQL's write tool: one statement or a list in one transaction.
+	"postgres_execute": true,
 }
 
 // actionRule classifies one tool by the value of one argument.

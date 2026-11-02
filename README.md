@@ -108,6 +108,7 @@ Each feature links to its full documentation.
 | [Universal search](https://mcp-data-platform.txn2.com/knowledge/overview/) | One `search` tool fans a query across the catalog, knowledge pages, memory, insights, assets, prompts, and APIs; `fetch` dereferences any result |
 | [Workflow gating](https://mcp-data-platform.txn2.com/reference/middleware/) | Session-aware guidance that steers agents to discovery before SQL, with escalating warnings |
 | [Tools](https://mcp-data-platform.txn2.com/server/tools/) | Full tool reference for Trino, S3, knowledge, memory, portal, and gateway toolkits |
+| [PostgreSQL](https://mcp-data-platform.txn2.com/server/postgres/) | Read and write a PostgreSQL database: bound parameters, a statements list in one transaction, typed results, values kept out of audit, logs and spans |
 
 ### Knowledge and memory
 

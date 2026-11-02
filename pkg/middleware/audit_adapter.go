@@ -64,7 +64,7 @@ func (a *auditStoreAdapter) Log(ctx context.Context, event AuditEvent) error {
 		WithToolkit(event.ToolkitKind, event.ToolkitName).
 		WithConnection(event.Connection).
 		WithPurpose(event.Purpose).
-		WithParameters(audit.SanitizeParameters(event.Parameters)).
+		WithParameters(audit.SanitizeToolParameters(event.ToolName, event.Parameters)).
 		WithResult(event.Success, event.ErrorMessage, event.DurationMS).
 		WithErrorCategory(event.ErrorCategory).
 		WithResponseSize(event.ResponseChars, event.ContentBlocks).

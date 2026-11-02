@@ -190,6 +190,9 @@ query them; the tab is the at-a-glance read.
 | `storage_bytes_written_total` | counter | `purpose` |
 | `db_client_operation_duration_seconds` | histogram | `operation` |
 | `db_client_slow_statements_total` | counter | `operation` |
+| `postgres_statements_total` | counter | `connection`, `operation`, `status` (`ok`, `canceled`, `error`, or the SQLSTATE class as `class_23`) |
+| `postgres_statement_duration_seconds` | histogram | `connection`, `operation` |
+| `postgres_slow_statements_total` | counter | `connection`, `operation` |
 | `script_runs_total` | counter | `script`, `trigger`, `status` |
 | `script_run_duration_seconds` | histogram | `script` |
 | `script_runs_running` | gauge | (none) |

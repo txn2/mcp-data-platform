@@ -76,6 +76,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/storeresync"
 	"github.com/txn2/mcp-data-platform/internal/platform/taskwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
+	"github.com/txn2/mcp-data-platform/internal/platform/toolkitwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/trinowiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -2780,6 +2781,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	// installs its mcp-s3 metrics middleware in SetMetrics, which must be in
 	// place when RegisterAllTools registers the handlers.
 	p.WireToolkitMetrics()
+	toolkitwire.PostgresGuard(p.toolkitRegistry.All(), p.db)
 
 	// Register tools from all toolkits
 	p.toolkitRegistry.RegisterAllTools(p.mcpServer)

@@ -251,6 +251,7 @@ mcp-data-platform/
 │   │   ├── knowledge/              #   Knowledge capture toolkit
 │   │   ├── memory/                 #   memory_manage / memory_capture tools
 │   │   ├── portal/                 #   Save/manage-asset toolkit
+│   │   ├── postgres/               #   PostgreSQL connection kind (#2400): postgres_query (READ ONLY transaction) and postgres_execute (one statement or an atomic statements list), pgx native binding, typed results, the platform's own database refused
 │   │   ├── s3/                     #   S3 toolkit
 │   │   ├── search/                 #   Universal, topology-free discovery entry point
 │   │   ├── tools/                  #   toolsindex/ = tools-discovery indexjobs consumer

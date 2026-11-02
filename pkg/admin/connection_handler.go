@@ -52,6 +52,7 @@ const (
 	connectionKindS3    = "s3"
 	connectionKindAPI   = "api"
 	connectionKindGQL   = "graphql"
+	connectionKindPG    = "postgres"
 )
 
 // connectionCreatorSystem is the created_by attribution for connections
@@ -134,6 +135,7 @@ var knownConnectionKinds = map[string]bool{
 	connectionKindMCP:   true,
 	connectionKindAPI:   true,
 	connectionKindGQL:   true,
+	connectionKindPG:    true,
 }
 
 // registerConnectionRoutes registers connection instance CRUD endpoints.
@@ -187,7 +189,7 @@ func (h *Handler) listConnectionInstances(w http.ResponseWriter, r *http.Request
 // @Description  Returns a single database-managed connection instance by kind and name.
 // @Tags         Connections
 // @Produce      json
-// @Param        kind  path  string  true  "Toolkit kind (trino, s3, mcp, api, graphql)"
+// @Param        kind  path  string  true  "Toolkit kind (trino, s3, mcp, api, graphql, postgres)"
 // @Param        name  path  string  true  "Instance name"
 // @Success      200   {object}  platform.ConnectionInstance
 // @Failure      404   {object}  problemDetail
@@ -225,7 +227,7 @@ type setConnectionInstanceRequest struct {
 // @Tags         Connections
 // @Accept       json
 // @Produce      json
-// @Param        kind  path  string                        true  "Toolkit kind (trino, s3, mcp, api, graphql)"
+// @Param        kind  path  string                        true  "Toolkit kind (trino, s3, mcp, api, graphql, postgres)"
 // @Param        name  path  string                        true  "Instance name"
 // @Param        body  body  setConnectionInstanceRequest  true  "Connection instance data"
 // @Success      200   {object}  connectionSaveResponse
@@ -375,7 +377,7 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 // @Summary      Delete connection instance
 // @Description  Deletes a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it.
 // @Tags         Connections
-// @Param        kind  path  string  true  "Toolkit kind (trino, s3, mcp, api, graphql)"
+// @Param        kind  path  string  true  "Toolkit kind (trino, s3, mcp, api, graphql, postgres)"
 // @Param        name  path  string  true  "Instance name"
 // @Success      204
 // @Failure      404  {object}  problemDetail
