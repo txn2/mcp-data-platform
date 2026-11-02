@@ -163,7 +163,9 @@ async function drawAndSave(page: Page) {
   await page.getByRole("button", { name: "Save", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  // The new version is the confirmation: the Saved badge sits on the Save
+  // control, which the page hides once the save switches it back to Preview.
+  await expect(page.getByText("v2 (current)")).toBeVisible();
 }
 
 /** Pauses the animation and scrubs it to a frame. */

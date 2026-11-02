@@ -86,16 +86,11 @@ func issue2395Upload(t *testing.T, c *client, filename, mime string, content []b
 	return id, uri
 }
 
-// issue2395Clip is a real H.264 clip ffmpeg draws, long enough to seek in.
+// issue2395Clip is a 20-second H.264 clip (testdata/issue2395-clip.mp4, drawn
+// once with ffmpeg's testsrc), long enough to seek in.
 func issue2395Clip(t *testing.T) []byte {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "clip.mp4")
-	cmd := exec.Command("ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=20:size=640x360:rate=25", // #nosec G204 -- fixed arguments
-		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("drawing the clip with ffmpeg: %v: %s", err, out)
-	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join("testdata", "issue2395-clip.mp4"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,6 +121,20 @@ func issue2395Get(t *testing.T, c *client, path string, header map[string]string
 	t.Helper()
 	status, body, _ := issue2395Do(t, c, path, header)
 	return status, body
+}
+
+// issue2395GetAt issues an authenticated GET to one replica's own address.
+func issue2395GetAt(t *testing.T, c *client, base, path string) (int, []byte) {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(c.ctx, http.MethodGet, base+path, http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	res, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req)
+	if err != nil {
+		t.Fatalf("GET %s%s: %v", base, path, err)
+	}
+	defer res.Body.Close() //nolint:errcheck // best-effort close
+	body, _ := io.ReadAll(res.Body)
+	return res.StatusCode, body
 }
 
 // issue2395Do issues an authenticated GET and returns the status, body and
@@ -165,43 +174,60 @@ func issue2395Storage(t *testing.T, purpose, operation string) float64 {
 	return total
 }
 
-// issue2395PID is the process listening on the base URL's port.
-func issue2395PID(t *testing.T, base string) string {
-	t.Helper()
-	port := base[strings.LastIndex(base, ":")+1:]
-	out, err := exec.Command("lsof", "-t", "-sTCP:LISTEN", "-iTCP:"+port).Output() // #nosec G204 -- a port this suite reads
-	if err != nil || strings.TrimSpace(string(out)) == "" {
-		t.Fatalf("no process listens on %s: %v", port, err)
+// issue2395ReplicaA is the first replica's own address, not the proxy's, so a
+// download is served by the process whose metrics are read.
+func issue2395ReplicaA() string {
+	port := os.Getenv("DEV_API_PORT")
+	if port == "" {
+		port = defaultDevPort
 	}
-	return strings.Fields(string(out))[0]
+	return "http://localhost:" + port
 }
 
-// issue2395RSS is a process's resident memory in bytes.
-func issue2395RSS(pid string) int64 {
-	out, err := exec.Command("ps", "-o", "rss=", "-p", pid).Output() // #nosec G204 -- a pid this suite read
-	if err != nil {
+// issue2395ReplicaRSS is the first replica's resident memory, from its own
+// /metrics (process_resident_memory_bytes), wherever that process runs.
+func issue2395ReplicaRSS(t *testing.T) func() int64 {
+	t.Helper()
+	target := metricsURLs()[0]
+	return func() int64 {
+		for _, line := range strings.Split(scrapeOne(t, target), "\n") {
+			if v, ok := strings.CutPrefix(line, "process_resident_memory_bytes "); ok {
+				f, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+				return int64(f)
+			}
+		}
 		return 0
 	}
-	kb, _ := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
-	return kb * 1024
 }
 
-// issue2395PeakGrowth samples a process's resident memory while fn runs and
-// returns how far it rose above where it started.
-func issue2395PeakGrowth(pid string, fn func()) int64 {
-	start := issue2395RSS(pid)
+// issue2395ProcessRSS is a local process's resident memory in bytes.
+func issue2395ProcessRSS(pid string) func() int64 {
+	return func() int64 {
+		out, err := exec.Command("ps", "-o", "rss=", "-p", pid).Output() // #nosec G204 -- a pid this suite started
+		if err != nil {
+			return 0
+		}
+		kb, _ := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+		return kb * 1024
+	}
+}
+
+// issue2395PeakGrowth samples resident memory while fn runs and returns how
+// far it rose above where it started.
+func issue2395PeakGrowth(sample func() int64, fn func()) int64 {
+	start := sample()
 	var peak int64
 	var mu sync.Mutex
 	done := make(chan struct{})
 	go func() {
-		tick := time.NewTicker(50 * time.Millisecond)
+		tick := time.NewTicker(100 * time.Millisecond)
 		defer tick.Stop()
 		for {
 			select {
 			case <-done:
 				return
 			case <-tick.C:
-				if v := issue2395RSS(pid); v > 0 {
+				if v := sample(); v > 0 {
 					mu.Lock()
 					peak = max(peak, v)
 					mu.Unlock()
@@ -248,8 +274,9 @@ func TestIssue2395_AReferencedVideoPlaysAndSeeksByRange(t *testing.T) {
 }
 
 // TestIssue2395_ALargeDownloadDoesNotHoldTheFile: a resource and an asset near
-// the dev stack's 250 MB ceiling download whole without a Range header, and
-// the replica's resident memory does not rise by the file's size.
+// the dev stack's 250 MB ceiling download whole without a Range header from
+// the first replica, and its resident memory, read from its own /metrics, does
+// not rise by the file's size.
 func TestIssue2395_ALargeDownloadDoesNotHoldTheFile(t *testing.T) {
 	c := connect(t)
 	const size = 200 << 20
@@ -258,12 +285,15 @@ func TestIssue2395_ALargeDownloadDoesNotHoldTheFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	resID, _ := issue2395Upload(t, c, "large.bin", "application/octet-stream", data)
-	pid := issue2395PID(t, baseURL())
+	replica, rss := issue2395ReplicaA(), issue2395ReplicaRSS(t)
+	if rss() <= 0 {
+		t.Fatalf("%s carries no process_resident_memory_bytes; memory cannot be measured", metricsURLs()[0])
+	}
 
 	var status int
 	var got []byte
-	growth := issue2395PeakGrowth(pid, func() {
-		status, got = issue2395Get(t, c, "/api/v1/resources/"+resID+"/content", nil)
+	growth := issue2395PeakGrowth(rss, func() {
+		status, got = issue2395GetAt(t, c, replica, "/api/v1/resources/"+resID+"/content")
 	})
 	if status != http.StatusOK || !bytes.Equal(got, data) {
 		t.Fatalf("the resource download answered %d with %d bytes, want the %d stored", status, len(got), size)
@@ -274,8 +304,8 @@ func TestIssue2395_ALargeDownloadDoesNotHoldTheFile(t *testing.T) {
 	}
 
 	asset := issue2395LargeAsset(t, c, data)
-	growth = issue2395PeakGrowth(pid, func() {
-		status, got = issue2395Get(t, c, "/api/v1/portal/assets/"+asset+"/content", nil)
+	growth = issue2395PeakGrowth(rss, func() {
+		status, got = issue2395GetAt(t, c, replica, "/api/v1/portal/assets/"+asset+"/content")
 	})
 	if status != http.StatusOK || !bytes.Equal(got, data) {
 		t.Fatalf("the asset download answered %d with %d bytes, want the %d stored", status, len(got), size)

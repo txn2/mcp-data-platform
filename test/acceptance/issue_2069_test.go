@@ -332,9 +332,8 @@ func TestIssue2069_A900MBUploadSucceedsWithNoCeilingSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, _ := issue2069UploadTo(t, c, p.base, data)
-	pid := fmt.Sprint(p.cmd.Process.Pid)
 	var got []byte
-	growth := issue2395PeakGrowth(pid, func() {
+	growth := issue2395PeakGrowth(issue2395ProcessRSS(fmt.Sprint(p.cmd.Process.Pid)), func() {
 		req, _ := http.NewRequestWithContext(c.ctx, http.MethodGet, p.base+"/api/v1/resources/"+id+"/content", http.NoBody)
 		req.Header.Set("Authorization", "Bearer acceptance-2069-key")
 		res, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req)
