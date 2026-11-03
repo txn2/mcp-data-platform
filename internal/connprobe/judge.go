@@ -3,6 +3,8 @@ package connprobe
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/txn2/mcp-data-platform/internal/connstate"
 )
 
 // GET is one probing GET an HTTP-based connection kind sent and the status it
@@ -50,4 +52,38 @@ func JudgeGET(g GET) Result {
 		return Success(detail + "; the operation is one the connection's catalog declares, so the answer proves the route and the credential")
 	}
 	return Success(detail + "; the status is the upstream's own answer at its base, and any answer proves the route and the credential")
+}
+
+// RecordGET records the connection state a probing GET's answer says (#2443),
+// for a probe whose own request was kept out of the call path's recording
+// (outbound.WithoutConnectionState). Nothing is recorded for an answer that
+// says nothing about the credential.
+func RecordGET(kind, connection string, status int, declared bool) {
+	connstate.Observe(kind, connection, stateOfGET(status, declared))
+}
+
+// Unreached records a probe that reached no upstream.
+func Unreached(kind, connection string, err error) {
+	connstate.Observe(kind, connection, connstate.FromHTTP(0, err))
+}
+
+// stateOfGET is the connection state a probing GET's answer records. A declared
+// route is one the credential is meant to reach, so a 401 or 403 there is a
+// refused credential and any other answer the upstream's, as a call's would
+// be. The base is not: a 401 there is still a refused credential, and a
+// gateway error an upstream that could not answer, but a 403 says only that
+// the credential cannot reach "/", and a 200 may come from a root that needs
+// no credential at all, so neither says anything and nothing is recorded.
+func stateOfGET(status int, declared bool) string {
+	switch {
+	case status == http.StatusUnauthorized, status == http.StatusProxyAuthRequired:
+		return connstate.AuthFailed
+	case declared && status == http.StatusForbidden:
+		return connstate.AuthFailed
+	case declared:
+		return connstate.FromHTTP(status, nil)
+	case connstate.FromHTTP(status, nil) == connstate.Unreachable:
+		return connstate.Unreachable
+	}
+	return ""
 }

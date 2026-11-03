@@ -72,6 +72,11 @@ type AppDB struct {
 	// Authorize refuses a connection the identity on ctx may not use. ctx is
 	// the session's own, which carries the run's identity.
 	Authorize func(ctx context.Context, connection string) error
+	// TestDatabase builds a script test's throwaway database for a
+	// connection from its migrations in schemas, every schema when empty
+	// (#2407), and returns its runner and the function that drops it. Nil
+	// on a deployment that keeps no migrations.
+	TestDatabase func(ctx context.Context, connection string, schemas []string) (AppDBRunner, func(), error)
 }
 
 //nolint:gochecknoglobals // installed once by the platform, read by every script session it opens
@@ -433,6 +438,9 @@ func resultMap(res *postgres.Result) map[string]any {
 // may carry; what the server said, DETAIL included, is in the envelope's
 // postgres field, which only the script reads (on_error = "return").
 func appdbRefusal(err error) error {
+	if refusal, ok := errors.AsType[*RefusalError](err); ok {
+		return refusal
+	}
 	if refused, ok := errors.AsType[*postgres.RefusedError](err); ok {
 		return NewRefusal(refused.Error(), refusalEnv(refused.Code, refused.Error()))
 	}

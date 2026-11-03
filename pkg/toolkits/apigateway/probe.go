@@ -24,9 +24,10 @@ const probePath = "/"
 // same client, authenticator and TLS material a tool call uses, and reports
 // the status that came back (#1805).
 //
-// The GET is a read operation the connection's catalog declares, taking no
-// path parameter and no required parameter, when there is one; otherwise the
-// base URL (#2368). A route the catalog declares is one the credential is
+// The GET is the connection's probe_path when it sets one (#2443); otherwise
+// a read operation the connection's catalog declares, taking no path
+// parameter and no required parameter, when there is one; otherwise the base
+// URL (#2368). A route the catalog declares is one the credential is
 // meant to reach, so a 401 or 403 there is the upstream rejecting the
 // credential. The base is not: a key scoped to a few operations is refused
 // at "/" while working everywhere it is meant to, so a 403 there says only
@@ -51,6 +52,12 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 			"connection %q is served in this process by the platform itself, so there is no upstream to reach", name))
 	}
 	path, declared := probeOperation(c.specs)
+	if c.cfg.ProbePath != "" {
+		path, declared = c.cfg.ProbePath, true
+	}
+	// The probe records the connection's state itself, from what its answer
+	// says about the credential (connprobe.RecordGET), not as a call would.
+	ctx = outbound.WithoutConnectionState(ctx)
 	req, err := buildUpstreamRequest(ctx, c.cfg, c.auth, catalogView{}, InvokeInput{
 		Method: http.MethodGet,
 		Path:   path,
@@ -63,14 +70,25 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
+		connprobe.Unreached(Kind, name, err)
 		err = outbound.ScrubError(req.Context(), err)
 		return connprobe.Failure(upstreamauth.UnreachedSubject(name, c.cfg.BaseURL, err), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	connprobe.RecordGET(Kind, name, resp.StatusCode, declared)
 	return connprobe.JudgeGET(connprobe.GET{
 		Prefix: upstreamauth.GrantDetail(c.auth), Base: c.cfg.BaseURL, Path: path, Declared: declared,
 		SignedIn: c.cfg.AuthMode == upstreamauth.AuthModeSessionLogin, Status: resp.StatusCode,
 	})
+}
+
+// cfgKeyProbePath names the authenticated read a connection's probe asks for
+// (Config.ProbePath, #2443).
+const cfgKeyProbePath = "probe_path"
+
+// validateProbePath holds probe_path to a path on the connection.
+func (c Config) validateProbePath() error {
+	return validatePathKey(cfgKeyProbePath, c.ProbePath, "/version")
 }
 
 // probeOperation returns the path of the read operation a probe asks for: a

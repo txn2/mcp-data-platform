@@ -21,11 +21,12 @@ type Store struct {
 // New returns the store over the platform's database.
 func New(db *sql.DB) *Store { return &Store{db: db} }
 
-// List implements postgres.MigrationStore.
+// List implements postgres.MigrationStore. An empty schema lists every
+// schema of the connection, in schema order.
 func (s *Store) List(ctx context.Context, connection, schema string) ([]postgres.Migration, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT connection, schema_name, version, name, up_sql, down_sql, transactional,
 		checksum, author, created_at, updated_at FROM appdb_migrations
-		WHERE connection = $1 AND schema_name = $2 ORDER BY version`, connection, schema)
+		WHERE connection = $1 AND ($2 = '' OR schema_name = $2) ORDER BY schema_name, version`, connection, schema)
 	if err != nil {
 		return nil, fmt.Errorf("listing migrations: %w", err)
 	}

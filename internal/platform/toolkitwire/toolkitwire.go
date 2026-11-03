@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/migrationstore"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -40,8 +41,9 @@ func Metrics(toolkits []registry.Toolkit, m *observability.Metrics) {
 
 // PostgresGuard installs, on every postgres toolkit, the check each new
 // database connection passes: that it did not reach the platform's database
-// (postgreskit.OwnDatabaseGuard), and the store manage_schema keeps its
-// migrations in (#2404). The platform runs it before any tool is registered,
+// (postgreskit.OwnDatabaseGuard), the store manage_schema keeps its
+// migrations in (#2404), and the saved scripts a migration's rename is
+// checked against (#2405). The platform runs it before any tool is registered,
 // so no statement runs on a connection the check has not seen and the toolkit
 // lists manage_schema when it registers. A deployment with no database has
 // nothing to protect and no store, and installs nothing.
@@ -51,10 +53,13 @@ func PostgresGuard(toolkits []registry.Toolkit, platformDB *sql.DB) {
 	}
 	guard := postgreskit.OwnDatabaseGuard(platformDB)
 	store := migrationstore.New(platformDB)
+	refs := scriptrefs.Lookup(platformDB)
 	for _, tk := range toolkits {
 		if pg, ok := tk.(*postgreskit.Toolkit); ok {
 			pg.SetConnectGuard(guard)
 			pg.SetMigrationStore(store)
+			pg.SetScriptReferences(refs)
+			pg.StartTestSweep(platformDB)
 		}
 	}
 }
@@ -72,11 +77,17 @@ type connectionAuthorizer interface {
 // connection check (no personas configured) every connection is allowed, as
 // every connection is to that deployment's tool calls.
 func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz middleware.Authorizer) {
-	runner := func() scriptsession.AppDBRunner {
+	live := func() *postgreskit.Toolkit {
 		for _, tk := range all() {
 			if pg, ok := tk.(*postgreskit.Toolkit); ok {
-				return appdbRunner{pg}
+				return pg
 			}
+		}
+		return nil
+	}
+	runner := func() scriptsession.AppDBRunner {
+		if pg := live(); pg != nil {
+			return appdbRunner{pg}
 		}
 		return nil
 	}
@@ -84,7 +95,36 @@ func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz 
 	scriptsession.InstallAppDB(scriptsession.AppDB{
 		Runner:    runner,
 		Authorize: func(ctx context.Context, connection string) error { return authorize(ctx, authn, checker, connection) },
+		TestDatabase: func(ctx context.Context, connection string, schemas []string) (scriptsession.AppDBRunner, func(), error) {
+			pg := live()
+			// A test's statements run as the test server's user: the run
+			// must be allowed that connection as well as its own.
+			if pg != nil {
+				if srv := pg.TestServerOf(connection); srv != connection {
+					if err := authorize(ctx, authn, checker, srv); err != nil {
+						return nil, nil, err
+					}
+				}
+			}
+			return testDatabase(ctx, pg, connection, schemas)
+		},
 	})
+}
+
+// errNoAppDBToolkit refuses a test database on a deployment with no
+// application database.
+var errNoAppDBToolkit = errors.New("no application database is served on this deployment")
+
+// testDatabase builds a script test's clone of connection (#2407).
+func testDatabase(ctx context.Context, pg *postgreskit.Toolkit, connection string, schemas []string) (scriptsession.AppDBRunner, func(), error) {
+	if pg == nil {
+		return nil, nil, errNoAppDBToolkit
+	}
+	db, err := pg.TestDatabase(ctx, connection, schemas)
+	if err != nil {
+		return nil, nil, err //nolint:wrapcheck // the toolkit's refusal names the connection and the fix
+	}
+	return appdbRunner{db.Toolkit}, db.Close, nil
 }
 
 // appdbRunner is the postgres toolkit as a script session runs statements on

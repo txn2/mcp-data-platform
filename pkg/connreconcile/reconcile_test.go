@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -343,5 +344,33 @@ func TestReconciler_Validate(t *testing.T) {
 	}
 	if err := New(nil).Validate(kind, name, nil); err != nil {
 		t.Errorf("no registry, no refusal: %v", err)
+	}
+}
+
+// A deleted or saved connection's last call state is forgotten on the
+// replica applying the change (Adopt, which a resync runs for every stored
+// connection, leaves it; a peer's save forgets it in storeresync), so the connection next saved under its name
+// does not read as the old one's state before any call used it (#2444).
+func TestReconciler_ForgetsTheConnectionsState(t *testing.T) {
+	const kind = "api"
+	reg := mustRegister(t, &recordingToolkit{kind: kind, name: "match", has: true})
+	for name, apply := range map[string]func(r *Reconciler, name string){
+		"forget-on-remove": func(r *Reconciler, name string) { r.Remove(kind, name) },
+		"forget-on-upsert": func(r *Reconciler, name string) { r.Upsert(kind, name, map[string]any{}) },
+	} {
+		connstate.Observe(kind, name, connstate.Unreachable)
+		apply(New(reg), name)
+		if s, seen := connstate.State(kind, name); seen {
+			t.Errorf("%s: state %q survived", name, s)
+		}
+	}
+}
+
+func TestReconciler_AdoptKeepsTheConnectionsState(t *testing.T) {
+	reg := mustRegister(t, &recordingToolkit{kind: "api", name: "match", has: true})
+	connstate.Observe("api", "keep-on-adopt", connstate.AuthFailed)
+	New(reg).Adopt("api", "keep-on-adopt", map[string]any{})
+	if s, _ := connstate.State("api", "keep-on-adopt"); s != connstate.AuthFailed {
+		t.Errorf("a resync's adopt changed the state to %q", s)
 	}
 }

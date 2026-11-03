@@ -66,6 +66,9 @@ const (
 	NameCatalogScan         = "catalog_scan"
 	NameCallTaskHeartbeat   = "call_task_heartbeat"
 	NameEndpointRefusals    = "endpoint_refusals_flush"
+	// NameAppDBTestSweep drops the throwaway databases a dead script test
+	// left on an application database's test server (#2407).
+	NameAppDBTestSweep = "appdb_test_sweep"
 
 	// Alerts, keepalives and watchers.
 	NameConnOAuthRefresh   = "connection_oauth_refresh"

@@ -119,6 +119,7 @@ internal/catalogfake -> pkg/catalog
 internal/conncatchup -> internal/logsan
 internal/connlimit -> internal/advisorylock
 internal/connlimit -> pkg/observability
+internal/connprobe -> internal/connstate
 internal/connsecretref -> internal/secretref
 internal/connsecretref -> internal/secretstore
 internal/connsecretref -> internal/upstreamauth/sessionlogin
@@ -1313,6 +1314,8 @@ internal/platform/scriptrec -> internal/platform/scriptsession
 internal/platform/scriptrec -> internal/platform/scriptstmt
 internal/platform/scriptrec -> pkg/script
 internal/platform/scriptrec/recstore -> internal/platform/scriptrec
+internal/platform/scriptrefs -> internal/platform/scriptdialect
+internal/platform/scriptrefs -> pkg/toolkits/postgres
 internal/platform/scriptres -> internal/platform/scriptlib
 internal/platform/scriptres -> internal/platform/scriptsrc
 internal/platform/scriptres -> pkg/resource
@@ -1468,6 +1471,7 @@ internal/platform/storagecap -> internal/outbound
 internal/platform/storagecap -> internal/platform/levelalert
 internal/platform/storagecap -> internal/platform/settingsjson
 internal/platform/storagecap -> internal/webhook/whstore
+internal/platform/storeresync -> internal/connstate
 internal/platform/storeresync -> internal/platform/personacfg
 internal/platform/storeresync -> pkg/connid
 internal/platform/storeresync -> pkg/connreconcile
@@ -1536,6 +1540,7 @@ internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> internal/secretref
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
 internal/platform/toolkitwire -> internal/platform/migrationstore
+internal/platform/toolkitwire -> internal/platform/scriptrefs
 internal/platform/toolkitwire -> internal/platform/scriptsession
 internal/platform/toolkitwire -> pkg/middleware
 internal/platform/toolkitwire -> pkg/observability
@@ -1860,6 +1865,7 @@ pkg/connoauth -> internal/logsan
 pkg/connoauth -> internal/outbound
 pkg/connoauth -> pkg/authevents
 pkg/connoauth -> pkg/observability
+pkg/connreconcile -> internal/connstate
 pkg/connreconcile -> pkg/registry
 pkg/connreconcile -> pkg/toolkit
 pkg/connview -> internal/logsan
@@ -2337,6 +2343,7 @@ pkg/toolkits/portal -> pkg/toolkit
 pkg/toolkits/portal -> pkg/user
 pkg/toolkits/postgres -> internal/advisorylock
 pkg/toolkits/postgres -> internal/apigwtls
+pkg/toolkits/postgres -> internal/bgloop
 pkg/toolkits/postgres -> internal/cfgmap
 pkg/toolkits/postgres -> internal/connprobe
 pkg/toolkits/postgres -> internal/connstate

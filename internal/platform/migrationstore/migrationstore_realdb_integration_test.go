@@ -47,6 +47,11 @@ func TestStoreRoundTrip_RealDB(t *testing.T) {
 	assert.True(t, got[1].Transactional)
 	assert.False(t, got[1].CreatedAt.IsZero())
 
+	every, err := s.List(ctx, "orders", "")
+	require.NoError(t, err)
+	require.Len(t, every, 3, "an empty schema lists every schema of the connection")
+	assert.Equal(t, []string{"other", "public", "public"}, []string{every[0].Schema, every[1].Schema, every[2].Schema}, "schema order, then version")
+
 	empty, err := s.List(ctx, "nothing", "public")
 	require.NoError(t, err)
 	assert.NotNil(t, empty, "an empty list is [], never null")

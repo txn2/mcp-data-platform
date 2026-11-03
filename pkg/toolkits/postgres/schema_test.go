@@ -77,8 +77,13 @@ func schemaToolkit(ledger *fakeLedger, cfg Config) (*Toolkit, *memStore) {
 		cfg.LedgerSchema = DefaultLedgerSchema
 	}
 	store := &memStore{}
-	tk := &Toolkit{name: "shop", connections: map[string]*conn{"shop": {cfg: cfg, types: newTypeCache(), ledgerQ: ledger}}}
+	srv := newServer(true)
+	tk := &Toolkit{name: "shop", connections: map[string]*conn{"shop": {
+		cfg: cfg, types: newTypeCache(), ledgerQ: ledger,
+		openSession: func(context.Context) (session, error) { return srv, nil },
+	}}}
 	tk.SetMigrationStore(store)
+	tk.scratchHook = fakeScratch(map[string]*fakeSession{})
 	return tk, store
 }
 

@@ -38,6 +38,7 @@ toolkits:
         transaction_idle_timeout: "10s"
         schema_apply_personas: []
         schema_ledger: "mcp_schema"
+        test_connection: ""          # this connection; its user needs CREATEDB
         description: "The order system"
     default: orders
 ```
@@ -61,6 +62,7 @@ toolkits:
 | `transaction_idle_timeout` | `10s` | Longest a script's transaction may go without a statement, at most `10m`. Past it the transaction is rolled back |
 | `schema_apply_personas` | `[]` | Personas that may apply and revert this connection's migrations. Empty means administrators only |
 | `schema_ledger` | `mcp_schema` | Schema in this database that holds the ledger of applied migrations |
+| `test_connection` | this connection | Application database connection whose server the throwaway databases of this connection's migration checks and script tests are created on. Its user needs `CREATEDB` |
 
 An application database cannot take a name a Trino connection holds, or the reverse: `platform.query` names its connection alone, and the save is refused with 409.
 
@@ -201,6 +203,45 @@ An application's tables are created and changed through versioned migrations the
 - The portal's connection page (**Admin > Connections**, an application database) lists the migrations, which are applied, the plan of the pending ones, and the history.
 
 A migration's SQL is kept in the platform's database and in the target's ledger checksum. Do not write a secret into a migration.
+
+### Review before a migration saves
+
+`add` reviews a migration before it saves it (#2405), the way a script's source passes its save gate:
+
+| Rule | Statement | Severity | Safe form |
+|------|-----------|----------|-----------|
+| `create_index_locks` | `CREATE INDEX` without `CONCURRENTLY` on a table an earlier migration created | warning | `CREATE INDEX CONCURRENTLY` in a migration of its own with `transactional: false` |
+| `not_null_without_default` | `ADD COLUMN ... NOT NULL` with no default | warning | A constant `DEFAULT`, or nullable, backfilled, then `SET NOT NULL` |
+| `volatile_default_rewrites` | `ADD COLUMN ... DEFAULT` a value computed per row (`random()`, `clock_timestamp()`, `gen_random_uuid()`, `nextval()`) | warning | No default or a constant one, then a batched backfill |
+| `type_change_rewrites` | `ALTER COLUMN ... TYPE` | warning | A new column, backfilled, reads moved to it |
+| `constraint_validates` | `ADD CONSTRAINT ... FOREIGN KEY` or `CHECK` without `NOT VALID` | warning | `NOT VALID`, then `VALIDATE CONSTRAINT` in a later migration |
+| `lock_timeout_raised` | `SET lock_timeout` above the platform's 10 seconds, or 0 | warning | Leave it, and retry an apply that times out |
+| `rename_referenced` | `RENAME` of a table or column a saved script names in a string (its SQL, or a row key) beside the connection's name | warning | The new name beside the old, the scripts moved, the old removed later |
+| `drop_table`, `drop_column`, `truncate`, `unbounded_delete`, `unbounded_update` | `DROP TABLE`, `DROP COLUMN`, `TRUNCATE`, a `DELETE` or `UPDATE` with no `WHERE` | destructive | |
+
+A table the same migration creates is not a live table, and no rule reads a statement on it. Every finding names the statement, the object, what it does to a live table and the safe form, and is returned in `add`'s `findings` and recorded in the migration's history. A warning does not stop the save. A destructive finding does: the migration saves only with `change_summary` (what it removes, in plain words) and `user_agreed: true` once the person the application is built for agreed, and the summary and who agreed are in its history.
+
+Then every migration of the schema, the new one included, is applied from zero on a throwaway database on the connection's test server. A set that does not apply is refused naming the migration and the error. A test server whose user lacks `CREATEDB` cannot run this check: the migration saves with a `from_zero_unchecked` warning naming the privilege. The database built is kept as the schema's template, so the next check or script test that needs the same migrations starts from it.
+
+### Script tests against a throwaway database
+
+A script's test can run against a real database built from the connection's migrations (#2407) rather than answering its statements from a recording, so constraints, triggers, row-level security and concurrency are exercised:
+
+```python
+def test_a_duplicate_email_is_refused():
+    testing.database("orders", schemas = ["app"])
+    platform.execute("INSERT INTO app.users (email) VALUES (:e)", connection = "orders", params = {"e": "a@example.com"})
+    msg = assert.fails(lambda: platform.execute("INSERT INTO app.users (email) VALUES (:e)",
+                                                connection = "orders", params = {"e": "a@example.com"}))
+    assert.contains(msg, "23505")
+```
+
+- `testing.database(connection, schemas=None)` builds the database from the connection's migrations in the named schemas, or every schema, pending migrations included. For each set of migrations the platform builds a template once, under an advisory lock on the test server, and clones each test's database from it with `CREATE DATABASE ... TEMPLATE`, so a test starts in well under a second.
+- After the call, every statement, transaction and batch the test makes on that connection runs on the clone; a statement on another application database the test did not open is refused. Fixtures are written with `platform.execute`. Nothing reaches the connection's own database.
+- The clone is dropped when the test ends; an altered-rows rerun starts from a clone of its own. Coverage and the altered-rows check work as for a recorded test.
+- The databases are created on the server of the connection's `test_connection`, the connection itself by default, with that connection's credentials and this connection's limits. A test server whose user lacks `CREATEDB` fails the test naming the privilege and the user. A test runs only when its run is allowed both the connection and its `test_connection`.
+- The `test_connection`'s user runs the migrations `add` checks and the statements tests make for every connection that names it. Give it `CREATEDB` on a server that holds nothing else, and no other privilege.
+- They are named `mcpt_<hash>_<head>` (a template, kept while it is the newest for its migrations), `mcpb_<unix seconds>_<random>` (one being built) and `mcpc_<unix seconds>_<random>` (a test's clone). Each replica runs a sweep, one at a time under an advisory lock on the platform's database, that drops builds and clones its test server's user owns older than `MCP_PLATFORM_APPDB_TEST_MAX_AGE` (default `1h`) every `MCP_PLATFORM_APPDB_TEST_SWEEP_INTERVAL` (default `10m`), and once at start: the ones a run that died never dropped. No other database is ever dropped. `DROP DATABASE ... WITH (FORCE)` needs PostgreSQL 13 or later.
 
 ## What is recorded
 

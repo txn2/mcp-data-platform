@@ -8,16 +8,16 @@ import (
 	"testing"
 )
 
-// forget drops every recorded state, so a test starts from none.
-func forget() {
+// reset drops every recorded state, so a test starts from none.
+func reset() {
 	mu.Lock()
 	defer mu.Unlock()
 	state = map[key]string{}
 }
 
 func TestObserveAndState(t *testing.T) {
-	forget()
-	t.Cleanup(forget)
+	reset()
+	t.Cleanup(reset)
 
 	if _, ok := State("api", "crm"); ok {
 		t.Fatal("a connection no call used has a state")
@@ -81,4 +81,19 @@ func TestFromResultText(t *testing.T) {
 			t.Errorf("FromResultText(%q) = %q, want %q", tc.text, got, tc.want)
 		}
 	}
+}
+
+func TestForget(t *testing.T) {
+	reset()
+	t.Cleanup(reset)
+	Observe("api", "crm", Unreachable)
+	Observe("api", "erp", AuthFailed)
+	Forget("api", "crm")
+	if _, ok := State("api", "crm"); ok {
+		t.Error("a forgotten connection still has a state")
+	}
+	if s, _ := State("api", "erp"); s != AuthFailed {
+		t.Errorf("forgetting one connection changed another: %q", s)
+	}
+	Forget("api", "never-seen")
 }

@@ -7,6 +7,7 @@ package pathtemplate
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -208,4 +209,48 @@ func checkPathSegments(p string) error {
 		}
 	}
 	return nil
+}
+
+// StripQuery is a path without its "?query" or "#fragment": the component a
+// router matches on. A collection endpoint invoked with query parameters
+// (/v1/orders?limit=100) must still resolve to its operation (#519).
+func StripQuery(p string) string {
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		return p[:i]
+	}
+	return p
+}
+
+// ErrNotAPath is a configured path that does not start with "/" or carries a
+// fragment.
+var ErrNotAPath = errors.New("must be a path")
+
+// CheckConfigPath holds a path a connection's configuration names (a
+// required prefix, a probe path) to the shape a caller's path has: it starts
+// with "/", carries no fragment, and has no segment ValidateCallerPath
+// refuses; a query is allowed. The error says what is wrong, for the caller
+// to put beside the key.
+func CheckConfigPath(p string) error {
+	if !strings.HasPrefix(p, sep) || strings.Contains(p, "#") {
+		return ErrNotAPath
+	}
+	if err := ValidateCallerPath(StripQuery(p)); err != nil {
+		return fmt.Errorf("is not a valid path: %s", strings.TrimPrefix(err.Error(), "apigateway: "))
+	}
+	return nil
+}
+
+// BaseCarriesPrefix reports whether a base URL's path ends with prefix, on a
+// segment boundary since the prefix starts with "/": "/xapi/v1" does not end
+// with "/api/v1". A base URL that carries a connection's required prefix
+// supplies it to every raw path.
+func BaseCarriesPrefix(baseURL, prefix string) bool {
+	u, err := url.Parse(baseURL)
+	return err == nil && strings.HasSuffix(strings.TrimSuffix(u.Path, sep), prefix)
+}
+
+// WithinPrefix reports whether path is prefix itself or lies beneath it on a
+// segment boundary, so "/api/v10" is not inside "/api/v1".
+func WithinPrefix(path, prefix string) bool {
+	return path == prefix || strings.HasPrefix(path, prefix+sep)
 }

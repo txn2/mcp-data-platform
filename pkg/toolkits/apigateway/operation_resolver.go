@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/pathtemplate"
+
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
@@ -93,18 +95,8 @@ func (c *conn) resolveViaRouter(upper, normPath string) string {
 	return ""
 }
 
-// stripQueryAndFragment removes a "?query" and/or "#fragment" suffix
-// from a runtime path, leaving only the path component the router
-// matches on. A collection endpoint invoked with query parameters
-// (e.g. /v1/orders?limit=100) must still resolve to its operation;
-// leaving the query string in url.URL.Path makes the router try to
-// match it as part of the path and fall through to "" (#519).
-func stripQueryAndFragment(p string) string {
-	if i := strings.IndexAny(p, "?#"); i >= 0 {
-		return p[:i]
-	}
-	return p
-}
+// stripQueryAndFragment is the path component a router matches on (#519).
+var stripQueryAndFragment = pathtemplate.StripQuery
 
 // opRouter returns the connection's lazily-built path-matching router,
 // or nil when the connection has no usable spec paths. The companion

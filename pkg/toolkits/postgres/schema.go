@@ -60,6 +60,7 @@ type MigrationEvent struct {
 // database.
 type MigrationStore interface {
 	// List is every migration of a connection's schema, oldest version first.
+	// An empty schema is every schema of the connection, in schema order.
 	List(ctx context.Context, connection, schema string) ([]Migration, error)
 	// Put adds a migration or replaces a pending one, reporting whether it
 	// replaced one.
@@ -87,6 +88,8 @@ type schemaInput struct {
 	ToVersion      *int   `json:"to_version,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 	Limit          int    `json:"limit,omitempty"`
+	ChangeSummary  string `json:"change_summary,omitempty"`
+	UserAgreed     bool   `json:"user_agreed,omitempty"`
 }
 
 // schemaToolSchema is manage_schema's input schema.
@@ -96,7 +99,7 @@ var schemaToolSchema = json.RawMessage(`{
   "required": ["command", "connection"],
   "properties": {
     "command": {"type": "string", "enum": ["status", "add", "plan", "apply", "down", "history", "describe"],
-      "description": "status: what the ledger says is applied and what is pending. add: add a migration, or replace one still pending. plan: run the pending migrations in a transaction, report the objects they change and the locks they take, and roll back. apply: apply the pending migrations. down: revert the latest applied migration, or every one above to_version. history: what happened to each migration. describe: the tables, columns, constraints and indexes the applied migrations produced."},
+      "description": "status: what the ledger says is applied and what is pending. add: add a migration, or replace one still pending; it is linted for statements that lock, rewrite or remove data, and applied from zero on a throwaway database before it saves. plan: run the pending migrations in a transaction, report the objects they change and the locks they take, and roll back. apply: apply the pending migrations. down: revert the latest applied migration, or every one above to_version. history: what happened to each migration. describe: the tables, columns, constraints and indexes the applied migrations produced."},
     "connection": {"type": "string", "description": "The application database (a connection of kind appdb)."},
     "schema": {"type": "string", "description": "The schema (namespace) the migrations belong to and run in. Defaults to public."},
     "version": {"type": "integer", "minimum": 1, "description": "add: the migration's version, above every applied version."},
@@ -106,7 +109,9 @@ var schemaToolSchema = json.RawMessage(`{
     "transactional": {"type": "boolean", "description": "add: false for a migration holding a statement that cannot run in a transaction (CREATE INDEX CONCURRENTLY), which then runs alone and is not planned. Defaults to true."},
     "to_version": {"type": "integer", "minimum": 0, "description": "plan and apply: stop at this version. down: revert every applied migration above it."},
     "timeout_seconds": {"type": "integer", "minimum": 1, "description": "apply and down: how long one statement of a migration may run. Defaults to the connection's statement_timeout, at most 600."},
-    "limit": {"type": "integer", "minimum": 1, "description": "history: the most entries to return. Defaults to 100."}
+    "limit": {"type": "integer", "minimum": 1, "description": "history: the most entries to return. Defaults to 100."},
+    "change_summary": {"type": "string", "description": "add: what a migration that removes data (a dropped table or column, TRUNCATE, a DELETE or UPDATE with no WHERE) removes, in plain words, as the person the application is built for agreed to it. Recorded in the migration's history."},
+    "user_agreed": {"type": "boolean", "description": "add: true once the person the application is built for agreed to change_summary."}
   }
 }`)
 
@@ -275,6 +280,10 @@ func (t *Toolkit) schemaAdd(ctx context.Context, c *conn, in schemaInput) (any, 
 	if holds(migrations, m) {
 		return map[string]any{"migration": refsOf([]Migration{m})[0], "status": StatePending, "unchanged": true}, nil
 	}
+	findings, err := t.review(ctx, in, m)
+	if err != nil {
+		return nil, err
+	}
 	replaced, err := t.migrations.Put(ctx, m)
 	if err != nil {
 		return nil, fmt.Errorf("appdb: saving the migration: %w", err)
@@ -283,8 +292,8 @@ func (t *Toolkit) schemaAdd(ctx context.Context, c *conn, in schemaInput) (any, 
 	if replaced {
 		event = EventEdited
 	}
-	t.record(ctx, m, event, 0, nil)
-	return map[string]any{"migration": refsOf([]Migration{m})[0], "status": StatePending, "replaced": replaced}, nil
+	t.recordAdded(ctx, m, event, reviewDetail(in, m.Author, findings))
+	return map[string]any{"migration": refsOf([]Migration{m})[0], "status": StatePending, "replaced": replaced, "findings": findings}, nil
 }
 
 // checkAdd refuses an add missing what a migration needs, or whose SQL would
@@ -468,16 +477,34 @@ func actorOf(ctx context.Context) string {
 // not the command's failure: the change happened, and the ledger in the
 // target says so.
 func (t *Toolkit) record(ctx context.Context, m Migration, event string, took time.Duration, failure error) {
-	e := MigrationEvent{
-		Connection: m.Connection, Schema: m.Schema, Version: m.Version, Event: event,
-		Actor: actorOf(ctx), Checksum: m.Checksum, DurationMS: took.Milliseconds(),
-	}
+	e := eventOf(ctx, m, event)
+	e.DurationMS = took.Milliseconds()
 	if failure != nil {
 		e.Event, e.Detail = EventFailed, event+": "+failure.Error()
 	}
+	t.write(ctx, e)
+}
+
+// recordAdded appends an add or edit, with what its review found.
+func (t *Toolkit) recordAdded(ctx context.Context, m Migration, event, detail string) {
+	e := eventOf(ctx, m, event)
+	e.Detail = detail
+	t.write(ctx, e)
+}
+
+// eventOf is a history entry for m.
+func eventOf(ctx context.Context, m Migration, event string) MigrationEvent {
+	return MigrationEvent{
+		Connection: m.Connection, Schema: m.Schema, Version: m.Version, Event: event,
+		Actor: actorOf(ctx), Checksum: m.Checksum,
+	}
+}
+
+// write stores one history entry.
+func (t *Toolkit) write(ctx context.Context, e MigrationEvent) {
 	if err := t.migrations.Record(context.WithoutCancel(ctx), e); err != nil {
-		slog.WarnContext(ctx, "appdb: recording a migration event failed", "connection", logsan.SanitizeForLog(m.Connection),
-			"version", m.Version, "event", e.Event, "error", logsan.SanitizeForLog(err.Error()))
+		slog.WarnContext(ctx, "appdb: recording a migration event failed", "connection", logsan.SanitizeForLog(e.Connection),
+			"version", e.Version, "event", e.Event, "error", logsan.SanitizeForLog(err.Error()))
 	}
 }
 
