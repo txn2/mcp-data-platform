@@ -90,11 +90,12 @@ type schemaInput struct {
 	Limit          int    `json:"limit,omitempty"`
 	ChangeSummary  string `json:"change_summary,omitempty"`
 	UserAgreed     bool   `json:"user_agreed,omitempty"`
-	// Template, OutboxTable and Capture write a migration the platform
-	// provides in place of up and down (#2408).
+	// Template, OutboxTable, Capture and Notify write a migration the
+	// platform provides in place of up and down (#2408).
 	Template    string   `json:"template,omitempty"`
 	OutboxTable string   `json:"outbox_table,omitempty"`
 	Capture     []string `json:"capture,omitempty"`
+	Notify      *bool    `json:"notify,omitempty"`
 }
 
 // schemaToolSchema is manage_schema's input schema.
@@ -104,7 +105,7 @@ var schemaToolSchema = json.RawMessage(`{
   "required": ["command", "connection"],
   "properties": {
     "command": {"type": "string", "enum": ["status", "add", "plan", "apply", "down", "history", "describe"],
-      "description": "status: what the ledger says is applied and what is pending. add: add a migration, or replace one still pending; it is linted for statements that lock, rewrite or remove data, and applied from zero on a throwaway database before it saves. plan: run the pending migrations in a transaction, report the objects they change and the locks they take, and roll back. apply: apply the pending migrations. down: revert the latest applied migration, or every one above to_version. history: what happened to each migration. describe: the tables, columns, constraints and indexes the applied migrations produced."},
+      "description": "status: what the ledger says is applied and what is pending. add: add a migration, or replace one still pending; it is linted for statements that lock, rewrite or remove data, and applied from zero on a throwaway database before it saves. plan: run the pending migrations in a transaction, report the objects they change and the locks they take, and roll back. apply: apply the pending migrations. down: revert the latest applied migration, or every one above to_version. history: what happened to each migration. describe: the server's major and version, the extensions the database holds and the ones it offers, and every object the applied migrations produced in schema: tables with their columns, constraints, indexes, row-level security, policies, triggers and partitions, views with their definitions, functions and procedures, enums and domains."},
     "connection": {"type": "string", "description": "The application database (a connection of kind appdb)."},
     "schema": {"type": "string", "description": "The schema (namespace) the migrations belong to and run in. Defaults to public."},
     "version": {"type": "integer", "minimum": 1, "description": "add: the migration's version, above every applied version."},
@@ -119,7 +120,8 @@ var schemaToolSchema = json.RawMessage(`{
     "user_agreed": {"type": "boolean", "description": "add: true once the person the application is built for agreed to change_summary."},
     "template": {"type": "string", "enum": ["outbox"], "description": "add: write a migration the platform provides in place of up and down. outbox: an outbox table, the trigger function that writes each changed row of a captured table to it and notifies its channel, and a trigger on each table in capture; a webhook source with input postgres and mode outbox files each row as an event."},
     "outbox_table": {"type": "string", "description": "add with template outbox: the outbox table's name in schema. Defaults to outbox."},
-    "capture": {"type": "array", "items": {"type": "string"}, "description": "add with template outbox: the tables whose inserted, updated and deleted rows are written to the outbox, as table (in schema) or schema.table."}
+    "capture": {"type": "array", "items": {"type": "string"}, "description": "add with template outbox: the tables whose inserted, updated and deleted rows are written to the outbox, as table (in schema) or schema.table."},
+    "notify": {"type": "boolean", "description": "add with template outbox: whether each captured write notifies the outbox channel (default true). Set false for a table many sessions write at once: a notifying commit takes a lock every other notifying commit waits on, and the webhook source's poll finds the rows without it."}
   }
 }`)
 
@@ -176,11 +178,15 @@ func (t *Toolkit) runSchema(ctx context.Context, in schemaInput) (any, error) {
 	case schemaHistory:
 		return t.schemaHistory(ctx, in)
 	case schemaDescribe:
-		tables, err := t.Describe(ctx, in.Connection, in.Schema)
+		d, err := t.Describe(ctx, in.Connection, in.Schema)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{keyConnection: in.Connection, keySchema: in.Schema, "tables": tables}, nil
+		return map[string]any{
+			keyConnection: in.Connection, keySchema: in.Schema, "server": d.Server,
+			"extensions": d.Extensions, "available_extensions": d.AvailableExtensions, "tables": d.Tables,
+			"functions": d.Functions, "enums": d.Enums, "domains": d.Domains,
+		}, nil
 	default:
 		return nil, fmt.Errorf("appdb: unknown command %q; the commands are status, add, plan, apply, down, history and describe", in.Command)
 	}
@@ -337,14 +343,22 @@ func checkAdd(in schemaInput, transactional bool) error {
 // defaultOutboxTable is the outbox template's table when it names none.
 const defaultOutboxTable = "outbox"
 
+// untemplated refuses the template's arguments on a migration naming none.
+func untemplated(in schemaInput) error {
+	if in.OutboxTable != "" || len(in.Capture) > 0 || in.Notify != nil {
+		return errors.New("appdb: outbox_table, capture and notify are for template outbox")
+	}
+	return nil
+}
+
+// notifies is the outbox template's notify argument, on unless set false.
+func notifies(in schemaInput) bool { return in.Notify == nil || *in.Notify }
+
 // fromTemplate fills in's up, down and name from the template it names, and
 // refuses a template beside SQL of the caller's own.
 func fromTemplate(in schemaInput) (schemaInput, error) {
 	if in.Template == "" {
-		if in.OutboxTable != "" || len(in.Capture) > 0 {
-			return in, errors.New("appdb: outbox_table and capture are for template outbox")
-		}
-		return in, nil
+		return in, untemplated(in)
 	}
 	if in.Template != OutboxTemplateName {
 		return in, fmt.Errorf("appdb: unknown template %q; the one template is %s", in.Template, OutboxTemplateName)
@@ -356,7 +370,7 @@ func fromTemplate(in schemaInput) (schemaInput, error) {
 	if table == "" {
 		table = defaultOutboxTable
 	}
-	up, down, err := OutboxTemplate(in.Schema, table, in.Capture)
+	up, down, err := OutboxTemplate(in.Schema, table, in.Capture, notifies(in))
 	if err != nil {
 		return in, err
 	}

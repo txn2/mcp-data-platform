@@ -161,12 +161,16 @@ func (t *Toolkit) newConn(name string, cfg Config) (*conn, error) {
 	return c, nil
 }
 
-// afterConnect runs the guard in force on a new physical connection.
+// afterConnect runs the guard in force on a new physical connection, then
+// refuses a server older than MinServerMajor. The guard goes first: the
+// platform's own database is refused as that whatever its version.
 func (t *Toolkit) afterConnect(ctx context.Context, c *pgx.Conn) error {
 	if g := t.guard.Load(); g != nil && *g != nil {
-		return (*g)(ctx, c)
+		if err := (*g)(ctx, c); err != nil {
+			return err
+		}
 	}
-	return nil
+	return checkFloor(c.PgConn())
 }
 
 // SetConnectGuard installs the check every new physical connection passes:
@@ -324,16 +328,13 @@ func (t *Toolkit) HasConnection(name string) bool {
 
 // ValidateConnection implements toolkit.ConnectionValidator: a save is refused
 // when its configuration does not parse, and when its database answers and is
-// the platform's own. A database that does not answer is not refused here: the
-// guard runs again on every connection the pool opens.
+// the platform's own or on a server older than MinServerMajor. A database
+// that does not answer is not refused here: both checks run again on every
+// connection the pool opens.
 func (t *Toolkit) ValidateConnection(name string, config map[string]any) error {
 	cfg, err := parseFilled(name, config)
 	if err != nil {
 		return err
-	}
-	g := t.guard.Load()
-	if g == nil || *g == nil {
-		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), validateTimeout)
 	defer cancel()
@@ -344,10 +345,10 @@ func (t *Toolkit) ValidateConnection(name string, config map[string]any) error {
 	}
 	c, err := pgx.ConnectConfig(ctx, pc.ConnConfig)
 	if err != nil {
-		return nil //nolint:nilerr // an unreachable database is refused by the guard when it first answers
+		return nil //nolint:nilerr // an unreachable database is refused by the connect checks when it first answers
 	}
 	defer func() { _ = c.Close(context.Background()) }()
-	return (*g)(ctx, c)
+	return t.afterConnect(ctx, c)
 }
 
 // ListConnections implements toolkit.ConnectionLister.
@@ -391,6 +392,10 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	err := c.pool.QueryRow(ctx, "SELECT current_setting('server_version'), current_database(), current_user").
 		Scan(&version, &database, &user)
 	observe(name, err)
+	if old, ok := tooOld(err); ok {
+		return connprobe.Failure(fmt.Sprintf("connection %q answered from PostgreSQL %s; the oldest an application database accepts is %d",
+			name, old.Version, MinServerMajor), old)
+	}
 	if err != nil {
 		return connprobe.Failure(fmt.Sprintf("connection %q did not answer", name), errors.New(scrubDriverError(err)))
 	}

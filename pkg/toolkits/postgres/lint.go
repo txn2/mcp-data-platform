@@ -85,13 +85,17 @@ func (r Rename) Object() string {
 	return r.Table
 }
 
-// Lint reads a migration's up SQL. It returns what it found and the objects
-// the migration renames, which the caller looks up in the saved scripts.
-func Lint(up string) ([]Finding, []Rename) {
-	l := &linter{created: map[string]bool{}}
+// Lint reads a migration's up SQL for the server and schema target
+// describes. It returns what it found and the objects the migration renames,
+// which the caller looks up in the saved scripts.
+func Lint(up string, target Target) ([]Finding, []Rename) {
+	l := &linter{created: map[string]bool{}, sec: newSecurityState(target)}
 	for i, s := range splitStatements(up) {
-		l.statement(i+1, lex(s))
+		ts := lex(s)
+		l.statement(i+1, ts)
+		l.securityStatement(i+1, ts)
 	}
+	l.finishSecurity()
 	if l.findings == nil {
 		l.findings = []Finding{}
 	}
@@ -99,10 +103,15 @@ func Lint(up string) ([]Finding, []Rename) {
 }
 
 // Destructive is the findings that need an agreed summary.
-func Destructive(fs []Finding) []Finding {
+func Destructive(fs []Finding) []Finding { return withSeverity(fs, SeverityDestructive) }
+
+// Refused is the findings no migration may save with.
+func Refused(fs []Finding) []Finding { return withSeverity(fs, SeverityRefused) }
+
+func withSeverity(fs []Finding, severity string) []Finding {
 	var out []Finding
 	for _, f := range fs {
-		if f.Severity == SeverityDestructive {
+		if f.Severity == severity {
 			out = append(out, f)
 		}
 	}
@@ -114,6 +123,7 @@ type linter struct {
 	created  map[string]bool
 	findings []Finding
 	renames  []Rename
+	sec      *securityState
 }
 
 func (l *linter) add(f Finding) { l.findings = append(l.findings, f) }

@@ -69,7 +69,7 @@ func TestLint_EachRuleAndItsSafeForm(t *testing.T) {
 		{"lock timeout off", "SET LOCAL lock_timeout TO 0", RuleLockTimeoutRaised, "SET LOCAL lock_timeout TO 2000"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, _ := Lint(tc.up)
+			got, _ := Lint(tc.up, Target{})
 			if !slices.Contains(rulesOf(got), tc.rule) {
 				t.Errorf("Lint(%q) = %v, want %s", tc.up, rulesOf(got), tc.rule)
 			}
@@ -81,7 +81,7 @@ func TestLint_EachRuleAndItsSafeForm(t *testing.T) {
 					t.Errorf("warning %s names no safe form", f.Rule)
 				}
 			}
-			safe, _ := Lint(tc.safe)
+			safe, _ := Lint(tc.safe, Target{})
 			if slices.Contains(rulesOf(safe), tc.rule) {
 				t.Errorf("Lint(%q) = %v, the safe form still reports %s", tc.safe, rulesOf(safe), tc.rule)
 			}
@@ -95,7 +95,7 @@ CREATE INDEX orders_email ON orders (email);
 ALTER TABLE orders ADD COLUMN region text NOT NULL, ADD CONSTRAINT fk FOREIGN KEY (id) REFERENCES x (id),
   ALTER COLUMN email TYPE varchar(200), DROP COLUMN region;
 CREATE TABLE staging (id int); INSERT INTO staging VALUES (1); DELETE FROM staging; TRUNCATE staging; DROP TABLE staging`
-	got, _ := Lint(up)
+	got, _ := Lint(up, Target{})
 	if len(got) != 0 {
 		t.Errorf("Lint on a table the migration creates = %v, want nothing", rulesOf(got))
 	}
@@ -107,7 +107,7 @@ ALTER TABLE orders ADD COLUMN a int NOT NULL, DROP COLUMN b;
 SELECT 'DELETE FROM orders';
 DO $$ BEGIN DELETE FROM orders; END $$;
 UPDATE orders SET a = (SELECT max(a) FROM t WHERE t.id = 1)`
-	got, _ := Lint(up)
+	got, _ := Lint(up, Target{})
 	want := []string{RuleNotNullNoDefault, RuleDropColumn, RuleUnboundedUpdate}
 	if !slices.Equal(rulesOf(got), want) {
 		t.Errorf("Lint = %v, want %v", rulesOf(got), want)
@@ -124,7 +124,7 @@ func TestLint_Renames(t *testing.T) {
 	_, renames := Lint(`ALTER TABLE orders RENAME COLUMN email TO contact_email;
 ALTER TABLE app.customers RENAME TO clients;
 ALTER TABLE orders RENAME CONSTRAINT a TO b;
-ALTER TABLE orders RENAME total TO amount`)
+ALTER TABLE orders RENAME total TO amount`, Target{})
 	want := []Rename{
 		{Statement: 1, Table: "orders", Column: "email"},
 		{Statement: 2, Table: "customers"},
@@ -139,7 +139,7 @@ ALTER TABLE orders RENAME total TO amount`)
 }
 
 func TestLint_QuotedIdentifiersAndUnreadable(t *testing.T) {
-	got, _ := Lint(`DROP TABLE "Order Items"; CREATE INDEX ON; ALTER TABLE; DELETE FROM; SET lock_timeout = 'soon'; SET search_path = app`)
+	got, _ := Lint(`DROP TABLE "Order Items"; CREATE INDEX ON; ALTER TABLE; DELETE FROM; SET lock_timeout = 'soon'; SET search_path = app`, Target{})
 	if !slices.Equal(rulesOf(got), []string{RuleDropTable}) || got[0].Object != "Order Items" {
 		t.Errorf("Lint = %+v, want one drop of the quoted table and nothing for the statements it cannot read", got)
 	}

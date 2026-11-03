@@ -156,6 +156,10 @@ func (r *fakeRows) Scan(dest ...any) error {
 			*p, _ = row[i].(bool)
 		case *int64:
 			*p, _ = row[i].(int64)
+		case *int:
+			*p, _ = row[i].(int)
+		case *[]string:
+			*p, _ = row[i].([]string)
 		case *time.Time:
 			*p, _ = row[i].(time.Time)
 		}

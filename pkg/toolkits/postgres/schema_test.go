@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,10 +22,45 @@ type fakeLedger struct {
 	exists  bool
 	applied []Applied
 	err     error
+	// target answers the review's read of the server and schema; a zero
+	// major reads as PostgreSQL 17.
+	target    Target
+	targetErr error
 }
 
-func (f *fakeLedger) QueryRow(context.Context, string, ...any) pgx.Row {
+func (f *fakeLedger) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	if sql == lintTargetSQL {
+		return targetRow{target: f.target, err: f.targetErr}
+	}
 	return ledgerRow{exists: f.exists, err: f.err}
+}
+
+// targetRow answers lintTargetSQL.
+type targetRow struct {
+	target Target
+	err    error
+}
+
+func (r targetRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	major, okMajor := dest[0].(*int)
+	rls, okRLS := dest[1].(*[]string)
+	virtual, okVirtual := dest[2].(*[]string)
+	if !okMajor || !okRLS || !okVirtual {
+		return errors.New("fake target: scans into an int and two string lists")
+	}
+	*major = cmp.Or(r.target.Major, MinServerMajor)
+	for table := range r.target.RowSecurity {
+		*rls = append(*rls, table)
+	}
+	for table, cols := range r.target.Virtual {
+		for col := range cols {
+			*virtual = append(*virtual, table+"."+col)
+		}
+	}
+	return nil
 }
 
 func (f *fakeLedger) Query(context.Context, string, ...any) (pgx.Rows, error) {
@@ -345,34 +381,127 @@ func TestLedgerSchemaIsValidated(t *testing.T) {
 	assert.Equal(t, DefaultLedgerSchema, parsed.LedgerSchema)
 }
 
-func TestDescribeReadsTheCatalog(t *testing.T) {
-	tx := &fakeTx{types: fakeTypes(), statements: map[string]fakeStatement{
-		describeTablesSQL:      {rows: [][]any{{"items", "r", "order lines"}, {"totals", "v", ""}}},
+// describeFake answers every catalog read describe makes.
+func describeFake() *fakeTx {
+	return &fakeTx{types: fakeTypes(), statements: map[string]fakeStatement{
+		describeServerSQL:     {rows: [][]any{{"17.6", 17}}},
+		describeExtensionsSQL: {rows: [][]any{{"plpgsql", "1.0", "pg_catalog"}}},
+		describeAvailableSQL:  {rows: [][]any{{"pgcrypto", "1.3", "cryptographic functions"}}},
+		describeTablesSQL: {rows: [][]any{
+			{"events", "p", "", false, false, "RANGE (at)"}, {"items", "r", "order lines", true, true, ""}, {"totals", "v", "", false, false, ""},
+		}},
 		describeColumnsSQL:     {rows: [][]any{{"items", "sku", "text", false, "", ""}, {"items", "qty", "integer", false, "1", "how many"}, {"gone", "x", "int", true, "", ""}}},
 		describeConstraintsSQL: {rows: [][]any{{"items", "items_qty_check", "c", "CHECK ((qty > 0))"}, {"gone", "x", "p", "PRIMARY KEY (x)"}}},
 		describeIndexesSQL:     {rows: [][]any{{"items", "items_sku", "CREATE INDEX items_sku ON public.items USING btree (sku)"}, {"gone", "y", "z"}}},
+		describeTriggersSQL: {rows: [][]any{
+			{"items", "items_audit", tgRow | tgInsert | tgUpdate, "O", "public.audit", "(new.qty > 0)", "CREATE TRIGGER items_audit ..."},
+			{"items", "items_trunc", tgBefore | tgTruncate, "D", "public.audit", "", "CREATE TRIGGER items_trunc ..."},
+			{"gone", "g", 0, "O", "f", "", ""},
+		}},
+		describeViewsSQL: {rows: [][]any{{"totals", " SELECT 1;", []string{"security_invoker=true", "check_option=local"}}, {"gone", "", []string(nil)}}},
+		describePoliciesSQL: {rows: [][]any{
+			{"items", "own_rows", "SELECT", []string{"app"}, false, "(owner = current_user)", ""},
+			{"items", "no_roles", "ALL", []string(nil), true, "", "true"},
+			{"gone", "p", "ALL", []string(nil), true, "", ""},
+		}},
+		describePartitionsSQL: {rows: [][]any{{"events", "events_2026", "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')"}, {"gone", "x", "y"}}},
+		describeFunctionsSQL: {rows: [][]any{
+			{"audit", "", "trigger", "f", "plpgsql", "v", true, "pg_catalog, pg_temp", "BEGIN RETURN NULL; END"},
+			{"tidy", "days integer", "", "p", "sql", "s", false, "", "DELETE FROM items"},
+		}},
+		describeEnumsSQL:   {rows: [][]any{{"mood", "sad"}, {"mood", "ok"}, {"size", "s"}}},
+		describeDomainsSQL: {rows: [][]any{{"email", "text", false, "", []string{"CHECK ((VALUE ~~ '%@%'::text))"}}, {"qty", "integer", true, "0", []string(nil)}}},
 	}}
+}
+
+func TestDescribeReadsTheCatalog(t *testing.T) {
+	tx := describeFake()
 	tk := fakeToolkit(baseConfig(), tx)
 	tk.connections["shop"] = tk.connections["db"]
 	tk.connections["shop"].cfg.LedgerSchema = DefaultLedgerSchema
-	tables, err := tk.Describe(context.Background(), "shop", DefaultSchema)
+	d, err := tk.Describe(context.Background(), "shop", DefaultSchema)
 	require.NoError(t, err)
-	require.Len(t, tables, 2)
-	items := tables[0]
+	assert.Equal(t, Server{Major: 17, Version: "17.6"}, d.Server)
+	assert.Equal(t, []Extension{{Name: "plpgsql", Version: "1.0", Schema: "pg_catalog"}}, d.Extensions)
+	assert.Equal(t, []AvailableExtension{{Name: "pgcrypto", DefaultVersion: "1.3", Comment: "cryptographic functions"}}, d.AvailableExtensions)
+
+	require.Len(t, d.Tables, 3)
+	events, items, totals := d.Tables[0], d.Tables[1], d.Tables[2]
+	assert.Equal(t, "partitioned_table", events.Kind)
+	assert.Equal(t, "RANGE (at)", events.PartitionKey)
+	assert.Equal(t, []Partition{{Name: "events_2026", Bound: "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')"}}, events.Partitions)
+
 	assert.Equal(t, "table", items.Kind)
 	assert.Equal(t, "order lines", items.Comment)
+	assert.True(t, items.RowSecurity)
+	assert.True(t, items.ForceRowSecurity)
 	assert.Equal(t, []TableColumn{{Name: "sku", Type: "text"}, {Name: "qty", Type: "integer", Default: "1", Comment: "how many"}}, items.Columns)
 	assert.Equal(t, []Constraint{{Name: "items_qty_check", Kind: "check", Definition: "CHECK ((qty > 0))"}}, items.Constraints)
 	assert.Len(t, items.Indexes, 1)
-	assert.Equal(t, "view", tables[1].Kind)
-	assert.NotNil(t, tables[1].Columns, "an empty list is [], never null")
+	assert.Equal(t, []Trigger{
+		{
+			Name: "items_audit", Timing: "after", Events: []string{"insert", "update"}, Level: "row", When: "(new.qty > 0)",
+			Function: "public.audit", Enabled: "enabled", Definition: "CREATE TRIGGER items_audit ...",
+		},
+		{
+			Name: "items_trunc", Timing: "before", Events: []string{"truncate"}, Level: "statement",
+			Function: "public.audit", Enabled: "disabled", Definition: "CREATE TRIGGER items_trunc ...",
+		},
+	}, items.Triggers)
+	assert.Equal(t, []Policy{
+		{Name: "own_rows", Command: "SELECT", Roles: []string{"app"}, Using: "(owner = current_user)"},
+		{Name: "no_roles", Command: "ALL", Roles: []string{}, Permissive: true, WithCheck: "true"},
+	}, items.Policies)
+	assert.Nil(t, items.View)
+
+	assert.Equal(t, "view", totals.Kind)
+	assert.Equal(t, &View{Definition: " SELECT 1;", SecurityInvoker: true, CheckOption: "local"}, totals.View)
+	assert.NotNil(t, totals.Columns, "an empty list is [], never null")
+	assert.NotNil(t, totals.Policies, "an empty list is [], never null")
+	assert.NotNil(t, totals.Triggers, "an empty list is [], never null")
+	assert.NotNil(t, totals.Partitions, "an empty list is [], never null")
+
+	assert.Equal(t, []Function{
+		{
+			Name: "audit", Returns: "trigger", Kind: "function", Language: "plpgsql", Volatility: "volatile",
+			SecurityDefiner: true, SearchPath: "pg_catalog, pg_temp", Body: "BEGIN RETURN NULL; END",
+		},
+		{Name: "tidy", Arguments: "days integer", Kind: "procedure", Language: "sql", Volatility: "stable", Body: "DELETE FROM items"},
+	}, d.Functions)
+	assert.Equal(t, []Enum{{Name: "mood", Values: []string{"sad", "ok"}}, {Name: "size", Values: []string{"s"}}}, d.Enums)
+	assert.Equal(t, []Domain{
+		{Name: "email", BaseType: "text", Checks: []string{"CHECK ((VALUE ~~ '%@%'::text))"}},
+		{Name: "qty", BaseType: "integer", Nullable: true, Default: "0", Checks: []string{}},
+	}, d.Domains)
 	assert.False(t, tx.committed, "describe reads in a READ ONLY transaction it never commits")
 
 	_, err = tk.Describe(context.Background(), "nope", DefaultSchema)
 	require.Error(t, err)
-	tx.statements[describeColumnsSQL] = fakeStatement{execErr: errors.New("connection reset")}
-	_, err = tk.Describe(context.Background(), "shop", DefaultSchema)
-	require.Error(t, err)
+}
+
+func TestDescribeEmptySchemaIsEmptyLists(t *testing.T) {
+	tx := &fakeTx{types: fakeTypes(), statements: map[string]fakeStatement{describeServerSQL: {rows: [][]any{{"18.6", 18}}}}}
+	tk := fakeToolkit(baseConfig(), tx)
+	out, err := tk.runSchema(context.Background(), schemaInput{Command: schemaDescribe, Connection: "db", Schema: DefaultSchema})
+	require.NoError(t, err)
+	raw, err := json.Marshal(out)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), ":null", "an empty kind is [], never null: %s", raw)
+	assert.Contains(t, string(raw), `"major":18`)
+}
+
+func TestDescribeFailsOnEachRead(t *testing.T) {
+	for _, sql := range []string{
+		describeServerSQL, describeExtensionsSQL, describeAvailableSQL, describeTablesSQL, describeColumnsSQL,
+		describeConstraintsSQL, describeIndexesSQL, describeTriggersSQL, describeViewsSQL, describePoliciesSQL,
+		describePartitionsSQL, describeFunctionsSQL, describeEnumsSQL, describeDomainsSQL,
+	} {
+		tx := describeFake()
+		tx.statements[sql] = fakeStatement{execErr: errors.New("connection reset")}
+		tk := fakeToolkit(baseConfig(), tx)
+		_, err := tk.Describe(context.Background(), "db", DefaultSchema)
+		require.Error(t, err, sql)
+	}
 }
 
 func TestReleasingTxReleasesOnce(t *testing.T) {

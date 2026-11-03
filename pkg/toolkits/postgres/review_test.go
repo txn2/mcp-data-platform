@@ -84,7 +84,7 @@ func TestAddNamesTheScriptsARenameBreaks(t *testing.T) {
 	tk.SetScriptReferences(func(context.Context, string, []string) (map[string][]string, error) {
 		return nil, errors.New("index down")
 	})
-	_, renames := Lint("ALTER TABLE orders RENAME TO purchases")
+	_, renames := Lint("ALTER TABLE orders RENAME TO purchases", Target{})
 	assert.Empty(t, tk.renameFindings(context.Background(), "shop", renames), "a lookup failure reports nothing rather than guessing")
 }
 

@@ -135,9 +135,17 @@ test-realdb:
 		if [ -n "$$sampler" ]; then kill -TERM $$sampler 2>/dev/null; wait $$sampler 2>/dev/null || true; cat "$$report"; fi; \
 		rm -f "$$report"; \
 		docker rm -f $(REALDB_PG_CONTAINER) >/dev/null 2>&1 || true; \
+		for img in $(REALDB_APPDB_IMAGES); do docker rm -f $(REALDB_APPDB_CONTAINER)-$${img%%=*} >/dev/null 2>&1 || true; done; \
 	}; \
 	trap finish EXIT; \
 	docker rm -f $(REALDB_PG_CONTAINER) >/dev/null 2>&1 || true; \
+	appdb_dsns=; \
+	for img in $(REALDB_APPDB_IMAGES); do \
+		name=$(REALDB_APPDB_CONTAINER)-$${img%%=*}; \
+		docker rm -f $$name >/dev/null 2>&1 || true; \
+		DOCKER_DEFAULT_PLATFORM= docker run -d --name $$name -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=postgres \
+			-p 127.0.0.1::5432 $${img#*=} -c fsync=off -c full_page_writes=off -c synchronous_commit=off >/dev/null; \
+	done; \
 	docker run -d --name $(REALDB_PG_CONTAINER) \
 		-e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=postgres \
 		-p 127.0.0.1::5432 $(REALDB_PG_IMAGE) \
@@ -151,6 +159,17 @@ test-realdb:
 		if [ "$$i" = "60" ]; then echo "FAIL: Postgres did not become ready" >&2; exit 1; fi; \
 		sleep 1; \
 	done; \
+	for img in $(REALDB_APPDB_IMAGES); do \
+		name=$(REALDB_APPDB_CONTAINER)-$${img%%=*}; \
+		port=$$(docker port $$name 5432/tcp | head -1 | sed 's/.*://'); \
+		if [ -z "$$port" ]; then echo "FAIL: could not read the published port of $$name" >&2; exit 1; fi; \
+		for i in $$(seq 1 60); do \
+			docker exec $$name pg_isready -h localhost -p 5432 -U test >/dev/null 2>&1 && break; \
+			if [ "$$i" = "60" ]; then echo "FAIL: $$name did not become ready" >&2; exit 1; fi; \
+			sleep 1; \
+		done; \
+		appdb_dsns="$$appdb_dsns postgres://test:test@localhost:$$port/postgres?sslmode=disable"; \
+	done; \
 	echo "  building the migrated template once..."; \
 	docker exec $(REALDB_PG_CONTAINER) psql -U test -d postgres -q \
 		-c 'CREATE DATABASE $(REALDB_TEMPLATE)'; \
@@ -159,6 +178,7 @@ test-realdb:
 	python3 scripts/realdb-connections.py $(REALDB_PG_CONTAINER) "$$report" & sampler=$$!; \
 	TESTDB_DSN="postgres://test:test@localhost:$$pg_port/postgres?sslmode=disable" \
 	TESTDB_TEMPLATE="$(REALDB_TEMPLATE)" \
+	APPDB_TARGET_DSNS="$$appdb_dsns" \
 		$(GOTEST) -count=1 -p 4 -tags=integration -run '$(REALDB_RUN)' $(REALDB_PKGS)
 	@echo "Real-DB gate passed."
 
@@ -199,6 +219,18 @@ smoke:
 REALDB_PG_CONTAINER := mcpdp-realdb-pg
 REALDB_PG_IMAGE     := pgvector/pgvector:pg16
 REALDB_TEMPLATE     := testdb_template
+# REALDB_APPDB_IMAGES are the servers an application database (the appdb kind)
+# is tested against, one per supported major, as major=image. PostgreSQL 17 is
+# the oldest an appdb connection accepts (#2447), and the platform's own
+# database above stays on 16, so the appdb RealDB tests in
+# pkg/toolkits/postgres run against each of these, named in APPDB_TARGET_DSNS,
+# and fail when it names none. 17.6 is the dev stack's appdb target. They are
+# pinned by index digest, so DOCKER_DEFAULT_PLATFORM is cleared for the host's
+# own variant (see DEV_COMPOSE).
+REALDB_APPDB_CONTAINER := mcpdp-realdb-appdb
+REALDB_APPDB_IMAGES := \
+	17=postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94 \
+	18=postgres:18.6-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
 # REALDB_PKGS is what test-realdb runs: every package, unless realdb-lane
 # narrows it to the packages a branch can break (#1947).
 REALDB_PKGS         ?= ./...
