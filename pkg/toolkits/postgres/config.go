@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -56,6 +57,19 @@ const (
 	MaxMaxRows = 100000
 	// DefaultConnectTimeout bounds the dial and the TLS handshake.
 	DefaultConnectTimeout = 10 * time.Second
+	// DefaultPoolWait is how long a statement waits for a free connection
+	// from its pool before it fails naming the pool (#2402).
+	DefaultPoolWait = 5 * time.Second
+	// MaxPoolWait is the most pool_wait_timeout may be.
+	MaxPoolWait = time.Minute
+	// DefaultTransactionIdle is how long a script's transaction may sit with
+	// no statement before it is rolled back (#2402).
+	DefaultTransactionIdle = 10 * time.Second
+	// MaxTransactionIdle is the most transaction_idle_timeout may be.
+	MaxTransactionIdle = 10 * time.Minute
+	// DefaultLedgerSchema is the schema in the target database that holds
+	// the ledger of applied migrations (#2404).
+	DefaultLedgerSchema = "mcp_schema"
 )
 
 // The TLS modes a connection takes, as libpq names them. The default is
@@ -87,6 +101,11 @@ const (
 	cfgKeyMaxRows          = "max_rows"
 	cfgKeyReadOnly         = "read_only"
 	cfgKeyDescription      = "description"
+	cfgKeyStatementCache   = "statement_cache"
+	cfgKeyPoolWait         = "pool_wait_timeout"
+	cfgKeyTransactionIdle  = "transaction_idle_timeout"
+	cfgKeyApplyPersonas    = "schema_apply_personas"
+	cfgKeyLedgerSchema     = "schema_ledger"
 )
 
 // Config is one PostgreSQL connection.
@@ -120,6 +139,23 @@ type Config struct {
 	MaxRows int
 	// ReadOnly refuses platform.execute on this connection for every script.
 	ReadOnly bool
+	// StatementCache keeps each statement prepared on the physical
+	// connection that first ran it, so it is described once rather than on
+	// every call (#2402). Off for PgBouncer in transaction mode, which hands
+	// a session's statements to whichever server connection is free.
+	StatementCache bool
+	// PoolWait is how long a statement waits for a free pooled connection
+	// before it fails naming the pool.
+	PoolWait time.Duration
+	// TransactionIdle is how long a script's transaction may go without a
+	// statement before it is rolled back.
+	TransactionIdle time.Duration
+	// SchemaApplyPersonas are the personas that may apply and revert this
+	// connection's migrations (#2404). Empty is administrators only.
+	SchemaApplyPersonas []string
+	// LedgerSchema is the schema in the target database holding the ledger
+	// of applied migrations.
+	LedgerSchema string
 }
 
 // SecretKeys are the configuration keys a postgres connection may name a
@@ -176,6 +212,12 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 		StatementTimeout: cfgmap.Duration(cfg, cfgKeyStatementTimeout, DefaultStatementTimeout),
 		MaxRows:          int(cfgmap.Int64(cfg, cfgKeyMaxRows, DefaultMaxRows)),
 		ReadOnly:         cfgmap.Bool(cfg, cfgKeyReadOnly),
+		StatementCache:   cfgmap.BoolDefault(cfg, cfgKeyStatementCache, true),
+		PoolWait:         cfgmap.Duration(cfg, cfgKeyPoolWait, DefaultPoolWait),
+		TransactionIdle:  cfgmap.Duration(cfg, cfgKeyTransactionIdle, DefaultTransactionIdle),
+
+		SchemaApplyPersonas: cfgmap.Strings(cfg, cfgKeyApplyPersonas),
+		LedgerSchema:        cfgmap.StringDefault(cfg, cfgKeyLedgerSchema, DefaultLedgerSchema),
 	}
 	if err := c.Validate(); err != nil {
 		return Config{}, err
@@ -229,10 +271,20 @@ func (c Config) validateLimits() error {
 		return fmt.Errorf("postgres: statement_timeout must be positive and at most %s", MaxStatementTimeout)
 	case c.MaxRows < 1 || c.MaxRows > MaxMaxRows:
 		return fmt.Errorf("postgres: max_rows must be between 1 and %d", MaxMaxRows)
+	case c.PoolWait <= 0 || c.PoolWait > MaxPoolWait:
+		return fmt.Errorf("postgres: pool_wait_timeout must be positive and at most %s", MaxPoolWait)
+	case c.TransactionIdle <= 0 || c.TransactionIdle > MaxTransactionIdle:
+		return fmt.Errorf("postgres: transaction_idle_timeout must be positive and at most %s", MaxTransactionIdle)
+	case !ledgerSchemaName.MatchString(c.LedgerSchema):
+		return fmt.Errorf("postgres: schema_ledger %q is not a lowercase identifier", c.LedgerSchema)
 	default:
 		return nil
 	}
 }
+
+// ledgerSchemaName is what schema_ledger may be: an unquoted lowercase
+// identifier, so it is written into the ledger's DDL without quoting rules.
+var ledgerSchemaName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 func (c Config) validateTLS() error {
 	if c.SSLMode == SSLModeDisable && (c.CABundlePEM != "" || c.ClientCertPEM != "") {

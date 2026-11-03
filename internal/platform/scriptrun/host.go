@@ -11,6 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptpace"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripttx"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/internal/scriptdest"
@@ -112,7 +113,7 @@ const (
 var Capabilities = []string{
 	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
 	CapabilityCheckpoint, CapabilityRemainingMS, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
-	scripttoken.CapabilityMint, scripttoken.CapabilityVerify, scripttoken.CapabilityDecrypt,
+	scripttoken.CapabilityMint, scripttoken.CapabilityVerify, scripttoken.CapabilityDecrypt, scripttx.CapabilityTransaction, scripttx.CapabilityBatch,
 }
 
 // The formats platform.export accepts, split by what serializes them. A format
@@ -229,6 +230,8 @@ type hostState struct {
 	site []string
 	// upstream is how the upstream answered the run's latest call (#1935).
 	upstream scriptguard.LastUpstream
+	// tx binds platform.transaction and platform.batch (#2402).
+	tx *scripttx.Host
 }
 
 // callCtx is the run's context carrying the call site of the host call in
@@ -250,6 +253,9 @@ func (h *hostState) guarded(fn hostFunc) hostFunc {
 	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		if err := h.mem.Check(thread, b.Name()); err != nil {
 			return nil, err //nolint:wrapcheck // the refusal names the binding and is the script's error
+		}
+		if err := h.tx.Refuse(b.Name()); err != nil {
+			return nil, err //nolint:wrapcheck // names the binding
 		}
 		h.site = scriptcallsite.Of(thread)
 		v, err := fn(thread, b, args, kwargs)
@@ -395,30 +401,9 @@ func (h *hostState) runValue() starlark.Value {
 
 // runRecord is the frozen run record over the given parameters and state.
 func (h *hostState) runRecord(paramValues, stateValues map[string]any) *starlarkstruct.Struct {
-	params := starlark.NewDict(len(paramValues))
-	for _, name := range starlarkconv.SortedKeys(paramValues) {
-		v, err := starlarkconv.ToStarlark(paramValues[name])
-		if err != nil {
-			// Params are bound and type-checked by script.BindParams before a run
-			// exists, so an unconvertible value here is a defect in the caller,
-			// not author input. Surface it as None rather than failing the run
-			// with a message no author can act on.
-			v = starlark.None
-		}
-		_ = params.SetKey(starlark.String(name), v)
-	}
-	state := starlark.NewDict(len(stateValues))
-	for _, name := range starlarkconv.SortedKeys(stateValues) {
-		v, err := starlarkconv.ToStarlark(stateValues[name])
-		if err != nil {
-			// State was validated as JSON-representable when it was saved, so
-			// an unconvertible value here is a defect in the store, not author
-			// input; None keeps the run readable rather than failing it with
-			// a message no author can act on.
-			v = starlark.None
-		}
-		_ = state.SetKey(starlark.String(name), v)
-	}
+	// Params are bound and type-checked by script.BindParams before a run
+	// exists, and state was validated as JSON when it was saved.
+	params, state := starlarkconv.DictOrNone(paramValues), starlarkconv.DictOrNone(stateValues)
 	rec := starlarkstruct.FromStringDict(starlark.String("run"), starlark.StringDict{
 		"run_id":    starlark.String(h.opts.RunID),
 		"fire_time": starlark.String(h.opts.FireTime.UTC().Format(scriptdate.TimeLayout)),
@@ -514,7 +499,7 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	if tool == "" {
 		return nil, fmt.Errorf("in %s: tool is empty; name the tool to call, as %s(\"trino_execute\", {\"connection\": \"warehouse\", \"sql\": \"...\"})", b.Name(), b.Name())
 	}
-	if tool == scriptsession.AppDBQuery || tool == scriptsession.AppDBExecute {
+	if scriptsession.IsAppDBCall(tool) {
 		return nil, fmt.Errorf("in %s: %s is not a tool; run a statement on an application database with platform.query or platform.execute", b.Name(), tool)
 	}
 	if h.opts.Caller == nil {
@@ -595,6 +580,21 @@ func (h *hostState) invoke(b *starlark.Builtin, tool string, payload map[string]
 		return nil, fmt.Errorf("converting the result of %s(%q): %w", b.Name(), tool, err)
 	}
 	return value, nil
+}
+
+// invokeRaw is one call for a binding that handles the answer itself
+// (internal/platform/scripttx): the write barrier, the call, never issued
+// twice, and the record of what it wrote.
+func (h *hostState) invokeRaw(b *starlark.Builtin, tool string, payload map[string]any) (map[string]any, error) {
+	decision, err := h.admitCall(b, tool, payload)
+	if err != nil {
+		return nil, err
+	}
+	out, err := h.callToolWith(tool, payload, callOpts{noRetry: true})
+	if err == nil && decision.Writes && h.opts.Writes == WritesReported {
+		h.writes = append(h.writes, WriteRecord{Tool: tool, Call: decision.Call})
+	}
+	return out, err
 }
 
 // admitCall applies the run's write barrier and records what the run persists.

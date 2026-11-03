@@ -723,6 +723,6 @@ func withCaller(ctx context.Context, pc *PlatformContext) context.Context {
 	}
 	return mcpcontext.WithCaller(ctx, mcpcontext.Caller{
 		UserID: pc.UserID, Email: pc.UserEmail, Roles: pc.Roles,
-		AuthType: pc.AuthType, Claims: pc.UserClaims,
+		AuthType: pc.AuthType, Claims: pc.UserClaims, IsAdmin: pc.IsAdmin,
 	})
 }

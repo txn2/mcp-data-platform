@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
 )
@@ -63,16 +64,25 @@ var transactionControl = map[string]bool{
 	"savepoint": true, "release": true, "prepare": true,
 }
 
+// sessionControl are the leading keywords of a statement that changes what
+// the platform keeps on a pooled connection: its prepared statements, which
+// the statement cache owns (stmtcache.go).
+var sessionControl = map[string]bool{"deallocate": true, "discard": true}
+
 // refuseTransactionControl refuses a statement whose first word is one of
-// transactionControl.
+// transactionControl or sessionControl.
 func refuseTransactionControl(sql string) error {
 	word := sqltables.StatementKind(sql)
 	if word == sqltables.KindOther {
 		word = firstWord(sql)
 	}
 	if transactionControl[word] {
-		return fmt.Errorf("a %s statement is not run: the tool holds the transaction, and a statements list "+
-			"commits only when every statement in it succeeds", strings.ToUpper(word))
+		return fmt.Errorf("a %s statement is not run: the platform holds the transaction; use "+
+			"platform.transaction to run statements that commit together", strings.ToUpper(word))
+	}
+	if sessionControl[word] {
+		return fmt.Errorf("a %s statement is not run: the platform resets each connection's session "+
+			"when a call releases it", strings.ToUpper(word))
 	}
 	return nil
 }
@@ -106,18 +116,25 @@ func firstWord(sql string) string {
 	}
 }
 
-// setTimeoutSQL bounds every statement of the transaction it runs in: the
-// third argument of set_config makes the setting local to the transaction, as
-// SET LOCAL does, and the value is a bound parameter.
-const setTimeoutSQL = "SELECT set_config('statement_timeout', $1, true)"
-
-// setLocalTimeout bounds every statement of the transaction tx is.
-func setLocalTimeout(ctx context.Context, tx pgx.Tx, d time.Duration) error {
-	_, err := tx.Exec(ctx, setTimeoutSQL, strconv.FormatInt(d.Milliseconds(), decimal))
-	if err != nil {
-		return fmt.Errorf("setting the statement timeout: %w", err)
+// beginSQL begins a transaction in opts' mode with every statement of it
+// bounded by timeout and, when idle is set, the session's idle time bounded
+// by idle: one simple-protocol round trip in place of three. SET LOCAL makes
+// both bounds the transaction's own. Every value written into the text is
+// the platform's: a pgx isolation and access constant and two integers.
+func beginSQL(opts pgx.TxOptions, timeout, idle time.Duration) string {
+	var b strings.Builder
+	_, _ = b.WriteString("BEGIN")
+	if opts.IsoLevel != "" {
+		_, _ = b.WriteString(" ISOLATION LEVEL " + strings.ToUpper(string(opts.IsoLevel)))
 	}
-	return nil
+	if opts.AccessMode != "" {
+		_, _ = b.WriteString(" " + strings.ToUpper(string(opts.AccessMode)))
+	}
+	_, _ = b.WriteString("; SET LOCAL statement_timeout = " + strconv.FormatInt(timeout.Milliseconds(), decimal))
+	if idle > 0 {
+		_, _ = b.WriteString("; SET LOCAL idle_in_transaction_session_timeout = " + strconv.FormatInt(idle.Milliseconds(), decimal))
+	}
+	return b.String()
 }
 
 // runStatement runs one bound statement in tx and reads up to limit rows.
@@ -131,9 +148,9 @@ func (c *conn) runStatement(ctx context.Context, tx pgx.Tx, stmt boundStatement,
 	if err := refuseTransactionControl(stmt.sql); err != nil {
 		return rowSet{}, refuse(err)
 	}
-	sd, err := tx.Prepare(ctx, "", stmt.sql)
+	sd, err := c.describe(ctx, tx, stmt.sql)
 	if err != nil {
-		return rowSet{}, err //nolint:wrapcheck // a PostgreSQL error is read by its type
+		return rowSet{}, err
 	}
 	if len(sd.ParamOIDs) != len(stmt.args) {
 		return rowSet{}, refuse(fmt.Errorf("the statement takes %d parameters and params holds %d", len(sd.ParamOIDs), len(stmt.args)))
@@ -155,7 +172,29 @@ func (c *conn) runStatement(ctx context.Context, tx pgx.Tx, stmt boundStatement,
 	for i, f := range sd.Fields {
 		set.columns[i] = Column{Name: f.Name, Type: colTypes[i].display}
 	}
-	return read(ctx, tx, stmt.sql, args, readPlan{set: set, types: colTypes, limit: limit, stop: stop})
+	plan := readPlan{set: set, types: colTypes, limit: limit, stop: stop}
+	if c.cache == nil {
+		return read(ctx, tx, stmt.sql, args, plan)
+	}
+	out, err := c.readPrepared(ctx, tx, sd, args, plan)
+	if err != nil {
+		c.cache.failed(tx, stmt.sql, err)
+	}
+	return out, err
+}
+
+// describe is the statement's description: prepared on the physical
+// connection through the statement cache, or described anew when the cache is
+// off.
+func (c *conn) describe(ctx context.Context, tx pgx.Tx, sql string) (*pgconn.StatementDescription, error) {
+	if c.cache != nil {
+		return c.cache.describe(ctx, tx, sql)
+	}
+	sd, err := tx.Prepare(ctx, "", sql)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // a PostgreSQL error is read by its type
+	}
+	return sd, nil
 }
 
 // typesOf resolves oids in order.
@@ -190,6 +229,11 @@ func read(ctx context.Context, tx pgx.Tx, sql string, args []any, p readPlan) (r
 	if err != nil {
 		return rowSet{}, err //nolint:wrapcheck // read by its type
 	}
+	return collect(rows, cancel, p)
+}
+
+// collect reads a statement's rows into its row set, stopping as p says.
+func collect(rows pgx.Rows, cancel context.CancelFunc, p readPlan) (rowSet, error) {
 	defer rows.Close()
 	set := p.set
 	for rows.Next() {

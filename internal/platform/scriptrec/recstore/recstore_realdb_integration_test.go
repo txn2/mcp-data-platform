@@ -8,7 +8,14 @@ package recstore
 // sweep leaving a kept recording alone.
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
+	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -84,4 +92,63 @@ func TestRealDB_RecordingsAreKeptWhileATestNamesThem(t *testing.T) {
 	require.NoError(t, err)
 	_, err = s.Get(ctx, "srun_3")
 	assert.ErrorIs(t, err, scriptrec.ErrNotFound)
+}
+
+// TestRealDB_RecordingIsSealedAtRest is #2402's criterion for the recording
+// sink: a value a run bound -- here one a script decrypted -- is in no form in
+// the stored row, while the store reads the recording back whole.
+func TestRealDB_RecordingIsSealedAtRest(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	enc, err := fieldcrypt.NewFieldEncryptor(bytes.Repeat([]byte{7}, fieldcrypt.KeyLength))
+	require.NoError(t, err)
+	s := New(db).Sealed(fieldcrypt.NewRestFieldEncryptor(enc))
+
+	const secret = "4111-1111-1111-1111"
+	var gz bytes.Buffer
+	w := gzip.NewWriter(&gz)
+	_, _ = w.Write([]byte(`{"tool":"appdb.tx_execute","args":{"params":["` + secret + `"]}}`))
+	require.NoError(t, w.Close())
+	require.NoError(t, s.Save(ctx, scriptrec.Stored{Meta: scriptrec.Meta{
+		RunID: "srun_sealed", ScriptName: "pay", Kind: scriptrec.KindDraft, RecordedBy: "jane@example.com", Succeeded: true,
+	}, Data: gz.Bytes()}))
+
+	var raw []byte
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT data FROM script_recordings WHERE run_id = 'srun_sealed'`).Scan(&raw))
+	require.True(t, bytes.HasPrefix(raw, []byte("encb:")), "the stored recording is sealed")
+	_, gzErr := gzip.NewReader(bytes.NewReader(raw))
+	require.Error(t, gzErr, "the stored bytes are not a readable gzip stream")
+	for _, form := range []string{secret, base64.StdEncoding.EncodeToString([]byte(secret)), hex.EncodeToString([]byte(secret)),
+		url.QueryEscape(secret), strings.Trim(mustJSON(t, secret), `"`)} {
+		assert.NotContains(t, string(raw), form)
+	}
+
+	got, err := s.Get(ctx, "srun_sealed")
+	require.NoError(t, err)
+	assert.Equal(t, gz.Bytes(), got.Data, "the store opens what it sealed")
+
+	// Sealed to its run: the row copied under another run id does not open.
+	_, err = db.ExecContext(ctx, `INSERT INTO script_recordings (run_id, script_name, kind, recorded_by, source_sha256, succeeded, reason, bytes, data)
+		SELECT 'srun_other', script_name, kind, recorded_by, source_sha256, succeeded, reason, bytes, data FROM script_recordings WHERE run_id = 'srun_sealed'`)
+	require.NoError(t, err)
+	_, err = s.Get(ctx, "srun_other")
+	require.Error(t, err)
+
+	// A deployment without the key cannot read it, and says so.
+	_, err = New(db).Get(ctx, "srun_sealed")
+	require.ErrorContains(t, err, "no encryption key")
+	// One saved before the key was set reads as stored.
+	require.NoError(t, New(db).Save(ctx, scriptrec.Stored{Meta: scriptrec.Meta{
+		RunID: "srun_plain", ScriptName: "pay", Kind: scriptrec.KindDraft, RecordedBy: "jane@example.com", Succeeded: true,
+	}, Data: gz.Bytes()}))
+	got, err = s.Get(ctx, "srun_plain")
+	require.NoError(t, err)
+	assert.Equal(t, gz.Bytes(), got.Data)
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(b)
 }

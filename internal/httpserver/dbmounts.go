@@ -353,7 +353,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		// The gate a source edit crosses, over the recordings runs and drafts
 		// keep (#1939, #1942): the same one manage_script saves through.
 		Gate: &scriptsave.Gate{
-			Recordings: recstore.New(p.DB()), Destinations: p.Config().Scripts.ScriptDestinations(),
+			Recordings: recstore.New(p.DB()).Sealed(p.RestEncryptor()), Destinations: p.Config().Scripts.ScriptDestinations(),
 			MaxMemoryBytes: p.Config().Scripts.Worker.ProcessRunMemoryBudget(),
 			Contracts:      toolanswer.Live{Kits: p.ToolkitRegistry(), Extra: notifylayer.AnswerContracts()},
 			Libraries:      store,

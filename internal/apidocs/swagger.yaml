@@ -9021,6 +9021,131 @@ definitions:
     x-enum-varnames:
     - PermissionViewer
     - PermissionEditor
+  postgres.Drift:
+    properties:
+      reason:
+        type: string
+      version:
+        type: integer
+    type: object
+  postgres.Lock:
+    properties:
+      mode:
+        type: string
+      relation:
+        type: string
+    type: object
+  postgres.MigrationEvent:
+    properties:
+      actor:
+        type: string
+      at:
+        type: string
+      checksum:
+        type: string
+      connection:
+        type: string
+      detail:
+        type: string
+      duration_ms:
+        type: integer
+      event:
+        type: string
+      schema:
+        type: string
+      version:
+        type: integer
+    type: object
+  postgres.MigrationState:
+    properties:
+      applied_at:
+        type: string
+      applied_by:
+        type: string
+      author:
+        type: string
+      checksum:
+        type: string
+      connection:
+        type: string
+      created_at:
+        type: string
+      down:
+        type: string
+      name:
+        type: string
+      schema:
+        description: |-
+          Schema is the namespace the migration belongs to and runs in: its
+          search_path, created when the first migration applies.
+        type: string
+      state:
+        description: State is applied, pending or drift.
+        type: string
+      transactional:
+        description: |-
+          Transactional is false for a migration holding a statement that cannot
+          run in a transaction (CREATE INDEX CONCURRENTLY), which runs alone.
+        type: boolean
+      up:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
+  postgres.Plan:
+    properties:
+      changed:
+        description: |-
+          Changed are the relations and columns the migrations created or
+          altered, read from the system catalog rows the transaction wrote.
+        items:
+          type: string
+        type: array
+      locks:
+        description: |-
+          Locks are the relation locks the transaction held at its end, with
+          their modes: the locks the apply takes.
+        items:
+          $ref: '#/definitions/postgres.Lock'
+        type: array
+      migrations:
+        description: Migrations are the versions planned, in order.
+        items:
+          type: integer
+        type: array
+      unplanned:
+        description: |-
+          Unplanned are migrations that run outside a transaction, which cannot
+          be rolled back and so are not planned.
+        items:
+          type: integer
+        type: array
+    type: object
+  postgres.SchemaReport:
+    properties:
+      connection:
+        type: string
+      current_version:
+        type: integer
+      drift:
+        items:
+          $ref: '#/definitions/postgres.Drift'
+        type: array
+      events:
+        items:
+          $ref: '#/definitions/postgres.MigrationEvent'
+        type: array
+      ledger:
+        type: string
+      migrations:
+        items:
+          $ref: '#/definitions/postgres.MigrationState'
+        type: array
+      schema:
+        type: string
+    type: object
   postshttp.Post:
     properties:
       channel:
@@ -18176,6 +18301,81 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Test a connection instance
+      tags:
+      - Connections
+  /admin/connection-instances/appdb/{name}/migrations:
+    get:
+      description: Reports every migration the platform keeps for the connection's
+        schema, whether the target's ledger records it as applied (applied, pending,
+        or drift when the ledger and the platform disagree), and the history of adds,
+        applies, reverts and failures, newest first.
+      parameters:
+      - description: Application database connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Schema the migrations belong to; defaults to public
+        in: query
+        name: schema
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/postgres.SchemaReport'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      summary: List an application database's migrations
+      tags:
+      - Connections
+  /admin/connection-instances/appdb/{name}/migrations/plan:
+    post:
+      description: Runs the pending migrations in a transaction, reports the relations
+        and columns they change and the locks they take, and rolls back. A migration
+        that runs outside a transaction is listed as unplanned.
+      parameters:
+      - description: Application database connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Schema the migrations belong to; defaults to public
+        in: query
+        name: schema
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/postgres.Plan'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      summary: Plan an application database's pending migrations
       tags:
       - Connections
   /admin/connection-instances/effective:

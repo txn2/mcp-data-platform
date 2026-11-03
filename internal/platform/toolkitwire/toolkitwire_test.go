@@ -60,7 +60,20 @@ func TestPostgresGuardNeedsAPlatformDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	assert.Empty(t, pg.Tools(), "no store, no manage_schema")
 	PostgresGuard([]registry.Toolkit{&recording{}, pg}, db)
+	assert.Equal(t, []string{postgreskit.SchemaToolName}, pg.Tools(), "the store is installed with the guard (#2404)")
+}
+
+// The session runner hands the toolkit's transaction back as the session's
+// interface, and a refusal back as the toolkit's own (#2402).
+func TestAppDBRunnerBegin(t *testing.T) {
+	pg := postgreskit.NewMulti(postgreskit.MultiConfig{DefaultName: "x"})
+	t.Cleanup(func() { _ = pg.Close() })
+	_, err := appdbRunner{pg}.Begin(context.Background(), postgreskit.TxOptions{Connection: "nope"})
+	var refused *postgreskit.RefusedError
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, postgreskit.CodeUnknownConnection, refused.Code)
 }
 
 // connChecker allows one connection and records the roles it was asked about.

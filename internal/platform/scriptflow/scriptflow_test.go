@@ -789,3 +789,41 @@ other = platform.decrypt(form = run.params["form"], payload = payload)
 	assert.False(t, titled[0].Computed)
 	assert.True(t, titled[1].Computed)
 }
+
+func TestDerive_ATransactionIsOneCardHoldingItsStatements(t *testing.T) {
+	g := deriveGraph(`
+def place(tx):
+    """Places the order."""
+    tx.execute("INSERT INTO orders (id) VALUES (:id)", params = {"id": 1})
+    tx.batch([{"sql": "INSERT INTO items VALUES (:i)", "params": {"i": 1}}])
+    tx.query("SELECT count(*) FROM items")
+
+def look(tx):
+    """Reads."""
+    tx.query("SELECT * FROM orders")
+    tx.query("SELECT 1")
+    tx.execute("SELECT " + run.params["x"])
+
+platform.transaction("shop", place)
+platform.transaction("shop", look, read_only = True)
+platform.transaction("shop", lambda tx: None)
+platform.batch("shop", ["UPDATE stock SET n = n - 1", {"sql": "DELETE FROM holds"}, "SELECT 1"])
+platform.batch("shop", run.params["stmts"])
+`)
+	require.True(t, g.OK, "%+v", g.Findings)
+	var tx []Node
+	for _, n := range g.Nodes {
+		if n.Kind == KindTransaction {
+			tx = append(tx, n)
+		}
+	}
+	require.Len(t, tx, 5)
+	assert.Equal(t, RoleWrites, tx[0].Role)
+	assert.Equal(t, []string{"INSERT orders", "batch of statements", "read items"}, tx[0].Detail)
+	assert.Equal(t, RoleReads, tx[1].Role, "a read_only transaction reads")
+	assert.Equal(t, []string{"read orders", "read", "SQL assembled at run time"}, tx[1].Detail)
+	assert.True(t, tx[2].Computed, "a lambda's statements are not read")
+	assert.Equal(t, []string{"UPDATE stock", "DELETE holds", "statement"}, tx[3].Detail)
+	assert.True(t, tx[4].Computed)
+	assert.Contains(t, tx[3].Title, "Batch")
+}

@@ -120,6 +120,8 @@ WHAT IS AVAILABLE
       was run with allow_writes. timeout_seconds is platform.query's, and a
       platform.call to trino_query or trino_execute is held to the same
       ceiling.
+  platform.transaction, platform.batch: transactions on an application
+      database; see mcp:knowledge_page:platform-application-databases.
   platform.export(name, rows, format="csv", destination="portal", key=None,
                   register=None, references=None, tags=None, metadata=None,
                   append=False, scope=None, scope_id=None, index=None)

@@ -14,6 +14,7 @@ import {
   mockConnectionAuthEvents,
   mockGatewayConnectionStatus,
   mockGraphQLSchemaState,
+  mockAppDBMigrations,
 } from "../data/connections";
 
 // ADMIN_BASE mirrors handlers.ts. These handlers only cover the
@@ -29,6 +30,8 @@ import {
 //   POST   /connections/:kind/:name/reacquire-oauth
 //   GET    /connection-instances/graphql/:name/schema   (schema state)
 //   POST   /connection-instances/graphql/:name/refresh-schema
+//   GET    /connection-instances/appdb/:name/migrations   (migrations, #2404)
+//   POST   /connection-instances/appdb/:name/migrations/plan
 //   GET    /gateway/connections/:name/status
 //   POST   /connection-instances/:kind/:name/test         (unified test)
 //   POST   /gateway/connections/:name/test
@@ -86,6 +89,32 @@ export const connectionInstanceHandlers = [
 
   http.delete(`${ADMIN_BASE}/connection-instances/:kind/:name`, () =>
     new HttpResponse(null, { status: 204 }),
+  ),
+
+  // --- Application database migrations (#2404) ---
+  http.get(
+    `${ADMIN_BASE}/connection-instances/appdb/:name/migrations`,
+    ({ params }) => {
+      const report = mockAppDBMigrations[decodeURIComponent(String(params["name"]))];
+      if (!report) return new HttpResponse(null, { status: 404 });
+      return HttpResponse.json(report);
+    },
+  ),
+
+  // The plan of the fixture's one pending migration, which adds a column.
+  http.post(
+    `${ADMIN_BASE}/connection-instances/appdb/:name/migrations/plan`,
+    ({ params }) => {
+      const report = mockAppDBMigrations[decodeURIComponent(String(params["name"]))];
+      if (!report) return new HttpResponse(null, { status: 404 });
+      const pending = report.migrations.filter((m) => m.state === "pending").map((m) => m.version);
+      return HttpResponse.json({
+        migrations: pending,
+        changed: pending.length ? ["public.orders", "public.orders.note"] : [],
+        locks: pending.length ? [{ relation: "public.orders", mode: "AccessExclusiveLock" }] : [],
+        unplanned: [],
+      });
+    },
   ),
 
   // --- GraphQL connection schemas ---

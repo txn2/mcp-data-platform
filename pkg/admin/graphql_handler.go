@@ -2,6 +2,7 @@ package admin
 
 import (
 	"github.com/txn2/mcp-data-platform/internal/admin/graphqlapi"
+	"github.com/txn2/mcp-data-platform/internal/admin/migrationsapi"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
@@ -16,6 +17,13 @@ func (h *Handler) registerGraphQLRoutes() {
 		Mutable:      h.isMutable(),
 		SchemaStored: h.publishSchemaReload,
 	})
+}
+
+// registerMigrationRoutes mounts an application database's migrations
+// (#2404), implemented in the migrationsapi subpackage: the portal's
+// connection page reads them and plans the pending ones.
+func (h *Handler) registerMigrationRoutes() {
+	migrationsapi.Register(h.mux, migrationsapi.Config{Toolkits: h.liveToolkits})
 }
 
 // publishSchemaReload announces a replaced stored schema to peer replicas,

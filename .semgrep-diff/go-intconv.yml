@@ -1,0 +1,82 @@
+# #2425. A narrowing integer conversion with its bound in another function.
+#
+# GitHub Code Scanning reported go/incorrect-integer-conversion on #2424 at
+# pkg/toolkits/postgres/pool.go: `pc.MaxConns = int32(c.MaxConns)`. The value
+# was bounded, by Config.Validate, in another function, which CodeQL does not
+# follow. gosec's G115 had been silenced with a #nosec naming that function,
+# so `make security-diff` passed, and a local `make codeql` does not reproduce
+# what Code Scanning reports (CLAUDE.md, #1327). The fix #2424 shipped checks
+# the bound in the function that converts.
+#
+# Whether a conversion can truncate is a range question CodeQL answers and
+# Semgrep cannot, so the rule refuses the shape -- a conversion to a narrower
+# integer of anything but a literal, with no comparison of the same expression
+# and no min/max clamp before it in the function -- on changed lines only,
+# like the rules beside it.
+rules:
+  - id: narrowing-int-conversion-unbounded
+    patterns:
+      - pattern-either:
+          - pattern: int32($X)
+          - pattern: int16($X)
+          - pattern: int8($X)
+          - pattern: uint32($X)
+          - pattern: uint16($X)
+          - pattern: uint8($X)
+      # A literal converts at compile time; the compiler refuses one that
+      # does not fit.
+      - metavariable-regex:
+          metavariable: $X
+          regex: ^(?!-?(0[xXbBoO])?[0-9a-fA-F_]+$)
+      # A clamp in the conversion itself bounds it.
+      - pattern-not: $T(min(...))
+      - pattern-not: $T(max(...))
+      # A comparison of the same expression earlier in the function bounds it:
+      # `if x < lo || x > hi { return ... }`, a guard on one side, or a clamp
+      # assigned back (`x = min(x, hi)`).
+      - pattern-not-inside: |
+          if <... $X > $B ...> { ... }
+          ...
+      - pattern-not-inside: |
+          if <... $X >= $B ...> { ... }
+          ...
+      - pattern-not-inside: |
+          if <... $X < $B ...> { ... }
+          ...
+      - pattern-not-inside: |
+          if <... $X <= $B ...> { ... }
+          ...
+      - pattern-not-inside: |
+          $X = min(...)
+          ...
+      - pattern-not-inside: |
+          $X = max(...)
+          ...
+      # The comparison as the guard of the branch the conversion is in.
+      - pattern-not-inside: |
+          if <... $X <= $B ...> { ... }
+      - pattern-not-inside: |
+          if <... $X < $B ...> { ... }
+      - pattern-not-inside: |
+          if <... $X >= $B ...> { ... }
+      - pattern-not-inside: |
+          if <... $X > $B ...> { ... }
+    message: >-
+      A conversion to a narrower integer type with no bound check in this
+      function. CodeQL refuses it as go/incorrect-integer-conversion: the value
+      truncates when it does not fit, and a check in a validator elsewhere is
+      invisible to CodeQL, which does not follow it. Put the bound check beside
+      the conversion (`if x < lo || x > hi { return ... }`, or a min/max clamp)
+      rather than a #nosec naming the other function.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - "CWE-681: Incorrect Conversion between Numeric Types"
+      confidence: MEDIUM
+      impact: MEDIUM
+      references:
+        - https://codeql.github.com/codeql-query-help/go/go-incorrect-integer-conversion/
+      technology:
+        - go

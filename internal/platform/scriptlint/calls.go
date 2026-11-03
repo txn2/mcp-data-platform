@@ -15,7 +15,48 @@ const (
 	memberCall      = "call"
 	memberExport    = "export"
 	memberSaveState = "save_state"
+	memberBatch     = "batch"
 )
+
+// txStatement holds a statement run through a transaction's tx (#2402) to the
+// rule platform.query is held to. A call of query or execute on any name but
+// platform is one: no other value a script holds has either method.
+func (h *hostScan) txStatement(c *syntax.CallExpr) {
+	dot, ok := c.Fn.(*syntax.DotExpr)
+	if !ok {
+		return
+	}
+	recv, ok := dot.X.(*syntax.Ident)
+	if !ok {
+		return
+	}
+	switch dot.Name.Name {
+	case memberQuery, memberExecute:
+		h.l.sqlFromValues(c, recv.Name+"."+dot.Name.Name, callArg(c, "sql", 0), h.assigned)
+	case memberBatch:
+		h.batchStatements(c, recv.Name+".batch", callArg(c, "statements", 0))
+	}
+}
+
+// batchStatements holds each statement of a batch's literal list to the rule:
+// a SQL string, or the "sql" entry of a dict.
+func (h *hostScan) batchStatements(c *syntax.CallExpr, name string, list syntax.Expr) {
+	var elems []syntax.Expr
+	switch l := list.(type) {
+	case *syntax.ListExpr:
+		elems = l.List
+	case *syntax.Comprehension:
+		elems = []syntax.Expr{l.Body}
+	}
+	for _, e := range elems {
+		if d, ok := e.(*syntax.DictExpr); ok {
+			e = dictEntry(d, "sql")
+		}
+		if e != nil {
+			h.l.sqlFromValues(c, name, e, h.assigned)
+		}
+	}
+}
 
 // loopedMembers are the calls that reach an upstream or write an output: one
 // per element of a collection is the most common reason a migrated flow turns
@@ -61,11 +102,14 @@ func (h *hostScan) visit(n syntax.Node, inLoop bool) {
 	}
 	member, ok := platformMember(c)
 	if !ok {
+		h.txStatement(c)
 		return
 	}
 	switch member {
 	case memberQuery, memberExecute:
 		h.l.sqlFromValues(c, "platform."+member, callArg(c, "sql", 0), h.assigned)
+	case memberBatch:
+		h.batchStatements(c, "platform.batch", callArg(c, "statements", 1))
 	case memberCall:
 		if tool, sql := sqlToolCall(c, h.assigned); sql != nil {
 			h.l.sqlFromValues(c, fmt.Sprintf("platform.call(%q)", tool), sql, h.assigned)

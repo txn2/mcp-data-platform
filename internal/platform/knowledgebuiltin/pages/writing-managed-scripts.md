@@ -94,7 +94,15 @@ branch with `testing.answer(tool, args, error = {...})`.
   and each value is sent to PostgreSQL as a bound parameter read by its type.
   A list binds as one array, so write `= ANY(:ids)`, not `IN :ids`. The
   statements go straight to the database without a tool call, and
-  `platform.execute` there commits one statement.
+  `platform.execute` there commits one statement. Statements that must
+  commit together go in `platform.transaction(connection, fn)`: `fn(tx)`
+  runs them with `tx.query`, `tx.execute` and `tx.batch`, and the
+  transaction commits when `fn` returns and rolls back when it fails.
+  `retry = True` runs `fn` again on a serialization failure or deadlock,
+  so a retried `fn` may only read and write through `tx`.
+  `platform.batch(connection, statements)` sends statements in one round
+  trip and commits them together. Read the tables a script writes with
+  `manage_schema command=describe`.
 - **A truncated query result fails the run** rather than returning a partial
   answer. Aggregate in SQL, or narrow the query.
 - **`platform.query` is the read tool.** A statement that modifies state is

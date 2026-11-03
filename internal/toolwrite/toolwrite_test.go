@@ -381,3 +381,19 @@ func TestDecision_Refusal(t *testing.T) {
 		t.Errorf("undeclared refusal = %q", undeclared)
 	}
 }
+
+// The application database's host calls and manage_schema (#2402, #2404).
+func TestClassify_ApplicationDatabase(t *testing.T) {
+	for _, tool := range []string{"appdb.query", "appdb.begin", "appdb.tx_query", "appdb.commit", "appdb.rollback"} {
+		assert.False(t, classify(tool, map[string]any{}).Writes, tool)
+	}
+	for _, tool := range []string{"appdb.execute", "appdb.tx_execute", "appdb.tx_batch", "appdb.batch"} {
+		assert.True(t, classify(tool, map[string]any{}).Writes, tool)
+	}
+	for _, command := range []string{"status", "plan", "history", "describe"} {
+		assert.False(t, classify("manage_schema", map[string]any{"command": command}).Writes, command)
+	}
+	for _, command := range []string{"add", "apply", "down", ""} {
+		assert.True(t, classify("manage_schema", map[string]any{"command": command}).Writes, command)
+	}
+}

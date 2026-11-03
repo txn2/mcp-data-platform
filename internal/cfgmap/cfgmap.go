@@ -169,3 +169,28 @@ func StringMap(cfg map[string]any, key string) map[string]string {
 	}
 	return nil
 }
+
+// Strings reads a list of strings. Accepts []string (programmatic
+// construction) or []any (YAML/JSON unmarshaling); non-string and empty
+// elements are skipped, and the rest are trimmed. An absent, empty or wholly
+// non-string list yields nil.
+func Strings(cfg map[string]any, key string) []string {
+	var raw []any
+	switch v := cfg[key].(type) {
+	case []string:
+		for _, s := range v {
+			raw = append(raw, s)
+		}
+	case []any:
+		raw = v
+	default:
+		return nil
+	}
+	var out []string
+	for _, e := range raw {
+		if s, ok := e.(string); ok && strings.TrimSpace(s) != "" {
+			out = append(out, strings.TrimSpace(s))
+		}
+	}
+	return out
+}

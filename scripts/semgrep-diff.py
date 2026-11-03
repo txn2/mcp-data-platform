@@ -122,6 +122,47 @@ def findings(configs: list[str], files: list[str]) -> list[dict]:
     return report.get("results", [])
 
 
+def rule_fixtures(configs: list[str]) -> list[tuple[str, str]]:
+    """Each rule file in a config directory with a fixture beside it.
+
+    A fixture is the rule's name with .go in place of .yml, annotated with
+    Semgrep's `// ruleid:` and `// ok:` comments (#2425). It lives in the
+    rule's dot directory, which the go tool never builds.
+    """
+    pairs = []
+    for config in configs:
+        if not os.path.isdir(config):
+            continue
+        for name in sorted(os.listdir(config)):
+            if name.endswith(".yml"):
+                fixture = os.path.join(config, name[:-4] + ".go")
+                if os.path.exists(fixture):
+                    pairs.append((os.path.join(config, name), fixture))
+    return pairs
+
+
+def check_fixtures(configs: list[str]) -> None:
+    """Hold each rule to its fixture before scanning the diff with it.
+
+    A rule that stopped matching the shape it was written for would otherwise
+    pass every diff in silence.
+    """
+    for rule, fixture in rule_fixtures(configs):
+        out = subprocess.run(
+            ["semgrep", "--test", "--config", rule, fixture],
+            capture_output=True, text=True, check=False,
+        )
+        if out.returncode != 0 or "All tests passed" not in out.stdout:
+            print(f"ERROR: {rule} does not match its fixture {fixture}:\n{out.stdout}{out.stderr}",
+                  file=sys.stderr)
+            sys.exit(1)
+
+
+def is_fixture(path: str) -> bool:
+    """A rule fixture holds the refused shape on purpose."""
+    return path.startswith(".semgrep")
+
+
 def main() -> None:
     args = sys.argv[1:]
     whole = "--whole-files" in args
@@ -131,6 +172,7 @@ def main() -> None:
         sys.exit(1)
     config = " ".join(args)
 
+    check_fixtures(args)
     base = merge_base()
     changed = changed_lines(base)
     if whole:
@@ -138,7 +180,7 @@ def main() -> None:
             changed.setdefault(path, set())
     # A path the diff added and the working tree has since removed is in the
     # map and not on disk; semgrep errors on a path it cannot open.
-    files = sorted(p for p in changed if os.path.exists(p))
+    files = sorted(p for p in changed if os.path.exists(p) and not is_fixture(p))
     if not files:
         print(f"No changed Go files vs merge-base {base[:12]}; nothing to scan.")
         return

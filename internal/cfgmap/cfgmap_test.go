@@ -218,3 +218,23 @@ func TestBoolDefault(t *testing.T) {
 		})
 	}
 }
+
+func TestStrings(t *testing.T) {
+	cfg := map[string]any{
+		"list":   []any{"a", " b ", 3, "", "  "},
+		"native": []string{"x", "", " y"},
+		"none":   []any{4},
+		"scalar": "a",
+	}
+	if got := Strings(cfg, "list"); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("list = %v", got)
+	}
+	if got := Strings(cfg, "native"); len(got) != 2 || got[1] != "y" {
+		t.Fatalf("native = %v", got)
+	}
+	for _, key := range []string{"none", "scalar", "missing"} {
+		if got := Strings(cfg, key); got != nil {
+			t.Fatalf("%s = %v, want nil", key, got)
+		}
+	}
+}

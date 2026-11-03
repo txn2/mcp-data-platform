@@ -115,6 +115,8 @@ var memberCards = map[string]func(*card, *Node){
 	"notify":       (*card).notify,
 	"publish":      (*card).publish,
 	"call":         (*card).toolCall,
+	"transaction":  (*card).transaction,
+	"batch":        (*card).batch,
 	"save_state": func(_ *card, n *Node) {
 		n.Role, n.Kind, n.Title, n.Subtitle = RoleOutput, KindSaveState, "Save state", "run.state of the next run"
 	},
@@ -137,6 +139,9 @@ func (c *card) token(n *Node, title string) {
 	n.Subtitle, n.Computed = "key "+secret, !full
 }
 
+// argConnection is the argument a member names its connection in.
+const argConnection = "connection"
+
 // maxStandIn is the longest source text a {…} stand-in on a card carries.
 const maxStandIn = 26
 
@@ -146,8 +151,8 @@ const defaultConnection = "default connection"
 
 func (c *card) query(n *Node) {
 	n.Role, n.Kind = RoleReads, KindQuery
-	conn, full := c.value(c.kw["connection"])
-	if c.kw["connection"] == nil {
+	conn, full := c.value(c.kw[argConnection])
+	if c.kw[argConnection] == nil {
 		conn = defaultConnection
 	}
 	n.Title = "Query " + conn
@@ -163,8 +168,8 @@ func (c *card) query(n *Node) {
 // execute is platform.execute: the statement it writes with, on the
 // connection it names (#1950).
 func (c *card) execute(n *Node) {
-	conn, full := c.value(c.kw["connection"])
-	if c.kw["connection"] == nil {
+	conn, full := c.value(c.kw[argConnection])
+	if c.kw[argConnection] == nil {
 		conn = defaultConnection
 	}
 	c.writeStatement(n, c.arg("sql", 0), conn)
@@ -212,7 +217,7 @@ func (c *card) table(export Node, reg syntax.Expr) Node {
 		return t
 	}
 	f := dictFields(d)
-	conn, connFull := c.value(f["connection"])
+	conn, connFull := c.value(f[argConnection])
 	t.Title = "Table on " + conn
 	name, nameFull := c.value(f["table_name"])
 	if f["table_name"] == nil {
@@ -327,4 +332,101 @@ func dictFields(d *syntax.DictExpr) map[string]syntax.Expr {
 func isTrue(e syntax.Expr) bool {
 	id, ok := e.(*syntax.Ident)
 	return ok && id.Name == "True"
+}
+
+// transaction is platform.transaction (#2402): one card for the transaction,
+// holding the statements its function runs through tx, in source order.
+func (c *card) transaction(n *Node) {
+	conn, full := c.value(c.arg(argConnection, 0))
+	n.Role, n.Kind, n.Title, n.Computed = RoleWrites, KindTransaction, onConn("Transaction", conn), !full
+	if ro, ok := c.kw["read_only"]; ok && isTrue(ro) {
+		n.Role = RoleReads
+	}
+	fn, ok := c.arg("fn", 1).(*syntax.Ident)
+	def := c.a.funcs[nameOf(fn, ok)]
+	if def == nil || len(def.Params) == 0 {
+		n.Detail = []string{"statements in a function the source does not name"}
+		n.Computed = true
+		return
+	}
+	tx, _ := def.Params[0].(*syntax.Ident)
+	n.Detail = c.txStatements(def.Body, nameOf(tx, tx != nil))
+	if len(n.Detail) == 0 {
+		n.Detail = []string{"no statement through tx"}
+	}
+}
+
+// batch is platform.batch: the statements it pipelines in one transaction.
+func (c *card) batch(n *Node) {
+	conn, full := c.value(c.arg(argConnection, 0))
+	n.Role, n.Kind, n.Title, n.Computed = RoleWrites, KindTransaction, onConn("Batch", conn), !full
+	list, ok := c.arg("statements", 1).(*syntax.ListExpr)
+	if !ok {
+		n.Detail, n.Computed = []string{"statements assembled at run time"}, true
+		return
+	}
+	for _, e := range list.List {
+		n.Detail = append(n.Detail, c.statementLine("execute", e))
+	}
+	n.Detail = shortList(n.Detail, maxDetail)
+}
+
+// txStatements are the statements a transaction's function runs through its
+// tx parameter, one line each.
+func (c *card) txStatements(body []syntax.Stmt, tx string) []string {
+	var out []string
+	for _, stmt := range body {
+		syntax.Walk(stmt, func(node syntax.Node) bool {
+			call, ok := node.(*syntax.CallExpr)
+			if !ok {
+				return true
+			}
+			dot, ok := call.Fn.(*syntax.DotExpr)
+			if !ok {
+				return true
+			}
+			if recv, ok := dot.X.(*syntax.Ident); !ok || recv.Name != tx || len(call.Args) == 0 {
+				return true
+			}
+			switch dot.Name.Name {
+			case "query", "execute":
+				out = append(out, c.statementLine(dot.Name.Name, call.Args[0]))
+			case "batch":
+				out = append(out, "batch of statements")
+			}
+			return true
+		})
+	}
+	return shortList(out, maxDetail)
+}
+
+// statementLine is one statement as a card lists it: the verb and table of a
+// write, the tables of a read.
+func (c *card) statementLine(member string, e syntax.Expr) string {
+	if d, ok := e.(*syntax.DictExpr); ok {
+		e = dictFields(d)["sql"]
+	}
+	sql, full := c.value(e)
+	if m := dmlRe.FindStringSubmatch(sql); m != nil {
+		return strings.ToUpper(strings.Fields(m[1])[0]) + " " + m[2]
+	}
+	if tables := tablesIn(sql); len(tables) > 0 {
+		return "read " + strings.Join(tables, ", ")
+	}
+	switch {
+	case !full:
+		return "SQL assembled at run time"
+	case member == "query":
+		return "read"
+	default:
+		return "statement"
+	}
+}
+
+// nameOf is an identifier's name, or "" when there is none.
+func nameOf(id *syntax.Ident, ok bool) string {
+	if !ok || id == nil {
+		return ""
+	}
+	return id.Name
 }

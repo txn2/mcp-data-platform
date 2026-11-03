@@ -63,6 +63,8 @@ const (
 	CodeInvalidStatement  = "invalid_statement"
 	CodeStatementFailed   = "statement_failed"
 	CodeUnavailable       = "database_unavailable"
+	CodePoolWait          = "pool_wait_timeout"
+	CodeTransactionEnded  = "transaction_ended"
 )
 
 // FailedError is a statement the database refused or could not run. Error()
@@ -163,10 +165,25 @@ func (c *conn) run(ctx context.Context, stmt boundStatement, p runPlan) (*Result
 	}, nil
 }
 
-// failure reads err into the error a script is handed.
+// failure reads err into the error a script is handed, naming the statement
+// of a batch that failed.
 func (c *conn) failure(ctx context.Context, err error) error {
+	out := c.failureOf(ctx, err)
+	if b, ok := errors.AsType[*batchError](err); ok {
+		if f, ok := errors.AsType[*FailedError](out); ok {
+			f.Summary = fmt.Sprintf("statement %d of the batch: %s", b.n, f.Summary)
+		}
+	}
+	return out
+}
+
+// failureOf reads err into the error a script is handed.
+func (c *conn) failureOf(ctx context.Context, err error) error {
 	if refused, ok := errors.AsType[*refusedInputError](err); ok {
 		return &RefusedError{Code: CodeInvalidStatement, msg: errPrefix + ": " + refused.err.Error()}
+	}
+	if waited, ok := errors.AsType[*poolWaitError](err); ok {
+		return &FailedError{Code: CodePoolWait, Summary: waited.Error()}
 	}
 	// A connection the server refused (a wrong password is 28P01) carries a
 	// PostgreSQL error inside pgconn's ConnectError; it is the connection that

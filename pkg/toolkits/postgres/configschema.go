@@ -19,6 +19,11 @@ const ConfigSchemaJSON = `{
     "statement_timeout": {"type": "string", "description": "Longest one statement may run, as a Go duration (\"30s\"). Defaults to 30s, at most 10m. A call's timeout_seconds may only lower it."},
     "max_rows": {"type": "integer", "description": "Most rows one result returns. Defaults to 1000, at most 100000."},
     "read_only": {"type": "boolean", "description": "Refuse platform.execute on this connection, for every script."},
+    "statement_cache": {"type": "boolean", "description": "Keep each statement prepared on the connection that first ran it, so it is described once. Defaults to true. Set false behind PgBouncer in transaction mode."},
+    "pool_wait_timeout": {"type": "string", "description": "Longest a statement waits for a free pooled connection before it fails naming the pool, as a Go duration. Defaults to 5s, at most 1m."},
+    "transaction_idle_timeout": {"type": "string", "description": "Longest a script's transaction may go without a statement before it is rolled back, as a Go duration. Defaults to 10s, at most 10m."},
+    "schema_apply_personas": {"type": "array", "items": {"type": "string"}, "description": "Personas that may apply and revert this connection's migrations with manage_schema. Empty means administrators only."},
+    "schema_ledger": {"type": "string", "description": "Schema in this database that holds the ledger of applied migrations. Defaults to mcp_schema."},
     "description": {"type": "string", "description": "What this connection is, as list_connections and search report it."}
   }
 }`

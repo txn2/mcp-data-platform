@@ -39,6 +39,8 @@ type fakeTx struct {
 	rolledBack bool
 	commitErr  error
 	execErr    error
+	// opts is what the transaction was begun with.
+	opts pgx.TxOptions
 }
 
 func (f *fakeTx) Prepare(_ context.Context, _, sql string) (*pgconn.StatementDescription, error) {
@@ -168,7 +170,7 @@ func fakeToolkit(cfg Config, tx *fakeTx) *Toolkit {
 		name: "db", defaultName: "db",
 		connections: map[string]*conn{"db": {
 			cfg: cfg, types: newTypeCache(),
-			begin: func(context.Context, pgx.TxOptions) (pgx.Tx, error) { return tx, nil },
+			begin: func(_ context.Context, o pgx.TxOptions) (pgx.Tx, error) { tx.opts = o; return tx, nil },
 		}},
 	}
 }

@@ -66,7 +66,8 @@ func TestQuery_MapsRowsAndBindsParamsAsText(t *testing.T) {
 	// The value went as text, for the server to parse as the parameter's type.
 	last := tx.queries[len(tx.queries)-1]
 	assert.Equal(t, []any{"1"}, last.args)
-	assert.Equal(t, []string{setTimeoutSQL}, tx.execs)
+	assert.Empty(t, tx.execs, "the bound is set in the BEGIN's round trip")
+	assert.Equal(t, "BEGIN READ ONLY; SET LOCAL statement_timeout = 5000", tx.opts.BeginQuery)
 	assert.True(t, tx.rolledBack)
 	assert.False(t, tx.committed, "a query's READ ONLY transaction is never committed")
 }
@@ -223,7 +224,9 @@ func TestRun_FailuresBeforeAndAfterTheStatement(t *testing.T) {
 	assert.Contains(t, errText(err), "ran out of time")
 
 	tx := insertTx("")
-	tx.execErr = &pgconn.PgError{Code: "42501", Message: "permission denied"}
+	st := tx.statements[insertCustomer]
+	st.execErr = &pgconn.PgError{Code: "42501", Message: "permission denied"}
+	tx.statements[insertCustomer] = st
 	tk = fakeToolkit(baseConfig(), tx)
 	_, err = tk.Execute(context.Background(), Statement{Connection: "db", SQL: insertCustomer, Params: []any{"a", "b"}})
 	assert.Contains(t, errText(err), "42501")

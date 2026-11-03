@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/migrationstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -39,17 +40,21 @@ func Metrics(toolkits []registry.Toolkit, m *observability.Metrics) {
 
 // PostgresGuard installs, on every postgres toolkit, the check each new
 // database connection passes: that it did not reach the platform's database
-// (postgreskit.OwnDatabaseGuard). The platform runs it before any tool is
-// registered, so no statement runs on a connection the check has not seen. A
-// deployment with no database has nothing to protect and installs nothing.
+// (postgreskit.OwnDatabaseGuard), and the store manage_schema keeps its
+// migrations in (#2404). The platform runs it before any tool is registered,
+// so no statement runs on a connection the check has not seen and the toolkit
+// lists manage_schema when it registers. A deployment with no database has
+// nothing to protect and no store, and installs nothing.
 func PostgresGuard(toolkits []registry.Toolkit, platformDB *sql.DB) {
 	if platformDB == nil {
 		return
 	}
 	guard := postgreskit.OwnDatabaseGuard(platformDB)
+	store := migrationstore.New(platformDB)
 	for _, tk := range toolkits {
 		if pg, ok := tk.(*postgreskit.Toolkit); ok {
 			pg.SetConnectGuard(guard)
+			pg.SetMigrationStore(store)
 		}
 	}
 }
@@ -70,7 +75,7 @@ func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz 
 	runner := func() scriptsession.AppDBRunner {
 		for _, tk := range all() {
 			if pg, ok := tk.(*postgreskit.Toolkit); ok {
-				return pg
+				return appdbRunner{pg}
 			}
 		}
 		return nil
@@ -80,6 +85,19 @@ func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz 
 		Runner:    runner,
 		Authorize: func(ctx context.Context, connection string) error { return authorize(ctx, authn, checker, connection) },
 	})
+}
+
+// appdbRunner is the postgres toolkit as a script session runs statements on
+// it: its transaction is handed back as the session's interface.
+type appdbRunner struct{ *postgreskit.Toolkit }
+
+// Begin implements scriptsession.AppDBRunner.
+func (r appdbRunner) Begin(ctx context.Context, o postgreskit.TxOptions) (scriptsession.AppDBTx, error) {
+	tx, err := r.Toolkit.Begin(ctx, o)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the toolkit's typed failure, read by the session
+	}
+	return tx, nil
 }
 
 // errNoIdentity refuses a statement from a session that carries no identity.

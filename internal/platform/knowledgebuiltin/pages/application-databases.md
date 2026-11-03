@@ -1,0 +1,92 @@
+# Application databases from a script
+
+An application database (a connection of kind `appdb`) is an application's
+own PostgreSQL database: the orders, customers and line items an application
+built in the platform commits. Scripts and endpoints read and write it; no
+agent tool reaches its data. Its schema is built with `manage_schema`.
+
+```mermaid
+flowchart LR
+  M["manage_schema<br/>add, plan, apply"] --> S["the schema<br/>(describe reads it)"]
+  S --> Q["platform.query and<br/>platform.execute"]
+  S --> T["platform.transaction(fn)<br/>tx.query, tx.execute, tx.batch"]
+  S --> B["platform.batch<br/>one round trip"]
+  T --> C["commit when fn returns,<br/>roll back when it fails"]
+```
+
+## One statement
+
+`platform.query` and `platform.execute` bind each `:name` as a parameter,
+never as a literal, and run on the connection's pool directly: the query in a
+READ ONLY transaction, the execute committed in a transaction of its own. A
+list binds as one array, so write `= ANY(:ids)`. What PostgreSQL says about a
+failure, DETAIL included, reaches the script alone, under the envelope's
+`postgres` field with `on_error="return"`; the run's error names only the
+SQLSTATE and the objects.
+
+## Statements that commit together
+
+`platform.transaction(connection, fn, isolation="read_committed",
+read_only=False, retry=False, on_error="raise")` opens one transaction, calls
+`fn(tx)`, and commits when `fn` returns; it returns what `fn` returned. When
+`fn` fails the transaction is rolled back and the failure is the call's.
+
+```python
+def main():
+    """Places one order and its line items."""
+    order = {"id": 1001, "total": "59.70"}
+    items = [{"sku": "A-1", "qty": 2}, {"sku": "B-7", "qty": 1}]
+
+    def place(tx):
+        """Inserts the order and its items."""
+        tx.execute("INSERT INTO orders (id, total) VALUES (:id, :total)", params = order)
+        tx.batch([{"sql": "INSERT INTO items (order_id, sku, qty) VALUES (:o, :s, :q)",
+                   "params": {"o": order["id"], "s": i["sku"], "q": i["qty"]}} for i in items])
+
+    platform.transaction("orders", place)
+```
+
+- `tx.query(sql, params={}, timeout_seconds=0, on_error="raise")`,
+  `tx.execute(...)` with the same arguments, and `tx.batch(statements,
+  on_error="raise")` run in the transaction and bind as `platform.query` does.
+- The first statement that fails ends the transaction, as PostgreSQL does;
+  every later call on `tx` fails saying so.
+- `isolation` is `read_committed`, `repeatable_read` or `serializable`.
+  `read_only=True` opens a READ ONLY transaction, the only kind a read_only
+  connection opens.
+- `retry=True` runs `fn` again on a serialization failure (SQLSTATE 40001) or
+  a deadlock (40P01), and on nothing else: three tries in all, with a short
+  jittered pause. Because `fn` may run more than once, a retried `fn` reads and
+  writes only through `tx`: `platform.call`, `platform.query`,
+  `platform.execute`, `platform.batch`, `platform.export`,
+  `platform.publish_data`, `platform.notify`, `platform.publish`,
+  `platform.save_state` and `platform.mint_token` are refused inside it.
+- Transactions do not nest. While one is open, `platform.query` and
+  `platform.execute` on its connection are refused: run those through `tx`.
+- A `tx` is used only inside `fn`.
+
+The transaction is rolled back when the run ends however it ends, and when it
+goes the connection's `transaction_idle_timeout` (10 seconds by default)
+without a statement, so do slow work before or after it. An endpoint handler
+may open one; it does not outlive the request. In a draft, `tx.execute` and
+`tx.batch` are writes, refused unless the draft allows writes. A recording
+keeps each statement and whether it committed, and a test replays them.
+
+## Statements in one round trip
+
+`platform.batch(connection, statements, on_error="raise")` sends statements
+pipelined, in a transaction of their own that commits only when every one
+succeeds, and returns their results in order. A statement is a SQL string or
+`{"sql": ..., "params": {...}}`, and none reads another's result. A batch is a
+write in a draft, and a failure names its statement: `statement 2 of the
+batch: ...`.
+
+## The schema
+
+Tables are created and changed through versioned migrations, never ad hoc DDL:
+`manage_schema` `add` a migration (version, name, up SQL, optional down SQL),
+`plan` it to see what it changes and the locks it takes, and `apply` it (an
+administrator, or a persona the connection's `schema_apply_personas` names).
+`describe` returns the tables, columns, constraints and indexes the applied
+migrations produced, which is how to read an application's schema while
+writing its scripts. An applied migration is immutable: a fix is a new one.

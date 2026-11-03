@@ -498,6 +498,7 @@ func (h *Handler) registerRoutes() {
 	h.registerGatewayRoutes()
 	h.registerConnectionOAuthRoutes()
 	h.registerGraphQLRoutes()
+	h.registerMigrationRoutes()
 	h.registerEnrichmentRoutes()
 	h.registerPromptRoutes()
 	h.registerIndexJobsRoutes()

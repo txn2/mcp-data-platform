@@ -110,6 +110,10 @@ type Caller struct {
 	Roles    []string
 	AuthType string
 	Claims   map[string]any
+	// IsAdmin is whether the caller's persona is the platform's admin
+	// persona, which a toolkit that cannot import the middleware reads for
+	// an administrator-only action (manage_schema apply, #2404).
+	IsAdmin bool
 }
 
 // WithCaller records the identity the call was authenticated as. It lives

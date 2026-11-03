@@ -44,7 +44,9 @@ flowchart LR
 1. Draft the script with `manage_script run_draft`. The draft records every
    host call it makes with the answer it got, and returns the recording's id
    as `recording`. A draft does not write: this one stops at
-   `platform.notify`, and its recording holds the query before it.
+   `platform.notify`, and its recording holds the query before it. A
+   recording keeps every value a call was given and answered with, so on a
+   deployment with an encryption key it is stored sealed, bound to its run.
 2. Write a `test_*` function that names that id with
    `testing.replay("<id>")`, declares the answer the write gets with
    `testing.answer(tool, args, answer)`, calls `main()`, and asserts on
