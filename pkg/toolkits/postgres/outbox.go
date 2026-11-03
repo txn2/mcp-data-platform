@@ -227,10 +227,11 @@ func OutboxIdentifier(name string) (string, error) {
 }
 
 // OutboxTemplate is the migration that creates an outbox table in schema,
-// the trigger function that writes a changed row to it and notifies its
-// channel, and a trigger on each table in capture (a bare name is in schema).
+// the trigger function that writes a changed row to it and, when notify is
+// set, notifies its channel, and a trigger on each table in capture (a bare
+// name is in schema).
 // down removes the triggers, the function and the table.
-func OutboxTemplate(schema, table string, capture []string) (up, down string, err error) {
+func OutboxTemplate(schema, table string, capture []string, notify bool) (up, down string, err error) {
 	ident, err := OutboxIdentifier(schema + "." + table)
 	if err != nil {
 		return "", "", err
@@ -249,12 +250,11 @@ CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $outbox$
 BEGIN
     INSERT INTO %s (%s, %s, %s)
     VALUES (TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME, TG_OP, to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END));
-    PERFORM pg_notify('%s', '');
-    RETURN NULL;
+%s    RETURN NULL;
 END
 $outbox$;
 `, ident, outboxColID, outboxColTable, outboxColOp, outboxColPayload, outboxColCreated,
-		fn, ident, outboxColTable, outboxColOp, outboxColPayload, OutboxChannel(schema, table))
+		fn, ident, outboxColTable, outboxColOp, outboxColPayload, notifyLine(schema, table, notify))
 	for _, name := range capture {
 		cs, ct, err := splitTable(name, schema)
 		if err != nil {
@@ -266,6 +266,17 @@ $outbox$;
 	}
 	fmt.Fprintf(&d, "DROP FUNCTION IF EXISTS %s();\nDROP TABLE IF EXISTS %s;\n", fn, ident)
 	return u.String(), d.String(), nil
+}
+
+// notifyLine is the capture function's notification of the outbox channel,
+// or nothing when notify is off. A transaction that notifies takes a lock
+// held across every notifying commit, which serializes a table written by
+// many sessions at once; without it the source's poll alone finds the rows.
+func notifyLine(schema, table string, notify bool) string {
+	if !notify {
+		return ""
+	}
+	return "    PERFORM pg_notify('" + OutboxChannel(schema, table) + "', '');\n"
 }
 
 // listenProbeWait is how long the probe waits for its own notification.

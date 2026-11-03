@@ -344,13 +344,13 @@ func TestToolkit_ManagesConnections(t *testing.T) {
 	require.ErrorIs(t, tk.RemoveConnection("b"), ErrConnectionNotFound)
 	assert.False(t, tk.HasConnection("b"))
 
-	// Without a guard there is nothing to ask the database; with one, a
-	// database that does not answer is not refused at save.
-	require.NoError(t, tk.ValidateConnection("x", validConfigMap()))
-	require.Error(t, tk.ValidateConnection("x", map[string]any{}))
-	tk.SetConnectGuard(func(context.Context, *pgx.Conn) error { return ErrPlatformDatabase })
+	// A database that does not answer is not refused at save, with a guard
+	// or without one.
 	unreachable := validConfigMap()
 	unreachable["host"], unreachable["port"], unreachable["sslmode"] = "127.0.0.1", 9, "disable"
+	require.NoError(t, tk.ValidateConnection("x", unreachable))
+	require.Error(t, tk.ValidateConnection("x", map[string]any{}))
+	tk.SetConnectGuard(func(context.Context, *pgx.Conn) error { return ErrPlatformDatabase })
 	require.NoError(t, tk.ValidateConnection("x", unreachable))
 
 	res := tk.ProbeConnection(context.Background(), "nope")

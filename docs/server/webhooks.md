@@ -437,7 +437,7 @@ each channel.
 
 | Mode | What becomes an event | Delivery |
 |---|---|---|
-| `outbox` | Each row of an outbox table, which `manage_schema`'s [outbox template](appdb.md#the-outbox-template) creates with a trigger on each table it captures | Each row is filed and then deleted in the same transaction. A notification wakes the source, and a poll every `poll_seconds` drains the rows whose notification no one heard, so rows written while no replica listens are filed once a replica listens again. A commit that fails after the rows were filed files them again under the same event id, which compaction keeps once |
+| `outbox` | Each row of an outbox table, which `manage_schema`'s [outbox template](appdb.md#the-outbox-template) creates with a trigger on each table it captures | Each row is filed and then deleted in the same transaction. A notification wakes the source (unless the template was added with `notify: false`, for a table many sessions write at once), and a poll every `poll_seconds` drains the rows whose notification no one heard or that sent none, so rows written while no replica listens are filed once a replica listens again. A commit that fails after the rows were filed files them again under the same event id, which compaction keeps once |
 | `notify` | Each notification sent with `NOTIFY` or `pg_notify` on the named channels | At most once: PostgreSQL delivers a notification only to a session listening when it is sent, and one sent while no replica listens is lost |
 
 | Field | Meaning |

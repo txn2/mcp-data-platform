@@ -17,6 +17,29 @@ type Table struct {
 	Columns     []TableColumn `json:"columns"`
 	Constraints []Constraint  `json:"constraints"`
 	Indexes     []TableIndex  `json:"indexes"`
+	// RowSecurity and ForceRowSecurity are the table's row-level security:
+	// enabled, and applied to its owner as well (#2447).
+	RowSecurity      bool        `json:"row_security"`
+	ForceRowSecurity bool        `json:"force_row_security"`
+	Policies         []Policy    `json:"policies"`
+	Triggers         []Trigger   `json:"triggers"`
+	PartitionKey     string      `json:"partition_key,omitempty"`
+	Partitions       []Partition `json:"partitions"`
+	// View is a view's or materialized view's definition.
+	View *View `json:"view,omitempty"`
+}
+
+// Description is what describe reports of one schema: the server, the
+// database's extensions, and every object the applied migrations produced.
+// An empty list is [], never null.
+type Description struct {
+	Server              Server               `json:"server"`
+	Extensions          []Extension          `json:"extensions"`
+	AvailableExtensions []AvailableExtension `json:"available_extensions"`
+	Tables              []Table              `json:"tables"`
+	Functions           []Function           `json:"functions"`
+	Enums               []Enum               `json:"enums"`
+	Domains             []Domain             `json:"domains"`
 }
 
 // TableColumn is one column.
@@ -48,7 +71,8 @@ var relKinds = map[string]string{"r": "table", "p": "partitioned_table", "v": "v
 // conKinds names the constraint kinds.
 var conKinds = map[string]string{"p": "primary_key", "u": "unique", "f": "foreign_key", "c": "check", "x": "exclusion", "t": "trigger"}
 
-const describeTablesSQL = `SELECT c.relname, c.relkind::text, COALESCE(obj_description(c.oid, 'pg_class'), '')
+const describeTablesSQL = `SELECT c.relname, c.relkind::text, COALESCE(obj_description(c.oid, 'pg_class'), ''),
+c.relrowsecurity, c.relforcerowsecurity, CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE '' END
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relkind IN ('r', 'p', 'v', 'm') ORDER BY c.relname`
 
@@ -59,60 +83,78 @@ LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
 WHERE n.nspname = $1 AND c.relkind IN ('r', 'p', 'v', 'm') AND a.attnum > 0 AND NOT a.attisdropped
 ORDER BY c.relname, a.attnum`
 
+// describeConstraintsSQL leaves out the NOT NULL constraints PostgreSQL 18
+// records in pg_constraint (contype n): a column's nullable says the same on
+// every major.
 const describeConstraintsSQL = `SELECT c.relname, con.conname, con.contype::text, pg_get_constraintdef(con.oid)
 FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = $1 ORDER BY c.relname, con.conname`
+WHERE n.nspname = $1 AND con.contype <> 'n' ORDER BY c.relname, con.conname`
 
 const describeIndexesSQL = `SELECT t.relname, i.relname, pg_get_indexdef(i.oid)
 FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid JOIN pg_class t ON t.oid = x.indrelid
 JOIN pg_namespace n ON n.oid = t.relnamespace
 WHERE n.nspname = $1 ORDER BY t.relname, i.relname`
 
-// Describe reads schema's tables, columns, constraints and indexes from the
-// target's catalog.
-func (t *Toolkit) Describe(ctx context.Context, connection, schema string) ([]Table, error) {
+// Describe reads what schema holds from the target's catalog: its tables
+// and their parts, functions, enums and domains, with the server's version
+// and the database's extensions.
+func (t *Toolkit) Describe(ctx context.Context, connection, schema string) (*Description, error) {
 	c, err := t.schemaConn(connection, schema)
 	if err != nil {
 		return nil, err
 	}
-	tables, err := c.describe4(ctx, schema)
+	d, err := c.describeAll(ctx, schema)
 	if err != nil {
 		return nil, c.failure(ctx, err)
 	}
-	return tables, nil
+	return d, nil
 }
 
-// describe4 runs the four catalog reads in one READ ONLY transaction, so they
+// describeAll runs the catalog reads in one READ ONLY transaction, so they
 // see one state of the schema.
-func (c *conn) describe4(ctx context.Context, schema string) ([]Table, error) {
+func (c *conn) describeAll(ctx context.Context, schema string) (*Description, error) {
 	out, err := c.inTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly}, c.cfg.StatementTimeout, false, func(tx pgx.Tx) (any, error) {
-		tables := []Table{}
+		d := &Description{
+			Extensions: []Extension{}, AvailableExtensions: []AvailableExtension{}, Tables: []Table{},
+			Functions: []Function{}, Enums: []Enum{}, Domains: []Domain{},
+		}
+		if err := describeServer(ctx, tx, d); err != nil {
+			return nil, err
+		}
 		index := map[string]int{}
 		err := scanAll(ctx, tx, describeTablesSQL, schema, func(rows pgx.Rows) error {
-			var tb Table
+			tb := Table{
+				Columns: []TableColumn{}, Constraints: []Constraint{}, Indexes: []TableIndex{},
+				Policies: []Policy{}, Triggers: []Trigger{}, Partitions: []Partition{},
+			}
 			var kind string
-			if err := rows.Scan(&tb.Name, &kind, &tb.Comment); err != nil {
+			if err := rows.Scan(&tb.Name, &kind, &tb.Comment, &tb.RowSecurity, &tb.ForceRowSecurity, &tb.PartitionKey); err != nil {
 				return err //nolint:wrapcheck // read by its type
 			}
 			tb.Kind = relKinds[kind]
-			tb.Columns, tb.Constraints, tb.Indexes = []TableColumn{}, []Constraint{}, []TableIndex{}
-			index[tb.Name] = len(tables)
-			tables = append(tables, tb)
+			index[tb.Name] = len(d.Tables)
+			d.Tables = append(d.Tables, tb)
 			return nil
 		})
 		if err != nil {
 			return nil, err
 		}
-		if err := describeParts(ctx, tx, schema, tables, index); err != nil {
+		if err := describeParts(ctx, tx, schema, d.Tables, index); err != nil {
 			return nil, err
 		}
-		return tables, nil
+		if err := describeTableObjects(ctx, tx, schema, d, index); err != nil {
+			return nil, err
+		}
+		if err := describeTypes(ctx, tx, schema, d); err != nil {
+			return nil, err
+		}
+		return d, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	tables, _ := out.([]Table)
-	return tables, nil
+	d, _ := out.(*Description)
+	return d, nil
 }
 
 // describeParts reads the columns, constraints and indexes into tables.
@@ -161,7 +203,12 @@ func describeParts(ctx context.Context, tx pgx.Tx, schema string, tables []Table
 
 // scanAll runs sql with one argument and hands each row to each.
 func scanAll(ctx context.Context, tx pgx.Tx, sql string, arg any, each func(pgx.Rows) error) error {
-	rows, err := tx.Query(ctx, sql, arg)
+	return scanRows(ctx, tx, sql, []any{arg}, each)
+}
+
+// scanRows runs sql with args and hands each row to each.
+func scanRows(ctx context.Context, tx pgx.Tx, sql string, args []any, each func(pgx.Rows) error) error {
+	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
 		return err //nolint:wrapcheck // read by its type
 	}

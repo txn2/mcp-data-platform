@@ -87,9 +87,14 @@ Tables are created and changed through versioned migrations, never ad hoc DDL:
 `manage_schema` `add` a migration (version, name, up SQL, optional down SQL),
 `plan` it to see what it changes and the locks it takes, and `apply` it (an
 administrator, or a persona the connection's `schema_apply_personas` names).
-`describe` returns the tables, columns, constraints and indexes the applied
-migrations produced, which is how to read an application's schema while
-writing its scripts. An applied migration is immutable: a fix is a new one.
+`describe` returns the server's major and version, the extensions installed
+and available, and every object the applied migrations produced: tables with
+their columns, constraints, indexes, row-level security, policies, triggers
+and partitions, views with their definitions, functions and procedures with
+their bodies, enums and domains. It is how to read an application's schema
+while writing its scripts, and the major it reports is the one to write SQL
+for. An applied migration is immutable: a fix is a new one. The server is
+PostgreSQL 17 or later; an older one is refused.
 
 `add` reviews a migration before it saves. Each statement that locks or
 rewrites a live table is returned as a finding naming the statement, what it
@@ -103,6 +108,17 @@ script names. A migration that removes data (`DROP TABLE`, `DROP COLUMN`,
 the application is built for agreed; the summary is in its history. The
 schema's migrations are then applied from zero on a throwaway database, and a
 set that does not apply is refused naming the migration.
+
+The review also warns on what leaves the database open: a `SECURITY DEFINER`
+function without `SET search_path = ..., pg_temp` or without `REVOKE EXECUTE
+... FROM PUBLIC` in the same migration, `ENABLE ROW LEVEL SECURITY` without
+`FORCE ROW LEVEL SECURITY`, and a view over a table with row-level security
+created without `security_invoker = true`. Against a PostgreSQL 17 server it
+warns on what 18 introduced (`uuidv7()`, `RETURNING old`/`new`, virtual
+generated columns, `WITHOUT OVERLAPS`, `NOT ENFORCED`), and against 18 on an
+index of a generated column declared without `STORED`. `COPY ... PROGRAM`,
+`CREATE LANGUAGE` or code in an untrusted language, `CREATE EVENT TRIGGER` and
+`ALTER SYSTEM` are refused.
 
 ## Tests against a real database
 
@@ -161,3 +177,8 @@ to it and notifies its channel, and a trigger on each captured table. A
 webhook source with input `postgres` and mode `outbox` then files each row as
 an event and deletes it, and the scripts naming that source run once per row,
 reading it from `run.event["payload"]["row"]`.
+
+For a table many sessions write at once, add with `notify` set to false. Each
+transaction that notifies takes a lock at commit that every other notifying
+commit waits on; without the notification the source's poll (`poll_seconds`)
+still delivers every row, only later.

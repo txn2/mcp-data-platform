@@ -25,7 +25,7 @@ func TestOutboxIdentifier(t *testing.T) {
 }
 
 func TestOutboxTemplate(t *testing.T) {
-	up, down, err := OutboxTemplate("app", "events", []string{"orders", "billing.invoices"})
+	up, down, err := OutboxTemplate("app", "events", []string{"orders", "billing.invoices"}, true)
 	require.NoError(t, err)
 	for _, want := range []string{
 		`CREATE TABLE "app"."events"`, `CREATE FUNCTION "app"."events_capture"()`, `pg_notify('app.events', '')`,
@@ -41,9 +41,17 @@ DROP TABLE IF EXISTS "app"."events";
 	require.NoError(t, checkMigrationSQL(up, true), "the template passes the checks every migration does")
 	require.NoError(t, checkMigrationSQL(down, true))
 
-	_, _, err = OutboxTemplate("app", "events", []string{"Orders"})
+	quiet, quietDown, err := OutboxTemplate("app", "events", []string{"orders"}, false)
+	require.NoError(t, err)
+	assert.NotContains(t, quiet, "pg_notify", "notify off writes the row and sends nothing")
+	assert.Contains(t, quiet, `INSERT INTO "app"."events"`)
+	assert.Contains(t, quiet, `ON "app"."orders" FOR EACH ROW`)
+	require.NoError(t, checkMigrationSQL(quiet, true))
+	assert.Contains(t, quietDown, `DROP TABLE IF EXISTS "app"."events"`)
+
+	_, _, err = OutboxTemplate("app", "events", []string{"Orders"}, true)
 	require.Error(t, err)
-	_, _, err = OutboxTemplate("app", "Events", nil)
+	_, _, err = OutboxTemplate("app", "Events", nil, true)
 	require.Error(t, err)
 }
 
@@ -59,16 +67,27 @@ func TestFromTemplate(t *testing.T) {
 	assert.Equal(t, "events outbox", named.Name)
 	assert.Contains(t, named.Up, `"app"."events"`)
 
+	off := false
+	quiet, err := fromTemplate(schemaInput{Schema: "public", Template: OutboxTemplateName, Capture: []string{"orders"}, Notify: &off})
+	require.NoError(t, err)
+	assert.NotContains(t, quiet.Up, "pg_notify", "notify false leaves the notification out")
+	on := true
+	loud, err := fromTemplate(schemaInput{Schema: "public", Template: OutboxTemplateName, Capture: []string{"orders"}, Notify: &on})
+	require.NoError(t, err)
+	assert.Contains(t, loud.Up, "pg_notify('public.outbox', '')")
+	assert.Contains(t, in.Up, "pg_notify('public.outbox', '')", "notify defaults on")
+
 	plain := schemaInput{Schema: "public", Up: "CREATE TABLE t (id int)"}
 	same, err := fromTemplate(plain)
 	require.NoError(t, err)
 	assert.Equal(t, plain, same)
 
 	for name, in := range map[string]schemaInput{
-		"unknown template":      {Template: "audit"},
-		"template beside SQL":   {Template: OutboxTemplateName, Up: "SELECT 1"},
-		"capture with no table": {Capture: []string{"orders"}},
-		"invalid capture":       {Schema: "public", Template: OutboxTemplateName, Capture: []string{"Orders"}},
+		"unknown template":        {Template: "audit"},
+		"template beside SQL":     {Template: OutboxTemplateName, Up: "SELECT 1"},
+		"capture with no table":   {Capture: []string{"orders"}},
+		"notify with no template": {Notify: &off},
+		"invalid capture":         {Schema: "public", Template: OutboxTemplateName, Capture: []string{"Orders"}},
 	} {
 		_, err := fromTemplate(in)
 		assert.Error(t, err, name)

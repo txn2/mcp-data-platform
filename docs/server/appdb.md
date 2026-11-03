@@ -12,6 +12,8 @@ To report on application data, an operator adds a Trino catalog (the `postgresql
 
 ## Registering a connection
 
+The server must be PostgreSQL 17 or later. A connection to an older server is refused when it is saved, when it is tested and on every physical connection its pool opens, with a message naming the version found and the floor, so a connection configured in YAML is held to it as one saved through the admin API is. A connection's `test_connection` is an application database too and is held to the same floor.
+
 Register the database as a connection of kind `appdb`, in the portal under **Admin > Connections** (shown as "Application database") or through `PUT /api/v1/admin/connection-instances/appdb/{name}`. In YAML:
 
 ```yaml
@@ -227,7 +229,7 @@ An application's tables are created and changed through versioned migrations the
 | `apply` | Applies the pending migrations (up to `to_version`) |
 | `down` | Reverts the latest applied migration, or every one above `to_version`, with its down SQL |
 | `history` | What happened to each migration: added, edited, applied, reverted, failed |
-| `describe` | The tables, columns, types, nullability, defaults, constraints, indexes and comments the applied migrations produced, read from the target's `pg_catalog`. This is how an agent reads its application's schema while writing scripts |
+| `describe` | What the server is and what the applied migrations produced, read from the target's `pg_catalog`. This is how an agent reads its application's schema while writing scripts. See [Describe](#describe) |
 
 ```json
 {"command": "add", "connection": "orders", "version": 1, "name": "orders",
@@ -242,6 +244,18 @@ An application's tables are created and changed through versioned migrations the
 - The portal's connection page (**Admin > Connections**, an application database) lists the migrations, which are applied, the plan of the pending ones, and the history.
 
 A migration's SQL is kept in the platform's database and in the target's ledger checksum. Do not write a secret into a migration.
+
+### Describe
+
+`describe` returns, for the migration's schema:
+
+- `server`: the server's `major` (17, 18) and full `version`.
+- `extensions`: the extensions installed in the database, with their versions and schemas, and `available_extensions`: the ones the server offers that the database has not installed, with their default versions.
+- `tables`: each table, partitioned table, view and materialized view, with its columns (type, nullability, default, comment), constraints (primary key, unique, foreign key, check, exclusion), indexes, `row_security` and `force_row_security`, its `policies` (command, roles, permissive or restrictive, `using`, `with_check`), its `triggers` (timing, events, row or statement level, `when`, the function, enabled state, definition), a partitioned table's `partition_key` and `partitions` with their bounds, and a view's `view` (definition, `security_invoker`, `security_barrier`, check option). Nullability is reported per column on every major: PostgreSQL 18 also records `NOT NULL` as a constraint, and `describe` leaves those out of `constraints` so its answer is the same on 17 and 18.
+- `functions`: each function and procedure, with its arguments, return type, language, volatility, `security_definer`, the `search_path` it pins, and its body.
+- `enums` with their values in order, and `domains` with their base type, nullability, default and checks.
+
+An object an extension created is left out, since no migration wrote it. An empty kind is `[]`. Function bodies, view definitions and policy expressions are returned to the caller and are not logged, traced, audited or indexed; they are the database's text, so a literal a migration wrote into one is returned as written.
 
 ### Review before a migration saves
 
@@ -258,13 +272,30 @@ A migration's SQL is kept in the platform's database and in the target's ledger 
 | `rename_referenced` | `RENAME` of a table or column a saved script names in a string (its SQL, or a row key) beside the connection's name | warning | The new name beside the old, the scripts moved, the old removed later |
 | `drop_table`, `drop_column`, `truncate`, `unbounded_delete`, `unbounded_update` | `DROP TABLE`, `DROP COLUMN`, `TRUNCATE`, a `DELETE` or `UPDATE` with no `WHERE` | destructive | |
 
+The review also reads each migration for statements that leave the database open to a role that should not reach it, and for features the server's major does not have (#2449). The major, the schema's tables with row-level security and its virtual generated columns are read from the connection at `add`; when they cannot be read the migration is reviewed without the rules that need them and `add` returns a `target_unread` warning saying so.
+
+| Rule | Statement | Severity | Safe form |
+|------|-----------|----------|-----------|
+| `security_definer_search_path` | A `SECURITY DEFINER` function or procedure without `SET search_path` ending in `pg_temp` (`FROM CURRENT` is not taken as pinned) | warning | `SET search_path = <its schemas>, pg_temp` on the function |
+| `security_definer_public_execute` | A `SECURITY DEFINER` function with no `REVOKE ... FROM PUBLIC` covering it in the same migration (on the function, on `ALL FUNCTIONS IN SCHEMA`, or `ALTER DEFAULT PRIVILEGES` before it) | warning | `REVOKE EXECUTE ON FUNCTION <name> FROM PUBLIC`, then `GRANT` it to the roles that call it |
+| `row_security_not_forced` | `ENABLE ROW LEVEL SECURITY` without `FORCE ROW LEVEL SECURITY` on the same table in the same migration: the owner, which migrations and connections without a persona role run as, passes every policy | warning | `FORCE ROW LEVEL SECURITY` in the same migration |
+| `view_bypasses_row_security` | A view reading a table with row-level security (enabled on the server or in the migration) without `security_invoker = true`: the view reads as its owner | warning | `CREATE VIEW ... WITH (security_invoker = true)`, or `ALTER VIEW ... SET (security_invoker = true)` in the same migration |
+| `index_on_virtual_column` | On PostgreSQL 18, an index on a generated column declared without `STORED`, which 18 makes virtual and cannot index | warning | `GENERATED ALWAYS AS (...) STORED` |
+| `feature_needs_newer_server` | On PostgreSQL 17, a feature 18 introduced: `uuidv7()` or `uuidv4()`, `RETURNING old`/`new`, a virtual generated column, `WITHOUT OVERLAPS`, `NOT ENFORCED` | warning | The finding names the form 17 has |
+| `copy_program` | `COPY ... FROM PROGRAM` or `TO PROGRAM` | refused | |
+| `untrusted_code` | `CREATE LANGUAGE`, `CREATE EXTENSION` of an untrusted language, or a function, procedure or `DO` block in one (`plpython3u`, `plperlu`, `pltclu`, `C`, `internal`) | refused | |
+| `event_trigger` | `CREATE EVENT TRIGGER` | refused | |
+| `alter_system` | `ALTER SYSTEM` | refused | |
+
+A refused statement stops the save and the refusal names each one: they need privileges an application's role must not hold, or reach outside the database. On a 17 server a statement using an 18 feature, and on 18 an index on a virtual generated column, also fail the apply from zero below; that refusal names what the review found.
+
 A table the same migration creates is not a live table, and no rule reads a statement on it. Every finding names the statement, the object, what it does to a live table and the safe form, and is returned in `add`'s `findings` and recorded in the migration's history. A warning does not stop the save. A destructive finding does: the migration saves only with `change_summary` (what it removes, in plain words) and `user_agreed: true` once the person the application is built for agreed, and the summary and who agreed are in its history.
 
 Then every migration of the schema, the new one included, is applied from zero on a throwaway database on the connection's test server. A set that does not apply is refused naming the migration and the error. A test server whose user lacks `CREATEDB` cannot run this check: the migration saves with a `from_zero_unchecked` warning naming the privilege. The database built is kept as the schema's template, so the next check or script test that needs the same migrations starts from it.
 
 ### The outbox template
 
-`manage_schema add` with `template: "outbox"` writes a migration the platform provides in place of `up` and `down`: an outbox table in the migration's schema (`outbox_table`, default `outbox`), a trigger function that writes each inserted, updated or deleted row of a captured table to it as JSON and notifies the channel named `<schema>.<table>`, and a trigger on each table in `capture`. It is reviewed, applied and reverted like any other migration. A [webhook source with input postgres](webhooks.md#an-application-database-as-a-source) in mode `outbox` then files each row as an event.
+`manage_schema add` with `template: "outbox"` writes a migration the platform provides in place of `up` and `down`: an outbox table in the migration's schema (`outbox_table`, default `outbox`), a trigger function that writes each inserted, updated or deleted row of a captured table to it as JSON and notifies the channel named `<schema>.<table>`, and a trigger on each table in `capture`. With `notify: false` the trigger function writes the row and sends no notification: a transaction that notifies takes a lock at commit that every other notifying commit waits on, which serializes a table many sessions write at once, and the source's poll every `poll_seconds` then delivers the rows on its own. It is reviewed, applied and reverted like any other migration. A [webhook source with input postgres](webhooks.md#an-application-database-as-a-source) in mode `outbox` then files each row as an event.
 
 ```json
 {"command": "add", "connection": "orders", "version": 4, "template": "outbox", "capture": ["orders", "order_items"]}

@@ -33,7 +33,14 @@ func (t *Toolkit) SetScriptReferences(f ScriptReferences) { t.references = f }
 // summary, and applies every migration its schema would hold from zero.
 // It returns what the lint found.
 func (t *Toolkit) review(ctx context.Context, in schemaInput, m Migration) ([]Finding, error) {
-	findings, renames := Lint(m.Up)
+	target, unread := t.lintTarget(ctx, m.Connection, m.Schema)
+	findings, renames := Lint(m.Up, target)
+	if unread != nil {
+		findings = append(findings, *unread)
+	}
+	if r := Refused(findings); len(r) > 0 {
+		return nil, statementRefusal(m.Version, r)
+	}
 	findings = append(findings, t.renameFindings(ctx, m.Connection, renames)...)
 	if d := Destructive(findings); len(d) > 0 && !agreed(in) {
 		return nil, summaryRefusal(m.Version, d)
@@ -45,7 +52,7 @@ func (t *Toolkit) review(ctx context.Context, in schemaInput, m Migration) ([]Fi
 	if err := t.CheckFromZero(ctx, m.Connection, m.Schema, withMigration(held, m)); err != nil {
 		var refused *RefusedError
 		if !errors.As(err, &refused) || refused.Code != CodeCreateDBRequired {
-			return nil, err
+			return nil, withServerFindings(err, findings)
 		}
 		findings = append(findings, Finding{
 			Rule: RuleFromZeroUnchecked, Severity: SeverityWarning,
@@ -54,6 +61,84 @@ func (t *Toolkit) review(ctx context.Context, in schemaInput, m Migration) ([]Fi
 		})
 	}
 	return findings, nil
+}
+
+// CodeStatementRefused refuses a migration holding a statement that needs a
+// privilege an application's role must not hold, or reaches outside the
+// database (#2449).
+const CodeStatementRefused = "statement_refused"
+
+// lintTargetSQL reads what the version and row-security rules need of the
+// connection's server and schema, in one round trip.
+const lintTargetSQL = `SELECT current_setting('server_version_num')::int / 10000,
+COALESCE(ARRAY(SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = $1 AND c.relrowsecurity), '{}'),
+COALESCE(ARRAY(SELECT c.relname || '.' || a.attname FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND a.attgenerated = 'v' AND NOT a.attisdropped), '{}')`
+
+// lintTarget reads the server's major, the schema's tables with row-level
+// security and its virtual generated columns from the connection. When they
+// cannot be read the review goes on without them and says so.
+func (t *Toolkit) lintTarget(ctx context.Context, connection, schema string) (Target, *Finding) {
+	c, ok := t.lookup(connection)
+	if !ok {
+		return Target{}, nil
+	}
+	var target Target
+	var rls, virtual []string
+	if err := c.reader().QueryRow(ctx, lintTargetSQL, schema).Scan(&target.Major, &rls, &virtual); err != nil {
+		return Target{}, &Finding{
+			Rule: ruleTargetUnread, Severity: SeverityWarning, Object: connection,
+			Effect: "the server's version and the schema's row-level security could not be read, so the rules that need them " +
+				"were not checked: " + scrubDriverError(err),
+			Safe: "add the migration again once the connection answers",
+		}
+	}
+	target.RowSecurity = map[string]bool{}
+	for _, table := range rls {
+		target.RowSecurity[table] = true
+	}
+	target.Virtual = map[string]map[string]bool{}
+	for _, tc := range virtual {
+		table, col, _ := strings.Cut(tc, ".")
+		if target.Virtual[table] == nil {
+			target.Virtual[table] = map[string]bool{}
+		}
+		target.Virtual[table][col] = true
+	}
+	return target, nil
+}
+
+// statementRefusal names each refused statement and why.
+func statementRefusal(version int, refused []Finding) error {
+	parts := make([]string, len(refused))
+	for i, f := range refused {
+		parts[i] = fmt.Sprintf("statement %d (%s) %s", f.Statement, f.Object, f.Effect)
+	}
+	return &RefusedError{Code: CodeStatementRefused, msg: fmt.Sprintf(
+		"%s: migration %d is refused: %s. An application's migration runs as the application's role, which must not hold "+
+			"the privileges these need", errPrefix, version, strings.Join(parts, "; "))}
+}
+
+// withServerFindings adds to a from-zero failure what the lint found the
+// server's major refuses (a feature it lacks, an index on a virtual column):
+// on that server the apply fails on them, and the failure alone does not say
+// why.
+func withServerFindings(err error, findings []Finding) error {
+	var refused *RefusedError
+	if !errors.As(err, &refused) {
+		return err
+	}
+	var parts []string
+	for _, f := range findings {
+		if f.Rule == ruleNeedsNewerServer || f.Rule == ruleIndexVirtualColumn {
+			parts = append(parts, fmt.Sprintf("statement %d %s (instead: %s)", f.Statement, f.Effect, f.Safe))
+		}
+	}
+	if len(parts) == 0 {
+		return err
+	}
+	return &RefusedError{Code: refused.Code, msg: refused.msg + ". The review found: " + strings.Join(parts, "; ")}
 }
 
 // agreed reports whether an add carries a summary the person agreed to.
