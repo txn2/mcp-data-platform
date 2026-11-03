@@ -24,6 +24,7 @@ const ConfigSchemaJSON = `{
     "transaction_idle_timeout": {"type": "string", "description": "Longest a script's transaction may go without a statement before it is rolled back, as a Go duration. Defaults to 10s, at most 10m."},
     "schema_apply_personas": {"type": "array", "items": {"type": "string"}, "description": "Personas that may apply and revert this connection's migrations with manage_schema. Empty means administrators only."},
     "schema_ledger": {"type": "string", "description": "Schema in this database that holds the ledger of applied migrations. Defaults to mcp_schema."},
+    "test_connection": {"type": "string", "description": "Application database connection whose server the throwaway databases of this connection's migration checks and script tests are created on. Defaults to this connection. Its user needs the CREATEDB privilege."},
     "description": {"type": "string", "description": "What this connection is, as list_connections and search report it."}
   }
 }`

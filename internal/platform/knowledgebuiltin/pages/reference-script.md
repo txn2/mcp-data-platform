@@ -59,7 +59,11 @@ flowchart LR
    `testing.set_run(state = {...})` before `main()`, with the answers that
    path's calls get declared.
 4. Test pure functions directly, with rows written into the test, as
-   `test_summarize_keeps_regions_with_orders` does.
+   `test_summarize_keeps_regions_with_orders` does. A script that writes an
+   application database takes `testing.database("<connection>")` in its
+   test, which answers its statements from a database built from the
+   connection's migrations rather than from a recording
+   (mcp:knowledge_page:platform-application-databases).
 5. Run `manage_script test` until every test passes, the coverage it reports
    names no missed line you care about, and nothing is listed under `unread`;
    then save.

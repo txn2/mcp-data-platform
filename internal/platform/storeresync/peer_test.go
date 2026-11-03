@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
@@ -54,4 +55,20 @@ func TestCatalog(t *testing.T) {
 	Catalog(reg.All(), "")             // no catalog named: nothing to rebuild
 	Catalog(reg.All(), "some-catalog") // no connection mounts it
 	assert.True(t, tk.HasConnection("plain"))
+}
+
+// A peer's save drops what calls found the connection in, and a read failure,
+// which keeps the live config, keeps its state too (#2444).
+func TestUpsertedForgetsTheSavedConnectionsState(t *testing.T) {
+	reg, _ := peerRig(t, "saved-2444", "unread-2444")
+	connstate.Observe("api", "saved-2444", connstate.AuthFailed)
+	connstate.Observe("api", "unread-2444", connstate.AuthFailed)
+	Upserted(reg, nil, "api", "saved-2444", Read{Found: true, Config: map[string]any{"base_url": "https://x.example.com"}})
+	Upserted(reg, nil, "api", "unread-2444", Read{Err: errors.New("db down")})
+	if s, seen := connstate.State("api", "saved-2444"); seen {
+		t.Errorf("a peer's save kept the old state %q", s)
+	}
+	if s, _ := connstate.State("api", "unread-2444"); s != connstate.AuthFailed {
+		t.Errorf("a failed read changed the state to %q", s)
+	}
 }

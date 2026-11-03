@@ -13,6 +13,7 @@
 package connreconcile
 
 import (
+	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -77,12 +78,14 @@ func New(source ToolkitSource) *Reconciler {
 	return &Reconciler{source: source}
 }
 
-// Remove drops name from every matching toolkit that currently holds it.
+// Remove drops name from every matching toolkit that currently holds it, and
+// what calls found the connection in (internal/connstate, #2444).
 // Toolkits that do not hold the connection are skipped, because removing an
 // absent connection is not a state-corrupting error (several toolkits return a
 // not-found error for it). Returns one Failure per toolkit whose
 // RemoveConnection returned an error, in registration order.
 func (r *Reconciler) Remove(kind, name string) []Failure {
+	connstate.Forget(kind, name)
 	var failures []Failure
 	for _, cm := range r.managers(kind) {
 		if !cm.HasConnection(name) {
@@ -95,7 +98,9 @@ func (r *Reconciler) Remove(kind, name string) []Failure {
 	return failures
 }
 
-// Upsert makes config the live config for name on every matching toolkit.
+// Upsert makes config the live config for name on every matching toolkit,
+// and forgets what calls found the connection in under its old config: it is
+// the save itself.
 // A toolkit that implements toolkit.ConnectionUpdater and already holds the
 // connection is handed the change as one: a removal on such a toolkit is a
 // deletion, dropping what it keeps for the connection beyond its
@@ -106,6 +111,7 @@ func (r *Reconciler) Remove(kind, name string) []Failure {
 // other toolkits of the same kind are still updated. Returns one Failure per
 // failed operation, in registration order.
 func (r *Reconciler) Upsert(kind, name string, config map[string]any) []Failure {
+	connstate.Forget(kind, name)
 	var failures []Failure
 	for _, cm := range r.managers(kind) {
 		if f, ok := upsertOne(cm, name, config); !ok {

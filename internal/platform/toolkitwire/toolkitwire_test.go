@@ -113,6 +113,10 @@ func TestAppDB_InstallsTheLiveToolkitAndThePersonaCheck(t *testing.T) {
 	require.NoError(t, pg.AddConnection("shop", map[string]any{"host": "localhost", "database": "shop", "user": "u", "sslmode": "disable"}))
 	toolkits = append(toolkits, pg)
 	assert.True(t, scriptsession.IsAppDB("shop"), "a toolkit the registry gains later is found")
+
+	ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{Roles: []string{"dp_builder"}})
+	err := scriptsession.NewTestDatabases(ctx).Open("shop", nil)
+	assert.ErrorIs(t, err, postgreskit.ErrNoMigrationStore, "a test database is built by the live toolkit, which keeps no migrations here")
 }
 
 func TestAuthorize(t *testing.T) {
@@ -130,4 +134,23 @@ func TestAuthorize(t *testing.T) {
 	require.ErrorIs(t, authorize(context.Background(), fixedAuthn{err: errors.New("x")}, checker, "shop"), errNoIdentity)
 	require.ErrorIs(t, authorize(context.Background(), nil, checker, "shop"), errNoIdentity)
 	require.NoError(t, authorize(context.Background(), nil, nil, "anything"), "no persona check configured")
+}
+
+// A test's database is made with the test server's credentials, so a run
+// allowed the connection but not its test_connection is refused (#2407).
+func TestAppDB_ATestDatabaseNeedsTheTestServerToo(t *testing.T) {
+	pg := postgreskit.NewMulti(postgreskit.MultiConfig{DefaultName: "shop"})
+	t.Cleanup(func() { _ = pg.Close() })
+	require.NoError(t, pg.AddConnection("shop", map[string]any{
+		"host": "localhost", "database": "shop", "user": "u",
+		"sslmode": "disable", "test_connection": "scratch",
+	}))
+	AppDB(func() []registry.Toolkit { return []registry.Toolkit{pg} }, fixedAuthn{err: errors.New("no token")}, &connChecker{})
+	t.Cleanup(func() { scriptsession.InstallAppDB(scriptsession.AppDB{}) })
+
+	assert.Equal(t, "scratch", pg.TestServerOf("shop"))
+	assert.Equal(t, "other", pg.TestServerOf("other"))
+	ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{Roles: []string{"dp_builder"}})
+	err := scriptsession.NewTestDatabases(ctx).Open("shop", nil)
+	assert.ErrorContains(t, err, `"scratch" is not allowed for this run`)
 }

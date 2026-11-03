@@ -32,6 +32,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -218,16 +219,20 @@ func execute(ctx context.Context, req Request, e execution) (*produced, *scriptr
 	replay.WithAnswers(answers)
 	inputs := &scriptrun.TestInputs{}
 	out := &produced{replay: replay, live: live, declared: answers, reads: e.reads}
+	// The throwaway databases this execution opens, dropped when it ends; an
+	// altered-rows rerun is an execution of its own and starts from a clone.
+	dbs := scriptsession.NewTestDatabases(ctx)
+	defer dbs.Close()
 	opts := scriptrun.Options{
 		Source: req.Source, Name: req.Name,
 		RunID: h.RunID, FireTime: h.FireTime, Params: h.Params, State: h.State, Event: h.Event, RunURL: h.RunURL,
-		Caller: replay, Exporter: replay.Exporter(), Destinations: req.Destinations,
+		Caller: databaseCaller{Replay: replay, dbs: dbs}, Exporter: replay.Exporter(), Destinations: req.Destinations,
 		Live: live, MaxSteps: scriptrun.RunMaxSteps, Timeout: scriptrun.DraftTimeout,
 		MaxRows: h.MaxRows, MaxMemoryBytes: req.MaxMemoryBytes, Libraries: req.Libraries,
 		Test: &scriptrun.TestHooks{
 			Entry:       entry,
 			HoldsAnswer: replay.Holds,
-			Env:         starlark.StringDict{scriptrun.TestingName: testingModule(recording, out, inputs), scriptrun.AssertName: assertModule(&out.asserts, &out.failures)},
+			Env:         starlark.StringDict{scriptrun.TestingName: testingModule(recording, out, inputs, dbs), scriptrun.AssertName: assertModule(&out.asserts, &out.failures)},
 			Observe:     out.observe,
 			Cover:       cover,
 			Inputs:      inputs,
@@ -238,7 +243,7 @@ func execute(ctx context.Context, req Request, e execution) (*produced, *scriptr
 }
 
 // testingModule is the testing module one test is handed.
-func testingModule(recording string, out *produced, inputs *scriptrun.TestInputs) *starlarkstruct.Module {
+func testingModule(recording string, out *produced, inputs *scriptrun.TestInputs, dbs *scriptsession.TestDatabases) *starlarkstruct.Module {
 	return &starlarkstruct.Module{Name: "testing", Members: starlark.StringDict{
 		"replay": starlark.NewBuiltin("testing.replay", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 			var id string
@@ -256,9 +261,10 @@ func testingModule(recording string, out *produced, inputs *scriptrun.TestInputs
 			}
 			return out.value()
 		}),
-		"answer":  starlark.NewBuiltin("testing.answer", out.declared.answerBuiltin),
-		"answers": starlark.NewBuiltin("testing.answers", out.declared.answersBuiltin),
-		"set_run": setRunBuiltin(inputs),
+		"answer":   starlark.NewBuiltin("testing.answer", out.declared.answerBuiltin),
+		"answers":  starlark.NewBuiltin("testing.answers", out.declared.answersBuiltin),
+		"set_run":  setRunBuiltin(inputs),
+		"database": databaseBuiltin(dbs),
 	}}
 }
 

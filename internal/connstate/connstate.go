@@ -46,6 +46,17 @@ func Observe(kind, connection, s string) {
 	state[key{kind, connection}] = s
 }
 
+// Forget drops what calls found kind's connection in (#2444): the connection
+// was deleted, or its configuration changed, so the next call on the
+// connection now under that name says what it is. A connection re-created
+// under a deleted one's name, or saved with a new credential, otherwise read
+// as the old one's last state until a call used it.
+func Forget(kind, connection string) {
+	mu.Lock()
+	defer mu.Unlock()
+	delete(state, key{kind, connection})
+}
+
 // known reports whether s is a state this package defines.
 func known(s string) bool {
 	return s == Healthy || s == Unreachable || s == AuthFailed

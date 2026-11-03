@@ -3,8 +3,9 @@ package apigateway
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/pathtemplate"
 )
 
 // cfgKeyRequiredPathPrefix names the path every raw method+path call on a
@@ -15,17 +16,23 @@ const cfgKeyRequiredPathPrefix = "required_path_prefix"
 // starts with "/" and carries no query, fragment, or segment validatePath would
 // refuse. A trailing slash was trimmed at parse, so "/" is no prefix at all.
 func (c Config) validateRequiredPathPrefix() error {
-	p := c.RequiredPathPrefix
-	if p == "" {
+	if strings.Contains(c.RequiredPathPrefix, "?") {
+		return fmt.Errorf("apigateway: %s %q must be a path such as \"/api/v1\"", cfgKeyRequiredPathPrefix, c.RequiredPathPrefix)
+	}
+	return validatePathKey(cfgKeyRequiredPathPrefix, c.RequiredPathPrefix, "/api/v1")
+}
+
+// validatePathKey holds a configuration key naming a path to the shape a
+// caller's path has (pathtemplate.CheckConfigPath). Empty is unset.
+func validatePathKey(key, p, example string) error {
+	err := pathtemplate.CheckConfigPath(p)
+	if p == "" || err == nil {
 		return nil
 	}
-	if !strings.HasPrefix(p, pathSep) || strings.ContainsAny(p, "?#") {
-		return fmt.Errorf("apigateway: %s %q must be a path such as \"/api/v1\"", cfgKeyRequiredPathPrefix, p)
+	if errors.Is(err, pathtemplate.ErrNotAPath) {
+		return fmt.Errorf("apigateway: %s %q must be a path such as %q", key, p, example)
 	}
-	if err := validatePath(p); err != nil {
-		return fmt.Errorf("apigateway: %s %q is not a valid path: %s", cfgKeyRequiredPathPrefix, p, strings.TrimPrefix(err.Error(), "apigateway: "))
-	}
-	return nil
+	return fmt.Errorf("apigateway: %s %q %w", key, p, err)
 }
 
 // checkRequiredPathPrefix refuses a raw path outside the connection's required
@@ -56,17 +63,9 @@ func (c *conn) checkRequiredPathPrefix(method, path string) error {
 	return errors.New(msg + ".")
 }
 
-// baseURLCarriesPrefix reports whether the base URL's path ends with prefix,
-// the same test computeEffectiveBasePath applies before dropping a spec's
-// server path. The prefix starts with "/", so the match is on a segment
-// boundary: "/xapi/v1" does not end with "/api/v1".
-func baseURLCarriesPrefix(baseURL, prefix string) bool {
-	u, err := url.Parse(baseURL)
-	return err == nil && strings.HasSuffix(strings.TrimSuffix(u.Path, pathSep), prefix)
-}
-
-// withinPathPrefix reports whether path is prefix itself or lies beneath it on
-// a segment boundary, so "/api/v10" is not inside "/api/v1".
-func withinPathPrefix(path, prefix string) bool {
-	return path == prefix || strings.HasPrefix(path, prefix+pathSep)
-}
+// baseURLCarriesPrefix and withinPathPrefix are the prefix rules
+// pathtemplate holds.
+var (
+	baseURLCarriesPrefix = pathtemplate.BaseCarriesPrefix
+	withinPathPrefix     = pathtemplate.WithinPrefix
+)

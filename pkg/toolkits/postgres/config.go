@@ -106,6 +106,7 @@ const (
 	cfgKeyTransactionIdle  = "transaction_idle_timeout"
 	cfgKeyApplyPersonas    = "schema_apply_personas"
 	cfgKeyLedgerSchema     = "schema_ledger"
+	cfgKeyTestConnection   = "test_connection"
 )
 
 // Config is one PostgreSQL connection.
@@ -156,6 +157,11 @@ type Config struct {
 	// LedgerSchema is the schema in the target database holding the ledger
 	// of applied migrations.
 	LedgerSchema string
+	// TestConnection names the application database whose server the
+	// throwaway databases of this connection's migration checks and script
+	// tests are created on (#2407). Empty is this connection itself. Its
+	// user needs CREATEDB.
+	TestConnection string
 }
 
 // SecretKeys are the configuration keys a postgres connection may name a
@@ -218,6 +224,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 
 		SchemaApplyPersonas: cfgmap.Strings(cfg, cfgKeyApplyPersonas),
 		LedgerSchema:        cfgmap.StringDefault(cfg, cfgKeyLedgerSchema, DefaultLedgerSchema),
+		TestConnection:      strings.TrimSpace(cfgmap.String(cfg, cfgKeyTestConnection)),
 	}
 	if err := c.Validate(); err != nil {
 		return Config{}, err

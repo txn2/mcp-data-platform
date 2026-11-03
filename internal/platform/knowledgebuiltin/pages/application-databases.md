@@ -90,3 +90,36 @@ administrator, or a persona the connection's `schema_apply_personas` names).
 `describe` returns the tables, columns, constraints and indexes the applied
 migrations produced, which is how to read an application's schema while
 writing its scripts. An applied migration is immutable: a fix is a new one.
+
+`add` reviews a migration before it saves. Each statement that locks or
+rewrites a live table is returned as a finding naming the statement, what it
+does and the safe form: `CREATE INDEX` without `CONCURRENTLY`, a column added
+`NOT NULL` with no default or with a default computed per row, `ALTER COLUMN
+... TYPE`, a foreign key or check added without `NOT VALID`, a `lock_timeout`
+set above the platform's 10 seconds, and a rename of a table or column a saved
+script names. A migration that removes data (`DROP TABLE`, `DROP COLUMN`,
+`TRUNCATE`, a `DELETE` or `UPDATE` with no `WHERE`) saves only with
+`change_summary` saying what it removes and `user_agreed=true` once the person
+the application is built for agreed; the summary is in its history. The
+schema's migrations are then applied from zero on a throwaway database, and a
+set that does not apply is refused naming the migration.
+
+## Tests against a real database
+
+In a test, `testing.database(connection, schemas=None)` answers every
+statement the test makes on that application database from a database built
+from its migrations (every schema, or the ones named), cloned for that test
+alone and dropped when it ends, rather than from the recording. Constraints,
+triggers and policies run. Write fixtures with `platform.execute`; nothing
+reaches the connection's own database.
+
+    def test_a_duplicate_email_is_refused():
+        testing.database("shop", schemas = ["app"])
+        platform.execute("INSERT INTO app.users (email) VALUES (:e)", connection = "shop", params = {"e": "a@example.com"})
+        msg = assert.fails(lambda: platform.execute("INSERT INTO app.users (email) VALUES (:e)",
+                                                    connection = "shop", params = {"e": "a@example.com"}))
+        assert.contains(msg, "unique_violation")
+
+The databases are created on the server of the connection's `test_connection`
+(the connection itself by default), whose user needs `CREATEDB`; without it
+the test fails naming the privilege.

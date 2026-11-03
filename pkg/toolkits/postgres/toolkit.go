@@ -53,6 +53,17 @@ type Toolkit struct {
 
 	// migrations keeps manage_schema's migrations; nil registers no tool.
 	migrations MigrationStore
+	// references finds the saved scripts a rename would break; nil checks
+	// none.
+	references ScriptReferences
+	// scratchHook builds the toolkit a throwaway database is served by; nil
+	// builds a pool. A unit test's stand-in.
+	scratchHook func(name string, cfg Config) (*Toolkit, error)
+
+	// The sweep of throwaway databases (sweep.go), stopped by Close.
+	sweepOnce sync.Once
+	sweepMu   sync.Mutex
+	sweepStop chan struct{}
 
 	guard   atomic.Pointer[ConnectGuard]
 	metrics atomic.Pointer[observability.Metrics]
@@ -203,11 +214,14 @@ func (*Toolkit) SetQueryProvider(query.Provider) {}
 
 // Close rolls back every transaction in progress and closes every pool.
 func (t *Toolkit) Close() error {
+	t.stopSweep()
 	t.abandonOpen()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for name, c := range t.connections {
-		c.pool.Close()
+		if c.pool != nil {
+			c.pool.Close()
+		}
 		delete(t.connections, name)
 	}
 	return nil

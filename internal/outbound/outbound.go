@@ -206,6 +206,19 @@ func (t *transport) recorder() *observability.Metrics {
 	return defaultMetrics.Load()
 }
 
+// noStateKey marks a request whose answer is not recorded as its
+// connection's state.
+type noStateKey struct{}
+
+// WithoutConnectionState marks the requests made under ctx as ones whose
+// answer is not their connection's state: a probe of a route the credential
+// may not be meant to reach, whose caller records what the answer does say
+// (#2443). Without it, a 200 from an unauthenticated root would overwrite the
+// auth_failed a real call recorded.
+func WithoutConnectionState(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noStateKey{}, true)
+}
+
 // connectionKinds are the kinds whose connection is a toolkit connection, so
 // what its upstream answered is that connection's state (#1898).
 //
@@ -230,7 +243,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	m := t.recorder()
 	m.RecordHTTPClientRequest(ctx, string(t.kind), t.connection, observability.HTTPStatusClass(status), d)
-	if connectionKinds[t.kind] {
+	if connectionKinds[t.kind] && ctx.Value(noStateKey{}) == nil {
 		connstate.Observe(string(t.kind), t.connection, connstate.FromHTTP(status, err))
 	}
 	var blocked *egressguard.BlockedError

@@ -727,7 +727,16 @@ signature the store does not accept), and `configured` a connection no call
 has used on this replica since it started. The API, GraphQL and MCP kinds
 are read from the outbound HTTP chain, Trino from mcp-trino's classification
 of each failure, S3 from the store's error. Each replica reports the calls
-it served, so read the gauge with `max by (kind, state)`.
+it served, so read the gauge with `max by (kind, state)`. The connection test
+(`POST /api/v1/admin/connection-instances/{kind}/{name}/test`) records a state
+only from an answer that says something about the credential (#2443): an
+API connection's `probe_path` or a read its catalog declares (401 or 403 is
+`auth_failed`), or, at its base, a 401 or a 502, 503 or 504. A 403 or a 200 at
+the base, which an unauthenticated web root or a token scoped away from `/`
+answers, records nothing and leaves what real calls found. A connection's
+state is dropped on every replica when it is deleted or its configuration
+changes (#2444), so a connection saved again under a deleted one's name, or
+with a new credential, reads `configured` until a call uses it.
 `mcp_platform_personas` is the number of personas registered.
 
 **Search index age.** `search_index_last_indexed_age_seconds{kind}` is how

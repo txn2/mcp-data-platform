@@ -899,6 +899,9 @@ export MCP_PLATFORM_REVIEW_ALERT_INTERVAL="${MCP_PLATFORM_REVIEW_ALERT_INTERVAL:
 # seconds rather than every thirty, so those criteria wait seconds (#2232).
 export MCP_PLATFORM_CONNECTION_ALERT_INTERVAL="${MCP_PLATFORM_CONNECTION_ALERT_INTERVAL:-2s}"
 export MCP_PLATFORM_SCRIPT_SCHEDULER_INTERVAL="${MCP_PLATFORM_SCRIPT_SCHEDULER_INTERVAL:-2s}"
+# A script test's leftover throwaway database is looked for every two seconds
+# rather than every ten minutes (#2407).
+export MCP_PLATFORM_APPDB_TEST_SWEEP_INTERVAL="${MCP_PLATFORM_APPDB_TEST_SWEEP_INTERVAL:-2s}"
 # The server is compiled here, before air starts, so the 60-second health
 # wait below measures startup alone: air's first build of the same output is
 # then up to date. On a loaded CI runner the cold build took most of the

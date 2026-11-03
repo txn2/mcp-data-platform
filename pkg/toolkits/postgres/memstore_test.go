@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"sync"
@@ -25,11 +26,11 @@ func (s *memStore) List(_ context.Context, connection, schema string) ([]Migrati
 	}
 	out := []Migration{}
 	for _, m := range s.migrations {
-		if m.Connection == connection && m.Schema == schema {
+		if m.Connection == connection && (schema == "" || m.Schema == schema) {
 			out = append(out, m)
 		}
 	}
-	slices.SortFunc(out, func(a, b Migration) int { return a.Version - b.Version })
+	slices.SortFunc(out, func(a, b Migration) int { return cmp.Or(cmp.Compare(a.Schema, b.Schema), a.Version-b.Version) })
 	return out, nil
 }
 

@@ -3,6 +3,7 @@ package storeresync
 import (
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
 )
@@ -54,6 +55,9 @@ func Upserted(toolkits connreconcile.ToolkitSource, declared connid.Declarer, ki
 	case !read.Found:
 		Removed(toolkits, declared, kind, name, "reload-bus: failed to remove connection from toolkit")
 	default:
+		// A peer saved it: what calls found it in under its old config is no
+		// longer its state (#2444).
+		connstate.Forget(kind, name)
 		for _, f := range connreconcile.New(toolkits).Adopt(kind, name, read.Config) {
 			slog.Error("reload-bus: failed to reconcile connection onto toolkit",
 				logKeyKind, kind, logKeyName, name, "phase", f.Phase.String(), logKeyError, f.Err)

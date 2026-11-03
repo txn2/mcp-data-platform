@@ -236,19 +236,31 @@ func TestIssue2404_TwoConcurrentAppliesApplyEachVersionOnce(t *testing.T) {
 func TestIssue2404_AFailingMigrationLeavesNoChangeAndNoLedgerRow(t *testing.T) {
 	admin := connect(t)
 	schema := schema2404("fails")
+	schemaCall(admin, schema, map[string]any{"command": "add", "version": 1, "name": "half", "up": "CREATE TABLE half_done (id int)"})
+	schemaCall(admin, schema, map[string]any{"command": "apply"})
+	// A row the live table holds and a new database does not: migration 2
+	// applies from zero, which add checks (#2405), and fails on this data.
+	seeded := draft2428(admin, "acceptance-2404-seed", `
+def main():
+    """Writes a row migration 2's check refuses."""
+    platform.execute("INSERT INTO `+schema+`.half_done VALUES (1)", connection="`+conn2404+`")
+`, true)
+	if seeded["status"] != "succeeded" {
+		t.Fatalf("seeding the live row failed: %v", seeded)
+	}
 	schemaCall(admin, schema, map[string]any{
-		"command": "add", "version": 1, "name": "half", "transactional": true,
-		"up": "CREATE TABLE half_done (id int);\nINSERT INTO half_done VALUES (1);\nCREATE TABLE half_done (id int)",
+		"command": "add", "version": 2, "name": "check", "transactional": true,
+		"up": "INSERT INTO half_done VALUES (2);\nALTER TABLE half_done ADD CONSTRAINT half_done_big CHECK (id > 1)",
 	})
 	text := schemaRefused(t, admin, schema, map[string]any{"command": "apply"})
-	if !strings.Contains(text, "migration 1") || !strings.Contains(text, "42P07") {
+	if !strings.Contains(text, "migration 2") || !strings.Contains(text, "23514") {
 		t.Errorf("the failing migration's error: %s", text)
 	}
-	if n := sqlCount(t, admin, "SELECT count(*) AS n FROM information_schema.tables WHERE table_schema = '"+schema+"'"); n != "0" {
-		t.Errorf("the failed migration left %s tables", n)
+	if n := sqlCount(t, admin, "SELECT count(*) AS n FROM "+schema+".half_done"); n != "1" {
+		t.Errorf("the failed migration left %s rows, want the one seeded", n)
 	}
-	if n := sqlCount(t, admin, "SELECT count(*) AS n FROM mcp_schema.migrations WHERE schema_name = '"+schema+"'"); n != "0" {
-		t.Errorf("the failed migration left %s ledger rows", n)
+	if n := sqlCount(t, admin, "SELECT count(*) AS n FROM mcp_schema.migrations WHERE schema_name = '"+schema+"'"); n != "1" {
+		t.Errorf("the ledger holds %s rows, want migration 1 alone", n)
 	}
 	history := schemaCall(admin, schema, map[string]any{"command": "history", "limit": 10})
 	if raw, _ := json.Marshal(history["events"]); !strings.Contains(string(raw), `"event":"failed"`) {

@@ -201,17 +201,24 @@ func TestConcurrentAppliesApplyEachVersionOnce_RealDB(t *testing.T) {
 func TestFailedMigrationLeavesNothing_RealDB(t *testing.T) {
 	tk, store := newSchemaTarget(t, nil)
 	ctx := admin()
-	schema(t, ctx, tk, schemaInput{Command: schemaAdd, Version: 1, Name: "half", Up: "CREATE TABLE a (id int);\nCREATE TABLE a (id int)"}, false)
+	schema(t, ctx, tk, schemaInput{Command: schemaAdd, Version: 1, Name: "a", Up: "CREATE TABLE a (id int)"}, false)
+	schema(t, ctx, tk, schemaInput{Command: schemaApply}, false)
+	// A row the live table holds and a new database does not: migration 2
+	// applies from zero, which add checks (#2405), and fails on this data.
+	if _, err := tk.Execute(ctx, Statement{Connection: "target", SQL: "INSERT INTO public.a VALUES (1)"}); err != nil {
+		t.Fatal(err)
+	}
+	schema(t, ctx, tk, schemaInput{Command: schemaAdd, Version: 2, Name: "half", Up: "CREATE TABLE b (id int);\nALTER TABLE a ADD CONSTRAINT a_big CHECK (id > 1)"}, false)
 	out := schema(t, ctx, tk, schemaInput{Command: schemaApply}, true)
-	if msg := out["error"].(string); !strings.Contains(msg, "migration 1") || !strings.Contains(msg, "42P07") {
+	if msg := out["error"].(string); !strings.Contains(msg, "migration 2") || !strings.Contains(msg, "23514") {
 		t.Fatalf("a failing migration: %s", msg)
 	}
-	exists := queryOK(t, tk, Statement{Connection: "target", SQL: "SELECT to_regclass('public.a') IS NULL"})
+	exists := queryOK(t, tk, Statement{Connection: "target", SQL: "SELECT to_regclass('public.b') IS NULL"})
 	if exists.Rows[0][0] != true {
 		t.Fatal("the first statement of the failed migration stayed")
 	}
-	if n := count(t, tk, "mcp_schema.migrations"); n != "0" {
-		t.Fatalf("ledger rows = %s", n)
+	if n := count(t, tk, "mcp_schema.migrations"); n != "1" {
+		t.Fatalf("ledger rows = %s, want migration 1 alone", n)
 	}
 	if store.eventsOf(EventFailed) != 1 {
 		t.Fatalf("events = %+v", store.events)

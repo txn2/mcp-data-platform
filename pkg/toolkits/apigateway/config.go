@@ -274,6 +274,10 @@ type Config struct {
 	// handler instead of failing: the built-in platform-admin connection
 	// sets "/api/v1" (#1707).
 	RequiredPathPrefix string
+	// ProbePath is the authenticated read the connection test and probe
+	// ask for (#2443), such as "/version" or "/api/v4/users/me". Empty
+	// asks for a read the catalog declares, or the base.
+	ProbePath string
 }
 
 // OAuth2Config describes the OAuth 2.1 grant parameters. The platform
@@ -411,6 +415,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.Description = cfgmap.String(cfg, cfgKeyDescription)
 	c.Handler = cfgmap.String(cfg, cfgKeyHandler)
 	c.RequiredPathPrefix = trimTrailingSlash(cfgmap.String(cfg, cfgKeyRequiredPathPrefix))
+	c.ProbePath = cfgmap.String(cfg, cfgKeyProbePath)
 	c.FillSecrets = cfgmap.BoolDefault(cfg, cfgKeyFillSecrets, true)
 	if c.Handler == HandlerInternal && c.BaseURL == "" {
 		c.BaseURL = internalBaseURL
@@ -453,6 +458,7 @@ func (c Config) Validate() error {
 		c.validateHandler,
 		up.ValidateTLSMaterial,
 		c.validateRequiredPathPrefix,
+		c.validateProbePath,
 	)
 }
 
