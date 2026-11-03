@@ -127,11 +127,11 @@ func TestIssue2293_ASearchWithNoScopeCoversEveryLibraryTheCallerReads(t *testing
 // tag is found by that word.
 func TestIssue2293_AFileIsFoundByItsFolderFilenameOrTag(t *testing.T) {
 	c := connect(t)
-	word := fmt.Sprintf("kcet%d", time.Now().UnixNano()%1_000_000_000)
+	word := fmt.Sprintf("ratingword%d", time.Now().UnixNano()%1_000_000_000)
 	files := []issue2293File{
 		{id: "acc2293-path-" + word, scope: "global", path: "pipelines/" + word + "/2022", filename: "2022-03-21_OO.csv", name: "2022-03-21_OO"},
 		{id: "acc2293-file-" + word, scope: "global", path: "deliveries", filename: word + "-extract.csv", name: "March extract"},
-		{id: "acc2293-tag-" + word, scope: "global", path: "deliveries", filename: "e.csv", name: "Weekly ratings", tags: []string{"nltv", word}},
+		{id: "acc2293-tag-" + word, scope: "global", path: "deliveries", filename: "e.csv", name: "Weekly ratings", tags: []string{"audience", word}},
 		{id: "acc2293-none-" + word, scope: "global", path: "deliveries", filename: "f.csv", name: "Unrelated"},
 	}
 	issue2293Seed(t, files)

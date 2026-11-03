@@ -226,13 +226,14 @@ func (r *Runner) run(ctx context.Context, t *Target, req Request, sessionID stri
 	if refusal != nil {
 		return *refusal, nil
 	}
+	call.caller = req.Caller
 	resp, err := r.invoke(ctx, t, sessionID, call)
 	return resp, redactFailure(call.sensitive, err)
 }
 
 // invoke runs call in the request's own session.
 func (r *Runner) invoke(ctx context.Context, t *Target, sessionID string, call *invocation) (Response, error) {
-	caller, cleanup, err := r.connect(ctx, t, sessionID)
+	caller, cleanup, err := r.connect(ctx, t, sessionID, call.caller)
 	if err != nil {
 		return errorResponse(http.StatusInternalServerError, "the endpoint could not start"), err
 	}
@@ -280,7 +281,7 @@ func failedRun(err error) Response {
 
 // connect opens the request's in-memory session as the script principal,
 // presenting the version author's roles, exactly as a scheduled run's.
-func (r *Runner) connect(ctx context.Context, t *Target, sessionID string) (scriptrun.Caller, func(), error) {
+func (r *Runner) connect(ctx context.Context, t *Target, sessionID string, requester *Caller) (scriptrun.Caller, func(), error) {
 	subject := ""
 	if r.Subjects != nil {
 		subject = r.Subjects.ForRun(ctx, t.Version.Author)
@@ -292,11 +293,23 @@ func (r *Runner) connect(ctx context.Context, t *Target, sessionID string) (scri
 		UserID: t.Script.Principal(), Email: t.Script.OwnerEmail, Roles: t.Version.AuthorRoles,
 		AuthType: middleware.AuthTypeScript, OnBehalfOf: t.Version.Author, OnBehalfOfSub: subject,
 	})
+	// The request's caller is what its application database statements'
+	// claims carry (#2403), never the author: a public endpoint's are empty.
+	serverCtx = scriptsession.WithEndpoint(serverCtx, endpointClaims(requester))
 	caller, cleanup, err := scriptsession.Connect(serverCtx, r.Server, clientLabel)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening the request's session: %w", err)
 	}
 	return caller, cleanup, nil
+}
+
+// endpointClaims is the caller an endpoint request's statements claim to run
+// for: nobody on a public or bot_check endpoint.
+func endpointClaims(c *Caller) scriptsession.EndpointCaller {
+	if c == nil {
+		return scriptsession.EndpointCaller{}
+	}
+	return scriptsession.EndpointCaller{UserID: c.UserID, Email: c.Email}
 }
 
 // outcome is how one request ended.

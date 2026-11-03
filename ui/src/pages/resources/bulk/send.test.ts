@@ -67,9 +67,9 @@ describe("sendForm", () => {
   it("names how search indexes the batch ahead of the file (#2111)", () => {
     const fd = sendForm({
       target: { scope: "global", scope_id: "" },
-      path: "pipelines/nltv",
+      path: "pipelines/audience",
       displayName: "2019-01-01",
-      description: "One station day",
+      description: "One day",
       tags: [],
       index: "none",
       filename: "2019-01-01.csv",

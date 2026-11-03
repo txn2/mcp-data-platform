@@ -36,12 +36,12 @@ func TestResourceSearch_RealDB_CommonWordWithinBudget(t *testing.T) {
 		SELECT 'res_' || g,
 		       CASE WHEN g % 3 = 0 THEN 'global' ELSE 'user' END,
 		       CASE WHEN g % 3 = 0 THEN NULL ELSE 'sub-1' END,
-		       CASE WHEN g % 2 = 0 THEN 'pipeline/nielsen/' || (g % 50) ELSE 'ledger/' || (g % 50) END,
-		       '2022-03-' || g || '_OO_KCET.csv',
-		       CASE WHEN g % 2 = 0 THEN 'nielsen ratings ' || g ELSE 'quarterly ledger ' || g END,
+		       CASE WHEN g % 2 = 0 THEN 'pipeline/ratings/' || (g % 50) ELSE 'ledger/' || (g % 50) END,
+		       '2022-03-' || g || '_OO_DAILY.csv',
+		       CASE WHEN g % 2 = 0 THEN 'audience ratings ' || g ELSE 'quarterly ledger ' || g END,
 		       'extract ' || g,
 		       'text/csv', 4096, 'k' || g, 'mcp://res/' || g,
-		       CASE WHEN g % 2 = 0 THEN ARRAY['nielsen', 'nltv'] ELSE ARRAY['finance'] END,
+		       CASE WHEN g % 2 = 0 THEN ARRAY['ratings', 'audience'] ELSE ARRAY['finance'] END,
 		       'sub-1',
 		       left(repeat('station household viewers market share weekday daypart ' || g || ' ', 80), 4096)
 		  FROM generate_series(1, 30000) g`)
@@ -63,13 +63,13 @@ func TestResourceSearch_RealDB_CommonWordWithinBudget(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			start := time.Now()
 			got, err := store.(Searcher).Search(ctx, SearchQuery{
-				QueryText: "nielsen", Embedding: tc.embedding, Scopes: scopes, Limit: DefaultSearchLimit,
+				QueryText: "ratings", Embedding: tc.embedding, Scopes: scopes, Limit: DefaultSearchLimit,
 			})
 			elapsed := time.Since(start)
 			require.NoError(t, err)
 			require.Len(t, got, DefaultSearchLimit, "the word matches 15,000 files")
 			for _, hit := range got {
-				assert.Contains(t, hit.Resource.Tags, "nielsen", "%s is a match", hit.Resource.ID)
+				assert.Contains(t, hit.Resource.Tags, "ratings", "%s is a match", hit.Resource.ID)
 			}
 			assert.Less(t, elapsed, scaleSearchBudget, "ranking a word in half the library")
 		})

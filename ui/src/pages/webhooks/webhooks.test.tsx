@@ -32,6 +32,10 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
     useDeleteWebhookSource: () => ({ mutate: h.remove, isPending: false, error: null }),
     useSyncWebhookPartitions: () => ({ mutate: h.sync, isPending: false, error: null }),
     usePersonas: () => ({ data: { personas: [{ name: "marketing", display_name: "Marketing" }] } }),
+    useConnections: () => ({
+      data: { connections: [{ kind: "appdb", name: "appdb", connection: "orders", tools: [], hidden_tools: [] }] },
+      isLoading: false,
+    }),
   };
 });
 
@@ -559,5 +563,40 @@ describe("mailbox sources (#2247)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     expect(screen.getByText("Name the addresses or @domains whose mail becomes events.")).toBeInTheDocument();
     expect(h.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("a database source (#2408)", () => {
+  const outbox = {
+    ...mockWebhookSources[0]!,
+    name: "orders-outbox",
+    path: "",
+    auth: { mode: "" },
+    config: { input: "postgres", postgres: { connection: "orders", mode: "outbox", table: "public.outbox" } },
+  } as unknown as (typeof mockWebhookSources)[number];
+
+  it("edits a database source with the database fields and saves it as one", () => {
+    h.detail = { data: { source: outbox, status: mockWebhookStatus[busy.name] }, isLoading: false, error: null };
+    render(<WebhookEditor name={outbox.name} onBack={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByText("Database")).toBeInTheDocument();
+    expect(screen.queryByText("Mail server")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Poll interval (seconds)"), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(h.update).toHaveBeenCalledTimes(1);
+    const body = h.update.mock.calls[0]![0];
+    expect(body.auth).toEqual({ mode: "" });
+    expect(body.config.input).toBe("postgres");
+    expect(body.config.postgres).toMatchObject({ connection: "orders", mode: "outbox", table: "public.outbox", poll_seconds: 10 });
+  });
+
+  it("shows the database and its listener in place of a sender address", () => {
+    h.detail = {
+      data: { source: outbox, status: mockWebhookStatus[busy.name], postgres: { replica: "platform-0", delivered: 3, rejected: 0 } },
+      isLoading: false,
+      error: null,
+    };
+    render(<WebhookDetailPage name={outbox.name} onBack={vi.fn()} onNavigate={vi.fn()} />);
+    expect(screen.getByText("Listening on platform-0.")).toBeInTheDocument();
+    expect(screen.queryByText("Give this to the sender")).not.toBeInTheDocument();
   });
 });

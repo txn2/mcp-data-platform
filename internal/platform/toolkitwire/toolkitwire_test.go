@@ -122,18 +122,25 @@ func TestAppDB_InstallsTheLiveToolkitAndThePersonaCheck(t *testing.T) {
 func TestAuthorize(t *testing.T) {
 	checker := &connChecker{}
 	ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{Roles: []string{"dp_builder"}})
-	require.NoError(t, authorize(ctx, nil, checker, "shop"))
+	persona, err := authorize(ctx, nil, checker, "shop")
+	require.NoError(t, err)
 	assert.Equal(t, []string{"dp_builder"}, checker.roles, "the run's pre-authenticated roles are checked")
+	assert.Equal(t, "builder", persona, "the persona the connection was allowed as chooses its login role (#2403)")
 
-	err := authorize(ctx, nil, checker, "ledger")
+	_, err = authorize(ctx, nil, checker, "ledger")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `application database "ledger" is not allowed for this run`)
 
-	require.NoError(t, authorize(context.Background(), fixedAuthn{user: &middleware.UserInfo{Roles: []string{"r"}}}, checker, "shop"))
+	_, err = authorize(context.Background(), fixedAuthn{user: &middleware.UserInfo{Roles: []string{"r"}}}, checker, "shop")
+	require.NoError(t, err)
 	assert.Equal(t, []string{"r"}, checker.roles)
-	require.ErrorIs(t, authorize(context.Background(), fixedAuthn{err: errors.New("x")}, checker, "shop"), errNoIdentity)
-	require.ErrorIs(t, authorize(context.Background(), nil, checker, "shop"), errNoIdentity)
-	require.NoError(t, authorize(context.Background(), nil, nil, "anything"), "no persona check configured")
+	_, err = authorize(context.Background(), fixedAuthn{err: errors.New("x")}, checker, "shop")
+	require.ErrorIs(t, err, errNoIdentity)
+	_, err = authorize(context.Background(), nil, checker, "shop")
+	require.ErrorIs(t, err, errNoIdentity)
+	persona, err = authorize(context.Background(), nil, nil, "anything")
+	require.NoError(t, err, "no persona check configured")
+	assert.Empty(t, persona)
 }
 
 // A test's database is made with the test server's credentials, so a run

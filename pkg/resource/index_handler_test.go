@@ -64,8 +64,8 @@ func TestUploadDecidesTheIndexPolicy(t *testing.T) {
 		{"the uploader takes it out of search", "reports", "none", "none", true},
 		{"a table of values defaults to its metadata", "reports", "", "metadata", false},
 		{"the uploader asks for its content", "reports", "full", "full", true},
-		{"a folder rule decides for an uploader who says nothing", "pipelines/nltv", "", "none", false},
-		{"the ceiling lowers what the uploader asked for", "pipelines/nltv", "full", "metadata", true},
+		{"a folder rule decides for an uploader who says nothing", "pipelines/audience", "", "none", false},
+		{"the ceiling lowers what the uploader asked for", "pipelines/audience", "full", "metadata", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -106,7 +106,7 @@ func TestPatchChangesTheIndexPolicy(t *testing.T) {
 		want                string
 	}{
 		{"out of search", "reports", "none", http.StatusOK, "none"},
-		{"capped by the folder", "pipelines/nltv", "full", http.StatusOK, "metadata"},
+		{"capped by the folder", "pipelines/audience", "full", http.StatusOK, "metadata"},
 		{"a value it cannot read", "reports", "everything", http.StatusBadRequest, "full"},
 	}
 	for _, c := range cases {
@@ -138,7 +138,7 @@ func TestUpdateFieldsWritesNothingWithoutFields(t *testing.T) {
 }
 
 func TestOriginOf(t *testing.T) {
-	assert.Equal(t, indexpolicy.OriginScript, originOf(&Claims{Sub: "script:nltv-archive-import"}, indexpolicy.OriginAgent))
+	assert.Equal(t, indexpolicy.OriginScript, originOf(&Claims{Sub: "script:archive-import"}, indexpolicy.OriginAgent))
 	assert.Equal(t, indexpolicy.OriginWebhook, originOf(&Claims{Sub: "system:webhooks"}, ""))
 	assert.Equal(t, indexpolicy.OriginExport, originOf(&Claims{Sub: "u"}, indexpolicy.OriginExport))
 	assert.Equal(t, indexpolicy.OriginUpload, originOf(nil, ""))

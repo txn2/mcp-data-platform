@@ -2,9 +2,9 @@ package whimap
 
 import (
 	"context"
-	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whwrite"
 )
 
 // Ports.
@@ -14,18 +14,12 @@ type (
 		List(ctx context.Context) ([]whsource.Source, error)
 	}
 	// Objects writes a segment to the managed-resources bucket.
-	Objects interface {
-		PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
-	}
+	Objects = whwrite.Objects
 	// Recorder records a window a segment was written to.
-	Recorder interface {
-		MarkSegment(ctx context.Context, source string, start time.Time, length time.Duration, bytes int64) error
-	}
+	Recorder = whwrite.Recorder
 	// RawWindows registers a window's raw partition so its events are
 	// queryable before compaction.
-	RawWindows interface {
-		EnsureRawWindow(ctx context.Context, src whsource.Source, start time.Time) error
-	}
+	RawWindows = whwrite.RawWindows
 	// MarkStore keeps each folder's watermark.
 	MarkStore interface {
 		Get(ctx context.Context, source, folder string) (Mark, error)

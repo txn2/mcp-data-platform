@@ -52,6 +52,9 @@ func Validate(s Source) error {
 			return err
 		}
 	}
+	if err := refusePostgresBlock(s); err != nil {
+		return err
+	}
 	switch s.Config.Input {
 	case InputForm:
 		if err := validateForm(s); err != nil {
@@ -64,12 +67,16 @@ func Validate(s Source) error {
 		if err := validateIMAP(s.Config.IMAP, s.Auth); err != nil {
 			return err
 		}
+	case InputPostgres:
+		if err := validatePostgres(s); err != nil {
+			return err
+		}
 	case InputHTTP:
 		if err := validateAuth(s.Auth); err != nil {
 			return err
 		}
 	default:
-		return invalid("config.input must be http or imap")
+		return invalid("config.input must be http, imap or postgres")
 	}
 	return validateConfig(s.Config)
 }

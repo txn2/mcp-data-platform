@@ -40336,11 +40336,11 @@ const docTemplate = `{
             "properties": {
                 "description": {
                     "type": "string",
-                    "example": "NLTV station daily reach and frequency archive, one CSV per station day since 2019"
+                    "example": "Daily audience archive, one CSV per day since 2019"
                 },
                 "path": {
                     "type": "string",
-                    "example": "pipelines/nltv"
+                    "example": "pipelines/audience"
                 },
                 "scope": {
                     "allOf": [
@@ -45627,6 +45627,14 @@ const docTemplate = `{
                         "$ref": "#/definitions/whimap.Mark"
                     }
                 },
+                "postgres": {
+                    "description": "Postgres is a postgres source's listener (#2408): the replica\nlistening, what it filed and refused, its last failure.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/whpgstate.State"
+                        }
+                    ]
+                },
                 "source": {
                     "$ref": "#/definitions/webhookapi.SourceView"
                 },
@@ -46160,6 +46168,33 @@ const docTemplate = `{
                 }
             }
         },
+        "whpgstate.State": {
+            "type": "object",
+            "properties": {
+                "delivered": {
+                    "type": "integer"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_error_at": {
+                    "type": "string"
+                },
+                "last_event_at": {
+                    "type": "string"
+                },
+                "listening_since": {
+                    "type": "string"
+                },
+                "rejected": {
+                    "type": "integer"
+                },
+                "replica": {
+                    "description": "Replica is the replica listening, empty when none is.",
+                    "type": "string"
+                }
+            }
+        },
         "whsource.Config": {
             "type": "object",
             "properties": {
@@ -46207,7 +46242,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "input": {
-                    "description": "Input is \"http\" (the default, posted to), \"imap\" (a polled mailbox,\nconfigured under IMAP) or \"form\" (a form's submissions, under Form).",
+                    "description": "Input is \"http\" (the default, posted to), \"imap\" (a polled mailbox,\nconfigured under IMAP), \"form\" (a form's submissions, under Form) or\n\"postgres\" (an application database's notifications or outbox, under\nPostgres, #2408).",
                     "type": "string"
                 },
                 "key_path": {
@@ -46219,6 +46254,9 @@ const docTemplate = `{
                 "persona": {
                     "description": "Persona is the persona whose members see the source's compacted windows\nin Resources and search. Empty is the administrator persona, which keeps\nthem to administrators. Querying\nthe table is governed by the Trino connection, not by this. It is set\nwhen the source is created and does not change: windows already written\nstay where they were written.",
                     "type": "string"
+                },
+                "postgres": {
+                    "$ref": "#/definitions/whsource.Postgres"
                 },
                 "rate_limit_burst": {
                     "type": "integer"
@@ -46302,6 +46340,38 @@ const docTemplate = `{
                 },
                 "trusted_authserv_id": {
                     "description": "TrustedAuthServID is the receiving server's authserv-id; only an\nAuthentication-Results header carrying it is read.",
+                    "type": "string"
+                }
+            }
+        },
+        "whsource.Postgres": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "description": "Channels are the channels a notify source listens on.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "connection": {
+                    "description": "Connection is the application database (a connection of kind appdb)\nthe source listens on, as that connection's role.",
+                    "type": "string"
+                },
+                "max_payload_bytes": {
+                    "description": "MaxPayloadBytes bounds one notification's payload or one outbox row;\na larger one is refused, recorded as a rejection, and never stored.",
+                    "type": "integer"
+                },
+                "mode": {
+                    "description": "Mode is \"notify\" or \"outbox\".",
+                    "type": "string"
+                },
+                "poll_seconds": {
+                    "description": "PollSeconds is how often an outbox source drains with no\nnotification.",
+                    "type": "integer"
+                },
+                "table": {
+                    "description": "Table is an outbox source's outbox, as schema.table: the table the\nmanage_schema outbox template created, whose channel is its name.",
                     "type": "string"
                 }
             }

@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whpgstate"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
@@ -62,6 +63,9 @@ type Deps struct {
 	// Mailbox checks an imap source's mailbox when it is saved and reports
 	// its folders' polls (#2247); nil leaves both out.
 	Mailbox Mailbox
+	// Database checks a postgres source's database when it is saved and
+	// reports its listener (#2408); nil leaves both out.
+	Database Database
 	// NoEncryption is set when the deployment has no ENCRYPTION_KEY, so a
 	// secret would be stored as written. A save that writes a secret is then
 	// refused, as a form's sensitive fields are (#2362).
@@ -132,6 +136,28 @@ func (s *Service) Marks(ctx context.Context, name string) ([]whimap.Mark, error)
 		return []whimap.Mark{}, nil
 	}
 	return s.deps.Mailbox.Marks(ctx, name) //nolint:wrapcheck // the store names itself
+}
+
+// Listener reports how a postgres source's listener stands; another source
+// has none.
+func (s *Service) Listener(ctx context.Context, name string) (whpgstate.State, error) {
+	if s.deps.Database == nil {
+		return whpgstate.State{}, nil
+	}
+	return s.deps.Database.Listener(ctx, name) //nolint:wrapcheck // the store names itself
+}
+
+// checkDatabase listens on a postgres source's channels and reads its outbox,
+// so a source the listener could never read is refused when it is saved
+// rather than failing on every pass.
+func (s *Service) checkDatabase(ctx context.Context, src whsource.Source) error {
+	if !src.IsPostgres() || s.deps.Database == nil {
+		return nil
+	}
+	if err := s.deps.Database.Check(ctx, src); err != nil {
+		return whsource.Refusal("the source's database could not be read: %v", err) //nolint:wrapcheck // ErrInvalid is what a surface renders
+	}
+	return nil
 }
 
 // checkMailbox signs in to an imap source's mailbox and opens each of its
@@ -252,6 +278,9 @@ func (s *Service) admit(ctx context.Context, src whsource.Source) (whtable.Targe
 	if err := s.checkMailbox(ctx, src); err != nil {
 		return whtable.Target{}, err
 	}
+	if err := s.checkDatabase(ctx, src); err != nil {
+		return whtable.Target{}, err
+	}
 	tg, err := s.deps.Tables.TargetFor(src.Connection)
 	if err != nil {
 		return whtable.Target{}, err //nolint:wrapcheck // the connection refusal is what a surface renders
@@ -370,6 +399,9 @@ func (s *Service) Update(ctx context.Context, name string, u Update) (whsource.S
 		return whsource.Source{}, err //nolint:wrapcheck // ErrInvalid is what a surface renders
 	}
 	if err := s.checkMailbox(ctx, next); err != nil {
+		return whsource.Source{}, err
+	}
+	if err := s.checkDatabase(ctx, next); err != nil {
 		return whsource.Source{}, err
 	}
 	updatedAt, err := s.deps.Sources.Update(ctx, next)

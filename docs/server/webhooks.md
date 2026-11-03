@@ -325,7 +325,7 @@ after.
 
 | Field | Meaning |
 |---|---|
-| `config.input` | `http` (the default) or `imap`; `form` is a form's source, which the platform makes. Fixed when the source is created. |
+| `config.input` | `http` (the default), `imap` or `postgres` ([below](#an-application-database-as-a-source)); `form` is a form's source, which the platform makes. Fixed when the source is created. |
 | `config.imap.host`, `port`, `tls` | The server. `tls` is `tls` (IMAPS, port 993, the default) or `starttls` (port 143). Plain IMAP is refused: the password would cross the network in the clear. |
 | `config.imap.tls_ca_bundle_pem` | PEM certificates to trust, for a server whose certificate a private CA signed. |
 | `config.imap.folders` | The folders read. Required; there is no all-folders default. Each keeps its own place. |
@@ -408,6 +408,65 @@ each folder, the messages stored, the ones withheld because the sender is not
 allowed and because the sender was not authenticated, when it was last checked
 and the last error. `GET /api/v1/admin/webhooks/sources/{name}` returns the same
 under `imap`, one entry per folder checked.
+
+## An application database as a source
+
+A source with `config.input: postgres` is not posted to either. It reads an
+[application database](appdb.md) and files what it reads as events (#2408),
+which land, compact and run the scripts naming the source like every other
+source's.
+
+```bash
+curl -X POST https://platform.example.com/api/v1/admin/webhooks/sources \
+  -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{
+    "name": "orders-outbox",
+    "connection": "scratch",
+    "config": {
+      "input": "postgres",
+      "postgres": { "connection": "orders", "mode": "outbox", "table": "public.outbox" }
+    }
+  }'
+```
+
+It takes no `auth`: nothing is posted to it, and it reads the database as the
+connection's own role, on a connection of its own outside the pool. Saving the
+source checks the database: in mode `outbox`, that the outbox exists and the
+role may `SELECT` and `DELETE` on it; in mode `notify`, that it can `LISTEN` on
+each channel.
+
+| Mode | What becomes an event | Delivery |
+|---|---|---|
+| `outbox` | Each row of an outbox table, which `manage_schema`'s [outbox template](appdb.md#the-outbox-template) creates with a trigger on each table it captures | Each row is filed and then deleted in the same transaction. A notification wakes the source, and a poll every `poll_seconds` drains the rows whose notification no one heard, so rows written while no replica listens are filed once a replica listens again. A commit that fails after the rows were filed files them again under the same event id, which compaction keeps once |
+| `notify` | Each notification sent with `NOTIFY` or `pg_notify` on the named channels | At most once: PostgreSQL delivers a notification only to a session listening when it is sent, and one sent while no replica listens is lost |
+
+| Field | Meaning |
+|---|---|
+| `config.postgres.connection` | The application database. Required. |
+| `config.postgres.mode` | `outbox` or `notify`. Required. |
+| `config.postgres.table` | `outbox`: the outbox as `schema.table`, in lowercase. Its channel is the same name. |
+| `config.postgres.channels` | `notify`: between 1 and 20 channels. |
+| `config.postgres.poll_seconds` | `outbox`: how often the outbox is drained with no notification. Default 30, between 1 and 3,600. |
+| `config.postgres.max_payload_bytes` | Default 64 KiB, at most 1 MiB. A larger notification payload or outbox row is refused, listed under the source's rejections with outcome `too_large`, and never stored; a refused outbox row is deleted with the rest. |
+
+Each event's payload is what was read in an envelope saying where it came from,
+so `event_id_path`, `event_type_path`, `key_path` and `split` read the same
+names for every source of the input:
+
+| Mode | Envelope | Event id when `event_id_path` is unset |
+|---|---|---|
+| `outbox` | `{"outbox_id", "table", "op", "row", "created_at"}`, `row` being the row as JSON | `outbox-<id>` |
+| `notify` | `{"channel", "payload", "pid"}`, `payload` being the notification's JSON, or its text as a string | One per notification, so two with one payload are two events |
+
+One replica listens per source, under an advisory lock; another takes over on
+its next pass, within five seconds of the lock being free. A payload is written
+by whoever can write the table or call `pg_notify`: it is data, bounded in size,
+and never read as configuration. A connection through PgBouncer in transaction
+mode cannot listen; the connection test says so.
+
+The source's page shows a **Database** card: the connection, the mode, the
+channels or table, the replica listening and since when, the last event, how
+many events were filed and refused, and the last failure.
 
 ## What a sender is answered
 

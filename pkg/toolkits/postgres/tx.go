@@ -57,9 +57,17 @@ func (e *poolWaitError) Error() string {
 // poolBegin takes a connection from the pool, waiting at most pool_wait_timeout
 // for one, and opens a transaction on it. The connection goes back to the pool
 // when the transaction ends.
+//
+// The pool is the one the identity on ctx runs as (#2403), and the
+// transaction's first statement sets that identity's claims.
 func (c *conn) poolBegin(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
+	id := IdentityOf(ctx)
+	pool, err := c.poolFor(id.Persona)
+	if err != nil {
+		return nil, err
+	}
 	waitCtx, cancel := context.WithTimeout(ctx, c.cfg.PoolWait)
-	pc, err := c.pool.Acquire(waitCtx)
+	pc, err := pool.Acquire(waitCtx)
 	timedOut := waitCtx.Err() != nil && ctx.Err() == nil
 	cancel()
 	if err != nil {
@@ -74,7 +82,14 @@ func (c *conn) poolBegin(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error
 		pc.Release()
 		return nil, err //nolint:wrapcheck // read by its type
 	}
-	return &releasingTx{Tx: tx, release: pc.Release}, nil
+	rtx := &releasingTx{Tx: tx, release: pc.Release}
+	// Sent below pgx's query path, so the statement tracer neither counts
+	// nor times it as one of the caller's.
+	if _, err := tx.Conn().PgConn().ExecParams(ctx, claimsSQL, id.claims(), nil, nil, nil).Close(); err != nil {
+		_ = rtx.Rollback(context.WithoutCancel(ctx))
+		return nil, err //nolint:wrapcheck // read by its type
+	}
+	return rtx, nil
 }
 
 // releasingTx returns its connection to the pool when it ends.

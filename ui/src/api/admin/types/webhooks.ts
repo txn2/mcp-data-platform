@@ -37,9 +37,34 @@ interface WebhookAuthSenderFields {
 }
 
 /** WebhookInput is where a source's events come from: posted to it, read
- * from a mailbox the platform polls, each message one event (#2247), or a
- * form's accepted submissions, each one event (#2178). */
-export type WebhookInput = "http" | "imap" | "form";
+ * from a mailbox the platform polls, each message one event (#2247), a
+ * form's accepted submissions, each one event (#2178), or an application
+ * database's notifications or outbox rows (#2408). */
+export type WebhookInput = "http" | "imap" | "form" | "postgres";
+
+/** WebhookPostgres is the application database a postgres source reads
+ * (#2408): notifications on its channels, or the rows of an outbox table. */
+export interface WebhookPostgres {
+  connection: string;
+  mode: "notify" | "outbox";
+  channels?: string[];
+  /** The outbox, as schema.table. */
+  table?: string;
+  poll_seconds?: number;
+  max_payload_bytes?: number;
+}
+
+/** WebhookListener is a postgres source's listener: the replica listening,
+ * what it filed and refused, and its last failure. */
+export interface WebhookListener {
+  replica: string;
+  listening_since?: string;
+  last_event_at?: string;
+  delivered: number;
+  rejected: number;
+  last_error?: string;
+  last_error_at?: string;
+}
 
 /** WebhookFormBinding is the form a form's source collects for (#2178); the
  * platform makes the source when the form is bound to an endpoint. */
@@ -102,6 +127,7 @@ export interface WebhookConfig {
   input?: WebhookInput;
   imap?: WebhookIMAP;
   form?: WebhookFormBinding;
+  postgres?: WebhookPostgres;
   handshake?: WebhookHandshake;
   /** The body field a challenge_echo check carries; absent is challenge. */
   challenge_field?: string;
@@ -202,6 +228,8 @@ export interface WebhookSourceDetail {
   status: WebhookStatus;
   /** An imap source's folders; absent for an http source. */
   imap?: WebhookIMAPFolder[];
+  /** A postgres source's listener; absent for any other source. */
+  postgres?: WebhookListener;
 }
 
 export interface WebhookAuthInput extends WebhookAuthSenderFields {

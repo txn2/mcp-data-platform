@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MODE_LABELS, senderURL, WEBHOOK_PRESETS, windowLength } from "./webhookForm";
+import { DatabaseSection } from "./DatabaseSection";
 import { MailboxSection } from "./MailboxSection";
 import { FormSourceSection } from "./FormSourceSection";
 import { RejectionsTable } from "./RejectionsTable";
@@ -116,12 +117,14 @@ const DISABLED_TEXT: Record<NonNullable<WebhookSource["config"]["input"]>, strin
   http: "This source is disabled: requests to it are answered 404 and nothing is stored.",
   imap: "This source is disabled: its mailbox is not checked.",
   form: "This source is disabled: the form's submissions are refused and nothing is stored.",
+  postgres: "This source is disabled: its database is not listened to.",
 };
 
 /** sourceKind names how a source takes its events, in the page's subtitle:
  * the sender, for a source configured by preset (#2223). */
 function sourceKind(source: WebhookSource): string {
   if (source.config.input === "form") return "Form submissions";
+  if (source.config.input === "postgres") return "Application database";
   const preset = WEBHOOK_PRESETS[source.auth.preset ?? ""];
   if (preset) return preset.label;
   return MODE_LABELS[source.auth.mode] ?? source.auth.mode;
@@ -137,6 +140,15 @@ function SourceSections({ detail }: { detail: WebhookSourceDetail }) {
       <>
         <FormSourceSection form={source.config.form} />
         <ActivitySection status={status} />
+        <StorageSection source={source} status={status} />
+        <RejectionsSection status={status} />
+      </>
+    );
+  }
+  if (source.config.input === "postgres") {
+    return (
+      <>
+        <DatabaseSection database={source.config.postgres} listener={detail.postgres} />
         <StorageSection source={source} status={status} />
         <RejectionsSection status={status} />
       </>

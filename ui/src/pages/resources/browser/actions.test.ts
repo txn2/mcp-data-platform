@@ -96,20 +96,20 @@ describe("deleting", () => {
 // not indexed one by one on (#2111).
 describe("describing a folder", () => {
   it("reads the description, and an absent one as empty", async () => {
-    fetchRaw.mockResolvedValueOnce(new Response(JSON.stringify({ description: "NLTV archive" }), { status: 200 }));
-    expect(await folderDescription(root, "pipelines/nltv")).toBe("NLTV archive");
-    expect(String(fetchRaw.mock.calls[0]![0])).toContain("/folders/description?scope=global&path=pipelines%2Fnltv");
+    fetchRaw.mockResolvedValueOnce(new Response(JSON.stringify({ description: "Audience archive" }), { status: 200 }));
+    expect(await folderDescription(root, "pipelines/audience")).toBe("Audience archive");
+    expect(String(fetchRaw.mock.calls[0]![0])).toContain("/folders/description?scope=global&path=pipelines%2Faudience");
     fetchRaw.mockResolvedValueOnce(new Response(null, { status: 404 }));
     expect(await folderDescription(root, "gone")).toBe("");
   });
 
   it("writes the description for the folder's library", async () => {
     fetchRaw.mockResolvedValueOnce(new Response("{}", { status: 200 }));
-    await describeFolder(root, "pipelines/nltv", "NLTV archive");
+    await describeFolder(root, "pipelines/audience", "Audience archive");
     const [path, init] = fetchRaw.mock.calls[0]! as [string, RequestInit];
     expect(path).toBe("/folders/description");
     expect(init.method).toBe("PUT");
-    expect(JSON.parse(String(init.body))).toEqual({ scope: "global", path: "pipelines/nltv", description: "NLTV archive" });
+    expect(JSON.parse(String(init.body))).toEqual({ scope: "global", path: "pipelines/audience", description: "Audience archive" });
 
     fetchRaw.mockResolvedValueOnce(new Response(JSON.stringify({ error: "you may not change folders in that library" }), { status: 403 }));
     await expect(describeFolder(root, "x", "y")).rejects.toThrow("you may not change folders");

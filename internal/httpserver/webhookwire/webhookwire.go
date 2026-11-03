@@ -40,14 +40,18 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whalert"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whpg"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whpgstate"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whspool"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whwrite"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -70,6 +74,10 @@ type Webhooks struct {
 	// imap polls the sources whose input is a mailbox (#2247); nil where the
 	// compactor does not run.
 	imap *whimap.Poller
+	// pg listens for the sources whose input is an application database
+	// (#2408), writing through pgWriter; nil where the compactor does not run.
+	pg       *whpg.Manager
+	pgWriter *whwrite.Writer
 	// spool is the receiver's local spool, closed after the receiver stops;
 	// nil when the receiver does not spool.
 	spool    *whspool.Spool
@@ -142,6 +150,7 @@ type platformSource interface {
 	RestEncryptor() *fieldcrypt.RestFieldEncryptor
 	Metrics() *observability.Metrics
 	PersonaRegistry() *persona.Registry
+	ToolkitRegistry() *registry.Registry
 }
 
 // buildFrom is Build over the part of the platform it reads.
@@ -179,6 +188,7 @@ func buildFrom(p platformSource, address string, exec whtable.Executor) (*Webhoo
 		replica: instanceheader.HostName(address), address: address,
 		personaExists: personaLookup(p.PersonaRegistry()),
 		registrations: sourceRegistrations(p),
+		appdb:         toolkitsOf(p.ToolkitRegistry()),
 	})
 }
 
@@ -219,6 +229,9 @@ type parts struct {
 	// registrations records a source's table; nil records it in the plain
 	// store.
 	registrations tableregister.Store
+	// appdb is the live application databases a postgres source reads; nil
+	// listens to none.
+	appdb func() whpg.Database
 }
 
 // metricsSink is the platform's metrics, which report for both the receiver
@@ -267,6 +280,16 @@ func assemble(pt parts) (*Webhooks, error) {
 			RawWindows: rawWindows{tables: pt.tables}, Marks: whimap.NewMarks(db), Files: pt.resources,
 			Lock: imapLock(db), Replica: pt.replica, Logger: slog.Default(),
 		})
+		if pt.appdb != nil {
+			w.pgWriter = whwrite.New(whwrite.Config{
+				Objects: pt.objects, Bucket: pt.bucket, Recorder: windows, RawWindows: rawWindows{tables: pt.tables},
+				Writer: "pg-" + pt.replica, Logger: slog.Default(),
+			})
+			w.pg = whpg.New(whpg.Config{
+				Sources: sources, Database: pt.appdb, Writer: w.pgWriter, Rejections: windows,
+				States: whpgstate.New(db), Lock: pgLock(db), Replica: pt.replica, Logger: slog.Default(),
+			})
+		}
 	}
 	registrations := pt.registrations
 	if registrations == nil {
@@ -285,6 +308,7 @@ func assemble(pt parts) (*Webhooks, error) {
 		Changed: w.receiver.Reload, NewID: newRegistrationID, Logger: slog.Default(),
 		PersonaExists: pt.personaExists, MemoryLimit: procload.MemoryLimit,
 		Mailbox: whimap.NewMailbox(whimap.NewMarks(db)), NoEncryption: !encrypts(pt.encryptor),
+		Database: adminDatabase(pt.appdb, db),
 	})
 	return w, nil
 }
@@ -370,6 +394,7 @@ func (w *Webhooks) Start(ctx context.Context) {
 	w.receiver.Start(ctx)
 	w.compactor.Start(ctx)
 	w.imap.Start(ctx)
+	w.pg.Start(ctx)
 	w.alerts.Start(ctx)
 	if w.receiver == nil || w.address == "" {
 		return
@@ -407,6 +432,7 @@ func (w *Webhooks) Stop() {
 	}
 	w.compactor.Stop()
 	w.imap.Stop()
+	w.pg.Stop()
 	w.alerts.Stop()
 }
 

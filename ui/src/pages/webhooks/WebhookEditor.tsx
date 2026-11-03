@@ -19,6 +19,7 @@ import {
   ConfigSelect,
   ConfigToggle,
 } from "@/pages/settings/connections/fields";
+import { DatabaseGroup } from "./DatabaseGroup";
 import { MailboxGroup } from "./MailboxGroup";
 import { AuthGroup } from "./WebhookAuthGroup";
 import {
@@ -213,6 +214,14 @@ export type Setter = <K extends keyof WebhookForm>(key: K) => (value: WebhookFor
  * platform owns them (#2178). */
 function InputGroups({ form, creating, set }: { form: WebhookForm; creating: boolean; set: Setter }) {
   if (form.input === "imap") return <MailboxGroup form={form} creating={creating} set={set} />;
+  if (form.input === "postgres") {
+    return (
+      <>
+        <DatabaseGroup form={form} set={set} />
+        <EventsGroup form={form} set={set} />
+      </>
+    );
+  }
   if (form.input !== "http") return null;
   return (
     <>
@@ -245,8 +254,9 @@ function SourceGroup({ form, creating, set }: { form: WebhookForm; creating: boo
             options={[
               { value: "http", label: "Requests posted to the source" },
               { value: "imap", label: "A mailbox the platform checks (IMAP)" },
+              { value: "postgres", label: "An application database (notifications or outbox)" },
             ]}
-            help="A mailbox source files each message from an allowed sender as one event, its attachments as resources the event names."
+            help="A mailbox source files each message from an allowed sender as one event, its attachments as resources the event names. A database source files each notification or outbox row as one event."
           />
           <ConfigSelect
             label="Connection"
@@ -282,16 +292,19 @@ function SourceGroup({ form, creating, set }: { form: WebhookForm; creating: boo
       ) : null}
       <ConfigToggle
         label="Enabled"
-        help={
-          form.input === "imap"
-            ? "A disabled source's mailbox is not checked."
-            : "A disabled source answers 404, the same answer as a name that is not a source."
-        }
+        help={enabledHelp(form.input)}
         checked={form.enabled}
         onChange={set("enabled")}
       />
     </ConfigGroup>
   );
+}
+
+/** enabledHelp says what turning a source of input off stops. */
+function enabledHelp(input: WebhookForm["input"]): string {
+  if (input === "imap") return "A disabled source's mailbox is not checked.";
+  if (input === "postgres") return "A disabled source's database is not listened to.";
+  return "A disabled source answers 404, the same answer as a name that is not a source.";
 }
 
 function EventsGroup({ form, set }: { form: WebhookForm; set: Setter }) {

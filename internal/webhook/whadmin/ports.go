@@ -6,6 +6,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whpgstate"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
@@ -51,6 +52,13 @@ type Windows interface {
 	ResourceIDs(ctx context.Context, source string) ([]string, error)
 	// SpoolStates reads every receiver's spool state (#2121).
 	SpoolStates(ctx context.Context) ([]whstore.SpoolState, error)
+}
+
+// Database is the postgres input's admin side (#2408): the check a source's
+// database passes when it is saved, and its listener's state.
+type Database interface {
+	Check(ctx context.Context, src whsource.Source) error
+	Listener(ctx context.Context, source string) (whpgstate.State, error)
 }
 
 // Mailbox is the imap input's admin side (#2247): the check a source's

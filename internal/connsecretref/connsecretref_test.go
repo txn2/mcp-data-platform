@@ -50,6 +50,12 @@ func TestAllowed(t *testing.T) {
 		{"s3", nil, "session_token", true},
 		{"s3", nil, "endpoint", false},
 		{"s3", nil, "access_key_id.x", false},
+		{"appdb", nil, "password", true},
+		{"appdb", nil, "persona_role_passwords.analyst", true},
+		{"appdb", nil, "persona_role_passwords", false},
+		{"appdb", nil, "persona_role_passwords.a.b", false},
+		{"appdb", nil, "persona_roles.analyst", false},
+		{"appdb", nil, "user", false},
 		{"ftp", nil, "token", false},
 	}
 	for _, tc := range cases {
@@ -58,6 +64,7 @@ func TestAllowed(t *testing.T) {
 	assert.Contains(t, Fields("api"), "static_headers")
 	assert.Contains(t, Fields("mcp"), "credential, and oauth_client_id")
 	assert.Equal(t, "password", Fields("trino"))
+	assert.Equal(t, "password and the values of persona_role_passwords", Fields("appdb"))
 	assert.Equal(t, "access_key_id, secret_access_key and session_token", Fields("s3"))
 	assert.Equal(t, "none of a ftp connection's fields", Fields("ftp"))
 }

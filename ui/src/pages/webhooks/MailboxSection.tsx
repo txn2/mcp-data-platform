@@ -56,7 +56,7 @@ export function MailboxSection({
   );
 }
 
-interface FactProps {
+export interface FactProps {
   label: string;
   value: string;
   mono?: boolean;
@@ -99,7 +99,7 @@ function FolderRow({ folder }: { folder: WebhookIMAPFolder }) {
   );
 }
 
-function Fact({ label, value, mono }: FactProps) {
+export function Fact({ label, value, mono }: FactProps) {
   return (
     <div>
       <dt className="text-muted-foreground">{label}</dt>

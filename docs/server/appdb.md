@@ -39,6 +39,10 @@ toolkits:
         schema_apply_personas: []
         schema_ledger: "mcp_schema"
         test_connection: ""          # this connection; its user needs CREATEDB
+        persona_roles:               # a persona's statements log in as its own role
+          sales: "orders_sales"
+        persona_role_passwords:
+          sales: "{{secret:orders-sales-password}}"
         description: "The order system"
     default: orders
 ```
@@ -63,12 +67,14 @@ toolkits:
 | `schema_apply_personas` | `[]` | Personas that may apply and revert this connection's migrations. Empty means administrators only |
 | `schema_ledger` | `mcp_schema` | Schema in this database that holds the ledger of applied migrations |
 | `test_connection` | this connection | Application database connection whose server the throwaway databases of this connection's migration checks and script tests are created on. Its user needs `CREATEDB` |
+| `persona_roles` | `{}` | Maps a persona to the database login role its statements run as. A persona not named runs as `user`. See [Persona roles](#persona-roles) |
+| `persona_role_passwords` | `{}` | Maps a persona named in `persona_roles` to its role's password, or `{{secret:<name>}}`. Encrypted at rest and never returned by a read, the config export, an audit row or a log |
 
 An application database cannot take a name a Trino connection holds, or the reverse: `platform.query` names its connection alone, and the save is refused with 409.
 
 A script uses a connection only when the persona its run presents allows the connection in its `connections:` list. The check runs once per run, at the run's first statement on that connection. The driver is `jackc/pgx/v5`; the platform's own database stays on `lib/pq`.
 
-**Admin > Connections > Test** opens a connection and reports the server version, the database and the user it reached. Each connection's state (`healthy`, `unreachable`, `auth_failed`) is the one its statements last found.
+**Admin > Connections > Test** opens a connection and reports the server version, the database and the user it reached, logs in as every persona role and names each (warning of one that is a superuser or has `BYPASSRLS`, which row-level security does not apply to), and reports whether a notification sent through the pool reaches a listening connection, which a [webhook source with input postgres](webhooks.md#an-application-database-as-a-source) needs. Through PgBouncer in transaction mode it does not. Each connection's state (`healthy`, `unreachable`, `auth_failed`) is the one its statements last found; a persona role's failed login is reported under the connection's name.
 
 ## From a script
 
@@ -142,6 +148,39 @@ A statement that finds no free pooled connection within `pool_wait_timeout` fail
 What a script can do is what the connection's database user may do. `platform.query`'s `READ ONLY` transaction keeps a read from writing by mistake, but the boundary is the user's grants: give a connection meant for reading a user that can only read.
 
 Session state does not outlive a call: each connection is reset as it returns to the pool, so a `SET ROLE`, a `SET search_path`, a `LISTEN` or a temporary table one statement leaves is gone before the next uses the connection. With `statement_cache: false` the reset is `DISCARD ALL`. With the cache on it is the sequence PostgreSQL documents `DISCARD ALL` as, less its `DEALLOCATE ALL`: `CLOSE ALL`, `SET SESSION AUTHORIZATION DEFAULT`, `RESET ALL`, `UNLISTEN *`, `pg_advisory_unlock_all()`, `DISCARD PLANS`, `DISCARD TEMP` and `DISCARD SEQUENCES`. The prepared statements it keeps are the platform's own.
+
+## Persona roles
+
+The platform authorizes every run's use of a connection by persona first. A connection can also make the database a second boundary: `persona_roles` maps a persona to a login role, and every statement a run of that persona makes logs in as that role, through a pool of its own on each replica, sized `max_conns` and opened on first use. The database's own grants and row-level security then apply to it. A persona the map does not name runs as the connection's `user`.
+
+A run presents the persona of the script version's author, as it does for every call, so a script saved by someone in `sales` runs as `orders_sales`. An endpoint request runs its script the same way: as the author's persona, never the caller's.
+
+The roles log in directly; the platform never switches to one with `SET ROLE`. A session can `RESET ROLE` or `SET ROLE` to any role the role it logged in as is a member of, so a switched role is no boundary against the person writing the SQL. A role that logged in has nothing to reset to. Do not make a persona role a member of a role with more privileges, a superuser, or a role with `BYPASSRLS`; the connection test warns of the last two.
+
+A script test's throwaway database keeps the persona roles when the test server is the connection's own server, where the roles exist, so a test runs each statement as the role it would run as. On another test server every statement runs as the test server's user.
+
+## Caller claims
+
+Every transaction sets who it runs for as transaction-local settings, from bound values, before its first statement:
+
+| Setting | Value |
+|---------|-------|
+| `mcp.user_id` | An authenticated endpoint's caller: the user id the platform authenticated them as. Outside an endpoint, the script version's author's, which is empty until the platform has seen the author sign in |
+| `mcp.email` | The same person's address |
+| `mcp.persona` | The persona the statement runs as (the author's) |
+| `mcp.source` | `endpoint` for an endpoint request, `script` for a run |
+
+On a public or bot-check endpoint `mcp.user_id` and `mcp.email` are empty. Every setting is set in every transaction, empty when absent, so a statement never reads a value an earlier caller's transaction on the same pooled connection set. A row-level security policy reads them with `current_setting('mcp.user_id', true)`, and treats the empty string as no one:
+
+```sql
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own_orders ON orders TO orders_sales
+  USING (customer_id = nullif(current_setting('mcp.user_id', true), ''));
+```
+
+What a claim is worth depends on who wrote the SQL. The author of a script can set any setting in their own statement, so a claim protects against the person who did not write the SQL: an endpoint's caller, a form's submitter. Against the person writing the SQL the boundary is their persona's login role.
+
+## Statements the platform refuses
 
 `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT` and `PREPARE TRANSACTION` are refused: the platform holds the transaction, and `platform.transaction` is how statements commit together. `DEALLOCATE` and `DISCARD` are refused too. A string holding two statements is refused by the server, since the extended protocol carries one.
 
@@ -222,6 +261,22 @@ A migration's SQL is kept in the platform's database and in the target's ledger 
 A table the same migration creates is not a live table, and no rule reads a statement on it. Every finding names the statement, the object, what it does to a live table and the safe form, and is returned in `add`'s `findings` and recorded in the migration's history. A warning does not stop the save. A destructive finding does: the migration saves only with `change_summary` (what it removes, in plain words) and `user_agreed: true` once the person the application is built for agreed, and the summary and who agreed are in its history.
 
 Then every migration of the schema, the new one included, is applied from zero on a throwaway database on the connection's test server. A set that does not apply is refused naming the migration and the error. A test server whose user lacks `CREATEDB` cannot run this check: the migration saves with a `from_zero_unchecked` warning naming the privilege. The database built is kept as the schema's template, so the next check or script test that needs the same migrations starts from it.
+
+### The outbox template
+
+`manage_schema add` with `template: "outbox"` writes a migration the platform provides in place of `up` and `down`: an outbox table in the migration's schema (`outbox_table`, default `outbox`), a trigger function that writes each inserted, updated or deleted row of a captured table to it as JSON and notifies the channel named `<schema>.<table>`, and a trigger on each table in `capture`. It is reviewed, applied and reverted like any other migration. A [webhook source with input postgres](webhooks.md#an-application-database-as-a-source) in mode `outbox` then files each row as an event.
+
+```json
+{"command": "add", "connection": "orders", "version": 4, "template": "outbox", "capture": ["orders", "order_items"]}
+```
+
+| Column | Holds |
+|--------|-------|
+| `id` | The row's place, `bigint` identity |
+| `source_table` | The captured table, as `schema.table` |
+| `op` | `INSERT`, `UPDATE` or `DELETE` |
+| `payload` | The new row, or the old one for a `DELETE`, as `jsonb` |
+| `created_at` | When the transaction that made the change began |
 
 ### Script tests against a throwaway database
 

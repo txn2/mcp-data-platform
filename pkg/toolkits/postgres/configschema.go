@@ -25,6 +25,8 @@ const ConfigSchemaJSON = `{
     "schema_apply_personas": {"type": "array", "items": {"type": "string"}, "description": "Personas that may apply and revert this connection's migrations with manage_schema. Empty means administrators only."},
     "schema_ledger": {"type": "string", "description": "Schema in this database that holds the ledger of applied migrations. Defaults to mcp_schema."},
     "test_connection": {"type": "string", "description": "Application database connection whose server the throwaway databases of this connection's migration checks and script tests are created on. Defaults to this connection. Its user needs the CREATEDB privilege."},
+    "persona_roles": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Maps a persona to the database login role its statements run as, so the database's own grants and row-level security apply to it. A persona not named runs as user. Each role logs in directly, never by SET ROLE."},
+    "persona_role_passwords": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Maps a persona named in persona_roles to its role's password, or a {{secret:<name>}} reference to a stored secret. Encrypted at rest and never returned by a read."},
     "description": {"type": "string", "description": "What this connection is, as list_connections and search report it."}
   }
 }`

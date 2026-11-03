@@ -13,12 +13,12 @@ func TestMatchPath(t *testing.T) {
 		want          bool
 	}{
 		{"pipelines/**", "pipelines", true},
-		{"pipelines/**", "pipelines/nltv", true},
-		{"pipelines/**", "pipelines/nltv/2019", true},
+		{"pipelines/**", "pipelines/audience", true},
+		{"pipelines/**", "pipelines/audience/2019", true},
 		{"pipelines/**", "brand/posters", false},
 		{"brand/*", "brand/posters", true},
 		{"brand/*", "brand/posters/2024", false},
-		{"**/raw", "webhooks/blackbaud/raw", true},
+		{"**/raw", "webhooks/stripe/raw", true},
 		{"**", "", true},
 		{"reports", "reports", true},
 		{"reports", "reports/weekly", false},
@@ -46,9 +46,9 @@ func TestResolveTheTicketsExampleRules(t *testing.T) {
 		requested Policy
 		want      Decision
 	}{
-		{"a backfill nobody classified", File{Path: "pipelines/nltv", MIMEType: "text/csv", SizeBytes: 10}, "", Decision{None, false}},
-		{"a backfill that asked for full is capped", File{Path: "pipelines/nltv", MIMEType: "text/csv"}, Full, Decision{Metadata, true}},
-		{"a writer may ask for less than the ceiling", File{Path: "pipelines/nltv"}, None, Decision{None, true}},
+		{"a backfill nobody classified", File{Path: "pipelines/audience", MIMEType: "text/csv", SizeBytes: 10}, "", Decision{None, false}},
+		{"a backfill that asked for full is capped", File{Path: "pipelines/audience", MIMEType: "text/csv"}, Full, Decision{Metadata, true}},
+		{"a writer may ask for less than the ceiling", File{Path: "pipelines/audience"}, None, Decision{None, true}},
 		{"poster art a pipeline wrote", File{Path: "brand/posters", MIMEType: "image/png", Origin: OriginScript}, "", Decision{Metadata, false}},
 		{"an uploaded style guide", File{Path: "guides", MIMEType: "application/pdf", Origin: OriginUpload}, "", Decision{Full, false}},
 		{"a large CSV anywhere", File{Path: "exports", MIMEType: "text/csv", SizeBytes: 2 << 20}, "", Decision{None, false}},

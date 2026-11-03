@@ -122,7 +122,7 @@ export function MailboxGroup({ form, creating, set }: { form: WebhookForm; creat
   );
 }
 
-function ListField({
+export function ListField({
   label,
   value,
   onChange,

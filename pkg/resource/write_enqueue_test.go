@@ -223,7 +223,7 @@ func TestFolderKeyRoundTrips(t *testing.T) {
 		lib  ScopeFilter
 		path string
 	}{
-		{ScopeFilter{Scope: ScopeGlobal}, "pipelines/nltv"},
+		{ScopeFilter{Scope: ScopeGlobal}, "pipelines/audience"},
 		{ScopeFilter{Scope: ScopeUser, ScopeID: "a:b/c@example.com"}, "x:y"},
 	} {
 		lib, path, err := ParseFolderKey(FolderKey(c.lib, c.path))

@@ -38,20 +38,20 @@ func TestIMAP_Defaults(t *testing.T) {
 func TestIMAP_Refusals(t *testing.T) {
 	off := false
 	cases := map[string]func(s *Source){
-		"auth.secret is required":           func(s *Source) { s.Auth.Secret = "" },
-		"config.imap is required":           func(s *Source) { s.Config.IMAP = nil },
-		"mode imap with the mailbox's":      func(s *Source) { s.Auth.Username = "" },
-		"config.imap.host is required":      func(s *Source) { s.Config.IMAP.Host = " " },
-		"plain IMAP":                        func(s *Source) { s.Config.IMAP.TLS = "none" },
-		"is not a port":                     func(s *Source) { s.Config.IMAP.Port = 70000 },
-		"poll_seconds must be between":      func(s *Source) { s.Config.IMAP.PollSeconds = 5 },
-		"must be positive":                  func(s *Source) { s.Config.IMAP.MaxMessageBytes = -1 },
-		"holds no PEM certificate":          func(s *Source) { s.Config.IMAP.TLSCABundlePEM = "nope" },
-		"folders is required":               func(s *Source) { s.Config.IMAP.Folders = nil },
-		"allow_senders is required":         func(s *Source) { s.Config.IMAP.AllowSenders = nil },
-		"trusted_authserv_id is required":   func(s *Source) { s.Config.IMAP.TrustedAuthServID = "" },
-		"neither an address nor an @domain": func(s *Source) { s.Config.IMAP.AllowSenders = []string{"vendor.example"} },
-		"config.input must be http or imap": func(s *Source) { s.Config.Input = "ftp" },
+		"auth.secret is required":                     func(s *Source) { s.Auth.Secret = "" },
+		"config.imap is required":                     func(s *Source) { s.Config.IMAP = nil },
+		"mode imap with the mailbox's":                func(s *Source) { s.Auth.Username = "" },
+		"config.imap.host is required":                func(s *Source) { s.Config.IMAP.Host = " " },
+		"plain IMAP":                                  func(s *Source) { s.Config.IMAP.TLS = "none" },
+		"is not a port":                               func(s *Source) { s.Config.IMAP.Port = 70000 },
+		"poll_seconds must be between":                func(s *Source) { s.Config.IMAP.PollSeconds = 5 },
+		"must be positive":                            func(s *Source) { s.Config.IMAP.MaxMessageBytes = -1 },
+		"holds no PEM certificate":                    func(s *Source) { s.Config.IMAP.TLSCABundlePEM = "nope" },
+		"folders is required":                         func(s *Source) { s.Config.IMAP.Folders = nil },
+		"allow_senders is required":                   func(s *Source) { s.Config.IMAP.AllowSenders = nil },
+		"trusted_authserv_id is required":             func(s *Source) { s.Config.IMAP.TrustedAuthServID = "" },
+		"neither an address nor an @domain":           func(s *Source) { s.Config.IMAP.AllowSenders = []string{"vendor.example"} },
+		"config.input must be http, imap or postgres": func(s *Source) { s.Config.Input = "ftp" },
 	}
 	for want, mutate := range cases {
 		s := imapSource().WithDefaults()

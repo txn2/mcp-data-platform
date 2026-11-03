@@ -6,6 +6,7 @@ import type {
   WebhookSourceInput,
 } from "@/api/admin/types";
 import { EMPTY_IMAP, fromIMAP, imapOf, imapProblems, type IMAPForm } from "./imapForm";
+import { EMPTY_POSTGRES, fromPostgres, postgresOf, postgresProblems, type PostgresForm } from "./postgresForm";
 
 // The form a webhook source is created and edited through (#1870). Every
 // field is held as the text the input shows, so a number an administrator is
@@ -14,9 +15,11 @@ import { EMPTY_IMAP, fromIMAP, imapOf, imapProblems, type IMAPForm } from "./ima
 // leaving the rest for the platform's defaults.
 
 export interface WebhookForm {
-  /** Where events come from: posted to the source, or a polled mailbox. */
+  /** Where events come from: posted to the source, a polled mailbox, or an
+   * application database. */
   input: WebhookInput;
   imap: IMAPForm;
+  postgres: PostgresForm;
   name: string;
   connection: string;
   persona: string;
@@ -62,6 +65,7 @@ export interface WebhookForm {
 export const EMPTY_FORM: WebhookForm = {
   input: "http",
   imap: EMPTY_IMAP,
+  postgres: EMPTY_POSTGRES,
   name: "",
   connection: "",
   persona: "",
@@ -129,6 +133,7 @@ export function fromSource(s: WebhookSource): WebhookForm {
     ...configFields(s.config),
     input: s.config.input ?? "http",
     imap: fromIMAP(s.config.imap),
+    postgres: fromPostgres(s.config.postgres),
   };
 }
 
@@ -226,7 +231,23 @@ export function toInput(f: WebhookForm, creating: boolean): WebhookSourceInput {
  * only what comes after the input, since the platform owns the rest. */
 function configOf(f: WebhookForm): WebhookConfig {
   if (f.input === "form") return { input: "form", ...storageConfigOf(f) };
+  if (f.input === "postgres") return databaseConfigOf(f);
   return f.input === "imap" ? mailConfigOf(f) : httpConfigOf(f);
+}
+
+/** databaseConfigOf is a postgres source's config: the database, the paths
+ * that name an event's id, type and key in what it reads, and the settings
+ * after the input that every source shares. Nothing is posted to it. */
+function databaseConfigOf(f: WebhookForm): WebhookConfig {
+  return {
+    input: "postgres",
+    postgres: postgresOf(f.postgres),
+    split: str(f.split),
+    event_id_path: str(f.eventIdPath),
+    event_type_path: str(f.eventTypePath),
+    key_path: str(f.keyPath),
+    ...storageConfigOf(f),
+  };
 }
 
 /** mailConfigOf is an imap source's config: the mailbox, and the settings
@@ -270,7 +291,7 @@ function httpConfigOf(f: WebhookForm): WebhookConfig {
 /** authOf sends only the settings the chosen mode reads. */
 function authOf(f: WebhookForm): WebhookSourceInput["auth"] {
   const secret = f.secret === "" ? undefined : f.secret;
-  if (f.input === "form") return { mode: "" };
+  if (f.input === "form" || f.input === "postgres") return { mode: "" };
   if (f.input === "imap") {
     return { mode: "imap", secret, username: str(f.username) };
   }
@@ -353,8 +374,13 @@ function hmacAuthOf(f: WebhookForm, secret: string | undefined): WebhookSourceIn
  * saying before a round trip. */
 export function problems(f: WebhookForm, creating: boolean): string[] {
   if (f.input === "form") return [];
-  const input = f.input === "imap" ? imapProblems(f.imap, f.username) : modeProblems(f);
-  return [...(creating ? createProblems(f) : []), ...input];
+  return [...(creating ? createProblems(f) : []), ...inputProblems(f)];
+}
+
+/** inputProblems are the settings the chosen input needs. */
+function inputProblems(f: WebhookForm): string[] {
+  if (f.input === "postgres") return postgresProblems(f.postgres);
+  return f.input === "imap" ? imapProblems(f.imap, f.username) : modeProblems(f);
 }
 
 /** createProblems are the fields only a new source sets. */
@@ -367,7 +393,7 @@ function createProblems(f: WebhookForm): string[] {
     out.push("The name new is reserved.");
   }
   if (f.connection === "") out.push("Choose the connection the source's table is created on.");
-  if (f.secret === "") {
+  if (f.secret === "" && f.input !== "postgres") {
     out.push(f.input === "imap" ? "Enter the mailbox's password." : "Enter the secret the sender uses.");
   }
   return out;
@@ -471,7 +497,7 @@ export const HANDSHAKES: { value: string; label: string }[] = [
  * is a further path segment, shown as a placeholder: the secret is never read
  * back. */
 export function senderURL(origin: string, s: WebhookSource): string {
-  if (s.config.input === "imap" || s.config.input === "form") return "";
+  if (s.config.input === "imap" || s.config.input === "form" || s.config.input === "postgres") return "";
   const url = origin.replace(/\/$/, "") + s.path;
   return s.auth.mode === "path_token" ? `${url}/<token>` : url;
 }

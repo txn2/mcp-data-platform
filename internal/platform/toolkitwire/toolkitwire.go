@@ -93,15 +93,17 @@ func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz 
 	}
 	checker, _ := authz.(connectionAuthorizer)
 	scriptsession.InstallAppDB(scriptsession.AppDB{
-		Runner:    runner,
-		Authorize: func(ctx context.Context, connection string) error { return authorize(ctx, authn, checker, connection) },
+		Runner: runner,
+		Authorize: func(ctx context.Context, connection string) (string, error) {
+			return authorize(ctx, authn, checker, connection)
+		},
 		TestDatabase: func(ctx context.Context, connection string, schemas []string) (scriptsession.AppDBRunner, func(), error) {
 			pg := live()
 			// A test's statements run as the test server's user: the run
 			// must be allowed that connection as well as its own.
 			if pg != nil {
 				if srv := pg.TestServerOf(connection); srv != connection {
-					if err := authorize(ctx, authn, checker, srv); err != nil {
+					if _, err := authorize(ctx, authn, checker, srv); err != nil {
 						return nil, nil, err
 					}
 				}
@@ -143,10 +145,13 @@ func (r appdbRunner) Begin(ctx context.Context, o postgreskit.TxOptions) (script
 // errNoIdentity refuses a statement from a session that carries no identity.
 var errNoIdentity = errors.New("the run carries no identity to authorize an application database with")
 
-// authorize resolves the session's roles and asks the persona authorizer.
-func authorize(ctx context.Context, authn middleware.Authenticator, checker connectionAuthorizer, connection string) error {
+// authorize resolves the session's roles and asks the persona authorizer,
+// returning the persona the connection was allowed as: the one whose login
+// role the run's statements use (#2403). With no authorizer every connection
+// is allowed, as no persona.
+func authorize(ctx context.Context, authn middleware.Authenticator, checker connectionAuthorizer, connection string) (string, error) {
 	if checker == nil {
-		return nil
+		return "", nil
 	}
 	var roles []string
 	if u := middleware.GetPreAuthenticatedUser(ctx); u != nil {
@@ -154,14 +159,15 @@ func authorize(ctx context.Context, authn middleware.Authenticator, checker conn
 	} else if authn != nil {
 		u, err := authn.Authenticate(ctx)
 		if err != nil || u == nil {
-			return errNoIdentity
+			return "", errNoIdentity
 		}
 		roles = u.Roles
 	} else {
-		return errNoIdentity
+		return "", errNoIdentity
 	}
-	if ok, _, reason := checker.IsConnectionAuthorized(ctx, roles, connection); !ok {
-		return fmt.Errorf("application database %q is not allowed for this run: %s", connection, reason)
+	ok, persona, reason := checker.IsConnectionAuthorized(ctx, roles, connection)
+	if !ok {
+		return "", fmt.Errorf("application database %q is not allowed for this run: %s", connection, reason)
 	}
-	return nil
+	return persona, nil
 }

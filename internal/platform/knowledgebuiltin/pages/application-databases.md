@@ -123,3 +123,41 @@ reaches the connection's own database.
 The databases are created on the server of the connection's `test_connection`
 (the connection itself by default), whose user needs `CREATEDB`; without it
 the test fails naming the privilege.
+
+## Who a statement runs for
+
+A connection's `persona_roles` maps a persona to a database login role. A
+run's statements log in as the role of the persona the script version's author
+holds (an endpoint request's too), so the database's own grants and row-level
+security apply on top of the platform's persona check. A persona the map does
+not name runs as the connection's `user`. The role logs in itself; it is never
+switched to with `SET ROLE`, so `RESET ROLE` in a statement changes nothing.
+
+Every transaction sets who it runs for as transaction-local settings, read
+with `current_setting(name, true)`:
+
+- `mcp.user_id` and `mcp.email`: an authenticated endpoint's caller; empty on
+  a public endpoint; outside an endpoint, the script's author (in a draft, the
+  person running it).
+- `mcp.persona`: the persona whose role the statement runs as.
+- `mcp.source`: `endpoint` or `script`.
+
+A policy that shows each caller their own rows treats an empty setting as no
+one:
+
+    CREATE POLICY own_orders ON orders TO orders_sales
+      USING (customer_id = nullif(current_setting('mcp.user_id', true), ''));
+
+A claim protects against the person who did not write the SQL, such as an
+endpoint's caller. The script's author can set any setting in their own
+statement; against them the boundary is their persona's login role.
+
+## Rows as events
+
+`manage_schema` `add` with `template="outbox"` (and `capture`, the tables to
+watch) writes a migration the platform provides: an outbox table, a trigger
+function that writes each inserted, updated or deleted row of a captured table
+to it and notifies its channel, and a trigger on each captured table. A
+webhook source with input `postgres` and mode `outbox` then files each row as
+an event and deletes it, and the scripts naming that source run once per row,
+reading it from `run.event["payload"]["row"]`.

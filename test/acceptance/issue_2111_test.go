@@ -284,7 +284,7 @@ const issue2111SearchWait = indexjobs.ReconcilerInterval + issue2111Indexed
 // the description written for it, and none of its files is.
 func issue2111FolderIsOneSearchResult(t *testing.T, c *client, db *sql.DB, folder, stamp string, f issue2111Folder) {
 	t.Helper()
-	token := "nltvbackfill" + stamp
+	token := "audiencebackfill" + stamp
 	described := c.call("manage_resource", map[string]any{
 		"action": "update", "path": folder,
 		"description": "Daily schedule exports of the " + token + " station backfill.",

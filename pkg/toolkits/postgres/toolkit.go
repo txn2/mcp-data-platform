@@ -73,8 +73,11 @@ type Toolkit struct {
 // conn is one connection in service: its configuration, its pool, and the
 // types it has resolved.
 type conn struct {
-	cfg   Config
-	pool  *pgxpool.Pool
+	cfg  Config
+	pool *pgxpool.Pool
+	// roles are the pools of the login roles personas map to (#2403), nil
+	// when the connection maps none.
+	roles *rolePools
 	types *typeCache
 	// cache is the statement cache, nil when statement_cache is off.
 	cache *stmtCache
@@ -139,6 +142,22 @@ func (t *Toolkit) newConn(name string, cfg Config) (*conn, error) {
 	}
 	c.pool = pool
 	c.begin = c.poolBegin
+	if len(cfg.PersonaRoles) > 0 {
+		c.roles = &rolePools{pools: make(map[string]*pgxpool.Pool), build: func(rc Config) (*pgxpool.Pool, error) {
+			rpc, err := poolConfig(rc, t.afterConnect, tracer)
+			if err != nil {
+				return nil, err
+			}
+			if c.cache != nil {
+				rpc.BeforeClose = c.cache.forget
+			}
+			p, err := pgxpool.NewWithConfig(context.Background(), rpc)
+			if err != nil {
+				return nil, fmt.Errorf("postgres: building the pool: %w", err)
+			}
+			return p, nil
+		}}
+	}
 	return c, nil
 }
 
@@ -170,15 +189,23 @@ func (t *Toolkit) poolSamples() []observability.AppDBPoolSample {
 	defer t.mu.RUnlock()
 	out := make([]observability.AppDBPoolSample, 0, len(t.connections))
 	for name, c := range t.connections {
-		if c.pool == nil {
+		pools := c.allPools()
+		if len(pools) == 0 {
 			continue
 		}
-		st := c.pool.Stat()
-		out = append(out, observability.AppDBPoolSample{
-			Connection: name, Acquired: int64(st.AcquiredConns()), Idle: int64(st.IdleConns()),
-			Max: int64(st.MaxConns()), Acquires: st.AcquireCount(), Waited: st.EmptyAcquireCount(),
-			WaitSecondsInTotal: st.EmptyAcquireWaitTime().Seconds(),
-		})
+		// A connection's role pools (#2403) are reported with its own pool,
+		// under its name.
+		s := observability.AppDBPoolSample{Connection: name}
+		for _, p := range pools {
+			st := p.Stat()
+			s.Acquired += int64(st.AcquiredConns())
+			s.Idle += int64(st.IdleConns())
+			s.Max += int64(st.MaxConns())
+			s.Acquires += st.AcquireCount()
+			s.Waited += st.EmptyAcquireCount()
+			s.WaitSecondsInTotal += st.EmptyAcquireWaitTime().Seconds()
+		}
+		out = append(out, s)
 	}
 	return out
 }
@@ -219,9 +246,7 @@ func (t *Toolkit) Close() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for name, c := range t.connections {
-		if c.pool != nil {
-			c.pool.Close()
-		}
+		c.close()
 		delete(t.connections, name)
 	}
 	return nil
@@ -248,7 +273,7 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if _, ok := t.connections[name]; ok {
-		c.pool.Close()
+		c.close()
 		return fmt.Errorf("adding %s: %w", name, ErrConnectionExists)
 	}
 	t.connections[name] = c
@@ -271,7 +296,7 @@ func (t *Toolkit) UpdateConnection(name string, config map[string]any) error {
 	t.connections[name] = c
 	t.mu.Unlock()
 	if previous != nil {
-		go previous.pool.Close()
+		go previous.close()
 	}
 	return nil
 }
@@ -285,7 +310,7 @@ func (t *Toolkit) RemoveConnection(name string) error {
 	if !ok {
 		return fmt.Errorf("removing %s: %w", name, ErrConnectionNotFound)
 	}
-	go c.pool.Close()
+	go c.close()
 	return nil
 }
 
@@ -373,7 +398,11 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	if c.cfg.ReadOnly {
 		detail = fmt.Sprintf("%s; this connection is read_only and refuses platform.execute", detail)
 	}
-	return connprobe.Success(detail)
+	roles, err := c.probeRoles(ctx)
+	if err != nil {
+		return connprobe.Failure(fmt.Sprintf("connection %q answered as %s, and a persona role did not", name, user), err)
+	}
+	return connprobe.Success(detail + roles + t.probeListen(ctx, c))
 }
 
 // observe records what a call found of its connection.

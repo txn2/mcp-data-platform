@@ -111,9 +111,9 @@ func TestPostgresDescribeFolderFeedsTheFoldersEntry(t *testing.T) {
 	global := ScopeFilter{Scope: ScopeGlobal}
 
 	mock.ExpectExec("UPDATE resource_folders SET description").
-		WithArgs("global", "", "pipelines/nltv", "NLTV archive").WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, describer.DescribeFolder(context.Background(), global, "pipelines/nltv", "NLTV archive"))
-	assert.Equal(t, []indexjobs.Key{{SourceKind: FolderIndexKind, SourceID: "global::pipelines/nltv"}}, enq.keys)
+		WithArgs("global", "", "pipelines/audience", "Audience archive").WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, describer.DescribeFolder(context.Background(), global, "pipelines/audience", "Audience archive"))
+	assert.Equal(t, []indexjobs.Key{{SourceKind: FolderIndexKind, SourceID: "global::pipelines/audience"}}, enq.keys)
 
 	mock.ExpectExec("UPDATE resource_folders SET description").WillReturnResult(sqlmock.NewResult(0, 0))
 	assert.ErrorIs(t, describer.DescribeFolder(context.Background(), global, "gone", "x"), ErrFolderEmpty)
@@ -121,10 +121,10 @@ func TestPostgresDescribeFolderFeedsTheFoldersEntry(t *testing.T) {
 	assert.Error(t, describer.DescribeFolder(context.Background(), global, "x", "x"))
 
 	mock.ExpectQuery("SELECT description FROM resource_folders").
-		WillReturnRows(sqlmock.NewRows([]string{"description"}).AddRow("NLTV archive"))
-	desc, err := describer.FolderDescription(context.Background(), global, "pipelines/nltv")
+		WillReturnRows(sqlmock.NewRows([]string{"description"}).AddRow("Audience archive"))
+	desc, err := describer.FolderDescription(context.Background(), global, "pipelines/audience")
 	require.NoError(t, err)
-	assert.Equal(t, "NLTV archive", desc)
+	assert.Equal(t, "Audience archive", desc)
 	mock.ExpectQuery("SELECT description FROM resource_folders").WillReturnRows(sqlmock.NewRows([]string{"description"}))
 	_, err = describer.FolderDescription(context.Background(), global, "gone")
 	assert.ErrorIs(t, err, ErrFolderEmpty)
@@ -143,7 +143,7 @@ func TestSearchFoldersFailsClosedAndRanks(t *testing.T) {
 	})
 	require.True(t, ok)
 
-	got, err := searcher.SearchFolders(context.Background(), SearchQuery{QueryText: "nltv"})
+	got, err := searcher.SearchFolders(context.Background(), SearchQuery{QueryText: "audience"})
 	require.NoError(t, err)
 	assert.Empty(t, got, "no visible library, nothing to rank")
 

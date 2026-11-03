@@ -270,7 +270,7 @@ func TestIsObjectNotFound(t *testing.T) {
 // none matches neither lexical arm, though its name is in the full-text
 // expression.
 func TestSearchLeavesOutFilesThatAreNotIndexed(t *testing.T) {
-	q := SearchQuery{Embedding: []float32{1}, QueryText: "nltv", Scopes: []ScopeFilter{{Scope: ScopeGlobal}}}
+	q := SearchQuery{Embedding: []float32{1}, QueryText: "audience", Scopes: []ScopeFilter{{Scope: ScopeGlobal}}}
 	hybrid, _ := buildHybridSearch(q)
 	lexical, _ := buildLexicalSearch(q)
 	if got := strings.Count(hybrid, searchableClause); got != 1 {

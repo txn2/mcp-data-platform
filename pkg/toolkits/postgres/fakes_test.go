@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -84,6 +85,28 @@ func (f *fakeTx) typeRows(literal string) *fakeRows {
 	return &fakeRows{rows: rows, tag: "SELECT"}
 }
 
+// QueryRow answers the first row of Query, or pgx.ErrNoRows.
+func (f *fakeTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	rows, err := f.Query(ctx, sql, args...)
+	return fakeRow{rows: rows, err: err}
+}
+
+// fakeRow is one row of a fake result.
+type fakeRow struct {
+	rows pgx.Rows
+	err  error
+}
+
+func (r fakeRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if !r.rows.Next() {
+		return pgx.ErrNoRows
+	}
+	return r.rows.Scan(dest...) //nolint:wrapcheck // the fake rows' own error, read by its type
+}
+
 func (f *fakeTx) Commit(context.Context) error {
 	f.committed = true
 	return f.commitErr
@@ -131,6 +154,10 @@ func (r *fakeRows) Scan(dest ...any) error {
 			*p, _ = row[i].(string)
 		case *bool:
 			*p, _ = row[i].(bool)
+		case *int64:
+			*p, _ = row[i].(int64)
+		case *time.Time:
+			*p, _ = row[i].(time.Time)
 		}
 	}
 	return nil

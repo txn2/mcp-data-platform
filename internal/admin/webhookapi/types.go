@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whpgstate"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 )
@@ -61,6 +62,9 @@ type SourceDetail struct {
 	// IMAP is each folder of an imap source as its polls left it: the
 	// watermark, the messages stored and withheld, the last poll's error.
 	IMAP []whimap.Mark `json:"imap,omitempty"`
+	// Postgres is a postgres source's listener (#2408): the replica
+	// listening, what it filed and refused, its last failure.
+	Postgres *whpgstate.State `json:"postgres,omitempty"`
 }
 
 // SourceList is the collection response.
