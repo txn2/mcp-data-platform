@@ -53,7 +53,7 @@ import (
 //
 // Wire builds both halves and registers the tool layer, returning the handle.
 func Wire(deps Deps) *scriptexec.Handle {
-	recordings := recordingsOver(deps.DB)
+	recordings := recordingsOver(deps.DB, deps.Encryptor)
 	// Endpoints (#2170): a bound script answers HTTP requests, inline, under
 	// the same limits and the same identity a run has. Built first because
 	// its token issuer (#2175) answers runs and drafts as well.
@@ -133,11 +133,17 @@ func Wire(deps Deps) *scriptexec.Handle {
 // answers, which a script's tests and a save's replay are answered from
 // (#1939, #1942): one store, so what a run records a save reads. Nil with no
 // database, which keeps nothing.
-func recordingsOver(db *sql.DB) scriptrec.Store {
+func recordingsOver(db *sql.DB, enc secretstore.Encryptor) scriptrec.Store {
 	if db == nil {
 		return nil
 	}
-	return recstore.New(db)
+	store := recstore.New(db)
+	// Sealed whole, bound to the run, when the deployment holds a key
+	// (#2402): a recording keeps bound values and returned rows.
+	if sealer, ok := enc.(recstore.Sealer); ok {
+		store.Sealed(sealer)
+	}
+	return store
 }
 
 // draftExports adapts the execution handle's draft writer to the draft

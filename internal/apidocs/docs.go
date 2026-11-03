@@ -4374,6 +4374,112 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connection-instances/appdb/{name}/migrations": {
+            "get": {
+                "description": "Reports every migration the platform keeps for the connection's schema, whether the target's ledger records it as applied (applied, pending, or drift when the ledger and the platform disagree), and the history of adds, applies, reverts and failures, newest first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "List an application database's migrations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application database connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Schema the migrations belong to; defaults to public",
+                        "name": "schema",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/postgres.SchemaReport"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connection-instances/appdb/{name}/migrations/plan": {
+            "post": {
+                "description": "Runs the pending migrations in a transaction, reports the relations and columns they change and the locks they take, and rolls back. A migration that runs outside a transaction is listed as unplanned.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Plan an application database's pending migrations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application database connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Schema the migrations belong to; defaults to public",
+                        "name": "schema",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/postgres.Plan"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/connection-instances/effective": {
             "get": {
                 "security": [
@@ -39235,6 +39341,178 @@ const docTemplate = `{
                 "PermissionViewer",
                 "PermissionEditor"
             ]
+        },
+        "postgres.Drift": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "postgres.Lock": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string"
+                },
+                "relation": {
+                    "type": "string"
+                }
+            }
+        },
+        "postgres.MigrationEvent": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string"
+                },
+                "at": {
+                    "type": "string"
+                },
+                "checksum": {
+                    "type": "string"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "postgres.MigrationState": {
+            "type": "object",
+            "properties": {
+                "applied_at": {
+                    "type": "string"
+                },
+                "applied_by": {
+                    "type": "string"
+                },
+                "author": {
+                    "type": "string"
+                },
+                "checksum": {
+                    "type": "string"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "down": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "schema": {
+                    "description": "Schema is the namespace the migration belongs to and runs in: its\nsearch_path, created when the first migration applies.",
+                    "type": "string"
+                },
+                "state": {
+                    "description": "State is applied, pending or drift.",
+                    "type": "string"
+                },
+                "transactional": {
+                    "description": "Transactional is false for a migration holding a statement that cannot\nrun in a transaction (CREATE INDEX CONCURRENTLY), which runs alone.",
+                    "type": "boolean"
+                },
+                "up": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "postgres.Plan": {
+            "type": "object",
+            "properties": {
+                "changed": {
+                    "description": "Changed are the relations and columns the migrations created or\naltered, read from the system catalog rows the transaction wrote.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "locks": {
+                    "description": "Locks are the relation locks the transaction held at its end, with\ntheir modes: the locks the apply takes.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/postgres.Lock"
+                    }
+                },
+                "migrations": {
+                    "description": "Migrations are the versions planned, in order.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "unplanned": {
+                    "description": "Unplanned are migrations that run outside a transaction, which cannot\nbe rolled back and so are not planned.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "postgres.SchemaReport": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "current_version": {
+                    "type": "integer"
+                },
+                "drift": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/postgres.Drift"
+                    }
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/postgres.MigrationEvent"
+                    }
+                },
+                "ledger": {
+                    "type": "string"
+                },
+                "migrations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/postgres.MigrationState"
+                    }
+                },
+                "schema": {
+                    "type": "string"
+                }
+            }
         },
         "postshttp.Post": {
             "type": "object",

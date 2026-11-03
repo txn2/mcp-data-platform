@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,11 +74,13 @@ func TestRunLimits_AndAdmission(t *testing.T) {
 // A deployment with a database keeps recordings in it, and one without keeps
 // none (#1939).
 func TestRecordingsOver(t *testing.T) {
-	assert.Nil(t, recordingsOver(nil))
+	assert.Nil(t, recordingsOver(nil, nil))
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	assert.NotNil(t, recordingsOver(db))
+	assert.NotNil(t, recordingsOver(db, nil))
+	// With the platform's encryptor the recordings are sealed (#2402).
+	assert.NotNil(t, recordingsOver(db, fieldcrypt.NewRestFieldEncryptor(nil)))
 }
 
 func TestScriptLineage(t *testing.T) {

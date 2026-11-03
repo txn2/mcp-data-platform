@@ -13,10 +13,15 @@ import (
 
 // fakeAppDB is a runner serving one connection, "shop".
 type fakeAppDB struct {
-	got    []postgres.Statement
-	execs  int
-	result *postgres.Result
-	err    error
+	got       []postgres.Statement
+	execs     int
+	result    *postgres.Result
+	err       error
+	batches   [][]postgres.Statement
+	batchConn string
+	begun     []postgres.TxOptions
+	beginErr  error
+	txs       []*fakeTx
 }
 
 func (*fakeAppDB) HasConnection(name string) bool { return name == "shop" }
@@ -31,6 +36,63 @@ func (f *fakeAppDB) Execute(_ context.Context, s postgres.Statement) (*postgres.
 	f.got = append(f.got, s)
 	return f.result, f.err
 }
+
+func (f *fakeAppDB) Batch(_ context.Context, connection string, stmts []postgres.Statement) ([]*postgres.Result, error) {
+	f.batches = append(f.batches, stmts)
+	f.batchConn = connection
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]*postgres.Result, len(stmts))
+	for i := range stmts {
+		out[i] = &postgres.Result{Connection: connection, Command: "INSERT", RowsAffected: 1, Rows: [][]any{}}
+	}
+	return out, nil
+}
+
+func (f *fakeAppDB) Begin(_ context.Context, o postgres.TxOptions) (AppDBTx, error) {
+	f.begun = append(f.begun, o)
+	if f.beginErr != nil {
+		return nil, f.beginErr
+	}
+	tx := &fakeTx{conn: o.Connection, db: f}
+	f.txs = append(f.txs, tx)
+	return tx, nil
+}
+
+// fakeTx is a transaction of fakeAppDB that records what it was asked.
+type fakeTx struct {
+	conn       string
+	db         *fakeAppDB
+	stmts      []postgres.Statement
+	committed  bool
+	rolledBack bool
+	commitErr  error
+}
+
+func (x *fakeTx) Connection() string { return x.conn }
+
+func (x *fakeTx) Query(_ context.Context, s postgres.Statement) (*postgres.Result, error) {
+	x.stmts = append(x.stmts, s)
+	return x.db.result, x.db.err
+}
+
+func (x *fakeTx) Execute(_ context.Context, s postgres.Statement) (*postgres.Result, error) {
+	x.stmts = append(x.stmts, s)
+	return x.db.result, x.db.err
+}
+
+func (x *fakeTx) Batch(ctx context.Context, stmts []postgres.Statement) ([]*postgres.Result, error) {
+	x.stmts = append(x.stmts, stmts...)
+	return x.db.Batch(ctx, x.conn, stmts)
+}
+
+func (x *fakeTx) Commit(context.Context) error {
+	x.committed = true
+	return x.commitErr
+}
+
+func (x *fakeTx) Rollback() { x.rolledBack = true }
 
 // install puts db in place for one test and removes it after.
 func install(t *testing.T, db AppDBRunner, authorize func(context.Context, string) error) {
@@ -163,4 +225,165 @@ func TestIntArg(t *testing.T) {
 	assert.Equal(t, 3, intArg(int64(3)))
 	assert.Equal(t, 3, intArg(3.0))
 	assert.Equal(t, 0, intArg("3"))
+}
+
+func TestAppDBCaller_TransactionCommits(t *testing.T) {
+	db := &fakeAppDB{result: &postgres.Result{Connection: "shop", Command: "INSERT", RowsAffected: 1}}
+	install(t, db, nil)
+	c := newAppDBCaller(context.Background())
+
+	out, err := c.call(context.Background(), AppDBBegin, map[string]any{
+		"connection": "shop", "isolation": "serializable", "read_only": false, "attempt": 2,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "tx1", out["transaction"], "ids are numbered per session, so a replay matches")
+	require.Len(t, db.begun, 1)
+	assert.Equal(t, postgres.TxOptions{Connection: "shop", Isolation: "serializable", Attempt: 2}, db.begun[0])
+
+	_, err = c.call(context.Background(), AppDBTxExecute, map[string]any{
+		"transaction": "tx1", "sql": "INSERT INTO orders VALUES ($1)", "params": []any{int64(1)},
+	})
+	require.NoError(t, err)
+	_, err = c.call(context.Background(), AppDBTxQuery, map[string]any{"transaction": "tx1", "sql": "SELECT 1"})
+	require.NoError(t, err)
+	res, err := c.call(context.Background(), AppDBTxBatch, map[string]any{"transaction": "tx1", "statements": []any{
+		map[string]any{"sql": "INSERT INTO items VALUES ($1)", "params": []any{"a"}},
+		map[string]any{"sql": "INSERT INTO items VALUES ('b')"},
+	}})
+	require.NoError(t, err)
+	assert.Len(t, res["results"], 2)
+
+	tx := db.txs[0]
+	require.Len(t, tx.stmts, 4)
+	assert.Equal(t, "shop", tx.stmts[0].Connection, "a statement in a transaction runs on its connection")
+	assert.Equal(t, []any{int64(1)}, tx.stmts[0].Params)
+
+	out, err = c.call(context.Background(), AppDBCommit, map[string]any{"transaction": "tx1"})
+	require.NoError(t, err)
+	assert.Equal(t, true, out["committed"])
+	assert.True(t, tx.committed)
+
+	_, err = c.call(context.Background(), AppDBTxQuery, map[string]any{"transaction": "tx1", "sql": "SELECT 1"})
+	var refusal *RefusalError
+	require.ErrorAs(t, err, &refusal)
+	assert.Equal(t, postgres.CodeTransactionEnded, refusal.Code)
+}
+
+func TestAppDBCaller_StatementOutsideAnOpenTransactionIsRefused(t *testing.T) {
+	db := &fakeAppDB{result: &postgres.Result{Connection: "shop"}}
+	install(t, db, nil)
+	c := newAppDBCaller(context.Background())
+	_, err := c.call(context.Background(), AppDBBegin, map[string]any{"connection": "shop"})
+	require.NoError(t, err)
+	for _, name := range []string{AppDBQuery, AppDBExecute} {
+		_, err := c.call(context.Background(), name, map[string]any{"connection": "shop", "sql": "SELECT 1"})
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), "tx.query", name)
+	}
+	_, err = c.call(context.Background(), AppDBBatch, map[string]any{"connection": "shop", "statements": []any{map[string]any{"sql": "SELECT 1"}}})
+	require.Error(t, err)
+	_, err = c.call(context.Background(), AppDBRollback, map[string]any{"transaction": "tx1"})
+	require.NoError(t, err)
+	assert.True(t, db.txs[0].rolledBack)
+	_, err = c.call(context.Background(), AppDBQuery, map[string]any{"connection": "shop", "sql": "SELECT 1"})
+	require.NoError(t, err, "the statement runs once the transaction ended")
+}
+
+func TestAppDBCaller_CloseRollsBackOpenTransactions(t *testing.T) {
+	db := &fakeAppDB{}
+	install(t, db, nil)
+	c := newAppDBCaller(context.Background())
+	for _, conn := range []string{"shop", "ledger"} {
+		_, err := c.call(context.Background(), AppDBBegin, map[string]any{"connection": conn})
+		require.NoError(t, err)
+	}
+	_, err := c.call(context.Background(), AppDBBegin, map[string]any{"connection": "shop"})
+	require.ErrorContains(t, err, "a transaction is open", "a second transaction on one connection")
+	c.close()
+	for _, tx := range db.txs {
+		assert.True(t, tx.rolledBack)
+	}
+	var nilCaller *appdbCaller
+	nilCaller.close()
+}
+
+func TestAppDBCaller_BeginIsAuthorizedAndRefusals(t *testing.T) {
+	db := &fakeAppDB{}
+	install(t, db, func(_ context.Context, connection string) error {
+		if connection == "shop" {
+			return errors.New("not for you")
+		}
+		return nil
+	})
+	c := newAppDBCaller(context.Background())
+	_, err := c.call(context.Background(), AppDBBegin, map[string]any{"connection": "shop"})
+	require.ErrorContains(t, err, "not for you")
+	assert.Empty(t, db.begun)
+
+	_, err = c.call(context.Background(), AppDBBegin, map[string]any{})
+	require.ErrorContains(t, err, "names its connection")
+	_, err = c.call(context.Background(), AppDBCommit, map[string]any{"transaction": "tx9"})
+	require.ErrorContains(t, err, `no transaction "tx9"`)
+
+	db.beginErr = &postgres.RefusedError{Code: postgres.CodeReadOnly}
+	install(t, db, nil)
+	c = newAppDBCaller(context.Background())
+	_, err = c.call(context.Background(), AppDBBegin, map[string]any{"connection": "shop"})
+	var refusal *RefusalError
+	require.ErrorAs(t, err, &refusal)
+	assert.Equal(t, postgres.CodeReadOnly, refusal.Code)
+}
+
+func TestAppDBCaller_Batch(t *testing.T) {
+	db := &fakeAppDB{}
+	install(t, db, nil)
+	c := newAppDBCaller(context.Background())
+	out, err := c.call(context.Background(), AppDBBatch, map[string]any{"connection": "shop", "statements": []any{
+		map[string]any{"sql": "INSERT INTO t VALUES ($1)", "params": []any{"x"}},
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, "shop", db.batchConn)
+	results, _ := out["results"].([]any)
+	require.Len(t, results, 1)
+	first, _ := results[0].(map[string]any)
+	assert.Equal(t, "INSERT", first["command"])
+
+	for name, args := range map[string]map[string]any{
+		"no connection": {"statements": []any{map[string]any{"sql": "SELECT 1"}}},
+		"no statements": {"connection": "shop"},
+		"not an object": {"connection": "shop", "statements": []any{"SELECT 1"}},
+	} {
+		_, err := c.call(context.Background(), AppDBBatch, args)
+		require.Error(t, err, name)
+	}
+	db.err = &postgres.FailedError{Code: postgres.CodeStatementFailed, Summary: "statement 2 of the batch: failed"}
+	_, err = c.call(context.Background(), AppDBBatch, map[string]any{"connection": "shop", "statements": []any{map[string]any{"sql": "SELECT 1"}}})
+	require.ErrorContains(t, err, "statement 2 of the batch")
+}
+
+func TestAppDBCaller_CommitFailureIsReported(t *testing.T) {
+	db := &fakeAppDB{}
+	install(t, db, nil)
+	c := newAppDBCaller(context.Background())
+	_, err := c.call(context.Background(), AppDBBegin, map[string]any{"connection": "shop"})
+	require.NoError(t, err)
+	db.txs[0].commitErr = &postgres.FailedError{
+		Code: postgres.CodeStatementFailed, Summary: "serialization failure",
+		Statement: &postgres.StatementError{SQLState: "40001"},
+	}
+	_, err = c.call(context.Background(), AppDBCommit, map[string]any{"transaction": "tx1"})
+	var refusal *RefusalError
+	require.ErrorAs(t, err, &refusal)
+	pg, _ := refusal.Envelope["postgres"].(map[string]any)
+	assert.Equal(t, "40001", pg["sqlstate"])
+
+	_, err = c.call(context.Background(), AppDBTxExecute, map[string]any{"transaction": "tx1", "sql": "x"})
+	require.Error(t, err, "a committed or failed transaction is gone from the session")
+}
+
+func TestIsAppDBCall(t *testing.T) {
+	for _, name := range []string{AppDBQuery, AppDBExecute, AppDBBatch, AppDBBegin, AppDBTxQuery, AppDBTxExecute, AppDBTxBatch, AppDBCommit, AppDBRollback} {
+		assert.True(t, IsAppDBCall(name), name)
+	}
+	assert.False(t, IsAppDBCall("trino_query"))
 }

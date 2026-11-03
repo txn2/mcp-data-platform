@@ -58,6 +58,7 @@ var approvedLabelKeys = map[string]string{
 	"cause":             "the managed-script failure causes internal/runstate names (script, upstream, memory, worker_lost, platform, state_conflict)",
 	"model":             "the embedding models the deployment configures",
 	"result":            "a closed set per instrument (embedded/reused, created/exists, ...)",
+	"wait":              "whether an application database pool acquire waited: none or waited (appdb_pool_acquires_total)",
 	"state":             "the index-job queue states, the Connection* states in internal/opsobs, the background queue states (pending, running, waiting), or the OAuth credential states (ok, expiring, revoked, missing)",
 	"version":           "the builds a deployment runs (mcp_platform_build_info)",
 	"commit":            "the builds a deployment runs (mcp_platform_build_info)",

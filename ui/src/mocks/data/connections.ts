@@ -1,4 +1,4 @@
-import type { GraphQLSchemaInfo } from "@/api/admin/hooks";
+import type { AppDBMigrationReport, GraphQLSchemaInfo } from "@/api/admin/hooks";
 import type {
   ConnectionInstance,
   ConnectionsOAuthHealthResponse,
@@ -247,7 +247,62 @@ export const mockConnectionInstances: ConnectionInstance[] = [
     created_by: "admin@acme.example.com",
     updated_at: "2025-01-21T09:05:00Z",
   },
+  {
+    // An application database (#2404): two migrations applied and one
+    // pending, which the Migrations card lists and plans.
+    kind: "appdb",
+    name: "acme-shop",
+    config: {
+      host: "shop-db.internal",
+      port: 5432,
+      database: "shop",
+      user: "shop_app",
+      password: "[REDACTED]",
+      sslmode: "verify-full",
+    },
+    description: "The shop application's own database.",
+    created_by: "admin@acme.example.com",
+    updated_at: "2025-01-22T10:00:00Z",
+  },
 ];
+
+// The migrations the platform keeps for each application database (#2404).
+export const mockAppDBMigrations: Record<string, AppDBMigrationReport> = {
+  "acme-shop": {
+    connection: "acme-shop",
+    schema: "public",
+    ledger: "mcp_schema.migrations",
+    current_version: 2,
+    drift: [],
+    migrations: [
+      {
+        connection: "acme-shop", schema: "public", version: 1, name: "orders",
+        up: "CREATE TABLE orders (id bigint PRIMARY KEY, total numeric(10,2) NOT NULL)",
+        down: "DROP TABLE orders", transactional: true, checksum: "a1", author: "dev@acme.example.com",
+        created_at: "2025-01-22T10:01:00Z", updated_at: "2025-01-22T10:01:00Z",
+        state: "applied", applied_at: "2025-01-22T10:05:00Z", applied_by: "admin@acme.example.com",
+      },
+      {
+        connection: "acme-shop", schema: "public", version: 2, name: "order items",
+        up: "CREATE TABLE items (order_id bigint REFERENCES orders(id), sku text NOT NULL, qty int NOT NULL CHECK (qty > 0))",
+        down: "DROP TABLE items", transactional: true, checksum: "b2", author: "dev@acme.example.com",
+        created_at: "2025-01-22T10:02:00Z", updated_at: "2025-01-22T10:02:00Z",
+        state: "applied", applied_at: "2025-01-22T10:05:01Z", applied_by: "admin@acme.example.com",
+      },
+      {
+        connection: "acme-shop", schema: "public", version: 3, name: "order note",
+        up: "ALTER TABLE orders ADD COLUMN note text", down: "ALTER TABLE orders DROP COLUMN note",
+        transactional: true, checksum: "c3", author: "dev@acme.example.com",
+        created_at: "2025-01-23T09:00:00Z", updated_at: "2025-01-23T09:00:00Z", state: "pending",
+      },
+    ],
+    events: [
+      { connection: "acme-shop", schema: "public", version: 3, event: "added", actor: "dev@acme.example.com", duration_ms: 0, at: "2025-01-23T09:00:00Z" },
+      { connection: "acme-shop", schema: "public", version: 2, event: "applied", actor: "admin@acme.example.com", duration_ms: 41, at: "2025-01-22T10:05:01Z" },
+      { connection: "acme-shop", schema: "public", version: 1, event: "applied", actor: "admin@acme.example.com", duration_ms: 18, at: "2025-01-22T10:05:00Z" },
+    ],
+  },
+};
 
 // What the platform holds for each graphql connection, keyed by connection
 // name: GET /connection-instances/graphql/:name/schema. The two rows are the

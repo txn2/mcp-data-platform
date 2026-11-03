@@ -368,6 +368,9 @@ type Metrics struct {
 	// Statements sent to a postgres connection kind's database (#2400),
 	// metrics_postgres.go.
 	pg postgresInstruments
+	// Application database pools, statement cache and transactions (#2402),
+	// metrics_postgres.go.
+	appdb appdbInstruments
 
 	// DB connection-pool instruments, observed at scrape time from each
 	// registered pool's (*sql.DB).Stats(). The six instruments and the
@@ -683,6 +686,9 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 		return err
 	}
 	if err := m.registerDepInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerAppDBInstruments(meter); err != nil {
 		return err
 	}
 	if err := m.registerPostgresInstruments(meter); err != nil {

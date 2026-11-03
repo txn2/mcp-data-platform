@@ -192,3 +192,18 @@ def test_main():
 `
 	assert.Contains(t, rulesOf(calls), RuleTestCalled)
 }
+
+// A statement run through a transaction's tx, and each statement of a batch,
+// are held to the rule platform.query is (#2402).
+func TestSQLFromValuesCoversTransactionsAndBatches(t *testing.T) {
+	for name, src := range map[string]string{
+		"tx.execute":          "def main():\n    \"\"\"Doc.\"\"\"\n    def place(tx):\n        \"\"\"Doc.\"\"\"\n        tx.execute(\"DELETE FROM t WHERE id = \" + run.params[\"id\"])\n    platform.transaction(\"shop\", place)\n",
+		"tx.batch":            "def main():\n    \"\"\"Doc.\"\"\"\n    def place(tx):\n        \"\"\"Doc.\"\"\"\n        tx.batch([\"DELETE FROM t WHERE id = %s\" % run.params[\"id\"]])\n    platform.transaction(\"shop\", place)\n",
+		"batch dict":          "def main():\n    \"\"\"Doc.\"\"\"\n    platform.batch(\"shop\", [{\"sql\": \"DELETE FROM t WHERE id = {}\".format(run.params[\"id\"])}])\n",
+		"batch comprehension": "def main():\n    \"\"\"Doc.\"\"\"\n    platform.batch(\"shop\", [\"DELETE FROM t WHERE id = \" + i for i in run.params[\"ids\"]])\n",
+	} {
+		assert.Contains(t, rulesOf(src), RuleSQLFromValues, name)
+	}
+	bound := "def main():\n    \"\"\"Doc.\"\"\"\n    def place(tx):\n        \"\"\"Doc.\"\"\"\n        tx.execute(\"DELETE FROM t WHERE id = :id\", params = {\"id\": run.params[\"id\"]})\n        tx.batch([{\"sql\": \"DELETE FROM u WHERE id = :id\", \"params\": {\"id\": 1}}, \"SELECT 1\"])\n    platform.transaction(\"shop\", place)\n    platform.batch(\"shop\", [\"SELECT 1\"])\n"
+	assert.NotContains(t, rulesOf(bound), RuleSQLFromValues)
+}

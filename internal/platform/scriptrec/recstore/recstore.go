@@ -3,6 +3,7 @@
 package recstore
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -19,11 +20,66 @@ var _ scriptrec.Store = (*Store)(nil)
 
 // Store keeps recordings in script_recordings.
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	sealer Sealer
 }
 
 // New returns a Store over db.
 func New(db *sql.DB) *Store { return &Store{db: db} }
+
+// Sealer encrypts a recording at rest, bound to its run (#2402): the
+// platform's field encryptor.
+type Sealer interface {
+	Enabled() bool
+	SealBound(binding, plaintext string) (string, error)
+	OpenBound(binding, sealed string) (string, error)
+}
+
+// Sealed has the store encrypt every recording it saves with sealer, when
+// sealer holds a key (#2402). A recording keeps each call's arguments and
+// answer -- a statement's bound values, a value a script decrypted, the rows
+// a query returned -- so it is sealed whole, bound to its run id so one run's
+// recording is never opened as another's. A recording saved before the key
+// was set is read as it was stored.
+func (s *Store) Sealed(sealer Sealer) *Store {
+	s.sealer = sealer
+	return s
+}
+
+// sealedPrefix begins a sealed recording. A gzipped one begins with 0x1f
+// 0x8b, so the two are never confused.
+var sealedPrefix = []byte("encb:")
+
+// bindingOf is what a run's recording is sealed to.
+func bindingOf(runID string) string { return "script_recording:" + runID }
+
+// seal encrypts data for runID when the store holds a key.
+func (s *Store) seal(runID string, data []byte) ([]byte, error) {
+	if data == nil || s.sealer == nil || !s.sealer.Enabled() {
+		return data, nil
+	}
+	sealed, err := s.sealer.SealBound(bindingOf(runID), string(data))
+	if err != nil {
+		return nil, fmt.Errorf("sealing the recording: %w", err)
+	}
+	return []byte(sealed), nil
+}
+
+// open decrypts a sealed recording, and returns any other as stored.
+func (s *Store) open(rec *scriptrec.Stored) error {
+	if !bytes.HasPrefix(rec.Data, sealedPrefix) {
+		return nil
+	}
+	if s.sealer == nil || !s.sealer.Enabled() {
+		return fmt.Errorf("recording %s is encrypted and this deployment holds no encryption key", rec.RunID)
+	}
+	plain, err := s.sealer.OpenBound(bindingOf(rec.RunID), string(rec.Data))
+	if err != nil {
+		return fmt.Errorf("opening recording %s: %w", rec.RunID, err)
+	}
+	rec.Data = []byte(plain)
+	return nil
+}
 
 // columns is the column list every SELECT reads, mirrored by scan.
 const columns = `run_id, COALESCE(script_id::text, ''), script_name, kind, recorded_by,
@@ -51,7 +107,11 @@ func (s *Store) Save(ctx context.Context, rec scriptrec.Stored) error {
 	}
 	var data any
 	if rec.Data != nil {
-		data = rec.Data
+		sealed, err := s.seal(rec.RunID, rec.Data)
+		if err != nil {
+			return err
+		}
+		data = sealed
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO script_recordings (run_id, script_id, script_name, kind, recorded_by,
@@ -78,6 +138,9 @@ func (s *Store) Get(ctx context.Context, runID string) (*scriptrec.Stored, error
 	if err != nil {
 		return nil, fmt.Errorf("get script recording: %w", err)
 	}
+	if err := s.open(rec); err != nil {
+		return nil, err
+	}
 	return rec, nil
 }
 
@@ -96,6 +159,9 @@ func (s *Store) Recent(ctx context.Context, scriptID string, limit int) ([]scrip
 		rec, err := scan(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scanning script recording: %w", err)
+		}
+		if err := s.open(rec); err != nil {
+			return nil, err
 		}
 		out = append(out, *rec)
 	}

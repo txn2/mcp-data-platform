@@ -61,6 +61,9 @@ const (
 	KindNotify      = "notify"
 	KindPublish     = "publish"
 	KindResult      = "result"
+	// KindTransaction is platform.transaction or platform.batch (#2402):
+	// statements on an application database that commit together.
+	KindTransaction = "transaction"
 	KindState       = "state"
 	// KindToken is a signed token minted or verified with a stored key
 	// (#2175).

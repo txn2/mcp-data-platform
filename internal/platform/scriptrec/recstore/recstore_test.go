@@ -107,3 +107,82 @@ func TestPurgeCountsWhatItSwept(t *testing.T) {
 	assert.ErrorContains(t, err, "counting")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+// fakeSealer seals by prefixing and records the binding it was given.
+type fakeSealer struct {
+	enabled  bool
+	bindings []string
+	err      error
+}
+
+func (f *fakeSealer) Enabled() bool { return f.enabled }
+
+func (f *fakeSealer) SealBound(binding, plaintext string) (string, error) {
+	f.bindings = append(f.bindings, binding)
+	return "encb:" + binding + "|" + plaintext, f.err
+}
+
+func (f *fakeSealer) OpenBound(binding, sealed string) (string, error) {
+	prefix := "encb:" + binding + "|"
+	if len(sealed) < len(prefix) || sealed[:len(prefix)] != prefix {
+		return "", errors.New("not sealed for this use")
+	}
+	return sealed[len(prefix):], f.err
+}
+
+func TestSealedStoreSealsAndOpens(t *testing.T) {
+	sealer := &fakeSealer{enabled: true}
+	s, mock := newMock(t)
+	s.Sealed(sealer)
+	data := []byte{0x1f, 0x8b, 1, 2}
+	sealed := []byte("encb:script_recording:srun_1|" + string(data))
+	mock.ExpectExec("INSERT INTO script_recordings").
+		WithArgs("srun_1", nil, "s", "run", "a", nil, "", true, "", len(data), sealed).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	require.NoError(t, s.Save(context.Background(), scriptrec.Stored{
+		RunID: "srun_1", ScriptName: "s", Kind: scriptrec.KindRun, RecordedBy: "a", Succeeded: true,
+		Data: data,
+	}))
+	assert.Equal(t, []string{"script_recording:srun_1"}, sealer.bindings)
+
+	row := []driver.Value{"srun_1", "", "s", "run", "a", 0, "", true, "", 4, false, time.Now(), sealed}
+	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(rowColumns).AddRow(row...))
+	got, err := s.Get(context.Background(), "srun_1")
+	require.NoError(t, err)
+	assert.Equal(t, data, got.Data)
+
+	// The same sealed bytes under another run do not open.
+	other := append([]driver.Value{"srun_2"}, row[1:]...)
+	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(rowColumns).AddRow(other...))
+	_, err = s.Get(context.Background(), "srun_2")
+	require.Error(t, err)
+
+	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(rowColumns).AddRow(row...))
+	recent, err := s.Recent(context.Background(), "sc", 5)
+	require.NoError(t, err)
+	assert.Equal(t, data, recent[0].Data)
+
+	// No key: a sealed recording says so, a plain one reads as stored.
+	plain, mock2 := newMock(t)
+	mock2.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(rowColumns).AddRow(row...))
+	_, err = plain.Get(context.Background(), "srun_1")
+	require.ErrorContains(t, err, "no encryption key")
+	mock2.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(rowColumns).AddRow(row...))
+	_, err = plain.Recent(context.Background(), "sc", 5)
+	require.Error(t, err)
+
+	// A disabled sealer stores as before; a failed seal saves nothing.
+	off, mock3 := newMock(t)
+	off.Sealed(&fakeSealer{})
+	mock3.ExpectExec("INSERT INTO script_recordings").
+		WithArgs("srun_3", nil, "s", "run", "a", nil, "", true, "", len(data), data).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	require.NoError(t, off.Save(context.Background(), scriptrec.Stored{
+		RunID: "srun_3", ScriptName: "s", Kind: scriptrec.KindRun, RecordedBy: "a", Succeeded: true,
+		Data: data,
+	}))
+	broken, _ := newMock(t)
+	broken.Sealed(&fakeSealer{enabled: true, err: errors.New("no key")})
+	require.ErrorContains(t, broken.Save(context.Background(), scriptrec.Stored{RunID: "srun_4", Data: data}), "sealing")
+	require.NoError(t, mock.ExpectationsWereMet())
+}

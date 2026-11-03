@@ -347,3 +347,80 @@ export function useRefreshGraphQLSchema(name: string) {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Application database migrations (kind=appdb, #2404)
+// ---------------------------------------------------------------------------
+
+// AppDBMigration is one migration the platform keeps for a connection's
+// schema, with where it stands in the target's ledger: applied, pending, or
+// drift when the ledger and the platform disagree.
+export interface AppDBMigration {
+  connection: string;
+  schema: string;
+  version: number;
+  name: string;
+  up: string;
+  down?: string;
+  transactional: boolean;
+  checksum: string;
+  author?: string;
+  created_at: string;
+  updated_at: string;
+  state: "applied" | "pending" | "drift";
+  applied_at?: string;
+  applied_by?: string;
+}
+
+// AppDBMigrationEvent is one entry of the migrations' history.
+export interface AppDBMigrationEvent {
+  connection: string;
+  schema: string;
+  version: number;
+  event: "added" | "edited" | "applied" | "reverted" | "failed";
+  actor?: string;
+  checksum?: string;
+  duration_ms: number;
+  detail?: string;
+  at: string;
+}
+
+export interface AppDBMigrationReport {
+  connection: string;
+  schema: string;
+  ledger: string;
+  current_version: number;
+  migrations: AppDBMigration[];
+  drift: { version: number; reason: string }[];
+  events: AppDBMigrationEvent[];
+}
+
+// AppDBMigrationPlan is what applying the pending migrations would do, from a
+// run of them in a transaction that was rolled back.
+export interface AppDBMigrationPlan {
+  migrations: number[];
+  changed: string[];
+  locks: { relation: string; mode: string }[];
+  unplanned: number[];
+}
+
+export function useAppDBMigrations(name: string, schema: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["appdb-migrations", name, schema],
+    queryFn: () =>
+      apiFetch<AppDBMigrationReport>(
+        `/connection-instances/appdb/${name}/migrations?schema=${encodeURIComponent(schema)}`,
+      ),
+    enabled: enabled && !!name,
+  });
+}
+
+export function usePlanAppDBMigrations(name: string, schema: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<AppDBMigrationPlan>(
+        `/connection-instances/appdb/${name}/migrations/plan?schema=${encodeURIComponent(schema)}`,
+        { method: "POST" },
+      ),
+  });
+}

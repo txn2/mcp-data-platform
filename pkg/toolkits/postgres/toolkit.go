@@ -47,6 +47,13 @@ type Toolkit struct {
 	mu          sync.RWMutex
 	connections map[string]*conn
 
+	// open are the script transactions in progress, rolled back by Close.
+	openMu sync.Mutex
+	open   map[*Tx]struct{}
+
+	// migrations keeps manage_schema's migrations; nil registers no tool.
+	migrations MigrationStore
+
 	guard   atomic.Pointer[ConnectGuard]
 	metrics atomic.Pointer[observability.Metrics]
 	dbCfg   observability.DBConfig
@@ -58,6 +65,17 @@ type conn struct {
 	cfg   Config
 	pool  *pgxpool.Pool
 	types *typeCache
+	// cache is the statement cache, nil when statement_cache is off.
+	cache *stmtCache
+	// metrics is the toolkit's recorder.
+	metrics *atomic.Pointer[observability.Metrics]
+	// tracer reports the statements sent below pgx's query path (prepared.go).
+	tracer pgx.QueryTracer
+	// ledgerQ reads the migration ledger; nil reads it from the pool.
+	ledgerQ ledgerReader
+	// openSession holds a connection for a migration; nil takes one from
+	// the pool.
+	openSession func(context.Context) (session, error)
 	// begin opens a transaction: the pool's, or a test's stand-in.
 	begin func(context.Context, pgx.TxOptions) (pgx.Tx, error)
 }
@@ -99,11 +117,18 @@ func (t *Toolkit) newConn(name string, cfg Config) (*conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	c := &conn{cfg: cfg, types: newTypeCache(), metrics: &t.metrics, tracer: tracer}
+	if cfg.StatementCache {
+		c.cache = newStmtCache(name, &t.metrics)
+		pc.BeforeClose = c.cache.forget
+	}
 	pool, err := pgxpool.NewWithConfig(context.Background(), pc)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: building the pool: %w", err)
 	}
-	return &conn{cfg: cfg, pool: pool, types: newTypeCache(), begin: pool.BeginTx}, nil
+	c.pool = pool
+	c.begin = c.poolBegin
+	return c, nil
 }
 
 // afterConnect runs the guard in force on a new physical connection.
@@ -124,6 +149,27 @@ func (t *Toolkit) SetConnectGuard(g ConnectGuard) {
 // pools built before it as well as after.
 func (t *Toolkit) SetMetrics(m *observability.Metrics) {
 	t.metrics.Store(m)
+	m.RegisterAppDBPools(t.poolSamples)
+}
+
+// poolSamples is every pool's state on this replica, for the appdb_pool
+// series.
+func (t *Toolkit) poolSamples() []observability.AppDBPoolSample {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]observability.AppDBPoolSample, 0, len(t.connections))
+	for name, c := range t.connections {
+		if c.pool == nil {
+			continue
+		}
+		st := c.pool.Stat()
+		out = append(out, observability.AppDBPoolSample{
+			Connection: name, Acquired: int64(st.AcquiredConns()), Idle: int64(st.IdleConns()),
+			Max: int64(st.MaxConns()), Acquires: st.AcquireCount(), Waited: st.EmptyAcquireCount(),
+			WaitSecondsInTotal: st.EmptyAcquireWaitTime().Seconds(),
+		})
+	}
+	return out
 }
 
 // Kind implements registry.Toolkit.
@@ -136,9 +182,17 @@ func (t *Toolkit) Name() string { return t.name }
 func (t *Toolkit) Connection() string { return t.defaultName }
 
 // Tools implements registry.Toolkit. An application database has no agent
-// tool: scripts and endpoints reach it through the host's platform.query and
-// platform.execute, which call Query and Execute directly (#2428).
-func (*Toolkit) Tools() []string { return []string{} }
+// tool for its data: scripts and endpoints reach it through the host's
+// platform.query, platform.execute, platform.transaction and platform.batch,
+// which call the toolkit directly (#2428, #2402). The one tool is
+// manage_schema (#2404), which builds the schema, when a migration store is
+// installed.
+func (t *Toolkit) Tools() []string {
+	if t.migrations == nil {
+		return []string{}
+	}
+	return []string{SchemaToolName}
+}
 
 // SetSemanticProvider implements registry.Toolkit. Postgres tables are
 // enriched once the catalog scans them (#2401).
@@ -147,8 +201,9 @@ func (*Toolkit) SetSemanticProvider(semantic.Provider) {}
 // SetQueryProvider implements registry.Toolkit.
 func (*Toolkit) SetQueryProvider(query.Provider) {}
 
-// Close closes every pool.
+// Close rolls back every transaction in progress and closes every pool.
 func (t *Toolkit) Close() error {
+	t.abandonOpen()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for name, c := range t.connections {
@@ -158,8 +213,13 @@ func (t *Toolkit) Close() error {
 	return nil
 }
 
-// RegisterTools implements registry.Toolkit and registers nothing (see Tools).
-func (*Toolkit) RegisterTools(*mcp.Server) {}
+// RegisterTools implements registry.Toolkit: manage_schema, when a migration
+// store is installed (see Tools).
+func (t *Toolkit) RegisterTools(s *mcp.Server) {
+	if t.migrations != nil {
+		t.registerSchemaTool(s)
+	}
+}
 
 // AddConnection implements toolkit.ConnectionManager.
 func (t *Toolkit) AddConnection(name string, config map[string]any) error {
@@ -334,3 +394,20 @@ var (
 	_ toolkit.ConnectionLister    = (*Toolkit)(nil)
 	_ connprobe.Prober            = (*Toolkit)(nil)
 )
+
+// rec is the toolkit's recorder, nil when none is installed. Every
+// observability.Metrics method is nil-safe.
+func (c *conn) rec() *observability.Metrics {
+	if c.metrics == nil {
+		return nil
+	}
+	return c.metrics.Load()
+}
+
+// reader is where the migration ledger is read from.
+func (c *conn) reader() ledgerReader {
+	if c.ledgerQ != nil {
+		return c.ledgerQ
+	}
+	return c.pool
+}

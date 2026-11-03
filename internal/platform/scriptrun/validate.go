@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripttx"
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
 	"github.com/txn2/mcp-data-platform/internal/scriptreserved"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -421,6 +422,8 @@ func (ins *inspection) visit(call *syntax.CallExpr, dot *syntax.DotExpr) {
 	switch name {
 	case CapabilityQuery, CapabilityExecute:
 		ins.collectKeyword(call, "connection", ins.connections, &ins.dynamicConnections)
+	case scripttx.CapabilityTransaction, scripttx.CapabilityBatch:
+		ins.collectFirstOrKeyword(call, "connection", ins.connections, &ins.dynamicConnections)
 	case CapabilityExport:
 		ins.visitExport(call, int(dot.NamePos.Line))
 	case CapabilityPublishData:
@@ -457,7 +460,7 @@ func hasStarArg(call *syntax.CallExpr) bool {
 // to as incomplete rather than reporting a shorter list as a complete one.
 func (ins *inspection) unreadable(name string) {
 	switch name {
-	case CapabilityQuery, CapabilityExecute:
+	case CapabilityQuery, CapabilityExecute, scripttx.CapabilityTransaction, scripttx.CapabilityBatch:
 		ins.dynamicConnections = true
 	case CapabilityExport:
 		ins.dynamicDestinations = true

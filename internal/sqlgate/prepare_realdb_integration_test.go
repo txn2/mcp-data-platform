@@ -65,6 +65,13 @@ var otherEngines = map[string]bool{
 	// The read of a form's submissions out of webhook_form_<endpoint>
 	// through Trino (#2180); the package holds no PostgreSQL.
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epsubmit": true,
+	// The application database kind (#2400, #2404). Its statements are
+	// PostgreSQL, but they run on an operator's database, never the
+	// platform's: the migration ledger (mcp_schema.migrations, its schema
+	// configurable) exists only there, so preparing them against the
+	// platform's schema would report a missing table. Its RealDB tests run
+	// every one of them against a real target database.
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres": true,
 }
 
 // source is a package that renders its run-time SQL for this gate.

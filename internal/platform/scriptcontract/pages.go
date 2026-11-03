@@ -41,6 +41,12 @@ var KnowledgePages = []KnowledgePage{
 			"argument a script has, and every rule a save holds it to.",
 	},
 	{
+		Slug:      "platform-application-databases",
+		Reference: knowledgePageRefPrefix + "platform-application-databases",
+		Summary: "An application's own PostgreSQL database from a script: bound statements, " +
+			"platform.transaction and its retry contract, platform.batch, and the schema.",
+	},
+	{
 		Slug:      "platform-reference-script",
 		Reference: knowledgePageRefPrefix + "platform-reference-script",
 		Summary: "A whole automation written as a saved one is, with the tests it is saved " +

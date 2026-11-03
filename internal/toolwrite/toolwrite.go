@@ -161,6 +161,14 @@ var readOnlyTools = map[string]bool{
 	// ONLY transaction that is always rolled back, so nothing it does persists
 	// (#2428). It is a host call, not a tool.
 	"appdb.query": true,
+	// platform.transaction's steps that write nothing themselves (#2402):
+	// opening the transaction, a read in it, and ending it. A write in it is
+	// appdb.tx_execute, which the barrier refuses in a draft, so a commit
+	// commits only what the draft was allowed to write.
+	"appdb.begin":    true,
+	"appdb.tx_query": true,
+	"appdb.commit":   true,
+	"appdb.rollback": true,
 }
 
 // writeTools is every tool whose every call persists something. They are named
@@ -186,6 +194,12 @@ var writeTools = map[string]bool{
 	// platform.execute on an application database: one statement committed
 	// in a transaction of its own (#2428). It is a host call, not a tool.
 	"appdb.execute": true,
+	// A write in a script's transaction, and a batch, in a transaction of its
+	// own or in the script's (#2402). A batch is a write whatever its
+	// statements are: it is sent as one, and its SQL is not read here.
+	"appdb.tx_execute": true,
+	"appdb.tx_batch":   true,
+	"appdb.batch":      true,
 }
 
 // actionRule classifies one tool by the value of one argument.
@@ -270,6 +284,12 @@ var actionTools = map[string]actionRule{
 	"memory_manage": {arg: "command", reads: set(
 		"list", "review_stale", "review_duplicates", "",
 	), writes: set("update", "forget", "consolidate")},
+	// manage_schema (#2404): plan runs the pending migrations and rolls them
+	// back, so it persists nothing; add keeps a migration, and apply and down
+	// change the application's schema.
+	"manage_schema": {arg: "command", reads: set(
+		"status", "plan", "history", "describe",
+	), writes: set("add", "apply", "down")},
 	// manage_prompt: use renders a stored prompt and writes nothing.
 	"manage_prompt": {arg: "command", reads: set(
 		"list", "get", "use", "locate", "get_content", "outline", "stats", "diff",

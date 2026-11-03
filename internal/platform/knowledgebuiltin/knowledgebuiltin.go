@@ -77,6 +77,7 @@ const (
 	slugMaps          = "platform-maps"
 	slugVisuals       = "platform-visual-libraries"
 	slugContentTypes  = knowledgepage.BuiltinSlugContentTypes
+	slugAppDB         = "platform-application-databases"
 )
 
 // pageMeta is the shipped metadata of one page. The title is the body file's
@@ -108,14 +109,21 @@ var pageMetas = []pageMeta{
 		slug:    slugWriting,
 		summary: "How to build an automation, which the platform builds as a managed script: the Starlark dialect's deliberate absences, the tools a script can call and the persona that decides them, DECIMAL columns arriving as strings, the validate/dry-run loop, and what a save makes runnable.",
 		tags:    []string{"scripts", "automation", "starlark", "authoring"},
-		related: []string{slugDialect, slugReference, slugOutputs, slugDashboards},
+		related: []string{slugDialect, slugReference, slugOutputs, slugDashboards, slugAppDB},
 	},
 	{
 		file:    "managed-script-dialect.md",
 		slug:    slugDialect,
 		summary: "The managed-script dialect contract, the text manage_script help returns: every module, member and argument a script has, and every rule a save holds it to.",
 		tags:    []string{"scripts", "automation", "starlark", "reference"},
-		related: []string{slugWriting, slugReference},
+		related: []string{slugWriting, slugReference, slugAppDB},
+	},
+	{
+		file:    "application-databases.md",
+		slug:    slugAppDB,
+		summary: "Reading and writing an application's own PostgreSQL database from a script: bound statements, platform.transaction and its retry contract, platform.batch in one round trip, and the schema manage_schema builds.",
+		tags:    []string{"scripts", "application database", "postgres", "transactions"},
+		related: []string{slugWriting, slugDialect, slugReference},
 	},
 	{
 		file:    "reference-script.md",

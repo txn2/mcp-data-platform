@@ -24,6 +24,14 @@ func (shop) Execute(context.Context, postgres.Statement) (*postgres.Result, erro
 	return &postgres.Result{}, nil
 }
 
+func (shop) Batch(context.Context, string, []postgres.Statement) ([]*postgres.Result, error) {
+	return nil, nil
+}
+
+func (shop) Begin(context.Context, postgres.TxOptions) (scriptsession.AppDBTx, error) {
+	return nil, nil //nolint:nilnil // never called: Call only picks the path
+}
+
 func params(t *testing.T, k string, v starlark.Value) *starlark.Dict {
 	t.Helper()
 	d := starlark.NewDict(1)

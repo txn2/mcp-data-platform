@@ -508,10 +508,15 @@ func (p *Platform) initDatabase() error {
 		return fmt.Errorf("opening database: %w", err)
 	}
 
-	db.SetMaxOpenConns(p.config.Database.MaxOpenConns)
-	if p.config.Database.MaxOpenConns == 0 {
-		db.SetMaxOpenConns(defaultMaxOpenConns)
+	maxOpen := p.config.Database.MaxOpenConns
+	if maxOpen == 0 {
+		maxOpen = defaultMaxOpenConns
 	}
+	db.SetMaxOpenConns(maxOpen)
+	// Keep every connection the pool opened: database/sql keeps 2 idle by
+	// default, so a burst past two closed the rest on release and the next
+	// burst paid a new connection, its SCRAM login included, per request.
+	db.SetMaxIdleConns(maxOpen)
 
 	if err := db.PingContext(context.Background()); err != nil {
 		return fmt.Errorf("connecting to database: %w", err)

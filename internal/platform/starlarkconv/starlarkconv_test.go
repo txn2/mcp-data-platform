@@ -125,3 +125,9 @@ func TestArguments(t *testing.T) {
 	_, err = Arguments(bad)
 	require.Error(t, err)
 }
+
+func TestDictOrNone(t *testing.T) {
+	d := DictOrNone(map[string]any{"b": "x", "a": 1, "bad": struct{}{}})
+	assert.Equal(t, `{"a": 1, "b": "x", "bad": None}`, d.String())
+	assert.Equal(t, 0, DictOrNone(nil).Len())
+}

@@ -64,6 +64,9 @@ internal/admin/mapsapi -> internal/logsan
 internal/admin/mapsapi -> internal/maps
 internal/admin/memoryapi -> internal/httpjson
 internal/admin/memoryapi -> pkg/memory
+internal/admin/migrationsapi -> internal/httpjson
+internal/admin/migrationsapi -> pkg/registry
+internal/admin/migrationsapi -> pkg/toolkits/postgres
 internal/admin/notifyapi -> internal/httpjson
 internal/admin/notifyapi -> internal/notification/notifyrender
 internal/admin/notifyapi -> pkg/notification
@@ -949,6 +952,7 @@ internal/platform/memorylayer -> pkg/portal/knowledgepage
 internal/platform/memorylayer -> pkg/semantic
 internal/platform/memorylayer -> pkg/toolkits/knowledge
 internal/platform/memorylayer -> pkg/toolkits/memory
+internal/platform/migrationstore -> pkg/toolkits/postgres
 internal/platform/notices -> internal/logsan
 internal/platform/notices -> internal/platform/calltask
 internal/platform/notices -> internal/portal/portaldomain
@@ -1330,6 +1334,7 @@ internal/platform/scriptrun -> internal/platform/scriptout/exportrecord
 internal/platform/scriptrun -> internal/platform/scriptpace
 internal/platform/scriptrun -> internal/platform/scriptsession
 internal/platform/scriptrun -> internal/platform/scriptstmt
+internal/platform/scriptrun -> internal/platform/scripttx
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/tooloutput
 internal/platform/scriptrun -> internal/platform/toolratelimit
@@ -1391,6 +1396,10 @@ internal/platform/scripttest -> internal/platform/scriptrun
 internal/platform/scripttest -> internal/platform/scriptsession
 internal/platform/scripttest -> internal/platform/starlarkconv
 internal/platform/scripttest -> pkg/script
+internal/platform/scripttx -> internal/platform/scriptfail
+internal/platform/scripttx -> internal/platform/scriptsession
+internal/platform/scripttx -> internal/platform/scriptsql
+internal/platform/scripttx -> internal/platform/starlarkconv
 internal/platform/scriptwiring -> internal/endpoint/epwire
 internal/platform/scriptwiring -> internal/platform/catalogstore
 internal/platform/scriptwiring -> internal/platform/resourcewrite
@@ -1526,6 +1535,7 @@ internal/platform/toolkitcfg -> internal/logsan
 internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> internal/secretref
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
+internal/platform/toolkitwire -> internal/platform/migrationstore
 internal/platform/toolkitwire -> internal/platform/scriptsession
 internal/platform/toolkitwire -> pkg/middleware
 internal/platform/toolkitwire -> pkg/observability
@@ -1753,6 +1763,7 @@ pkg/admin -> internal/admin/connoauthapi
 pkg/admin -> internal/admin/graphqlapi
 pkg/admin -> internal/admin/insightobs
 pkg/admin -> internal/admin/memoryapi
+pkg/admin -> internal/admin/migrationsapi
 pkg/admin -> internal/admin/notifyapi
 pkg/admin -> internal/admin/personaaccess
 pkg/admin -> internal/admin/personarules
@@ -2332,6 +2343,7 @@ pkg/toolkits/postgres -> internal/connstate
 pkg/toolkits/postgres -> internal/logsan
 pkg/toolkits/postgres -> internal/secretref
 pkg/toolkits/postgres -> internal/sqltables
+pkg/toolkits/postgres -> pkg/mcpcontext
 pkg/toolkits/postgres -> pkg/observability
 pkg/toolkits/postgres -> pkg/query
 pkg/toolkits/postgres -> pkg/semantic

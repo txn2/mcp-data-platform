@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 
@@ -20,13 +21,48 @@ import (
 const (
 	AppDBQuery   = "appdb.query"
 	AppDBExecute = "appdb.execute"
+	// AppDBBatch is platform.batch: statements pipelined in one transaction
+	// that commits when every one succeeded (#2402).
+	AppDBBatch = "appdb.batch"
+	// The calls platform.transaction makes (#2402): open the transaction,
+	// run statements in it, and end it. Each statement goes through the same
+	// call path as platform.query's, so a draft refuses a write inside a
+	// transaction and a recording keeps each statement and how it ended.
+	AppDBBegin     = "appdb.begin"
+	AppDBTxQuery   = "appdb.tx_query"
+	AppDBTxExecute = "appdb.tx_execute"
+	AppDBTxBatch   = "appdb.tx_batch"
+	AppDBCommit    = "appdb.commit"
+	AppDBRollback  = "appdb.rollback"
 )
+
+// IsAppDBCall reports whether name is one of the calls a session answers
+// against an application database rather than the MCP server.
+func IsAppDBCall(name string) bool {
+	switch name {
+	case AppDBQuery, AppDBExecute, AppDBBatch, AppDBBegin, AppDBTxQuery, AppDBTxExecute, AppDBTxBatch, AppDBCommit, AppDBRollback:
+		return true
+	}
+	return false
+}
 
 // AppDBRunner runs statements on application databases: the postgres toolkit.
 type AppDBRunner interface {
 	HasConnection(name string) bool
 	Query(ctx context.Context, s postgres.Statement) (*postgres.Result, error)
 	Execute(ctx context.Context, s postgres.Statement) (*postgres.Result, error)
+	Batch(ctx context.Context, connection string, stmts []postgres.Statement) ([]*postgres.Result, error)
+	Begin(ctx context.Context, o postgres.TxOptions) (AppDBTx, error)
+}
+
+// AppDBTx is one transaction a script holds: a *postgres.Tx.
+type AppDBTx interface {
+	Connection() string
+	Query(ctx context.Context, s postgres.Statement) (*postgres.Result, error)
+	Execute(ctx context.Context, s postgres.Statement) (*postgres.Result, error)
+	Batch(ctx context.Context, stmts []postgres.Statement) ([]*postgres.Result, error)
+	Commit(ctx context.Context) error
+	Rollback()
 }
 
 // AppDB is what the platform installs for the script sessions it opens.
@@ -64,6 +100,10 @@ type appdbCaller struct {
 
 	mu         sync.Mutex
 	authorized map[string]bool
+	// txs are the session's open transactions by id, and seq numbers them,
+	// so a recording's ids are the same on every replay.
+	txs map[string]AppDBTx
+	seq int
 }
 
 func newAppDBCaller(ctx context.Context) *appdbCaller {
@@ -71,21 +111,37 @@ func newAppDBCaller(ctx context.Context) *appdbCaller {
 	if a == nil {
 		return nil
 	}
-	return &appdbCaller{ctx: ctx, db: a, authorized: make(map[string]bool)}
+	return &appdbCaller{ctx: ctx, db: a, authorized: make(map[string]bool), txs: make(map[string]AppDBTx)}
 }
 
-// call runs one application-database statement.
+// errNoAppDB is the refusal of every call on a deployment with no runner.
+const errNoAppDB = "no application database is served on this deployment"
+
+// call runs one application-database call.
 func (c *appdbCaller) call(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
 	if c == nil || c.db.Runner == nil || c.db.Runner() == nil {
-		return nil, NewRefusal("no application database is served on this deployment",
-			refusalEnv(postgres.CodeUnknownConnection, "no application database is served on this deployment"))
+		return nil, NewRefusal(errNoAppDB, refusalEnv(postgres.CodeUnknownConnection, errNoAppDB))
 	}
+	switch name {
+	case AppDBQuery, AppDBExecute:
+		return c.statement(ctx, name, args)
+	case AppDBBatch:
+		return c.batch(ctx, args)
+	case AppDBBegin:
+		return c.begin(args)
+	default:
+		return c.inTx(ctx, name, args)
+	}
+}
+
+// statement runs one statement in a transaction of its own.
+func (c *appdbCaller) statement(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
 	st, err := statementOf(args)
 	if err != nil {
-		return nil, NewRefusal(err.Error(), refusalEnv(postgres.CodeInvalidStatement, err.Error()))
+		return nil, invalid(err)
 	}
-	if err := c.authorize(st.Connection); err != nil {
-		return nil, NewRefusal(err.Error(), refusalEnv("connection_not_allowed", err.Error()))
+	if err := c.admit(st.Connection); err != nil {
+		return nil, err
 	}
 	run := c.db.Runner().Query
 	if name == AppDBExecute {
@@ -96,6 +152,207 @@ func (c *appdbCaller) call(ctx context.Context, name string, args map[string]any
 		return nil, appdbRefusal(err)
 	}
 	return resultMap(res), nil
+}
+
+// batch runs platform.batch.
+func (c *appdbCaller) batch(ctx context.Context, args map[string]any) (map[string]any, error) {
+	connection, _ := args[argConnection].(string)
+	if connection == "" {
+		return nil, invalid(errors.New("a batch names its connection"))
+	}
+	stmts, err := statementsOf(args)
+	if err != nil {
+		return nil, invalid(err)
+	}
+	if err := c.admit(connection); err != nil {
+		return nil, err
+	}
+	res, err := c.db.Runner().Batch(ctx, connection, stmts)
+	if err != nil {
+		return nil, appdbRefusal(err)
+	}
+	return resultsMap(res), nil
+}
+
+// admit authorizes a connection and refuses a statement outside the
+// transaction this session holds open on it: it would run on another pooled
+// connection and wait on the transaction's own locks.
+func (c *appdbCaller) admit(connection string) error {
+	if err := c.authorize(connection); err != nil {
+		return NewRefusal(err.Error(), refusalEnv(codeNotAllowed, err.Error()))
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, tx := range c.txs {
+		if tx.Connection() == connection {
+			msg := fmt.Sprintf("a transaction is open on application database %q in this run; "+
+				"run the statement in it with tx.query, tx.execute or tx.batch", connection)
+			return NewRefusal(msg, refusalEnv(postgres.CodeInvalidStatement, msg))
+		}
+	}
+	return nil
+}
+
+// codeNotAllowed is the refusal of a connection the run may not use.
+const codeNotAllowed = "connection_not_allowed"
+
+// begin opens a transaction for platform.transaction. It is opened under the
+// session's own context, so it is rolled back when the run ends however it
+// ends, never by the end of the call that opened it.
+func (c *appdbCaller) begin(args map[string]any) (map[string]any, error) {
+	o := postgres.TxOptions{}
+	o.Connection, _ = args[argConnection].(string)
+	o.Isolation, _ = args["isolation"].(string)
+	o.ReadOnly, _ = args["read_only"].(bool)
+	o.Attempt = intArg(args["attempt"])
+	if o.Connection == "" {
+		return nil, invalid(errors.New("a transaction names its connection"))
+	}
+	if err := c.admit(o.Connection); err != nil {
+		return nil, err
+	}
+	tx, err := c.db.Runner().Begin(c.ctx, o)
+	if err != nil {
+		return nil, appdbRefusal(err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.seq++
+	id := fmt.Sprintf("tx%d", c.seq)
+	c.txs[id] = tx
+	return map[string]any{argTransaction: id, argConnection: o.Connection}, nil
+}
+
+// inTx runs a call on an open transaction.
+func (c *appdbCaller) inTx(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
+	id, _ := args[argTransaction].(string)
+	tx, err := c.take(id, name == AppDBCommit || name == AppDBRollback)
+	if err != nil {
+		return nil, err
+	}
+	switch name {
+	case AppDBCommit:
+		if err := tx.Commit(ctx); err != nil {
+			return nil, appdbRefusal(err)
+		}
+		return map[string]any{argTransaction: id, "committed": true}, nil
+	case AppDBRollback:
+		tx.Rollback()
+		return map[string]any{argTransaction: id, "committed": false}, nil
+	case AppDBTxBatch:
+		return txBatch(ctx, tx, args)
+	}
+	return txStatement(ctx, tx, name == AppDBTxExecute, args)
+}
+
+// take finds an open transaction, and forgets it when the call ends it.
+func (c *appdbCaller) take(id string, ending bool) (AppDBTx, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	tx, ok := c.txs[id]
+	if !ok {
+		msg := fmt.Sprintf("no transaction %q is open in this run", id)
+		return nil, NewRefusal(msg, refusalEnv(postgres.CodeTransactionEnded, msg))
+	}
+	if ending {
+		delete(c.txs, id)
+	}
+	return tx, nil
+}
+
+// txBatch runs tx.batch.
+func txBatch(ctx context.Context, tx AppDBTx, args map[string]any) (map[string]any, error) {
+	stmts, err := statementsOf(args)
+	if err != nil {
+		return nil, invalid(err)
+	}
+	res, err := tx.Batch(ctx, stmts)
+	if err != nil {
+		return nil, appdbRefusal(err)
+	}
+	return resultsMap(res), nil
+}
+
+// txStatement runs tx.query, or tx.execute when write.
+func txStatement(ctx context.Context, tx AppDBTx, write bool, args map[string]any) (map[string]any, error) {
+	st, err := txStatementOf(args, tx.Connection())
+	if err != nil {
+		return nil, invalid(err)
+	}
+	run := tx.Query
+	if write {
+		run = tx.Execute
+	}
+	res, err := run(ctx, st)
+	if err != nil {
+		return nil, appdbRefusal(err)
+	}
+	return resultMap(res), nil
+}
+
+// The argument keys the application-database calls carry.
+const (
+	argTransaction = "transaction"
+	argConnection  = "connection"
+)
+
+// close rolls back every transaction the session still holds: the run ended.
+func (c *appdbCaller) close() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	txs := c.txs
+	c.txs = make(map[string]AppDBTx)
+	c.mu.Unlock()
+	for _, tx := range txs {
+		tx.Rollback()
+	}
+}
+
+// invalid is the refusal of a call's malformed arguments.
+func invalid(err error) error {
+	return NewRefusal(err.Error(), refusalEnv(postgres.CodeInvalidStatement, err.Error()))
+}
+
+// txStatementOf reads a statement inside a transaction, which names no
+// connection of its own.
+func txStatementOf(args map[string]any, connection string) (postgres.Statement, error) {
+	withConn := maps.Clone(args)
+	if withConn == nil {
+		withConn = map[string]any{}
+	}
+	withConn[argConnection] = connection
+	return statementOf(withConn)
+}
+
+// statementsOf reads a batch's statements.
+func statementsOf(args map[string]any) ([]postgres.Statement, error) {
+	raw, _ := args["statements"].([]any)
+	if len(raw) == 0 {
+		return nil, errors.New("a batch holds at least one statement")
+	}
+	out := make([]postgres.Statement, len(raw))
+	for i, r := range raw {
+		m, ok := r.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("statement %d of the batch is not an object with sql and params", i+1)
+		}
+		out[i].SQL, _ = m["sql"].(string)
+		if p, ok := m["params"]; ok && p != nil {
+			out[i].Params = p
+		}
+	}
+	return out, nil
+}
+
+// resultsMap is a batch's results, each in resultMap's shape.
+func resultsMap(res []*postgres.Result) map[string]any {
+	out := make([]any, len(res))
+	for i, r := range res {
+		out[i] = resultMap(r)
+	}
+	return map[string]any{"results": out}
 }
 
 // authorize checks a connection once per session.
@@ -117,7 +374,7 @@ func (c *appdbCaller) authorize(connection string) error {
 // statementOf reads a call's arguments.
 func statementOf(args map[string]any) (postgres.Statement, error) {
 	st := postgres.Statement{}
-	st.Connection, _ = args["connection"].(string)
+	st.Connection, _ = args[argConnection].(string)
 	st.SQL, _ = args["sql"].(string)
 	if st.Connection == "" {
 		return st, errors.New("an application database statement names its connection")
@@ -161,7 +418,7 @@ func resultMap(res *postgres.Result) map[string]any {
 		rows[i] = row
 	}
 	return map[string]any{
-		"connection":    res.Connection,
+		argConnection:   res.Connection,
 		"command":       res.Command,
 		"rows_affected": res.RowsAffected,
 		"columns":       columns,

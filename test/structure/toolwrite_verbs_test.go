@@ -35,6 +35,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
+	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
 )
 
@@ -103,7 +104,31 @@ func actionToolServer(t *testing.T) *mcp.Server {
 	})
 	require.NoError(t, err)
 	objects.RegisterTools(server)
+
+	appdb := postgreskit.NewMulti(postgreskit.MultiConfig{})
+	appdb.SetMigrationStore(registrationMigrationStore{})
+	appdb.RegisterTools(server)
 	return server
+}
+
+// registrationMigrationStore is what manage_schema needs in order to register;
+// the listing reads its schema and calls nothing.
+type registrationMigrationStore struct{}
+
+func (registrationMigrationStore) List(context.Context, string, string) ([]postgreskit.Migration, error) {
+	return nil, nil
+}
+
+func (registrationMigrationStore) Put(context.Context, postgreskit.Migration) (bool, error) {
+	return false, nil
+}
+
+func (registrationMigrationStore) Record(context.Context, postgreskit.MigrationEvent) error {
+	return nil
+}
+
+func (registrationMigrationStore) Events(context.Context, string, string, int) ([]postgreskit.MigrationEvent, error) {
+	return nil, nil
 }
 
 // listedInputSchemas connects an in-memory client and returns each listed

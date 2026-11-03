@@ -63,32 +63,52 @@ func poolConfig(c Config, guard ConnectGuard, tracer pgx.QueryTracer) (*pgxpool.
 		"statement_timeout": strconv.FormatInt(c.StatementTimeout.Milliseconds(), decimal),
 	}
 	cc.Tracer = tracer
-	// No statement is cached on a connection: each is described, then run
-	// with its parameters typed by that description (run.go). A cache would
-	// also be emptied behind pgx's back by the DISCARD ALL below.
+	// pgx's own caches stay unused: a statement is described, then run with
+	// its parameters typed by that description (run.go). With statement_cache
+	// on, the description is a statement prepared on the physical connection
+	// under a name derived from its text (stmtcache.go), which the reset below
+	// keeps; with it off, every call describes the statement again.
 	cc.DefaultQueryExecMode = pgx.QueryExecModeExec
 	pc.MaxConns = int32(c.MaxConns) // #nosec G115 -- bounded by the check at the top of this function
 	pc.MinConns = 0
 	if guard != nil {
 		pc.AfterConnect = guard
 	}
-	pc.AfterRelease = resetSession
+	pc.AfterRelease = resetSession(c.StatementCache)
 	return pc, nil
 }
 
 // resetTimeout bounds the reset a released connection runs.
 const resetTimeout = 5 * time.Second
 
-// resetSession returns a released connection to the state it opened in before
-// another call uses it: DISCARD ALL undoes a session-level SET (a role, a
-// search_path, a timeout), LISTEN, temporary tables and advisory locks a
-// caller's statement left behind. Without it one caller's SET ROLE would be
-// the next caller's role. A connection the reset fails on is closed.
-func resetSession(c *pgx.Conn) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), resetTimeout)
-	defer cancel()
-	_, err := c.PgConn().Exec(ctx, "DISCARD ALL").ReadAll()
-	return err == nil
+// discardAll returns a session to the state it opened in.
+const discardAll = "DISCARD ALL"
+
+// discardAllButPrepared is DISCARD ALL without its DEALLOCATE ALL: the
+// sequence PostgreSQL documents DISCARD ALL as equivalent to, less the one
+// step that would empty the statement cache. Every prepared statement on a
+// connection is the platform's own, because a script's PREPARE, DEALLOCATE and
+// DISCARD are refused (run.go).
+const discardAllButPrepared = "CLOSE ALL; SET SESSION AUTHORIZATION DEFAULT; RESET ALL; UNLISTEN *; " +
+	"SELECT pg_advisory_unlock_all(); DISCARD PLANS; DISCARD TEMP; DISCARD SEQUENCES"
+
+// resetSession returns the reset a released connection runs before another
+// call uses it: it undoes a session-level SET (a role, a search_path, a
+// timeout), LISTEN, temporary tables and advisory locks a caller's statement
+// left behind. Without it one caller's SET ROLE would be the next caller's
+// role. With the statement cache on, the connection's prepared statements are
+// kept (discardAllButPrepared). A connection the reset fails on is closed.
+func resetSession(keepPrepared bool) func(*pgx.Conn) bool {
+	reset := discardAll
+	if keepPrepared {
+		reset = discardAllButPrepared
+	}
+	return func(c *pgx.Conn) bool {
+		ctx, cancel := context.WithTimeout(context.Background(), resetTimeout)
+		defer cancel()
+		_, err := c.PgConn().Exec(ctx, reset).ReadAll()
+		return err == nil
+	}
 }
 
 // connString is the keyword/value string pgx parses: no password, no TLS.

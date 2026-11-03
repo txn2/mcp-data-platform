@@ -257,3 +257,20 @@ func DictFromStarlark(d *starlark.Dict, depth int) (any, error) {
 	}
 	return out, nil
 }
+
+// DictOrNone is m as a Starlark dict in key order, each value that does not
+// convert read as None. It is for values the platform validated as JSON when
+// it stored them, where a value that does not convert is a defect in the
+// store rather than author input, and None keeps a run readable rather than
+// failing it with a message no author can act on.
+func DictOrNone(m map[string]any) *starlark.Dict {
+	d := starlark.NewDict(len(m))
+	for _, name := range SortedKeys(m) {
+		v, err := ToStarlark(m[name])
+		if err != nil {
+			v = starlark.None
+		}
+		_ = d.SetKey(starlark.String(name), v)
+	}
+	return d
+}

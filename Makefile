@@ -473,7 +473,9 @@ semgrep:
 ## --baseline-commit aborts on an unstaged change, and `make verify` is a
 ## pre-commit gate run on exactly that, so the scoping lives in the script.
 ## Every rule file in the directory runs; test/gates/semgrep_diff_test.go holds
-## each rule to the shape it was written for.
+## each rule to the shape it was written for. A rule with a fixture beside it
+## (go-intconv.yml and go-intconv.go, #2425) is run against that fixture with
+## `semgrep --test` first, and the gate fails when the two disagree.
 semgrep-diff:
 	@echo "Running diff-scoped Semgrep..."
 	@python3 scripts/semgrep-diff.py .semgrep-diff/

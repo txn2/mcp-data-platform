@@ -60,6 +60,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptpace"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripttx"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/scripthash"
@@ -607,6 +608,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		log = scriptlive.New(opts.MaxLogBytes, 0)
 	}
 	host := &hostState{opts: opts, ctx: runCtx, log: log, mem: scriptguard.NewMeter(opts.MaxMemoryBytes)}
+	host.tx = &scripttx.Host{Ctx: runCtx, Invoke: host.invokeRaw, Rows: host.queryResult, Failed: host.failed, Replaying: opts.Test != nil}
 	var overStep atomic.Bool
 
 	thread := &starlark.Thread{
@@ -751,6 +753,8 @@ func predeclared(host *hostState) starlark.StringDict {
 				"export":       starlark.NewBuiltin(CapabilityExport, host.guarded(host.export)),
 				"publish_data": starlark.NewBuiltin(CapabilityPublishData, host.guarded(host.publishData)),
 				"call":         starlark.NewBuiltin(CapabilityCall, host.guarded(host.call)),
+				"transaction":  starlark.NewBuiltin(scripttx.CapabilityTransaction, host.guarded(host.tx.Transaction)),
+				"batch":        starlark.NewBuiltin(scripttx.CapabilityBatch, host.guarded(host.tx.Batch)),
 				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.guarded(host.saveState)),
 				"checkpoint":   starlark.NewBuiltin(CapabilityCheckpoint, host.guarded(host.checkpoint)),
 				"remaining_ms": starlark.NewBuiltin(CapabilityRemainingMS, host.guarded(clock.RemainingMS)),
