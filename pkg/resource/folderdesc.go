@@ -101,8 +101,8 @@ func (s *postgresStore) DescribeFolder(ctx context.Context, lib ScopeFilter, pat
 type folderDescriptionRequest struct {
 	Scope       Scope  `json:"scope" example:"global"`
 	ScopeID     string `json:"scope_id,omitempty" example:""`
-	Path        string `json:"path" example:"pipelines/nltv"`
-	Description string `json:"description" example:"NLTV station daily reach and frequency archive, one CSV per station day since 2019"`
+	Path        string `json:"path" example:"pipelines/audience"`
+	Description string `json:"description" example:"Daily audience archive, one CSV per day since 2019"`
 }
 
 // handleFolderDescribe handles PUT /api/v1/resources/folders/description.

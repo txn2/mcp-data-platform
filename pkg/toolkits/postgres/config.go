@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"regexp"
 	"strings"
 	"time"
@@ -107,6 +108,13 @@ const (
 	cfgKeyApplyPersonas    = "schema_apply_personas"
 	cfgKeyLedgerSchema     = "schema_ledger"
 	cfgKeyTestConnection   = "test_connection"
+	// CfgKeyPersonaRoles maps a persona to the login role its statements run
+	// as (#2403).
+	CfgKeyPersonaRoles = "persona_roles"
+	// CfgKeyPersonaRolePasswords maps a persona to its role's password. Its
+	// values are encrypted at rest and redacted on read by the nested-map key
+	// set pkg/platform/fieldcrypt holds.
+	CfgKeyPersonaRolePasswords = "persona_role_passwords" // #nosec G101 -- a config key, not a credential
 )
 
 // Config is one PostgreSQL connection.
@@ -162,6 +170,29 @@ type Config struct {
 	// tests are created on (#2407). Empty is this connection itself. Its
 	// user needs CREATEDB.
 	TestConnection string
+	// PersonaRoles maps a persona to the database login role a statement
+	// for it runs as (#2403). A persona it does not name runs as User.
+	PersonaRoles map[string]string
+	// PersonaRolePasswords maps a persona to its role's password; each may
+	// be a {{secret:<name>}} reference.
+	PersonaRolePasswords map[string]string
+}
+
+// validateRoles refuses a persona role mapping with an empty persona or role,
+// and a password for a persona the mapping does not name.
+func (c Config) validateRoles() error {
+	for persona, role := range c.PersonaRoles {
+		if strings.TrimSpace(persona) == "" || strings.TrimSpace(role) == "" {
+			return fmt.Errorf("postgres: %s maps a persona or a role that is empty", CfgKeyPersonaRoles)
+		}
+	}
+	for persona := range c.PersonaRolePasswords {
+		if _, ok := c.PersonaRoles[persona]; !ok {
+			return fmt.Errorf("postgres: %s has a password for persona %q, which %s does not map to a role",
+				CfgKeyPersonaRolePasswords, persona, CfgKeyPersonaRoles)
+		}
+	}
+	return nil
 }
 
 // SecretKeys are the configuration keys a postgres connection may name a
@@ -197,7 +228,37 @@ func parseFilled(name string, raw map[string]any) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("postgres: %w", err)
 	}
+	if filled, err = fillRolePasswords(name, filled); err != nil {
+		return Config{}, err
+	}
 	return ParseConfig(filled)
+}
+
+// fillRolePasswords fills the {{secret:<name>}} references among the persona
+// role passwords (#2403). cfg is not changed; with nothing to fill it is
+// returned as is.
+func fillRolePasswords(name string, cfg map[string]any) (map[string]any, error) {
+	passwords := cfgmap.StringMap(cfg, CfgKeyPersonaRolePasswords)
+	var out map[string]string
+	for persona, pw := range passwords {
+		if !secretref.HasPlaceholder(pw) {
+			continue
+		}
+		v, err := secretref.FillConnection(context.Background(), name, pw, func(s string) string { return s })
+		if err != nil {
+			return nil, fmt.Errorf("postgres: connection %q field %s.%s: %w", name, CfgKeyPersonaRolePasswords, persona, err)
+		}
+		if out == nil {
+			out = maps.Clone(passwords)
+		}
+		out[persona] = v
+	}
+	if out == nil {
+		return cfg, nil
+	}
+	filled := maps.Clone(cfg)
+	filled[CfgKeyPersonaRolePasswords] = out
+	return filled, nil
 }
 
 // ParseConfig reads a Config from the map a connection is stored as, applies
@@ -225,6 +286,9 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 		SchemaApplyPersonas: cfgmap.Strings(cfg, cfgKeyApplyPersonas),
 		LedgerSchema:        cfgmap.StringDefault(cfg, cfgKeyLedgerSchema, DefaultLedgerSchema),
 		TestConnection:      strings.TrimSpace(cfgmap.String(cfg, cfgKeyTestConnection)),
+
+		PersonaRoles:         cfgmap.StringMap(cfg, CfgKeyPersonaRoles),
+		PersonaRolePasswords: cfgmap.StringMap(cfg, CfgKeyPersonaRolePasswords),
 	}
 	if err := c.Validate(); err != nil {
 		return Config{}, err
@@ -235,7 +299,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 // Validate refuses a configuration the toolkit could not open, or one whose
 // bounds no operator intends.
 func (c Config) Validate() error {
-	for _, check := range []func() error{c.validateAddress, c.validateSSLMode, c.validateLimits, c.validateTLS} {
+	for _, check := range []func() error{c.validateAddress, c.validateSSLMode, c.validateLimits, c.validateTLS, c.validateRoles} {
 		if err := check(); err != nil {
 			return err
 		}

@@ -40,7 +40,7 @@ func NewTestDatabases(ctx context.Context) *TestDatabases {
 	}
 	d := &TestDatabases{ctx: ctx, open: a.TestDatabase, runners: map[string]AppDBRunner{}, scopes: map[string][]string{}}
 	db := &AppDB{Runner: func() AppDBRunner { return testRunner{d} }, Authorize: a.Authorize}
-	d.caller = &appdbCaller{ctx: ctx, db: db, authorized: map[string]bool{}, txs: map[string]AppDBTx{}}
+	d.caller = &appdbCaller{ctx: ctx, db: db, authorized: map[string]string{}, txs: map[string]AppDBTx{}}
 	return d
 }
 

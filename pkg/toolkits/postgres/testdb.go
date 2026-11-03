@@ -223,9 +223,16 @@ func scratchDBName(prefix string, now time.Time) (string, error) {
 
 // onServer is a connection's configuration pointed at database on the test
 // server: the test server's address and credentials, the connection's own
-// limits.
+// limits. A connection's persona roles (#2403) are kept when the test server
+// is the connection's own server, where the roles exist, so a script test
+// runs each statement as the role it would run as against the connection;
+// on another server they are dropped and every statement runs as the test
+// server's user.
 func onServer(c, srv Config, database string) Config {
 	out := c
+	if c.Host != srv.Host || c.Port != srv.Port {
+		out.PersonaRoles, out.PersonaRolePasswords = nil, nil
+	}
 	out.Host, out.Port, out.User, out.Password = srv.Host, srv.Port, srv.User, srv.Password
 	out.SSLMode, out.CABundlePEM, out.ClientCertPEM, out.ClientKeyPEM = srv.SSLMode, srv.CABundlePEM, srv.ClientCertPEM, srv.ClientKeyPEM
 	out.Database, out.MaxConns, out.TestConnection = database, scratchConns, ""

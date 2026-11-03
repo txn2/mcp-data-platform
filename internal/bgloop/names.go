@@ -60,6 +60,11 @@ const (
 	NameWebhookRawWindows   = "webhook_raw_windows"
 	NameWebhookSpoolDrain   = "webhook_spool_drain"
 	NameWebhookIMAPPoll     = "webhook_imap_poll"
+	// NameWebhookPGListen starts and stops the listeners of the postgres
+	// webhook sources this replica holds (#2408); NameWebhookPGDeliver is one
+	// listener's filing of what it read.
+	NameWebhookPGListen     = "webhook_pg_listen"
+	NameWebhookPGDeliver    = "webhook_pg_deliver"
 	NameWebhookSpoolSegment = "webhook_spool_segment"
 	NameMapFetch            = "map_fetch"
 	NameMapFetchRegion      = "map_fetch_region"

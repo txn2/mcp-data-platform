@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
@@ -18,8 +16,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/mailtrust"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
-	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whwrite"
 )
 
 // Tick is how often the poller looks for a source whose poll is due.
@@ -37,9 +35,6 @@ const sessionTimeout = 5 * time.Minute
 
 // dialTimeout bounds reaching the source's server.
 const dialTimeout = 30 * time.Second
-
-// segmentContentType is what a raw segment is stored as, the HTTP receiver's.
-const segmentContentType = "application/gzip"
 
 // Config assembles a poller.
 type Config struct {
@@ -60,25 +55,20 @@ type Config struct {
 
 // Poller polls every imap source on its interval.
 type Poller struct {
-	cfg  Config
-	seq  atomic.Uint64
-	stop chan struct{}
-	wg   sync.WaitGroup
+	cfg    Config
+	writer *whwrite.Writer
+	stop   chan struct{}
+	wg     sync.WaitGroup
 
 	mu   sync.Mutex
 	last map[string]time.Time
-	// onStored is told each window's events once their segment is written
-	// (#2332); nil tells nothing.
-	onStored func(ctx context.Context, source string, events []whevent.Event)
 }
 
 // SetStored is what is told each written segment's events from here on: the
 // hook the runs of an automation naming the source are enqueued through
 // (#2332). It is set before the poller starts.
 func (p *Poller) SetStored(fn func(ctx context.Context, source string, events []whevent.Event)) {
-	p.mu.Lock()
-	p.onStored = fn
-	p.mu.Unlock()
+	p.writer.SetStored(fn)
 }
 
 // New returns a poller, nil when a dependency is missing.
@@ -95,9 +85,11 @@ func New(cfg Config) *Poller {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	p := &Poller{cfg: cfg, stop: make(chan struct{}), last: map[string]time.Time{}}
-	p.seq.Store(uint64(cfg.Now().UnixNano())) //nolint:gosec // a clock reading seeds a counter
-	return p
+	w := whwrite.New(whwrite.Config{
+		Objects: cfg.Objects, Bucket: cfg.Bucket, Recorder: cfg.Recorder, RawWindows: cfg.RawWindows,
+		Writer: "imap-" + cfg.Replica, Logger: cfg.Logger, Now: cfg.Now,
+	})
+	return &Poller{cfg: cfg, writer: w, stop: make(chan struct{}), last: map[string]time.Time{}}
 }
 
 // Start runs the poll loop until Stop.
@@ -322,60 +314,9 @@ func (p *Poller) one(ctx context.Context, fp folderPoll, env imapmail.Envelope) 
 	return ev, err == nil, err
 }
 
-// write files the events as segments, one per window, as the HTTP receiver
-// does: the window recorded before and after the write, its raw partition
-// registered after.
+// write files the events as segments through the shared writer.
 func (p *Poller) write(ctx context.Context, src whsource.Source, events []whevent.Event) error {
-	if len(events) == 0 {
-		return nil
-	}
-	length := src.Config.Window()
-	byWindow := map[time.Time][]whevent.Event{}
-	for _, e := range events {
-		w := e.Window(length)
-		byWindow[w] = append(byWindow[w], e)
-	}
-	starts := make([]time.Time, 0, len(byWindow))
-	for w := range byWindow {
-		starts = append(starts, w)
-	}
-	sort.Slice(starts, func(i, j int) bool { return starts[i].Before(starts[j]) })
-	for _, w := range starts {
-		if err := p.writeWindow(ctx, src, w, length, byWindow[w]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (p *Poller) writeWindow(ctx context.Context, src whsource.Source, start time.Time, length time.Duration, events []whevent.Event) error {
-	data, err := whevent.EncodeSegment(events, p.cfg.Now())
-	if err != nil {
-		return fmt.Errorf("encoding the segment: %w", err)
-	}
-	if err := p.cfg.Recorder.MarkSegment(ctx, src.Name, start, length, 0); err != nil {
-		return fmt.Errorf("recording segment: %w", err)
-	}
-	key := whlayout.SegmentKey(src.Name, start, "imap-"+p.cfg.Replica, p.seq.Add(1))
-	if err := p.cfg.Objects.PutObject(ctx, p.cfg.Bucket, key, data, segmentContentType); err != nil {
-		return fmt.Errorf("writing segment: %w", err)
-	}
-	if err := p.cfg.Recorder.MarkSegment(ctx, src.Name, start, length, int64(len(data))); err != nil {
-		return fmt.Errorf("recording segment: %w", err)
-	}
-	p.mu.Lock()
-	stored := p.onStored
-	p.mu.Unlock()
-	if stored != nil {
-		stored(ctx, src.Name, events)
-	}
-	if p.cfg.RawWindows != nil {
-		if err := p.cfg.RawWindows.EnsureRawWindow(ctx, src, start); err != nil {
-			p.cfg.Logger.WarnContext(ctx, "webhooks: registering an imap window's raw partition",
-				"source", logsan.SanitizeForLog(src.Name), "error", logsan.SanitizeForLog(err.Error()))
-		}
-	}
-	return nil
+	return p.writer.Write(ctx, src, events) //nolint:wrapcheck // the writer names the step that failed
 }
 
 func policyOf(m whsource.IMAP) mailtrust.Policy {

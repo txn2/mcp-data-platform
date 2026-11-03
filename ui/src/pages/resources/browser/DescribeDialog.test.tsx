@@ -8,11 +8,11 @@ describe("the describe dialog (#2111)", () => {
   it("opens on the folder's description and saves the edit", async () => {
     const onSave = vi.fn(async () => {});
     const onClose = vi.fn();
-    render(<DescribeDialog folder="pipelines/nltv" load={async () => "old"} onClose={onClose} onSave={onSave} />);
+    render(<DescribeDialog folder="pipelines/audience" load={async () => "old"} onClose={onClose} onSave={onSave} />);
     const box = await screen.findByDisplayValue("old");
-    fireEvent.change(box, { target: { value: "  NLTV station daily archive  " } });
+    fireEvent.change(box, { target: { value: "  Daily audience archive  " } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith("NLTV station daily archive"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith("Daily audience archive"));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 

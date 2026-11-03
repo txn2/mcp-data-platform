@@ -17,7 +17,7 @@ func TestTestDatabases_AnswerFromTheCloneTheTestOpened(t *testing.T) {
 	var authorized []string
 	InstallAppDB(AppDB{
 		Runner:    func() AppDBRunner { return &fakeAppDB{err: errors.New("the real database is never reached")} },
-		Authorize: func(_ context.Context, c string) error { authorized = append(authorized, c); return nil },
+		Authorize: func(_ context.Context, c string) (string, error) { authorized = append(authorized, c); return "", nil },
 		TestDatabase: func(_ context.Context, connection string, _ []string) (AppDBRunner, func(), error) {
 			opened = append(opened, connection)
 			return clone, func() { dropped = append(dropped, connection) }, nil
@@ -76,7 +76,7 @@ func TestTestDatabases_Refusals(t *testing.T) {
 
 	InstallAppDB(AppDB{
 		Runner:    func() AppDBRunner { return &fakeAppDB{} },
-		Authorize: func(context.Context, string) error { return errors.New("not for this persona") },
+		Authorize: func(context.Context, string) (string, error) { return "", errors.New("not for this persona") },
 		TestDatabase: func(context.Context, string, []string) (AppDBRunner, func(), error) {
 			return nil, nil, errors.New("user lacks the CREATEDB privilege")
 		},

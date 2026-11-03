@@ -31,7 +31,7 @@ var reclassCols = []string{
 }
 
 // TestReclassifyAppliesTheRulesToWhatNoWriterChose is #2111's reclassification
-// at PMGSC's shape: the pipeline backfill under pipelines/** drops out of
+// on a deployment shaped like this: the pipeline backfill under pipelines/** drops out of
 // search with its kept text, posters a script wrote stay searchable on their
 // metadata, a writer's own choice is left alone, and a table of values kept
 // under metadata loses the text it no longer reads.
@@ -54,9 +54,9 @@ func TestReclassifyAppliesTheRulesToWhatNoWriterChose(t *testing.T) {
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(true))
 	mock.ExpectQuery("SELECT id, index_policy, index_policy_explicit").WithArgs("").
 		WillReturnRows(sqlmock.NewRows(reclassCols).
-			AddRow("r1", "metadata", false, "pipelines/nltv", "text/csv", 100, "global", "", "script:nltv", true).
+			AddRow("r1", "metadata", false, "pipelines/audience", "text/csv", 100, "global", "", "script:audience", true).
 			AddRow("r2", "full", false, "brand/posters", "image/png", 100, "global", "", "script:posters", false).
-			AddRow("r3", "full", true, "pipelines/nltv", "text/csv", 100, "global", "", "u", true).
+			AddRow("r3", "full", true, "pipelines/audience", "text/csv", 100, "global", "", "u", true).
 			AddRow("r4", "metadata", false, "reports", "text/csv", 100, "global", "", "u", true).
 			AddRow("r5", "full", false, "guides", "application/pdf", 100, "global", "", "u", true))
 	mock.ExpectExec("UPDATE resources SET index_policy = \\$1").
@@ -75,7 +75,7 @@ func TestReclassifyAppliesTheRulesToWhatNoWriterChose(t *testing.T) {
 	assert.Equal(t, ReclassifyResult{Examined: 5, Changed: 2, Cleared: 1}, res)
 	assert.ElementsMatch(t, []indexjobs.Key{
 		{SourceKind: resourceindex.SourceKind, SourceID: "r2"},
-		{SourceKind: resourceindex.FolderKind, SourceID: "global::pipelines/nltv"},
+		{SourceKind: resourceindex.FolderKind, SourceID: "global::pipelines/audience"},
 		{SourceKind: resourceindex.FolderKind, SourceID: "global::brand/posters"},
 	}, queue.keys, "the posters are re-embedded on their metadata; the archive's folder is summarized")
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -111,7 +111,7 @@ func TestReclassifyStopsWithItsContext(t *testing.T) {
 }
 
 func TestOriginOfUploader(t *testing.T) {
-	assert.Equal(t, indexpolicy.OriginScript, originOfUploader("script:nltv"))
+	assert.Equal(t, indexpolicy.OriginScript, originOfUploader("script:audience"))
 	assert.Equal(t, indexpolicy.OriginWebhook, originOfUploader("system:webhooks"))
 	assert.Equal(t, indexpolicy.OriginUpload, originOfUploader("550e8400"))
 }

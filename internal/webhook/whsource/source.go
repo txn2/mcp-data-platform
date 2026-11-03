@@ -195,10 +195,13 @@ type Auth struct {
 // Config is everything about a source other than its authentication.
 type Config struct {
 	// Input is "http" (the default, posted to), "imap" (a polled mailbox,
-	// configured under IMAP) or "form" (a form's submissions, under Form).
-	Input string `json:"input,omitempty"`
-	IMAP  *IMAP  `json:"imap,omitempty"`
-	Form  *Form  `json:"form,omitempty"`
+	// configured under IMAP), "form" (a form's submissions, under Form) or
+	// "postgres" (an application database's notifications or outbox, under
+	// Postgres, #2408).
+	Input    string    `json:"input,omitempty"`
+	IMAP     *IMAP     `json:"imap,omitempty"`
+	Form     *Form     `json:"form,omitempty"`
+	Postgres *Postgres `json:"postgres,omitempty"`
 
 	Handshake string `json:"handshake,omitempty"`
 	// ChallengeField is the body field a challenge_echo handshake reads;
@@ -285,6 +288,10 @@ func (c Config) withDefaults() Config {
 	if c.IMAP != nil {
 		m := c.IMAP.withDefaults()
 		c.IMAP = &m
+	}
+	if c.Postgres != nil {
+		p := c.Postgres.withDefaults()
+		c.Postgres = &p
 	}
 	if c.Handshake == "" {
 		c.Handshake = HandshakeNone

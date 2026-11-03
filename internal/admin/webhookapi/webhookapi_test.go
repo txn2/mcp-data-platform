@@ -16,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whpgstate"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
@@ -33,6 +34,12 @@ type fakeService struct {
 	asked    whadmin.Span
 	marks    []whimap.Mark
 	marksErr error
+	listener whpgstate.State
+	listErr  error
+}
+
+func (f *fakeService) Listener(_ context.Context, _ string) (whpgstate.State, error) {
+	return f.listener, f.listErr
 }
 
 func (f *fakeService) Marks(_ context.Context, _ string) ([]whimap.Mark, error) {
@@ -295,5 +302,32 @@ func TestGet_IMAPSourceCarriesItsFolders(t *testing.T) {
 
 	svc.marksErr = errors.New("db down")
 	rec = do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/inbox", "")
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestGet_PostgresSourceCarriesItsListener(t *testing.T) {
+	outbox := whsource.Source{
+		Name: "orders-outbox", Enabled: true, Connection: "scratch",
+		Config: whsource.Config{Input: whsource.InputPostgres, Postgres: &whsource.Postgres{Connection: "orders", Mode: whsource.PostgresOutbox, Table: "public.outbox"}},
+	}
+	svc := &fakeService{
+		sources:  map[string]whsource.Source{"orders-outbox": outbox, "esp": stored},
+		listener: whpgstate.State{Replica: "platform-0", Delivered: 12, Rejected: 1},
+	}
+	mux := newMux(svc)
+
+	rec := do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/orders-outbox", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var detail map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detail))
+	assert.Equal(t, map[string]any{"replica": "platform-0", "delivered": float64(12), "rejected": float64(1)}, detail["postgres"])
+	source, _ := detail["source"].(map[string]any)
+	assert.Empty(t, source["path"], "a database is not posted to")
+
+	rec = do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/esp", "")
+	assert.NotContains(t, rec.Body.String(), `"postgres"`, "an http source has no listener")
+
+	svc.listErr = errors.New("db down")
+	rec = do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/orders-outbox", "")
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

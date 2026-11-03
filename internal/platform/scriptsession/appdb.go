@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
 
@@ -69,9 +70,11 @@ type AppDBTx interface {
 type AppDB struct {
 	// Runner returns the live runner, or nil on a deployment with none.
 	Runner func() AppDBRunner
-	// Authorize refuses a connection the identity on ctx may not use. ctx is
-	// the session's own, which carries the run's identity.
-	Authorize func(ctx context.Context, connection string) error
+	// Authorize refuses a connection the identity on ctx may not use, and
+	// names the persona it was allowed as, which chooses the database login
+	// role its statements run as (#2403). ctx is the session's own, which
+	// carries the run's identity.
+	Authorize func(ctx context.Context, connection string) (persona string, err error)
 	// TestDatabase builds a script test's throwaway database for a
 	// connection from its migrations in schemas, every schema when empty
 	// (#2407), and returns its runner and the function that drops it. Nil
@@ -103,8 +106,10 @@ type appdbCaller struct {
 	ctx context.Context
 	db  *AppDB
 
-	mu         sync.Mutex
-	authorized map[string]bool
+	mu sync.Mutex
+	// authorized are the connections the run may use, each with the persona
+	// it was allowed as.
+	authorized map[string]string
 	// txs are the session's open transactions by id, and seq numbers them,
 	// so a recording's ids are the same on every replay.
 	txs map[string]AppDBTx
@@ -116,7 +121,7 @@ func newAppDBCaller(ctx context.Context) *appdbCaller {
 	if a == nil {
 		return nil
 	}
-	return &appdbCaller{ctx: ctx, db: a, authorized: make(map[string]bool), txs: make(map[string]AppDBTx)}
+	return &appdbCaller{ctx: ctx, db: a, authorized: make(map[string]string), txs: make(map[string]AppDBTx)}
 }
 
 // errNoAppDB is the refusal of every call on a deployment with no runner.
@@ -148,6 +153,7 @@ func (c *appdbCaller) statement(ctx context.Context, name string, args map[strin
 	if err := c.admit(st.Connection); err != nil {
 		return nil, err
 	}
+	ctx = c.identity(ctx, st.Connection)
 	run := c.db.Runner().Query
 	if name == AppDBExecute {
 		run = c.db.Runner().Execute
@@ -172,7 +178,7 @@ func (c *appdbCaller) batch(ctx context.Context, args map[string]any) (map[strin
 	if err := c.admit(connection); err != nil {
 		return nil, err
 	}
-	res, err := c.db.Runner().Batch(ctx, connection, stmts)
+	res, err := c.db.Runner().Batch(c.identity(ctx, connection), connection, stmts)
 	if err != nil {
 		return nil, appdbRefusal(err)
 	}
@@ -216,7 +222,7 @@ func (c *appdbCaller) begin(args map[string]any) (map[string]any, error) {
 	if err := c.admit(o.Connection); err != nil {
 		return nil, err
 	}
-	tx, err := c.db.Runner().Begin(c.ctx, o)
+	tx, err := c.db.Runner().Begin(c.identity(c.ctx, o.Connection), o)
 	if err != nil {
 		return nil, appdbRefusal(err)
 	}
@@ -364,16 +370,65 @@ func resultsMap(res []*postgres.Result) map[string]any {
 func (c *appdbCaller) authorize(connection string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.authorized[connection] {
+	if _, ok := c.authorized[connection]; ok {
 		return nil
 	}
+	persona := ""
 	if c.db.Authorize != nil {
-		if err := c.db.Authorize(c.ctx, connection); err != nil {
+		p, err := c.db.Authorize(c.ctx, connection)
+		if err != nil {
 			return err
 		}
+		persona = p
 	}
-	c.authorized[connection] = true
+	c.authorized[connection] = persona
 	return nil
+}
+
+// identity returns ctx carrying who the session's statements on connection
+// run for (#2403): the persona the run was allowed the connection as, and the
+// claims of the endpoint request the session serves, or of the script's
+// author when it serves none.
+func (c *appdbCaller) identity(ctx context.Context, connection string) context.Context {
+	c.mu.Lock()
+	id := postgres.Identity{Persona: c.authorized[connection]}
+	c.mu.Unlock()
+	if ep, ok := endpointOf(c.ctx); ok {
+		id.Source, id.UserID, id.Email = postgres.SourceEndpoint, ep.UserID, ep.Email
+	} else if u := middleware.GetPreAuthenticatedUser(c.ctx); u != nil {
+		// A saved run acts for its version's author; a draft acts as the
+		// person running it, who is its author.
+		id.Source, id.UserID, id.Email = postgres.SourceScript, u.OnBehalfOfSub, u.OnBehalfOf
+		if u.OnBehalfOf == "" {
+			id.UserID, id.Email = u.UserID, u.Email
+		}
+	}
+	return postgres.WithIdentity(ctx, id)
+}
+
+// EndpointCaller is who sent the endpoint request a session serves, as its
+// statements' claims carry it (#2403). Both fields are empty on a public
+// endpoint.
+type EndpointCaller struct {
+	UserID string
+	Email  string
+}
+
+type endpointKey struct{}
+
+// WithEndpoint marks ctx as an endpoint request's session, carrying its
+// caller: a session opened on it sets mcp.user_id and mcp.email from caller,
+// never from the script's author. A public endpoint's caller is the zero
+// value.
+func WithEndpoint(ctx context.Context, caller EndpointCaller) context.Context {
+	return context.WithValue(ctx, endpointKey{}, caller)
+}
+
+// endpointOf is the endpoint caller on ctx, and whether ctx is an endpoint
+// request's.
+func endpointOf(ctx context.Context) (EndpointCaller, bool) {
+	ep, ok := ctx.Value(endpointKey{}).(EndpointCaller)
+	return ep, ok
 }
 
 // statementOf reads a call's arguments.

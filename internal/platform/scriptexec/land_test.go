@@ -349,7 +349,7 @@ func TestLibraryAddressIsTheLibraryAndThePath(t *testing.T) {
 // says none is not indexed file by file.
 func TestExportToTheLibraryCarriesTheIndexPolicy(t *testing.T) {
 	h, lander := landingHarness(t)
-	req := libraryRequest("day", "pipelines/nltv/2019-01-01.csv")
+	req := libraryRequest("day", "pipelines/audience/2019-01-01.csv")
 	req.Index = "none"
 
 	_, err := h.writer.Export(context.Background(), req)

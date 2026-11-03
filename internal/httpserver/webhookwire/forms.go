@@ -101,6 +101,9 @@ func (w *Webhooks) AttachEventRuns(stored func(ctx context.Context, source strin
 	if w.imap != nil {
 		w.imap.SetStored(stored)
 	}
+	if w.pgWriter != nil {
+		w.pgWriter.SetStored(stored)
+	}
 }
 
 // AttachScriptRuns enqueues the runs of the automations that name a source

@@ -42,15 +42,25 @@ var builtKeys = map[string]map[string]bool{
 	kindS3:    {"access_key_id": true, "secret_access_key": true, "session_token": true},
 }
 
+// builtMapKeys are the keys of those kinds whose value is a map, each entry of
+// which is a credential read as the client is built: an application
+// database's persona role passwords (#2403).
+var builtMapKeys = map[string]map[string]bool{
+	kindPG: {keyPersonaRolePasswords: true},
+}
+
 // The configuration keys read here, as the kinds spell them.
 const (
-	keyCredential     = "credential"
-	keyUsername       = "username"
-	keyPassword       = "password"
-	keyPathSecret     = "path_secret" // #nosec G101 -- a config key, not a credential
-	keyStaticHeaders  = "static_headers"
-	keyAuthMode       = "auth_mode"
-	keyConnectionName = "connection_name"
+	keyCredential = "credential"
+	keyUsername   = "username"
+	keyPassword   = "password"
+	// keyPersonaRolePasswords is pkg/toolkits/postgres's map of persona role
+	// passwords.
+	keyPersonaRolePasswords = "persona_role_passwords" // #nosec G101 -- a config key, not a credential
+	keyPathSecret           = "path_secret"            // #nosec G101 -- a config key, not a credential
+	keyStaticHeaders        = "static_headers"
+	keyAuthMode             = "auth_mode"
+	keyConnectionName       = "connection_name"
 
 	authModeOAuth             = "oauth"
 	authModeClientCredentials = "oauth2_client_credentials" // #nosec G101 -- an auth mode's name, not a credential
@@ -89,7 +99,10 @@ var referenceMapKeys = map[string]bool{
 func Allowed(kind string, cfg map[string]any, path string) bool {
 	key, entry, nested := strings.Cut(path, ".")
 	if keys, ok := builtKeys[kind]; ok {
-		return !nested && keys[key]
+		if nested {
+			return builtMapKeys[kind][key] && validEntry(entry)
+		}
+		return keys[key]
 	}
 	switch {
 	case !fillsConfig[kind]:
@@ -145,6 +158,8 @@ func Fields(kind string) string {
 		return keyCredential + listSep + "and " + oauth
 	case kindTrino:
 		return keyPassword
+	case kindPG:
+		return keyPassword + " and the values of " + keyPersonaRolePasswords
 	case kindS3:
 		return "access_key_id, secret_access_key and session_token"
 	}

@@ -56,12 +56,12 @@ func TestManageResourceUpdate(t *testing.T) {
 		tk, w := resourceToolkit(t)
 		out := decodeResourceOutput(t, callResource(t, tk, manageResourceInput{
 			Action: resourceActionUpdate, Reference: "mcp:resource:res1",
-			DisplayName: "NLTV daily", Description: "One station day", Tags: []string{"nltv"},
+			DisplayName: "Audience daily", Description: "One day", Tags: []string{"audience"},
 		}))
 		require.NotNil(t, w.updated.DisplayName)
-		assert.Equal(t, "NLTV daily", *w.updated.DisplayName)
-		assert.Equal(t, "One station day", *w.updated.Description)
-		assert.Equal(t, []string{"nltv"}, w.updated.Tags)
+		assert.Equal(t, "Audience daily", *w.updated.DisplayName)
+		assert.Equal(t, "One day", *w.updated.Description)
+		assert.Equal(t, []string{"audience"}, w.updated.Tags)
 		assert.Contains(t, out.Message, "contents")
 	})
 	t.Run("metadata says what search reads", func(t *testing.T) {
@@ -98,13 +98,13 @@ func TestManageResourceUpdate(t *testing.T) {
 func TestManageResourceDescribesAFolder(t *testing.T) {
 	tk, w := resourceToolkit(t)
 	result := callResource(t, tk, manageResourceInput{
-		Action: resourceActionUpdate, Path: "pipelines/nltv", Scope: "global",
-		Description: "NLTV station daily reach and frequency archive",
+		Action: resourceActionUpdate, Path: "pipelines/audience", Scope: "global",
+		Description: "Daily audience archive",
 	})
 	require.False(t, result.IsError, errText(t, result))
-	assert.Equal(t, "pipelines/nltv", w.describedAddr.Path)
+	assert.Equal(t, "pipelines/audience", w.describedAddr.Path)
 	assert.Equal(t, "global", w.describedAddr.Scope)
-	assert.Equal(t, "NLTV station daily reach and frequency archive", w.described)
+	assert.Equal(t, "Daily audience archive", w.described)
 
 	tk, _ = resourceToolkit(t)
 	decodeOK := callResource(t, tk, manageResourceInput{Action: resourceActionUpdate, Path: "x", Description: "y"})

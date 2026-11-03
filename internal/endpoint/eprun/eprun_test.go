@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -519,4 +520,12 @@ func TestServe_TokensWithoutAnIssuerFail(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, resp.Status)
 	require.Len(t, f.bindings.failures, 1)
 	assert.Contains(t, f.bindings.failures[0].Error, "issues no tokens")
+}
+
+// An endpoint request's statements claim its caller (#2403): the user and
+// address the platform authenticated, and nobody on a public endpoint.
+func TestEndpointClaims(t *testing.T) {
+	assert.Equal(t, scriptsession.EndpointCaller{}, endpointClaims(nil))
+	assert.Equal(t, scriptsession.EndpointCaller{UserID: "sub-1", Email: "a@example.com"},
+		endpointClaims(&Caller{UserID: "sub-1", Email: "a@example.com", Persona: "analyst", APIKey: "k"}))
 }

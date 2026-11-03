@@ -9863,11 +9863,10 @@ definitions:
   resource.folderDescriptionRequest:
     properties:
       description:
-        example: NLTV station daily reach and frequency archive, one CSV per station
-          day since 2019
+        example: Daily audience archive, one CSV per day since 2019
         type: string
       path:
-        example: pipelines/nltv
+        example: pipelines/audience
         type: string
       scope:
         allOf:
@@ -14312,6 +14311,12 @@ definitions:
         items:
           $ref: '#/definitions/whimap.Mark'
         type: array
+      postgres:
+        allOf:
+        - $ref: '#/definitions/whpgstate.State'
+        description: |-
+          Postgres is a postgres source's listener (#2408): the replica
+          listening, what it filed and refused, its last failure.
       source:
         $ref: '#/definitions/webhookapi.SourceView'
       status:
@@ -14725,6 +14730,24 @@ definitions:
       uid_validity:
         type: integer
     type: object
+  whpgstate.State:
+    properties:
+      delivered:
+        type: integer
+      last_error:
+        type: string
+      last_error_at:
+        type: string
+      last_event_at:
+        type: string
+      listening_since:
+        type: string
+      rejected:
+        type: integer
+      replica:
+        description: Replica is the replica listening, empty when none is.
+        type: string
+    type: object
   whsource.Config:
     properties:
       buffer_limit:
@@ -14773,7 +14796,9 @@ definitions:
       input:
         description: |-
           Input is "http" (the default, posted to), "imap" (a polled mailbox,
-          configured under IMAP) or "form" (a form's submissions, under Form).
+          configured under IMAP), "form" (a form's submissions, under Form) or
+          "postgres" (an application database's notifications or outbox, under
+          Postgres, #2408).
         type: string
       key_path:
         type: string
@@ -14788,6 +14813,8 @@ definitions:
           when the source is created and does not change: windows already written
           stay where they were written.
         type: string
+      postgres:
+        $ref: '#/definitions/whsource.Postgres'
       rate_limit_burst:
         type: integer
       rate_limit_per_minute:
@@ -14869,6 +14896,37 @@ definitions:
         description: |-
           TrustedAuthServID is the receiving server's authserv-id; only an
           Authentication-Results header carrying it is read.
+        type: string
+    type: object
+  whsource.Postgres:
+    properties:
+      channels:
+        description: Channels are the channels a notify source listens on.
+        items:
+          type: string
+        type: array
+      connection:
+        description: |-
+          Connection is the application database (a connection of kind appdb)
+          the source listens on, as that connection's role.
+        type: string
+      max_payload_bytes:
+        description: |-
+          MaxPayloadBytes bounds one notification's payload or one outbox row;
+          a larger one is refused, recorded as a rejection, and never stored.
+        type: integer
+      mode:
+        description: Mode is "notify" or "outbox".
+        type: string
+      poll_seconds:
+        description: |-
+          PollSeconds is how often an outbox source drains with no
+          notification.
+        type: integer
+      table:
+        description: |-
+          Table is an outbox source's outbox, as schema.table: the table the
+          manage_schema outbox template created, whose channel is its name.
         type: string
     type: object
   whstore.AckLatency:

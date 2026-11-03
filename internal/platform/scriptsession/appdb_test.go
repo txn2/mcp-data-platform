@@ -8,11 +8,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
 
 // fakeAppDB is a runner serving one connection, "shop".
 type fakeAppDB struct {
+	// ids are the identities each call carried (#2403).
+	ids       []postgres.Identity
 	got       []postgres.Statement
 	execs     int
 	result    *postgres.Result
@@ -26,18 +29,21 @@ type fakeAppDB struct {
 
 func (*fakeAppDB) HasConnection(name string) bool { return name == "shop" }
 
-func (f *fakeAppDB) Query(_ context.Context, s postgres.Statement) (*postgres.Result, error) {
+func (f *fakeAppDB) Query(ctx context.Context, s postgres.Statement) (*postgres.Result, error) {
+	f.ids = append(f.ids, postgres.IdentityOf(ctx))
 	f.got = append(f.got, s)
 	return f.result, f.err
 }
 
-func (f *fakeAppDB) Execute(_ context.Context, s postgres.Statement) (*postgres.Result, error) {
+func (f *fakeAppDB) Execute(ctx context.Context, s postgres.Statement) (*postgres.Result, error) {
+	f.ids = append(f.ids, postgres.IdentityOf(ctx))
 	f.execs++
 	f.got = append(f.got, s)
 	return f.result, f.err
 }
 
-func (f *fakeAppDB) Batch(_ context.Context, connection string, stmts []postgres.Statement) ([]*postgres.Result, error) {
+func (f *fakeAppDB) Batch(ctx context.Context, connection string, stmts []postgres.Statement) ([]*postgres.Result, error) {
+	f.ids = append(f.ids, postgres.IdentityOf(ctx))
 	f.batches = append(f.batches, stmts)
 	f.batchConn = connection
 	if f.err != nil {
@@ -50,7 +56,8 @@ func (f *fakeAppDB) Batch(_ context.Context, connection string, stmts []postgres
 	return out, nil
 }
 
-func (f *fakeAppDB) Begin(_ context.Context, o postgres.TxOptions) (AppDBTx, error) {
+func (f *fakeAppDB) Begin(ctx context.Context, o postgres.TxOptions) (AppDBTx, error) {
+	f.ids = append(f.ids, postgres.IdentityOf(ctx))
 	f.begun = append(f.begun, o)
 	if f.beginErr != nil {
 		return nil, f.beginErr
@@ -97,7 +104,11 @@ func (x *fakeTx) Rollback() { x.rolledBack = true }
 // install puts db in place for one test and removes it after.
 func install(t *testing.T, db AppDBRunner, authorize func(context.Context, string) error) {
 	t.Helper()
-	InstallAppDB(AppDB{Runner: func() AppDBRunner { return db }, Authorize: authorize})
+	var auth func(context.Context, string) (string, error)
+	if authorize != nil {
+		auth = func(ctx context.Context, c string) (string, error) { return "", authorize(ctx, c) }
+	}
+	InstallAppDB(AppDB{Runner: func() AppDBRunner { return db }, Authorize: auth})
 	t.Cleanup(func() { installed.Store(nil) })
 }
 
@@ -386,4 +397,56 @@ func TestIsAppDBCall(t *testing.T) {
 		assert.True(t, IsAppDBCall(name), name)
 	}
 	assert.False(t, IsAppDBCall("trino_query"))
+}
+
+// Every call carries who it runs for (#2403): the persona the connection was
+// allowed as, and the endpoint caller's claims, or the author's outside an
+// endpoint, never the script principal.
+func TestAppDBCaller_Identity(t *testing.T) {
+	db := &fakeAppDB{result: &postgres.Result{Connection: "shop", Rows: [][]any{}}}
+	InstallAppDB(AppDB{Runner: func() AppDBRunner { return db }, Authorize: func(context.Context, string) (string, error) {
+		return "clerk", nil
+	}})
+	t.Cleanup(func() { installed.Store(nil) })
+	run := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{
+		UserID: "script:orders", Email: "owner@example.com", OnBehalfOf: "author@example.com", OnBehalfOfSub: "sub-author",
+	})
+	stmt := map[string]any{"connection": "shop", "sql": "SELECT 1"}
+	batch := map[string]any{"connection": "shop", "statements": []any{map[string]any{"sql": "SELECT 1"}}}
+
+	c := newAppDBCaller(run)
+	_, err := c.call(context.Background(), AppDBQuery, stmt)
+	require.NoError(t, err)
+	_, err = c.call(context.Background(), AppDBExecute, stmt)
+	require.NoError(t, err)
+	_, err = c.call(context.Background(), AppDBBatch, batch)
+	require.NoError(t, err)
+	_, err = c.call(context.Background(), AppDBBegin, map[string]any{"connection": "shop"})
+	require.NoError(t, err)
+	author := postgres.Identity{Persona: "clerk", UserID: "sub-author", Email: "author@example.com", Source: postgres.SourceScript}
+	assert.Equal(t, []postgres.Identity{author, author, author, author}, db.ids)
+
+	db.ids = nil
+	signedIn := newAppDBCaller(WithEndpoint(run, EndpointCaller{UserID: "sub-caller", Email: "caller@example.com"}))
+	_, err = signedIn.call(context.Background(), AppDBQuery, stmt)
+	require.NoError(t, err)
+	public := newAppDBCaller(WithEndpoint(run, EndpointCaller{}))
+	_, err = public.call(context.Background(), AppDBQuery, stmt)
+	require.NoError(t, err)
+	assert.Equal(t, []postgres.Identity{
+		{Persona: "clerk", UserID: "sub-caller", Email: "caller@example.com", Source: postgres.SourceEndpoint},
+		{Persona: "clerk", Source: postgres.SourceEndpoint},
+	}, db.ids, "an endpoint's statements claim its caller, and a public endpoint's claim nobody")
+
+	db.ids = nil
+	draft := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{UserID: "sub-drafter", Email: "drafter@example.com"})
+	_, err = newAppDBCaller(draft).call(context.Background(), AppDBQuery, stmt)
+	require.NoError(t, err)
+	assert.Equal(t, []postgres.Identity{{Persona: "clerk", UserID: "sub-drafter", Email: "drafter@example.com", Source: postgres.SourceScript}},
+		db.ids, "a draft acts as the person running it")
+
+	db.ids = nil
+	_, err = newAppDBCaller(context.Background()).call(context.Background(), AppDBQuery, stmt)
+	require.NoError(t, err)
+	assert.Equal(t, []postgres.Identity{{Persona: "clerk"}}, db.ids, "a session with no identity claims nothing")
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whimap"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whpgstate"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whtable"
@@ -42,6 +43,7 @@ type Service interface {
 	SyncPartitions(ctx context.Context, name string) error
 	Warnings(ctx context.Context, src whsource.Source) []string
 	Marks(ctx context.Context, name string) ([]whimap.Mark, error)
+	Listener(ctx context.Context, name string) (whpgstate.State, error)
 }
 
 // Config carries the service and the parent-owned helpers.
@@ -132,6 +134,14 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 			writeServiceError(w, err)
 			return
 		}
+	}
+	if src.IsPostgres() {
+		state, err := h.cfg.Service.Listener(r.Context(), src.Name)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		detail.Postgres = &state
 	}
 	httpjson.WriteJSON(w, http.StatusOK, detail)
 }
@@ -292,8 +302,8 @@ func viewOf(s whsource.Source) SourceView {
 		view.PreviousUntil = &until
 	}
 	path := "/hooks/" + s.Name
-	if s.IsIMAP() || s.IsForm() {
-		path = "" // a polled mailbox and a form's source are not posted to
+	if s.IsIMAP() || s.IsForm() || s.IsPostgres() {
+		path = "" // a polled mailbox, a form's source and a database are not posted to
 	}
 	return SourceView{
 		Name: s.Name, Enabled: s.Enabled, Connection: s.Connection, Path: path,

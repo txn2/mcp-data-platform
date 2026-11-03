@@ -90,6 +90,11 @@ type schemaInput struct {
 	Limit          int    `json:"limit,omitempty"`
 	ChangeSummary  string `json:"change_summary,omitempty"`
 	UserAgreed     bool   `json:"user_agreed,omitempty"`
+	// Template, OutboxTable and Capture write a migration the platform
+	// provides in place of up and down (#2408).
+	Template    string   `json:"template,omitempty"`
+	OutboxTable string   `json:"outbox_table,omitempty"`
+	Capture     []string `json:"capture,omitempty"`
 }
 
 // schemaToolSchema is manage_schema's input schema.
@@ -111,7 +116,10 @@ var schemaToolSchema = json.RawMessage(`{
     "timeout_seconds": {"type": "integer", "minimum": 1, "description": "apply and down: how long one statement of a migration may run. Defaults to the connection's statement_timeout, at most 600."},
     "limit": {"type": "integer", "minimum": 1, "description": "history: the most entries to return. Defaults to 100."},
     "change_summary": {"type": "string", "description": "add: what a migration that removes data (a dropped table or column, TRUNCATE, a DELETE or UPDATE with no WHERE) removes, in plain words, as the person the application is built for agreed to it. Recorded in the migration's history."},
-    "user_agreed": {"type": "boolean", "description": "add: true once the person the application is built for agreed to change_summary."}
+    "user_agreed": {"type": "boolean", "description": "add: true once the person the application is built for agreed to change_summary."},
+    "template": {"type": "string", "enum": ["outbox"], "description": "add: write a migration the platform provides in place of up and down. outbox: an outbox table, the trigger function that writes each changed row of a captured table to it and notifies its channel, and a trigger on each table in capture; a webhook source with input postgres and mode outbox files each row as an event."},
+    "outbox_table": {"type": "string", "description": "add with template outbox: the outbox table's name in schema. Defaults to outbox."},
+    "capture": {"type": "array", "items": {"type": "string"}, "description": "add with template outbox: the tables whose inserted, updated and deleted rows are written to the outbox, as table (in schema) or schema.table."}
   }
 }`)
 
@@ -135,6 +143,13 @@ func (t *Toolkit) registerSchemaTool(s *mcp.Server) {
 func (t *Toolkit) handleSchema(ctx context.Context, _ *mcp.CallToolRequest, in schemaInput) (*mcp.CallToolResult, any, error) {
 	if in.Schema == "" {
 		in.Schema = DefaultSchema
+	}
+	if in.Command == schemaAdd {
+		templated, err := fromTemplate(in)
+		if err != nil {
+			return toolkit.ErrorResult(err.Error()), nil, nil
+		}
+		in = templated
 	}
 	out, err := t.runSchema(ctx, in)
 	if err != nil {
@@ -317,6 +332,39 @@ func checkAdd(in schemaInput, transactional bool) error {
 		return &RefusedError{Code: CodeInvalidStatement, msg: fmt.Sprintf("%s: down SQL: %v", errPrefix, err)}
 	}
 	return nil
+}
+
+// defaultOutboxTable is the outbox template's table when it names none.
+const defaultOutboxTable = "outbox"
+
+// fromTemplate fills in's up, down and name from the template it names, and
+// refuses a template beside SQL of the caller's own.
+func fromTemplate(in schemaInput) (schemaInput, error) {
+	if in.Template == "" {
+		if in.OutboxTable != "" || len(in.Capture) > 0 {
+			return in, errors.New("appdb: outbox_table and capture are for template outbox")
+		}
+		return in, nil
+	}
+	if in.Template != OutboxTemplateName {
+		return in, fmt.Errorf("appdb: unknown template %q; the one template is %s", in.Template, OutboxTemplateName)
+	}
+	if in.Up != "" || in.Down != "" {
+		return in, errors.New("appdb: a template writes up and down itself; send one or the other")
+	}
+	table := in.OutboxTable
+	if table == "" {
+		table = defaultOutboxTable
+	}
+	up, down, err := OutboxTemplate(in.Schema, table, in.Capture)
+	if err != nil {
+		return in, err
+	}
+	in.Up, in.Down = up, down
+	if strings.TrimSpace(in.Name) == "" {
+		in.Name = "outbox " + OutboxChannel(in.Schema, table)
+	}
+	return in, nil
 }
 
 // holds reports whether the platform already keeps m exactly.

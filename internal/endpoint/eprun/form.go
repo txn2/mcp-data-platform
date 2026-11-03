@@ -34,6 +34,8 @@ type invocation struct {
 	// sensitive holds a form submission's sensitive values, which a failure's
 	// text never carries into a stored row (#2360). Nil for anything else.
 	sensitive *secretref.Redactor
+	// caller is who sent the request, nil on a public endpoint (#2403).
+	caller *Caller
 }
 
 // invocationFor is what t calls for req (#2176): handle(req) on a script that

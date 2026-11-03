@@ -224,7 +224,7 @@ platform.export(name="last", rows=[{"a": 1}])
 func TestExport_IndexReachesTheLander(t *testing.T) {
 	exporter := newScopedExporter()
 	_, err := destinationRun(t,
-		`platform.export(name="day", rows=[{"a": 1}], destination="resources", key="pipelines/nltv/2019-01-01.csv", index=" None ")`,
+		`platform.export(name="day", rows=[{"a": 1}], destination="resources", key="pipelines/audience/2019-01-01.csv", index=" None ")`,
 		nil, exporter)
 	require.NoError(t, err)
 	require.Len(t, exporter.requests, 1)

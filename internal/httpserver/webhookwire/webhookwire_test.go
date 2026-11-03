@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -478,6 +479,7 @@ func (fakePlatform) UnregisterManagedResource(string)              {}
 func (fakePlatform) RestEncryptor() *fieldcrypt.RestFieldEncryptor { return nil }
 func (fakePlatform) Metrics() *observability.Metrics               { return nil }
 func (f fakePlatform) PersonaRegistry() *persona.Registry          { return f.personas }
+func (fakePlatform) ToolkitRegistry() *registry.Registry           { return nil }
 
 // nopBlobs stands in for the managed-resources blob client, which build
 // hands to the resource writer and never calls itself.

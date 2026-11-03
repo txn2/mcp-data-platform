@@ -78,9 +78,15 @@ const CfgKeySessionLoginHeaders = "session_login_headers"
 // sensitiveConfigKeys because the encryption walk has to recurse one
 // level (not just encrypt the scalar at the top).
 var sensitiveNestedMapKeys = map[string]bool{
-	CfgKeyStaticHeaders:       true,
-	CfgKeySessionLoginHeaders: true,
+	CfgKeyStaticHeaders:        true,
+	CfgKeySessionLoginHeaders:  true,
+	CfgKeyPersonaRolePasswords: true,
 }
+
+// CfgKeyPersonaRolePasswords is an application database's map of a persona
+// to its login role's password (#2403). The inner values are encrypted at
+// rest like static_headers.
+const CfgKeyPersonaRolePasswords = "persona_role_passwords" // #nosec G101 -- a config key, not a credential
 
 // SensitiveNestedMapKeyList returns the nested-map sensitive key set
 // as a slice for cross-package tests (mirrors SensitiveConfigKeyList).
