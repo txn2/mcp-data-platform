@@ -21,7 +21,7 @@ import (
 const versionColumns = `id, script_id, version, display_name, description,
 	category, source_code, params, tags, author, author_roles, status,
 	created_at, change_summary, change_agreed_by, change_agreed_at, tests,
-	predates_statement_cap`
+	predates_statement_cap, author_subject`
 
 // versionSelect is the base SELECT for the version columns.
 const versionSelect = "SELECT " + versionColumns + " FROM script_versions"
@@ -34,7 +34,7 @@ func scanVersion(sc rowScanner) (*script.Version, error) {
 		&v.Category, &v.Source, &paramsJSON, pq.Array(&v.Tags), &v.Author,
 		pq.Array(&v.AuthorRoles), &v.Status, &v.CreatedAt,
 		&v.ChangeSummary, &v.ChangeAgreedBy, &v.ChangeAgreedAt, &testsJSON,
-		&v.PredatesStatementCap)
+		&v.PredatesStatementCap, &v.AuthorSubject)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script version row: %w", err)
 	}
@@ -102,7 +102,7 @@ func insertVersionRow(ctx context.Context, tx *sql.Tx, ins versionInsert) error 
 		                             category, source_code, params, tags, author,
 		                             author_roles, status, change_summary,
 		                             change_agreed_by, change_agreed_at, tests,
-		                             predates_statement_cap)
+		                             predates_statement_cap, author_subject)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text, $13::text,
 		        CASE WHEN $12::text = '' THEN NULL ELSE NOW() END,
 		        COALESCE($14::jsonb, (SELECT prior.tests FROM script_versions prior
@@ -111,11 +111,11 @@ func insertVersionRow(ctx context.Context, tx *sql.Tx, ins versionInsert) error 
 		                               ORDER BY prior.version DESC LIMIT 1)),
 		        COALESCE((SELECT prior.predates_statement_cap FROM script_versions prior
 		                   WHERE prior.script_id = $1 AND prior.source_code = $6
-		                   ORDER BY prior.version DESC LIMIT 1), FALSE))`,
+		                   ORDER BY prior.version DESC LIMIT 1), FALSE), $15)`,
 		ins.ScriptID, ins.Version, ins.Snapshot.DisplayName, ins.Snapshot.Description,
 		ins.Snapshot.Category, ins.Snapshot.Source, paramsJSON, pq.Array(tags),
 		ins.Author.Email, pq.Array(roles), ins.Status, ins.Snapshot.ChangeSummary, ins.Snapshot.ChangeAgreedBy,
-		testsJSON)
+		testsJSON, ins.Author.Subject)
 	if err != nil {
 		return fmt.Errorf("insert script version: %w", err)
 	}

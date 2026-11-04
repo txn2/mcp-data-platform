@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,3 +81,9 @@ func TestCall_ChoosesThePathByConnection(t *testing.T) {
 	_, _, err = Call(false, "warehouse", "SELECT :missing", nil, 0)
 	require.Error(t, err)
 }
+
+func (shop) RunMaintenance(context.Context, string, string, time.Duration, time.Duration) error {
+	return nil
+}
+
+func (shop) ApplyPersonas(string) []string { return nil }

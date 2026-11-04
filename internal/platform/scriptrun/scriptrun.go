@@ -765,6 +765,7 @@ func predeclared(host *hostState) starlark.StringDict {
 				"query_iter":   starlark.NewBuiltin(scripttx.CapabilityQueryIter, host.guarded(host.tx.QueryIter)),
 				"copy_in":      starlark.NewBuiltin(scripttx.CapabilityCopyIn, host.guarded(host.tx.CopyIn)),
 				"copy_out":     starlark.NewBuiltin(scripttx.CapabilityCopyOut, host.guarded(host.tx.CopyOut)),
+				"maintain":     starlark.NewBuiltin(scripttx.CapabilityMaintain, host.guarded(host.tx.Maintain)),
 				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.guarded(host.saveState)),
 				"checkpoint":   starlark.NewBuiltin(CapabilityCheckpoint, host.guarded(host.checkpoint)),
 				"remaining_ms": starlark.NewBuiltin(CapabilityRemainingMS, host.guarded(clock.RemainingMS)),

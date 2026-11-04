@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -158,3 +159,9 @@ func TestTestingDatabase_NamesTheSchemasItIsBuiltFrom(t *testing.T) {
 		assert.False(t, report.Tests[0].Passed, bad)
 	}
 }
+
+func (*usersDB) RunMaintenance(context.Context, string, string, time.Duration, time.Duration) error {
+	return nil
+}
+
+func (*usersDB) ApplyPersonas(string) []string { return nil }

@@ -645,6 +645,22 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      # An application database's health report is one contract the admin
+      # route serves and the connection page reads (#2409): the report and the
+      # sections it is made of (server, connections, tables, indexes,
+      # sessions, blocking, replicas, statements, errors). Splitting the
+      # sections across files would scatter one response, not decompose it.
+      - path: internal/appdbhealth/appdbhealth\.go
+        linters:
+          - revive
+        text: "max-public-structs"
+      # The administrator's console request and result (#2427): a statement,
+      # the request, one statement's result, the refusal, the whole result and
+      # a parameter's audited shape. One contract, described by its values.
+      - path: internal/appdbconsole/console\.go
+        linters:
+          - revive
+        text: "max-public-structs"
       # The same contract, on the delivery side: what an agent gets back when it
       # fetches a session (#1322) is the provider plus the shape of the document
       # — the session, the assets and insights it produced, and one call on its

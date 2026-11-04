@@ -121,7 +121,7 @@ WHAT IS AVAILABLE
       platform.call to trino_query or trino_execute is held to the same
       ceiling.
   platform.transaction, platform.batch, platform.query_iter,
-  platform.copy_in, platform.copy_out: an application database; see
+  platform.copy_in, copy_out, maintain: an application database; see
       mcp:knowledge_page:platform-application-databases.
   platform.export(name, rows, format="csv", destination="portal", key=None,
                   register=None, references=None, tags=None, metadata=None,

@@ -23,7 +23,7 @@ var versionSelectColumns = []string{
 	"id", "script_id", "version", "display_name", "description", "category",
 	"source_code", "params", "tags", "author", "author_roles", "status",
 	"created_at", "change_summary", "change_agreed_by", "change_agreed_at", "tests",
-	"predates_statement_cap",
+	"predates_statement_cap", "author_subject",
 }
 
 // versionRow returns one full version row in versionColumns order.
@@ -31,7 +31,7 @@ func versionRow(version int, source, status string, paramsJSON []byte) []driver.
 	return []driver.Value{
 		"sver_1", "script_1", version, "Daily", "A daily report", "",
 		source, paramsJSON, pq.Array([]string{}), "jane@example.com",
-		pq.Array([]string{"analyst"}), status, rowTime, "", "", nil, nil, false,
+		pq.Array([]string{"analyst"}), status, rowTime, "", "", nil, nil, false, "oidc|jane",
 	}
 }
 
@@ -249,7 +249,7 @@ func TestGetVersionByID(t *testing.T) {
 func TestGetVersion_ReadsTheTestReport(t *testing.T) {
 	s, mock := newMock(t)
 	row := versionRow(1, "print(1)", script.VersionStatusApplied, emptyParams(t))
-	row[len(row)-2] = []byte(`{"tests":[{"name":"test_a","passed":true,"line":4}],"passed":1,"failed":0,` +
+	row[len(row)-3] = []byte(`{"tests":[{"name":"test_a","passed":true,"line":4}],"passed":1,"failed":0,` +
 		`"coverage":{"statements":10,"covered":9,"percent":90,"missed_lines":[7]}}`)
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND version = $2")).
 		WillReturnRows(sqlmock.NewRows(versionSelectColumns).AddRow(row...))
@@ -262,7 +262,7 @@ func TestGetVersion_ReadsTheTestReport(t *testing.T) {
 		Coverage: testreport.Coverage{Statements: 10, Covered: 9, Percent: 90, MissedLines: []int{7}},
 	}, got.Tests)
 
-	row[len(row)-2] = []byte(`{bad`)
+	row[len(row)-3] = []byte(`{bad`)
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND version = $2")).
 		WillReturnRows(sqlmock.NewRows(versionSelectColumns).AddRow(row...))
 	_, err = s.GetVersion(context.Background(), "script_1", 1)
@@ -279,7 +279,8 @@ func TestCreate_WritesTheTestReport(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sql.NullString{String: `{"tests":[],"passed":2,"failed":0,"coverage":{"statements":4,"covered":4,"percent":100,"missed_lines":[]}}`, Valid: true}).
+			sql.NullString{String: `{"tests":[],"passed":2,"failed":0,"coverage":{"statements":4,"covered":4,"percent":100,"missed_lines":[]}}`, Valid: true},
+			"oidc|jane").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
@@ -288,6 +289,6 @@ func TestCreate_WritesTheTestReport(t *testing.T) {
 		Tests: []testreport.Outcome{}, Passed: 2,
 		Coverage: testreport.Coverage{Statements: 4, Covered: 4, Percent: 100, MissedLines: []int{}},
 	}}
-	require.NoError(t, s.Create(context.Background(), sc, script.Author{Email: "jane@example.com"}))
+	require.NoError(t, s.Create(context.Background(), sc, script.Author{Email: "jane@example.com", Subject: "oidc|jane"}))
 	require.NoError(t, mock.ExpectationsWereMet())
 }

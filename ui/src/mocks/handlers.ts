@@ -31,6 +31,7 @@ import { catalogHandlers } from "./handlers/catalogs";
 import { apiBrowseHandlers } from "./handlers/apis";
 import { userHandlers } from "./handlers/users";
 import { connectionInstanceHandlers } from "./handlers/connections";
+import { appdbHandlers } from "./handlers/appdb";
 import { scriptHandlers } from "./handlers/scripts";
 import { sessionHandlers } from "./handlers/sessions";
 import { callHandlers } from "./handlers/calls";
@@ -4711,6 +4712,7 @@ export const handlers = [
   ...apiBrowseHandlers,
   ...userHandlers,
   ...connectionInstanceHandlers,
+  ...appdbHandlers,
   ...scriptHandlers,
   ...sessionHandlers,
   ...callHandlers,

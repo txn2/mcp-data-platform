@@ -114,7 +114,7 @@ var Capabilities = []string{
 	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
 	CapabilityCheckpoint, CapabilityRemainingMS, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
 	scripttoken.CapabilityMint, scripttoken.CapabilityVerify, scripttoken.CapabilityDecrypt, scripttx.CapabilityTransaction, scripttx.CapabilityBatch,
-	scripttx.CapabilityQueryIter, scripttx.CapabilityCopyIn, scripttx.CapabilityCopyOut,
+	scripttx.CapabilityQueryIter, scripttx.CapabilityCopyIn, scripttx.CapabilityCopyOut, scripttx.CapabilityMaintain,
 }
 
 // The formats platform.export accepts, split by what serializes them. A format

@@ -60,7 +60,7 @@ func TestPortalTransferOwner_MovesTheScriptAndRecordsIt(t *testing.T) {
 	assert.Equal(t, 1, body.Version)
 	assert.Contains(t, body.Message, "belongs to you")
 	assert.Equal(t, "admin@example.com", store.scripts[1].OwnerEmail)
-	assert.Equal(t, script.Author{Email: "admin@example.com", Roles: []string{}}, store.transferredBy,
+	assert.Equal(t, script.Author{Email: "admin@example.com", Roles: []string{}, Subject: "u3"}, store.transferredBy,
 		"the version records the administrator, whose roles a run now presents")
 
 	require.Len(t, log.events, 1)

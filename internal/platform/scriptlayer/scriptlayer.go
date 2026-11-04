@@ -246,8 +246,8 @@ func resolveEmail(ctx context.Context) string {
 // quietly inherits someone else's authority.
 func callerAuthor(ctx context.Context) script.Author {
 	author := script.Author{Email: resolveEmail(ctx), Roles: []string{}}
-	if pc := middleware.GetPlatformContext(ctx); pc != nil && len(pc.Roles) > 0 {
-		author.Roles = append([]string(nil), pc.Roles...)
+	if pc := middleware.GetPlatformContext(ctx); pc != nil {
+		author.Subject, author.Roles = pc.UserID, append(author.Roles, pc.Roles...)
 	}
 	return author
 }

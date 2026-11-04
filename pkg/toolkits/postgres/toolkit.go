@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,9 @@ type Toolkit struct {
 	// references finds the saved scripts a rename would break; nil checks
 	// none.
 	references ScriptReferences
+	// driftCheck and findings add to status and describe (SetSchemaChecks).
+	driftCheck func(ctx context.Context, connection, schema string) any
+	findings   func(ctx context.Context, connection, schema string, d *Description) any
 	// scratchHook builds the toolkit a throwaway database is served by; nil
 	// builds a pool. A unit test's stand-in.
 	scratchHook func(name string, cfg Config) (*Toolkit, error)
@@ -286,10 +290,20 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 
 // UpdateConnection implements toolkit.ConnectionUpdater: the connection's new
 // pool replaces the old one, which closes once its statements in flight end.
+// The same configuration again keeps the live pool: a replica that took a
+// connection on from the store hears the saving replica's announcement next,
+// and closing the pool then fails a call that had looked it up.
 func (t *Toolkit) UpdateConnection(name string, config map[string]any) error {
 	cfg, err := parseFilled(name, config)
 	if err != nil {
 		return err
+	}
+	cfg.ConnectionName = name
+	t.mu.RLock()
+	live, ok := t.connections[name]
+	t.mu.RUnlock()
+	if ok && reflect.DeepEqual(live.cfg, cfg) {
+		return nil
 	}
 	c, err := t.newConn(name, cfg)
 	if err != nil {

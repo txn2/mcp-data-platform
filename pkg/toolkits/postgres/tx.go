@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // inTx runs fn in a transaction with every statement bounded by timeout, and
@@ -54,6 +55,27 @@ func (e *poolWaitError) Error() string {
 		"all %d of its connections on this replica are in use (max_conns)", errPrefix, e.connection, e.wait, e.maxConns)
 }
 
+// acquire takes a connection from pool. pool_wait_timeout bounds the wait
+// for a connection other calls hold; a pool with room opens a new one, and
+// that is bounded by the connect timeout instead, so a slow connect is never
+// reported as a full pool.
+func (c *conn) acquire(ctx context.Context, pool *pgxpool.Pool) (*pgxpool.Conn, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, c.cfg.PoolWait)
+	pc, err := pool.Acquire(waitCtx)
+	timedOut := waitCtx.Err() != nil && ctx.Err() == nil
+	cancel()
+	if err == nil || !timedOut {
+		return pc, err //nolint:wrapcheck // read by its type
+	}
+	if s := pool.Stat(); s.AcquiredConns() < s.MaxConns() {
+		openCtx, cancelOpen := context.WithTimeout(ctx, DefaultConnectTimeout)
+		defer cancelOpen()
+		return pool.Acquire(openCtx) //nolint:wrapcheck // read by its type
+	}
+	c.rec().RecordAppDBPoolWaitTimeout(ctx, c.cfg.ConnectionName)
+	return nil, &poolWaitError{connection: c.cfg.ConnectionName, maxConns: c.cfg.MaxConns, wait: c.cfg.PoolWait}
+}
+
 // poolBegin takes a connection from the pool, waiting at most pool_wait_timeout
 // for one, and opens a transaction on it. The connection goes back to the pool
 // when the transaction ends.
@@ -66,16 +88,9 @@ func (c *conn) poolBegin(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error
 	if err != nil {
 		return nil, err
 	}
-	waitCtx, cancel := context.WithTimeout(ctx, c.cfg.PoolWait)
-	pc, err := pool.Acquire(waitCtx)
-	timedOut := waitCtx.Err() != nil && ctx.Err() == nil
-	cancel()
+	pc, err := c.acquire(ctx, pool)
 	if err != nil {
-		if timedOut {
-			c.rec().RecordAppDBPoolWaitTimeout(ctx, c.cfg.ConnectionName)
-			return nil, &poolWaitError{connection: c.cfg.ConnectionName, maxConns: c.cfg.MaxConns, wait: c.cfg.PoolWait}
-		}
-		return nil, err //nolint:wrapcheck // read by its type
+		return nil, err
 	}
 	tx, err := pc.BeginTx(ctx, opts)
 	if err != nil {

@@ -78,6 +78,19 @@ const (
 	slugVisuals       = "platform-visual-libraries"
 	slugContentTypes  = knowledgepage.BuiltinSlugContentTypes
 	slugAppDB         = "platform-application-databases"
+	// The PostgreSQL design pages (#2448).
+	slugPGWrites    = "platform-postgres-write-patterns"
+	slugPGIntegrity = "platform-postgres-integrity"
+	slugPGDocuments = "platform-postgres-documents"
+	slugPGSearch    = "platform-postgres-search"
+	slugPGTime      = "platform-postgres-time"
+	slugPGFunctions = "platform-postgres-functions-triggers"
+	slugPGSecurity  = "platform-postgres-security"
+	slugPGQueues    = "platform-postgres-queues-locks-events"
+	slugPGBulk      = "platform-postgres-partitioning-caching-bulk"
+	slugPGQueries   = "platform-postgres-queries-and-values"
+	slugPGProvides  = "platform-postgres-platform-provides"
+	slugPGCaveats   = "platform-postgres-what-does-not-work"
 )
 
 // pageMeta is the shipped metadata of one page. The title is the body file's
@@ -121,9 +134,9 @@ var pageMetas = []pageMeta{
 	{
 		file:    "application-databases.md",
 		slug:    slugAppDB,
-		summary: "Reading and writing an application's own PostgreSQL database from a script: bound statements, platform.transaction and its retry contract, platform.batch in one round trip, and the schema manage_schema builds.",
+		summary: "Reading and writing an application's own PostgreSQL database from a script: bound statements, platform.transaction and its retry contract, platform.batch in one round trip, the schema manage_schema builds and the drift it reports, and platform.maintain.",
 		tags:    []string{"scripts", "application database", "postgres", "transactions"},
-		related: []string{slugWriting, slugDialect, slugReference},
+		related: []string{slugWriting, slugDialect, slugReference, slugPGWrites, slugPGCaveats},
 	},
 	{
 		file:    "reference-script.md",
@@ -187,6 +200,90 @@ var pageMetas = []pageMeta{
 		summary: "Drawing a chart, flow, mind map, roadmap, network, graph, sketch or animation with a library loaded from a public CDN instead of hand-drawn SVG: Vega-Lite, Mermaid, Markmap, d3-sankey, Frappe Gantt, Cytoscape.js, Graphviz, Rough.js and dotLottie at pinned versions, a skeleton for each that follows light and dark and fits the frame, their use on a slide and in a JSX asset.",
 		tags:    []string{"assets", "authoring", "charts", "diagrams", "animation"},
 		related: []string{slugPresentations, slugDashboards, slugFitScreen, slugAssetRefs},
+	},
+	{
+		file:    "postgres-write-patterns.md",
+		slug:    slugPGWrites,
+		summary: "Writing rows so concurrent writers, retries and repeated requests leave the right state: upsert with INSERT ... ON CONFLICT, RETURNING (old and new on 18), MERGE and why it is not the concurrent upsert, data-modifying CTEs, a batch as one array parameter, optimistic concurrency with a version column, idempotency keys.",
+		tags:    []string{"postgres", "application database", "upsert", "merge", "writes"},
+		related: []string{slugPGIntegrity, slugPGQueues, slugAppDB},
+	},
+	{
+		file:    "postgres-integrity.md",
+		slug:    slugPGIntegrity,
+		summary: "Rules the database enforces on every write: constraints over triggers, partial unique indexes, UNIQUE NULLS NOT DISTINCT, exclusion constraints with ranges, deferrable constraints, domains, stored generated columns (virtual by default on 18), identity and uuidv7 keys, numeric for money, a counter row for gapless numbers.",
+		tags:    []string{"postgres", "application database", "constraints", "exclusion constraint", "integrity"},
+		related: []string{slugPGWrites, slugPGFunctions, slugPGTime},
+	},
+	{
+		file:    "postgres-documents.md",
+		slug:    slugPGDocuments,
+		summary: "When a field belongs in jsonb and when it is a column, GIN operator classes and expression indexes for documents, changing one key, SQL/JSON on 17 (JSON_TABLE, JSON_VALUE, JSON_QUERY, JSON_EXISTS), and validating a document with a CHECK constraint.",
+		tags:    []string{"postgres", "application database", "jsonb", "json", "documents"},
+		related: []string{slugPGSearch, slugPGQueries},
+	},
+	{
+		file:    "postgres-search.md",
+		slug:    slugPGSearch,
+		summary: "Searching an application's own rows: full text search with a stored generated tsvector, websearch_to_tsquery, ts_rank and ts_headline; pg_trgm for fragments and misspellings; nondeterministic collations for case-insensitive keys.",
+		tags:    []string{"postgres", "application database", "full text search", "search", "pg_trgm"},
+		related: []string{slugPGDocuments, slugPGIntegrity},
+	},
+	{
+		file:    "postgres-time.md",
+		slug:    slugPGTime,
+		summary: "Time in an application database: timestamptz for instants, a local time and IANA zone for recurrence, half-open ranges for periods, date_bin and generate_series for buckets, now() against clock_timestamp(), and why a month is not a number of seconds.",
+		tags:    []string{"postgres", "application database", "time", "timestamptz", "ranges"},
+		related: []string{slugPGIntegrity, slugPGQueries, slugPGProvides},
+	},
+	{
+		file:    "postgres-functions-triggers.md",
+		slug:    slugPGFunctions,
+		summary: "Code inside the database: SQL functions with BEGIN ATOMIC and honest volatility labels, SECURITY DEFINER with a pinned search_path and REVOKE FROM PUBLIC, statement triggers with transition tables, constraint triggers for invariants across rows, and when a trigger is the wrong tool.",
+		tags:    []string{"postgres", "application database", "functions", "triggers", "procedures"},
+		related: []string{slugPGIntegrity, slugPGSecurity, slugPGQueues},
+	},
+	{
+		file:    "postgres-security.md",
+		slug:    slugPGSecurity,
+		summary: "What the application database refuses beneath the platform's persona check: the login role a persona maps to, table and column grants, row level security with FORCE and policies reading the caller's claims (mcp.user_id), and views created with security_invoker.",
+		tags:    []string{"postgres", "application database", "row level security", "security", "grants"},
+		related: []string{slugAppDB, slugPGFunctions},
+	},
+	{
+		file:    "postgres-queues-locks-events.md",
+		slug:    slugPGQueues,
+		summary: "A job queue claimed with SKIP LOCKED and a lease, the reaper, and why dead tuples rather than lock waits limit it; transaction-scoped advisory locks, row lock strengths, SERIALIZABLE with retry, lock and transaction timeouts; LISTEN/NOTIFY as a hint and the outbox that carries events.",
+		tags:    []string{"postgres", "application database", "job queue", "locks", "events"},
+		related: []string{slugPGProvides, slugPGWrites, slugPGCaveats},
+	},
+	{
+		file:    "postgres-partitioning-caching-bulk.md",
+		slug:    slugPGBulk,
+		summary: "Range partitions created ahead and dropped for retention, unique keys that include the partition key, materialized views refreshed concurrently, unlogged tables and what they are not, and bulk data through copy_in, copy_out and a staging table for rows that may break constraints.",
+		tags:    []string{"postgres", "application database", "partitioning", "materialized views", "copy"},
+		related: []string{slugPGWrites, slugAppDB},
+	},
+	{
+		file:    "postgres-queries-and-values.md",
+		slug:    slugPGQueries,
+		summary: "The query shapes reads are built from (keyset pagination, window functions, DISTINCT ON, LATERAL, FILTER, GROUPING SETS, recursive CTEs with SEARCH and CYCLE) and how each PostgreSQL type reaches a script and binds back from one.",
+		tags:    []string{"postgres", "application database", "queries", "pagination", "types"},
+		related: []string{slugPGTime, slugPGDocuments, slugAppDB},
+	},
+	{
+		file:    "postgres-platform-provides.md",
+		slug:    slugPGProvides,
+		summary: "What the platform already runs so an application does not rebuild it in its database: script schedules for cron, scripts per event for a job queue, the outbox webhook source for row events and LISTEN/NOTIFY, managed resources for files, endpoints for an HTTP API, notify for mail.",
+		tags:    []string{"postgres", "application database", "job queue", "scheduling", "events"},
+		related: []string{slugPGQueues, slugWriting, slugAppDB},
+	},
+	{
+		file:    "postgres-what-does-not-work.md",
+		slug:    slugPGCaveats,
+		summary: "What does not work through the platform's pooled connections (a procedure that commits, session SET, temporary tables, LISTEN, session advisory locks, WITH HOLD cursors, SQL PREPARE) and common claims about PostgreSQL, corrected.",
+		tags:    []string{"postgres", "application database", "limitations", "pooling"},
+		related: []string{slugPGQueues, slugPGProvides, slugAppDB},
 	},
 	{
 		file:    "content-types-for-stored-files.md",

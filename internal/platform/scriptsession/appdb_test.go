@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,20 @@ type fakeAppDB struct {
 	// cursors are the cursors opened, and copied the copy_in calls.
 	cursors []*fakeCursor
 	copied  []postgres.CopyIn
+	// maintained are the maintenance statements run, applyPersonas the
+	// connection's schema_apply_personas, maintainErr what a maintenance
+	// statement fails with.
+	maintained    []string
+	applyPersonas []string
+	maintainErr   error
 }
+
+func (f *fakeAppDB) RunMaintenance(_ context.Context, _, stmt string, _, _ time.Duration) error {
+	f.maintained = append(f.maintained, stmt)
+	return f.maintainErr
+}
+
+func (f *fakeAppDB) ApplyPersonas(string) []string { return f.applyPersonas }
 
 // fakeCursor serves pages of one row each until it has served rows.
 type fakeCursor struct {
@@ -653,4 +667,53 @@ func TestRecordedArgsAndOutKeepNoCopiedValues(t *testing.T) {
 	assert.Contains(t, out, "data")
 	assert.Nil(t, RecordedOut(AppDBCopyOut, nil))
 	assert.Equal(t, out, RecordedOut(AppDBQuery, out))
+}
+
+// installAs installs db with every connection allowed as persona and the
+// administrator persona "admin".
+func installAs(t *testing.T, db *fakeAppDB, persona string) {
+	t.Helper()
+	InstallAppDB(AppDB{
+		Runner:       func() AppDBRunner { return db },
+		Authorize:    func(context.Context, string) (string, error) { return persona, nil },
+		AdminPersona: "admin",
+	})
+	t.Cleanup(func() { installed.Store(nil) })
+}
+
+// platform.maintain (#2410) runs for the administrator and for a persona the
+// connection's schema_apply_personas names, and is refused, naming the grant,
+// for any other persona; an index change is refused naming manage_schema.
+func TestAppDBCaller_MaintainNeedsTheGrant(t *testing.T) {
+	for persona, allowed := range map[string]bool{"admin": true, "builder": true, "analyst": false, "": false} {
+		t.Run("persona "+persona, func(t *testing.T) {
+			db := &fakeAppDB{applyPersonas: []string{"builder"}}
+			installAs(t, db, persona)
+			out, err := newAppDBCaller(context.Background()).call(context.Background(), AppDBMaintain,
+				map[string]any{"connection": "shop", "command": "analyze", "table": "orders"})
+			if !allowed {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "schema_apply_personas")
+				assert.Empty(t, db.maintained)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, []string{`ANALYZE "orders"`}, db.maintained)
+			assert.Equal(t, `ANALYZE "orders"`, out["statement"])
+		})
+	}
+
+	db := &fakeAppDB{}
+	installAs(t, db, "admin")
+	c := newAppDBCaller(context.Background())
+	_, err := c.call(context.Background(), AppDBMaintain, map[string]any{"connection": "shop", "command": "create_index", "table": "orders"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "manage_schema")
+	assert.Empty(t, db.maintained)
+
+	db.maintainErr = &postgres.FailedError{Code: postgres.CodeStatementFailed, Summary: "lock timeout"}
+	_, err = c.call(context.Background(), AppDBMaintain, map[string]any{"connection": "shop", "command": "vacuum"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "lock timeout")
+	assert.True(t, IsAppDBCall(AppDBMaintain))
 }

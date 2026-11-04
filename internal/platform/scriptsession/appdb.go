@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/appdbops"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
@@ -52,6 +55,10 @@ const (
 	// bytes never reach a recording (RecordedArgs, RecordedOut).
 	AppDBCopyIn  = "appdb.copy_in"
 	AppDBCopyOut = "appdb.copy_out"
+	// AppDBMaintain is platform.maintain (#2410): ANALYZE, VACUUM or REINDEX
+	// outside a transaction, for an administrator or a persona the
+	// connection's schema_apply_personas names.
+	AppDBMaintain = "appdb.maintain"
 )
 
 // IsAppDBCall reports whether name is one of the calls a session answers
@@ -60,7 +67,7 @@ func IsAppDBCall(name string) bool {
 	switch name {
 	case AppDBQuery, AppDBExecute, AppDBBatch, AppDBBegin, AppDBTxQuery, AppDBTxExecute, AppDBTxBatch, AppDBCommit, AppDBRollback,
 		AppDBSavepoint, AppDBRelease, AppDBRollbackTo, AppDBCursorOpen, AppDBCursorFetch, AppDBCursorClose,
-		AppDBCopyIn, AppDBCopyOut:
+		AppDBCopyIn, AppDBCopyOut, AppDBMaintain:
 		return true
 	}
 	return false
@@ -76,6 +83,8 @@ type AppDBRunner interface {
 	OpenCursor(ctx context.Context, s postgres.Statement, pageRows int) (AppDBCursor, error)
 	CopyIn(ctx context.Context, in postgres.CopyIn) (int64, error)
 	CopyOut(ctx context.Context, s postgres.Statement, format string, w io.Writer, maxBytes int64) (*postgres.CopyOutResult, error)
+	RunMaintenance(ctx context.Context, connection, stmt string, lockTimeout, timeout time.Duration) error
+	ApplyPersonas(connection string) []string
 }
 
 // AppDBCursor is one query read in pages: a *postgres.Cursor.
@@ -113,6 +122,9 @@ type AppDB struct {
 	// (#2407), and returns its runner and the function that drops it. Nil
 	// on a deployment that keeps no migrations.
 	TestDatabase func(ctx context.Context, connection string, schemas []string) (AppDBRunner, func(), error)
+	// AdminPersona is the persona that is the platform's administrator,
+	// which platform.maintain is allowed for on every connection.
+	AdminPersona string
 }
 
 //nolint:gochecknoglobals // installed once by the platform, read by every script session it opens
@@ -163,9 +175,14 @@ func newAppDBCaller(ctx context.Context) *appdbCaller {
 // errNoAppDB is the refusal of every call on a deployment with no runner.
 const errNoAppDB = "no application database is served on this deployment"
 
+// served reports whether this deployment serves an application database.
+func (c *appdbCaller) served() bool {
+	return c != nil && c.db.Runner != nil && c.db.Runner() != nil
+}
+
 // call runs one application-database call.
 func (c *appdbCaller) call(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
-	if c == nil || c.db.Runner == nil || c.db.Runner() == nil {
+	if !c.served() {
 		return nil, NewRefusal(errNoAppDB, refusalEnv(postgres.CodeUnknownConnection, errNoAppDB))
 	}
 	switch name {
@@ -181,6 +198,8 @@ func (c *appdbCaller) call(ctx context.Context, name string, args map[string]any
 		return c.copyIn(ctx, args)
 	case AppDBCopyOut:
 		return c.copyOut(ctx, args)
+	case AppDBMaintain:
+		return c.maintain(ctx, args)
 	default:
 		return c.inTx(ctx, name, args)
 	}
@@ -372,6 +391,7 @@ func txStatement(ctx context.Context, tx AppDBTx, write bool, args map[string]an
 const (
 	argTransaction = "transaction"
 	argConnection  = "connection"
+	argTable       = "table"
 	// argRows is a result's rows, and a copy_in's.
 	argRows = "rows"
 )
@@ -669,7 +689,7 @@ func appdbRefusal(err error) error {
 			env["postgres"] = map[string]any{
 				"sqlstate": failed.Statement.SQLState, "condition": failed.Statement.Condition,
 				"message": failed.Statement.Message, "detail": failed.Statement.Detail, "hint": failed.Statement.Hint,
-				"schema": failed.Statement.Schema, "table": failed.Statement.Table, "column": failed.Statement.Column,
+				"schema": failed.Statement.Schema, argTable: failed.Statement.Table, "column": failed.Statement.Column,
 				"constraint": failed.Statement.Constraint,
 			}
 		}
@@ -686,7 +706,7 @@ func refusalEnv(code, message string) map[string]any {
 // its own on the connection args name.
 func (c *appdbCaller) copyIn(ctx context.Context, args map[string]any) (map[string]any, error) {
 	in := postgres.CopyIn{}
-	in.Table, _ = args["table"].(string)
+	in.Table, _ = args[argTable].(string)
 	for _, col := range anyList(args["columns"]) {
 		name, _ := col.(string)
 		in.Columns = append(in.Columns, name)
@@ -715,7 +735,7 @@ func (c *appdbCaller) copyIn(ctx context.Context, args map[string]any) (map[stri
 	if err != nil {
 		return nil, appdbRefusal(err)
 	}
-	return map[string]any{argConnection: in.Connection, "table": in.Table, "columns": args["columns"], "rows_written": n}, nil
+	return map[string]any{argConnection: in.Connection, argTable: in.Table, "columns": args["columns"], "rows_written": n}, nil
 }
 
 // copyOut writes copy_out's query into a buffer and answers with its bytes,
@@ -765,4 +785,39 @@ func RecordedOut(tool string, out map[string]any) map[string]any {
 	kept := maps.Clone(out)
 	delete(kept, "data")
 	return kept
+}
+
+// maintain runs platform.maintain: the run's persona must be the
+// administrator or one the connection's schema_apply_personas names. A draft
+// never reaches it; the write barrier refuses appdb.maintain.
+func (c *appdbCaller) maintain(ctx context.Context, args map[string]any) (map[string]any, error) {
+	connection, _ := args[argConnection].(string)
+	command, _ := args["command"].(string)
+	table, _ := args[argTable].(string)
+	if err := c.admit(connection); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	persona := c.authorized[connection]
+	c.mu.Unlock()
+	runner := c.db.Runner()
+	if persona == "" || (persona != c.db.AdminPersona && !slices.Contains(runner.ApplyPersonas(connection), persona)) {
+		msg := fmt.Sprintf("platform.maintain on application database %q is for the administrator and the personas its "+
+			"schema_apply_personas names; this run's persona %q is neither", connection, persona)
+		return nil, NewRefusal(msg, refusalEnv(postgres.CodeApplyNotAllowed, msg))
+	}
+	timeout := time.Duration(0)
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = time.Until(deadline)
+	}
+	out, err := appdbops.Maintain(ctx, runner, appdbops.Request{Connection: connection, Command: command, Table: table, Timeout: timeout})
+	if err != nil {
+		var refused *postgres.RefusedError
+		var failed *postgres.FailedError
+		if errors.As(err, &refused) || errors.As(err, &failed) {
+			return nil, appdbRefusal(err)
+		}
+		return nil, invalid(err)
+	}
+	return map[string]any{"statement": out.Statement, "duration_ms": out.DurationMS}, nil
 }

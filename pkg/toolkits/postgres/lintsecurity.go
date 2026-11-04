@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/pglex"
 )
 
 // The migration review's security and version rules (#2449). The lint above
@@ -440,7 +442,7 @@ func (ts toks) settingValues(i int) []string {
 
 // isPunct reports whether text is one byte of punctuation.
 func isPunct(text string) bool {
-	return len(text) == 1 && !isIdentByte(text[0])
+	return len(text) == 1 && !pglex.IsIdentByte(text[0])
 }
 
 // skipArgs is past a parenthesized argument list at i, or i.

@@ -72,6 +72,15 @@ var otherEngines = map[string]bool{
 	// platform's schema would report a missing table. Its RealDB tests run
 	// every one of them against a real target database.
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres": true,
+	// Operating an application database (#2406, #2409, #2410, #2427): the
+	// health report, the drift check and the adopted baseline, and the
+	// console's signals read an operator's database's catalog and statistics
+	// views (pg_stat_statements among them, an extension the platform's own
+	// database does not hold). Their RealDB tests run every one of them on
+	// PostgreSQL 17 and 18.
+	"github.com/txn2/mcp-data-platform/internal/appdbhealth":  true,
+	"github.com/txn2/mcp-data-platform/internal/appdbdrift":   true,
+	"github.com/txn2/mcp-data-platform/internal/appdbconsole": true,
 }
 
 // source is a package that renders its run-time SQL for this gate.

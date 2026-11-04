@@ -16,6 +16,10 @@ import { shadowedOAuthKeys, storedOAuthGrant } from "./oauthVocabulary";
 import { GatewayHealthDetail, NoCatalogNotice } from "./HealthBadges";
 import { lacksCatalog } from "./connectionFilter";
 import { GraphQLSchemaCard } from "./GraphQLSchemaCard";
+import { AppDBConsoleCard } from "./AppDBConsoleCard";
+import { AppDBDriftCard } from "./AppDBDriftCard";
+import { AppDBHealthCard } from "./AppDBHealthCard";
+import { AppDBMaintenanceCard } from "./AppDBMaintenanceCard";
 import { AppDBMigrationsCard } from "./AppDBMigrationsCard";
 
 // ConfigRows renders the raw config key/value pairs of a connection, using the
@@ -219,7 +223,15 @@ export function ConnectionViewer({
 
       {/* An application database's migrations (#2404): what is applied,
           what is pending and its plan, and the history. */}
-      {connection.kind === "appdb" && <AppDBMigrationsCard connectionName={connection.name} />}
+      {connection.kind === "appdb" && (
+        <>
+          <AppDBMigrationsCard connectionName={connection.name} />
+          <AppDBDriftCard connectionName={connection.name} />
+          <AppDBHealthCard connectionName={connection.name} />
+          <AppDBMaintenanceCard connectionName={connection.name} />
+          <AppDBConsoleCard connectionName={connection.name} />
+        </>
+      )}
 
       {/* Runtime reachability for gateway upstreams. Same state the
           list_connections MCP tool reports, so the admin UI and the tool

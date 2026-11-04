@@ -282,8 +282,10 @@ func failedRun(err error) Response {
 // connect opens the request's in-memory session as the script principal,
 // presenting the version author's roles, exactly as a scheduled run's.
 func (r *Runner) connect(ctx context.Context, t *Target, sessionID string, requester *Caller) (scriptrun.Caller, func(), error) {
-	subject := ""
-	if r.Subjects != nil {
+	// The library the version's saving session files in (#2450), else the
+	// subject its author's address resolves to, as a scheduled run's.
+	subject := t.Version.AuthorSubject
+	if subject == "" && r.Subjects != nil {
 		subject = r.Subjects.ForRun(ctx, t.Version.Author)
 	}
 	serverCtx := middleware.WithSource(ctx, middleware.SourceScript)

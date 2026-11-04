@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const ordersDDL = `CREATE TABLE orders (id int PRIMARY KEY, total numeric(10,2) NOT NULL);
@@ -377,4 +379,34 @@ func waitFor(t *testing.T, cond func() bool) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
+
+// pool_wait_timeout bounds the wait for a connection another call holds, not
+// the opening of a new one: a connect slower than the bound still runs the
+// statement, and the bound still refuses one while the only connection is held.
+func TestPoolWaitDoesNotBoundOpeningAConnection_RealDB(t *testing.T) {
+	onTargets(t, func(t *testing.T) {
+		rt := realTarget(t)
+		rt.target[cfgKeyMaxConns] = 1
+		rt.target[cfgKeyPoolWait] = "100ms"
+		tk := newRealToolkit(t, rt.platform, map[string]map[string]any{"target": rt.target})
+		tk.SetConnectGuard(func(context.Context, *pgx.Conn) error {
+			time.Sleep(300 * time.Millisecond)
+			return nil
+		})
+		ctx := context.Background()
+		if _, err := tk.Query(ctx, Statement{Connection: "target", SQL: `SELECT 1`}); err != nil {
+			t.Fatalf("a statement whose connect outlasts pool_wait_timeout: %v", err)
+		}
+		x, err := tk.Begin(ctx, TxOptions{Connection: "target"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer x.Rollback()
+		_, err = tk.Query(ctx, Statement{Connection: "target", SQL: `SELECT 1`})
+		var failed *FailedError
+		if !errors.As(err, &failed) || failed.Code != CodePoolWait {
+			t.Fatalf("a statement with the only connection held: err = %v", err)
+		}
+	})
 }

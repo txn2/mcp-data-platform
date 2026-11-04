@@ -2142,6 +2142,638 @@ definitions:
       title:
         type: string
     type: object
+  appdbapi.driftResponse:
+    properties:
+      connection:
+        type: string
+      schemas:
+        items:
+          $ref: '#/definitions/appdbdrift.Result'
+        type: array
+    type: object
+  appdbapi.historyResponse:
+    properties:
+      connection:
+        type: string
+      days:
+        type: integer
+      points:
+        items:
+          $ref: '#/definitions/appdbwatch.Point'
+        type: array
+    type: object
+  appdbapi.maintenanceRequest:
+    properties:
+      command:
+        description: Command is analyze, vacuum, vacuum_full or reindex.
+        type: string
+      table:
+        description: |-
+          Table is table or schema.table; analyze and vacuum act on the whole
+          database without one.
+        type: string
+      timeout_seconds:
+        type: integer
+    type: object
+  appdbconsole.ConsoleError:
+    properties:
+      code:
+        type: string
+      detail:
+        type: string
+      index:
+        type: integer
+      summary:
+        type: string
+    type: object
+  appdbconsole.ConsoleRequest:
+    properties:
+      params: {}
+      read_only:
+        description: |-
+          ReadOnly runs the transaction READ ONLY; nil is true. A write needs it
+          turned off for the request that makes it.
+        type: boolean
+      sql:
+        type: string
+      statements:
+        items:
+          $ref: '#/definitions/appdbconsole.ConsoleStatement'
+        type: array
+    type: object
+  appdbconsole.ConsoleResult:
+    properties:
+      committed:
+        description: Committed is true when a read-write transaction committed.
+        type: boolean
+      connection:
+        type: string
+      error:
+        allOf:
+        - $ref: '#/definitions/appdbconsole.ConsoleError'
+        description: |-
+          Error is the statement that failed, after which nothing more ran and
+          the transaction rolled back.
+      read_only:
+        type: boolean
+      results:
+        items:
+          $ref: '#/definitions/appdbconsole.StatementResult'
+        type: array
+    type: object
+  appdbconsole.ConsoleStatement:
+    properties:
+      params: {}
+      sql:
+        type: string
+    type: object
+  appdbconsole.SignalResult:
+    properties:
+      connection:
+        type: string
+      pid:
+        type: integer
+      sent:
+        description: Sent is whether PostgreSQL delivered it.
+        type: boolean
+      signal:
+        type: string
+    type: object
+  appdbconsole.StatementResult:
+    properties:
+      columns:
+        items:
+          $ref: '#/definitions/postgres.Column'
+        type: array
+      command:
+        type: string
+      index:
+        type: integer
+      rows:
+        items:
+          items: {}
+          type: array
+        type: array
+      rows_affected:
+        type: integer
+      truncated:
+        type: boolean
+    type: object
+  appdbdrift.AdoptResult:
+    properties:
+      adopted:
+        description: Adopted is true when the baseline was saved and marked applied.
+        type: boolean
+      checksum:
+        type: string
+      connection:
+        type: string
+      differences:
+        items:
+          $ref: '#/definitions/appdbdrift.Difference'
+        type: array
+      schema:
+        type: string
+      unsupported:
+        description: |-
+          Unsupported are the objects the baseline cannot write; Differences
+          what the baseline, built from zero, still differs in. Either refuses.
+        items:
+          $ref: '#/definitions/appdbdrift.Unsupported'
+        type: array
+      up:
+        description: Up is the baseline's SQL.
+        type: string
+      version:
+        description: Version is the baseline's version, 1.
+        type: integer
+    type: object
+  appdbdrift.Difference:
+    properties:
+      change:
+        description: |-
+          Change is added (in the live schema only), missing (built by the
+          migrations and absent live) or changed.
+        type: string
+      expected:
+        type: string
+      kind:
+        description: |-
+          Kind is the object: table, column, constraint, index, trigger, policy,
+          partition, row_security, view, function, enum or domain.
+        type: string
+      live:
+        description: Live and Expected are the two definitions, for a changed object.
+        type: string
+      object:
+        description: 'Object names it: table, table.column, table.index, function(args).'
+        type: string
+    type: object
+  appdbdrift.Result:
+    properties:
+      applied_version:
+        description: |-
+          AppliedVersion is the latest applied migration the expected schema was
+          built through.
+        type: integer
+      checked:
+        description: |-
+          Checked is false when the check could not be made, and Reason says why:
+          the schema has no migrations, the ledger disagrees with them, or the
+          expected schema could not be built.
+        type: boolean
+      checked_at:
+        type: string
+      connection:
+        type: string
+      differences:
+        items:
+          $ref: '#/definitions/appdbdrift.Difference'
+        type: array
+      reason:
+        type: string
+      schema:
+        type: string
+    type: object
+  appdbdrift.Unsupported:
+    properties:
+      kind:
+        type: string
+      name:
+        type: string
+    type: object
+  appdbhealth.Blocked:
+    properties:
+      blocked_by:
+        items:
+          type: integer
+        type: array
+      pid:
+        type: integer
+      seconds:
+        type: number
+      user:
+        type: string
+    type: object
+  appdbhealth.ConnectionUse:
+    properties:
+      by_state:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      max:
+        type: integer
+      total:
+        type: integer
+    type: object
+  appdbhealth.DuplicateIndexes:
+    properties:
+      definition:
+        type: string
+      names:
+        items:
+          type: string
+        type: array
+      schema:
+        type: string
+      table:
+        type: string
+    type: object
+  appdbhealth.Extension:
+    properties:
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  appdbhealth.IndexRef:
+    properties:
+      name:
+        type: string
+      scans:
+        type: integer
+      schema:
+        type: string
+      size_bytes:
+        type: integer
+      table:
+        type: string
+    type: object
+  appdbhealth.IndexReport:
+    properties:
+      duplicate:
+        items:
+          $ref: '#/definitions/appdbhealth.DuplicateIndexes'
+        type: array
+      invalid:
+        description: Invalid were left by a failed CREATE INDEX CONCURRENTLY or REINDEX.
+        items:
+          $ref: '#/definitions/appdbhealth.IndexRef'
+        type: array
+      unused:
+        description: |-
+          Unused were never scanned since the statistics were reset and back no
+          constraint.
+        items:
+          $ref: '#/definitions/appdbhealth.IndexRef'
+        type: array
+    type: object
+  appdbhealth.Replica:
+    properties:
+      lag_bytes:
+        type: integer
+      lag_seconds:
+        type: number
+      name:
+        type: string
+      state:
+        type: string
+    type: object
+  appdbhealth.Report:
+    properties:
+      blocking:
+        items:
+          $ref: '#/definitions/appdbhealth.Blocked'
+        type: array
+      connection:
+        type: string
+      connections:
+        $ref: '#/definitions/appdbhealth.ConnectionUse'
+      errors:
+        description: |-
+          Errors names each section the database did not answer, with the
+          toolkit's summary of why. Empty when the report is complete.
+        items:
+          $ref: '#/definitions/appdbhealth.SectionError'
+        type: array
+      extensions:
+        description: Extensions are the extensions the database holds.
+        items:
+          $ref: '#/definitions/appdbhealth.Extension'
+        type: array
+      generated_at:
+        type: string
+      indexes:
+        $ref: '#/definitions/appdbhealth.IndexReport'
+      replication:
+        items:
+          $ref: '#/definitions/appdbhealth.Replica'
+        type: array
+      server:
+        $ref: '#/definitions/appdbhealth.Server'
+      sessions:
+        items:
+          $ref: '#/definitions/appdbhealth.Session'
+        type: array
+      statements:
+        $ref: '#/definitions/appdbhealth.StatementsSection'
+      tables:
+        items:
+          $ref: '#/definitions/appdbhealth.TableStats'
+        type: array
+    type: object
+  appdbhealth.SectionError:
+    properties:
+      error:
+        type: string
+      section:
+        type: string
+    type: object
+  appdbhealth.Server:
+    properties:
+      cache_hit_ratio:
+        description: CacheHitRatio is the share of block reads served from shared
+          buffers.
+        type: number
+      database:
+        type: string
+      in_recovery:
+        type: boolean
+      size_bytes:
+        type: integer
+      stats_reset:
+        type: string
+      transaction_id_age:
+        description: |-
+          TransactionIDAge is the age of the database's oldest unfrozen
+          transaction id; PostgreSQL stops accepting writes near 2^31.
+        type: integer
+      version:
+        type: string
+      version_num:
+        type: integer
+    type: object
+  appdbhealth.Session:
+    properties:
+      application:
+        type: string
+      pid:
+        type: integer
+      query:
+        description: |-
+          Query is the session's current or last statement. It can repeat a
+          literal: it is shown to the administrator and kept nowhere.
+        type: string
+      seconds:
+        description: |-
+          Seconds is how long the transaction (or, outside one, the statement)
+          has run; StateSeconds how long the session has been in its state.
+        type: number
+      state:
+        type: string
+      state_seconds:
+        type: number
+      user:
+        type: string
+      wait:
+        type: string
+    type: object
+  appdbhealth.Statement:
+    properties:
+      calls:
+        type: integer
+      mean_ms:
+        type: number
+      query:
+        type: string
+      query_id:
+        type: string
+      rows:
+        type: integer
+      total_ms:
+        type: number
+    type: object
+  appdbhealth.StatementsSection:
+    properties:
+      installed:
+        type: boolean
+      note:
+        description: |-
+          Note says why there are no statements: the extension is not installed,
+          or installed and not loaded by shared_preload_libraries.
+        type: string
+      top:
+        items:
+          $ref: '#/definitions/appdbhealth.Statement'
+        type: array
+    type: object
+  appdbhealth.TableStats:
+    properties:
+      dead_ratio:
+        description: DeadRatio is dead tuples over live and dead together.
+        type: number
+      dead_tuples:
+        type: integer
+      index_scans:
+        type: integer
+      last_analyze:
+        type: string
+      last_autoanalyze:
+        type: string
+      last_autovacuum:
+        type: string
+      last_vacuum:
+        type: string
+      live_tuples:
+        type: integer
+      name:
+        type: string
+      row_estimate:
+        type: integer
+      schema:
+        type: string
+      seq_scans:
+        type: integer
+      size_bytes:
+        type: integer
+      transaction_id_age:
+        description: |-
+          TransactionIDAge is the age of the table's oldest unfrozen
+          transaction id.
+        type: integer
+    type: object
+  appdbops.Outcome:
+    properties:
+      command:
+        type: string
+      connection:
+        type: string
+      duration_ms:
+        type: integer
+      statement:
+        description: Statement is what ran.
+        type: string
+      table:
+        type: string
+    type: object
+  appdbwatch.Point:
+    properties:
+      connection:
+        type: string
+      sample:
+        $ref: '#/definitions/appdbwatch.Sample'
+      sampled_at:
+        type: string
+    type: object
+  appdbwatch.Sample:
+    properties:
+      blocked:
+        type: integer
+      cache_hit_ratio:
+        type: number
+      connections:
+        type: integer
+      drift:
+        description: Drift is the check of each schema the platform keeps migrations
+          for.
+        items:
+          $ref: '#/definitions/appdbdrift.Result'
+        type: array
+      drift_objects:
+        description: |-
+          DriftObjects is how many objects differ from what the applied
+          migrations build, across the schemas that could be checked, and
+          DriftUnchecked how many schemas the platform keeps migrations for could
+          not be (their Drift result says why).
+        type: integer
+      drift_unchecked:
+        type: integer
+      duplicate_indexes:
+        type: integer
+      errors:
+        type: integer
+      idle_in_transaction:
+        description: |-
+          IdleInTransaction counts the sessions idle in a transaction, and
+          LongestIdleSeconds is how long the longest has been.
+        type: integer
+      invalid_indexes:
+        type: integer
+      long_running:
+        type: integer
+      longest_idle_seconds:
+        type: number
+      max_connections:
+        type: integer
+      max_dead_ratio:
+        description: |-
+          MaxDeadRatio is the highest dead tuple ratio of a table holding at
+          least MinTuplesForRatio rows, and MaxDeadTable that table.
+        type: number
+      max_dead_table:
+        type: string
+      reachable:
+        description: Reachable is false when the database did not answer the server
+          read.
+        type: boolean
+      replica_lag_bytes:
+        type: integer
+      size_bytes:
+        type: integer
+      transaction_id_age:
+        type: integer
+      unused_indexes:
+        type: integer
+    type: object
+  appdbwatch.Settings:
+    properties:
+      channels:
+        description: Channels are the notification channels the alerts are sent to.
+        items:
+          type: string
+        type: array
+      connections_percent:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: ConnectionsPercent is the share of max_connections in use.
+      dead_tuple_percent:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          DeadTuplePercent is the highest dead tuple share of a table holding
+          1,000 rows or more.
+      drift_objects:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          DriftObjects is how many objects differ from what the applied
+          migrations build.
+      history_days:
+        type: integer
+      idle_in_transaction_seconds:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          IdleInTransactionSeconds is how long the longest session has been idle
+          in a transaction.
+      interval_seconds:
+        description: IntervalSeconds is how often each application database is sampled.
+        type: integer
+      invalid_indexes:
+        $ref: '#/definitions/levelalert.Thresholds'
+      long_running_seconds:
+        description: |-
+          LongRunningSeconds is how long a statement runs before its session is
+          listed as long-running.
+        type: integer
+      transaction_id_age:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: TransactionIDAge is the age of the oldest unfrozen transaction
+          id.
+    type: object
+  appdbwatch.View:
+    properties:
+      channels:
+        description: Channels are the notification channels the alerts are sent to.
+        items:
+          type: string
+        type: array
+      connections_percent:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: ConnectionsPercent is the share of max_connections in use.
+      dead_tuple_percent:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          DeadTuplePercent is the highest dead tuple share of a table holding
+          1,000 rows or more.
+      drift_objects:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          DriftObjects is how many objects differ from what the applied
+          migrations build.
+      history_days:
+        type: integer
+      idle_in_transaction_seconds:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: |-
+          IdleInTransactionSeconds is how long the longest session has been idle
+          in a transaction.
+      interval_seconds:
+        description: IntervalSeconds is how often each application database is sampled.
+        type: integer
+      invalid_indexes:
+        $ref: '#/definitions/levelalert.Thresholds'
+      long_running_seconds:
+        description: |-
+          LongRunningSeconds is how long a statement runs before its session is
+          listed as long-running.
+        type: integer
+      transaction_id_age:
+        allOf:
+        - $ref: '#/definitions/levelalert.Thresholds'
+        description: TransactionIDAge is the age of the oldest unfrozen transaction
+          id.
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+    type: object
   assetrefapi.audience:
     properties:
       public:
@@ -9021,6 +9653,13 @@ definitions:
     x-enum-varnames:
     - PermissionViewer
     - PermissionEditor
+  postgres.Column:
+    properties:
+      name:
+        type: string
+      type:
+        type: string
+    type: object
   postgres.Drift:
     properties:
       reason:
@@ -16113,6 +16752,55 @@ paths:
       summary: List the API operations persona rules can name
       tags:
       - Personas
+  /admin/appdb-health/settings:
+    get:
+      description: How often each application database is sampled, how long the history
+        is kept, how long a statement runs before its session is listed, the channels
+        the alerts go to, and each condition's warning and critical thresholds (transaction
+        id age, idle-in-transaction seconds, percent of max_connections, invalid indexes,
+        dead tuple percent, drifted objects). A threshold of 0 is off.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdbwatch.View'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read the application database health settings
+      tags:
+      - Connections
+    put:
+      consumes:
+      - application/json
+      description: Replaces the settings. A threshold of 0 is off; a critical threshold
+        below its warning is refused.
+      parameters:
+      - description: The settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/appdbwatch.Settings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdbwatch.View'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Write the application database health settings
+      tags:
+      - Connections
   /admin/assets:
     get:
       description: Returns all platform assets without owner restriction, with active
@@ -18359,6 +19047,299 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Test a connection instance
+      tags:
+      - Connections
+  /admin/connection-instances/appdb/{name}/adopt:
+    post:
+      description: Reads a schema the platform keeps no migrations for and writes
+        it as a baseline migration (version 1) marked applied, so a database created
+        before the platform knew it is managed from then on. The baseline is first
+        applied from zero on a throwaway database and compared with the live schema;
+        it is saved only when nothing differs. Objects a baseline cannot write (aggregates,
+        composite and range types, rules, inheritance, operators, collations, statistics
+        objects, text search configurations, foreign tables) are listed and refuse
+        the adoption. Roles and grants are not written.
+      parameters:
+      - description: Application database connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Schema to adopt; defaults to public
+        in: query
+        name: schema
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdbdrift.AdoptResult'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Adopt an existing schema
+      tags:
+      - Connections
+  /admin/connection-instances/appdb/{name}/backends/{pid}/{signal}:
+    post:
+      description: Cancels the statement a backend runs (cancel) or ends the backend
+        (terminate). Only a backend in the connection's database logged in as one
+        of the connection's roles (its user and each persona role) is acted on; the
+        check and the signal are one statement. Any other backend is refused.
+      parameters:
+      - description: Application database connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: The backend's process id
+        in: path
+        name: pid
+        required: true
+        type: integer
+      - description: cancel or terminate
+        in: path
+        name: signal
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdbconsole.SignalResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Cancel or terminate an application database backend
+      tags:
+      - Connections
+  /admin/connection-instances/appdb/{name}/console:
+    post:
+      consumes:
+      - application/json
+      description: 'Runs one statement, several separated by semicolons, or a list,
+        in one transaction as the connection''s own login through its pool, READ ONLY
+        unless read_only is false. A write commits only with read_only false, and
+        the answer says it committed. Every request is audited with source admin_console:
+        the SQL text and each bound parameter''s name or position and type, never
+        a value. What the server said about a failure, DETAIL included, is answered
+        here alone.'
+      parameters:
+      - description: Application database connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: The statements
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/appdbconsole.ConsoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdbconsole.ConsoleResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Run statements in an application database's console
+      tags:
+      - Connections
+  /admin/connection-instances/appdb/{name}/drift:
+    get:
+      description: 'Builds the schema the applied migrations produce on a throwaway
+        database and compares it with the live one: tables, columns with their types,
+        nullability and defaults, constraints, indexes, triggers, policies, row-level
+        security, partitions, views, functions, enums and domains. Each difference
+        names the object and whether it was added outside migrations, is missing,
+        or changed. Without schema, every schema the platform keeps migrations for
+        is checked.'
+      parameters:
+      - description: Application database connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: One schema to check
+        in: query
+        name: schema
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdbapi.driftResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Check an application database's schema drift
+      tags:
+      - Connections
+  /admin/connection-instances/appdb/{name}/health:
+    get:
+      description: 'Reads the database''s own statistics views now: server version
+        and extensions, table and index sizes, row estimates, dead tuples and the
+        last vacuum and analyze of each table, unused, duplicate and invalid indexes,
+        transaction id age, connections against max_connections, long-running and
+        idle-in-transaction sessions, blocking lock chains, the cache hit ratio, replication
+        lag, and the statements pg_stat_statements ranks first when it is installed.
+        Session and statement text can repeat a literal and is served here alone:
+        it is never stored, logged or sent in an alert. A section the database refused
+        is listed under errors and the rest of the report stands.'
+      parameters:
+      - description: Application database connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdbhealth.Report'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read an application database's health
+      tags:
+      - Connections
+  /admin/connection-instances/appdb/{name}/health/history:
+    get:
+      description: 'The samples the health loop kept, oldest first: sizes, transaction
+        id age, connections, the counts of idle-in-transaction, long-running and blocked
+        sessions and of unused, duplicate and invalid indexes, the highest dead tuple
+        ratio, and each managed schema''s drift. No statement or session text is kept.'
+      parameters:
+      - description: Application database connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: How many days back; defaults to 7
+        in: query
+        name: days
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdbapi.historyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read an application database's health history
+      tags:
+      - Connections
+  /admin/connection-instances/appdb/{name}/maintenance:
+    post:
+      consumes:
+      - application/json
+      description: Runs analyze, vacuum (with ANALYZE), vacuum_full (VACUUM FULL,
+        which holds an ACCESS EXCLUSIVE lock on the table while it rewrites it) or
+        reindex (REINDEX TABLE CONCURRENTLY) outside a transaction, as the connection's
+        own login, under a 5 second lock_timeout. vacuum_full and reindex need a table.
+        Creating or dropping an index is a schema change and is refused naming manage_schema.
+      parameters:
+      - description: Application database connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: The command
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/appdbapi.maintenanceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdbops.Outcome'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Run maintenance on an application database
       tags:
       - Connections
   /admin/connection-instances/appdb/{name}/migrations:

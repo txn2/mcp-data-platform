@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/adminwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/appdbwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/endpointwire"
@@ -245,10 +246,10 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	streetMaps := mapwire.Build(p)
 	streetMaps.Mount(mux, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail)
 
-	// Storage capacity (#2148): the admin routes, and the sampling and alert
-	// loop, which starts once the mux is complete.
+	// Storage capacity (#2148): the admin routes, and the sampling and alert loop, which starts once the mux is complete.
 	storage := storagewire.Build(p, notify)
 	storagewire.Mount(mux, p, storage, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })
+	appdbwire.Mount(ctx, mux, p, notify, appdbwire.Admin{Auth: func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, Actor: adminEmail}) // application databases (#2406, #2409)
 
 	endpointwire.Mount(mux, p, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail) // endpoints (#2170)
 	catalogScan := catalogwire.Build(p)                                                                         // the catalog scan (#1918)

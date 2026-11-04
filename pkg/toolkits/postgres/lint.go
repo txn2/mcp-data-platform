@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/pglex"
 )
 
 // The migration lint (#2405): what a migration's up SQL does to a live table,
@@ -467,13 +469,13 @@ func lexAt(s string, i int) (t tok, next int, keep bool) {
 	switch {
 	case strings.IndexByte(" \t\n\r", c) >= 0:
 		return tok{}, i + 1, false
-	case skipComment(s, i) > i:
-		return tok{}, skipComment(s, i), false
+	case pglex.SkipComment(s, i) > i:
+		return tok{}, pglex.SkipComment(s, i), false
 	case c == '\'', c == '"':
 		return lexQuoted(s, i)
 	case dollarEnd(s, i) > i:
 		return tok{text: "$$"}, dollarEnd(s, i), true
-	case isIdentByte(c):
+	case pglex.IsIdentByte(c):
 		return lexWord(s, i)
 	}
 	return tok{text: string(c)}, i + 1, true
@@ -484,13 +486,13 @@ func dollarEnd(s string, i int) int {
 	if s[i] != '$' {
 		return i
 	}
-	return skipDollarQuoted(s, i)
+	return pglex.SkipDollarQuoted(s, i)
 }
 
 // lexWord reads a word or unquoted identifier, lower-cased.
 func lexWord(s string, i int) (t tok, next int, keep bool) {
 	j := i
-	for j < len(s) && (isIdentByte(s[j]) || s[j] == '$') {
+	for j < len(s) && (pglex.IsIdentByte(s[j]) || s[j] == '$') {
 		j++
 	}
 	w := strings.ToLower(s[i:j])
@@ -501,7 +503,7 @@ func lexWord(s string, i int) (t tok, next int, keep bool) {
 // name, case kept).
 func lexQuoted(s string, i int) (t tok, next int, keep bool) {
 	c := s[i]
-	end := skipString(s, i, c == '\'' && isEString(s, i))
+	end := pglex.SkipString(s, i, c == '\'' && pglex.IsEString(s, i))
 	inner := strings.ReplaceAll(s[i+1:max(i+1, end-1)], string(c)+string(c), string(c))
 	t = tok{text: inner}
 	if c == '"' {

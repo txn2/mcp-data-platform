@@ -7,8 +7,11 @@ package postgres
 // PostgreSQL.
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -44,14 +47,9 @@ func (c *conn) session(ctx context.Context) (session, error) {
 	if c.openSession != nil {
 		return c.openSession(ctx)
 	}
-	waitCtx, cancel := context.WithTimeout(ctx, c.cfg.PoolWait)
-	defer cancel()
-	pc, err := c.pool.Acquire(waitCtx)
+	pc, err := c.acquire(ctx, c.pool)
 	if err != nil {
-		if waitCtx.Err() != nil && ctx.Err() == nil {
-			return nil, &poolWaitError{connection: c.cfg.ConnectionName, maxConns: c.cfg.MaxConns, wait: c.cfg.PoolWait}
-		}
-		return nil, err //nolint:wrapcheck // read by its type
+		return nil, err
 	}
 	return poolSession{pc}, nil
 }
@@ -117,7 +115,45 @@ func (t *Toolkit) Apply(ctx context.Context, o ApplyOptions, migrations []Migrat
 	if err != nil {
 		return nil, err
 	}
-	return s.each(ctx, o, upTo(pending, o.UpTo), s.c.applyOne)
+	step := s.c.applyOne
+	if o.MarkOnly {
+		step = func(ctx context.Context, pc session, o ApplyOptions, m Migration) error {
+			return s.c.recordApplied(ctx, pc, o, m, 0)
+		}
+	}
+	return s.each(ctx, o, upTo(pending, o.UpTo), step)
+}
+
+// maintenanceVerbs are the statements RunMaintenance runs: PostgreSQL refuses
+// VACUUM, and REINDEX CONCURRENTLY, in a transaction.
+var maintenanceVerbs = []string{"ANALYZE", "VACUUM", "REINDEX"}
+
+// RunMaintenance runs one ANALYZE, VACUUM or REINDEX statement outside a
+// transaction on the connection's own pool (#2410), under lockTimeout and
+// timeout (zero is the connection's statement_timeout). The reset a released
+// connection runs undoes both settings.
+func (t *Toolkit) RunMaintenance(ctx context.Context, connection, stmt string, lockTimeout, timeout time.Duration) error {
+	c, ok := t.lookup(connection)
+	verb, _, _ := strings.Cut(strings.TrimSpace(stmt), " ")
+	if !ok || !slices.Contains(maintenanceVerbs, strings.ToUpper(verb)) {
+		return &RefusedError{Code: CodeInvalidStatement, msg: fmt.Sprintf("%s: no maintenance of %q on connection %q", errPrefix, verb, connection)}
+	}
+	pc, err := c.session(ctx)
+	if err != nil {
+		return c.failure(ctx, err)
+	}
+	defer pc.Release()
+	_, err = pc.Exec(ctx, "SELECT set_config('lock_timeout', $1, false), set_config('statement_timeout', $2, false)",
+		millis(lockTimeout), millis(cmp.Or(timeout, c.cfg.StatementTimeout)))
+	if err == nil {
+		// The extended protocol runs one statement, never a list.
+		_, err = pc.Exec(ctx, stmt)
+	}
+	observe(c.cfg.ConnectionName, err)
+	if err != nil {
+		return c.failure(ctx, err)
+	}
+	return nil
 }
 
 // Revert reverts applied migrations, newest first, down to and excluding

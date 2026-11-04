@@ -16,7 +16,7 @@ import (
 
 // adminAuthor is the administrator making a transfer, and the authority a run
 // of the script presents afterwards.
-var adminAuthor = script.Author{Email: "admin@example.com", Roles: []string{"admin"}}
+var adminAuthor = script.Author{Email: "admin@example.com", Roles: []string{"admin"}, Subject: "oidc|admin"}
 
 // transferOf is a request that leaves the outputs where they are, which is
 // every transfer before #1588 and every one that says nothing about them.
@@ -53,7 +53,7 @@ func TestTransfer_WritesTheVersionThatCarriesTheNewAuthority(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WithArgs("script_1", 4, "Daily", "A daily report", "", "print(1)", sqlmock.AnyArg(),
 			pq.Array([]string{}), "admin@example.com", pq.Array([]string{"admin"}),
-			script.VersionStatusApplied, "", "", sqlmock.AnyArg()).
+			script.VersionStatusApplied, "", "", sqlmock.AnyArg(), "oidc|admin").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
 	expectLiveRowUpdate(mock, false)

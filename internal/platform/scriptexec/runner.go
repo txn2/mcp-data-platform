@@ -92,12 +92,17 @@ func newRunner(runs script.RunStore, cfg Config) *runner {
 	}
 }
 
-// authorSubject is the subject the version's author authenticates as, which
-// keys the user library the run files in (#1677). Empty when the platform has
-// not seen the author authenticate, or has nowhere to have recorded it.
+// authorSubject is the subject that keys the user library the run files in:
+// the one the version's saving session authenticated as (#2450), so a run
+// writes where the session that saved it reads. A version saved before that
+// was recorded resolves its author's address to the subject they sign in as
+// (#1677), empty when the platform has not seen them authenticate.
 func (r *runner) authorSubject(ctx context.Context, v *script.Version) string {
-	if r.subjects == nil || v == nil {
+	if v == nil {
 		return ""
+	}
+	if v.AuthorSubject != "" || r.subjects == nil {
+		return v.AuthorSubject
 	}
 	return r.subjects.ForRun(ctx, v.Author)
 }

@@ -2079,10 +2079,14 @@ def main():
   same every run.
 - The file lands in the library of the person the run acts for — the version's
   author — and `name` is its display name there. It is the same library the
-  author's own session files in: a user library is keyed by the subject a
-  person authenticates as, the platform records that subject for the author's
-  address whenever they authenticate, and the run reads it when it opens its
-  session (#1677). A file a run filed under the address before the platform had
+  session that saved the version files in: a user library is keyed by the
+  subject a session authenticates as, a version records the subject its saving
+  session authenticated as, and a run of it files there (#2450), so a script
+  saved from a configured API key's session files where that key's `search`
+  and `manage_resource` find it, even once the same address has signed in
+  through the browser. A version saved before that was recorded resolves the
+  author's address to the subject they sign in as, which the platform records
+  whenever they authenticate (#1677). A file a run filed under the address before the platform had
   seen the author's subject is folded into the subject-keyed library the next
   time either the author authenticates or a run of theirs executes, keeping its
   id and leaving its old address resolving, so a scheduled script keeps its

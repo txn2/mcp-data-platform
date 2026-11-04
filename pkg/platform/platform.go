@@ -2787,7 +2787,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	// place when RegisterAllTools registers the handlers.
 	p.WireToolkitMetrics()
 	toolkitwire.PostgresGuard(p.toolkitRegistry.All(), p.db)
-	toolkitwire.AppDB(p.toolkitRegistry.All, p.authenticator, p.authorizer)
+	toolkitwire.AppDB(p.toolkitRegistry.All, p.authenticator, p.authorizer, p.config.Admin.Persona)
 
 	// Register tools from all toolkits
 	p.toolkitRegistry.RegisterAllTools(p.mcpServer)

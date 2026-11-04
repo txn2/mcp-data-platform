@@ -76,7 +76,10 @@ type connectionAuthorizer interface {
 // run's persona may use the connection. With an authorizer that has no
 // connection check (no personas configured) every connection is allowed, as
 // every connection is to that deployment's tool calls.
-func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz middleware.Authorizer) {
+//
+// adminPersona is the persona platform.maintain is allowed for on every
+// connection (#2410).
+func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz middleware.Authorizer, adminPersona string) {
 	live := func() *postgreskit.Toolkit {
 		for _, tk := range all() {
 			if pg, ok := tk.(*postgreskit.Toolkit); ok {
@@ -93,24 +96,30 @@ func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz 
 	}
 	checker, _ := authz.(connectionAuthorizer)
 	scriptsession.InstallAppDB(scriptsession.AppDB{
-		Runner: runner,
+		Runner: runner, AdminPersona: adminPersona,
 		Authorize: func(ctx context.Context, connection string) (string, error) {
 			return authorize(ctx, authn, checker, connection)
 		},
-		TestDatabase: func(ctx context.Context, connection string, schemas []string) (scriptsession.AppDBRunner, func(), error) {
-			pg := live()
-			// A test's statements run as the test server's user: the run
-			// must be allowed that connection as well as its own.
-			if pg != nil {
-				if srv := pg.TestServerOf(connection); srv != connection {
-					if _, err := authorize(ctx, authn, checker, srv); err != nil {
-						return nil, nil, err
-					}
+		TestDatabase: testDatabaseFor(live, authn, checker),
+	})
+}
+
+// testDatabaseFor builds a script test's clone of a connection on the live
+// toolkit. A test's statements run as the test server's user, so the run must
+// be allowed that connection as well as its own.
+func testDatabaseFor(live func() *postgreskit.Toolkit, authn middleware.Authenticator, checker connectionAuthorizer,
+) func(ctx context.Context, connection string, schemas []string) (scriptsession.AppDBRunner, func(), error) {
+	return func(ctx context.Context, connection string, schemas []string) (scriptsession.AppDBRunner, func(), error) {
+		pg := live()
+		if pg != nil {
+			if srv := pg.TestServerOf(connection); srv != connection {
+				if _, err := authorize(ctx, authn, checker, srv); err != nil {
+					return nil, nil, err
 				}
 			}
-			return testDatabase(ctx, pg, connection, schemas)
-		},
-	})
+		}
+		return testDatabase(ctx, pg, connection, schemas)
+	}
 }
 
 // errNoAppDBToolkit refuses a test database on a deployment with no

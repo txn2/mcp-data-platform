@@ -79,4 +79,65 @@ var KnowledgePages = []KnowledgePage{
 		Summary: "Naming sources with call references so an output's provenance is exact, and " +
 			"the loop that turns session knowledge into reviewed catalog knowledge.",
 	},
+	// Designing an application's PostgreSQL database (#2448).
+	{
+		Slug:      "platform-postgres-write-patterns",
+		Reference: knowledgePageRefPrefix + "platform-postgres-write-patterns",
+		Summary:   "Designing an application database's writes: upsert with ON CONFLICT, RETURNING, MERGE, batches as arrays, optimistic concurrency and idempotency keys.",
+	},
+	{
+		Slug:      "platform-postgres-integrity",
+		Reference: knowledgePageRefPrefix + "platform-postgres-integrity",
+		Summary:   "Rules the database enforces: constraints, partial unique indexes, exclusion constraints, deferrable constraints, domains, generated columns, keys and money.",
+	},
+	{
+		Slug:      "platform-postgres-documents",
+		Reference: knowledgePageRefPrefix + "platform-postgres-documents",
+		Summary:   "jsonb against columns, GIN and expression indexes, and SQL/JSON on 17.",
+	},
+	{
+		Slug:      "platform-postgres-search",
+		Reference: knowledgePageRefPrefix + "platform-postgres-search",
+		Summary:   "Full text search, pg_trgm and case-insensitive keys over an application's own rows.",
+	},
+	{
+		Slug:      "platform-postgres-time",
+		Reference: knowledgePageRefPrefix + "platform-postgres-time",
+		Summary:   "timestamptz, zones for recurrence, half-open ranges, buckets, and months that are not seconds.",
+	},
+	{
+		Slug:      "platform-postgres-functions-triggers",
+		Reference: knowledgePageRefPrefix + "platform-postgres-functions-triggers",
+		Summary:   "SQL functions with BEGIN ATOMIC, SECURITY DEFINER done safely, statement and constraint triggers, and when a trigger is wrong.",
+	},
+	{
+		Slug:      "platform-postgres-security",
+		Reference: knowledgePageRefPrefix + "platform-postgres-security",
+		Summary:   "Login roles per persona, grants, row level security reading the caller's claims, and security_invoker views.",
+	},
+	{
+		Slug:      "platform-postgres-queues-locks-events",
+		Reference: knowledgePageRefPrefix + "platform-postgres-queues-locks-events",
+		Summary:   "A SKIP LOCKED job queue and what limits it, advisory and row locks, SERIALIZABLE with retry, LISTEN/NOTIFY and the outbox.",
+	},
+	{
+		Slug:      "platform-postgres-partitioning-caching-bulk",
+		Reference: knowledgePageRefPrefix + "platform-postgres-partitioning-caching-bulk",
+		Summary:   "Range partitions and retention, materialized views, unlogged tables, and bulk data through copy_in and copy_out.",
+	},
+	{
+		Slug:      "platform-postgres-queries-and-values",
+		Reference: knowledgePageRefPrefix + "platform-postgres-queries-and-values",
+		Summary:   "Keyset pagination, window functions, DISTINCT ON, LATERAL, grouping sets, recursive CTEs, and each type's value in a script.",
+	},
+	{
+		Slug:      "platform-postgres-platform-provides",
+		Reference: knowledgePageRefPrefix + "platform-postgres-platform-provides",
+		Summary:   "What the platform runs so an application does not build it in PostgreSQL: schedules, job runs, row events, files, endpoints, mail.",
+	},
+	{
+		Slug:      "platform-postgres-what-does-not-work",
+		Reference: knowledgePageRefPrefix + "platform-postgres-what-does-not-work",
+		Summary:   "What does not work through pooled connections (a procedure that commits, session state) and common claims, corrected.",
+	},
 }
