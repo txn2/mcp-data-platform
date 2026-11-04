@@ -2,6 +2,7 @@ package scriptstmt
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +31,16 @@ func (shop) Batch(context.Context, string, []postgres.Statement) ([]*postgres.Re
 
 func (shop) Begin(context.Context, postgres.TxOptions) (scriptsession.AppDBTx, error) {
 	return nil, nil //nolint:nilnil // never called: Call only picks the path
+}
+
+func (shop) OpenCursor(context.Context, postgres.Statement, int) (scriptsession.AppDBCursor, error) {
+	return nil, nil //nolint:nilnil // never called
+}
+
+func (shop) CopyIn(context.Context, postgres.CopyIn) (int64, error) { return 0, nil }
+
+func (shop) CopyOut(context.Context, postgres.Statement, string, io.Writer, int64) (*postgres.CopyOutResult, error) {
+	return nil, nil //nolint:nilnil // never called
 }
 
 func params(t *testing.T, k string, v starlark.Value) *starlark.Dict {

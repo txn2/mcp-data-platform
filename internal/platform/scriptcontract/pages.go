@@ -44,7 +44,7 @@ var KnowledgePages = []KnowledgePage{
 		Slug:      "platform-application-databases",
 		Reference: knowledgePageRefPrefix + "platform-application-databases",
 		Summary: "An application's own PostgreSQL database from a script: bound statements, " +
-			"platform.transaction and its retry contract, platform.batch, and the schema.",
+			"platform.transaction and its retry contract, tx.savepoint, platform.batch, query_iter, copy_in and copy_out, the values each type maps to, and the schema.",
 	},
 	{
 		Slug:      "platform-reference-script",

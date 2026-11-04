@@ -67,7 +67,7 @@ func TestQuery_MapsRowsAndBindsParamsAsText(t *testing.T) {
 	last := tx.queries[len(tx.queries)-1]
 	assert.Equal(t, []any{"1"}, last.args)
 	assert.Empty(t, tx.execs, "the bound is set in the BEGIN's round trip")
-	assert.Equal(t, "BEGIN READ ONLY; SET LOCAL statement_timeout = 5000", tx.opts.BeginQuery)
+	assert.Equal(t, "BEGIN READ ONLY; SET LOCAL statement_timeout = 5000; SET LOCAL IntervalStyle = 'postgres'", tx.opts.BeginQuery)
 	assert.True(t, tx.rolledBack)
 	assert.False(t, tx.committed, "a query's READ ONLY transaction is never committed")
 }

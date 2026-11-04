@@ -205,9 +205,10 @@ it, and an upstream field can append statements of its own. A save is refused
 (`sql-built-from-values`) when the SQL passed to any of the four is built with
 `+`, `%` or `.format()` from values. On an [application database](../server/appdb.md)
 the values are bound natively instead, statements that commit together go
-through `platform.transaction` (`tx.query`, `tx.execute`, `tx.batch`), and
-`platform.batch` pipelines statements in one round trip; the same save check
-covers the SQL of each.
+through `platform.transaction` (`tx.query`, `tx.execute`, `tx.batch`,
+`tx.query_iter`), `platform.batch` pipelines statements in one round trip,
+and `platform.query_iter` and `platform.copy_out` read a result larger than
+`max_rows`; the same save check covers the SQL of each.
 
 ```python
 def main():

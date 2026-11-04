@@ -6,7 +6,7 @@ description: Application databases (kind appdb). An application's own PostgreSQL
 
 An application database (`kind: appdb`) is an application's own PostgreSQL database: the system of record for an application built in the platform, such as an order system or a CRM. The scripts and endpoints the application is made of read and write it. Trino is the platform's analytical engine and holds no transaction, row lock or enforced constraint; an application database holds the rows an application commits.
 
-An application database is not a data source. Its tables never appear in `search` or the catalog, and its data is reached by no agent tool. Agents reach remote software through [API connections](api-gateway.md) and connected data sources through Trino. An agent builds an application by writing its schema as [migrations](#schema-migrations) with `manage_schema`, the one tool this kind registers, and by writing [managed scripts](../scripts/running.md) and endpoints, which reach the application database through `platform.query`, `platform.execute`, `platform.transaction` and `platform.batch`.
+An application database is not a data source. Its tables never appear in `search` or the catalog, and its data is reached by no agent tool. Agents reach remote software through [API connections](api-gateway.md) and connected data sources through Trino. An agent builds an application by writing its schema as [migrations](#schema-migrations) with `manage_schema`, the one tool this kind registers, and by writing [managed scripts](../scripts/running.md) and endpoints, which reach the application database through `platform.query`, `platform.execute`, `platform.transaction`, `platform.batch`, `platform.query_iter`, `platform.copy_in` and `platform.copy_out`.
 
 To report on application data, an operator adds a Trino catalog (the `postgresql` connector) over the same database. It is then a connected data source like any other.
 
@@ -62,6 +62,9 @@ toolkits:
 | `max_conns` | `5` | Pool size on each replica, at most 100 |
 | `statement_timeout` | `30s` | Longest one statement may run, at most `10m`. A statement's `timeout_seconds` may only lower it |
 | `max_rows` | `1000` | Most rows one result returns, at most 100000 |
+| `iter_max_rows` | `1000000` | Most rows one [`query_iter`](#results-larger-than-max_rows) loop reads, at most 100000000. Past it the run fails naming the bound |
+| `copy_max_rows` | `1000000` | Most rows one [`copy_in` or `copy_out`](#copying-rows-in-and-out) call moves, at most 10000000 |
+| `copy_max_bytes` | `67108864` | Most bytes one `copy_in` or `copy_out` call moves (64 MiB), at most 1 GiB. A `copy_in` past this or `copy_max_rows` is refused before its first row is sent |
 | `read_only` | `false` | Refuse `platform.execute` on this connection for every script |
 | `statement_cache` | `true` | Keep each statement prepared on the physical connection that first ran it, so it is described once. Set `false` behind PgBouncer in transaction mode |
 | `pool_wait_timeout` | `5s` | Longest a statement waits for a free pooled connection, at most `1m`. Past it the statement fails naming the pool and its `max_conns` |
@@ -106,7 +109,7 @@ The statements do not cross the MCP server: the script host calls the connection
 
 ## Transactions
 
-`platform.transaction(connection, fn, isolation="read_committed", read_only=False, retry=False, on_error="raise")` opens one transaction, calls `fn(tx)`, and commits when `fn` returns. It returns what `fn` returned. When `fn` fails, the transaction is rolled back and the failure is the call's. Inside `fn`, `tx.query`, `tx.execute` and `tx.batch` bind values as `platform.query` does and run in the transaction:
+`platform.transaction(connection, fn, isolation="read_committed", read_only=False, retry=False, on_error="raise")` opens one transaction, calls `fn(tx)`, and commits when `fn` returns. It returns what `fn` returned. When `fn` fails, the transaction is rolled back and the failure is the call's. Inside `fn`, `tx.query`, `tx.execute` and `tx.batch` bind values as `platform.query` does and run in the transaction, as do [`tx.savepoint`](#savepoints), [`tx.query_iter`](#results-larger-than-max_rows) and [`tx.copy_in`](#copying-rows-in-and-out):
 
 ```python
 def main():
@@ -128,12 +131,66 @@ def main():
 An order and its line items commit together or not at all: when a line item violates a constraint, nothing is left, and the run's error names the constraint.
 
 - `isolation` is `read_committed`, `repeatable_read` or `serializable`. `read_only=True` opens a `READ ONLY` transaction, the only kind a `read_only` connection opens.
-- The first statement that fails ends the transaction, as PostgreSQL does. Every later call on `tx` fails saying so.
-- `retry=True` runs `fn` again when the transaction fails with a serialization failure (SQLSTATE `40001`) or a deadlock (`40P01`), and on nothing else: three tries in all, with a short jittered pause between them. Because `fn` may run more than once, a retried `fn` reads and writes only through `tx`: `platform.call`, `platform.query`, `platform.execute`, `platform.batch`, `platform.export`, `platform.publish_data`, `platform.notify`, `platform.publish`, `platform.save_state` and `platform.mint_token` are refused inside it.
+- The first statement that fails ends the transaction, as PostgreSQL does, unless it ran inside a [savepoint](#savepoints). Every later call on `tx` fails saying so.
+- `retry=True` runs `fn` again when the transaction fails with a serialization failure (SQLSTATE `40001`) or a deadlock (`40P01`), and on nothing else: three tries in all, with a short jittered pause between them. Because `fn` may run more than once, a retried `fn` reads and writes only through `tx`: `platform.call`, `platform.query`, `platform.execute`, `platform.batch`, `platform.query_iter`, `platform.copy_in`, `platform.copy_out`, `platform.export`, `platform.publish_data`, `platform.notify`, `platform.publish`, `platform.save_state` and `platform.mint_token` are refused inside it.
 - Transactions do not nest. While one is open, `platform.query` and `platform.execute` on its connection are refused, since they would run on another pooled connection and wait on the transaction's own locks.
 - A `tx` is used only inside `fn`.
 
 The transaction holds one pooled connection for its life, and is never held across MCP calls or by an agent. It is rolled back when the run ends however it ends (finished, failed, timed out, shed by admission, drained at shutdown), when it goes `transaction_idle_timeout` without a statement, and when the replica closes its pools; the next call on it names the reason. An endpoint handler may open one, and it does not outlive the request.
+
+## Savepoints
+
+`tx.savepoint(fn, on_error="raise")` calls `fn(tx)` under a savepoint the platform names (`mcp_sp_<depth>`). When `fn` returns the savepoint is released and its work kept; when `fn` fails the transaction is rolled back to the savepoint, so only `fn`'s work is undone and the transaction goes on. It returns what `fn` returned.
+
+```python
+def main():
+    """Imports customers, skipping the ones whose email is already taken."""
+    def fill(tx):
+        """Inserts each customer under a savepoint of its own."""
+        skipped = 0
+        for c in run.params["customers"]:
+            got = tx.savepoint(lambda t: t.execute(
+                "INSERT INTO customers (email, name) VALUES (:email, :name)", params = c), on_error = "return")
+            if got and got.get("error"):
+                skipped += 1
+        return skipped
+
+    print(platform.transaction("orders", fill), "skipped")
+```
+
+- A statement in `fn` that fails stops the savepoint even when `fn` took the failure with `on_error="return"` and went on: PostgreSQL runs nothing in it after a failure, so the platform rolls back to it and the failure is `tx.savepoint`'s. With `on_error="return"`, a failed statement's envelope is returned as for every call; `fn`'s own `fail(...)` ends the run after the rollback.
+- Savepoints nest, and none is left open past the call that made it. The SQL statements `SAVEPOINT`, `RELEASE` and `ROLLBACK TO` are refused, so a script cannot release a savepoint the platform holds. Opening, releasing and rolling back each count as a call of the run and are kept in its recording, so a test replays them.
+- Each savepoint is a subtransaction. PostgreSQL caches 64 per session; past that every other session checking row visibility reads them from disk, and a transaction holding thousands slows the whole server. Keep savepoints for the steps that can fail; for a large import, `INSERT ... ON CONFLICT DO NOTHING` or a check first does the same work without one per row.
+
+## Results larger than max_rows
+
+`platform.query_iter(connection, sql, params={}, page_rows=0, timeout_seconds=0, on_error="raise")` returns a query's rows to loop over, read in pages of `page_rows` (the connection's `max_rows` when 0, at most 100000) from a server-side cursor in a `READ ONLY` transaction of its own. `tx.query_iter(sql, ...)` reads from a cursor declared in the transaction. Values bind as for `platform.query`.
+
+```python
+def main():
+    """Totals a year of orders, however many there are."""
+    total = 0
+    for row in platform.query_iter("orders", "SELECT total FROM orders WHERE placed_at >= :since",
+                                   params = {"since": "2026-01-01"}, page_rows = 5000):
+        total += float(row["total"])
+    print(total)
+```
+
+- The run holds one page at a time, and each page is charged against the run's memory budget as it is read. A row the loop keeps is the script's to account for.
+- A loop reads at most the connection's `iter_max_rows`. Past it, when a page fails to read, or past the memory budget, the run fails naming the reason: Starlark has no way to raise inside a loop, and a loop that ended early would hand the script a partial result as if it were whole. A refused query (a syntax error, a parameter that does not fit) fails when `query_iter` is called, where `on_error` applies.
+- The cursor is closed when the loop ends, breaks or fails, and when the run ends; a cursor of its own takes its transaction with it. A result is read by one loop.
+- A loop body that spends longer than `transaction_idle_timeout` between pages loses the cursor's transaction to the server's idle bound.
+- For results a person pages through, such as an endpoint's list view, use keyset pagination in SQL: `WHERE (placed_at, id) < (:last_at, :last_id) ORDER BY placed_at DESC, id DESC LIMIT 50` reads the same rows whatever page is asked for and holds nothing between requests, where `OFFSET` reads and discards every row before the page.
+
+## Copying rows in and out
+
+`platform.copy_in(connection, table, columns, rows, on_error="raise")` writes rows into a table through PostgreSQL's COPY protocol, in a transaction of its own that commits, and returns the number written. `tx.copy_in(table, columns, rows)` writes them in the transaction, and they commit or roll back with it. `table` is `table` or `schema.table`; it and `columns` are quoted as identifiers. A row is a list in `columns`' order or a dict keyed by column, and each value is encoded by its column's type as a bound parameter is. The copy runs as the persona's role with the caller's claims set, so a table the role may not insert into fails with SQLSTATE `42501`.
+
+`platform.copy_out(connection, name, sql, params={}, format="csv", timeout_seconds=0, on_error="raise")` writes every row of a query as an output named `name`: CSV with a header, or COPY's text format (`format="text"`, tab-separated with `\N` for null, stored as `text/tab-separated-values`). It takes `platform.export`'s `destination`, `key`, `register`, `tags`, `metadata`, `scope`, `scope_id` and `index`, returns what `platform.export` returns, and its output is stored where an export's is, with the same access. The rows stream from the server to the output a row at a time and never become the script's values, so a result far past `max_rows` reaches a file. The query runs in a `READ ONLY` transaction through the extended protocol, since `COPY (query) TO STDOUT` takes no parameters; each value is the text PostgreSQL writes for it, as COPY writes it.
+
+- One call moves at most `copy_max_rows` rows and `copy_max_bytes` bytes, and a `copy_out` is also held to the 100 MB an output may be. A `copy_in` past either bound is refused before its first row is sent; a `copy_out` past one fails when it reaches it.
+- `COPY` written as SQL is refused in every statement a script runs: `COPY ... FROM PROGRAM` runs a program on the database server for a user allowed to, and these two bindings are how rows are copied.
+- A `copy_in` row's values reach no audit row, log line, span or metric label. Its recording keeps the table, the columns and the row count in place of the rows, and a test replays it by those. A `copy_out`'s bytes go to the output alone; its recording keeps the row and byte counts.
 
 ## Batches
 
@@ -184,7 +241,7 @@ What a claim is worth depends on who wrote the SQL. The author of a script can s
 
 ## Statements the platform refuses
 
-`BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT` and `PREPARE TRANSACTION` are refused: the platform holds the transaction, and `platform.transaction` is how statements commit together. `DEALLOCATE` and `DISCARD` are refused too. A string holding two statements is refused by the server, since the extended protocol carries one.
+`BEGIN`, `COMMIT`, `ROLLBACK` and `PREPARE TRANSACTION` are refused: the platform holds the transaction, and `platform.transaction` is how statements commit together. `SAVEPOINT`, `RELEASE` and `ROLLBACK TO` are refused naming [`tx.savepoint`](#savepoints), and `COPY` naming [`copy_in` and `copy_out`](#copying-rows-in-and-out). `DEALLOCATE` and `DISCARD` are refused too. A string holding two statements is refused by the server, since the extended protocol carries one.
 
 ## The platform's own database is never a target
 
@@ -207,7 +264,15 @@ Comparing host, port and database name would be defeated by a DNS alias, an addr
 | `uuid` | canonical string |
 | arrays | lists, each element mapped by the element type |
 | `bytea` | base64 |
-| anything else (`interval`, `inet`, an enum, a range) | the text PostgreSQL writes for it |
+| a range (`int4range`, `tstzrange`, one a schema declares) | `{"lower", "upper", "lower_inc", "upper_inc", "empty"}`, each bound mapped by the range's element type, an unbounded one `null` |
+| a multirange | a list of ranges |
+| `interval` | `{"months", "days", "microseconds", "text"}`: the three parts PostgreSQL keeps, and the text it writes in its own `IntervalStyle` |
+| a composite type | an object keyed by attribute name, each mapped by its type |
+| `hstore` | an object of string to string or `null` |
+| `vector` (pgvector) | a list of numbers |
+| `inet`, `cidr`, an enum, `ltree`, `tsvector`, anything else | the text PostgreSQL writes for it; the column's type names the type, so an enum is told from text |
+
+The same shapes bind as parameters: a range object, a list of them for a multirange, an object of attributes for a composite (an attribute it does not name is null, one the type lacks is refused), an interval's parts or `{"text": ...}`, an object for an `hstore`, a list of numbers for a `vector`. A string is taken as the type's own literal. `hstore` and `vector` are read this way only as the base types their extensions define; an enum or a domain a schema happens to name `vector` is text.
 
 A query returns at most the run's row cap and the connection's `max_rows`; a result cut at either fails the run, as for every query a script makes, since a partial result would silently change what it computes.
 
@@ -336,7 +401,7 @@ def test_a_duplicate_email_is_refused():
 | Audit | The run's own `script_run` event; no row per statement |
 | Spans | `postgres.<operation>` per statement with the operation, a table summary, the database and the connection; the SQL text only under `OTEL_TRACES_INCLUDE_DB_STATEMENT=true`; a failure's SQLSTATE, never its message |
 | Metrics | `postgres_statements_total{connection,operation,status}`, `postgres_statement_duration_seconds{connection,operation}`, `postgres_slow_statements_total{connection,operation}`; `status` is `ok`, `canceled`, `error` or the SQLSTATE class (`class_23`). `appdb_statement_cache_total{connection,result}` (hit, miss), `appdb_transactions_total{connection,outcome}` (committed, rolled_back, retried, idle_timeout), `appdb_pool_wait_timeouts_total{connection}`, and per replica `appdb_pool_connections{connection,state}` (acquired, idle, max), `appdb_pool_acquires_total{connection,wait}` and `appdb_pool_wait_seconds_total{connection}` |
-| Recordings | Each statement in or out of a transaction, its bound values and its answer, and whether a transaction committed, which replay and script tests need. With an encryption key configured, every recording is sealed whole, bound to its run, before it is stored; without one it is stored gzipped |
+| Recordings | Each statement in or out of a transaction, its bound values and its answer, and whether a transaction committed, which replay and script tests need. A `copy_in`'s rows are kept as their count and a `copy_out`'s bytes not at all. With an encryption key configured, every recording is sealed whole, bound to its run, before it is stored; without one it is stored gzipped |
 | Migrations | `manage_schema` calls are audited like any tool call. A migration's SQL and history are kept in the platform's database |
 
 A bound value reaches no audit row, log line, metric label or span. A value a script decrypts and binds reaches the run's recording, which is sealed when the deployment holds an encryption key.

@@ -57,9 +57,10 @@ func (p *produced) observe(v any) {
 
 // export keeps one output. The pages of an appended output are one output,
 // their rows in the order they were written; the whole written when the run
-// ends is those pages again, and is not kept twice.
+// ends is those pages again, and is not kept twice. A copy_out's output is
+// kept with its row count and no rows: its bytes are in no recording.
 func (p *produced) export(req scriptrun.ExportRequest) {
-	if req.Spooled != nil {
+	if req.Spooled != nil && !req.Spooled.Copied() {
 		return
 	}
 	if req.Append {

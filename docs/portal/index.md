@@ -150,7 +150,7 @@ Customize the logo via `portal.logo`, `portal.logo_light`, and `portal.logo_dark
 - **Light theme**: `logo_light` → `logo` → built-in default
 - **Dark theme**: `logo_dark` → `logo` → built-in default
 
-The resolved logo is also used as the browser favicon. A built-in activity icon is used when no logo is configured. Any image format works, including PNG; a square SVG scales best across the sizes the portal renders it at.
+The resolved logo is also used as the browser favicon. A built-in activity icon is used when no logo is configured. Any image format works, including PNG; a square SVG scales best across the sizes the portal renders it at. `/favicon.ico` answers without a session: it redirects to `logo_light`, else `logo`, and serves the built-in icon when neither is set. The portal shell and the public share pages name it as their icon, so a tab shows the deployment's mark before the portal's script runs and on a share link read signed out; once signed in, the portal switches the tab to the logo for the current theme.
 
 `portal.logo` also supplies the platform brand mark on the public viewer header, the guest share pages and the branded denial page. Those are served from the platform's own origin: each page links the logo with an `<img>` element at the URL you configured, and the browser caches it across page loads. The guest and denial pages send a narrow Content-Security-Policy, so a configured logo adds exactly what it needs to their `img-src`: its own scheme and host when you host it elsewhere, `'self'` when the URL is a path this server already serves. Configure no logo and those policies load no image at all.
 

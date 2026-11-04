@@ -59,6 +59,9 @@ func TestParseConfig_Refusals(t *testing.T) {
 		"max_conns":       {map[string]any{"max_conns": 0}, "max_conns must be between"},
 		"timeout":         {map[string]any{"statement_timeout": "11m"}, "statement_timeout must be positive"},
 		"max_rows":        {map[string]any{"max_rows": MaxMaxRows + 1}, "max_rows must be between"},
+		"iter_max_rows":   {map[string]any{"iter_max_rows": 0}, "iter_max_rows must be between"},
+		"copy_max_rows":   {map[string]any{"copy_max_rows": maxCopyMaxRows + 1}, "copy_max_rows must be between"},
+		"copy_max_bytes":  {map[string]any{"copy_max_bytes": -1}, "copy_max_bytes must be between"},
 		"tls on disable":  {map[string]any{"sslmode": "disable", "tls_ca_bundle_pem": "x"}, "TLS material is set but sslmode is disable"},
 		"half a key pair": {map[string]any{"mtls_client_cert_pem": "x"}, "must both be set"},
 	} {

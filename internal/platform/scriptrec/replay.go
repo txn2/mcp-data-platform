@@ -162,6 +162,7 @@ func (r *Replay) Holds(name string, args map[string]any) bool {
 
 // CallTool answers one tool call from the recording.
 func (r *Replay) CallTool(_ context.Context, name string, args map[string]any) (map[string]any, error) {
+	args = scriptsession.RecordedArgs(name, args)
 	if r.answers != nil {
 		if a, ok := r.answers.Answer(name, args); ok {
 			if a.Fail != nil {

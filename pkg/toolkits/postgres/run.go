@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -70,11 +71,21 @@ var transactionControl = map[string]bool{
 var sessionControl = map[string]bool{"deallocate": true, "discard": true}
 
 // refuseTransactionControl refuses a statement whose first word is one of
-// transactionControl or sessionControl.
+// transactionControl or sessionControl, works a savepoint, or is COPY (#2453):
+// COPY FROM PROGRAM runs a program on the server for a user allowed to, and
+// copy_in and copy_out are how rows are copied.
 func refuseTransactionControl(sql string) error {
 	word := sqltables.StatementKind(sql)
 	if word == sqltables.KindOther {
 		word = firstWord(sql)
+	}
+	if word == "copy" {
+		return errors.New("a COPY statement is not run: copy rows with platform.copy_in and platform.copy_out, which " +
+			"keep their values bound and reach no file or program on the database server")
+	}
+	if savepointControl(word, sql) {
+		return fmt.Errorf("a %s statement is not run: the platform names and closes savepoints; run the "+
+			"statements in tx.savepoint(fn), which rolls back only fn's work when it fails", savepointWords(word))
 	}
 	if transactionControl[word] {
 		return fmt.Errorf("a %s statement is not run: the platform holds the transaction; use "+
@@ -85,6 +96,31 @@ func refuseTransactionControl(sql string) error {
 			"when a call releases it", strings.ToUpper(word))
 	}
 	return nil
+}
+
+// savepointControl reports whether a statement starting with word works a
+// savepoint: SAVEPOINT, RELEASE, or ROLLBACK TO (#2452).
+func savepointControl(word, sql string) bool {
+	switch word {
+	case "savepoint", "release":
+		return true
+	case "rollback":
+		rest := strings.Fields(strings.ToLower(sql))
+		for i, w := range rest {
+			if w == "to" && i > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// savepointWords names the statement a savepoint refusal is about.
+func savepointWords(word string) string {
+	if word == "rollback" {
+		return "ROLLBACK TO"
+	}
+	return strings.ToUpper(word)
 }
 
 // firstWord is the lowercased first word of sql after whitespace, comments and
@@ -131,6 +167,9 @@ func beginSQL(opts pgx.TxOptions, timeout, idle time.Duration) string {
 		_, _ = b.WriteString(" " + strings.ToUpper(string(opts.AccessMode)))
 	}
 	_, _ = b.WriteString("; SET LOCAL statement_timeout = " + strconv.FormatInt(timeout.Milliseconds(), decimal))
+	// The interval text a result carries and the mapping reads (#2455) is
+	// PostgreSQL's own style, whatever the database or role sets.
+	_, _ = b.WriteString("; SET LOCAL IntervalStyle = 'postgres'")
 	if idle > 0 {
 		_, _ = b.WriteString("; SET LOCAL idle_in_transaction_session_timeout = " + strconv.FormatInt(idle.Milliseconds(), decimal))
 	}
@@ -260,10 +299,11 @@ func collect(rows pgx.Rows, cancel context.CancelFunc, p readPlan) (rowSet, erro
 	return set, nil
 }
 
-// mapRow decodes one row and maps each value by its column's type. A scalar
-// type outside the mapping (interval, inet, money, an enum, a range) is the
-// text the server sent for it, which results carry as text (the pool runs in
-// exec mode), rather than the driver's own rendering of it.
+// mapRow decodes one row and maps each value by its column's type. A
+// structured type is read from the text the server sent into its structure
+// (structuredValue); a scalar type outside the mapping (inet, money, an enum)
+// is that text, which results carry as text (the pool runs in exec mode),
+// rather than the driver's own rendering of it.
 func mapRow(rows pgx.Rows, types []typeInfo) ([]any, error) {
 	values, err := rows.Values()
 	if err != nil {
@@ -272,6 +312,14 @@ func mapRow(rows pgx.Rows, types []typeInfo) ([]any, error) {
 	raw := rows.RawValues()
 	out := make([]any, len(values))
 	for i, v := range values {
+		if i < len(raw) && raw[i] != nil && structuredKind(&types[i]) {
+			sv, err := structuredValue(&types[i], string(raw[i]))
+			if err != nil {
+				return nil, fmt.Errorf("decoding a %s value: %w", types[i].display, err)
+			}
+			out[i] = sv
+			continue
+		}
 		if !types[i].array && !mappedTypes[types[i].name] && i < len(raw) && raw[i] != nil {
 			out[i] = string(raw[i])
 			continue

@@ -257,7 +257,10 @@ func TestBatchIsPipelinedAndAtomic_RealDB(t *testing.T) {
 				if len(res) != 3 || res[0].Command != "INSERT" || res[0].RowsAffected != 1 {
 					t.Fatalf("results = %+v", res)
 				}
-				if res[1].Rows[0][0] != "x" || res[2].Rows[0][0] != "1 day" || res[2].Rows[0][1] != "10.0.0.1" {
+				// The interval is its structure through a pipelined batch as
+				// through a single statement (#2455); inet stays its text.
+				iv, _ := res[2].Rows[0][0].(map[string]any)
+				if res[1].Rows[0][0] != "x" || iv["days"] != int64(1) || iv["text"] != "1 day" || res[2].Rows[0][1] != "10.0.0.1" {
 					t.Fatalf("rows = %v / %v", res[1].Rows, res[2].Rows)
 				}
 				_, err = tk.Batch(ctx, "target", []Statement{

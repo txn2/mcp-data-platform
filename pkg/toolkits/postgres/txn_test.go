@@ -69,7 +69,7 @@ func TestTransactionRunsStatementsAndCommits(t *testing.T) {
 	tx := (*opened)[0]
 	assert.Empty(t, tx.execs, "the bounds are set in the BEGIN's round trip")
 	assert.Equal(t, "BEGIN ISOLATION LEVEL SERIALIZABLE READ WRITE; SET LOCAL statement_timeout = 30000; "+
-		"SET LOCAL idle_in_transaction_session_timeout = 15000", tx.opts.BeginQuery)
+		"SET LOCAL IntervalStyle = 'postgres'; SET LOCAL idle_in_transaction_session_timeout = 15000", tx.opts.BeginQuery)
 
 	res, err := x.Execute(ctx, Statement{SQL: "INSERT INTO t VALUES ($1)", Params: []any{"1"}})
 	require.NoError(t, err)
@@ -322,4 +322,92 @@ func TestPoolWaitError(t *testing.T) {
 	e := &poolWaitError{connection: "orders", maxConns: 3, wait: 2 * time.Second}
 	assert.Contains(t, e.Error(), `connection "orders"`)
 	assert.Contains(t, e.Error(), "all 3")
+}
+
+func TestSavepointKeepsTheTransactionThroughAFailureInside(t *testing.T) {
+	stmts := insertStatement()
+	tk, opened := txToolkit(baseConfig(), stmts)
+	ctx := context.Background()
+	x, err := tk.Begin(ctx, TxOptions{Connection: "db"})
+	require.NoError(t, err)
+	fake := (*opened)[0]
+
+	outer, err := x.Savepoint(ctx)
+	require.NoError(t, err)
+	inner, err := x.Savepoint(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mcp_sp_1", "mcp_sp_2"}, []string{outer, inner})
+
+	// A statement the server refuses inside the inner savepoint holds the
+	// transaction rather than ending it.
+	_, err = x.Query(ctx, Statement{SQL: "SELECT bad"})
+	require.Error(t, err)
+	_, err = x.Execute(ctx, Statement{SQL: "INSERT INTO t VALUES ($1)", Params: []any{"1"}})
+	require.ErrorContains(t, err, "a statement in savepoint mcp_sp_2 failed")
+	_, err = x.Savepoint(ctx)
+	require.ErrorContains(t, err, "a statement in savepoint mcp_sp_2 failed")
+	_, err = x.Batch(ctx, []Statement{{SQL: "SELECT n FROM t"}})
+	require.ErrorContains(t, err, "a statement in savepoint mcp_sp_2 failed")
+
+	require.ErrorContains(t, x.Release(ctx, outer), "not the innermost", "savepoints close innermost first")
+	// Releasing a savepoint a statement failed in rolls back to it, and
+	// reports that failure.
+	err = x.Release(ctx, inner)
+	var failed *FailedError
+	require.ErrorAs(t, err, &failed)
+	_, err = x.Execute(ctx, Statement{SQL: "INSERT INTO t VALUES ($1)", Params: []any{"1"}})
+	require.NoError(t, err, "the transaction goes on")
+	require.NoError(t, x.RollbackTo(ctx, outer))
+	// Rolling back to a savepoint a statement failed in succeeds: the
+	// failure is undone, and was the statement's to report.
+	again, err := x.Savepoint(ctx)
+	require.NoError(t, err)
+	_, err = x.Query(ctx, Statement{SQL: "SELECT bad"})
+	require.Error(t, err)
+	require.NoError(t, x.RollbackTo(ctx, again))
+	_, err = x.Execute(ctx, Statement{SQL: "INSERT INTO t VALUES ($1)", Params: []any{"1"}})
+	require.NoError(t, err, "the transaction goes on after the rollback")
+	require.NoError(t, x.Commit(ctx))
+	assert.Equal(t, []string{
+		"SAVEPOINT mcp_sp_1", "SAVEPOINT mcp_sp_2", "ROLLBACK TO SAVEPOINT mcp_sp_2", "RELEASE SAVEPOINT mcp_sp_2",
+		"ROLLBACK TO SAVEPOINT mcp_sp_1", "RELEASE SAVEPOINT mcp_sp_1",
+		"SAVEPOINT mcp_sp_1", "ROLLBACK TO SAVEPOINT mcp_sp_1", "RELEASE SAVEPOINT mcp_sp_1",
+	}, fake.execs)
+	assert.True(t, fake.committed)
+
+	// A failure outside any savepoint still ends the transaction.
+	y, err := tk.Begin(ctx, TxOptions{Connection: "db"})
+	require.NoError(t, err)
+	_, err = y.Query(ctx, Statement{SQL: "SELECT bad"})
+	require.Error(t, err)
+	_, err = y.Savepoint(ctx)
+	require.ErrorContains(t, err, "is over")
+	require.ErrorContains(t, y.Release(ctx, "mcp_sp_1"), "is over")
+}
+
+func TestSavepointStatementFailureEndsTheTransaction(t *testing.T) {
+	tk, opened := txToolkit(baseConfig(), insertStatement())
+	ctx := context.Background()
+	x, err := tk.Begin(ctx, TxOptions{Connection: "db"})
+	require.NoError(t, err)
+	(*opened)[0].execErr = &pgconn.PgError{Code: "25P02", Message: "current transaction is aborted"}
+	_, err = x.Savepoint(ctx)
+	require.Error(t, err)
+	assert.True(t, (*opened)[0].rolledBack)
+}
+
+func TestSavepointSQLIsRefusedNamingTheStatement(t *testing.T) {
+	for sql, word := range map[string]string{
+		"SAVEPOINT x": "SAVEPOINT", "RELEASE SAVEPOINT x": "RELEASE", "release x": "RELEASE",
+		"ROLLBACK TO x": "ROLLBACK TO", "rollback transaction to savepoint x": "ROLLBACK TO",
+	} {
+		err := refuseTransactionControl(sql)
+		require.Error(t, err, sql)
+		assert.Contains(t, err.Error(), "a "+word+" statement is not run", sql)
+		assert.Contains(t, err.Error(), "tx.savepoint", sql)
+	}
+	assert.ErrorContains(t, refuseTransactionControl("ROLLBACK"), "platform.transaction")
+	for _, sql := range []string{"COPY t FROM PROGRAM 'id'", "copy t to stdout", "/* x */ (COPY t TO '/tmp/f')"} {
+		assert.ErrorContains(t, refuseTransactionControl(sql), "a COPY statement is not run", sql)
+	}
 }

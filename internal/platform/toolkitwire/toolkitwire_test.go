@@ -74,6 +74,14 @@ func TestAppDBRunnerBegin(t *testing.T) {
 	var refused *postgreskit.RefusedError
 	require.ErrorAs(t, err, &refused)
 	assert.Equal(t, postgreskit.CodeUnknownConnection, refused.Code)
+
+	_, err = appdbRunner{pg}.OpenCursor(context.Background(), postgreskit.Statement{Connection: "nope", SQL: "SELECT 1"}, 10)
+	require.ErrorAs(t, err, &refused, "a cursor on an unknown connection is refused as the toolkit refuses it")
+	_, err = appdbTx{&postgreskit.Tx{}}.OpenCursor(context.Background(), postgreskit.Statement{}, 10)
+	require.ErrorAs(t, err, &refused, "an empty statement is refused before the transaction is touched")
+	k, err := cursorOf(&postgreskit.Cursor{}, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, k)
 }
 
 // connChecker allows one connection and records the roles it was asked about.

@@ -17,8 +17,8 @@ import (
 // comments, the :: cast) plus PostgreSQL's dollar-quoted strings, so a
 // function body in a statement keeps its text. A list binds as one array
 // parameter: `= ANY(:ids)`, not `IN :ids`, which a list cannot fill as a single
-// parameter. A table record a register= made is a Trino table and binds
-// nowhere here.
+// parameter. A dict binds as one structured value; a table record a register=
+// made is a Trino table and binds nowhere here.
 func Positional(sql string, params *starlark.Dict) (rewritten string, args []any, err error) {
 	values, err := bindValues(params)
 	if err != nil {
@@ -66,13 +66,19 @@ func positionOf(name string, values map[string]any, order map[string]int, args *
 	if !ok {
 		return 0, fmt.Errorf("placeholder :%s has no bound value; pass it in params", name)
 	}
-	switch v.(type) {
+	switch t := v.(type) {
 	case []any:
 		if afterIn {
 			return 0, fmt.Errorf("parameter %q is a list after IN; on an application database write = ANY(:%s), which binds the list as one array", name, name)
 		}
 	case map[string]any:
-		return 0, fmt.Errorf("parameter %q is a table record; a registered table is a Trino table and is not on an application database", name)
+		// A dict binds as the structured value it is (a range, a composite,
+		// an hstore, a jsonb document, #2455), read by the parameter's type.
+		// The one dict that does not is a register= table record, which
+		// names a Trino table.
+		if _, record := t["query_table"]; record {
+			return 0, fmt.Errorf("parameter %q is a table record; a registered table is a Trino table and is not on an application database", name)
+		}
 	}
 	*args = append(*args, v)
 	order[name] = len(*args)

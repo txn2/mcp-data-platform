@@ -15,3 +15,23 @@ func TestJitterStaysBelowItsLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestCountReadsEachNumberForm(t *testing.T) {
+	for _, v := range []any{int64(4), 4, float64(4)} {
+		if got := count(v); got != 4 {
+			t.Errorf("count(%T 4) = %d", v, got)
+		}
+	}
+	if count("nope") != 0 {
+		t.Error("a value that is no number counts as 0")
+	}
+}
+
+func TestHostHooksAreNilSafe(t *testing.T) {
+	h := &Host{}
+	if err := h.check(nil, "x"); err != nil {
+		t.Fatalf("a host with no meter refuses: %v", err)
+	}
+	h.hold(nil)
+	(&rows{}).Freeze()
+}

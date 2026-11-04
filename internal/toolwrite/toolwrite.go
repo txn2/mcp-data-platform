@@ -169,6 +169,19 @@ var readOnlyTools = map[string]bool{
 	"appdb.tx_query": true,
 	"appdb.commit":   true,
 	"appdb.rollback": true,
+	// A savepoint writes nothing of its own (#2452); the statements inside
+	// it are classified as they run.
+	"appdb.savepoint":   true,
+	"appdb.release":     true,
+	"appdb.rollback_to": true,
+	// query_iter's cursor (#2454): a query read in pages, in a READ ONLY
+	// transaction of its own or in the run's, where a write is tx.execute.
+	"appdb.cursor_open":  true,
+	"appdb.cursor_fetch": true,
+	"appdb.cursor_close": true,
+	// copy_out reads a query in a READ ONLY transaction (#2453); the output
+	// it writes is an export, which a draft previews.
+	"appdb.copy_out": true,
 }
 
 // writeTools is every tool whose every call persists something. They are named
@@ -200,6 +213,7 @@ var writeTools = map[string]bool{
 	"appdb.tx_execute": true,
 	"appdb.tx_batch":   true,
 	"appdb.batch":      true,
+	"appdb.copy_in":    true,
 }
 
 // actionRule classifies one tool by the value of one argument.

@@ -44,9 +44,11 @@ services:
   # dev/platform.yaml names it twice, as `orders` and as the read_only
   # `orders-ro`; the acceptance suite reads and writes it through a script's
   # platform.query and platform.execute. Its schema is
-  # dev/fixtures/postgres-target.sql.
+  # dev/fixtures/postgres-target.sql. The image is PostgreSQL 17 with pgvector
+  # installed, so a script reads a vector column (#2455); the real-database
+  # gate's 17 target is the same image.
   postgres-target:
-    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    image: pgvector/pgvector:0.8.1-pg17@sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21
     container_name: acme-dev-postgres-target
     environment:
       POSTGRES_USER: orders_app
@@ -55,7 +57,7 @@ services:
     ports:
       - "127.0.0.1:${DEV_PG_TARGET_PORT:-5442}:5432"
     volumes:
-      - acme_postgres_target_data:/var/lib/postgresql/data
+      - acme_postgres_target_pgv_data:/var/lib/postgresql/data
       - ./fixtures/postgres-target.sql:/docker-entrypoint-initdb.d/01-orders.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U orders_app -d orders"]
@@ -513,7 +515,7 @@ services:
 
 volumes:
   acme_postgres_data:
-  acme_postgres_target_data:
+  acme_postgres_target_pgv_data:
   acme_seaweed_data:
   acme_seaweed_resources_data:
   acme_ollama_data:

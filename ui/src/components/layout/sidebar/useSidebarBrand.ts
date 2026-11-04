@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useBranding } from "@/api/portal/hooks";
 import { useResolvedDark } from "@/stores/theme";
 import { resolvePortalLogo, bundledPortalLogo } from "@/lib/portalLogo";
@@ -6,7 +5,8 @@ import { usePortalTitle } from "@/hooks/usePortalTitle";
 
 /**
  * useSidebarBrand resolves the deployment's mark, name, and brand link for the
- * rail, and keeps the browser tab's icon on the same logo.
+ * rail. The browser tab's icon resolves through the same `resolvePortalLogo`
+ * in `usePortalFavicon`, which the app shell mounts.
  *
  * It resolves through the shared `resolvePortalLogo`, so a deployment's
  * override cannot land on the sign-in screen and miss the rail; through
@@ -25,17 +25,6 @@ export function useSidebarBrand(): {
   const portalLogo = resolvePortalLogo(branding ?? undefined, isDark);
   const fallbackLogo = bundledPortalLogo(isDark);
   const { portalTitle, brandURL } = usePortalTitle();
-
-  useEffect(() => {
-    let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
-    if (!link) {
-      link = document.createElement("link");
-      link.rel = "icon";
-      document.head.appendChild(link);
-    }
-    link.type = "image/svg+xml";
-    link.href = portalLogo;
-  }, [portalLogo]);
 
   return { portalLogo, fallbackLogo, portalTitle, brandURL };
 }

@@ -207,3 +207,18 @@ func TestSQLFromValuesCoversTransactionsAndBatches(t *testing.T) {
 	bound := "def main():\n    \"\"\"Doc.\"\"\"\n    def place(tx):\n        \"\"\"Doc.\"\"\"\n        tx.execute(\"DELETE FROM t WHERE id = :id\", params = {\"id\": run.params[\"id\"]})\n        tx.batch([{\"sql\": \"DELETE FROM u WHERE id = :id\", \"params\": {\"id\": 1}}, \"SELECT 1\"])\n    platform.transaction(\"shop\", place)\n    platform.batch(\"shop\", [\"SELECT 1\"])\n"
 	assert.NotContains(t, rulesOf(bound), RuleSQLFromValues)
 }
+
+// The SQL of a paged read and a copy out is held to the rule platform.query is
+// (#2453, #2454).
+func TestSQLFromValuesCoversQueryIterAndCopyOut(t *testing.T) {
+	for name, src := range map[string]string{
+		"platform.query_iter": "def main():\n    \"\"\"Doc.\"\"\"\n    for r in platform.query_iter(\"shop\", \"SELECT * FROM t WHERE id = \" + run.params[\"id\"]):\n        print(r)\n",
+		"query_iter by name":  "def main():\n    \"\"\"Doc.\"\"\"\n    platform.query_iter(\"shop\", sql = \"SELECT %s\" % run.params[\"c\"])\n",
+		"tx.query_iter":       "def main():\n    \"\"\"Doc.\"\"\"\n    def place(tx):\n        \"\"\"Doc.\"\"\"\n        tx.query_iter(\"SELECT {}\".format(run.params[\"c\"]))\n    platform.transaction(\"shop\", place)\n",
+		"platform.copy_out":   "def main():\n    \"\"\"Doc.\"\"\"\n    platform.copy_out(\"shop\", \"all\", \"SELECT * FROM t WHERE id = \" + run.params[\"id\"])\n",
+	} {
+		assert.Contains(t, rulesOf(src), RuleSQLFromValues, name)
+	}
+	bound := "def main():\n    \"\"\"Doc.\"\"\"\n    for r in platform.query_iter(\"shop\", \"SELECT * FROM t WHERE id = :id\", params = {\"id\": run.params[\"id\"]}):\n        print(r)\n    platform.copy_out(\"shop\", \"all\", \"SELECT * FROM t WHERE id = :id\", params = {\"id\": 1})\n"
+	assert.NotContains(t, rulesOf(bound), RuleSQLFromValues)
+}

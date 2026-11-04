@@ -139,8 +139,9 @@ func TestSession_ReadsWithoutChangingTheMailbox(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, all[1:], after, "a watermark returns only newer mail")
 
-	envs, err := s.Headers(all)
+	envs, bad, err := s.Headers(all)
 	require.NoError(t, err)
+	assert.Empty(t, bad)
 	require.Len(t, envs, 2)
 	h, err := ReadHeaders(envs[0].Header)
 	require.NoError(t, err)
@@ -158,7 +159,7 @@ func TestSession_ReadsWithoutChangingTheMailbox(t *testing.T) {
 	_, err = s.Whole(9999, 0)
 	assert.ErrorIs(t, err, ErrNoSuchMessage)
 
-	none, err := s.Headers(nil)
+	none, _, err := s.Headers(nil)
 	require.NoError(t, err)
 	assert.Empty(t, none)
 }

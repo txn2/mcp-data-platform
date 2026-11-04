@@ -16,6 +16,10 @@ const (
 	memberExport    = "export"
 	memberSaveState = "save_state"
 	memberBatch     = "batch"
+	memberQueryIter = "query_iter"
+	memberCopyOut   = "copy_out"
+	// argSQL is the argument the SQL-taking members name their statement.
+	argSQL = "sql"
 )
 
 // txStatement holds a statement run through a transaction's tx (#2402) to the
@@ -31,8 +35,8 @@ func (h *hostScan) txStatement(c *syntax.CallExpr) {
 		return
 	}
 	switch dot.Name.Name {
-	case memberQuery, memberExecute:
-		h.l.sqlFromValues(c, recv.Name+"."+dot.Name.Name, callArg(c, "sql", 0), h.assigned)
+	case memberQuery, memberExecute, memberQueryIter:
+		h.l.sqlFromValues(c, recv.Name+"."+dot.Name.Name, callArg(c, argSQL, 0), h.assigned)
 	case memberBatch:
 		h.batchStatements(c, recv.Name+".batch", callArg(c, "statements", 0))
 	}
@@ -50,7 +54,7 @@ func (h *hostScan) batchStatements(c *syntax.CallExpr, name string, list syntax.
 	}
 	for _, e := range elems {
 		if d, ok := e.(*syntax.DictExpr); ok {
-			e = dictEntry(d, "sql")
+			e = dictEntry(d, argSQL)
 		}
 		if e != nil {
 			h.l.sqlFromValues(c, name, e, h.assigned)
@@ -107,9 +111,13 @@ func (h *hostScan) visit(n syntax.Node, inLoop bool) {
 	}
 	switch member {
 	case memberQuery, memberExecute:
-		h.l.sqlFromValues(c, "platform."+member, callArg(c, "sql", 0), h.assigned)
+		h.l.sqlFromValues(c, "platform."+member, callArg(c, argSQL, 0), h.assigned)
 	case memberBatch:
 		h.batchStatements(c, "platform.batch", callArg(c, "statements", 1))
+	case memberQueryIter: // platform.query_iter(connection, sql, ...) (#2454)
+		h.l.sqlFromValues(c, "platform.query_iter", callArg(c, argSQL, 1), h.assigned)
+	case memberCopyOut: // platform.copy_out(connection, name, sql, ...) (#2453)
+		h.l.sqlFromValues(c, "platform.copy_out", callArg(c, argSQL, 2), h.assigned)
 	case memberCall:
 		if tool, sql := sqlToolCall(c, h.assigned); sql != nil {
 			h.l.sqlFromValues(c, fmt.Sprintf("platform.call(%q)", tool), sql, h.assigned)
@@ -238,7 +246,7 @@ func sqlToolCall(c *syntax.CallExpr, assigned map[*syntax.Ident][]syntax.Expr) (
 		return "", nil
 	}
 	for _, e := range resolved(args, assigned) {
-		if sql := dictEntry(e, "sql"); sql != nil {
+		if sql := dictEntry(e, argSQL); sql != nil {
 			return name, sql
 		}
 	}

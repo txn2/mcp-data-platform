@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whwrite"
 )
 
@@ -20,6 +21,15 @@ type (
 	// RawWindows registers a window's raw partition so its events are
 	// queryable before compaction.
 	RawWindows = whwrite.RawWindows
+	// Rejections keeps what a poll skipped, in the source's rejections list
+	// beside the receiver's refusals (#2459).
+	Rejections interface {
+		RecordRejections(ctx context.Context, rejections []whstore.Rejection) error
+	}
+	// Metrics counts what a poll skipped, under webhook_requests_total.
+	Metrics interface {
+		WebhookRequest(ctx context.Context, source, outcome string)
+	}
 	// MarkStore keeps each folder's watermark.
 	MarkStore interface {
 		Get(ctx context.Context, source, folder string) (Mark, error)

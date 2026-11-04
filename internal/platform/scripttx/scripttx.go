@@ -56,6 +56,7 @@ var retryStates = map[string]bool{"40001": true, "40P01": true}
 // write through its transaction.
 var OutsideEffects = map[string]bool{
 	"platform.call": true, "platform.query": true, "platform.execute": true, CapabilityBatch: true,
+	CapabilityQueryIter: true, CapabilityCopyIn: true, CapabilityCopyOut: true,
 	"platform.export": true, "platform.publish_data": true, "platform.notify": true, "platform.publish": true,
 	"platform.save_state": true, "platform.mint_token": true,
 }
@@ -76,6 +77,19 @@ type Host struct {
 	// Replaying is a test or a replay, whose answers are recorded: a retry
 	// is tried again without pausing.
 	Replaying bool
+	// Check and Hold are the run's memory meter (#2454). The page a
+	// query_iter loop holds is outside every value a walk of the
+	// interpreter reaches, so it is reported with Hold (nil when the loop
+	// ends) and counts toward the peak and the budget, which Check then
+	// refuses past. Nil measures nothing.
+	Check func(thread *starlark.Thread, at string) error
+	Hold  func(page starlark.Value)
+	// Export is platform.export's path under copy_out's name (#2453): the
+	// copied bytes are written as an output the way an export's rows are.
+	Export starlark.Callable
+
+	// stopped is the failure that stopped the run from inside a loop.
+	stopped error
 
 	// open is whether a transaction's function is running, and retrying
 	// whether that transaction is retried.
@@ -243,10 +257,57 @@ func (t *txValue) cause(err error) error {
 
 func (t *txValue) value() starlark.Value {
 	return starlarkstruct.FromStringDict(starlark.String("tx"), starlark.StringDict{
-		"query":   starlark.NewBuiltin("tx.query", t.statement(scriptsession.AppDBTxQuery)),
-		"execute": starlark.NewBuiltin("tx.execute", t.statement(scriptsession.AppDBTxExecute)),
-		"batch":   starlark.NewBuiltin("tx.batch", t.batch),
+		"query":      starlark.NewBuiltin("tx.query", t.statement(scriptsession.AppDBTxQuery)),
+		"execute":    starlark.NewBuiltin("tx.execute", t.statement(scriptsession.AppDBTxExecute)),
+		"batch":      starlark.NewBuiltin("tx.batch", t.batch),
+		"savepoint":  starlark.NewBuiltin("tx.savepoint", t.savepoint),
+		"query_iter": starlark.NewBuiltin("tx.query_iter", t.queryIter),
+		"copy_in":    starlark.NewBuiltin("tx.copy_in", t.copyIn),
 	})
+}
+
+// savepoint is tx.savepoint(fn, on_error = ""): fn called with tx under a
+// savepoint the platform names (#2452), released when fn returns and rolled
+// back to when fn fails, so a failure undoes fn's work alone and the
+// transaction goes on. A statement in fn that failed while fn went on (on_error
+// = "return") makes the savepoint roll back too, since PostgreSQL ran nothing
+// after it: the failure is tx.savepoint's. Savepoints nest, and none is left
+// open past the call that made it.
+func (t *txValue) savepoint(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var (
+		fn      starlark.Callable
+		onError string
+	)
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "fn", &fn, argOnError, &onError); err != nil {
+		return nil, fmt.Errorf(inBinding, b.Name(), err)
+	}
+	returnFailure, err := scriptfail.OnError(b.Name(), onError)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // names the binding
+	}
+	if err := t.usable(b); err != nil {
+		return nil, err
+	}
+	out, err := t.host.Invoke(b, scriptsession.AppDBSavepoint, map[string]any{argTransaction: t.id})
+	if err != nil {
+		t.note(err)
+		return t.host.Failed(b, err, returnFailure)
+	}
+	name, _ := out[argSavepoint].(string)
+	end := map[string]any{argTransaction: t.id, argSavepoint: name}
+	value, ferr := starlark.Call(thread, fn, starlark.Tuple{t.value()}, nil)
+	if ferr != nil {
+		if _, err := t.host.Invoke(b, scriptsession.AppDBRollbackTo, end); err != nil {
+			t.note(err)
+			return nil, err
+		}
+		return t.host.Failed(b, ferr, returnFailure)
+	}
+	if _, err := t.host.Invoke(b, scriptsession.AppDBRelease, end); err != nil {
+		t.note(err)
+		return t.host.Failed(b, err, returnFailure)
+	}
+	return value, nil
 }
 
 // statement is tx.query(sql, params = None, timeout_seconds = 0, on_error =
@@ -305,7 +366,9 @@ func (t *txValue) statementCall(sql string, params *starlark.Dict, timeout int) 
 // Argument names and the error frame the bindings share.
 const (
 	argSQL         = "sql"
+	argConnection  = "connection"
 	argTransaction = "transaction"
+	argSavepoint   = "savepoint"
 	argOnError     = "on_error?"
 	inBinding      = "in %s: %w"
 )

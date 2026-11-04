@@ -224,13 +224,15 @@ REALDB_TEMPLATE     := testdb_template
 # the oldest an appdb connection accepts (#2447), and the platform's own
 # database above stays on 16, so the appdb RealDB tests in
 # pkg/toolkits/postgres run against each of these, named in APPDB_TARGET_DSNS,
-# and fail when it names none. 17.6 is the dev stack's appdb target. They are
-# pinned by index digest, so DOCKER_DEFAULT_PLATFORM is cleared for the host's
-# own variant (see DEV_COMPOSE).
+# and fail when it names none. The 17 image is the dev stack's appdb target.
+# Both are the PostgreSQL images with pgvector installed and loaded by no
+# database until CREATE EXTENSION, so the structured-value tests read a vector
+# column (#2455). They are pinned by index digest, so DOCKER_DEFAULT_PLATFORM
+# is cleared for the host's own variant (see DEV_COMPOSE).
 REALDB_APPDB_CONTAINER := mcpdp-realdb-appdb
 REALDB_APPDB_IMAGES := \
-	17=postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94 \
-	18=postgres:18.6-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+	17=pgvector/pgvector:0.8.1-pg17@sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21 \
+	18=pgvector/pgvector:0.8.1-pg18@sha256:508c5290cda481d4f5f846446a26e9c1b804766828a394a5861de1b348a18b4c
 # REALDB_PKGS is what test-realdb runs: every package, unless realdb-lane
 # narrows it to the packages a branch can break (#1947).
 REALDB_PKGS         ?= ./...

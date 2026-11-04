@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sync"
 
@@ -152,6 +153,33 @@ func (r testRunner) Batch(ctx context.Context, connection string, stmts []postgr
 		return nil, err
 	}
 	return db.Batch(ctx, connection, stmts) //nolint:wrapcheck // the database's typed failure, read by the caller
+}
+
+// OpenCursor implements AppDBRunner.
+func (r testRunner) OpenCursor(ctx context.Context, s postgres.Statement, pageRows int) (AppDBCursor, error) {
+	db, err := r.d.runner(s.Connection)
+	if err != nil {
+		return nil, err
+	}
+	return db.OpenCursor(ctx, s, pageRows) //nolint:wrapcheck // the database's typed failure, read by the caller
+}
+
+// CopyIn implements AppDBRunner.
+func (r testRunner) CopyIn(ctx context.Context, in postgres.CopyIn) (int64, error) {
+	db, err := r.d.runner(in.Connection)
+	if err != nil {
+		return 0, err
+	}
+	return db.CopyIn(ctx, in) //nolint:wrapcheck // the database's typed failure, read by the caller
+}
+
+// CopyOut implements AppDBRunner.
+func (r testRunner) CopyOut(ctx context.Context, s postgres.Statement, format string, w io.Writer, maxBytes int64) (*postgres.CopyOutResult, error) {
+	db, err := r.d.runner(s.Connection)
+	if err != nil {
+		return nil, err
+	}
+	return db.CopyOut(ctx, s, format, w, maxBytes) //nolint:wrapcheck // the database's typed failure, read by the caller
 }
 
 // Begin implements AppDBRunner.

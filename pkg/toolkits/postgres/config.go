@@ -68,6 +68,18 @@ const (
 	DefaultTransactionIdle = 10 * time.Second
 	// MaxTransactionIdle is the most transaction_idle_timeout may be.
 	MaxTransactionIdle = 10 * time.Minute
+	// defaultIterMaxRows is the most rows one platform.query_iter loop reads
+	// when none is configured (#2454), and maxIterMaxRows the most it may be
+	// set to.
+	defaultIterMaxRows = 1_000_000
+	maxIterMaxRows     = 100_000_000
+	// defaultCopyMaxRows and defaultCopyMaxBytes bound one copy_in or
+	// copy_out call when none is configured (#2453); maxCopyMaxRows and
+	// maxCopyMaxBytes are the most either may be set to.
+	defaultCopyMaxRows  = 1_000_000
+	maxCopyMaxRows      = 10_000_000
+	defaultCopyMaxBytes = 64 << 20
+	maxCopyMaxBytes     = 1 << 30
 	// DefaultLedgerSchema is the schema in the target database that holds
 	// the ledger of applied migrations (#2404).
 	DefaultLedgerSchema = "mcp_schema"
@@ -108,6 +120,9 @@ const (
 	cfgKeyApplyPersonas    = "schema_apply_personas"
 	cfgKeyLedgerSchema     = "schema_ledger"
 	cfgKeyTestConnection   = "test_connection"
+	cfgKeyIterMaxRows      = "iter_max_rows"
+	cfgKeyCopyMaxRows      = "copy_max_rows"
+	cfgKeyCopyMaxBytes     = "copy_max_bytes"
 	// CfgKeyPersonaRoles maps a persona to the login role its statements run
 	// as (#2403).
 	CfgKeyPersonaRoles = "persona_roles"
@@ -159,6 +174,13 @@ type Config struct {
 	// TransactionIdle is how long a script's transaction may go without a
 	// statement before it is rolled back.
 	TransactionIdle time.Duration
+	// IterMaxRows is the most rows one platform.query_iter loop reads before
+	// it ends with an error naming the bound (#2454).
+	IterMaxRows int64
+	// CopyMaxRows and CopyMaxBytes bound one copy_in or copy_out call
+	// (#2453); a copy_in past either is refused before its first row is sent.
+	CopyMaxRows  int64
+	CopyMaxBytes int64
 	// SchemaApplyPersonas are the personas that may apply and revert this
 	// connection's migrations (#2404). Empty is administrators only.
 	SchemaApplyPersonas []string
@@ -282,6 +304,9 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 		StatementCache:   cfgmap.BoolDefault(cfg, cfgKeyStatementCache, true),
 		PoolWait:         cfgmap.Duration(cfg, cfgKeyPoolWait, DefaultPoolWait),
 		TransactionIdle:  cfgmap.Duration(cfg, cfgKeyTransactionIdle, DefaultTransactionIdle),
+		IterMaxRows:      cfgmap.Int64(cfg, cfgKeyIterMaxRows, defaultIterMaxRows),
+		CopyMaxRows:      cfgmap.Int64(cfg, cfgKeyCopyMaxRows, defaultCopyMaxRows),
+		CopyMaxBytes:     cfgmap.Int64(cfg, cfgKeyCopyMaxBytes, defaultCopyMaxBytes),
 
 		SchemaApplyPersonas: cfgmap.Strings(cfg, cfgKeyApplyPersonas),
 		LedgerSchema:        cfgmap.StringDefault(cfg, cfgKeyLedgerSchema, DefaultLedgerSchema),
@@ -299,7 +324,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 // Validate refuses a configuration the toolkit could not open, or one whose
 // bounds no operator intends.
 func (c Config) Validate() error {
-	for _, check := range []func() error{c.validateAddress, c.validateSSLMode, c.validateLimits, c.validateTLS, c.validateRoles} {
+	for _, check := range []func() error{c.validateAddress, c.validateSSLMode, c.validateLimits, c.validateBulkLimits, c.validateTLS, c.validateRoles} {
 		if err := check(); err != nil {
 			return err
 		}
@@ -348,6 +373,21 @@ func (c Config) validateLimits() error {
 		return fmt.Errorf("postgres: transaction_idle_timeout must be positive and at most %s", MaxTransactionIdle)
 	case !ledgerSchemaName.MatchString(c.LedgerSchema):
 		return fmt.Errorf("postgres: schema_ledger %q is not a lowercase identifier", c.LedgerSchema)
+	default:
+		return nil
+	}
+}
+
+// validateBulkLimits refuses a bound on a paged read or a copy outside its
+// range (#2453, #2454).
+func (c Config) validateBulkLimits() error {
+	switch {
+	case c.IterMaxRows < 1 || c.IterMaxRows > maxIterMaxRows:
+		return fmt.Errorf("postgres: iter_max_rows must be between 1 and %d", maxIterMaxRows)
+	case c.CopyMaxRows < 1 || c.CopyMaxRows > maxCopyMaxRows:
+		return fmt.Errorf("postgres: copy_max_rows must be between 1 and %d", maxCopyMaxRows)
+	case c.CopyMaxBytes < 1 || c.CopyMaxBytes > maxCopyMaxBytes:
+		return fmt.Errorf("postgres: copy_max_bytes must be between 1 and %d", maxCopyMaxBytes)
 	default:
 		return nil
 	}

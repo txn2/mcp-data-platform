@@ -1,9 +1,11 @@
 package scriptsession
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"sync"
 	"sync/atomic"
@@ -35,13 +37,30 @@ const (
 	AppDBTxBatch   = "appdb.tx_batch"
 	AppDBCommit    = "appdb.commit"
 	AppDBRollback  = "appdb.rollback"
+	// The calls tx.savepoint makes (#2452): open a savepoint in the
+	// transaction, then release it or roll back to it.
+	AppDBSavepoint  = "appdb.savepoint"
+	AppDBRelease    = "appdb.release"
+	AppDBRollbackTo = "appdb.rollback_to"
+	// The calls query_iter makes (#2454): declare a cursor over a query, in
+	// the run's transaction or a READ ONLY one of its own, read it a page at
+	// a time, and close it.
+	AppDBCursorOpen  = "appdb.cursor_open"
+	AppDBCursorFetch = "appdb.cursor_fetch"
+	AppDBCursorClose = "appdb.cursor_close"
+	// The calls copy_in and copy_out make (#2453). Their rows and copied
+	// bytes never reach a recording (RecordedArgs, RecordedOut).
+	AppDBCopyIn  = "appdb.copy_in"
+	AppDBCopyOut = "appdb.copy_out"
 )
 
 // IsAppDBCall reports whether name is one of the calls a session answers
 // against an application database rather than the MCP server.
 func IsAppDBCall(name string) bool {
 	switch name {
-	case AppDBQuery, AppDBExecute, AppDBBatch, AppDBBegin, AppDBTxQuery, AppDBTxExecute, AppDBTxBatch, AppDBCommit, AppDBRollback:
+	case AppDBQuery, AppDBExecute, AppDBBatch, AppDBBegin, AppDBTxQuery, AppDBTxExecute, AppDBTxBatch, AppDBCommit, AppDBRollback,
+		AppDBSavepoint, AppDBRelease, AppDBRollbackTo, AppDBCursorOpen, AppDBCursorFetch, AppDBCursorClose,
+		AppDBCopyIn, AppDBCopyOut:
 		return true
 	}
 	return false
@@ -54,6 +73,15 @@ type AppDBRunner interface {
 	Execute(ctx context.Context, s postgres.Statement) (*postgres.Result, error)
 	Batch(ctx context.Context, connection string, stmts []postgres.Statement) ([]*postgres.Result, error)
 	Begin(ctx context.Context, o postgres.TxOptions) (AppDBTx, error)
+	OpenCursor(ctx context.Context, s postgres.Statement, pageRows int) (AppDBCursor, error)
+	CopyIn(ctx context.Context, in postgres.CopyIn) (int64, error)
+	CopyOut(ctx context.Context, s postgres.Statement, format string, w io.Writer, maxBytes int64) (*postgres.CopyOutResult, error)
+}
+
+// AppDBCursor is one query read in pages: a *postgres.Cursor.
+type AppDBCursor interface {
+	Next(ctx context.Context) (*postgres.Result, bool, error)
+	Close()
 }
 
 // AppDBTx is one transaction a script holds: a *postgres.Tx.
@@ -64,6 +92,11 @@ type AppDBTx interface {
 	Batch(ctx context.Context, stmts []postgres.Statement) ([]*postgres.Result, error)
 	Commit(ctx context.Context) error
 	Rollback()
+	Savepoint(ctx context.Context) (string, error)
+	Release(ctx context.Context, name string) error
+	RollbackTo(ctx context.Context, name string) error
+	OpenCursor(ctx context.Context, s postgres.Statement, pageRows int) (AppDBCursor, error)
+	CopyIn(ctx context.Context, in postgres.CopyIn) (int64, error)
 }
 
 // AppDB is what the platform installs for the script sessions it opens.
@@ -114,6 +147,9 @@ type appdbCaller struct {
 	// so a recording's ids are the same on every replay.
 	txs map[string]AppDBTx
 	seq int
+	// cursors are the session's open cursors by id, numbered by cursorSeq.
+	cursors   map[string]AppDBCursor
+	cursorSeq int
 }
 
 func newAppDBCaller(ctx context.Context) *appdbCaller {
@@ -121,7 +157,7 @@ func newAppDBCaller(ctx context.Context) *appdbCaller {
 	if a == nil {
 		return nil
 	}
-	return &appdbCaller{ctx: ctx, db: a, authorized: make(map[string]string), txs: make(map[string]AppDBTx)}
+	return &appdbCaller{ctx: ctx, db: a, authorized: make(map[string]string), txs: make(map[string]AppDBTx), cursors: make(map[string]AppDBCursor)}
 }
 
 // errNoAppDB is the refusal of every call on a deployment with no runner.
@@ -139,6 +175,12 @@ func (c *appdbCaller) call(ctx context.Context, name string, args map[string]any
 		return c.batch(ctx, args)
 	case AppDBBegin:
 		return c.begin(args)
+	case AppDBCursorOpen, AppDBCursorFetch, AppDBCursorClose:
+		return c.cursor(ctx, name, args)
+	case AppDBCopyIn:
+		return c.copyIn(ctx, args)
+	case AppDBCopyOut:
+		return c.copyOut(ctx, args)
 	default:
 		return c.inTx(ctx, name, args)
 	}
@@ -252,8 +294,33 @@ func (c *appdbCaller) inTx(ctx context.Context, name string, args map[string]any
 		return map[string]any{argTransaction: id, "committed": false}, nil
 	case AppDBTxBatch:
 		return txBatch(ctx, tx, args)
+	case AppDBSavepoint, AppDBRelease, AppDBRollbackTo:
+		return txSavepoint(ctx, tx, name, id, args)
 	}
 	return txStatement(ctx, tx, name == AppDBTxExecute, args)
+}
+
+// argSavepoint names the savepoint a release or rollback_to ends.
+const argSavepoint = "savepoint"
+
+// txSavepoint opens a savepoint, or releases or rolls back to the one named.
+func txSavepoint(ctx context.Context, tx AppDBTx, name, id string, args map[string]any) (map[string]any, error) {
+	if name == AppDBSavepoint {
+		sp, err := tx.Savepoint(ctx)
+		if err != nil {
+			return nil, appdbRefusal(err)
+		}
+		return map[string]any{argTransaction: id, argSavepoint: sp}, nil
+	}
+	sp, _ := args[argSavepoint].(string)
+	end := tx.Release
+	if name == AppDBRollbackTo {
+		end = tx.RollbackTo
+	}
+	if err := end(ctx, sp); err != nil {
+		return nil, appdbRefusal(err)
+	}
+	return map[string]any{argTransaction: id, argSavepoint: sp, "released": name == AppDBRelease}, nil
 }
 
 // take finds an open transaction, and forgets it when the call ends it.
@@ -305,20 +372,117 @@ func txStatement(ctx context.Context, tx AppDBTx, write bool, args map[string]an
 const (
 	argTransaction = "transaction"
 	argConnection  = "connection"
+	// argRows is a result's rows, and a copy_in's.
+	argRows = "rows"
 )
 
-// close rolls back every transaction the session still holds: the run ended.
+// close closes every cursor and rolls back every transaction the session
+// still holds: the run ended.
 func (c *appdbCaller) close() {
 	if c == nil {
 		return
 	}
 	c.mu.Lock()
-	txs := c.txs
-	c.txs = make(map[string]AppDBTx)
+	txs, cursors := c.txs, c.cursors
+	c.txs, c.cursors = make(map[string]AppDBTx), make(map[string]AppDBCursor)
 	c.mu.Unlock()
+	for _, k := range cursors {
+		k.Close()
+	}
 	for _, tx := range txs {
 		tx.Rollback()
 	}
+}
+
+// txCursor declares a cursor in the open transaction id.
+func (c *appdbCaller) txCursor(ctx context.Context, id string, args map[string]any, pageRows int) (AppDBCursor, error) {
+	tx, err := c.take(id, false)
+	if err != nil {
+		return nil, err
+	}
+	st, err := txStatementOf(args, tx.Connection())
+	if err != nil {
+		return nil, invalid(err)
+	}
+	k, err := tx.OpenCursor(ctx, st, pageRows)
+	if err != nil {
+		return nil, appdbRefusal(err)
+	}
+	return k, nil
+}
+
+// ownCursor declares a cursor in a READ ONLY transaction of its own, opened
+// under the session's context, so the run's end closes it rather than the end
+// of the call that opened it.
+func (c *appdbCaller) ownCursor(args map[string]any, pageRows int) (AppDBCursor, error) {
+	st, err := statementOf(args)
+	if err != nil {
+		return nil, invalid(err)
+	}
+	if err := c.admit(st.Connection); err != nil {
+		return nil, err
+	}
+	k, err := c.db.Runner().OpenCursor(c.identity(c.ctx, st.Connection), st, pageRows)
+	if err != nil {
+		return nil, appdbRefusal(err)
+	}
+	return k, nil
+}
+
+// argCursor names the cursor a fetch or close reads.
+const argCursor = "cursor"
+
+// cursor opens, reads or closes a cursor for query_iter.
+func (c *appdbCaller) cursor(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
+	if name == AppDBCursorOpen {
+		return c.openCursor(ctx, args)
+	}
+	id, _ := args[argCursor].(string)
+	c.mu.Lock()
+	k, ok := c.cursors[id]
+	if ok && name == AppDBCursorClose {
+		delete(c.cursors, id)
+	}
+	c.mu.Unlock()
+	if !ok {
+		msg := fmt.Sprintf("no cursor %q is open in this run", id)
+		return nil, NewRefusal(msg, refusalEnv(postgres.CodeTransactionEnded, msg))
+	}
+	if name == AppDBCursorClose {
+		k.Close()
+		return map[string]any{argCursor: id, "closed": true}, nil
+	}
+	page, done, err := k.Next(ctx)
+	if err != nil {
+		return nil, appdbRefusal(err)
+	}
+	out := resultMap(page)
+	out["done"] = done
+	return out, nil
+}
+
+// openCursor declares a cursor in the transaction args name, or in a READ
+// ONLY transaction of its own on the connection args name.
+func (c *appdbCaller) openCursor(ctx context.Context, args map[string]any) (map[string]any, error) {
+	pageRows := intArg(args["page_rows"])
+	var (
+		k   AppDBCursor
+		err error
+	)
+	if id, _ := args[argTransaction].(string); id != "" {
+		k, err = c.txCursor(ctx, id, args, pageRows)
+	} else {
+		k, err = c.ownCursor(args, pageRows)
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cursorSeq++
+	id := fmt.Sprintf("cursor%d", c.cursorSeq)
+	c.cursors[id] = k
+	return map[string]any{argCursor: id}, nil
 }
 
 // invalid is the refusal of a call's malformed arguments.
@@ -482,7 +646,7 @@ func resultMap(res *postgres.Result) map[string]any {
 		"command":       res.Command,
 		"rows_affected": res.RowsAffected,
 		"columns":       columns,
-		"rows":          rows,
+		argRows:         rows,
 		"row_count":     len(rows),
 		"stats":         map[string]any{"truncated": res.Truncated, "limit": res.Limit},
 	}
@@ -516,4 +680,89 @@ func appdbRefusal(err error) error {
 
 func refusalEnv(code, message string) map[string]any {
 	return map[string]any{"code": code, "category": "tool_error", "message": message}
+}
+
+// copyIn writes copy_in's rows: in the transaction args name, or in one of
+// its own on the connection args name.
+func (c *appdbCaller) copyIn(ctx context.Context, args map[string]any) (map[string]any, error) {
+	in := postgres.CopyIn{}
+	in.Table, _ = args["table"].(string)
+	for _, col := range anyList(args["columns"]) {
+		name, _ := col.(string)
+		in.Columns = append(in.Columns, name)
+	}
+	for _, row := range anyList(args[argRows]) {
+		in.Rows = append(in.Rows, anyList(row))
+	}
+	var (
+		n   int64
+		err error
+	)
+	if id, _ := args[argTransaction].(string); id != "" {
+		tx, terr := c.take(id, false)
+		if terr != nil {
+			return nil, terr
+		}
+		in.Connection = tx.Connection()
+		n, err = tx.CopyIn(ctx, in)
+	} else {
+		in.Connection, _ = args[argConnection].(string)
+		if aerr := c.admit(in.Connection); aerr != nil {
+			return nil, aerr
+		}
+		n, err = c.db.Runner().CopyIn(c.identity(ctx, in.Connection), in)
+	}
+	if err != nil {
+		return nil, appdbRefusal(err)
+	}
+	return map[string]any{argConnection: in.Connection, "table": in.Table, "columns": args["columns"], "rows_written": n}, nil
+}
+
+// copyOut writes copy_out's query into a buffer and answers with its bytes,
+// which the binding hands to the output writer; RecordedOut keeps them out of
+// a recording.
+func (c *appdbCaller) copyOut(ctx context.Context, args map[string]any) (map[string]any, error) {
+	st, err := statementOf(args)
+	if err != nil {
+		return nil, invalid(err)
+	}
+	if err := c.admit(st.Connection); err != nil {
+		return nil, err
+	}
+	format, _ := args["format"].(string)
+	var buf bytes.Buffer
+	res, err := c.db.Runner().CopyOut(c.identity(ctx, st.Connection), st, format, &buf, int64(intArg(args["max_bytes"])))
+	if err != nil {
+		return nil, appdbRefusal(err)
+	}
+	return map[string]any{argConnection: st.Connection, "format": format, argRows: res.Rows, "bytes": res.Bytes, "data": buf.Bytes()}, nil
+}
+
+func anyList(v any) []any {
+	l, _ := v.([]any)
+	return l
+}
+
+// RecordedArgs is a call's arguments as a recording keeps and matches them: a
+// copy_in's rows are bound values, kept nowhere but the database, so they are
+// replaced by their count (#2453).
+func RecordedArgs(tool string, args map[string]any) map[string]any {
+	if _, held := args[argRows]; tool != AppDBCopyIn || !held {
+		return args
+	}
+	out := maps.Clone(args)
+	delete(out, argRows)
+	out["row_count"] = len(anyList(args[argRows]))
+	return out
+}
+
+// RecordedOut is a call's answer as a recording keeps it: a copy_out's bytes
+// are an output, written where outputs go, never into a recording.
+func RecordedOut(tool string, out map[string]any) map[string]any {
+	if tool != AppDBCopyOut || out == nil {
+		return out
+	}
+	kept := maps.Clone(out)
+	delete(kept, "data")
+	return kept
 }

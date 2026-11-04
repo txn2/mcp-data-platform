@@ -139,7 +139,29 @@ func (r appdbRunner) Begin(ctx context.Context, o postgreskit.TxOptions) (script
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the toolkit's typed failure, read by the session
 	}
-	return tx, nil
+	return appdbTx{tx}, nil
+}
+
+// OpenCursor implements scriptsession.AppDBRunner.
+func (r appdbRunner) OpenCursor(ctx context.Context, s postgreskit.Statement, pageRows int) (scriptsession.AppDBCursor, error) {
+	return cursorOf(r.Toolkit.OpenCursor(ctx, s, pageRows))
+}
+
+// cursorOf hands a toolkit cursor back as the session's interface, and no
+// cursor, never a nil one in an interface, with a failure.
+func cursorOf(k *postgreskit.Cursor, err error) (scriptsession.AppDBCursor, error) {
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the toolkit's typed failure, read by the session
+	}
+	return k, nil
+}
+
+// appdbTx is a script's transaction as the session holds it.
+type appdbTx struct{ *postgreskit.Tx }
+
+// OpenCursor implements scriptsession.AppDBTx.
+func (x appdbTx) OpenCursor(ctx context.Context, s postgreskit.Statement, pageRows int) (scriptsession.AppDBCursor, error) {
+	return cursorOf(x.Tx.OpenCursor(ctx, s, pageRows))
 }
 
 // errNoIdentity refuses a statement from a session that carries no identity.

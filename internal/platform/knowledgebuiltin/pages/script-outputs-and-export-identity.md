@@ -153,5 +153,11 @@ name and written out as strings, so where a script writes is readable from its
 source; `validate` lists them under `resource_libraries`. With `append=True`
 the first call fixes the scope with the key.
 
+`platform.copy_out(connection, name, sql, ...)` writes a query on an
+application database as an output the same way: the same name, destination,
+key, library and register= rules, every row of the result as CSV or COPY's
+text format, streamed from the database without becoming the script's values.
+It is the path for a result larger than a query's row cap.
+
 In a draft run nothing is written anywhere: each export reports the shape and
 size it would have, and a `resources` export the library it would go in.

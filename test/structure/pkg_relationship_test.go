@@ -77,26 +77,19 @@ func firstPartyPackages(t *testing.T) []*packages.Package {
 	t.Helper()
 	root := moduleRoot(t)
 	firstPartyOnce.Do(func() {
-		// No NeedDeps: neither gate reads a dependency's syntax or type info
-		// (the ratchet reads only import-path keys; cohesion reads only each
-		// first-party package's own TypesInfo), and NeedDeps would type-check
-		// the whole transitive tree on every run.
-		cfg := &packages.Config{
-			Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
-				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports,
-			Tests: false,
-			Dir:   root,
-		}
-		pkgs, err := packages.Load(cfg, "./...")
+		// Dependencies are read from export data, never type-checked from
+		// source: the gates read only each first-party package's own
+		// TypesInfo and import-path keys. loadTypedFirstParty does the type
+		// checking so that no two checkers share an imported type (#2462).
+		pkgs, err := loadTypedFirstParty(root)
 		if err != nil {
 			errFirstPartyLoad = err
 			return
 		}
-		var firstParty []*packages.Package
-		for _, p := range pkgs {
-			if isFirstParty(p.PkgPath) && len(p.Syntax) > 0 {
-				firstParty = append(firstParty, p)
-			}
+		firstParty, err := firstPartyWithSyntax(pkgs)
+		if err != nil {
+			errFirstPartyLoad = err
+			return
 		}
 		errFirstPartyLoad = firstPartyLoadErrors(firstParty)
 		firstPartyPkgs = firstParty

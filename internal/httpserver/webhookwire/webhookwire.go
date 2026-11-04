@@ -278,6 +278,7 @@ func assemble(pt parts) (*Webhooks, error) {
 		w.imap = whimap.New(whimap.Config{
 			Sources: sources, Objects: pt.objects, Bucket: pt.bucket, Recorder: windows,
 			RawWindows: rawWindows{tables: pt.tables}, Marks: whimap.NewMarks(db), Files: pt.resources,
+			Rejections: windows, Metrics: pt.metrics,
 			Lock: imapLock(db), Replica: pt.replica, Logger: slog.Default(),
 		})
 		if pt.appdb != nil {

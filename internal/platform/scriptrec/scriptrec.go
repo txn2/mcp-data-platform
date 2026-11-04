@@ -118,6 +118,7 @@ func NewRecorder(h Header) *Recorder {
 
 // OnCall records one tool call and the answer it was finally given.
 func (r *Recorder) OnCall(tool string, args, out map[string]any, err error) {
+	args, out = scriptsession.RecordedArgs(tool, args), scriptsession.RecordedOut(tool, out)
 	c := Call{Key: ToolKey(tool, args), Tool: tool, Args: args, Out: out}
 	if err != nil {
 		c.Out, c.Error = nil, err.Error()
@@ -229,6 +230,7 @@ const keySep = "\x00"
 // statement may run, not what it answers, and the host sets it from the time
 // left in the run, which differs between a run and its replay.
 func ToolKey(tool string, args map[string]any) string {
+	args = scriptsession.RecordedArgs(tool, args)
 	if _, timed := args[scriptstmt.ArgTimeout]; timed && scriptstmt.IsStatementTool(tool) {
 		args = maps.Clone(args)
 		delete(args, scriptstmt.ArgTimeout)
