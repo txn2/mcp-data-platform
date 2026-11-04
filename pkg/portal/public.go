@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/embedhosts"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
 	"github.com/txn2/mcp-data-platform/internal/portal/sharecache"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
@@ -92,6 +93,9 @@ const pathKeyToken = "token"
 
 // publicViewPathPrefix is the URL prefix for public share endpoints.
 const publicViewPathPrefix = "/portal/view/"
+
+// msgRetrieveFailed is what a public read answers when content cannot be read.
+const msgRetrieveFailed = "Failed to retrieve content."
 
 // portalAppPath is the authenticated portal SPA root, where a signed-in viewer
 // can open the asset and leave feedback.
@@ -482,11 +486,8 @@ func serveShared(w http.ResponseWriter, r *http.Request, asset *Asset, data []by
 // content is rewritten at serve time and is read whole; a record naming no
 // type is served the old way, which takes the type stored with the object.
 func (h *Handler) serveAssetRange(w http.ResponseWriter, r *http.Request, assetID string) bool {
-	if h.deps.S3Client == nil {
-		return false
-	}
-	a, err := h.deps.AssetStore.Get(r.Context(), assetID)
-	if err != nil || a.DeletedAt != nil {
+	a, err := h.servedAsset(r, assetID)
+	if err != nil {
 		return false
 	}
 	return h.serveRanged(w, r, blobserve.Options{Name: a.Name, ContentType: a.ContentType, ModTime: a.UpdatedAt}, blobserve.Object{Bucket: a.S3Bucket, Key: a.S3Key})
@@ -517,23 +518,36 @@ func (e *publicAssetError) Error() string { return e.Message }
 // will load inline. Assets larger than this show a download prompt instead.
 const largeAssetPreviewThreshold int64 = 2 * 1024 * 1024 // 2 MB
 
+// servedAsset reads an asset for a content read: present, not deleted, with
+// storage configured, and held at the version its application's release
+// pins (#2411).
+func (h *Handler) servedAsset(r *http.Request, assetID string) (*Asset, error) {
+	asset, err := h.deps.AssetStore.Get(r.Context(), assetID)
+	switch {
+	case err != nil:
+		return nil, &publicAssetError{Message: "Asset not found.", Status: http.StatusNotFound}
+	case asset.DeletedAt != nil:
+		return nil, &publicAssetError{Message: "This asset has been deleted.", Status: http.StatusGone}
+	case h.deps.S3Client == nil:
+		return nil, &publicAssetError{Message: "Content storage not configured.", Status: http.StatusServiceUnavailable}
+	}
+	if asset, err = portaldomain.Served(r.Context(), h.deps.VersionStore, asset); err != nil {
+		return nil, &publicAssetError{Message: msgRetrieveFailed, Status: http.StatusInternalServerError}
+	}
+	return asset, nil
+}
+
 // fetchAssetContent retrieves an asset and always fetches its S3 content.
 // Used by download/raw-content endpoints that must serve full content regardless of size.
 func (h *Handler) fetchAssetContent(r *http.Request, assetID string) (*Asset, []byte, error) {
-	asset, err := h.deps.AssetStore.Get(r.Context(), assetID)
+	asset, err := h.servedAsset(r, assetID)
 	if err != nil {
-		return nil, nil, &publicAssetError{Message: "Asset not found.", Status: http.StatusNotFound}
-	}
-	if asset.DeletedAt != nil {
-		return nil, nil, &publicAssetError{Message: "This asset has been deleted.", Status: http.StatusGone}
-	}
-	if h.deps.S3Client == nil {
-		return nil, nil, &publicAssetError{Message: "Content storage not configured.", Status: http.StatusServiceUnavailable}
+		return nil, nil, err
 	}
 	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
 	if err != nil {
 		slog.Error("public view: failed to fetch content", "error", err, "asset_id", asset.ID) // #nosec G706 -- structured log
-		return nil, nil, &publicAssetError{Message: "Failed to retrieve content.", Status: http.StatusInternalServerError}
+		return nil, nil, &publicAssetError{Message: msgRetrieveFailed, Status: http.StatusInternalServerError}
 	}
 	return asset, h.serveRefs(r, asset.ID, asset.ContentType, data), nil
 }
@@ -545,16 +559,9 @@ func (h *Handler) fetchAssetContent(r *http.Request, assetID string) (*Asset, []
 // bytes, so images, audio, video and PDFs render from the raw content endpoint
 // instead and there is nothing for the page to hold.
 func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (publicAssetData, error) {
-	asset, err := h.deps.AssetStore.Get(r.Context(), assetID)
+	asset, err := h.servedAsset(r, assetID)
 	if err != nil {
-		return publicAssetData{}, &publicAssetError{Message: "Asset not found.", Status: http.StatusNotFound}
-	}
-	if asset.DeletedAt != nil {
-		return publicAssetData{}, &publicAssetError{Message: "This asset has been deleted.", Status: http.StatusGone}
-	}
-
-	if h.deps.S3Client == nil {
-		return publicAssetData{}, &publicAssetError{Message: "Content storage not configured.", Status: http.StatusServiceUnavailable}
+		return publicAssetData{}, err
 	}
 
 	// Skip content fetch for large assets — they'll show a download prompt
@@ -572,7 +579,7 @@ func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (publicAsset
 	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
 	if err != nil {
 		slog.Error("public view: failed to fetch content", "error", err, "asset_id", asset.ID) // #nosec G706 -- structured log, not user-facing
-		return publicAssetData{}, &publicAssetError{Message: "Failed to retrieve content.", Status: http.StatusInternalServerError}
+		return publicAssetData{}, &publicAssetError{Message: msgRetrieveFailed, Status: http.StatusInternalServerError}
 	}
 
 	return publicAssetData{

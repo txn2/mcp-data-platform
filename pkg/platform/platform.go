@@ -21,6 +21,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/apps"
 	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
+	"github.com/txn2/mcp-data-platform/internal/application/apptool"
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/connlimit"
 	"github.com/txn2/mcp-data-platform/internal/dbobs"
@@ -3200,7 +3201,8 @@ func (p *Platform) PlatformTools() []ToolInfo {
 		tools = append(tools,
 			ToolInfo{Name: scriptlayer.ToolNameManageScript, Kind: kindPlatform},
 			ToolInfo{Name: scriptlayer.ToolNameRunScript, Kind: kindPlatform},
-			ToolInfo{Name: scriptlayer.ToolNameShowScripts, Kind: kindPlatform})
+			ToolInfo{Name: scriptlayer.ToolNameShowScripts, Kind: kindPlatform},
+			ToolInfo{Name: apptool.ToolName, Kind: kindPlatform})
 	}
 	// notify is registered wherever there is a database and notifications are
 	// enabled, which is the same condition wireNotify registers it under. A

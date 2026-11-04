@@ -49,7 +49,8 @@ immediately the version `run_script` executes and a schedule fires, so sending
 the edit is how you try a change without making it live.
 4. Once saved, `run_script` executes the latest saved version — on demand or
    on a schedule — as the script's own principal, presenting the roles you held
-   at the save.
+   at the save. A script that belongs to a released application runs the
+   version its application's release pins instead (`manage_application`).
 
 ## The dialect is deliberately smaller than Python
 
@@ -249,6 +250,13 @@ authorized against your captured roles by the same persona filtering an
 interactive session gets, so the script can reach exactly what you can reach
 and nothing more — including the tools that write. A disabled, deprecated, or
 superseded script is the only thing the run gate refuses.
+
+A script that is part of a released application (`manage_application`,
+mcp:knowledge_page:platform-applications) is the exception: its endpoint,
+schedule, events and `run_script` execute the version the application's
+current release pins, so a saved version goes live at the application's next
+release, and a rollback puts the earlier version back. `get` reports
+`released_version` beside `version` for such a script.
 
 A script is yours to act on: you are the only person who edits it, runs it, and
 schedules it, and administrators do all three on every script. Everyone signed in

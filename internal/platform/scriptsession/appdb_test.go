@@ -537,6 +537,14 @@ func TestAppDBCaller_Identity(t *testing.T) {
 	_, err = newAppDBCaller(context.Background()).call(context.Background(), AppDBQuery, stmt)
 	require.NoError(t, err)
 	assert.Equal(t, []postgres.Identity{{Persona: "clerk"}}, db.ids, "a session with no identity claims nothing")
+
+	db.ids = nil
+	pc := middleware.NewPlatformContext("r")
+	pc.UserID, pc.UserEmail = "sub-saver", "saver@example.com"
+	_, err = newAppDBCaller(middleware.WithPlatformContext(context.Background(), pc)).call(context.Background(), AppDBQuery, stmt)
+	require.NoError(t, err)
+	assert.Equal(t, []postgres.Identity{{Persona: "clerk", UserID: "sub-saver", Email: "saver@example.com", Source: postgres.SourceScript}},
+		db.ids, "a test acts for the person whose session runs it")
 }
 
 func TestAppDBCaller_Savepoints(t *testing.T) {

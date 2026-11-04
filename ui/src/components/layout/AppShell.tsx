@@ -36,6 +36,9 @@ const PromptViewerPage = lazy(() =>
 const PortalScriptRoutes = lazy(() =>
   import("@/pages/scripts/ScriptRoutes").then((m) => ({ default: m.PortalScriptRoutes })),
 );
+const ApplicationRoutes = lazy(() =>
+  import("@/pages/applications/ApplicationRoutes").then((m) => ({ default: m.ApplicationRoutes })),
+);
 const AssetViewerPage = lazy(() =>
   import("@/pages/viewer/AssetViewerPage").then((m) => ({ default: m.AssetViewerPage })),
 );
@@ -99,6 +102,7 @@ const pageTitles: Record<string, string> = {
   "/activity/calls": "Activity",
   "/": "Assets",
   "/apis": "APIs",
+  "/applications": "Applications",
   "/collections": "Collections",
   "/resources": "Resources",
   "/scratch-tables": "Scratch Tables",
@@ -144,6 +148,8 @@ const pageTitles: Record<string, string> = {
 const detailTitles: readonly { prefix: string; title: string }[] = [
   // An automation's page, named as the section is (#1912, #1933).
   { prefix: "/automations/", title: "Automation" },
+  // One application (#2411).
+  { prefix: "/applications/", title: "Application" },
   { prefix: "/admin/automations/endpoints/", title: "Endpoint" },
   { prefix: "/admin/automations/", title: "Automation" },
   { prefix: "/admin/collections/", title: "Collection" },
@@ -553,6 +559,9 @@ export function AppShell() {
               onNavigate={navigate}
               onBack={() => navigate("/prompts")}
             />
+          )}
+          {!adminRoute && isInSection(route, "/applications") && (
+            <ApplicationRoutes route={route} onNavigate={navigate} />
           )}
           {!adminRoute && isInSection(route, "/automations") && (
             <PortalScriptRoutes route={route} onNavigate={navigate} />

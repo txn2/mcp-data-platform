@@ -10,7 +10,10 @@ writing, validating, and dry-running a script — is reached through
 ## A saved script runs
 
 The platform executes the script's latest saved version: saving a version makes
-it the version that runs. `run_script`, the portal's run action, and a schedule
+it the version that runs. A script that is part of a released
+[application](../server/applications.md) is the exception: every run of it
+executes the version the application's current release pins, until the next
+release. `run_script`, the portal's run action, and a schedule
 all execute it, and the run gate refuses only a script taken out of service —
 disabled, deprecated, or superseded — in its own words on every surface
 (`pkg/script/run.go`, `RefuseRun`). There is no approval step and no state in

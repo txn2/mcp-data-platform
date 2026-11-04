@@ -23,7 +23,7 @@ func (h *Handler) registerGraphQLRoutes() {
 // (#2404), implemented in the migrationsapi subpackage: the portal's
 // connection page reads them and plans the pending ones.
 func (h *Handler) registerMigrationRoutes() {
-	migrationsapi.Register(h.mux, migrationsapi.Config{Toolkits: h.liveToolkits})
+	migrationsapi.Register(h.mux, migrationsapi.Config{Toolkits: h.liveToolkits, CatchUp: h.deps.ConnectionCatchUp})
 }
 
 // publishSchemaReload announces a replaced stored schema to peer replicas,

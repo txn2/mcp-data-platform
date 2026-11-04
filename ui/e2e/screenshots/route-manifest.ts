@@ -11,7 +11,7 @@ import { adminCatalogRoutes, knowledgeCatalogRoutes } from "./route-catalog";
 import { adminWebhookRoutes } from "./route-webhooks";
 import { adminConnectionRoutes } from "./route-connections";
 import { adminPersonaRoutes } from "./route-personas";
-import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
+import { adminScriptRoutes, applicationRoutes, userScriptRoutes } from "./route-scripts";
 import {
   openCollectionDetailsDialog,
   openFeedbackMentionComposer,
@@ -201,6 +201,7 @@ export const routes: ScreenshotRoute[] = [
     category: "user",
   },
   ...userScriptRoutes,
+  ...applicationRoutes,
   {
     // Personal prompt create form.
     slug: "prompt-create",

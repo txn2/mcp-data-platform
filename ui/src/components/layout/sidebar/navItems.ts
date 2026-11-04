@@ -25,6 +25,7 @@ import {
   Network,
   BookMarked,
   Library,
+  Boxes,
   type LucideIcon,
 } from "lucide-react";
 
@@ -47,6 +48,7 @@ export const portalPinnedNavItems: NavItem[] = [
 export const portalMoreNavItems: NavItem[] = [
   { path: "/activity", label: "Activity", icon: Activity },
   { path: "/apis", label: "APIs", icon: Network },
+  { path: "/applications", label: "Applications", icon: Boxes },
   { path: "/automations", label: "Automations", icon: FileCode2 },
   { path: "/feedback", label: "Inbox", icon: MessageCircle },
   { path: "/knowledge", label: "Knowledge", icon: BookOpen },

@@ -93,6 +93,7 @@ func (h *Handler) registerRefRoutes() {
 		// each asset carries the bucket it is stored in.
 		Assets:        h.deps.AssetStore,
 		AssetBlobs:    h.deps.S3Client,
+		AssetVersions: h.deps.VersionStore,
 		PublicBaseURL: h.deps.PublicBaseURL,
 	})
 	if !server.Ready() {

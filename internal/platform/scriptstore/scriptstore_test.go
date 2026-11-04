@@ -34,7 +34,7 @@ var scriptSelectColumns = []string{
 	"id", "name", "display_name", "description", "category", "source_code", "params",
 	"owner_email", "tags", "enabled", "status",
 	"superseded_by", "deprecated_at", "version",
-	"created_at", "updated_at", "library", "library_loads", "exclusive", "event_source",
+	"created_at", "updated_at", "library", "library_loads", "exclusive", "event_source", "released_version",
 }
 
 var rowTime = time.Unix(1700000000, 0).UTC()
@@ -48,6 +48,7 @@ type rowSpec struct {
 	source     string
 	category   string
 	exclusive  runstate.ExclusiveMode
+	released   int
 }
 
 // scriptRow returns one full result row in scriptColumns order.
@@ -60,7 +61,7 @@ func scriptRow(spec rowSpec) []driver.Value {
 		spec.id, spec.name, "Daily", "A daily report", spec.category, source, spec.paramsJSON,
 		spec.owner, pq.Array([]string{}), true, "active",
 		"", nil, 1, rowTime, rowTime,
-		false, pq.Array([]string{}), string(spec.exclusive.Or()), "",
+		false, pq.Array([]string{}), string(spec.exclusive.Or()), "", spec.released,
 	}
 }
 
@@ -528,4 +529,18 @@ func TestWithTx_BeginAndCommitErrors(t *testing.T) {
 	err = s.withTx(context.Background(), "op", func(*sql.Tx) error { return nil })
 	assert.ErrorContains(t, err, "commit op")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A script an application's release holds reads its released version, which
+// is the version a run executes (#2411).
+func TestGetByID_ReadsTheReleasedVersion(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery("FROM scripts").WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
+		AddRow(scriptRow(rowSpec{id: "s1", name: "api", owner: "jane@example.com", paramsJSON: emptyParams(t), released: 1})...))
+	sc, err := s.GetByID(context.Background(), "s1")
+	require.NoError(t, err)
+	assert.Equal(t, 1, sc.ReleasedVersion)
+	assert.Equal(t, 1, sc.RunVersion())
+	sc.ReleasedVersion = 0
+	assert.Equal(t, sc.Version, sc.RunVersion(), "a script in no released application runs its newest version")
 }

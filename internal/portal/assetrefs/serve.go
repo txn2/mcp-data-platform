@@ -76,6 +76,9 @@ type Deps struct {
 	// blob client for its bytes.
 	Assets     Assets
 	AssetBlobs BlobReader
+	// AssetVersions reads the version an application's release holds a
+	// referenced asset at (#2411).
+	AssetVersions portaldomain.VersionReader
 	// PublicBaseURL is the configured origin, used to rewrite the references a
 	// referenced asset makes of its own. Empty falls back to the origin of the
 	// request being answered, exactly as every other serving surface does.
@@ -261,6 +264,10 @@ func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, assetID stri
 	asset, err := s.deps.Assets.Get(r.Context(), assetID)
 	if err != nil || asset == nil || asset.DeletedAt != nil {
 		httpjson.WriteError(w, http.StatusNotFound, msgResourceMissing)
+		return
+	}
+	if asset, err = portaldomain.Served(r.Context(), s.deps.AssetVersions, asset); err != nil {
+		contentFailed(w, "target_asset_id", assetID, err)
 		return
 	}
 	opts := blobserve.Options{

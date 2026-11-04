@@ -241,8 +241,10 @@ created without `security_invoker = true`. Against a PostgreSQL 17 server it
 warns on what 18 introduced (`uuidv7()`, `RETURNING old`/`new`, virtual
 generated columns, `WITHOUT OVERLAPS`, `NOT ENFORCED`), and against 18 on an
 index of a generated column declared without `STORED`. `COPY ... PROGRAM`,
-`CREATE LANGUAGE` or code in an untrusted language, `CREATE EVENT TRIGGER` and
-`ALTER SYSTEM` are refused.
+`CREATE LANGUAGE` or code in an untrusted language, `CREATE EVENT TRIGGER`,
+`ALTER SYSTEM`, and a role, user or user mapping given a password in the
+migration (`PASSWORD '...'`) are refused: a migration is stored, applied and
+exported as written, so a credential never belongs in one.
 
 `status` also reports `schema_drift` for the schema: the applied migrations
 are built from zero on a throwaway database and compared with the live
@@ -302,7 +304,7 @@ with `current_setting(name, true)`:
 
 - `mcp.user_id` and `mcp.email`: an authenticated endpoint's caller; empty on
   a public endpoint; outside an endpoint, the script's author (in a draft, the
-  person running it).
+  person running it; in a test, the person saving or testing the script).
 - `mcp.persona`: the persona whose role the statement runs as.
 - `mcp.source`: `endpoint` or `script`.
 

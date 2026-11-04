@@ -218,7 +218,9 @@ func (s *store) effectiveCap(stored sql.NullInt64) int {
 // 1 of an asset created before it had a second version carries the flat content
 // key the asset itself still names, so pruning it by row would take the live
 // content with it; every later version has a key of its own and is unaffected by
-// the guard.
+// the guard. A version an application's release pins is kept (#2411): it is
+// what the asset serves while that release is current, and what a rollback to
+// it restores.
 func prune(ctx context.Context, tx *sql.Tx, assetID string, latestVersion, keep int) (pruneResult, error) {
 	if keep <= portaldomain.MaxVersionsUnlimited || latestVersion <= keep {
 		return pruneResult{}, nil
@@ -230,6 +232,8 @@ func prune(ctx context.Context, tx *sql.Tx, assetID string, latestVersion, keep 
 		   AND a.id = v.asset_id
 		   AND v.s3_key <> a.s3_key
 		   AND v.version <= $2
+		   AND NOT EXISTS (SELECT 1 FROM application_release_pins p
+		                    WHERE p.kind = 'asset' AND p.part_id = v.asset_id AND p.version = v.version)
 		RETURNING v.version, v.s3_bucket, v.s3_key`, assetID, latestVersion-keep)
 	if err != nil {
 		return pruneResult{}, fmt.Errorf("pruning asset versions: %w", err)

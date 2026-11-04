@@ -28,6 +28,7 @@ const (
 	toolManageFeedback = "manage_feedback"
 	toolTrinoQuery     = "trino_query"
 	toolManageScript   = "manage_script"
+	toolManageApp      = "manage_application"
 	toolSaveAsset      = "save_asset"
 )
 
@@ -108,6 +109,12 @@ var capabilities = []capability{
 			"settled and will repeat, or the user asks for an automation or scheduled work, " +
 			"build it with `manage_script` (command `help` first), and `schedule_set` when it " +
 			"should repeat, so it is re-run rather than re-derived."
+	}},
+	{tool: toolManageApp, line: func(map[string]bool) string {
+		return "A system built on the platform (an application database schema, scripts with their " +
+			"endpoints and forms, webhook sources, portal assets) is grouped and released with " +
+			"`manage_application`; read the platform-applications knowledge page before building one. " +
+			"A released script runs its release's version, so a saved change goes live at the next release."
 	}},
 	{tool: toolMemoryCapture, line: func(map[string]bool) string {
 		return "Capture facts about the data, never the data: knowledge reaches personas that " +

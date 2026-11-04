@@ -18,7 +18,7 @@ import (
 var assetSearchCols = []string{
 	"id", "owner_id", "owner_email", "name", "description", "content_type",
 	"s3_bucket", "s3_key", "thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_version", "size_bytes", "tags", "provenance",
-	"session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key", "max_versions",
+	"session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key", "max_versions", "released_version",
 }
 
 func addAssetRow(rows *sqlmock.Rows, id, name string, extra ...driverValueList) {
@@ -26,7 +26,7 @@ func addAssetRow(rows *sqlmock.Rows, id, name string, extra ...driverValueList) 
 	base := []driver.Value{
 		id, "u1", "alice@example.com", name, "desc", "text/html",
 		"bucket", "key", "", "", 0, 0, 0, "", 0, int64(10), []byte(`["t"]`), []byte(`{}`),
-		"", 1, now, now, nil, "", nil,
+		"", 1, now, now, nil, "", nil, 0,
 	}
 	for _, e := range extra {
 		base = append(base, e...)
@@ -169,7 +169,7 @@ func TestSearchAssets_HybridScanError(t *testing.T) {
 	rows := sqlmock.NewRows(append(append([]string{}, assetSearchCols...), "vec_score", "lex_match")).
 		AddRow("a-1", "u1", "alice@example.com", "n", "d", "text/html",
 			"b", "k", "", "", 0, 0, 0, "", 0, int64(1), []byte("not json"), []byte(`{}`),
-			"", 1, now, now, nil, "", nil, 0.5, true)
+			"", 1, now, now, nil, "", nil, 0, 0.5, true)
 	mock.ExpectQuery("UNION ALL").WillReturnRows(rows)
 
 	_, err = store.SearchAssets(context.Background(), portaldomain.AssetSearchQuery{

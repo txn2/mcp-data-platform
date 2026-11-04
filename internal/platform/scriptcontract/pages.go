@@ -47,6 +47,13 @@ var KnowledgePages = []KnowledgePage{
 			"platform.transaction and its retry contract, tx.savepoint, platform.batch, query_iter, copy_in and copy_out, the values each type maps to, and the schema.",
 	},
 	{
+		Slug:      "platform-applications",
+		Reference: knowledgePageRefPrefix + "platform-applications",
+		Summary: "Building a whole application: schema through migrations, a checkout in one " +
+			"transaction, row-level security, endpoints and forms, outbox events, and a release " +
+			"with manage_application that pins every part.",
+	},
+	{
 		Slug:      "platform-reference-script",
 		Reference: knowledgePageRefPrefix + "platform-reference-script",
 		Summary: "A whole automation written as a saved one is, with the tests it is saved " +

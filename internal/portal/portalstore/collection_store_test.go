@@ -559,12 +559,12 @@ func TestGetByIDsSuccess(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_version", "size_bytes", "tags", "provenance", "session_id", "current_version",
-		"created_at", "updated_at", "deleted_at", "idempotency_key", "max_versions",
+		"created_at", "updated_at", "deleted_at", "idempotency_key", "max_versions", "released_version",
 	}).
 		AddRow("a1", "u1", "u1@test.com", "Asset 1", "desc1", "text/html", "bucket", "k1",
-			"", "", 0, 0, 0, "", 0, int64(100), tags, prov, "s1", 1, now, now, nil, "", nil).
+			"", "", 0, 0, 0, "", 0, int64(100), tags, prov, "s1", 1, now, now, nil, "", nil, 0).
 		AddRow("a2", "u1", "u1@test.com", "Asset 2", "desc2", "image/svg+xml", "bucket", "k2",
-			"thumb.png", "", 1, 0, 0, "", 0, int64(200), tags, prov, "s1", 1, now, now, nil, "", 25)
+			"thumb.png", "", 1, 0, 0, "", 0, int64(200), tags, prov, "s1", 1, now, now, nil, "", 25, 0)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE id").
 		WithArgs(sqlmock.AnyArg()).

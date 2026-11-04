@@ -1,7 +1,9 @@
 package portaldomain
 
 import (
+	"cmp"
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -94,4 +96,47 @@ type CollectionStore interface {
 	UpdateConfig(ctx context.Context, id string, config CollectionConfig) error
 	SoftDelete(ctx context.Context, id string) error
 	SetSections(ctx context.Context, collectionID string, sections []CollectionSection) error
+}
+
+// VersionReader reads one recorded version of an asset.
+type VersionReader interface {
+	GetByVersion(ctx context.Context, assetID string, version int) (*AssetVersion, error)
+}
+
+// ServedVersion is the version the asset's content routes serve: the version
+// its application's current release pins (#2411), else the newest.
+func (a *Asset) ServedVersion() int {
+	if a.ReleasedVersion > 0 {
+		return a.ReleasedVersion
+	}
+	return a.CurrentVersion
+}
+
+// Served is the asset as its content routes serve it. An asset an
+// application's release holds at an earlier version than its newest is
+// answered with that version's content, type and size, and with
+// CurrentVersion reading the version served; any other asset is returned as
+// it is. A held version that cannot be read is an error rather than the newest
+// content: what a release holds back is never served in its place.
+func Served(ctx context.Context, versions VersionReader, a *Asset) (*Asset, error) {
+	if a == nil || a.ReleasedVersion <= 0 || a.ReleasedVersion == a.CurrentVersion {
+		return a, nil
+	}
+	if versions == nil {
+		return nil, fmt.Errorf("asset %s is held at version %d and no version store can read it", a.ID, a.ReleasedVersion)
+	}
+	v, err := versions.GetByVersion(ctx, a.ID, a.ReleasedVersion)
+	if err != nil {
+		return nil, fmt.Errorf("reading the released version of asset %s: %w", a.ID, err)
+	}
+	if v == nil {
+		return nil, fmt.Errorf("asset %s: released version %d is missing", a.ID, a.ReleasedVersion)
+	}
+	out := *a
+	out.S3Bucket = cmp.Or(v.S3Bucket, a.S3Bucket)
+	out.S3Key = v.S3Key
+	out.ContentType = cmp.Or(v.ContentType, a.ContentType)
+	out.SizeBytes = v.SizeBytes
+	out.CurrentVersion = v.Version
+	return &out, nil
 }

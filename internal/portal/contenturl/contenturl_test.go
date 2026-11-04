@@ -2,6 +2,7 @@ package contenturl
 
 import (
 	"encoding/base64"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -65,4 +66,19 @@ func TestMinter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "asset-1", got.AssetID)
 	assert.Equal(t, 3, got.Version)
+}
+
+func TestParams(t *testing.T) {
+	v, ttl, err := Params(url.Values{}, 4)
+	require.NoError(t, err)
+	assert.Equal(t, 4, v)
+	assert.Equal(t, DefaultTTL, ttl)
+	v, ttl, err = Params(url.Values{"version": {"2"}, "ttl": {"60"}}, 4)
+	require.NoError(t, err)
+	assert.Equal(t, 2, v)
+	assert.Equal(t, 60*time.Second, ttl)
+	for _, q := range []url.Values{{"version": {"0"}}, {"version": {"x"}}, {"ttl": {"-1"}}, {"ttl": {"a"}}} {
+		_, _, err := Params(q, 1)
+		assert.Error(t, err, q.Encode())
+	}
 }

@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -99,6 +100,28 @@ func ClampTTL(ttl time.Duration) time.Duration {
 		return DefaultTTL
 	}
 	return min(ttl, MaxTTL)
+}
+
+// Params reads a mint request's version (default: current) and ttl in
+// seconds, the lifetime clamped by ClampTTL. A malformed value is an error
+// naming the parameter.
+func Params(q url.Values, current int) (version int, ttl time.Duration, err error) {
+	version = current
+	if raw := q.Get("version"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			return 0, 0, errors.New("version must be a version number")
+		}
+		version = n
+	}
+	if raw := q.Get("ttl"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			return 0, 0, errors.New("ttl must be a whole number of seconds")
+		}
+		ttl = time.Duration(n) * time.Second
+	}
+	return version, ClampTTL(ttl), nil
 }
 
 // Minter signs a default-lifetime link to one asset version under base, the

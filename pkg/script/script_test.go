@@ -160,3 +160,10 @@ func TestSortColumns_ExcludesLastRun(t *testing.T) {
 	}
 	assert.Len(t, script.SortColumns(), 5)
 }
+
+// A script in a released application runs the version its release pins, and
+// any other script its newest saved version (#2411).
+func TestRunVersion(t *testing.T) {
+	assert.Equal(t, 3, (&script.Script{Version: 3}).RunVersion())
+	assert.Equal(t, 2, (&script.Script{Version: 3, ReleasedVersion: 2}).RunVersion())
+}

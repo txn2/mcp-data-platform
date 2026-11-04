@@ -162,7 +162,7 @@ func (r *Runner) load(ctx context.Context, name string, stamp epbinding.Stamp, h
 	if sc == nil {
 		return nil, epbinding.ErrNotFound
 	}
-	v, err := r.Scripts.GetVersion(ctx, sc.ID, sc.Version)
+	v, err := r.Scripts.GetVersion(ctx, sc.ID, sc.RunVersion())
 	if err != nil {
 		return nil, fmt.Errorf("reading the endpoint's script version: %w", err)
 	}

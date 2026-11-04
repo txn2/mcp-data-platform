@@ -306,6 +306,12 @@ var actionTools = map[string]actionRule{
 	"manage_schema": {arg: "command", reads: set(
 		"status", "plan", "history", "describe",
 	), writes: set("add", "apply", "down")},
+	// manage_application (#2411, #2412): release and rollback move what an
+	// application serves, export writes a bundle resource, import creates or
+	// releases an application.
+	"manage_application": {arg: "command", reads: set(
+		"get", "list", "releases",
+	), writes: set("create", "update", "delete", "add_part", "remove_part", "release", "rollback", "export", "import")},
 	// manage_prompt: use renders a stored prompt and writes nothing.
 	"manage_prompt": {arg: "command", reads: set(
 		"list", "get", "use", "locate", "get_content", "outline", "stats", "diff",
