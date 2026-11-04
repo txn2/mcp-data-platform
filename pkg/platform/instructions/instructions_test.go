@@ -478,3 +478,15 @@ func TestBuild_MapsTheUsersWordForOutputToAnAsset(t *testing.T) {
 		t.Error("the output line is offered without save_asset to act on it")
 	}
 }
+
+// manage_application is named, with the knowledge page to read first, only
+// where the caller reaches it (#2411).
+func TestBuild_NamesApplicationsWhereReachable(t *testing.T) {
+	got := Build([]string{"manage_application"})
+	if !strings.Contains(got, "`manage_application`") || !strings.Contains(got, "platform-applications") {
+		t.Errorf("the baseline does not name manage_application and its page: %q", got)
+	}
+	if strings.Contains(Build([]string{"manage_script"}), "manage_application") {
+		t.Error("the baseline names manage_application to a caller who cannot reach it")
+	}
+}

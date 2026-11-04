@@ -599,6 +599,14 @@ linters:
         text: "G101|G705"
 
       # DTO/types packages naturally exceed 5 public structs — their job is to define types
+      # An application's packages are one contract (#2411, #2412): the record,
+      # its part, pin and release, the bundle and the parts it carries, where a
+      # schema's migrations stand, and the answers the service and the bundler
+      # return. Each is a value the tool and the portal hand back.
+      - path: internal/application/
+        linters:
+          - revive
+        text: "max-public-structs"
       - path: pkg/audit/
         linters:
           - revive

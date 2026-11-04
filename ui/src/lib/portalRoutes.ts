@@ -37,6 +37,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/prompts",
   "/scratch-tables",
   "/automations",
+  "/applications",
   "/admin",
   "/admin/assets",
   "/admin/audit",
@@ -88,6 +89,8 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   // on row click, so a registration can be linked to rather than only found.
   /^\/scratch-tables\/[^/]+$/,
   /^\/automations\/[^/]+$/,
+  // One application (#2411).
+  /^\/applications\/[^/]+$/,
   // One run of one script (#1405): the address the cross-script Runs listing
   // links to, which opens that run in its script's history. Both script shapes
   // are matched exactly rather than as "anything under /automations", so a path

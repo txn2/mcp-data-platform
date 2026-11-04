@@ -100,7 +100,7 @@ func (e *Enqueuer) enqueue(ctx context.Context, source, scriptID string, events 
 			"source", logsan.SanitizeForLog(source), "script_id", scriptID, "reason", logsan.SanitizeForLog(refusal.Error()))
 		return nil
 	}
-	v, err := e.Scripts.GetVersion(ctx, sc.ID, sc.Version)
+	v, err := e.Scripts.GetVersion(ctx, sc.ID, sc.RunVersion())
 	if err != nil || v == nil {
 		return fmt.Errorf("reading the script's current version: %w", err)
 	}

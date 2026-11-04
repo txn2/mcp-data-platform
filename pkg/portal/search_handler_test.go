@@ -268,7 +268,7 @@ func TestIntegration_SearchMyAssets_RealStoreEnforcesOwnerScope(t *testing.T) {
 var rankedAssetCols = []string{
 	"id", "owner_id", "owner_email", "name", "description", "content_type",
 	"s3_bucket", "s3_key", "thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_version", "size_bytes", "tags", "provenance",
-	"session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key", "max_versions",
+	"session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key", "max_versions", "released_version",
 }
 
 // rankedAssetRow builds one ranked-search row: the asset projection followed by
@@ -278,7 +278,7 @@ func rankedAssetRow(id, ownerID, name string, vecScore float64, lexMatch bool) [
 	return []driver.Value{
 		id, ownerID, "alice@example.com", name, "desc", "text/html",
 		"bucket", "key", "", "", 0, 0, 0, "", 0, int64(10), []byte(`["t"]`), []byte(`{}`),
-		"", 1, now, now, nil, "", nil,
+		"", 1, now, now, nil, "", nil, 0,
 		vecScore, lexMatch,
 	}
 }

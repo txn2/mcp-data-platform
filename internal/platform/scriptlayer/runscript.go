@@ -124,7 +124,7 @@ func (h *Handle) currentVersion(ctx context.Context, sc *script.Script) (*script
 	if h.versions == nil {
 		return nil, errorResult("this deployment cannot read script versions, so platform runs are unavailable")
 	}
-	version, err := h.versions.GetVersion(ctx, sc.ID, sc.Version)
+	version, err := h.versions.GetVersion(ctx, sc.ID, sc.RunVersion())
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to read a script version", fieldName, sc.Name, logKeyError, err)
 		return nil, errorResult("failed to read the script's current version")

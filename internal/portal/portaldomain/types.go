@@ -108,6 +108,12 @@ type Asset struct {
 	SessionID         string             `json:"session_id,omitempty" example:"sess_abc123"`
 	IdempotencyKey    string             `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
 	CurrentVersion    int                `json:"current_version" example:"1"`
+	// ReleasedVersion is the version the current release of the application
+	// the asset belongs to pins (#2411), 0 for an asset in no released
+	// application. Set only by that release. While set it is the version the
+	// asset's content routes serve: a new version changes nothing live until
+	// the next release. ServedVersion reads the two.
+	ReleasedVersion int `json:"released_version,omitempty" example:"2"`
 	// MaxVersions is the asset's own version-retention cap. Nil means the
 	// asset has no opinion and inherits the deployment's portal.max_versions;
 	// 0 means it keeps every version; N means it keeps the newest N. See

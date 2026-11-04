@@ -215,7 +215,7 @@ func (h *Handler) admittedVersion(w http.ResponseWriter, r *http.Request, sc *sc
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return nil, false
 	}
-	v, err := h.deps.Versions.GetVersion(r.Context(), sc.ID, sc.Version)
+	v, err := h.deps.Versions.GetVersion(r.Context(), sc.ID, sc.RunVersion())
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read the script's current version")
 		return nil, false

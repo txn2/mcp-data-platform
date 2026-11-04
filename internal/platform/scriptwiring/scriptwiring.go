@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appwire"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
@@ -125,8 +126,34 @@ func Wire(deps Deps) *scriptexec.Handle {
 		Endpoints:    endpoints,
 	})
 	layer.RegisterTool(deps.Server)
+	// Applications (#2411): scripts, assets, sources and a schema released
+	// together, over the same stores.
+	appwire.Register(deps.Server, applicationDeps(deps, endpoints))
 	deps.Bind(layer)
 	return scripts
+}
+
+// applicationDeps is what applications are assembled from (#2411, #2412):
+// the portal's stores and bucket, the managed-resource library a bundle is
+// written to and read from, and the endpoint commands an import binds with.
+func applicationDeps(deps Deps, endpoints *epwire.Endpoints) appwire.Deps {
+	d := appwire.Deps{
+		DB: deps.DB, Toolkits: deps.Toolkits, Bucket: deps.Bucket, Prefix: deps.Prefix,
+		Lander: deps.Lander, Reader: deps.Sources, Claims: resourcewrite.CallerClaims,
+	}
+	if deps.Assets != nil {
+		d.Assets = deps.Assets
+	}
+	if deps.Versions != nil {
+		d.AssetVersions = deps.Versions
+	}
+	if deps.S3 != nil {
+		d.Blobs = deps.S3
+	}
+	if endpoints != nil && endpoints.Commands != nil {
+		d.Endpoints = endpoints.Commands.Run
+	}
+	return d
 }
 
 // recordingsOver is the store of every run's and draft's host calls and their

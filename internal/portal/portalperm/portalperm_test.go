@@ -32,6 +32,7 @@ func TestRefusedNamesTheAreaAPersonaLacks(t *testing.T) {
 		{http.MethodGet, "/api/v1/portal/prompts", AreaPrompts},
 		{http.MethodGet, "/api/v1/portal/shared-prompts", AreaPrompts},
 		{http.MethodGet, "/api/v1/portal/scripts", AreaAutomations},
+		{http.MethodGet, "/api/v1/portal/applications", AreaAutomations},
 		{http.MethodGet, "/api/v1/portal/search", AreaSearch},
 		{http.MethodGet, "/api/v1/portal/memory/records", AreaMemory},
 		{http.MethodGet, "/api/v1/portal/knowledge/insights", AreaMemory},

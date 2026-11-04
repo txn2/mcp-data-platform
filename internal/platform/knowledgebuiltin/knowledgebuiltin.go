@@ -78,6 +78,7 @@ const (
 	slugVisuals       = "platform-visual-libraries"
 	slugContentTypes  = knowledgepage.BuiltinSlugContentTypes
 	slugAppDB         = "platform-application-databases"
+	slugApps          = "platform-applications"
 	// The PostgreSQL design pages (#2448).
 	slugPGWrites    = "platform-postgres-write-patterns"
 	slugPGIntegrity = "platform-postgres-integrity"
@@ -136,7 +137,14 @@ var pageMetas = []pageMeta{
 		slug:    slugAppDB,
 		summary: "Reading and writing an application's own PostgreSQL database from a script: bound statements, platform.transaction and its retry contract, platform.batch in one round trip, the schema manage_schema builds and the drift it reports, and platform.maintain.",
 		tags:    []string{"scripts", "application database", "postgres", "transactions"},
-		related: []string{slugWriting, slugDialect, slugReference, slugPGWrites, slugPGCaveats},
+		related: []string{slugWriting, slugDialect, slugReference, slugPGWrites, slugPGCaveats, slugApps},
+	},
+	{
+		file:    "applications.md",
+		slug:    slugApps,
+		summary: "Building an application on the platform end to end, a shop as the worked example: the schema first through migrations, a checkout in one transaction, identity and row-level security, endpoints and forms as the front, outbox events for side effects, scheduled maintenance, and a release with manage_application that pins it all, with rollback, export and import.",
+		tags:    []string{"applications", "application database", "endpoints", "forms", "releases"},
+		related: []string{slugAppDB, slugPGWrites, slugPGSecurity, slugPGProvides, slugWriting},
 	},
 	{
 		file:    "reference-script.md",

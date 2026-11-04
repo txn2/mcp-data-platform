@@ -93,3 +93,24 @@ func TestNoRegistryNoRoutes(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, base+"shop/migrations", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// A connection another replica just saved is taken on before the routes look
+// it up, so the page reads its migrations rather than a 404.
+func TestTakesOnAPeersConnection(t *testing.T) {
+	took := &catchUp{}
+	kit := &fakeKit{}
+	mux := http.NewServeMux()
+	Register(mux, Config{Toolkits: func() []registry.Toolkit { return []registry.Toolkit{kit} }, CatchUp: took})
+	for _, r := range []struct{ method, path string }{{http.MethodGet, base + "shop/migrations"}, {http.MethodPost, base + "shop/migrations/plan"}} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), r.method, r.path, http.NoBody))
+		assert.Equal(t, http.StatusOK, rec.Code, r.path)
+	}
+	assert.Equal(t, []string{postgreskit.Kind + "/shop", postgreskit.Kind + "/shop"}, took.names)
+}
+
+type catchUp struct{ names []string }
+
+func (c *catchUp) TakeOn(_ context.Context, kind, name string) {
+	c.names = append(c.names, kind+"/"+name)
+}

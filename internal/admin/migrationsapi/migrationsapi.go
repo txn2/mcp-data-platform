@@ -25,6 +25,12 @@ type Config struct {
 	// Toolkits enumerates the live toolkits, so a connection added after
 	// startup is reachable without a restart. nil disables the routes.
 	Toolkits func() []registry.Toolkit
+	// CatchUp puts a connection another replica saved into service here
+	// before it is looked up, as the operation routes do (#2406); nil does
+	// nothing.
+	CatchUp interface {
+		TakeOn(ctx context.Context, kind, name string)
+	}
 }
 
 // reporter is the part of the postgres toolkit these routes read.
@@ -63,7 +69,7 @@ func Register(mux *http.ServeMux, cfg Config) {
 // @Router       /admin/connection-instances/appdb/{name}/migrations [get]
 func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 	name, schema := r.PathValue("name"), schemaOf(r)
-	tk := h.toolkitFor(name)
+	tk := h.toolkitFor(r.Context(), name)
 	if tk == nil {
 		httpjson.WriteError(w, http.StatusNotFound, "no application database named "+name)
 		return
@@ -91,7 +97,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 // @Router       /admin/connection-instances/appdb/{name}/migrations/plan [post]
 func (h *handler) plan(w http.ResponseWriter, r *http.Request) {
 	name, schema := r.PathValue("name"), schemaOf(r)
-	tk := h.toolkitFor(name)
+	tk := h.toolkitFor(r.Context(), name)
 	if tk == nil {
 		httpjson.WriteError(w, http.StatusNotFound, "no application database named "+name)
 		return
@@ -128,8 +134,12 @@ func writeFailure(w http.ResponseWriter, err error) {
 	httpjson.WriteError(w, http.StatusServiceUnavailable, err.Error())
 }
 
-// toolkitFor is the postgres toolkit serving name, or nil.
-func (h *handler) toolkitFor(name string) reporter {
+// toolkitFor is the postgres toolkit serving name, or nil, after taking on
+// a connection another replica saved.
+func (h *handler) toolkitFor(ctx context.Context, name string) reporter {
+	if h.cfg.CatchUp != nil {
+		h.cfg.CatchUp.TakeOn(ctx, postgreskit.Kind, name)
+	}
 	for _, tk := range h.cfg.Toolkits() {
 		if r, ok := tk.(reporter); ok && r.HasConnection(name) {
 			return r

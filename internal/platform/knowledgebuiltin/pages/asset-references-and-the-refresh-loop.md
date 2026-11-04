@@ -169,7 +169,9 @@ flowchart TD
 A resource keeps its id, its `mcp://` URI and its filename across a
 `replace_content`, so the reference survives the refresh. An asset reference
 resolves to that asset's current content, which is what makes a script's
-stable-named export a live data file. Both are read-only through the
+stable-named export a live data file. An asset that is part of a released
+application is the exception: every viewing surface serves the version its
+application's release pins until the next release. Both are read-only through the
 reference: a referenced asset is served as its stored content, not as a page
 with its own controls.
 

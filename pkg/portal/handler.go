@@ -1012,6 +1012,11 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
 		return
 	}
+	// An application's release holds the asset at its pinned version (#2411).
+	if asset, err = portaldomain.Served(r.Context(), h.deps.VersionStore, asset); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to retrieve content")
+		return
+	}
 
 	// A byte range of binary content is read by range: see serveAssetRange.
 	if h.serveAssetRange(w, r, id) {
@@ -1653,7 +1658,7 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid version number")
 		return
 	}
-	if versionNum != asset.CurrentVersion && !h.access.SeesAssetHistory(r.Context(), asset, user) {
+	if versionNum != asset.CurrentVersion && versionNum != asset.ServedVersion() && !h.access.SeesAssetHistory(r.Context(), asset, user) {
 		writeError(w, http.StatusForbidden, access.ErrHistoryNotShared)
 		return
 	}

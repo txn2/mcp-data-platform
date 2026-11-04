@@ -175,6 +175,12 @@ type Script struct {
 	// which is the version a run executes: saving a version makes it the
 	// version that runs.
 	Version int `json:"version" example:"3"`
+	// ReleasedVersion is the version the current release of the application
+	// the script belongs to pins (#2411), 0 for a script in no released
+	// application. Set only by that release. While set it is the version a
+	// run executes and an endpoint answers with: saving a version changes
+	// nothing live until the next release. RunVersion reads the two.
+	ReleasedVersion int `json:"released_version,omitempty" example:"2"`
 
 	CreatedAt time.Time `json:"created_at" example:"2026-08-13T14:30:00Z"`
 	UpdatedAt time.Time `json:"updated_at" example:"2026-08-13T14:30:00Z"`
@@ -205,6 +211,15 @@ type Script struct {
 	// Tests is the test report the save in progress produced (#1972),
 	// written onto the version it creates like the change summary.
 	Tests *testreport.Report `json:"-"`
+}
+
+// RunVersion is the version a run executes: the version its application's
+// current release pins, else the newest saved version.
+func (s *Script) RunVersion() int {
+	if s.ReleasedVersion > 0 {
+		return s.ReleasedVersion
+	}
+	return s.Version
 }
 
 // OwnedBy reports whether the named caller owns this script: the person who,

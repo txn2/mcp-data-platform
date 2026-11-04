@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
@@ -90,4 +92,24 @@ func TestScriptLineage(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	assert.Nil(t, scriptLineage(Deps{DB: db}), "no toolkits, no lineage")
 	assert.NotNil(t, scriptLineage(Deps{DB: db, Toolkits: registry.NewRegistry()}))
+}
+
+// Applications are assembled from the same stores and the endpoint commands
+// the script layer has (#2411, #2412), and a store a deployment lacks stays
+// nil rather than an interface holding a nil.
+func TestApplicationDeps(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	bare := applicationDeps(Deps{DB: db, Bucket: "portal", Prefix: "p"}, nil)
+	assert.Same(t, db, bare.DB)
+	assert.Equal(t, "portal", bare.Bucket)
+	assert.Nil(t, bare.Assets)
+	assert.Nil(t, bare.AssetVersions)
+	assert.Nil(t, bare.Blobs)
+	assert.Nil(t, bare.Endpoints)
+	assert.NotNil(t, bare.Claims)
+
+	with := applicationDeps(Deps{DB: db}, &epwire.Endpoints{Commands: &epcmd.Handler{}})
+	assert.NotNil(t, with.Endpoints, "an import binds endpoints through the endpoint commands")
 }

@@ -27,7 +27,7 @@ func (e Example) Fields() map[string]any {
 // built-in knowledge page platform-reference-script shows it verbatim.
 const ReferenceName = "example-weekly-revenue"
 
-// All is the seeded worked scripts. Five, not ten: they exist to show
+// All is the seeded worked scripts. Six, not ten: they exist to show
 // the shape of a script and the idioms every job needs — a date derived from
 // the pinned fire time, a bound parameter, and a watermark carried in the
 // script's state — not to be a cookbook that invites copying without reading.
@@ -222,6 +222,139 @@ def test_maintains_a_copy():
     testing.database(CONNECTION)
     main()
     assert.eq(testing.outputs().result, {"statements": ["ANALYZE", "VACUUM (ANALYZE) \"public\".\"orders\""]})
+`,
+	},
+	{
+		Name:        "example-shop-checkout",
+		Description: "A checkout form on an application database: an order, its lines and the stock they take written in one transaction, the customer read from the caller, and an oversell refused by the database.",
+		Source: `# The checkout of a small shop (mcp:knowledge_page:platform-applications), bound
+# as a form on an authenticated endpoint. Everything it writes is one
+# transaction: the order, its lines and the stock they take commit together
+# or not at all. The customer is the signed-in caller, read in SQL from
+# mcp.email, and inventory.on_hand >= 0 is what refuses an oversell.
+
+CONNECTION = "orders"
+
+PLACE_ORDER = """
+    INSERT INTO shop.orders (customer_email)
+    VALUES (nullif(current_setting('mcp.email', true), ''))
+    RETURNING id
+"""
+
+ADD_LINE = """
+    INSERT INTO shop.order_lines (order_id, sku, qty, price)
+    SELECT :order_id, sku, :qty, price FROM shop.products WHERE sku = :sku AND active
+"""
+
+TAKE_STOCK = "UPDATE shop.inventory SET on_hand = on_hand - :qty WHERE sku = :sku"
+
+SET_TOTAL = """
+    UPDATE shop.orders SET total = (SELECT sum(qty * price) FROM shop.order_lines WHERE order_id = :id)
+     WHERE id = :id
+"""
+
+def lines_of(values):
+    """Returns the submitted lines that name a product and a quantity."""
+    out = []
+    for n in ["1", "2"]:
+        sku, qty = values.get("sku_" + n, ""), values.get("qty_" + n, "")
+        if sku and qty:
+            out.append({"sku": sku, "qty": int(qty)})
+    return out
+
+def place(lines):
+    """Places one order and its lines and takes their stock, in one transaction."""
+
+    def work(tx):
+        """Writes the order, its lines and the stock, and returns the order id."""
+        order_id = tx.query(PLACE_ORDER)["rows"][0]["id"]
+        for line in lines:
+            tx.execute(ADD_LINE, params = {"order_id": order_id, "sku": line["sku"], "qty": line["qty"]})
+            tx.execute(TAKE_STOCK, params = line)
+        tx.execute(SET_TOTAL, params = {"id": order_id})
+        return order_id
+
+    return platform.transaction(CONNECTION, work, on_error = "return")
+
+def short_of_stock(got):
+    """Reports whether a failed transaction was refused by the stock check."""
+    text = str(got)
+    return "check_violation" in text or "23514" in text
+
+def form_spec(req):
+    """The checkout form: up to two products and their quantities."""
+    products = platform.query("SELECT sku, name FROM shop.products WHERE active ORDER BY name", connection = CONNECTION)
+    choices = [{"value": p["sku"], "label": p["name"]} for p in products["rows"]]
+    return {
+        "fields": [
+            {"name": "sku_1", "type": "single_choice", "required": True, "label": "Product", "choices": choices},
+            {"name": "qty_1", "type": "number", "required": True, "label": "Quantity", "min": 1, "max": 100},
+            {"name": "sku_2", "type": "single_choice", "label": "Second product", "choices": choices},
+            {"name": "qty_2", "type": "number", "label": "Second quantity", "min": 1, "max": 100},
+        ],
+        "confirmation": "Thank you. Your order is placed.",
+    }
+
+def form_submit(req, values):
+    """Places the order; refuses the form when the stock is short."""
+    got = place(lines_of(values))
+    if type(got) == "dict" and got.get("error"):
+        if short_of_stock(got):
+            return {"errors": {"qty_1": "There is not enough stock for this order."}}
+        fail("the order was not placed: " + str(got["error"]))
+    return {"confirmation": "Thank you. Order " + str(got) + " is placed."}
+
+def main():
+    """Drafts one submission of the form."""
+    platform.result(form_submit({"method": "POST", "path": "/endpoints/checkout"}, {"sku_1": "mug", "qty_1": 1}))
+
+def stock(sku):
+    """Reads one product's stock."""
+    return platform.query("SELECT on_hand FROM shop.inventory WHERE sku = :sku", connection = CONNECTION, params = {"sku": sku})["rows"][0]["on_hand"]
+
+def given_a_mug_and_a_tee():
+    """Sets two products and their stock in the test's copy of the database, whatever the migrations seeded."""
+    testing.database(CONNECTION, schemas = ["shop"])
+    platform.execute("""
+        INSERT INTO shop.products (sku, name, price, active) VALUES ('mug', 'Mug', 12.50, true), ('tee', 'Tee', 20, true)
+        ON CONFLICT (sku) DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price, active = true
+    """, connection = CONNECTION)
+    platform.execute("""
+        INSERT INTO shop.inventory (sku, on_hand) VALUES ('mug', 5), ('tee', 1)
+        ON CONFLICT (sku) DO UPDATE SET on_hand = EXCLUDED.on_hand
+    """, connection = CONNECTION)
+
+def test_a_checkout_places_the_order_and_takes_the_stock():
+    """Two lines become one order with its total, and each line's stock goes down."""
+    given_a_mug_and_a_tee()
+    got = form_submit({}, {"sku_1": "mug", "qty_1": 2, "sku_2": "tee", "qty_2": 1})
+    assert.contains(got["confirmation"], "is placed")
+    orders = platform.query("SELECT total FROM shop.orders", connection = CONNECTION)["rows"]
+    assert.eq(len(orders), 1)
+    assert.eq(str(orders[0]["total"]), "45.00")
+    assert.eq(stock("mug"), 3)
+    assert.eq(stock("tee"), 0)
+
+def test_the_form_offers_each_active_product():
+    """The form's product choices are the active products, by name."""
+    given_a_mug_and_a_tee()
+    spec = form_spec({})
+    assert.eq([c["value"] for c in spec["fields"][0]["choices"]], ["mug", "tee"])
+
+def test_the_draft_places_one_mug():
+    """The draft's submission places an order for one mug."""
+    given_a_mug_and_a_tee()
+    main()
+    assert.contains(testing.outputs().result["confirmation"], "is placed")
+    assert.eq(stock("mug"), 4)
+
+def test_an_oversell_leaves_no_order():
+    """A line the stock cannot cover refuses the form and writes nothing."""
+    given_a_mug_and_a_tee()
+    got = form_submit({}, {"sku_1": "mug", "qty_1": 1, "sku_2": "tee", "qty_2": 2})
+    assert.eq(got["errors"]["qty_1"], "There is not enough stock for this order.")
+    assert.eq(len(platform.query("SELECT id FROM shop.orders", connection = CONNECTION)["rows"]), 0)
+    assert.eq(stock("mug"), 5)
 `,
 	},
 	{

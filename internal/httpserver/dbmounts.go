@@ -22,6 +22,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessreqwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/applicationwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/changesethttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/embedwire"
@@ -213,6 +214,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	mux.Handle(assetrefs.PathPrefix, handler)
 	mountPromptVersionPortalAPI(mux, p, wrap, isAdmin)
 	mountScriptPortalAPI(mux, p, wrap, isAdmin)
+	applicationwire.Mount(mux, p, wrap, isAdmin) // applications (#2411, #2412)
 	// The operation browser a caller reads before composing a gateway call
 	// (#1478). Read-only: it names operations and invokes none.
 	apiwire.Mount(mux, wrap, apiwire.Deps{

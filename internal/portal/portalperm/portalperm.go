@@ -72,6 +72,7 @@ var segmentAreas = map[string]struct {
 	"prompt-collections": {AreaPrompts, func(a persona.PortalAccess) *bool { return a.Prompts }},
 	"shared-prompts":     {AreaPrompts, func(a persona.PortalAccess) *bool { return a.Prompts }},
 	"scripts":            {AreaAutomations, func(a persona.PortalAccess) *bool { return a.Automations }},
+	"applications":       {AreaAutomations, func(a persona.PortalAccess) *bool { return a.Automations }},
 	"search":             {AreaSearch, func(a persona.PortalAccess) *bool { return a.Search }},
 	"memory":             {AreaMemory, func(a persona.PortalAccess) *bool { return a.Memory }},
 	"knowledge":          {AreaMemory, func(a persona.PortalAccess) *bool { return a.Memory }},

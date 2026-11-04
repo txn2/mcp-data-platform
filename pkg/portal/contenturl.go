@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
@@ -57,13 +56,14 @@ func (h *Handler) mintContentURL(w http.ResponseWriter, r *http.Request) {
 	if !h.canViewAsset(w, r, id, asset, user) {
 		return
 	}
-	version, ttl, ok := contentURLParams(w, r, asset.CurrentVersion)
-	if !ok {
+	version, ttl, err := contenturl.Params(r.URL.Query(), asset.ServedVersion())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// A link outlives the session that minted it, so a viewer's link names
-	// the current version only, as their own reads do (#2226).
-	if version != asset.CurrentVersion && !h.access.SeesAssetHistory(r.Context(), asset, user) {
+	// the version served only, as their own reads do (#2226, #2411).
+	if version != asset.CurrentVersion && version != asset.ServedVersion() && !h.access.SeesAssetHistory(r.Context(), asset, user) {
 		writeError(w, http.StatusForbidden, access.ErrHistoryNotShared)
 		return
 	}
@@ -78,29 +78,6 @@ func (h *Handler) mintContentURL(w http.ResponseWriter, r *http.Request) {
 		resp.URL = h.deps.PublicBaseURL + path
 	}
 	writeJSON(w, http.StatusOK, resp)
-}
-
-// contentURLParams reads version (default: current) and ttl in seconds.
-func contentURLParams(w http.ResponseWriter, r *http.Request, current int) (int, time.Duration, bool) {
-	version := current
-	if raw := r.URL.Query().Get("version"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			writeError(w, http.StatusBadRequest, "version must be a version number")
-			return 0, 0, false
-		}
-		version = n
-	}
-	var ttl time.Duration
-	if raw := r.URL.Query().Get("ttl"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			writeError(w, http.StatusBadRequest, "ttl must be a whole number of seconds")
-			return 0, 0, false
-		}
-		ttl = time.Duration(n) * time.Second
-	}
-	return version, contenturl.ClampTTL(ttl), true
 }
 
 // serveSignedContent handles GET /api/v1/portal/content/{token}: the version a

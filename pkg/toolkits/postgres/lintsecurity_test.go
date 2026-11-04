@@ -217,3 +217,32 @@ func TestReviewReadsTheSchemasRowSecurityAndVirtualColumns(t *testing.T) {
 	assert.Zero(t, target.Major)
 	assert.Nil(t, unread, "an unknown connection is refused by the add, not reported here")
 }
+
+func TestLintSecurity_PasswordLiteral(t *testing.T) {
+	const secret = "hunter2-canary-2411"
+	refused := []string{
+		"CREATE ROLE app LOGIN PASSWORD '" + secret + "'",
+		"CREATE USER app WITH PASSWORD '" + secret + "'",
+		"ALTER ROLE app PASSWORD '" + secret + "'",
+		"ALTER USER app WITH ENCRYPTED PASSWORD '" + secret + "'",
+		"CREATE USER MAPPING FOR app SERVER remote OPTIONS (user 'x', password '" + secret + "')",
+	}
+	for _, up := range refused {
+		findings, _ := Lint(up, target17)
+		i := slices.IndexFunc(findings, func(f Finding) bool { return f.Rule == rulePasswordLiteral })
+		require.GreaterOrEqual(t, i, 0, up)
+		assert.Equal(t, SeverityRefused, findings[i].Severity, up)
+		for _, f := range findings {
+			assert.NotContains(t, f.Object+f.Effect+f.Safe, secret, "a finding never repeats the value")
+		}
+	}
+	for _, up := range []string{
+		"CREATE ROLE app NOLOGIN",
+		"ALTER ROLE app PASSWORD NULL",
+		"CREATE TABLE users (id int, password text)",
+		"ALTER TABLE users ADD COLUMN password text",
+	} {
+		findings, _ := Lint(up, target17)
+		assert.False(t, slices.ContainsFunc(findings, func(f Finding) bool { return f.Rule == rulePasswordLiteral }), up)
+	}
+}

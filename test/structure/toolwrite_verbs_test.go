@@ -26,6 +26,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
+	"github.com/txn2/mcp-data-platform/internal/application/apptool"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
@@ -104,6 +106,8 @@ func actionToolServer(t *testing.T) *mcp.Server {
 	})
 	require.NoError(t, err)
 	objects.RegisterTools(server)
+
+	(&apptool.Tool{Service: &appsvc.Service{}}).Register(server)
 
 	appdb := postgreskit.NewMulti(postgreskit.MultiConfig{})
 	appdb.SetMigrationStore(registrationMigrationStore{})

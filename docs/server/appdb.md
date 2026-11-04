@@ -224,7 +224,7 @@ Every transaction sets who it runs for as transaction-local settings, from bound
 
 | Setting | Value |
 |---------|-------|
-| `mcp.user_id` | An authenticated endpoint's caller: the user id the platform authenticated them as. Outside an endpoint, the script version's author's, which is empty until the platform has seen the author sign in |
+| `mcp.user_id` | An authenticated endpoint's caller: the user id the platform authenticated them as. Outside an endpoint, the script version's author's, which is empty until the platform has seen the author sign in. In a script's test (`testing.database`), the person whose session runs the test: the one saving or testing the script (#2413) |
 | `mcp.email` | The same person's address |
 | `mcp.persona` | The persona the statement runs as (the author's) |
 | `mcp.source` | `endpoint` for an endpoint request, `script` for a run |
@@ -351,6 +351,7 @@ The review also reads each migration for statements that leave the database open
 | `untrusted_code` | `CREATE LANGUAGE`, `CREATE EXTENSION` of an untrusted language, or a function, procedure or `DO` block in one (`plpython3u`, `plperlu`, `pltclu`, `C`, `internal`) | refused | |
 | `event_trigger` | `CREATE EVENT TRIGGER` | refused | |
 | `alter_system` | `ALTER SYSTEM` | refused | |
+| `password_literal` | `CREATE`/`ALTER ROLE` or `USER`, or `CREATE USER MAPPING`, given a password in the migration (`PASSWORD NULL` aside); the finding names the object, never the value | refused | Create the role without a password and set it outside the migration; a persona's role password belongs in the connection's `persona_role_passwords` (#2411) |
 
 A refused statement stops the save and the refusal names each one: they need privileges an application's role must not hold, or reach outside the database. On a 17 server a statement using an 18 feature, and on 18 an index on a virtual generated column, also fail the apply from zero below; that refusal names what the review found.
 

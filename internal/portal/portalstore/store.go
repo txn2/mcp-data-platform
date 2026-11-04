@@ -144,7 +144,7 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*portaldomain.
 		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
 		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_version,
 		       size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions, COALESCE(released_version, 0)
 		FROM portal_assets WHERE id = $1
 	`
 	var asset portaldomain.Asset
@@ -172,7 +172,7 @@ func (s *postgresAssetStore) GetByIdempotencyKey(ctx context.Context, ownerID, k
 		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
 		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_version,
 		       size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions, COALESCE(released_version, 0)
 		FROM portal_assets
 		WHERE owner_id = $1 AND idempotency_key = $2 AND deleted_at IS NULL
 	`
@@ -205,7 +205,7 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
 		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_version,
 		       size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions, COALESCE(released_version, 0)
 		FROM portal_assets WHERE id = ANY($1) AND deleted_at IS NULL
 	`
 	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
@@ -280,7 +280,7 @@ func assetListColumns() []string {
 		"thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version",
 		"thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_version",
 		"size_bytes", "tags", provenanceSummaryExpr("provenance"), "session_id", "current_version",
-		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')", "max_versions",
+		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')", "max_versions", "COALESCE(released_version, 0)",
 	}
 }
 
@@ -1575,7 +1575,7 @@ func assetScanDest(a *portaldomain.Asset, tags, prov *[]byte, deletedAt *sql.Nul
 		&a.ThumbnailVersion, &a.ThumbnailDarkVersion,
 		&a.ThumbnailRenderer, &a.ThumbnailFailure, &a.ThumbnailFailedVersion, &a.SizeBytes,
 		tags, prov, &a.SessionID, &a.CurrentVersion, &a.CreatedAt, &a.UpdatedAt, deletedAt,
-		&a.IdempotencyKey, maxVersions,
+		&a.IdempotencyKey, maxVersions, &a.ReleasedVersion,
 	}
 }
 

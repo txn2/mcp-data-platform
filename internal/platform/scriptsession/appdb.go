@@ -586,6 +586,11 @@ func (c *appdbCaller) identity(ctx context.Context, connection string) context.C
 		if u.OnBehalfOf == "" {
 			id.UserID, id.Email = u.UserID, u.Email
 		}
+	} else if pc := middleware.GetPlatformContext(c.ctx); pc != nil {
+		// A script's test runs in the session of the person saving or testing
+		// it, and acts for them as a draft acts for its runner: a test of a
+		// policy keyed on mcp.email reads the address it writes (#2413).
+		id.Source, id.UserID, id.Email = postgres.SourceScript, pc.UserID, pc.UserEmail
 	}
 	return postgres.WithIdentity(ctx, id)
 }

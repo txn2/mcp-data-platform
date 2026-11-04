@@ -32,7 +32,10 @@ The state of the feature at this revision:
 
 - A script can be created, edited, validated, and dry-run.
 - **A saved script runs.** `run_script`, the portal's run action, and a cron
-  schedule all execute the script's latest saved version. There is no approval
+  schedule all execute the script's latest saved version (the version an
+  application's release pins, for a script in a released
+  [application](../server/applications.md), whose release is an
+  administrator's). There is no approval
   step, no review queue, and no state in which a script exists but nothing may
   execute it; the run gate refuses only a script taken out of service —
   disabled, deprecated, or superseded (`pkg/script/run.go`, `RefuseRun`).

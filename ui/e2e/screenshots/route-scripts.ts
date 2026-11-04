@@ -21,6 +21,10 @@ import {
 import { openScriptProduced } from "./route-actions-refs";
 import { type ScreenshotRoute } from "./route-types";
 
+// Applications are made of automations (#2411); their captures are composed
+// into the manifest beside the automations' own.
+export { applicationRoutes } from "./route-applications";
+
 // Every managed-script capture, on both surfaces: what a person who owns a
 // script reads (#1290), and what an administrator reads across every
 // script (#1307). They live beside the manifest rather than inside it for the

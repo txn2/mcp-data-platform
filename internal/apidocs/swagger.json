@@ -13481,6 +13481,873 @@
                 }
             }
         },
+        "/portal/applications": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every application on the deployment, by name, without parts. Readable by everyone signed in.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "List applications",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.listResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates an application owned by the caller. connection and schema name the application database schema whose migrations a release applies; both or neither.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Create an application",
+                "parameters": [
+                    {
+                        "description": "The application",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.createRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Application"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/import": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Imports an exported bundle: every connection, secret, webhook source and bot check it names must be mapped to one on this deployment (map), or nothing is written. Creates the application, or finds the one with its name, writes each part owned by the caller, and releases it. For administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Import an application bundle",
+                "parameters": [
+                    {
+                        "description": "The bundle and the names it is mapped with",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.importRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/appbundle.Imported"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "An application by name or id: its parts, its current release, what a release now would change (pending), where its schema's migrations stand, the parts a release would refuse (problems), and its releases newest first with what each changed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Read an application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.detail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes the application and its releases. Its parts stay, and run and serve their newest versions again. For the owner and administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Delete an application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Writes the description. owner_email moves the application to another owner and is for administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Update an application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "What to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.updateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Application"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/export": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Answers one release as a bundle to download: its migrations, script versions with their endpoint bindings and schedules, and asset versions, with the connections, secrets, webhook sources and bot checks they use named. A bundle carries no secret value, credential, data row, script state or run history. For administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Export an application release",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "The release; the current one when absent",
+                        "name": "release",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/appbundle.Bundle"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/parts": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds a script (by id), an asset (by id) or a webhook source (by name). A part belongs to at most one application; the caller must own the part (a webhook source is added by an administrator).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Add a part to an application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The part",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.partRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Application"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/parts/{kind}/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes the part; it runs or serves its newest version again.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Remove a part from an application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "script, asset or source",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The part's id, or a webhook source's name",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Application"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/release": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Applies the pending migrations and pins each script's and asset's newest version; from then on endpoints, schedules, events and runs execute the pinned script version and the portal serves the pinned asset version. A part that cannot be pinned or a migration that fails refuses the release and changes nothing. For administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Release an application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "A note on the release",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.releaseRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Release"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/rollback": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Restores the pins of to_release, or of the release before the current one, and reverts the migrations applied since when each has a down migration; the rollback records which it reverted or why it reverted none. For administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Roll an application back",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The release to restore",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.rollbackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Release"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets": {
             "get": {
                 "security": [
@@ -31126,6 +31993,319 @@
                 }
             }
         },
+        "appbundle.AppInfo": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "appbundle.Asset": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "appbundle.Bundle": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "$ref": "#/definitions/appbundle.AppInfo"
+                },
+                "assets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appbundle.Asset"
+                    }
+                },
+                "exported_at": {
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "format_version": {
+                    "type": "integer"
+                },
+                "names": {
+                    "$ref": "#/definitions/appbundle.Names"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "release": {
+                    "type": "integer"
+                },
+                "schema": {
+                    "$ref": "#/definitions/appbundle.Schema"
+                },
+                "scripts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appbundle.Script"
+                    }
+                },
+                "sources": {
+                    "description": "Sources is the webhook sources that are parts of the application, by\nname; each is mapped to one on the importing deployment.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "appbundle.Endpoint": {
+            "type": "object",
+            "properties": {
+                "allowed_origins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "auth_mode": {
+                    "type": "string"
+                },
+                "bot_check": {
+                    "type": "string"
+                },
+                "caller_rate_limit": {
+                    "type": "integer"
+                },
+                "callers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "checked_methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "form_connection": {
+                    "description": "FormConnection is the connection a form's submissions table is on.",
+                    "type": "string"
+                },
+                "max_body_bytes": {
+                    "type": "integer"
+                },
+                "max_memory_bytes": {
+                    "type": "integer"
+                },
+                "methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "rate_limit": {
+                    "type": "integer"
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "appbundle.Imported": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "type": "string"
+                },
+                "assets": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "created": {
+                    "type": "boolean"
+                },
+                "release": {
+                    "$ref": "#/definitions/application.Release"
+                },
+                "scripts": {
+                    "description": "Scripts and Assets name each part and whether the import created it,\ngave it a new version, or found it unchanged.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "appbundle.Migration": {
+            "type": "object",
+            "properties": {
+                "down": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "transactional": {
+                    "type": "boolean"
+                },
+                "up": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "appbundle.Names": {
+            "type": "object",
+            "properties": {
+                "bot_checks": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "secrets": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "appbundle.Schedule": {
+            "type": "object",
+            "properties": {
+                "cron_spec": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "params": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            }
+        },
+        "appbundle.Schema": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "migrations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appbundle.Migration"
+                    }
+                },
+                "schema": {
+                    "type": "string"
+                }
+            }
+        },
+        "appbundle.Script": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "dynamic_connections": {
+                    "description": "DynamicConnections is set when the source names a connection in a way\na static read cannot see; those names are not in Names.",
+                    "type": "boolean"
+                },
+                "endpoint": {
+                    "$ref": "#/definitions/appbundle.Endpoint"
+                },
+                "event_source": {
+                    "type": "string"
+                },
+                "exclusive": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "params": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Param"
+                    }
+                },
+                "schedule": {
+                    "$ref": "#/definitions/appbundle.Schedule"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
         "appdbapi.driftResponse": {
             "type": "object",
             "properties": {
@@ -31998,6 +33178,327 @@
                 },
                 "updated_by": {
                     "type": "string"
+                }
+            }
+        },
+        "apphttp.createRequest": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string",
+                    "example": "orders"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "The storefront, its API and its orders"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "shop"
+                },
+                "schema": {
+                    "type": "string",
+                    "example": "shop"
+                }
+            }
+        },
+        "apphttp.detail": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "$ref": "#/definitions/application.Application"
+                },
+                "current_release": {
+                    "$ref": "#/definitions/application.Release"
+                },
+                "migrations": {
+                    "description": "Migrations is where the schema's migrations stand; nil for an\napplication with no schema.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/appschema.State"
+                        }
+                    ]
+                },
+                "pending": {
+                    "description": "Pending is the parts whose newest version differs from the current\nrelease's pin.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/application.PinChange"
+                    }
+                },
+                "problems": {
+                    "description": "Problems are parts a release would refuse: deleted, or unreadable.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "releases": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/application.Release"
+                    }
+                }
+            }
+        },
+        "apphttp.importRequest": {
+            "type": "object",
+            "properties": {
+                "bundle": {
+                    "$ref": "#/definitions/appbundle.Bundle"
+                },
+                "map": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "apphttp.listResponse": {
+            "type": "object",
+            "properties": {
+                "applications": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/application.Application"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "apphttp.partRequest": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "5b0c2f3e-0000-0000-0000-000000000000"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "script"
+                }
+            }
+        },
+        "apphttp.releaseRequest": {
+            "type": "object",
+            "properties": {
+                "note": {
+                    "type": "string"
+                }
+            }
+        },
+        "apphttp.rollbackRequest": {
+            "type": "object",
+            "properties": {
+                "to_release": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "apphttp.updateRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "owner_email": {
+                    "type": "string"
+                }
+            }
+        },
+        "application.Application": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "description": "Connection and Schema are the application database schema whose\nmigrations a release applies. Empty for an application with none.",
+                    "type": "string",
+                    "example": "orders"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "current_release": {
+                    "description": "CurrentRelease is the number of the release in force, 0 before the\nfirst.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "description": {
+                    "type": "string",
+                    "example": "The storefront, its API and its orders"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "app_01J9..."
+                },
+                "name": {
+                    "type": "string",
+                    "example": "shop"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "parts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/application.Part"
+                    }
+                },
+                "schema": {
+                    "type": "string",
+                    "example": "shop"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "application.Changes": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "description": "Applied and Reverted are the migration versions the release applied or\nreverted, in the order it ran them.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "migrations_kept": {
+                    "description": "MigrationsKept says why a rollback left migrations applied: a\nmigration between the two releases has no down migration.",
+                    "type": "string"
+                },
+                "parts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/application.PinChange"
+                    }
+                },
+                "reverted": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "application.Part": {
+            "type": "object",
+            "properties": {
+                "added_at": {
+                    "type": "string"
+                },
+                "added_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "id": {
+                    "description": "ID is the script's id, the asset's id, or the webhook source's name.",
+                    "type": "string",
+                    "example": "5b0c..."
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "script"
+                }
+            }
+        },
+        "application.Pin": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "example": "script"
+                },
+                "part_id": {
+                    "type": "string",
+                    "example": "5b0c..."
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
+        "application.PinChange": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "part_id": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "integer"
+                }
+            }
+        },
+        "application.Release": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "example": "release"
+                },
+                "changes": {
+                    "$ref": "#/definitions/application.Changes"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "migration_version": {
+                    "description": "MigrationVersion is the highest migration the release holds applied.",
+                    "type": "integer",
+                    "example": 7
+                },
+                "note": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "pins": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/application.Pin"
+                    }
+                },
+                "restored": {
+                    "description": "Restored is the release a rollback restored the pins of.",
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "appschema.State": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "description": "Applied is the highest applied version, 0 for none.",
+                    "type": "integer"
+                },
+                "pending": {
+                    "description": "Pending is the versions a release would apply.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 }
             }
         },
@@ -38583,6 +40084,11 @@
                         }
                     ]
                 },
+                "released_version": {
+                    "description": "ReleasedVersion is the version the current release of the application\nthe asset belongs to pins (#2411), 0 for an asset in no released\napplication. Set only by that release. While set it is the version the\nasset's content routes serve: a new version changes nothing live until\nthe next release. ServedVersion reads the two.",
+                    "type": "integer",
+                    "example": 2
+                },
                 "s3_bucket": {
                     "type": "string",
                     "example": "portal-assets"
@@ -39130,6 +40636,11 @@
                             "$ref": "#/definitions/portaldomain.ProvenanceSummary"
                         }
                     ]
+                },
+                "released_version": {
+                    "description": "ReleasedVersion is the version the current release of the application\nthe asset belongs to pins (#2411), 0 for an asset in no released\napplication. Set only by that release. While set it is the version the\nasset's content routes serve: a new version changes nothing live until\nthe next release. ServedVersion reads the two.",
+                    "type": "integer",
+                    "example": 2
                 },
                 "s3_bucket": {
                     "type": "string",
@@ -42927,6 +44438,11 @@
                     "items": {
                         "$ref": "#/definitions/script.Param"
                     }
+                },
+                "released_version": {
+                    "description": "ReleasedVersion is the version the current release of the application\nthe script belongs to pins (#2411), 0 for a script in no released\napplication. Set only by that release. While set it is the version a\nrun executes and an endpoint answers with: saving a version changes\nnothing live until the next release. RunVersion reads the two.",
+                    "type": "integer",
+                    "example": 2
                 },
                 "resource_pins": {
                     "description": "ResourcePins is the version of each managed resource the source loads\nas text with load(\"res:...\"), keyed by module (#2113): set by the save\nthat resolved them and written with the version it creates, so every\nrun of that version reads the bytes its save read. Nil on a save that\ncarried none, which keeps the pins of the latest version with the same\nsource.",
@@ -48043,6 +49559,10 @@
             "description": "Current user identity, roles, persona, and available tools."
         },
         {
+            "name": "Applications",
+            "description": "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."
+        },
+        {
             "name": "Activity",
             "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."
         },
@@ -48198,6 +49718,7 @@
                 "User",
                 "Access requests",
                 "Activity",
+                "Applications",
                 "API Keys",
                 "APIs",
                 "Assets",

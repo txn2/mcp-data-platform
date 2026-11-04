@@ -270,7 +270,7 @@ func (s *scheduler) current(ctx context.Context, scriptID string) (*script.Scrip
 	if sc == nil {
 		return nil, nil, errors.New("the script this schedule belongs to no longer exists")
 	}
-	v, err := s.cfg.versions.GetVersion(ctx, sc.ID, sc.Version)
+	v, err := s.cfg.versions.GetVersion(ctx, sc.ID, sc.RunVersion())
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading the script's current version failed: %w", err)
 	}

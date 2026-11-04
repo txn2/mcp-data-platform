@@ -144,6 +144,13 @@ export const SECTION_INTROS: SectionIntroCopy[] = [
     storageKey: "portal.intro.scripts",
   },
   {
+    path: "/applications",
+    summary: "Systems built on the platform, each released as one unit.",
+    about:
+      "An application names what a system is made of: an application database schema with its migrations, automations, webhook sources and assets. A release pins the version of each automation and asset, and applies pending migrations; while a part belongs to a released application, its pinned version is what runs and is served. A release can be rolled back, and exported to install the application on another deployment.",
+    storageKey: "portal.intro.applications",
+  },
+  {
     path: "/resources",
     summary:
       "Logos, templates and ad-hoc data stored as business resources, usable by agents and scripts.",

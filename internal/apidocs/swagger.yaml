@@ -2142,6 +2142,220 @@ definitions:
       title:
         type: string
     type: object
+  appbundle.AppInfo:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
+  appbundle.Asset:
+    properties:
+      content:
+        items:
+          type: integer
+        type: array
+      content_type:
+        type: string
+      description:
+        type: string
+      name:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      version:
+        type: integer
+    type: object
+  appbundle.Bundle:
+    properties:
+      application:
+        $ref: '#/definitions/appbundle.AppInfo'
+      assets:
+        items:
+          $ref: '#/definitions/appbundle.Asset'
+        type: array
+      exported_at:
+        type: string
+      format:
+        type: string
+      format_version:
+        type: integer
+      names:
+        $ref: '#/definitions/appbundle.Names'
+      note:
+        type: string
+      release:
+        type: integer
+      schema:
+        $ref: '#/definitions/appbundle.Schema'
+      scripts:
+        items:
+          $ref: '#/definitions/appbundle.Script'
+        type: array
+      sources:
+        description: |-
+          Sources is the webhook sources that are parts of the application, by
+          name; each is mapped to one on the importing deployment.
+        items:
+          type: string
+        type: array
+    type: object
+  appbundle.Endpoint:
+    properties:
+      allowed_origins:
+        items:
+          type: string
+        type: array
+      auth_mode:
+        type: string
+      bot_check:
+        type: string
+      caller_rate_limit:
+        type: integer
+      callers:
+        items:
+          type: string
+        type: array
+      checked_methods:
+        items:
+          type: string
+        type: array
+      enabled:
+        type: boolean
+      form_connection:
+        description: FormConnection is the connection a form's submissions table is
+          on.
+        type: string
+      max_body_bytes:
+        type: integer
+      max_memory_bytes:
+        type: integer
+      methods:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      path:
+        type: string
+      rate_limit:
+        type: integer
+      timeout_seconds:
+        type: integer
+    type: object
+  appbundle.Imported:
+    properties:
+      application:
+        type: string
+      assets:
+        additionalProperties:
+          type: string
+        type: object
+      created:
+        type: boolean
+      release:
+        $ref: '#/definitions/application.Release'
+      scripts:
+        additionalProperties:
+          type: string
+        description: |-
+          Scripts and Assets name each part and whether the import created it,
+          gave it a new version, or found it unchanged.
+        type: object
+    type: object
+  appbundle.Migration:
+    properties:
+      down:
+        type: string
+      name:
+        type: string
+      transactional:
+        type: boolean
+      up:
+        type: string
+      version:
+        type: integer
+    type: object
+  appbundle.Names:
+    properties:
+      bot_checks:
+        items:
+          type: string
+        type: array
+      connections:
+        items:
+          type: string
+        type: array
+      secrets:
+        items:
+          type: string
+        type: array
+      sources:
+        items:
+          type: string
+        type: array
+    type: object
+  appbundle.Schedule:
+    properties:
+      cron_spec:
+        type: string
+      enabled:
+        type: boolean
+      params:
+        additionalProperties: {}
+        type: object
+      timezone:
+        type: string
+    type: object
+  appbundle.Schema:
+    properties:
+      connection:
+        type: string
+      migrations:
+        items:
+          $ref: '#/definitions/appbundle.Migration'
+        type: array
+      schema:
+        type: string
+    type: object
+  appbundle.Script:
+    properties:
+      category:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      dynamic_connections:
+        description: |-
+          DynamicConnections is set when the source names a connection in a way
+          a static read cannot see; those names are not in Names.
+        type: boolean
+      endpoint:
+        $ref: '#/definitions/appbundle.Endpoint'
+      event_source:
+        type: string
+      exclusive:
+        type: string
+      name:
+        type: string
+      params:
+        items:
+          $ref: '#/definitions/script.Param'
+        type: array
+      schedule:
+        $ref: '#/definitions/appbundle.Schedule'
+      source:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      version:
+        type: integer
+    type: object
   appdbapi.driftResponse:
     properties:
       connection:
@@ -2773,6 +2987,239 @@ definitions:
         type: string
       updated_by:
         type: string
+    type: object
+  apphttp.createRequest:
+    properties:
+      connection:
+        example: orders
+        type: string
+      description:
+        example: The storefront, its API and its orders
+        type: string
+      name:
+        example: shop
+        type: string
+      schema:
+        example: shop
+        type: string
+    type: object
+  apphttp.detail:
+    properties:
+      application:
+        $ref: '#/definitions/application.Application'
+      current_release:
+        $ref: '#/definitions/application.Release'
+      migrations:
+        allOf:
+        - $ref: '#/definitions/appschema.State'
+        description: |-
+          Migrations is where the schema's migrations stand; nil for an
+          application with no schema.
+      pending:
+        description: |-
+          Pending is the parts whose newest version differs from the current
+          release's pin.
+        items:
+          $ref: '#/definitions/application.PinChange'
+        type: array
+      problems:
+        description: 'Problems are parts a release would refuse: deleted, or unreadable.'
+        items:
+          type: string
+        type: array
+      releases:
+        items:
+          $ref: '#/definitions/application.Release'
+        type: array
+    type: object
+  apphttp.importRequest:
+    properties:
+      bundle:
+        $ref: '#/definitions/appbundle.Bundle'
+      map:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  apphttp.listResponse:
+    properties:
+      applications:
+        items:
+          $ref: '#/definitions/application.Application'
+        type: array
+      total:
+        type: integer
+    type: object
+  apphttp.partRequest:
+    properties:
+      id:
+        example: 5b0c2f3e-0000-0000-0000-000000000000
+        type: string
+      kind:
+        example: script
+        type: string
+    type: object
+  apphttp.releaseRequest:
+    properties:
+      note:
+        type: string
+    type: object
+  apphttp.rollbackRequest:
+    properties:
+      to_release:
+        example: 2
+        type: integer
+    type: object
+  apphttp.updateRequest:
+    properties:
+      description:
+        type: string
+      owner_email:
+        type: string
+    type: object
+  application.Application:
+    properties:
+      connection:
+        description: |-
+          Connection and Schema are the application database schema whose
+          migrations a release applies. Empty for an application with none.
+        example: orders
+        type: string
+      created_at:
+        type: string
+      created_by:
+        example: jane@example.com
+        type: string
+      current_release:
+        description: |-
+          CurrentRelease is the number of the release in force, 0 before the
+          first.
+        example: 3
+        type: integer
+      description:
+        example: The storefront, its API and its orders
+        type: string
+      id:
+        example: app_01J9...
+        type: string
+      name:
+        example: shop
+        type: string
+      owner_email:
+        example: jane@example.com
+        type: string
+      parts:
+        items:
+          $ref: '#/definitions/application.Part'
+        type: array
+      schema:
+        example: shop
+        type: string
+      updated_at:
+        type: string
+    type: object
+  application.Changes:
+    properties:
+      applied:
+        description: |-
+          Applied and Reverted are the migration versions the release applied or
+          reverted, in the order it ran them.
+        items:
+          type: integer
+        type: array
+      migrations_kept:
+        description: |-
+          MigrationsKept says why a rollback left migrations applied: a
+          migration between the two releases has no down migration.
+        type: string
+      parts:
+        items:
+          $ref: '#/definitions/application.PinChange'
+        type: array
+      reverted:
+        items:
+          type: integer
+        type: array
+    type: object
+  application.Part:
+    properties:
+      added_at:
+        type: string
+      added_by:
+        example: jane@example.com
+        type: string
+      id:
+        description: ID is the script's id, the asset's id, or the webhook source's
+          name.
+        example: 5b0c...
+        type: string
+      kind:
+        example: script
+        type: string
+    type: object
+  application.Pin:
+    properties:
+      kind:
+        example: script
+        type: string
+      part_id:
+        example: 5b0c...
+        type: string
+      version:
+        example: 4
+        type: integer
+    type: object
+  application.PinChange:
+    properties:
+      from:
+        type: integer
+      kind:
+        type: string
+      part_id:
+        type: string
+      to:
+        type: integer
+    type: object
+  application.Release:
+    properties:
+      action:
+        example: release
+        type: string
+      changes:
+        $ref: '#/definitions/application.Changes'
+      created_at:
+        type: string
+      created_by:
+        example: admin@example.com
+        type: string
+      migration_version:
+        description: MigrationVersion is the highest migration the release holds applied.
+        example: 7
+        type: integer
+      note:
+        type: string
+      number:
+        example: 3
+        type: integer
+      pins:
+        items:
+          $ref: '#/definitions/application.Pin'
+        type: array
+      restored:
+        description: Restored is the release a rollback restored the pins of.
+        example: 2
+        type: integer
+    type: object
+  appschema.State:
+    properties:
+      applied:
+        description: Applied is the highest applied version, 0 for none.
+        type: integer
+      pending:
+        description: Pending is the versions a release would apply.
+        items:
+          type: integer
+        type: array
     type: object
   assetrefapi.audience:
     properties:
@@ -7947,6 +8394,15 @@ definitions:
           ProvenanceSummary describes the provenance of a listing row without
           carrying it. Nil on a single asset read, where Provenance is what the
           reader gets.
+      released_version:
+        description: |-
+          ReleasedVersion is the version the current release of the application
+          the asset belongs to pins (#2411), 0 for an asset in no released
+          application. Set only by that release. While set it is the version the
+          asset's content routes serve: a new version changes nothing live until
+          the next release. ServedVersion reads the two.
+        example: 2
+        type: integer
       s3_bucket:
         example: portal-assets
         type: string
@@ -8395,6 +8851,15 @@ definitions:
           ProvenanceSummary describes the provenance of a listing row without
           carrying it. Nil on a single asset read, where Provenance is what the
           reader gets.
+      released_version:
+        description: |-
+          ReleasedVersion is the version the current release of the application
+          the asset belongs to pins (#2411), 0 for an asset in no released
+          application. Set only by that release. While set it is the version the
+          asset's content routes serve: a new version changes nothing live until
+          the next release. ServedVersion reads the two.
+        example: 2
+        type: integer
       s3_bucket:
         example: portal-assets
         type: string
@@ -11588,6 +12053,15 @@ definitions:
         items:
           $ref: '#/definitions/script.Param'
         type: array
+      released_version:
+        description: |-
+          ReleasedVersion is the version the current release of the application
+          the script belongs to pins (#2411), 0 for a script in no released
+          application. Set only by that release. While set it is the version a
+          run executes and an endpoint answers with: saving a version changes
+          nothing live until the next release. RunVersion reads the two.
+        example: 2
+        type: integer
       resource_pins:
         additionalProperties:
           $ref: '#/definitions/script.ResourcePin'
@@ -24917,6 +25391,578 @@ paths:
       summary: Revoke one of my API keys
       tags:
       - API Keys
+  /portal/applications:
+    get:
+      description: Every application on the deployment, by name, without parts. Readable
+        by everyone signed in.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apphttp.listResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List applications
+      tags:
+      - Applications
+    post:
+      consumes:
+      - application/json
+      description: Creates an application owned by the caller. connection and schema
+        name the application database schema whose migrations a release applies; both
+        or neither.
+      parameters:
+      - description: The application
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apphttp.createRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Application'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create an application
+      tags:
+      - Applications
+  /portal/applications/{app}:
+    delete:
+      description: Deletes the application and its releases. Its parts stay, and run
+        and serve their newest versions again. For the owner and administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete an application
+      tags:
+      - Applications
+    get:
+      description: 'An application by name or id: its parts, its current release,
+        what a release now would change (pending), where its schema''s migrations
+        stand, the parts a release would refuse (problems), and its releases newest
+        first with what each changed.'
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apphttp.detail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read an application
+      tags:
+      - Applications
+    patch:
+      consumes:
+      - application/json
+      description: Writes the description. owner_email moves the application to another
+        owner and is for administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: What to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apphttp.updateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Application'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update an application
+      tags:
+      - Applications
+  /portal/applications/{app}/export:
+    get:
+      description: 'Answers one release as a bundle to download: its migrations, script
+        versions with their endpoint bindings and schedules, and asset versions, with
+        the connections, secrets, webhook sources and bot checks they use named. A
+        bundle carries no secret value, credential, data row, script state or run
+        history. For administrators.'
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: The release; the current one when absent
+        in: query
+        name: release
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appbundle.Bundle'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Export an application release
+      tags:
+      - Applications
+  /portal/applications/{app}/parts:
+    post:
+      consumes:
+      - application/json
+      description: Adds a script (by id), an asset (by id) or a webhook source (by
+        name). A part belongs to at most one application; the caller must own the
+        part (a webhook source is added by an administrator).
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: The part
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apphttp.partRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Application'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add a part to an application
+      tags:
+      - Applications
+  /portal/applications/{app}/parts/{kind}/{id}:
+    delete:
+      description: Removes the part; it runs or serves its newest version again.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: script, asset or source
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: The part's id, or a webhook source's name
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Application'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove a part from an application
+      tags:
+      - Applications
+  /portal/applications/{app}/release:
+    post:
+      consumes:
+      - application/json
+      description: Applies the pending migrations and pins each script's and asset's
+        newest version; from then on endpoints, schedules, events and runs execute
+        the pinned script version and the portal serves the pinned asset version.
+        A part that cannot be pinned or a migration that fails refuses the release
+        and changes nothing. For administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: A note on the release
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/apphttp.releaseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Release'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Release an application
+      tags:
+      - Applications
+  /portal/applications/{app}/rollback:
+    post:
+      consumes:
+      - application/json
+      description: Restores the pins of to_release, or of the release before the current
+        one, and reverts the migrations applied since when each has a down migration;
+        the rollback records which it reverted or why it reverted none. For administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: The release to restore
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/apphttp.rollbackRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Release'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Roll an application back
+      tags:
+      - Applications
+  /portal/applications/import:
+    post:
+      consumes:
+      - application/json
+      description: 'Imports an exported bundle: every connection, secret, webhook
+        source and bot check it names must be mapped to one on this deployment (map),
+        or nothing is written. Creates the application, or finds the one with its
+        name, writes each part owned by the caller, and releases it. For administrators.'
+      parameters:
+      - description: The bundle and the names it is mapped with
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apphttp.importRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appbundle.Imported'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Import an application bundle
+      tags:
+      - Applications
   /portal/assets:
     get:
       description: Returns paginated assets owned by the current user with optional
@@ -34948,6 +35994,8 @@ swagger: "2.0"
 tags:
   - name: "User"
     description: "Current user identity, roles, persona, and available tools."
+  - name: "Applications"
+    description: "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."
   - name: "Activity"
     description: "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."
   - name: "Assets"
@@ -35029,6 +36077,7 @@ x-tagGroups:
       - "User"
       - "Access requests"
       - "Activity"
+      - "Applications"
       - "API Keys"
       - "APIs"
       - "Assets"

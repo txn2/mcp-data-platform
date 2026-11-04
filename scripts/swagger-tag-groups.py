@@ -17,6 +17,14 @@ TAG_DESCRIPTIONS = {
     "User": (
         "Current user identity, roles, persona, and available tools."
     ),
+    "Applications": (
+        "Applications built on the platform: one record naming an application database schema "
+        "with its migrations, managed scripts (an endpoint or a form is its script's binding), "
+        "webhook sources and portal assets, released together as a pinned set. While a part "
+        "belongs to a released application its release's version is the one that runs and is "
+        "served. Everyone signed in reads; the owner and administrators edit; administrators "
+        "release, roll back, export and import."
+    ),
     "Activity": (
         "Personal analytics for the authenticated user's tool usage. "
         "Timeseries, breakdowns, and summary statistics scoped to the calling user."
@@ -204,6 +212,7 @@ TAG_GROUPS = [
             "User",
             "Access requests",
             "Activity",
+            "Applications",
             "API Keys",
             "APIs",
             "Assets",
