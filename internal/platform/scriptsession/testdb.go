@@ -7,6 +7,7 @@ import (
 	"io"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
@@ -40,7 +41,7 @@ func NewTestDatabases(ctx context.Context) *TestDatabases {
 		return nil
 	}
 	d := &TestDatabases{ctx: ctx, open: a.TestDatabase, runners: map[string]AppDBRunner{}, scopes: map[string][]string{}}
-	db := &AppDB{Runner: func() AppDBRunner { return testRunner{d} }, Authorize: a.Authorize}
+	db := &AppDB{Runner: func() AppDBRunner { return testRunner{d} }, Authorize: a.Authorize, AdminPersona: a.AdminPersona}
 	d.caller = &appdbCaller{ctx: ctx, db: db, authorized: map[string]string{}, txs: map[string]AppDBTx{}}
 	return d
 }
@@ -189,4 +190,23 @@ func (r testRunner) Begin(ctx context.Context, o postgres.TxOptions) (AppDBTx, e
 		return nil, err
 	}
 	return db.Begin(ctx, o) //nolint:wrapcheck // the database's typed failure, read by the caller
+}
+
+// RunMaintenance implements AppDBRunner: platform.maintain in a test runs on
+// the test's database.
+func (r testRunner) RunMaintenance(ctx context.Context, connection, stmt string, lockTimeout, timeout time.Duration) error {
+	db, err := r.d.runner(connection)
+	if err != nil {
+		return err
+	}
+	return db.RunMaintenance(ctx, connection, stmt, lockTimeout, timeout) //nolint:wrapcheck // the database's typed failure, read by the caller
+}
+
+// ApplyPersonas implements AppDBRunner.
+func (r testRunner) ApplyPersonas(connection string) []string {
+	db, err := r.d.runner(connection)
+	if err != nil {
+		return nil
+	}
+	return db.ApplyPersonas(connection)
 }

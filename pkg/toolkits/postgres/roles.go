@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -160,4 +161,31 @@ func (c *conn) probeRoles(ctx context.Context) (string, error) {
 		}
 	}
 	return b.String(), nil
+}
+
+// ConnectionRoles are the login roles connection's statements run as: its
+// own user and each persona's role, sorted. A backend of another role is not
+// the platform's to cancel or terminate (#2410). Nil for an unknown connection.
+func (t *Toolkit) ConnectionRoles(connection string) []string {
+	c, ok := t.lookup(connection)
+	if !ok {
+		return nil
+	}
+	out := []string{c.cfg.User}
+	for _, role := range c.cfg.PersonaRoles {
+		if !slices.Contains(out, role) {
+			out = append(out, role)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ApplyPersonas are the personas connection's schema_apply_personas names,
+// which may apply its migrations and maintain it (#2410).
+func (t *Toolkit) ApplyPersonas(connection string) []string {
+	if c, ok := t.lookup(connection); ok {
+		return slices.Clone(c.cfg.SchemaApplyPersonas)
+	}
+	return nil
 }

@@ -27,7 +27,7 @@ func (e Example) Fields() map[string]any {
 // built-in knowledge page platform-reference-script shows it verbatim.
 const ReferenceName = "example-weekly-revenue"
 
-// All is the seeded worked scripts. Four, not ten: they exist to show
+// All is the seeded worked scripts. Five, not ten: they exist to show
 // the shape of a script and the idioms every job needs — a date derived from
 // the pinned fire time, a bound parameter, and a watermark carried in the
 // script's state — not to be a cookbook that invites copying without reading.
@@ -193,6 +193,35 @@ def test_recorded_sync():
     assert.eq(first["amount"], "120.00")
     assert.eq(first["updated_at"], "2026-09-20 08:15:00.000 UTC")
     assert.eq(out.state, {"synced_through": run.fire_time, "last_delta_rows": 3})
+`,
+	},
+	{
+		Name:        "example-nightly-maintenance",
+		Description: "Scheduled maintenance of an application database: analyze it, then vacuum each table that churns, outside any transaction.",
+		Source: `# Nightly maintenance of an application database, run on a schedule. It
+# analyzes the whole database so the planner's statistics stay current, then
+# vacuums each table that churns. A run acts as its author's persona, which
+# must be the administrator or one the connection's schema_apply_personas
+# names. Creating or dropping an index is a migration, never maintenance.
+
+CONNECTION = "orders"
+
+CHURNING = ["public.orders"]
+
+def main():
+    """Analyzes the database and vacuums each table that churns."""
+    ran = [platform.maintain(connection = CONNECTION, command = "analyze").statement]
+    for table in CHURNING:
+        done = platform.maintain(connection = CONNECTION, command = "vacuum", table = table)
+        ran.append(done.statement)
+    print("ran: " + ", ".join(ran))
+    platform.result({"statements": ran})
+
+def test_maintains_a_copy():
+    """On a throwaway copy of the database, analyzes it and vacuums each table that churns."""
+    testing.database(CONNECTION)
+    main()
+    assert.eq(testing.outputs().result, {"statements": ["ANALYZE", "VACUUM (ANALYZE) \"public\".\"orders\""]})
 `,
 	},
 	{

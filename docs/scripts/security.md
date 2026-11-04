@@ -400,9 +400,11 @@ Five limits, stated rather than implied:
   managed resource is scoped rather than owned, and a personal library is keyed
   by the subject its owner authenticates as, which a run does not present. The
   run carries two things about the person it acts for instead: their address
-  (`OnBehalfOf`) and the subject that address most recently authenticated as
-  (`OnBehalfOfSub`, read from the `identity_subjects` table the authenticator
-  fills, #1677). The resource rules read both: the visible-scope set,
+  (`OnBehalfOf`) and a subject (`OnBehalfOfSub`): the one the version's saving
+  session authenticated as, recorded on the version (#2450), or for a version
+  saved before that, the subject that address most recently authenticated as,
+  read from the `identity_subjects` table the authenticator fills (#1677). The
+  recorded subject is the saving session's own, never one a caller names. The resource rules read both: the visible-scope set,
   `CanWriteScope`, `CanAccessResource` and `CanModifyResource`
   (`pkg/resource/permission.go`). A run therefore lists, reads, creates and
   replaces in its author's library -- the same one the author's session

@@ -102,7 +102,9 @@ branch with `testing.answer(tool, args, error = {...})`.
   so a retried `fn` may only read and write through `tx`.
   `platform.batch(connection, statements)` sends statements in one round
   trip and commits them together. Read the tables a script writes with
-  `manage_schema command=describe`.
+  `manage_schema command=describe`. A scheduled script maintains the database
+  with `platform.maintain(connection, "analyze" | "vacuum" | "reindex", table)`,
+  for the administrator and the personas its `schema_apply_personas` names.
 - **A truncated query result fails the run** rather than returning a partial
   answer. Aggregate in SQL, or narrow the query.
 - **`platform.query` is the read tool.** A statement that modifies state is

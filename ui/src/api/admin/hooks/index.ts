@@ -24,3 +24,4 @@ export * from "./botCheck";
 export * from "./endpoints";
 export * from "./accessRequests";
 export * from "./embedHosts";
+export * from "./appdb";

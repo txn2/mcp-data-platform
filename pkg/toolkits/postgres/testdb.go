@@ -114,6 +114,29 @@ func (t *Toolkit) TestDatabase(ctx context.Context, connection string, schemas [
 	if len(schemas) > 0 {
 		migrations = slices.DeleteFunc(migrations, func(m Migration) bool { return !slices.Contains(schemas, m.Schema) })
 	}
+	return t.clone(ctx, c, srv, schemas, migrations)
+}
+
+// DescribeBuilt describes schema as migrations build it from zero, on a clone
+// of their template dropped when it returns (#2406): what the live schema
+// holds when nothing was changed outside migrations.
+func (t *Toolkit) DescribeBuilt(ctx context.Context, connection, schema string, migrations []Migration) (*Description, error) {
+	c, srv, err := t.testPair(connection)
+	if err != nil {
+		return nil, err
+	}
+	db, err := t.clone(ctx, c, srv, []string{schema}, migrations)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	return db.Describe(ctx, connection, schema)
+}
+
+// clone builds the template of migrations when the head has none and clones
+// it on srv.
+func (t *Toolkit) clone(ctx context.Context, c, srv *conn, schemas []string, migrations []Migration) (*TestDB, error) {
+	connection := c.cfg.ConnectionName
 	tmpl, err := t.template(ctx, c, srv, scopeOf(schemas), migrations)
 	if err != nil {
 		return nil, err

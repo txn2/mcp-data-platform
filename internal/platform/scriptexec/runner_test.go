@@ -392,6 +392,31 @@ func TestRunner_PresentsTheSubjectItsAuthorsSessionUses(t *testing.T) {
 	assert.Equal(t, "author-sub", seen.OnBehalfOfSub)
 }
 
+// TestRunner_FilesWhereTheSavingSessionFiles is #2450: a version records the
+// subject its saving session authenticated as, and a run of it files there,
+// even when the author's address resolves to another subject. A script saved
+// from a configured API key's session writes into that key's library, where
+// the key session's search and manage_resource find it.
+func TestRunner_FilesWhereTheSavingSessionFiles(t *testing.T) {
+	var seen middleware.PlatformContext
+	sc, v, run := executableState()
+	run.LockedBy, run.Attempt = "worker-a", 1
+	v.Source = `platform.query(connection="warehouse", sql="SELECT 1")`
+	v.Author, v.AuthorSubject = "admin@example.com", "apikey:admin"
+	runs := &fakeRuns{}
+	require.NoError(t, runs.Enqueue(context.Background(), run))
+	run.LockedBy, run.Attempt = "worker-a", 1
+
+	subjects := &recordingSubjects{subject: "oidc-sub-of-admin"}
+	r := newRunner(runs, Config{Server: identityServer(t, &seen), Subjects: subjects})
+	out := r.execute(context.Background(), run, sc, v)
+
+	require.Equal(t, script.RunStatusSucceeded, out.result.Status, out.result.Error)
+	assert.Empty(t, subjects.asked, "a recorded subject is not resolved again from the address")
+	assert.Equal(t, "admin@example.com", seen.OnBehalfOfEmail)
+	assert.Equal(t, "apikey:admin", seen.OnBehalfOfSub)
+}
+
 func TestRunner_WithoutASubjectResolverStaysKeyedByAddress(t *testing.T) {
 	var seen middleware.PlatformContext
 	sc, v, run := executableState()

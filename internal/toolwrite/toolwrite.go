@@ -214,6 +214,8 @@ var writeTools = map[string]bool{
 	"appdb.tx_batch":   true,
 	"appdb.batch":      true,
 	"appdb.copy_in":    true,
+	// platform.maintain: ANALYZE, VACUUM or REINDEX (#2410).
+	"appdb.maintain": true,
 }
 
 // actionRule classifies one tool by the value of one argument.

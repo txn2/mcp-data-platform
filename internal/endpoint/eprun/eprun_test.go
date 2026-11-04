@@ -145,11 +145,11 @@ func lookupServer() *mcp.Server {
 	server.AddTool(&mcp.Tool{Name: "lookup", InputSchema: map[string]any{"type": "object"}}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var args map[string]any
 		_ = json.Unmarshal(req.Params.Arguments, &args)
-		who := ""
+		who, sub := "", ""
 		if u := middleware.GetPreAuthenticatedUser(ctx); u != nil {
-			who = u.UserID
+			who, sub = u.UserID, u.OnBehalfOfSub
 		}
-		out, _ := json.Marshal(map[string]any{"id": args["id"], "who": who, "source": middleware.GetSource(ctx)})
+		out, _ := json.Marshal(map[string]any{"id": args["id"], "who": who, "sub": sub, "source": middleware.GetSource(ctx)})
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(out)}}}, nil
 	})
 	// stall answers only when the call's context ends.
@@ -231,6 +231,30 @@ func TestServe_RunsTheHandlerAsTheScriptAndAnswersWithItsReturn(t *testing.T) {
 	assert.True(t, e.Success)
 	assert.True(t, strings.HasPrefix(e.SessionID, "dpx_"))
 	assert.Empty(t, f.bindings.failures)
+}
+
+// addressSubjects resolves every address to one subject.
+type addressSubjects struct{ subject string }
+
+func (a addressSubjects) ForRun(context.Context, string) string { return a.subject }
+
+// A request files where the version's saving session files (#2450), and a
+// version saved before that was recorded resolves its author's address.
+func TestServe_ActsForTheSubjectTheVersionWasSavedAs(t *testing.T) {
+	f := newFixture(t, lookupSource)
+	f.runner.Subjects = addressSubjects{subject: "oidc-sub"}
+	req := Request{Method: "GET", Path: "/endpoints/orders/7", Params: map[string]string{"id": "7"}}
+
+	resp := f.serve(t, req)
+	require.Equal(t, http.StatusOK, resp.Status, string(resp.Body))
+	order, _ := decode(t, resp.Body)["order"].(map[string]any)
+	assert.Equal(t, "oidc-sub", order["sub"], "no recorded subject: the address resolves")
+
+	f.scripts.versions[1].AuthorSubject = "apikey:admin"
+	resp = f.serve(t, req)
+	require.Equal(t, http.StatusOK, resp.Status, string(resp.Body))
+	order, _ = decode(t, resp.Body)["order"].(map[string]any)
+	assert.Equal(t, "apikey:admin", order["sub"], "the recorded subject wins")
 }
 
 func TestServe_TheHandlerIsNotShownTheCallersCredentials(t *testing.T) {

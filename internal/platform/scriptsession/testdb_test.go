@@ -97,3 +97,33 @@ func TestTestDatabases_Refusals(t *testing.T) {
 	assert.ErrorContains(t, err, "CREATEDB")
 	assert.False(t, dbs.Active())
 }
+
+// platform.maintain in a script's test runs on the database the test opened,
+// with the grant read from that connection, and never on the real one.
+func TestTestDatabases_MaintainRunsOnTheClone(t *testing.T) {
+	clone := &fakeAppDB{applyPersonas: []string{"builder"}}
+	InstallAppDB(AppDB{
+		Runner:    func() AppDBRunner { return &fakeAppDB{maintainErr: errors.New("the real database is never reached")} },
+		Authorize: func(context.Context, string) (string, error) { return "builder", nil },
+		TestDatabase: func(context.Context, string, []string) (AppDBRunner, func(), error) {
+			return clone, func() {}, nil
+		},
+	})
+	t.Cleanup(func() { installed.Store(nil) })
+
+	ctx := context.Background()
+	dbs := NewTestDatabases(ctx)
+	require.NoError(t, dbs.Open("shop", nil))
+	out, err := dbs.Call(ctx, AppDBMaintain, map[string]any{"connection": "shop", "command": "analyze", "table": "orders"})
+	require.NoError(t, err)
+	assert.Equal(t, `ANALYZE "orders"`, out["statement"])
+	assert.Equal(t, []string{`ANALYZE "orders"`}, clone.maintained)
+
+	unopened := testRunner{d: dbs}
+	assert.Nil(t, unopened.ApplyPersonas("warehouse"), "a connection the test did not open grants no one")
+	err = unopened.RunMaintenance(ctx, "warehouse", "ANALYZE", 0, 0)
+	var refusal *RefusalError
+	require.ErrorAs(t, err, &refusal)
+	assert.Contains(t, refusal.Text, `testing.database("warehouse")`)
+	dbs.Close()
+}

@@ -120,6 +120,12 @@ func (c *txCaller) CallTool(_ context.Context, name string, args map[string]any)
 			return map[string]any{"rows_written": float64(n)}, nil
 		}
 		return map[string]any{"rows_written": n}, nil
+	case scriptsession.AppDBMaintain:
+		table, _ := args["table"].(string)
+		if c.replayed {
+			return map[string]any{"statement": "ANALYZE " + table, "duration_ms": float64(3)}, nil
+		}
+		return map[string]any{"statement": "ANALYZE " + table, "duration_ms": int64(3)}, nil
 	case scriptsession.AppDBCopyOut:
 		if c.replayed {
 			return map[string]any{"rows": float64(2), "bytes": float64(6)}, nil

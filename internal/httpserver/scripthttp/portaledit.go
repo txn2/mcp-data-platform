@@ -197,7 +197,7 @@ func editAuthor(user *PortalIdentity) script.Author {
 	if roles == nil {
 		roles = []string{}
 	}
-	return script.Author{Email: user.owner(), Roles: roles}
+	return script.Author{Email: user.owner(), Roles: roles, Subject: user.UserID}
 }
 
 // saveCaller is who saves through the portal: their address, and the

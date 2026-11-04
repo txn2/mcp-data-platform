@@ -33,6 +33,9 @@ const (
 	// NameStorageHistory samples each store's usage and capacity, keeps the
 	// history and evaluates the storage alerts (internal/platform/storagecap).
 	NameStorageHistory = "storage_history"
+	// NameAppDBHealth samples each application database's health and drift,
+	// keeps the history and evaluates their alerts (internal/appdbwatch).
+	NameAppDBHealth = "appdb_health"
 
 	// Queue workers and their sub-loops.
 	NameIndexJobWorker      = "indexjob_worker"

@@ -359,6 +359,8 @@ type Metrics struct {
 	// instruments (#1898), metrics_domain.go and metrics_ops.go.
 	domain   domainInstruments
 	capacity capacityInstruments
+	// Application database health gauges (#2409), metrics_appdbhealth.go.
+	appdbHealth appdbHealthInstruments
 	// Background loop, queue and worker instruments (#1897),
 	// metrics_background.go.
 	bg backgroundInstruments
@@ -695,6 +697,9 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 		return err
 	}
 	if err := m.registerCapacityInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerAppDBHealthInstruments(meter); err != nil {
 		return err
 	}
 	return m.registerDBPoolInstruments(meter)

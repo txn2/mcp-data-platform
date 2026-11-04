@@ -144,7 +144,8 @@ test-realdb:
 		name=$(REALDB_APPDB_CONTAINER)-$${img%%=*}; \
 		docker rm -f $$name >/dev/null 2>&1 || true; \
 		DOCKER_DEFAULT_PLATFORM= docker run -d --name $$name -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=postgres \
-			-p 127.0.0.1::5432 $${img#*=} -c fsync=off -c full_page_writes=off -c synchronous_commit=off >/dev/null; \
+			-p 127.0.0.1::5432 $${img#*=} -c fsync=off -c full_page_writes=off -c synchronous_commit=off \
+			-c shared_preload_libraries=pg_stat_statements >/dev/null; \
 	done; \
 	docker run -d --name $(REALDB_PG_CONTAINER) \
 		-e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=postgres \

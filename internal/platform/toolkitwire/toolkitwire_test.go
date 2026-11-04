@@ -114,7 +114,7 @@ func TestAppDB_InstallsTheLiveToolkitAndThePersonaCheck(t *testing.T) {
 	toolkits = append(toolkits, &recording{})
 	all := func() []registry.Toolkit { return toolkits }
 	checker := &connChecker{}
-	AppDB(all, fixedAuthn{err: errors.New("no token")}, checker)
+	AppDB(all, fixedAuthn{err: errors.New("no token")}, checker, "admin")
 	t.Cleanup(func() { scriptsession.InstallAppDB(scriptsession.AppDB{}) })
 
 	assert.False(t, scriptsession.IsAppDB("shop"), "no postgres toolkit registered yet")
@@ -160,7 +160,7 @@ func TestAppDB_ATestDatabaseNeedsTheTestServerToo(t *testing.T) {
 		"host": "localhost", "database": "shop", "user": "u",
 		"sslmode": "disable", "test_connection": "scratch",
 	}))
-	AppDB(func() []registry.Toolkit { return []registry.Toolkit{pg} }, fixedAuthn{err: errors.New("no token")}, &connChecker{})
+	AppDB(func() []registry.Toolkit { return []registry.Toolkit{pg} }, fixedAuthn{err: errors.New("no token")}, &connChecker{}, "admin")
 	t.Cleanup(func() { scriptsession.InstallAppDB(scriptsession.AppDB{}) })
 
 	assert.Equal(t, "scratch", pg.TestServerOf("shop"))

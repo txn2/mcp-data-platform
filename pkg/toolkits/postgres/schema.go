@@ -75,6 +75,16 @@ type MigrationStore interface {
 // Without one the kind registers no tool. It is set before tools register.
 func (t *Toolkit) SetMigrationStore(s MigrationStore) { t.migrations = s }
 
+// SetSchemaChecks installs what status and describe add to their answers
+// (#2406, #2409): drift, the live schema against the one its applied
+// migrations build, and findings over a description (an unused index, a dead
+// tuple ratio). Each answers a JSON value; nil adds nothing.
+func (t *Toolkit) SetSchemaChecks(drift func(ctx context.Context, connection, schema string) any,
+	findings func(ctx context.Context, connection, schema string, d *Description) any,
+) {
+	t.driftCheck, t.findings = drift, findings
+}
+
 // schemaInput is manage_schema's arguments.
 type schemaInput struct {
 	Command        string `json:"command"`
@@ -178,18 +188,28 @@ func (t *Toolkit) runSchema(ctx context.Context, in schemaInput) (any, error) {
 	case schemaHistory:
 		return t.schemaHistory(ctx, in)
 	case schemaDescribe:
-		d, err := t.Describe(ctx, in.Connection, in.Schema)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{
-			keyConnection: in.Connection, keySchema: in.Schema, "server": d.Server,
-			"extensions": d.Extensions, "available_extensions": d.AvailableExtensions, "tables": d.Tables,
-			"functions": d.Functions, "enums": d.Enums, "domains": d.Domains,
-		}, nil
+		return t.schemaDescribe(ctx, in)
 	default:
 		return nil, fmt.Errorf("appdb: unknown command %q; the commands are status, add, plan, apply, down, history and describe", in.Command)
 	}
+}
+
+// schemaDescribe is describe: the schema read from the catalog, with the
+// findings over it when they are installed.
+func (t *Toolkit) schemaDescribe(ctx context.Context, in schemaInput) (any, error) {
+	d, err := t.Describe(ctx, in.Connection, in.Schema)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{
+		keyConnection: in.Connection, keySchema: in.Schema, "server": d.Server,
+		"extensions": d.Extensions, "available_extensions": d.AvailableExtensions, "tables": d.Tables,
+		"functions": d.Functions, "enums": d.Enums, "domains": d.Domains,
+	}
+	if t.findings != nil {
+		out["findings"] = t.findings(ctx, in.Connection, in.Schema, d)
+	}
+	return out, nil
 }
 
 // schemaHistory is history: the newest events first, at most maxHistory.
@@ -260,10 +280,14 @@ func (t *Toolkit) schemaStatus(ctx context.Context, in schemaInput) (any, error)
 	}
 	applied, pending, drift := st.Applied, st.Pending, st.Drift
 	c, _ := t.lookup(in.Connection)
-	return map[string]any{
+	out := map[string]any{
 		keyConnection: in.Connection, keySchema: in.Schema, "ledger": c.ledger(),
 		"current_version": currentOf(applied), "applied": applied, "pending": refsOf(pending), "drift": nonNilDrift(drift),
-	}, nil
+	}
+	if t.driftCheck != nil {
+		out["schema_drift"] = t.driftCheck(ctx, in.Connection, in.Schema)
+	}
+	return out, nil
 }
 
 func nonNilDrift(d []Drift) []Drift {

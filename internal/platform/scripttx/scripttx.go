@@ -56,7 +56,7 @@ var retryStates = map[string]bool{"40001": true, "40P01": true}
 // write through its transaction.
 var OutsideEffects = map[string]bool{
 	"platform.call": true, "platform.query": true, "platform.execute": true, CapabilityBatch: true,
-	CapabilityQueryIter: true, CapabilityCopyIn: true, CapabilityCopyOut: true,
+	CapabilityQueryIter: true, CapabilityCopyIn: true, CapabilityCopyOut: true, CapabilityMaintain: true,
 	"platform.export": true, "platform.publish_data": true, "platform.notify": true, "platform.publish": true,
 	"platform.save_state": true, "platform.mint_token": true,
 }

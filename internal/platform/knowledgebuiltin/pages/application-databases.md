@@ -12,8 +12,15 @@ flowchart LR
   S --> T["platform.transaction(fn)<br/>tx.query, tx.execute, tx.batch,<br/>tx.savepoint, tx.query_iter, tx.copy_in"]
   S --> B["platform.batch<br/>one round trip"]
   S --> P["platform.query_iter<br/>platform.copy_in, copy_out"]
+  S --> MT["platform.maintain<br/>analyze, vacuum, reindex"]
   T --> C["commit when fn returns,<br/>roll back when it fails"]
 ```
+
+Designing the schema itself (upserts, constraints, documents, search, time,
+security, queues, partitions) is covered page by page, starting from
+mcp:knowledge_page:platform-postgres-write-patterns; what does not work
+through the platform's pooled connections is
+mcp:knowledge_page:platform-postgres-what-does-not-work.
 
 ## One statement
 
@@ -236,6 +243,30 @@ generated columns, `WITHOUT OVERLAPS`, `NOT ENFORCED`), and against 18 on an
 index of a generated column declared without `STORED`. `COPY ... PROGRAM`,
 `CREATE LANGUAGE` or code in an untrusted language, `CREATE EVENT TRIGGER` and
 `ALTER SYSTEM` are refused.
+
+`status` also reports `schema_drift` for the schema: the applied migrations
+are built from zero on a throwaway database and compared with the live
+schema, and each object that differs (a table, column, constraint, index,
+trigger, policy, view, function, enum or domain) is named as added outside
+migrations, missing, or changed. Drift means someone changed the database by
+hand; write a migration that makes the change, or undo it, before the next
+apply. `describe` adds `findings` a build can act on in the schema its
+migrations made: an index never scanned, indexes that index the same thing,
+and a table whose dead rows outrun autovacuum.
+
+## Maintenance
+
+`platform.maintain(connection, command, table=None, on_error="raise")` runs
+`analyze`, `vacuum` (with ANALYZE), `vacuum_full` (VACUUM FULL, which holds an
+ACCESS EXCLUSIVE lock on the table while it rewrites it) or `reindex` (REINDEX
+TABLE CONCURRENTLY) outside a transaction, under a 5 second lock timeout, and
+returns `statement` and `duration_ms`. `analyze` and `vacuum` act on the whole
+database without a table; the other two need one. It is allowed for the
+administrator and the personas the connection's `schema_apply_personas`
+names, refused in a draft, and audited. A scheduled script calling it is how
+maintenance runs on a timer (the built-in example `example-nightly-maintenance`
+shows one). Creating or dropping an index is a schema change, refused here:
+add it as a migration.
 
 ## Tests against a real database
 

@@ -1209,3 +1209,15 @@ func replaying(source, runID, assertion string) string {
 	return source + "\ndef test_recorded_run():\n    \"\"\"The recorded run replays.\"\"\"\n    testing.replay(\"" +
 		runID + "\")\n    main()\n    " + assertion + "\n"
 }
+
+// A version records who the saving session authenticated as (#2450), so a
+// run of it files in that session's library; a save with no caller records
+// nobody and authors with no roles.
+func TestCallerAuthor_RecordsTheSavingSessionsSubject(t *testing.T) {
+	got := callerAuthor(authorCtx())
+	assert.Equal(t, script.Author{Email: "jane@example.com", Roles: []string{"analyst"}, Subject: "user-jane@example.com"}, got)
+
+	none := callerAuthor(context.Background())
+	assert.Empty(t, none.Subject)
+	assert.Equal(t, []string{}, none.Roles)
+}

@@ -1,0 +1,11 @@
+-- 000226: the library a script version's author saved it from (#2450).
+--
+-- A run acts for its version's author and files its managed resources in a
+-- user library. It used to find that library from the author's address, which
+-- resolves to the subject the person signs in to the portal as once they have.
+-- A version saved from a session authenticated by a configured API key then
+-- ran into a library that session cannot read. The subject the saving session
+-- authenticated as is recorded here, and a run of the version files there.
+-- Empty for a version saved before this column existed; its runs resolve the
+-- address as before.
+ALTER TABLE script_versions ADD COLUMN IF NOT EXISTS author_subject TEXT NOT NULL DEFAULT '';

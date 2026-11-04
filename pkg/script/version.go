@@ -42,6 +42,11 @@ type Author struct {
 	Email string
 	// Roles is the authority they held when they wrote it.
 	Roles []string
+	// Subject is who the saving session authenticated as, which keys the user
+	// library that session files in. A run of the version files there too, so
+	// a script saved from a configured API key's session writes where that
+	// session reads (#2450). Empty when the save had no authenticated caller.
+	Subject string
 }
 
 // Version is one immutable snapshot of a script's versioned fields (source,
@@ -63,9 +68,13 @@ type Version struct {
 	Author      string   `json:"author" example:"jane@example.com"`
 	// AuthorRoles is the authority the author held when this snapshot was
 	// written, and the roles a run of this version presents. See Author.
-	AuthorRoles []string  `json:"author_roles,omitempty" example:"analyst"`
-	Status      string    `json:"status" example:"applied"`
-	CreatedAt   time.Time `json:"created_at" example:"2026-08-13T14:30:00Z"`
+	AuthorRoles []string `json:"author_roles,omitempty" example:"analyst"`
+	// AuthorSubject is the subject the author's saving session authenticated
+	// as (Author.Subject). Not served: a version's definition is readable by
+	// everyone signed in, and an identity provider's subject is not theirs.
+	AuthorSubject string    `json:"-"`
+	Status        string    `json:"status" example:"applied"`
+	CreatedAt     time.Time `json:"created_at" example:"2026-08-13T14:30:00Z"`
 	// ChangeSummary is what this version does differently from the one before
 	// it, in plain language, when its save changed the script's behavior
 	// (#1942); ChangeAgreedBy confirmed the person it runs for agreed, at

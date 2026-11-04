@@ -200,7 +200,7 @@ def main():
 
 With `statement_cache` on, each statement is prepared on the physical connection that first runs it and run as a prepared statement after that, which saves the round trip that describes it. Each physical connection keeps at most 256 statements, least recently used dropped first. When the platform applies a migration, every connection drops what it holds at its next use; a change made outside the platform makes the first call fail with SQLSTATE `0A000` and the next one prepare the statement again. Behind PgBouncer in transaction mode a session's statements land on different server connections, so set `statement_cache: false` there.
 
-A statement that finds no free pooled connection within `pool_wait_timeout` fails naming the pool and its `max_conns`, rather than hanging the request.
+A statement that finds no free pooled connection within `pool_wait_timeout` fails naming the pool and its `max_conns`, rather than hanging the request. The bound is the wait for a connection other calls hold: a pool with room opens a new connection, and that is bounded by the connect timeout, so a slow connect is not reported as a full pool.
 
 ## Grants are the boundary
 
@@ -241,7 +241,7 @@ What a claim is worth depends on who wrote the SQL. The author of a script can s
 
 ## Statements the platform refuses
 
-`BEGIN`, `COMMIT`, `ROLLBACK` and `PREPARE TRANSACTION` are refused: the platform holds the transaction, and `platform.transaction` is how statements commit together. `SAVEPOINT`, `RELEASE` and `ROLLBACK TO` are refused naming [`tx.savepoint`](#savepoints), and `COPY` naming [`copy_in` and `copy_out`](#copying-rows-in-and-out). `DEALLOCATE` and `DISCARD` are refused too. A string holding two statements is refused by the server, since the extended protocol carries one.
+`BEGIN`, `COMMIT`, `ROLLBACK` and `PREPARE` are refused: the platform holds the transaction, and `platform.transaction` is how statements commit together. `SAVEPOINT`, `RELEASE` and `ROLLBACK TO` are refused naming [`tx.savepoint`](#savepoints), and `COPY` naming [`copy_in` and `copy_out`](#copying-rows-in-and-out). `DEALLOCATE` and `DISCARD` are refused too. A string holding two statements is refused by the server, since the extended protocol carries one.
 
 ## The platform's own database is never a target
 
@@ -393,6 +393,66 @@ def test_a_duplicate_email_is_refused():
 - The databases are created on the server of the connection's `test_connection`, the connection itself by default, with that connection's credentials and this connection's limits. A test server whose user lacks `CREATEDB` fails the test naming the privilege and the user. A test runs only when its run is allowed both the connection and its `test_connection`.
 - The `test_connection`'s user runs the migrations `add` checks and the statements tests make for every connection that names it. Give it `CREATEDB` on a server that holds nothing else, and no other privilege.
 - They are named `mcpt_<hash>_<head>` (a template, kept while it is the newest for its migrations), `mcpb_<unix seconds>_<random>` (one being built) and `mcpc_<unix seconds>_<random>` (a test's clone). Each replica runs a sweep, one at a time under an advisory lock on the platform's database, that drops builds and clones its test server's user owns older than `MCP_PLATFORM_APPDB_TEST_MAX_AGE` (default `1h`) every `MCP_PLATFORM_APPDB_TEST_SWEEP_INTERVAL` (default `10m`), and once at start: the ones a run that died never dropped. No other database is ever dropped. `DROP DATABASE ... WITH (FORCE)` needs PostgreSQL 13 or later.
+
+## Operating an application database
+
+The admin connection page (Admin > Connections, an application database) and the admin API under `/api/v1/admin/connection-instances/appdb/{name}/` carry what an operator does with a running application database. Every route is for administrators; a lesser persona is answered 403 and nothing about it changes any agent's `tools/list`. The kind still registers one MCP tool, `manage_schema`.
+
+```mermaid
+flowchart LR
+  L["health loop<br/>(one replica)"] --> H["samples:<br/>appdb_health_samples"]
+  L --> D["drift: applied migrations<br/>built on a throwaway database<br/>vs the live schema"]
+  H --> A["leveled alerts<br/>(family appdb)"]
+  D --> A
+  O["administrator"] --> R["health report, drift,<br/>adopt, maintenance,<br/>cancel/terminate, console"]
+  S["scheduled script"] --> M["platform.maintain"]
+```
+
+### Drift
+
+`GET .../drift` (and `manage_schema status`, under `schema_drift`) builds the schema the applied migrations produce on a throwaway database (the connection's `test_connection` server, whose user needs `CREATEDB`) and compares it with the live one: tables, columns with their types, nullability and defaults, constraints, indexes, triggers, policies, row-level security, partitions, views, functions, enums and domains. Each difference names the object and whether it was added outside migrations, is missing, or changed. Pending migrations are not built, so a migration added and not yet applied is not drift. A schema the platform keeps no migrations for is reported unchecked, with adopt as the way to manage it.
+
+### Adopting an existing schema
+
+`POST .../adopt?schema=public` reads a schema the platform keeps no migrations for and writes it as a baseline migration, version 1, marked applied in the target's ledger without running it. The baseline is generated from the catalog: extensions, enums, domains, sequences, tables (identity and generated columns, defaults, collations, storage parameters, partitions), constraints with foreign keys last, views and materialized views, functions and procedures (a SQL-standard body after the tables it reads), indexes, triggers, row-level security and policies, sequence ownership and comments, every name schema-qualified. Before it is saved it is applied from zero on a throwaway database and compared with the live schema; it is saved only when nothing differs, and otherwise the answer lists what still differs. Aggregates, composite and range types, rules, table inheritance, operators, collations, statistics objects, text search configurations and foreign tables refuse the adoption and are listed. Roles and grants are not written: they belong to the server. A schema already managed is answered 409.
+
+### Health
+
+`GET .../health` reads the database's own statistics views when asked: server version and extensions, size, transaction id age, connections by state against `max_connections`, each table's size, row estimate, live and dead tuples, sequential and index scans and its last vacuum and analyze, unused, duplicate and invalid indexes, sessions running past the long-running bound or idle in a transaction, blocking lock chains, the cache hit ratio, replication lag on a primary, and the statements `pg_stat_statements` ranks first by total time when the extension is installed and loaded by `shared_preload_libraries` (its absence, or installed and not loaded, is said, not failed). A section the database refuses is listed under `errors` and the rest stands. Session and statement text can repeat a literal: it is in this response alone, never stored, logged, sent in an alert or put in a metric label.
+
+One replica at a time (advisory lock 4713210404) samples every application database at the settings' interval and keeps the reading reduced to numbers in `appdb_health_samples`, with each managed schema's drift; `GET .../health/history?days=7` reads it. `manage_schema describe` adds `findings` over the schema its migrations made: an index never scanned since the statistics were reset that backs no constraint, indexes that index the same thing, and a table of 1,000 rows or more whose dead tuple share passes the dead tuple warning.
+
+### Alert settings
+
+`GET` and `PUT /api/v1/admin/appdb-health/settings` (the Health card's alert settings) hold the platform_settings section `appdb_health`: `channels` (notification channels the alerts go to), `interval_seconds` (300, at least 10), `history_days` (30), `long_running_seconds` (60), and a warning and critical threshold for each condition, 0 being off: `transaction_id_age` (500,000,000 and 1,000,000,000), `idle_in_transaction_seconds` (300 and 1,800, the longest idle session), `connections_percent` (80 and 95), `invalid_indexes` (1), `dead_tuple_percent` (20 and 50), `drift_objects` (1, judged per schema: each managed schema is a condition of its own). A condition over a threshold is posted at its level under family `appdb` and posted again when it clears; an alert names counts and objects, never statement text. A database that does not answer keeps its conditions as they stood.
+
+### Maintenance
+
+`POST .../maintenance` with `{"command": "analyze" | "vacuum" | "vacuum_full" | "reindex", "table": "schema.table", "timeout_seconds": 600}` runs `ANALYZE`, `VACUUM (ANALYZE)`, `VACUUM (FULL, ANALYZE)` (an ACCESS EXCLUSIVE lock on the table while it is rewritten) or `REINDEX TABLE CONCURRENTLY` outside a transaction as the connection's own login, under a 5 second `lock_timeout`, one statement through the extended protocol. `vacuum_full` and `reindex` need a table. Any other command, creating or dropping an index among them, is refused naming `manage_schema`.
+
+A script runs the same commands with `platform.maintain(connection, command, table=None)` (`analyze`, `vacuum`, `vacuum_full`, `reindex`), for the administrator persona and the personas the connection's `schema_apply_personas` names; any other persona's run fails naming the grant. It is refused in a draft. The built-in example `example-nightly-maintenance` is a scheduled one.
+
+### Cancelling and terminating a backend
+
+`POST .../backends/{pid}/cancel` or `.../terminate` sends `pg_cancel_backend` or `pg_terminate_backend` only to a backend in the connection's database logged in as one of the connection's roles (its user and each persona role); the check and the signal are one statement. Any other backend is refused and named by role and database. These are never a script binding.
+
+### Console
+
+`POST .../console` with `{"sql": "...", "params": [...], "read_only": true}` (or `"statements": [{"sql", "params"}]`) runs one statement or several in one transaction as the connection's own login through its pool, so the own-database refusal and the reset on release hold. It is READ ONLY unless `read_only` is false; a write in a read-only request is refused by the database and changes nothing, and with `read_only` false the answer says it committed. At most 50 statements and 1 MiB of SQL a request. What PostgreSQL said about a failure, DETAIL included, is in the answer alone.
+
+### What an operation records
+
+| Action | Audit row (event kind `admin`) |
+|--------|-------------------------------|
+| Console | source `admin_console`, tool `appdb_console`: the connection, `read_only`, each statement's SQL text and its parameters' names or positions and JSON types, never a value; whether it committed; the value-free summary of a failure |
+| Maintenance | tool `appdb_maintenance`: the connection, command and table |
+| Cancel, terminate | tool `appdb_signal`: the connection, signal and pid |
+| Adopt | tool `appdb_adopt`: the connection, schema, whether it was adopted and how many objects were unsupported or differed |
+| Settings | tool `appdb_health_settings` |
+
+A SQL literal typed into the console's SQL text is part of the text, and is in the audit row like any audited statement; bind values with `params` to keep them out. The connection's password and its persona roles' passwords reach no report, alert, error, log, span or metric label.
+
+Gauges per connection, from the newest sample: `appdb_health_size_bytes`, `appdb_health_transaction_id_age`, `appdb_health_connections`, `appdb_health_max_connections`, `appdb_health_idle_in_transaction_sessions`, `appdb_health_long_running_sessions`, `appdb_health_blocked_sessions`, `appdb_health_invalid_indexes`, `appdb_health_unused_indexes`, `appdb_health_schema_drift_objects` (across the managed schemas that could be checked), `appdb_health_dead_tuple_ratio`, `appdb_health_cache_hit_ratio`, each labeled by `connection` alone.
 
 ## What is recorded
 

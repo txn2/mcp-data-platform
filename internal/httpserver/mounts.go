@@ -287,7 +287,7 @@ func buildResourceClaims(user *portal.User, pr *persona.Registry, adminPersona s
 	}
 	if pr != nil {
 		for _, per := range pr.All() {
-			if matchesAnyRole(per.Roles, user.Roles) {
+			if rolesIntersect(user.Roles, per.Roles) {
 				claims.Personas = append(claims.Personas, per.Name)
 			}
 		}
@@ -316,16 +316,6 @@ func extractPersonaAdminRoles(roles []string) []string {
 		}
 	}
 	return out
-}
-
-// matchesAnyRole checks if any persona role matches any user role.
-func matchesAnyRole(personaRoles, userRoles []string) bool {
-	for _, pr := range personaRoles {
-		if slices.Contains(userRoles, pr) {
-			return true
-		}
-	}
-	return false
 }
 
 // mcpappsBrandName extracts brand_name from the mcpapps platform-info config,

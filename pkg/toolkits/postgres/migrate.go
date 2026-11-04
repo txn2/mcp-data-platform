@@ -232,6 +232,9 @@ type ApplyOptions struct {
 	OnDone func(m Migration, took time.Duration, err error)
 	// UpTo stops an apply at this version; nil applies everything pending.
 	UpTo *int
+	// MarkOnly writes each migration's ledger row without running it: a
+	// baseline adopted from a schema that already exists (#2406).
+	MarkOnly bool
 }
 
 // revertMigrations are the migrations a revert undoes, newest first; one with

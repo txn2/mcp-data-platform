@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -196,3 +197,9 @@ func TestHoldPageCountsTowardThePeak(t *testing.T) {
 		t.Fatalf("a closed loop still holds %d", h.paging)
 	}
 }
+
+func (shopOnly) RunMaintenance(context.Context, string, string, time.Duration, time.Duration) error {
+	return nil
+}
+
+func (shopOnly) ApplyPersonas(string) []string { return nil }
