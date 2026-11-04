@@ -422,10 +422,13 @@ func (ins *inspection) visit(call *syntax.CallExpr, dot *syntax.DotExpr) {
 	switch name {
 	case CapabilityQuery, CapabilityExecute:
 		ins.collectKeyword(call, "connection", ins.connections, &ins.dynamicConnections)
-	case scripttx.CapabilityTransaction, scripttx.CapabilityBatch:
+	case scripttx.CapabilityTransaction, scripttx.CapabilityBatch, scripttx.CapabilityQueryIter, scripttx.CapabilityCopyIn:
 		ins.collectFirstOrKeyword(call, "connection", ins.connections, &ins.dynamicConnections)
+	case scripttx.CapabilityCopyOut: // reads a connection and writes where an export does; destination is keyword-only
+		ins.collectFirstOrKeyword(call, "connection", ins.connections, &ins.dynamicConnections)
+		ins.visitExport(call, int(dot.NamePos.Line), false)
 	case CapabilityExport:
-		ins.visitExport(call, int(dot.NamePos.Line))
+		ins.visitExport(call, int(dot.NamePos.Line), true)
 	case CapabilityPublishData:
 		// A refresh writes to the portal and nowhere else, so the call
 		// contributes the portal to the destination list a reader sees.
@@ -460,10 +463,12 @@ func hasStarArg(call *syntax.CallExpr) bool {
 // to as incomplete rather than reporting a shorter list as a complete one.
 func (ins *inspection) unreadable(name string) {
 	switch name {
-	case CapabilityQuery, CapabilityExecute, scripttx.CapabilityTransaction, scripttx.CapabilityBatch:
+	case CapabilityQuery, CapabilityExecute, scripttx.CapabilityTransaction, scripttx.CapabilityBatch, scripttx.CapabilityQueryIter, scripttx.CapabilityCopyIn:
 		ins.dynamicConnections = true
 	case CapabilityExport:
 		ins.dynamicDestinations = true
+	case scripttx.CapabilityCopyOut:
+		ins.dynamicDestinations, ins.dynamicConnections = true, true
 	case CapabilityPublishData:
 		// A refresh writes to the portal whatever its arguments say, so the
 		// destination is still a fact; only the target name is unreadable.
@@ -476,8 +481,8 @@ func (ins *inspection) unreadable(name string) {
 }
 
 // visitExport records where one platform.export call writes.
-func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
-	if f, ok := refusePositionalDestination(call, line); ok {
+func (ins *inspection) visitExport(call *syntax.CallExpr, line int, positional bool) {
+	if f, ok := refusePositionalDestination(call, line); ok && positional {
 		// The engine refuses the call for the same reason, so reporting it here
 		// rather than reading past it keeps validate's answer and the run's
 		// behavior the same answer.
@@ -489,8 +494,13 @@ func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
 	if exportrefs.Declares(call) { // a manage_asset call, as register= below is manage_table (#1834)
 		ins.tools[exportrefs.Tool] = true
 	}
-	// register= is a manage_table call on the connection it names (#1820), and
-	// the reader of this report is owed it as surely as a platform.call's.
+	ins.visitRegister(call)
+}
+
+// visitRegister records a register= argument: a manage_table call on the
+// connection it names (#1820), which the reader of this report is owed as
+// surely as a platform.call's.
+func (ins *inspection) visitRegister(call *syntax.CallExpr) {
 	for _, arg := range call.Args {
 		if bin, ok := arg.(*syntax.BinaryExpr); ok && bin.Op == syntax.EQ {
 			if key, ok := bin.X.(*syntax.Ident); ok && key.Name == "register" {

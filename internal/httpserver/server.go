@@ -185,11 +185,12 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	mux.Handle("/healthz", hc.LivenessHandler())
 	mux.Handle("/readyz", hc.ReadinessHandler())
 
-	// Robots.txt — prevent search engines from indexing the portal.
-	mux.HandleFunc("GET /robots.txt", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain")
-		_, _ = fmt.Fprint(w, "User-agent: *\nDisallow: /\n")
-	})
+	// robots.txt and the tab icon every page names, both read without a session (#2460).
+	var logos []string
+	if p != nil {
+		logos = []string{p.Config().Portal.LogoLight, p.Config().Portal.Logo}
+	}
+	ui.MountSiteFiles(mux, logos...)
 
 	// Mount OAuth server if enabled
 	if p != nil && p.OAuthServer() != nil {

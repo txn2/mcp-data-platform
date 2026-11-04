@@ -26,6 +26,12 @@ func TestPositional_RewritesPlaceholdersAndKeepsValuesOutOfTheSQL(t *testing.T) 
 		{"list as an array", "WHERE id = ANY(:ids)", []binding{bound("ids", []any{int64(1), int64(2)})}, "WHERE id = ANY($1)", []any{[]any{int64(1), int64(2)}}},
 		{"none", "SELECT 1", nil, "SELECT 1", nil},
 		{"null", "WHERE x IS NOT DISTINCT FROM :x", []binding{bound("x", nil)}, "WHERE x IS NOT DISTINCT FROM $1", []any{nil}},
+		{
+			"a dict is one structured value", "INSERT INTO b VALUES (:during)",
+			[]binding{bound("during", map[string]any{"lower": "2026-11-03T10:00:00Z", "upper": nil})},
+			"INSERT INTO b VALUES ($1)",
+			[]any{map[string]any{"lower": "2026-11-03T10:00:00Z", "upper": nil}},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,7 +79,7 @@ func TestPositional_Refusals(t *testing.T) {
 		{"unused value", "SELECT 1", []binding{bound("a", "x")}, `params has "a" but the SQL has no :a placeholder`},
 		{"list after IN", "WHERE id IN :ids", []binding{bound("ids", []any{"a"})}, "write = ANY(:ids)"},
 		{"list after in (", "WHERE id in (:ids)", []binding{bound("ids", []any{"a"})}, "write = ANY(:ids)"},
-		{"table record", "SELECT * FROM :t", []binding{bound("t", map[string]any{"catalog": "c"})}, "registered table is a Trino table"},
+		{"table record", "SELECT * FROM :t", []binding{bound("t", map[string]any{"query_table": "c.s.t"})}, "registered table is a Trino table"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

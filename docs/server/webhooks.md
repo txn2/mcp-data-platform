@@ -401,6 +401,10 @@ second one. Attachments are not removed by `compacted_retention_days`: they stay
 until someone deletes them or the source is deleted, which removes the whole
 attachments folder with the source's tables and windows.
 
+### A message the mail client cannot read
+
+Some servers describe a message's structure in a form the IMAP protocol does not allow, such as `NIL` where a list of parts is required. When a batch of headers fails that way, the platform reconnects and fetches each message alone, and fetches a message that still fails without its structure, reading its attachments from the message itself. A message that cannot be read either way is skipped: the folder's place moves past it, so it is never retried, and it is recorded once in the source's rejections list with outcome `unreadable`, its folder and UID, and what the client could not read, which names protocol tokens and nothing of the message. It is counted in `webhook_requests_total{outcome="unreadable"}`. The other messages in the folder are filed as usual. A failure in one folder never stops the others: a connection the failure closed is opened again before the next folder.
+
 ### The source's page
 
 A mailbox source's page shows the server, the login, the allowed senders and, for
@@ -1111,7 +1115,7 @@ threshold is off. The spool volume is also a store on the
 
 | Series | Labels |
 |---|---|
-| `webhook_requests_total` | `source`, `outcome`: `accepted`, `unauthorized`, `too_large`, `rate_limited`, `buffer_full`, `spool_full`, `write_failed`, `sender_gone`, `unknown_source`, `invalid_body` |
+| `webhook_requests_total` | `source`, `outcome`: `accepted`, `unauthorized`, `too_large`, `rate_limited`, `buffer_full`, `spool_full`, `write_failed`, `sender_gone`, `unknown_source`, `invalid_body`, `unreadable` (a mailbox source's message the mail client could not read) |
 | `webhook_events_total` | `source` |
 | `webhook_segments_written_total` | `source` |
 | `webhook_compactions_total` | `source`, `result`: `compacted`, `failed` |

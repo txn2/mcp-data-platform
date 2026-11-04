@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/mailtrust"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whwrite"
 )
 
@@ -29,6 +30,11 @@ const maxPerPoll = 200
 
 // headerBatch is how many messages' headers one FETCH asks for.
 const headerBatch = 100
+
+// OutcomeUnreadable is a message skipped because the mail client could not
+// read the server's answer about it (#2459), as the source's rejections list
+// and webhook_requests_total name it.
+const OutcomeUnreadable = "unreadable"
 
 // sessionTimeout bounds one source's whole poll.
 const sessionTimeout = 5 * time.Minute
@@ -45,6 +51,10 @@ type Config struct {
 	RawWindows RawWindows
 	Marks      MarkStore
 	Files      Files
+	// Rejections and Metrics record a message skipped as unreadable; either
+	// may be nil.
+	Rejections Rejections
+	Metrics    Metrics
 	Lock       Lock
 	Replica    string
 	Logger     *slog.Logger
@@ -210,6 +220,9 @@ type folderPoll struct {
 	validity uint32
 	policy   mailtrust.Policy
 	mark     *Mark
+	// skipped are the messages the poll could not read, recorded once its
+	// watermark has moved past them.
+	skipped []imapmail.Unreadable
 }
 
 // pollFolder files the folder's mail above its watermark, oldest first, and
@@ -233,7 +246,7 @@ func (p *Poller) pollFolder(ctx context.Context, s *imapmail.Session, src whsour
 	if len(uids) > maxPerPoll {
 		uids = uids[:maxPerPoll]
 	}
-	fp := folderPoll{s: s, src: src, folder: folder, validity: validity, policy: policyOf(*src.Config.IMAP), mark: &mk}
+	fp := &folderPoll{s: s, src: src, folder: folder, validity: validity, policy: policyOf(*src.Config.IMAP), mark: &mk}
 	events, err := p.read(ctx, fp, uids)
 	if err != nil {
 		return p.fail(ctx, mk, err)
@@ -250,7 +263,38 @@ func (p *Poller) pollFolder(ctx context.Context, s *imapmail.Session, src whsour
 	if err := p.cfg.Marks.Put(ctx, mk); err != nil {
 		return fmt.Errorf("writing the mark of %s: %w", folder, err)
 	}
+	p.skip(ctx, *fp, now)
 	return nil
+}
+
+// skip records the messages a poll could not read. It runs once the
+// watermark has moved past them, so each is recorded once: logged, kept in
+// the source's rejections list with its folder, UID and the client's reason,
+// and counted. Nothing of the message itself is kept.
+func (p *Poller) skip(ctx context.Context, fp folderPoll, at time.Time) {
+	if len(fp.skipped) == 0 {
+		return
+	}
+	rejections := make([]whstore.Rejection, 0, len(fp.skipped))
+	for _, u := range fp.skipped {
+		reason := fmt.Sprintf("folder %s, message uid %d: the mail client could not read the server's answer about it: %s",
+			fp.folder, u.UID, u.Reason)
+		p.cfg.Logger.WarnContext(ctx, "webhooks: imap message skipped", "source", logsan.SanitizeForLog(fp.src.Name),
+			"folder", logsan.SanitizeForLog(fp.folder), "uid", u.UID, "reason", logsan.SanitizeForLog(u.Reason))
+		rejections = append(rejections, whstore.Rejection{
+			Source: fp.src.Name, At: at, FirstAt: at, Count: 1, Outcome: OutcomeUnreadable, Reason: reason,
+		})
+		if p.cfg.Metrics != nil {
+			p.cfg.Metrics.WebhookRequest(ctx, fp.src.Name, OutcomeUnreadable)
+		}
+	}
+	if p.cfg.Rejections == nil {
+		return
+	}
+	if err := p.cfg.Rejections.RecordRejections(ctx, rejections); err != nil {
+		p.cfg.Logger.WarnContext(ctx, "webhooks: recording an imap source's skipped messages", "source",
+			logsan.SanitizeForLog(fp.src.Name), "error", logsan.SanitizeForLog(err.Error()))
+	}
 }
 
 // fail records a folder's failed poll, leaving its watermark where it was.
@@ -265,15 +309,16 @@ func (p *Poller) fail(ctx context.Context, mk Mark, cause error) error {
 
 // read turns the messages at uids into events, counting the ones the sender
 // rules withhold.
-func (p *Poller) read(ctx context.Context, fp folderPoll, uids []uint32) ([]whevent.Event, error) {
+func (p *Poller) read(ctx context.Context, fp *folderPoll, uids []uint32) ([]whevent.Event, error) {
 	var events []whevent.Event
 	for start := 0; start < len(uids); start += headerBatch {
-		envs, err := fp.s.Headers(uids[start:min(start+headerBatch, len(uids))])
+		envs, bad, err := fp.s.Headers(uids[start:min(start+headerBatch, len(uids))])
 		if err != nil {
 			return nil, err //nolint:wrapcheck // the protocol package names itself
 		}
+		fp.skipped = append(fp.skipped, bad...)
 		for _, env := range envs {
-			ev, kept, err := p.one(ctx, fp, env)
+			ev, kept, err := p.one(ctx, *fp, env)
 			if err != nil {
 				return nil, err
 			}

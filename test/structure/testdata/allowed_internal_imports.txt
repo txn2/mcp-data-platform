@@ -1407,6 +1407,7 @@ internal/platform/scripttest -> internal/platform/scriptsession
 internal/platform/scripttest -> internal/platform/starlarkconv
 internal/platform/scripttest -> pkg/script
 internal/platform/scripttx -> internal/platform/scriptfail
+internal/platform/scripttx -> internal/platform/scriptout
 internal/platform/scripttx -> internal/platform/scriptsession
 internal/platform/scripttx -> internal/platform/scriptsql
 internal/platform/scripttx -> internal/platform/starlarkconv
@@ -1756,6 +1757,7 @@ internal/webhook/whimap -> internal/untrusted
 internal/webhook/whimap -> internal/webhook/whevent
 internal/webhook/whimap -> internal/webhook/whlayout
 internal/webhook/whimap -> internal/webhook/whsource
+internal/webhook/whimap -> internal/webhook/whstore
 internal/webhook/whimap -> internal/webhook/whwrite
 internal/webhook/whpg -> internal/bgloop
 internal/webhook/whpg -> internal/logsan
@@ -2368,6 +2370,7 @@ pkg/toolkits/postgres -> internal/cfgmap
 pkg/toolkits/postgres -> internal/connprobe
 pkg/toolkits/postgres -> internal/connstate
 pkg/toolkits/postgres -> internal/logsan
+pkg/toolkits/postgres -> internal/pgtext
 pkg/toolkits/postgres -> internal/secretref
 pkg/toolkits/postgres -> internal/sqltables
 pkg/toolkits/postgres -> pkg/mcpcontext

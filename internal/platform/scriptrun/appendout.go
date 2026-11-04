@@ -7,6 +7,7 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
 )
@@ -90,11 +91,21 @@ func (h *hostState) startAppend(b *starlark.Builtin, page ExportRequest) (*Expor
 
 // appendedBytes is what the appended outputs hold so far.
 func (h *hostState) appendedBytes() int64 {
-	var n int64
+	n := h.paging
 	for _, req := range h.appended {
 		n += int64(req.Spooled.Bytes())
 	}
 	return n
+}
+
+// holdPage records the page a query_iter loop holds outside the interpreter
+// (#2454), beside the appended outputs, as what the run holds there.
+func (h *hostState) holdPage(page starlark.Value) {
+	h.paging = 0
+	if page != nil {
+		h.paging = scriptguard.Size(page)
+	}
+	h.mem.Holding(h.appendedBytes())
 }
 
 // landAppended writes every appended output, and registers the table one

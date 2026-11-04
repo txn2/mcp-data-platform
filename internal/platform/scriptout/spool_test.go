@@ -95,3 +95,29 @@ func TestWithoutHeader_RefusesAnUnreadablePage(t *testing.T) {
 	_, err := withoutHeader([]byte("\"unterminated"))
 	require.Error(t, err)
 }
+
+func TestCopiedIsWrittenWholeInItsFormat(t *testing.T) {
+	csv := (&Copied{Data: []byte("a\n1\n"), Rows: 1, Format: "csv"}).Spool("out")
+	data, ident, err := csv.Data()
+	if err != nil || string(data) != "a\n1\n" || ident.ContentType != "text/csv" || ident.Extension != "csv" {
+		t.Fatalf("csv = %q %+v %v", data, ident, err)
+	}
+	if !csv.Copied() || csv.Rows() != 1 {
+		t.Errorf("a copied spool reports Copied and its rows: %v %d", csv.Copied(), csv.Rows())
+	}
+	c := &Copied{Data: []byte("a\t1\n"), Rows: 1, Format: CopyFormatText}
+	_, ident, _ = c.Spool("out").Data()
+	if ident.ContentType != "text/tab-separated-values" || ident.Extension != "tsv" {
+		t.Errorf("COPY text is stored as tsv: %+v", ident)
+	}
+	if c.String() != "<copied 1 rows>" || c.Type() != "copied" || !bool(c.Truth()) {
+		t.Errorf("value methods: %s %s %v", c.String(), c.Type(), c.Truth())
+	}
+	c.Freeze()
+	if _, err := c.Hash(); err == nil {
+		t.Error("copied bytes hash")
+	}
+	if s, _ := NewSpool("x", "csv"); s.Copied() {
+		t.Error("an appended output's spool is not copied")
+	}
+}

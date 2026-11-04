@@ -83,6 +83,14 @@ type Tx struct {
 	timer  *time.Timer
 	unhook func() bool
 	forget func()
+	// savepoints are the open savepoints, innermost last (#2452), and
+	// aborted the failure of a statement inside the innermost: PostgreSQL
+	// refuses every statement after it until the transaction is rolled back
+	// to that savepoint.
+	savepoints []string
+	aborted    error
+	// cursors numbers the cursors declared in the transaction (#2454).
+	cursors int
 }
 
 // Begin opens a transaction on an application database. ctx is the run's: the
@@ -171,6 +179,9 @@ func (x *Tx) statement(ctx context.Context, s Statement, limit int, stop cancelO
 		return nil, err
 	}
 	defer x.leave()
+	if err := x.usableAfterFailure(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, effectiveTimeout(x.c.cfg, s.TimeoutSeconds)+graceAfterTimeout)
 	defer cancel()
 	set, err := x.c.runStatement(ctx, x.tx, stmt, limit, stop)
@@ -194,6 +205,9 @@ func (x *Tx) Batch(ctx context.Context, stmts []Statement) ([]*Result, error) {
 		return nil, err
 	}
 	defer x.leave()
+	if err := x.usableAfterFailure(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, x.c.cfg.StatementTimeout+graceAfterTimeout)
 	defer cancel()
 	sets, err := x.c.runBatch(ctx, x.tx, bound, x.c.cfg.MaxRows)
@@ -214,6 +228,93 @@ func (x *Tx) result(set rowSet, limit int) *Result {
 		Connection: x.c.cfg.ConnectionName, Command: set.command, RowsAffected: set.affected,
 		Columns: set.columns, Rows: set.rows, Truncated: set.truncated, Limit: limit,
 	}
+}
+
+// usableAfterFailure refuses a statement after one inside the innermost
+// savepoint failed: PostgreSQL runs none until the transaction is rolled back
+// to it, which the savepoint's function returning does. Called with the lock
+// held.
+func (x *Tx) usableAfterFailure() error {
+	if x.aborted == nil {
+		return nil
+	}
+	return &FailedError{Code: CodeStatementFailed, Summary: fmt.Sprintf(
+		"%s: a statement in savepoint %s failed (%s); no statement runs until its function returns and the "+
+			"platform rolls the transaction back to it", errPrefix, x.savepoints[len(x.savepoints)-1], x.aborted.Error())}
+}
+
+// Savepoint opens a savepoint inside the transaction (#2452), named by the
+// platform and returned for Release or RollbackTo. Savepoints nest; each is
+// released or rolled back before the one it is inside.
+func (x *Tx) Savepoint(ctx context.Context) (string, error) {
+	if err := x.enter(); err != nil {
+		return "", err
+	}
+	defer x.leave()
+	if err := x.usableAfterFailure(); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("mcp_sp_%d", len(x.savepoints)+1)
+	if err := x.control(ctx, "SAVEPOINT "+name); err != nil {
+		return "", err
+	}
+	x.savepoints = append(x.savepoints, name)
+	return name, nil
+}
+
+// Release ends savepoint name, keeping what was done in it. When a statement
+// in it failed, the transaction is rolled back to it instead, and that
+// failure is returned: its work is not kept, and the transaction goes on.
+func (x *Tx) Release(ctx context.Context, name string) error {
+	return x.closeSavepoint(ctx, name, false)
+}
+
+// RollbackTo undoes what was done in savepoint name and ends it, whether or
+// not a statement in it failed. The transaction goes on.
+func (x *Tx) RollbackTo(ctx context.Context, name string) error {
+	return x.closeSavepoint(ctx, name, true)
+}
+
+func (x *Tx) closeSavepoint(ctx context.Context, name string, rollback bool) error {
+	if err := x.enter(); err != nil {
+		return err
+	}
+	defer x.leave()
+	if n := len(x.savepoints); n == 0 || x.savepoints[n-1] != name {
+		return &RefusedError{Code: CodeInvalidStatement, msg: fmt.Sprintf(
+			"%s: savepoint %q is not the innermost open savepoint", errPrefix, name)}
+	}
+	failure := x.aborted
+	if rollback || failure != nil {
+		if err := x.control(ctx, "ROLLBACK TO SAVEPOINT "+name); err != nil {
+			return err
+		}
+	}
+	if err := x.control(ctx, "RELEASE SAVEPOINT "+name); err != nil {
+		return err
+	}
+	x.savepoints, x.aborted = x.savepoints[:len(x.savepoints)-1], nil
+	if rollback {
+		// The rollback undid the failure, which the caller already has from
+		// the statement that failed.
+		return nil
+	}
+	return failure
+}
+
+// control runs one of the platform's own savepoint statements. Its failure
+// ends the transaction. Called with the lock held.
+func (x *Tx) control(ctx context.Context, sql string) error {
+	ctx, cancel := context.WithTimeout(ctx, x.c.cfg.StatementTimeout+graceAfterTimeout)
+	defer cancel()
+	_, err := x.tx.Exec(ctx, sql)
+	observe(x.c.cfg.ConnectionName, err)
+	if err != nil {
+		x.rollbackLocked(endedStmtFailed)
+		x.c.rec().RecordAppDBTransaction(context.Background(), x.c.cfg.ConnectionName, txRolledBack)
+		return x.c.failure(ctx, err)
+	}
+	return nil
 }
 
 // Commit commits the transaction. A serialization failure or deadlock found
@@ -272,12 +373,17 @@ func (x *Tx) leave() {
 	x.mu.Unlock()
 }
 
-// failed ends the transaction after a statement in it failed. Called with the
+// failed ends the transaction after a statement in it failed, or, inside a
+// savepoint, holds it until the savepoint is rolled back. Called with the
 // lock held.
 func (x *Tx) failed(err error) {
 	// A statement the platform refused before sending it left the
 	// transaction as it was.
 	if _, refused := errors.AsType[*refusedInputError](err); refused {
+		return
+	}
+	if len(x.savepoints) > 0 && x.aborted == nil && statementError(err) != nil {
+		x.aborted = x.c.failure(context.Background(), err)
 		return
 	}
 	x.rollbackLocked(endedStmtFailed)

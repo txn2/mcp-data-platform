@@ -114,6 +114,7 @@ var Capabilities = []string{
 	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
 	CapabilityCheckpoint, CapabilityRemainingMS, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
 	scripttoken.CapabilityMint, scripttoken.CapabilityVerify, scripttoken.CapabilityDecrypt, scripttx.CapabilityTransaction, scripttx.CapabilityBatch,
+	scripttx.CapabilityQueryIter, scripttx.CapabilityCopyIn, scripttx.CapabilityCopyOut,
 }
 
 // The formats platform.export accepts, split by what serializes them. A format
@@ -157,10 +158,6 @@ const maxExports = 16
 // by position: name, rows, and format. Everything after them decides where the
 // output goes and must be named, so a static read of the source can report it.
 const exportPositionalArgs = 3
-
-// minStateEntryBytes is the fewest bytes one state entry costs serialized: two
-// quotes, a colon and a separator around an empty key and a one-byte value.
-const minStateEntryBytes = 5
 
 // callArgsPosition is which positional argument of platform.call carries the
 // tool's argument set: the tool name is first, the arguments second. Named so
@@ -223,7 +220,9 @@ type hostState struct {
 	// appended are the outputs the run appends to with append=True, in the
 	// order they were started; each is written once, when the run succeeds,
 	// and recorded at appendedAt, its place among the outputs in call order.
-	appended   []*ExportRequest
+	appended []*ExportRequest
+	// paging is the page a query_iter loop holds outside the interpreter.
+	paging     int64
 	appendedAt []int
 	// site is where in the script the host call in progress was made (#1907),
 	// carried on everything that call records.
@@ -284,7 +283,7 @@ func (h *hostState) saveState(_ *starlark.Thread, b *starlark.Builtin, args star
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "state", &value); err != nil {
 		return nil, argErr(b, err)
 	}
-	object, err := stateObject(value)
+	object, err := starlarkconv.StateObject(value, script.MaxStateBytes)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
@@ -310,7 +309,7 @@ func (h *hostState) checkpoint(_ *starlark.Thread, b *starlark.Builtin, args sta
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "state", &value); err != nil {
 		return nil, argErr(b, err)
 	}
-	object, err := stateObject(value)
+	object, err := starlarkconv.StateObject(value, script.MaxStateBytes)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
@@ -345,35 +344,6 @@ func (h *hostState) clock() scriptpace.Clock {
 		c.Recorded = values.HostValue
 	}
 	return c
-}
-
-// stateObject converts the dict a script passed to save_state into the plain
-// object the platform stores. A value that cannot cross into JSON — a function,
-// a set — is refused naming its key, so the author is told which entry to fix.
-func stateObject(value *starlark.Dict) (map[string]any, error) {
-	if value == nil {
-		return map[string]any{}, nil
-	}
-	// Every key costs at least its quotes, a colon and a separator once
-	// serialized, so a dict with more keys than the bound can hold is refused
-	// before it is walked rather than converted whole and then measured.
-	if value.Len()*minStateEntryBytes > script.MaxStateBytes {
-		return nil, fmt.Errorf("the state has %d keys, more than the %d-byte limit can hold; state is a cursor or a summary, so keep a table as a resource instead",
-			value.Len(), script.MaxStateBytes)
-	}
-	out := make(map[string]any, value.Len())
-	for _, item := range value.Items() {
-		key, ok := item[0].(starlark.String)
-		if !ok {
-			return nil, fmt.Errorf("state keys must be strings, got %s", item[0].Type())
-		}
-		converted, err := starlarkconv.FromStarlark(item[1])
-		if err != nil {
-			return nil, fmt.Errorf("state key %q: %w", string(key), err)
-		}
-		out[string(key)] = converted
-	}
-	return out, nil
 }
 
 // resolveDestination turns the destination a script named into the address the
@@ -1192,6 +1162,10 @@ func exportContent(b *starlark.Builtin, format string, rows starlark.Value, req 
 		if req.Workbook, err = scriptout.WorkbookArg(rows); err != nil {
 			return argErr(b, err)
 		}
+		return nil
+	}
+	if c, ok := rows.(*scriptout.Copied); ok { // platform.copy_out's bytes (#2453)
+		req.Spooled = c.Spool(req.Name)
 		return nil
 	}
 	if s, ok := rows.(starlark.String); ok {

@@ -1974,6 +1974,8 @@ func TestPublicAssetViewerEmitsOGMetadata(t *testing.T) {
 	assert.Contains(t, body, `<meta property="og:description" content="Quarterly cover image">`)
 	assert.Contains(t, body, `<meta property="og:url" content="https://share.example.com/portal/view/tok1">`)
 	assert.Contains(t, body, `<meta property="og:site_name" content="ACME Data Platform">`)
+	// The tab icon is the public /favicon.ico, read signed out (#2460).
+	assert.Contains(t, body, `<link rel="icon" href="/favicon.ico">`)
 	// Image-typed asset → og:image points at /content (raw asset).
 	assert.Contains(t, body, `<meta property="og:image" content="https://share.example.com/portal/view/tok1/content">`)
 	// Twitter card upgrades to summary_large_image when og:image is present.
@@ -2043,6 +2045,7 @@ func TestPublicCollectionViewerEmitsOGMetadata(t *testing.T) {
 	body := w.Body.String()
 
 	assert.Contains(t, body, `<meta property="og:title" content="Q4 Review">`)
+	assert.Contains(t, body, `<link rel="icon" href="/favicon.ico">`)
 	assert.Contains(t, body, `<meta property="og:description" content="Executive review pack">`)
 	assert.Contains(t, body, `<meta property="og:url" content="https://share.example.com/portal/view/tok1">`)
 	assert.Contains(t, body, `<meta property="og:image" content="https://share.example.com/portal/view/tok1/collection-thumbnail">`)

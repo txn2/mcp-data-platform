@@ -3,6 +3,7 @@ package scripttest
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -53,6 +54,16 @@ func (*usersDB) Batch(context.Context, string, []postgres.Statement) ([]*postgre
 
 func (*usersDB) Begin(context.Context, postgres.TxOptions) (scriptsession.AppDBTx, error) {
 	return nil, errors.New("unused")
+}
+
+func (*usersDB) OpenCursor(context.Context, postgres.Statement, int) (scriptsession.AppDBCursor, error) {
+	return nil, nil //nolint:nilnil // never called
+}
+
+func (*usersDB) CopyIn(context.Context, postgres.CopyIn) (int64, error) { return 0, nil }
+
+func (*usersDB) CopyOut(context.Context, postgres.Statement, string, io.Writer, int64) (*postgres.CopyOutResult, error) {
+	return nil, nil //nolint:nilnil // never called
 }
 
 // live is the connection's own database, which a test never reaches.

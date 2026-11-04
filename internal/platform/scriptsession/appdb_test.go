@@ -3,6 +3,7 @@ package scriptsession
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,54 @@ type fakeAppDB struct {
 	begun     []postgres.TxOptions
 	beginErr  error
 	txs       []*fakeTx
+	// cursors are the cursors opened, and copied the copy_in calls.
+	cursors []*fakeCursor
+	copied  []postgres.CopyIn
+}
+
+// fakeCursor serves pages of one row each until it has served rows.
+type fakeCursor struct {
+	rows   int
+	served int
+	closed bool
+	err    error
+}
+
+func (k *fakeCursor) Next(context.Context) (*postgres.Result, bool, error) {
+	if k.err != nil {
+		return nil, true, k.err
+	}
+	k.served++
+	return &postgres.Result{Connection: "shop", Columns: []postgres.Column{{Name: "n", Type: "integer"}}, Rows: [][]any{{int64(k.served)}}},
+		k.served >= k.rows, nil
+}
+
+func (k *fakeCursor) Close() { k.closed = true }
+
+func (f *fakeAppDB) OpenCursor(ctx context.Context, s postgres.Statement, _ int) (AppDBCursor, error) {
+	f.ids = append(f.ids, postgres.IdentityOf(ctx))
+	f.got = append(f.got, s)
+	if f.err != nil {
+		return nil, f.err
+	}
+	k := &fakeCursor{rows: 2}
+	f.cursors = append(f.cursors, k)
+	return k, nil
+}
+
+func (f *fakeAppDB) CopyIn(ctx context.Context, in postgres.CopyIn) (int64, error) {
+	f.ids = append(f.ids, postgres.IdentityOf(ctx))
+	f.copied = append(f.copied, in)
+	return int64(len(in.Rows)), f.err
+}
+
+func (f *fakeAppDB) CopyOut(_ context.Context, s postgres.Statement, _ string, w io.Writer, _ int64) (*postgres.CopyOutResult, error) {
+	f.got = append(f.got, s)
+	if f.err != nil {
+		return nil, f.err
+	}
+	n, _ := io.WriteString(w, "n\n1\n2\n")
+	return &postgres.CopyOutResult{Rows: 2, Bytes: int64(n)}, nil
 }
 
 func (*fakeAppDB) HasConnection(name string) bool { return name == "shop" }
@@ -75,6 +124,7 @@ type fakeTx struct {
 	committed  bool
 	rolledBack bool
 	commitErr  error
+	savepoints []string
 }
 
 func (x *fakeTx) Connection() string { return x.conn }
@@ -100,6 +150,30 @@ func (x *fakeTx) Commit(context.Context) error {
 }
 
 func (x *fakeTx) Rollback() { x.rolledBack = true }
+
+func (x *fakeTx) OpenCursor(ctx context.Context, s postgres.Statement, n int) (AppDBCursor, error) {
+	x.stmts = append(x.stmts, s)
+	return x.db.OpenCursor(ctx, s, n)
+}
+
+func (x *fakeTx) CopyIn(ctx context.Context, in postgres.CopyIn) (int64, error) {
+	return x.db.CopyIn(ctx, in)
+}
+
+func (x *fakeTx) Savepoint(context.Context) (string, error) {
+	x.savepoints = append(x.savepoints, "open")
+	return "mcp_sp_1", x.db.err
+}
+
+func (x *fakeTx) Release(_ context.Context, name string) error {
+	x.savepoints = append(x.savepoints, "release "+name)
+	return x.db.err
+}
+
+func (x *fakeTx) RollbackTo(_ context.Context, name string) error {
+	x.savepoints = append(x.savepoints, "rollback_to "+name)
+	return x.db.err
+}
 
 // install puts db in place for one test and removes it after.
 func install(t *testing.T, db AppDBRunner, authorize func(context.Context, string) error) {
@@ -449,4 +523,134 @@ func TestAppDBCaller_Identity(t *testing.T) {
 	_, err = newAppDBCaller(context.Background()).call(context.Background(), AppDBQuery, stmt)
 	require.NoError(t, err)
 	assert.Equal(t, []postgres.Identity{{Persona: "clerk"}}, db.ids, "a session with no identity claims nothing")
+}
+
+func TestAppDBCaller_Savepoints(t *testing.T) {
+	db := &fakeAppDB{result: &postgres.Result{Connection: "shop"}}
+	install(t, db, nil)
+	c := newAppDBCaller(context.Background())
+	_, err := c.call(context.Background(), AppDBBegin, map[string]any{"connection": "shop"})
+	require.NoError(t, err)
+
+	out, err := c.call(context.Background(), AppDBSavepoint, map[string]any{"transaction": "tx1"})
+	require.NoError(t, err)
+	assert.Equal(t, "mcp_sp_1", out["savepoint"])
+	out, err = c.call(context.Background(), AppDBRelease, map[string]any{"transaction": "tx1", "savepoint": "mcp_sp_1"})
+	require.NoError(t, err)
+	assert.Equal(t, true, out["released"])
+	out, err = c.call(context.Background(), AppDBRollbackTo, map[string]any{"transaction": "tx1", "savepoint": "mcp_sp_1"})
+	require.NoError(t, err)
+	assert.Equal(t, false, out["released"])
+	assert.Equal(t, []string{"open", "release mcp_sp_1", "rollback_to mcp_sp_1"}, db.txs[0].savepoints)
+	assert.False(t, db.txs[0].committed || db.txs[0].rolledBack, "a savepoint leaves the transaction open")
+
+	db.err = &postgres.FailedError{Code: postgres.CodeStatementFailed, Summary: "statement failed"}
+	_, err = c.call(context.Background(), AppDBSavepoint, map[string]any{"transaction": "tx1"})
+	require.Error(t, err)
+	_, err = c.call(context.Background(), AppDBRelease, map[string]any{"transaction": "tx1", "savepoint": "mcp_sp_1"})
+	require.Error(t, err)
+	assert.True(t, IsAppDBCall(AppDBSavepoint) && IsAppDBCall(AppDBRelease) && IsAppDBCall(AppDBRollbackTo))
+}
+
+func TestAppDBCaller_CursorsReadInPagesAndCloseWithTheRun(t *testing.T) {
+	db := &fakeAppDB{result: &postgres.Result{Connection: "shop"}}
+	install(t, db, nil)
+	c := newAppDBCaller(context.Background())
+	ctx := context.Background()
+
+	out, err := c.call(ctx, AppDBCursorOpen, map[string]any{"connection": "shop", "sql": "SELECT n FROM t", "page_rows": 1})
+	require.NoError(t, err)
+	assert.Equal(t, "cursor1", out["cursor"])
+	page, err := c.call(ctx, AppDBCursorFetch, map[string]any{"cursor": "cursor1", "page": 1})
+	require.NoError(t, err)
+	assert.Equal(t, false, page["done"])
+	assert.Equal(t, []any{map[string]any{"n": int64(1)}}, page["rows"])
+	page, err = c.call(ctx, AppDBCursorFetch, map[string]any{"cursor": "cursor1", "page": 2})
+	require.NoError(t, err)
+	assert.Equal(t, true, page["done"])
+	_, err = c.call(ctx, AppDBCursorClose, map[string]any{"cursor": "cursor1"})
+	require.NoError(t, err)
+	assert.True(t, db.cursors[0].closed)
+	_, err = c.call(ctx, AppDBCursorFetch, map[string]any{"cursor": "cursor1", "page": 3})
+	require.Error(t, err, "a closed cursor is gone")
+
+	// In a transaction, and left open: the run's end closes it.
+	_, err = c.call(ctx, AppDBBegin, map[string]any{"connection": "shop"})
+	require.NoError(t, err)
+	_, err = c.call(ctx, AppDBCursorOpen, map[string]any{"transaction": "tx1", "sql": "SELECT n FROM t"})
+	require.NoError(t, err)
+	assert.Equal(t, "shop", db.txs[0].stmts[0].Connection)
+	c.close()
+	assert.True(t, db.cursors[1].closed)
+	assert.True(t, db.txs[0].rolledBack)
+
+	_, err = c.call(ctx, AppDBCursorOpen, map[string]any{"transaction": "tx9", "sql": "SELECT 1"})
+	require.Error(t, err)
+	_, err = c.call(ctx, AppDBCursorOpen, map[string]any{"sql": "SELECT 1"})
+	require.Error(t, err, "a cursor names its connection")
+	db.err = &postgres.FailedError{Code: postgres.CodeStatementFailed, Summary: "no"}
+	_, err = c.call(ctx, AppDBCursorOpen, map[string]any{"connection": "shop", "sql": "SELECT 1"})
+	require.Error(t, err)
+}
+
+func TestAppDBCaller_CopyInAndOut(t *testing.T) {
+	db := &fakeAppDB{result: &postgres.Result{Connection: "shop"}}
+	install(t, db, nil)
+	c := newAppDBCaller(context.Background())
+	ctx := context.Background()
+	args := map[string]any{
+		"connection": "shop", "table": "items", "columns": []any{"sku", "qty"},
+		"rows": []any{[]any{"a", int64(1)}, []any{"b", int64(2)}},
+	}
+	out, err := c.call(ctx, AppDBCopyIn, args)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), out["rows_written"])
+	require.Len(t, db.copied, 1)
+	assert.Equal(t, postgres.CopyIn{
+		Connection: "shop", Table: "items", Columns: []string{"sku", "qty"},
+		Rows: [][]any{{"a", int64(1)}, {"b", int64(2)}},
+	}, db.copied[0])
+
+	_, err = c.call(ctx, AppDBBegin, map[string]any{"connection": "shop"})
+	require.NoError(t, err)
+	_, err = c.call(ctx, AppDBCopyIn, map[string]any{"transaction": "tx1", "table": "items", "columns": []any{"sku"}, "rows": []any{[]any{"c"}}})
+	require.NoError(t, err)
+	assert.Equal(t, "shop", db.copied[1].Connection)
+	_, err = c.call(ctx, AppDBCopyIn, map[string]any{"connection": "shop", "table": "items"})
+	require.Error(t, err, "a statement outside the open transaction is refused")
+	_, err = c.call(ctx, AppDBCopyIn, map[string]any{"transaction": "tx9"})
+	require.Error(t, err)
+	_, err = c.call(ctx, AppDBRollback, map[string]any{"transaction": "tx1"})
+	require.NoError(t, err)
+
+	got, err := c.call(ctx, AppDBCopyOut, map[string]any{"connection": "shop", "sql": "SELECT n FROM t", "format": "csv", "max_bytes": 100})
+	require.NoError(t, err)
+	assert.Equal(t, []byte("n\n1\n2\n"), got["data"])
+	assert.Equal(t, int64(2), got["rows"])
+	_, err = c.call(ctx, AppDBCopyOut, map[string]any{"sql": "SELECT 1"})
+	require.Error(t, err)
+	db.err = &postgres.FailedError{Code: postgres.CodeStatementFailed, Summary: "no"}
+	_, err = c.call(ctx, AppDBCopyIn, args)
+	require.Error(t, err)
+	_, err = c.call(ctx, AppDBCopyOut, map[string]any{"connection": "shop", "sql": "SELECT 1"})
+	require.Error(t, err)
+}
+
+func TestRecordedArgsAndOutKeepNoCopiedValues(t *testing.T) {
+	args := map[string]any{
+		"connection": "shop", "table": "items", "columns": []any{"sku"},
+		"rows": []any{[]any{"canary-row-value"}, []any{"b"}},
+	}
+	kept := RecordedArgs(AppDBCopyIn, args)
+	assert.Equal(t, map[string]any{"connection": "shop", "table": "items", "columns": []any{"sku"}, "row_count": 2}, kept)
+	assert.Equal(t, kept, RecordedArgs(AppDBCopyIn, kept), "a second pass changes nothing")
+	assert.Contains(t, args, "rows", "the call's own arguments are left alone")
+	other := map[string]any{"sql": "SELECT 1"}
+	assert.Equal(t, other, RecordedArgs(AppDBQuery, other))
+
+	out := map[string]any{"rows": int64(2), "data": []byte("secret")}
+	assert.Equal(t, map[string]any{"rows": int64(2)}, RecordedOut(AppDBCopyOut, out))
+	assert.Contains(t, out, "data")
+	assert.Nil(t, RecordedOut(AppDBCopyOut, nil))
+	assert.Equal(t, out, RecordedOut(AppDBQuery, out))
 }

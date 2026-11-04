@@ -608,7 +608,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		log = scriptlive.New(opts.MaxLogBytes, 0)
 	}
 	host := &hostState{opts: opts, ctx: runCtx, log: log, mem: scriptguard.NewMeter(opts.MaxMemoryBytes)}
-	host.tx = &scripttx.Host{Ctx: runCtx, Invoke: host.invokeRaw, Rows: host.queryResult, Failed: host.failed, Replaying: opts.Test != nil}
+	host.tx = &scripttx.Host{
+		Ctx: runCtx, Invoke: host.invokeRaw, Rows: host.queryResult, Failed: host.failed, Replaying: opts.Test != nil,
+		Check: host.mem.Check, Hold: host.holdPage,
+	}
+	host.tx.Export = starlark.NewBuiltin(scripttx.CapabilityCopyOut, host.export)
 	var overStep atomic.Bool
 
 	thread := &starlark.Thread{
@@ -645,6 +649,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		// An appended output is written once, and only by a run that got to
 		// the end: its pages are the whole file only then (#1861).
 		execErr = host.landAppended()
+	}
+	if stopped := host.tx.Stopped(); stopped != nil && execErr != nil { // a loop stopped the run (#2454)
+		execErr = errors.Join(stopped, execErr)
 	}
 	var runErr error
 	if execErr != nil { // classified before the log is read, which then says why
@@ -755,6 +762,9 @@ func predeclared(host *hostState) starlark.StringDict {
 				"call":         starlark.NewBuiltin(CapabilityCall, host.guarded(host.call)),
 				"transaction":  starlark.NewBuiltin(scripttx.CapabilityTransaction, host.guarded(host.tx.Transaction)),
 				"batch":        starlark.NewBuiltin(scripttx.CapabilityBatch, host.guarded(host.tx.Batch)),
+				"query_iter":   starlark.NewBuiltin(scripttx.CapabilityQueryIter, host.guarded(host.tx.QueryIter)),
+				"copy_in":      starlark.NewBuiltin(scripttx.CapabilityCopyIn, host.guarded(host.tx.CopyIn)),
+				"copy_out":     starlark.NewBuiltin(scripttx.CapabilityCopyOut, host.guarded(host.tx.CopyOut)),
 				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.guarded(host.saveState)),
 				"checkpoint":   starlark.NewBuiltin(CapabilityCheckpoint, host.guarded(host.checkpoint)),
 				"remaining_ms": starlark.NewBuiltin(CapabilityRemainingMS, host.guarded(clock.RemainingMS)),

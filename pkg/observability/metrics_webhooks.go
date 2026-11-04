@@ -11,7 +11,8 @@ import (
 // Inbound webhook instruments (#1870). Exposed names:
 //
 //   - webhook_requests_total{source, outcome}   accepted, unauthorized, too_large, rate_limited,
-//     buffer_full, spool_full, write_failed, unknown_source, invalid_body, sender_gone
+//     buffer_full, spool_full, write_failed, unknown_source, invalid_body, sender_gone,
+//     unreadable (a mailbox source's message the mail client could not read, #2459)
 //   - webhook_events_total{source}              events acknowledged
 //   - webhook_segments_written_total{source}    raw segments written to object storage
 //   - webhook_compactions_total{source, result} compacted, failed

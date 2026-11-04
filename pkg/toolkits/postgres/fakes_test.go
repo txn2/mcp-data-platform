@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -78,8 +79,19 @@ func (f *fakeTx) typeRows(literal string) *fakeRows {
 	var rows [][]any
 	for part := range strings.SplitSeq(strings.Trim(literal, "{}"), ",") {
 		oid, _ := strconv.ParseUint(part, 10, 32)
+		if oid > math.MaxUint32 {
+			continue
+		}
 		if ti, ok := f.types[uint32(oid)]; ok {
-			rows = append(rows, []any{uint32(oid), ti.name, ti.display, ti.array})
+			kind := ti.kind
+			if kind == "" {
+				kind = "b"
+			}
+			var elem uint32
+			if ti.elem != nil {
+				elem = ti.elem.oid
+			}
+			rows = append(rows, []any{uint32(oid), ti.name, ti.display, ti.array, kind, elem})
 		}
 	}
 	return &fakeRows{rows: rows, tag: "SELECT"}

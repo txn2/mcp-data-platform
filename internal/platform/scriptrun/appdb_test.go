@@ -2,11 +2,15 @@ package scriptrun
 
 import (
 	"context"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.starlark.net/starlark"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
@@ -30,6 +34,16 @@ func (shopOnly) Batch(context.Context, string, []postgres.Statement) ([]*postgre
 
 func (shopOnly) Begin(context.Context, postgres.TxOptions) (scriptsession.AppDBTx, error) {
 	return nil, nil //nolint:nilnil // never called: the run's calls go through its Caller
+}
+
+func (shopOnly) OpenCursor(context.Context, postgres.Statement, int) (scriptsession.AppDBCursor, error) {
+	return nil, nil //nolint:nilnil // never called
+}
+
+func (shopOnly) CopyIn(context.Context, postgres.CopyIn) (int64, error) { return 0, nil }
+
+func (shopOnly) CopyOut(context.Context, postgres.Statement, string, io.Writer, int64) (*postgres.CopyOutResult, error) {
+	return nil, nil //nolint:nilnil // never called
 }
 
 func installShop(t *testing.T) {
@@ -165,4 +179,20 @@ def main():
     platform.transaction(run.params["c"], lambda tx: None)
 `)
 	assert.True(t, report.DynamicConnections)
+}
+
+// The page a query_iter loop holds is what the run holds outside the
+// interpreter, beside its appended outputs, and counts toward its peak
+// (#2454).
+func TestHoldPageCountsTowardThePeak(t *testing.T) {
+	h := &hostState{mem: scriptguard.NewMeter(0)}
+	page := starlark.NewList([]starlark.Value{starlark.String(strings.Repeat("x", 4096))})
+	h.holdPage(page)
+	if h.paging <= 4096 || h.mem.Peak() < h.paging {
+		t.Fatalf("paging %d, peak %d: the page is not held", h.paging, h.mem.Peak())
+	}
+	h.holdPage(nil)
+	if h.paging != 0 || h.appendedBytes() != 0 {
+		t.Fatalf("a closed loop still holds %d", h.paging)
+	}
 }

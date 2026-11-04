@@ -3,9 +3,14 @@ package scriptout
 import (
 	"bytes"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+
+	"go.starlark.net/starlark"
+
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
 // Formats an output may be appended to across calls (#1861). Both are
@@ -34,6 +39,9 @@ type Spool struct {
 	data    bytes.Buffer
 	rows    int
 	ident   Identity
+	// copied is a spool holding copy_out's bytes, written whole, rather than
+	// an appended output's pages (#2453).
+	copied bool
 }
 
 // NewSpool starts an appended output in format, refusing a format whose pages
@@ -78,6 +86,10 @@ func (s *Spool) Append(columns []string, rows []any) error {
 	return nil
 }
 
+// Copied reports whether the spool holds copy_out's bytes rather than an
+// appended output's pages.
+func (s *Spool) Copied() bool { return s.copied }
+
 // Rows is how many rows the output holds so far.
 func (s *Spool) Rows() int { return s.rows }
 
@@ -119,3 +131,44 @@ func missingFrom(header, got []string) []string {
 	}
 	return out
 }
+
+// Copied is the bytes platform.copy_out read from an application database
+// (#2453): already serialized, held outside the script's values, and handed
+// to the output writer whole. As a Starlark value it is only what the
+// binding passes on to the export path; a script never holds one.
+type Copied struct {
+	Data   []byte
+	Rows   int
+	Format string
+}
+
+// CopyFormatText is COPY's text format, stored as tab-separated values.
+const CopyFormatText = "text"
+
+// Spool is the output the copied bytes are written as: CSV, or COPY's text
+// format as tab-separated values.
+func (c *Copied) Spool(name string) *Spool {
+	s := &Spool{name: name, format: formatCSV, rows: c.Rows, ident: Identity{ContentType: contenttype.CSV, Extension: "csv"}, copied: true}
+	if c.Format == CopyFormatText {
+		s.ident = Identity{ContentType: contenttype.TSV, Extension: "tsv"}
+	}
+	// The bytes are the output's own, handed over rather than copied: an
+	// output may be 100 MB.
+	s.data = *bytes.NewBuffer(c.Data)
+	return s
+}
+
+// String implements starlark.Value.
+func (c *Copied) String() string { return fmt.Sprintf("<copied %d rows>", c.Rows) }
+
+// Type implements starlark.Value.
+func (*Copied) Type() string { return "copied" }
+
+// Freeze implements starlark.Value: the bytes are never changed.
+func (*Copied) Freeze() {}
+
+// Truth implements starlark.Value.
+func (*Copied) Truth() starlark.Bool { return starlark.True }
+
+// Hash implements starlark.Value: copied bytes are not a dict key.
+func (*Copied) Hash() (uint32, error) { return 0, errors.New("unhashable type: copied") }

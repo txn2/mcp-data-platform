@@ -18,6 +18,7 @@ export const OUTCOMES: { key: string; label: string }[] = [
   { key: "sender_gone", label: "Sender gone" },
   { key: "invalid_body", label: "Invalid body" },
   { key: "setup_check", label: "Setup check" },
+  { key: "unreadable", label: "Unreadable" },
 ];
 
 /** SETUP_CHECK is a sender's setup check the source answered (#2223): it

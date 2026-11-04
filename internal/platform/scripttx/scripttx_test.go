@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,10 +30,29 @@ type txCaller struct {
 	commits []error
 	// execErr fails every tx.execute.
 	execErr error
+	// releaseErr fails every savepoint release.
+	releaseErr error
+	// failSQL fails a tx.execute whose statement holds it, as a unique
+	// violation.
+	failSQL string
+	// pages is how many pages a cursor serves, each of pageRows rows (one
+	// when zero); fetchErr fails a fetch.
+	pages    int
+	pageRows int
+	fetchErr error
+	// replayed answers counts as a recording's JSON carries them to a
+	// replay: float64.
+	replayed bool
+	// refuse fails every call of this name with a statement refusal.
+	refuse string
 }
 
 func (c *txCaller) CallTool(_ context.Context, name string, args map[string]any) (map[string]any, error) {
 	c.calls = append(c.calls, call{name: name, args: args})
+	if name == c.refuse {
+		return nil, scriptsession.NewRefusal("statement failed with SQLSTATE 42501 (insufficient_privilege)",
+			map[string]any{"code": "statement_failed", "postgres": map[string]any{"sqlstate": "42501"}})
+	}
 	switch name {
 	case scriptsession.AppDBBegin:
 		c.begun++
@@ -40,6 +60,10 @@ func (c *txCaller) CallTool(_ context.Context, name string, args map[string]any)
 	case scriptsession.AppDBTxExecute:
 		if c.execErr != nil {
 			return nil, c.execErr
+		}
+		if sql, _ := args["sql"].(string); c.failSQL != "" && strings.Contains(sql, c.failSQL) {
+			return nil, scriptsession.NewRefusal("statement failed with SQLSTATE 23505 (unique_violation)",
+				map[string]any{"code": "statement_failed", "postgres": map[string]any{"sqlstate": "23505"}})
 		}
 		return map[string]any{"command": "INSERT", "rows_affected": float64(1)}, nil
 	case scriptsession.AppDBTxBatch, scriptsession.AppDBBatch:
@@ -60,6 +84,47 @@ func (c *txCaller) CallTool(_ context.Context, name string, args map[string]any)
 		return map[string]any{"committed": true}, nil
 	case scriptsession.AppDBRollback:
 		return map[string]any{"committed": false}, nil
+	case scriptsession.AppDBSavepoint:
+		return map[string]any{"savepoint": fmt.Sprintf("mcp_sp_%d", c.count(scriptsession.AppDBSavepoint))}, nil
+	case scriptsession.AppDBRelease:
+		if c.releaseErr != nil {
+			return nil, c.releaseErr
+		}
+		return map[string]any{"released": true}, nil
+	case scriptsession.AppDBRollbackTo:
+		return map[string]any{"released": false}, nil
+	case scriptsession.AppDBCursorOpen:
+		return map[string]any{"cursor": "cursor1"}, nil
+	case scriptsession.AppDBCursorFetch:
+		if c.fetchErr != nil {
+			return nil, c.fetchErr
+		}
+		page, _ := args["page"].(int)
+		rows := []any{map[string]any{"n": int64(page)}}
+		for i := 1; i < c.pageRows; i++ {
+			rows = append(rows, map[string]any{"n": int64(page), "pad": strings.Repeat("x", 64)})
+		}
+		return map[string]any{
+			"columns": []any{map[string]any{"name": "n", "type": "integer"}},
+			"rows":    rows, "done": page >= c.pages,
+		}, nil
+	case scriptsession.AppDBCursorClose:
+		return map[string]any{"closed": true}, nil
+	case scriptsession.AppDBCopyIn:
+		rows, _ := args["rows"].([]any)
+		var n int64
+		for range rows {
+			n++
+		}
+		if c.replayed {
+			return map[string]any{"rows_written": float64(n)}, nil
+		}
+		return map[string]any{"rows_written": n}, nil
+	case scriptsession.AppDBCopyOut:
+		if c.replayed {
+			return map[string]any{"rows": float64(2), "bytes": float64(6)}, nil
+		}
+		return map[string]any{"rows": int64(2), "bytes": int64(6), "data": []byte("n\n1\n2\n")}, nil
 	}
 	return map[string]any{
 		"columns": []any{map[string]any{"name": "n", "type": "integer"}},
@@ -392,4 +457,332 @@ platform.transaction("shop", place)
 		_, err := run(t, src, &txCaller{}, scriptrun.WritesMade)
 		require.Error(t, err, name)
 	}
+}
+
+func TestSavepointReleasesWhenFnReturnsAndRollsBackWhenItFails(t *testing.T) {
+	caller := &txCaller{failSQL: "dup"}
+	res, err := run(t, `
+def bad(tx):
+    tx.execute("INSERT INTO orders VALUES (2) -- dup")
+
+def good(tx):
+    tx.execute("INSERT INTO orders VALUES (3)")
+    return "kept"
+
+def place(tx):
+    tx.execute("INSERT INTO orders VALUES (1)")
+    failed = tx.savepoint(bad, on_error = "return")
+    kept = tx.savepoint(good)
+    return [failed["error"]["postgres"]["sqlstate"], kept]
+
+print(platform.transaction("shop", place))
+`, caller, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Contains(t, res.Log, "[\"23505\", \"kept\"]\n")
+	assert.Equal(t, []string{
+		scriptsession.AppDBBegin, scriptsession.AppDBTxExecute,
+		scriptsession.AppDBSavepoint, scriptsession.AppDBTxExecute, scriptsession.AppDBRollbackTo,
+		scriptsession.AppDBSavepoint, scriptsession.AppDBTxExecute, scriptsession.AppDBRelease,
+		scriptsession.AppDBCommit,
+	}, caller.names())
+	rollback := caller.calls[4].args
+	assert.Equal(t, "tx1", rollback["transaction"])
+	assert.Equal(t, "mcp_sp_1", rollback["savepoint"])
+}
+
+func TestSavepointNests(t *testing.T) {
+	caller := &txCaller{failSQL: "dup"}
+	_, err := run(t, `
+def inner(tx):
+    tx.execute("INSERT INTO orders VALUES (9) -- dup")
+
+def outer(tx):
+    tx.savepoint(inner, on_error = "return")
+    tx.execute("INSERT INTO orders VALUES (1)")
+
+platform.transaction("shop", lambda tx: tx.savepoint(outer))
+`, caller, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		scriptsession.AppDBBegin, scriptsession.AppDBSavepoint, scriptsession.AppDBSavepoint, scriptsession.AppDBTxExecute,
+		scriptsession.AppDBRollbackTo, scriptsession.AppDBTxExecute, scriptsession.AppDBRelease, scriptsession.AppDBCommit,
+	}, caller.names())
+}
+
+func TestSavepointWhoseStatementFailedIsTheSavepointsFailure(t *testing.T) {
+	caller := &txCaller{releaseErr: scriptsession.NewRefusal("a statement in savepoint mcp_sp_1 failed",
+		map[string]any{"code": "statement_failed", "postgres": map[string]any{"sqlstate": "23505"}})}
+	res, err := run(t, `
+def fn(tx):
+    tx.execute("INSERT INTO orders VALUES (1)")
+    return "returned"
+
+def place(tx):
+    got = tx.savepoint(fn, on_error = "return")
+    return got["error"]["postgres"]["sqlstate"]
+
+print(platform.transaction("shop", place))
+`, caller, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Contains(t, res.Log, "returned the failure to the script")
+	assert.True(t, strings.HasSuffix(res.Log, "23505\n"))
+}
+
+func TestSavepointFnsOwnFailureEndsTheRunAfterRollingBack(t *testing.T) {
+	caller := &txCaller{}
+	_, err := run(t, `platform.transaction("shop", lambda tx: tx.savepoint(lambda tx: fail("mine"), on_error = "return"))`,
+		caller, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "mine")
+	assert.Equal(t, []string{
+		scriptsession.AppDBBegin, scriptsession.AppDBSavepoint, scriptsession.AppDBRollbackTo,
+		scriptsession.AppDBRollback,
+	}, caller.names())
+}
+
+func TestSavepointOutsideItsFunctionIsRefused(t *testing.T) {
+	_, err := run(t, `
+kept = []
+platform.transaction("shop", lambda tx: kept.append(tx))
+kept[0].savepoint(lambda tx: None)
+`, &txCaller{}, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "this transaction has ended")
+	_, err = run(t, `platform.transaction("shop", lambda tx: tx.savepoint(lambda tx: None, on_error = "bogus"))`, &txCaller{}, scriptrun.WritesMade)
+	require.Error(t, err)
+	_, err = run(t, `platform.transaction("shop", lambda tx: tx.savepoint())`, &txCaller{}, scriptrun.WritesMade)
+	require.Error(t, err)
+}
+
+func TestQueryIterReadsEveryPageAndClosesTheCursor(t *testing.T) {
+	caller := &txCaller{pages: 3}
+	res, err := run(t, `
+total = 0
+for row in platform.query_iter("shop", "SELECT n FROM t WHERE n > :min", params = {"min": 0}, page_rows = 1):
+    total += row["n"]
+print(total)
+`, caller, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Equal(t, "6\n", res.Log)
+	assert.Equal(t, []string{
+		scriptsession.AppDBCursorOpen, scriptsession.AppDBCursorFetch, scriptsession.AppDBCursorFetch,
+		scriptsession.AppDBCursorFetch, scriptsession.AppDBCursorClose,
+	}, caller.names())
+	open := caller.calls[0].args
+	assert.Equal(t, "shop", open["connection"])
+	assert.Equal(t, "SELECT n FROM t WHERE n > $1", open["sql"], "the value is bound, never written into the statement")
+	assert.Equal(t, 1, open["page_rows"])
+}
+
+func TestQueryIterThatBreaksClosesTheCursor(t *testing.T) {
+	caller := &txCaller{pages: 5}
+	_, err := run(t, `
+def place(tx):
+    for row in tx.query_iter("SELECT n FROM t", page_rows = 1):
+        if row["n"] == 2:
+            break
+
+platform.transaction("shop", place)
+`, caller, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		scriptsession.AppDBBegin, scriptsession.AppDBCursorOpen, scriptsession.AppDBCursorFetch,
+		scriptsession.AppDBCursorFetch, scriptsession.AppDBCursorClose, scriptsession.AppDBCommit,
+	}, caller.names())
+	assert.Equal(t, "tx1", caller.calls[1].args["transaction"])
+}
+
+func TestQueryIterWhosePageFailsFailsTheRun(t *testing.T) {
+	caller := &txCaller{pages: 5, fetchErr: scriptsession.NewRefusal("the loop read more than iter_max_rows (3) rows",
+		map[string]any{"code": "statement_failed"})}
+	_, err := run(t, `
+n = 0
+for row in platform.query_iter("shop", "SELECT n FROM t"):
+    n += 1
+print("finished with", n)
+`, caller, scriptrun.WritesMade)
+	require.Error(t, err, "a loop never ends early as though the result were whole")
+	assert.Contains(t, err.Error(), "iter_max_rows")
+	assert.Equal(t, scriptsession.AppDBCursorClose, caller.names()[len(caller.calls)-1], "the cursor is closed")
+}
+
+func TestQueryIterRefusals(t *testing.T) {
+	_, err := run(t, `
+rows = platform.query_iter("shop", "SELECT n FROM t")
+for r in rows:
+    pass
+for r in rows:
+    pass
+`, &txCaller{pages: 1}, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "read by one loop")
+	_, err = run(t, `platform.query_iter("shop", "SELECT 1", page_rows = -1)`, &txCaller{}, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "page_rows")
+	_, err = run(t, `platform.query_iter("shop", "SELECT :x")`, &txCaller{}, scriptrun.WritesMade)
+	require.Error(t, err, "a placeholder with no value")
+	_, err = run(t, `platform.transaction("shop", lambda tx: platform.query_iter("shop", "SELECT 1"), retry = True)`,
+		&txCaller{}, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "retry = True")
+	r := &txCaller{}
+	got, err := run(t, `print(type(platform.query_iter("shop", "SELECT 1")))`, r, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Equal(t, "query_iter\n", got.Log)
+}
+
+func TestCopyInTakesListAndDictRows(t *testing.T) {
+	caller := &txCaller{}
+	res, err := run(t, `
+n = platform.copy_in("shop", "items", ["sku", "qty"], [["a", 1], {"qty": 2, "sku": "b"}])
+m = platform.transaction("shop", lambda tx: tx.copy_in("items", ["sku", "qty"], [["c", 3]]))
+print(n, m)
+`, caller, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Equal(t, "2 1\n", res.Log)
+	first := caller.calls[0].args
+	assert.Equal(t, "shop", first["connection"])
+	assert.Equal(t, []any{"sku", "qty"}, first["columns"])
+	assert.Equal(t, []any{[]any{"a", int64(1)}, []any{"b", int64(2)}}, first["rows"])
+	assert.Equal(t, "tx1", caller.calls[2].args["transaction"])
+
+	for src, want := range map[string]string{
+		`platform.copy_in("shop", "items", ["sku"], [{"nope": 1}])`:         "has no",
+		`platform.copy_in("shop", "items", ["sku"], [{"sku": 1, "x": 2}])`:  "does not name",
+		`platform.copy_in("shop", "items", ["sku"], ["flat"])`:              "a row is a list",
+		`platform.copy_in("shop", "items", [1], [[1]])`:                     "columns is a list",
+		`platform.copy_in("shop", "items", ["sku"], [[1]], on_error = "x")`: "on_error",
+	} {
+		_, err := run(t, src, &txCaller{}, scriptrun.WritesMade)
+		require.ErrorContains(t, err, want, src)
+	}
+}
+
+func TestCopyOutWritesTheCopiedBytesAsAnOutput(t *testing.T) {
+	caller := &txCaller{}
+	res, err := run(t, `
+out = platform.copy_out("shop", "all-items", "SELECT n FROM t WHERE n > :min", params = {"min": 0}, format = "text")
+print(out["row_count"])
+`, caller, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Equal(t, "2\n", res.Log)
+	require.Len(t, res.Exports, 1)
+	assert.Equal(t, "all-items", res.Exports[0].Name)
+	assert.Equal(t, 2, res.Exports[0].RowCount)
+	assert.Equal(t, 6, res.Exports[0].Bytes, "the copied bytes are what the output measures")
+	call := caller.calls[0].args
+	assert.Equal(t, "SELECT n FROM t WHERE n > $1", call["sql"])
+	assert.Equal(t, "text", call["format"])
+
+	_, err = run(t, `platform.copy_out("shop", "x", "SELECT 1", format = "parquet")`, &txCaller{}, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "not csv or text")
+	// platform.export's own arguments pass through to it.
+	_, err = run(t, `platform.copy_out("shop", "x", "SELECT 1", destination = "nowhere")`, &txCaller{}, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "nowhere")
+}
+
+// The page a loop holds counts toward the run's peak and its budget (#2454),
+// though no walk of the interpreter's values reaches it.
+func TestQueryIterChargesThePageItHolds(t *testing.T) {
+	src := `
+n = 0
+for row in platform.query_iter("shop", "SELECT n FROM t", page_rows = 2000):
+    n += 1
+print(n)
+`
+	res, err := scriptrun.Run(context.Background(), scriptrun.Options{
+		Source: src, Name: "test", RunID: "run_1", FireTime: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC),
+		Caller: &txCaller{pages: 3, pageRows: 2000}, Writes: scriptrun.WritesMade,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "6000\n", res.Log)
+	assert.Greater(t, res.PeakMemory, int64(100_000), "a page of 2000 rows is in the peak")
+
+	_, err = scriptrun.Run(context.Background(), scriptrun.Options{
+		Source: src, Name: "test", RunID: "run_1", FireTime: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC),
+		Caller: &txCaller{pages: 3, pageRows: 2000}, Writes: scriptrun.WritesMade, MaxMemoryBytes: 50_000,
+	})
+	require.Error(t, err, "a page past the budget stops the run")
+	assert.Contains(t, err.Error(), "memory")
+}
+
+// A replay answers counts as JSON numbers and copy_out with no bytes; the
+// counts read the same (#2453).
+func TestCopyCountsReadTheSameFromAReplay(t *testing.T) {
+	res, err := run(t, `
+print(platform.copy_in("shop", "items", ["sku"], [["a"], ["b"], ["c"]]))
+print(platform.copy_out("shop", "all", "SELECT 1")["row_count"])
+`, &txCaller{replayed: true}, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Equal(t, "3\n2\n", res.Log)
+}
+
+// A cursor, copy or savepoint the database refuses is the call's failure,
+// handed back with on_error = "return" and raised without it.
+func TestRefusedBulkCallsAreTheCallsFailure(t *testing.T) {
+	for tool, src := range map[string]string{
+		scriptsession.AppDBCursorOpen: `print(platform.query_iter("shop", "SELECT 1", on_error = "return")["error"]["postgres"]["sqlstate"])`,
+		scriptsession.AppDBCopyIn:     `print(platform.copy_in("shop", "t", ["a"], [[1]], on_error = "return")["error"]["postgres"]["sqlstate"])`,
+		scriptsession.AppDBCopyOut:    `print(platform.copy_out("shop", "out", "SELECT 1", on_error = "return")["error"]["postgres"]["sqlstate"])`,
+		scriptsession.AppDBSavepoint:  `print(platform.transaction("shop", lambda tx: tx.savepoint(lambda t: 1, on_error = "return"))["error"]["postgres"]["sqlstate"])`,
+	} {
+		res, err := run(t, src, &txCaller{refuse: tool}, scriptrun.WritesMade)
+		require.NoError(t, err, tool)
+		assert.Contains(t, res.Log, "42501", tool)
+	}
+	for tool, src := range map[string]string{
+		scriptsession.AppDBCursorOpen: `platform.transaction("shop", lambda tx: tx.query_iter("SELECT 1"))`,
+		scriptsession.AppDBCopyIn:     `platform.transaction("shop", lambda tx: tx.copy_in("t", ["a"], [[1]]))`,
+		scriptsession.AppDBRelease:    `platform.transaction("shop", lambda tx: tx.savepoint(lambda t: 1))`,
+		scriptsession.AppDBRollbackTo: `platform.transaction("shop", lambda tx: tx.savepoint(lambda t: fail("x")))`,
+	} {
+		_, err := run(t, src, &txCaller{refuse: tool}, scriptrun.WritesMade)
+		require.Error(t, err, tool)
+	}
+}
+
+func TestBulkBindingArgumentRefusals(t *testing.T) {
+	for src, want := range map[string]string{
+		`platform.query_iter("shop")`:                                     "missing argument",
+		`platform.query_iter("shop", "SELECT 1", on_error = "x")`:         "on_error",
+		`platform.transaction("shop", lambda tx: tx.query_iter())`:        "missing argument",
+		`platform.copy_in("shop", "t")`:                                   "missing argument",
+		`platform.copy_in("shop", "t", ["a"], [[1]], on_error = "bogus")`: "on_error",
+		`platform.transaction("shop", lambda tx: tx.copy_in("t"))`:        "missing argument",
+		`platform.copy_out("shop", "x")`:                                  "missing argument",
+		`platform.copy_out("shop", "x", "SELECT 1", on_error = "bogus")`:  "on_error",
+		`platform.copy_out("shop", "x", "SELECT :v")`:                     "placeholder",
+		`platform.copy_in("shop", "t", ["a"], [{"a": 1}, {"a": func}])`:   "row 2",
+	} {
+		_, err := run(t, "def func():\n    pass\n"+src, &txCaller{}, scriptrun.WritesMade)
+		require.Error(t, err, src)
+		assert.Contains(t, err.Error(), want, src)
+	}
+	_, err := run(t, `
+held = []
+platform.transaction("shop", lambda tx: held.append(tx))
+held[0].query_iter("SELECT 1")
+`, &txCaller{}, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "this transaction has ended")
+	_, err = run(t, `
+held = []
+platform.transaction("shop", lambda tx: held.append(tx))
+held[0].copy_in("t", ["a"], [[1]])
+`, &txCaller{}, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "this transaction has ended")
+}
+
+func TestQueryIterValueAndAFetchInATransaction(t *testing.T) {
+	res, err := run(t, `
+rows = platform.query_iter("shop", "SELECT 1")
+print(str(rows), bool(rows))
+`, &txCaller{pages: 1}, scriptrun.WritesMade)
+	require.NoError(t, err)
+	assert.Equal(t, "<query_iter cursor1> True\n", res.Log)
+	_, err = run(t, `{platform.query_iter("shop", "SELECT 1"): 1}`, &txCaller{pages: 1}, scriptrun.WritesMade)
+	require.ErrorContains(t, err, "unhashable")
+
+	caller := &txCaller{pages: 3, fetchErr: conflict()}
+	_, err = run(t, `
+def body(tx):
+    for row in tx.query_iter("SELECT n FROM t"):
+        pass
+platform.transaction("shop", body, retry = True)
+`, caller, scriptrun.WritesMade)
+	require.Error(t, err, "a failed page fails the run inside a transaction too")
 }

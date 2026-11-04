@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/txn2/mcp-data-platform/internal/pgtext"
 )
 
 // The type mapping, stated once and used by both tools (and, with #2402, by a
@@ -28,8 +30,12 @@ import (
 //   - uuid is its canonical string
 //   - an array is a list of its elements, each mapped by the element type
 //   - bytea is base64, its column's type naming it as bytea
-//   - anything else (interval, inet, an enum, a domain, a range) is the text
-//     PostgreSQL itself writes for it
+//   - a range, a multirange, a composite, an interval, an hstore and
+//     pgvector's vector are structures of their own (structuredValue, #2455),
+//     accepted in the same shape as a bound parameter (encodeArg)
+//   - anything else (inet, cidr, an enum's label, a domain, ltree, tsvector)
+//     is the text PostgreSQL itself writes for it, the column's type naming
+//     the type, so an enum is told from text by its type
 
 // mappedTypes are the scalar types the mapping turns into JSON of their own.
 // Any other scalar type is returned as the text PostgreSQL wrote.
@@ -176,4 +182,182 @@ func floatValue(f float64) any {
 	default:
 		return f
 	}
+}
+
+// textTypes decodes the text of a scalar inside a structured value (a range's
+// bound, a row's field) by the scalar's own type. Its codecs are read, never
+// registered into, so one map serves every connection.
+//
+//nolint:gochecknoglobals // a read-only codec registry
+var textTypes = pgtype.NewMap()
+
+// structuredKind reports whether ti's values are mapped from their text into
+// a structure of their own (#2455): a range, a multirange, a composite, an
+// interval, an hstore or pgvector's vector.
+func structuredKind(ti *typeInfo) bool {
+	switch ti.kind {
+	case kindRange, kindMultirange, kindComposite:
+		return true
+	}
+	// interval is the server's own; hstore and vector are named by the
+	// extensions that define them as base types, so a domain or an enum a
+	// schema happens to call vector is read as its text.
+	switch ti.name {
+	case typeInterval, typeHstore, typeVector:
+		return ti.kind == kindBase
+	}
+	return false
+}
+
+// structuredValue maps the text PostgreSQL wrote for a value of a structured
+// type:
+//
+//   - a range is {"lower", "upper", "lower_inc", "upper_inc", "empty"}, its
+//     bounds mapped by the subtype and an unbounded one null
+//   - a multirange is a list of ranges
+//   - a composite is an object keyed by attribute name, each mapped by its type
+//   - an interval is {"months", "days", "microseconds", "text"}, the three
+//     parts PostgreSQL keeps and the text it wrote
+//   - an hstore is an object of string to string or null
+//   - a vector is a list of numbers
+func structuredValue(ti *typeInfo, text string) (any, error) {
+	switch ti.kind {
+	case kindRange:
+		r, err := pgtext.ParseRange(text)
+		if err != nil {
+			return nil, err //nolint:wrapcheck // names the syntax; the caller names the type
+		}
+		return rangeValue(r, ti.elem), nil
+	case kindMultirange:
+		return multirangeValue(ti, text)
+	case kindComposite:
+		return compositeValue(ti, text)
+	}
+	return baseValue(ti.name, text)
+}
+
+// multirangeValue is a multirange as a list of ranges, each mapped by the
+// range type's element.
+func multirangeValue(ti *typeInfo, text string) (any, error) {
+	rs, err := pgtext.ParseMultirange(text)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // names the syntax; the caller names the type
+	}
+	inner := ti.elem
+	if inner != nil {
+		inner = inner.elem
+	}
+	out := make([]any, len(rs))
+	for i, r := range rs {
+		out[i] = rangeValue(r, inner)
+	}
+	return out, nil
+}
+
+// baseValue maps the structured base types: an interval, an hstore and a
+// vector.
+func baseValue(name, text string) (any, error) {
+	switch name {
+	case typeInterval:
+		return intervalValue(text)
+	case typeHstore:
+		return hstoreValue(text)
+	}
+	v, err := pgtext.ParseVector(text)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // names the syntax; the caller names the type
+	}
+	out := make([]any, len(v))
+	for i, f := range v {
+		out[i] = floatValue(f)
+	}
+	return out, nil
+}
+
+// The structured base types, by name: PostgreSQL's interval, and the types
+// the hstore and pgvector extensions define.
+const (
+	typeInterval = "interval"
+	typeHstore   = "hstore"
+	typeVector   = "vector"
+)
+
+// rangeValue is one range with its bounds mapped by elem.
+func rangeValue(r pgtext.Range, elem *typeInfo) map[string]any {
+	return map[string]any{
+		"lower": partValue(r.Lower, elem), "upper": partValue(r.Upper, elem),
+		"lower_inc": !r.Empty && r.LowerInc, "upper_inc": !r.Empty && r.UpperInc, "empty": r.Empty,
+	}
+}
+
+// compositeValue is a row as an object keyed by attribute name.
+func compositeValue(ti *typeInfo, text string) (any, error) {
+	fields, err := pgtext.ParseComposite(text)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // names the syntax; the caller names the type
+	}
+	out := make(map[string]any, len(ti.attrs))
+	for i, a := range ti.attrs {
+		if i < len(fields) {
+			out[a.name] = partValue(fields[i], a.typ)
+		}
+	}
+	return out, nil
+}
+
+// intervalValue is an interval's three parts and its text.
+func intervalValue(text string) (any, error) {
+	var iv pgtype.Interval
+	if err := textTypes.Scan(pgtype.IntervalOID, pgtype.TextFormatCode, []byte(text), &iv); err != nil {
+		return nil, fmt.Errorf("reading interval %q: %w", text, err)
+	}
+	return map[string]any{"months": int64(iv.Months), "days": int64(iv.Days), "microseconds": intValue(iv.Microseconds), "text": text}, nil
+}
+
+// hstoreValue is an hstore as an object.
+func hstoreValue(text string) (any, error) {
+	pairs, err := pgtext.ParseHstore(text)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // names the syntax; the caller names the type
+	}
+	out := make(map[string]any, len(pairs))
+	for k, v := range pairs {
+		if v == nil {
+			out[k] = nil
+			continue
+		}
+		out[k] = *v
+	}
+	return out, nil
+}
+
+// partValue maps the text of one part of a structured value (a bound, a
+// field) by its type: a structured type as above, a scalar the driver decodes
+// as the mapping states, anything else as its text. A nil part is null.
+func partValue(text *string, ti *typeInfo) any {
+	if text == nil {
+		return nil
+	}
+	if ti == nil {
+		return *text
+	}
+	if structuredKind(ti) {
+		v, err := structuredValue(ti, *text)
+		if err != nil {
+			return *text
+		}
+		return v
+	}
+	if ti.array || !mappedTypes[ti.name] {
+		return *text
+	}
+	t, ok := textTypes.TypeForOID(ti.oid)
+	if !ok {
+		return *text
+	}
+	v, err := t.Codec.DecodeValue(textTypes, ti.oid, pgtype.TextFormatCode, []byte(*text))
+	if err != nil {
+		return *text
+	}
+	return jsonValue(v, ti.name)
 }
