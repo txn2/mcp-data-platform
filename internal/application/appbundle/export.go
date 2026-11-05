@@ -14,7 +14,10 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -66,6 +69,24 @@ type Deps struct {
 	// HasSchemaConnection reports whether an application database
 	// connection is configured here.
 	HasSchemaConnection func(name string) bool
+	// Recordings is where the recorded runs a script's tests replay are read
+	// from on export and stored on import (#2476). Nil exports and imports
+	// none: a script whose tests name one is refused.
+	Recordings interface {
+		Get(ctx context.Context, runID string) (*scriptrec.Stored, error)
+		Save(ctx context.Context, rec scriptrec.Stored) error
+		Keep(ctx context.Context, scriptID, author string, runIDs []string) error
+	}
+	// SaveGate is the gate every save of a script's source crosses
+	// (internal/platform/scriptsave): an imported script is put through it as
+	// the importing administrator before anything is written (#2476). Nil
+	// refuses an import that holds a script.
+	SaveGate SaveGate
+}
+
+// SaveGate checks one script source save; *scriptsave.Gate is one.
+type SaveGate interface {
+	Check(ctx context.Context, req scriptsave.Request) scriptsave.Result
 }
 
 // Bundler exports and imports applications.
@@ -283,6 +304,31 @@ func (b *Bundler) buildScript(ctx context.Context, p application.Pin, names coll
 	}
 	if out.Schedule, err = b.scheduleOf(ctx, sc.ID); err != nil {
 		return nil, err
+	}
+	if out.Recordings, err = b.recordingsOf(ctx, sc.Name, v.Source); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// recordingsOf reads each recorded run the source's tests replay. A test
+// naming one this deployment no longer holds, or holds without a replayable
+// recording, refuses the export: the importing deployment could not run it.
+func (b *Bundler) recordingsOf(ctx context.Context, name, source string) ([]Recording, error) {
+	ids := scripttest.RecordingsNamed(source)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if b.Recordings == nil {
+		return nil, refused("script %s: its tests replay recorded runs, and this deployment keeps no recordings to export", name)
+	}
+	out := make([]Recording, 0, len(ids))
+	for _, id := range ids {
+		rec, err := b.Recordings.Get(ctx, id)
+		if err != nil || rec == nil || !rec.Replayable() {
+			return nil, refused("script %s: its tests replay recording %s, which this deployment does not hold; save the script with a test that replays a recording it holds", name, id)
+		}
+		out = append(out, Recording{RunID: id, Data: rec.Data})
 	}
 	return out, nil
 }

@@ -199,9 +199,11 @@ func updateVectors(ctx context.Context, tx *sql.Tx, rows []indexjobs.Vector) err
 // NeedsSweep reports whether the corpus owes work: the enumeration is older
 // than interval (or has never run), the platform catalog changed since it ran,
 // or some mirrored dataset carries no vector or one produced by a model other
-// than currentModel. The freshness halves are what turn the reconciler's tick
-// into the sweep schedule.
-func (s *Store) NeedsSweep(ctx context.Context, currentModel string, interval time.Duration) (bool, error) {
+// than currentModel, or the mirror holds more datasets than maxEntries allows
+// (a cap lowered since the last sync takes effect on the next start, not when
+// the interval runs out, #2429; zero checks no cap). The freshness halves are
+// what turn the reconciler's tick into the sweep schedule.
+func (s *Store) NeedsSweep(ctx context.Context, currentModel string, interval time.Duration, maxEntries int) (bool, error) {
 	const q = `
 		SELECT
 			NOT EXISTS (SELECT 1 FROM catalog_dataset_sync
@@ -215,9 +217,10 @@ func (s *Store) NeedsSweep(ctx context.Context, currentModel string, interval ti
 			            WHERE a.written_at > s.synced_at)
 			OR EXISTS (SELECT 1 FROM catalog_entities e, catalog_dataset_sync s
 			            WHERE e.kind = 'dataset' AND e.updated_at > s.synced_at)
+			OR ($3 > 0 AND (SELECT COUNT(*) FROM catalog_datasets) > $3)
 	`
 	var needs bool
-	if err := s.db.QueryRowContext(ctx, q, interval.Seconds(), currentModel).Scan(&needs); err != nil {
+	if err := s.db.QueryRowContext(ctx, q, interval.Seconds(), currentModel, maxEntries).Scan(&needs); err != nil {
 		return false, fmt.Errorf("datasetindex: needs sweep: %w", err)
 	}
 	return needs, nil

@@ -242,9 +242,11 @@ warns on what 18 introduced (`uuidv7()`, `RETURNING old`/`new`, virtual
 generated columns, `WITHOUT OVERLAPS`, `NOT ENFORCED`), and against 18 on an
 index of a generated column declared without `STORED`. `COPY ... PROGRAM`,
 `CREATE LANGUAGE` or code in an untrusted language, `CREATE EVENT TRIGGER`,
-`ALTER SYSTEM`, and a role, user or user mapping given a password in the
-migration (`PASSWORD '...'`) are refused: a migration is stored, applied and
-exported as written, so a credential never belongs in one.
+`ALTER SYSTEM`, and a role, user, group or user mapping given a password in
+the migration (`PASSWORD '...'`) are refused, in the up SQL and the down SQL
+alike: a migration is stored, applied and exported as written, so a
+credential never belongs in one. The audit row of the call keeps the SQL with
+the password replaced by `'[REDACTED]'`.
 
 `status` also reports `schema_drift` for the schema: the applied migrations
 are built from zero on a throwaway database and compared with the live

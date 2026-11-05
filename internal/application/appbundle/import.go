@@ -16,6 +16,9 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
@@ -47,13 +50,21 @@ const (
 // importer is one import's state: the caller, the mapping, the application.
 type importer struct {
 	*Bundler
-	actor    application.Actor
-	author   script.Author
-	ownerID  string
-	mapping  map[string]string
-	app      *application.Application
-	scripts  map[string]*script.Script
-	assets   map[string]*portaldomain.Asset
+	actor   application.Actor
+	author  script.Author
+	ownerID string
+	mapping map[string]string
+	app     *application.Application
+	scripts map[string]*script.Script
+	assets  map[string]*portaldomain.Asset
+	// gated is what the save gate made of each bundle script, by name: the
+	// formatted source a write stores and the test report it keeps.
+	gated map[string]scriptsave.Result
+	// carried is the recordings each bundle script's tests replay, renamed
+	// to this deployment's names, by script name and run id; fresh names the
+	// ones this deployment does not hold yet, which the write stores.
+	carried  map[string]map[string][]byte
+	fresh    map[string]map[string]bool
 	imported *Imported
 }
 
@@ -88,6 +99,15 @@ func (b *Bundler) ImportBundle(ctx context.Context, actor application.Actor, bun
 		return nil, err
 	}
 	im := b.importer(actor, mapping)
+	// Everything an import refuses is decided before the first write: the
+	// application it lands in is found (not yet created), and every migration
+	// and every script is reviewed as this deployment reviews a save (#2476).
+	if err := im.locate(ctx, bundle); err != nil {
+		return nil, err
+	}
+	if err := im.review(ctx, bundle); err != nil {
+		return nil, err
+	}
 	if err := im.application(ctx, bundle); err != nil {
 		return nil, err
 	}
@@ -111,6 +131,8 @@ func (b *Bundler) importer(actor application.Actor, mapping map[string]string) *
 		Bundler: b, actor: actor, mapping: mapping,
 		author:  script.Author{Email: actor.Email},
 		scripts: map[string]*script.Script{}, assets: map[string]*portaldomain.Asset{},
+		gated:   map[string]scriptsave.Result{},
+		carried: map[string]map[string][]byte{}, fresh: map[string]map[string]bool{},
 		imported: &Imported{Scripts: map[string]string{}, Assets: map[string]string{}},
 	}
 	// The run identity of an imported script is the importing administrator's,
@@ -193,25 +215,17 @@ func (im *importer) mapped(name string) string {
 	return name
 }
 
-// application finds the application the bundle names, or creates it.
-func (im *importer) application(ctx context.Context, bundle *Bundle) error {
-	conn, schema := "", ""
-	if bundle.Schema != nil {
-		conn, schema = im.mapped(bundle.Schema.Connection), bundle.Schema.Schema
-		if im.HasSchemaConnection == nil || !im.HasSchemaConnection(conn) {
-			return refused("nothing was imported: %q is not an application database connection here", conn)
-		}
+// locate finds the application the bundle names and reads its parts, or
+// leaves im.app nil when there is none yet. It writes nothing.
+func (im *importer) locate(ctx context.Context, bundle *Bundle) error {
+	conn, schema := im.schemaOf(bundle)
+	if bundle.Schema != nil && (im.HasSchemaConnection == nil || !im.HasSchemaConnection(conn)) {
+		return refused("nothing was imported: %q is not an application database connection here", conn)
 	}
 	a, err := im.Service.Store.GetByName(ctx, bundle.Application.Name)
 	switch {
 	case errors.Is(err, application.ErrNotFound):
-		a, err = im.Service.Create(ctx, im.actor, application.Application{
-			Name: bundle.Application.Name, Description: bundle.Application.Description, Connection: conn, Schema: schema,
-		})
-		if err != nil {
-			return err //nolint:wrapcheck // the service's refusals are the caller's
-		}
-		im.imported.Created = true
+		return nil
 	case err != nil:
 		return fmt.Errorf("reading application %q: %w", bundle.Application.Name, err)
 	case a.Connection != conn || a.Schema != schema:
@@ -220,6 +234,157 @@ func (im *importer) application(ctx context.Context, bundle *Bundle) error {
 	}
 	im.app, im.imported.Application = a, a.Name
 	return im.indexParts(ctx)
+}
+
+// schemaOf is the connection, mapped, and schema the bundle's migrations are
+// for, empty when it carries none.
+func (im *importer) schemaOf(bundle *Bundle) (conn, schema string) {
+	if bundle.Schema == nil {
+		return "", ""
+	}
+	return im.mapped(bundle.Schema.Connection), bundle.Schema.Schema
+}
+
+// review refuses the import before anything is written when a migration is
+// one manage_schema add refuses, or a script one this deployment's save gate
+// refuses (#2476). A script is checked as the importing administrator saving
+// it, into the part with its name when the application holds one; what it
+// does differently from that part is agreed by the import itself, with the
+// bundle's release as the summary.
+func (im *importer) review(ctx context.Context, bundle *Bundle) error {
+	if bundle.Schema != nil {
+		for _, m := range bundle.Schema.Migrations {
+			if err := reviewed(m.Version, m.Up, m.Down); err != nil {
+				return err
+			}
+		}
+	}
+	if len(bundle.Scripts) > 0 && im.SaveGate == nil {
+		return refused("nothing was imported: this deployment has no script save gate to check the bundle's scripts with")
+	}
+	summary := fmt.Sprintf("imported from release %d of %s", bundle.Release, bundle.Application.Name)
+	for i := range bundle.Scripts {
+		s := &bundle.Scripts[i]
+		source := rename(s.Source, im.mapping)
+		if err := im.carry(ctx, s, source); err != nil {
+			return err
+		}
+		res := im.SaveGate.Check(ctx, scriptsave.Request{
+			Existing: im.scripts[s.Name], Name: s.Name, Source: source,
+			Caller:        scriptsave.Caller{Email: im.actor.Email, Admin: im.actor.Admin, Roles: slices.Clone(im.actor.Roles)},
+			ChangeSummary: summary, Agreed: true, Carried: im.carried[s.Name],
+		})
+		if res.Refused() {
+			return refused("nothing was imported: script %s is refused by this deployment's save gate: %s", s.Name, res.Refusal)
+		}
+		im.gated[s.Name] = res
+	}
+	return nil
+}
+
+// carry reads the recordings a bundle script's tests replay, renamed by the
+// mapping as its source is. Only the ones the renamed source's tests name are
+// read. One over the size a run's own recording may hold, one that does not
+// read as a recording, and one whose run id this deployment holds with other
+// content refuse the import: a bundle never replaces another script's
+// recording.
+func (im *importer) carry(ctx context.Context, s *Script, source string) error {
+	named := scripttest.RecordingsNamed(source)
+	if len(named) == 0 {
+		return nil
+	}
+	if im.Recordings == nil {
+		return refused("nothing was imported: script %s replays recorded runs in its tests, and this deployment keeps no recordings", s.Name)
+	}
+	carried, fresh := map[string][]byte{}, map[string]bool{}
+	for _, r := range s.Recordings {
+		if !slices.Contains(named, r.RunID) || carried[r.RunID] != nil {
+			continue
+		}
+		data, held, err := im.carried1(ctx, s.Name, r)
+		if err != nil {
+			return err
+		}
+		carried[r.RunID], fresh[r.RunID] = data, !held
+	}
+	im.carried[s.Name], im.fresh[s.Name] = carried, fresh
+	return nil
+}
+
+// carried1 reads one carried recording: renamed by the mapping, and whether
+// this deployment already holds it under its run id, refusing one it holds
+// with other content.
+func (im *importer) carried1(ctx context.Context, name string, r Recording) (data []byte, held bool, err error) {
+	if len(r.Data) > scriptrec.MaxBytes {
+		return nil, false, refused("nothing was imported: script %s's recording %s is over the %d MiB a recording may hold", name, r.RunID, scriptrec.MaxBytes>>20)
+	}
+	if data, err = scriptrec.Renamed(r.Data, im.renameText); err != nil {
+		return nil, false, refused("nothing was imported: script %s's recording %s cannot be read: %v", name, r.RunID, err)
+	}
+	stored, err := im.Recordings.Get(ctx, r.RunID)
+	switch {
+	case errors.Is(err, scriptrec.ErrNotFound):
+		return data, false, nil
+	case err != nil:
+		return nil, false, fmt.Errorf("reading recording %s: %w", r.RunID, err)
+	case !scriptrec.Same(stored.Data, data):
+		return nil, false, refused("nothing was imported: script %s's recording %s is held here with other content", name, r.RunID)
+	}
+	return data, true, nil
+}
+
+// renameText is a string in a recording's arguments under the mapping: a name
+// the mapping maps, or text holding a {{secret:name}} placeholder of one.
+func (im *importer) renameText(v string) string {
+	if to := strings.TrimSpace(im.mapping[v]); to != "" {
+		return to
+	}
+	if !strings.Contains(v, "{{secret:") {
+		return v
+	}
+	return rename(v, im.mapping)
+}
+
+// keepRecordings stores the recordings a script's tests replay that this
+// deployment did not hold, as the importing administrator's drafts of the
+// script, and marks the ones its tests name kept.
+func (im *importer) keepRecordings(ctx context.Context, sc *script.Script) error {
+	for id, data := range im.carried[sc.Name] {
+		if !im.fresh[sc.Name][id] {
+			continue
+		}
+		if err := im.Recordings.Save(ctx, scriptrec.Stored{
+			RunID: id, ScriptID: sc.ID, ScriptName: sc.Name, Kind: scriptrec.KindDraft, RecordedBy: im.actor.Email,
+			SourceSHA256: scriptrec.SourceHash(sc.Source), Succeeded: true, Bytes: len(data), Data: data,
+		}); err != nil {
+			return fmt.Errorf("storing recording %s of script %s: %w", id, sc.Name, err)
+		}
+	}
+	if im.Recordings == nil || len(im.carried[sc.Name]) == 0 {
+		return nil
+	}
+	if err := im.Recordings.Keep(ctx, sc.ID, im.actor.Email, scripttest.RecordingsNamed(sc.Source)); err != nil {
+		return fmt.Errorf("keeping the recordings of script %s: %w", sc.Name, err)
+	}
+	return nil
+}
+
+// application creates the application the bundle names when locate found
+// none.
+func (im *importer) application(ctx context.Context, bundle *Bundle) error {
+	if im.app != nil {
+		return nil
+	}
+	conn, schema := im.schemaOf(bundle)
+	a, err := im.Service.Create(ctx, im.actor, application.Application{
+		Name: bundle.Application.Name, Description: bundle.Application.Description, Connection: conn, Schema: schema,
+	})
+	if err != nil {
+		return err //nolint:wrapcheck // the service's refusals are the caller's
+	}
+	im.imported.Created = true
+	im.app, im.imported.Application = a, a.Name
+	return nil
 }
 
 // indexParts reads the application's script and asset parts by name, which is
@@ -259,9 +424,6 @@ func (im *importer) migrations(ctx context.Context, s *Schema) error {
 		held[m.Version] = m
 	}
 	for _, m := range s.Migrations {
-		if err := reviewed(m.Version, m.Up, m.Down); err != nil {
-			return err
-		}
 		sum := postgreskit.ChecksumOf(m.Up, m.Down, m.Transactional)
 		if h, ok := held[m.Version]; ok {
 			if h.Checksum != sum {
@@ -323,8 +485,11 @@ func (im *importer) add(ctx context.Context, kind, id string) error {
 // script writes one script: a new version of the part with its name, or a new
 // script owned by the importing administrator.
 func (im *importer) script(ctx context.Context, s *Script) (string, error) {
-	sc, err := im.writeScript(ctx, s, rename(s.Source, im.mapping))
+	sc, err := im.writeScript(ctx, s, im.gated[s.Name])
 	if err != nil {
+		return "", err
+	}
+	if err := im.keepRecordings(ctx, sc); err != nil {
 		return "", err
 	}
 	if err := im.eventSource(ctx, sc, s); err != nil {
@@ -338,14 +503,16 @@ func (im *importer) script(ctx context.Context, s *Script) (string, error) {
 
 // writeScript creates the script, gives the part with its name a new
 // version, or leaves it when nothing it runs changed.
-func (im *importer) writeScript(ctx context.Context, s *Script, src string) (*script.Script, error) {
+func (im *importer) writeScript(ctx context.Context, s *Script, gated scriptsave.Result) (*script.Script, error) {
+	src := gated.Lint.Source
 	sc := im.scripts[s.Name]
 	if sc == nil {
 		sc = &script.Script{
 			Name: s.Name, DisplayName: s.DisplayName, Description: s.Description, Category: s.Category,
-			Tags: s.Tags, Source: src, Params: s.Params, OwnerEmail: im.actor.Email, Enabled: true,
+			Tags: s.Tags, Params: s.Params, OwnerEmail: im.actor.Email, Enabled: true,
 			Status: script.StatusActive, Exclusive: runstate.ExclusiveMode(s.Exclusive),
 		}
+		gated.Apply(sc)
 		if err := sc.Validate(); err != nil {
 			return nil, refused("script %s: %v", s.Name, err)
 		}
@@ -360,7 +527,8 @@ func (im *importer) writeScript(ctx context.Context, s *Script, src string) (*sc
 		return sc, nil
 	}
 	next := *sc
-	next.Source, next.Params, next.DisplayName, next.Description = src, s.Params, s.DisplayName, s.Description
+	gated.Apply(&next)
+	next.Params, next.DisplayName, next.Description = s.Params, s.DisplayName, s.Description
 	next.Category, next.Tags = s.Category, s.Tags
 	if err := next.Validate(); err != nil {
 		return nil, refused("script %s: %v", s.Name, err)

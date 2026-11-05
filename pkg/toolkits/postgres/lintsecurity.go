@@ -116,10 +116,11 @@ var securityRules = map[string]func(l *linter, n int, ts toks){
 }
 
 // securityStatement reads one statement for the security and version rules.
-func (l *linter) securityStatement(n int, ts toks) {
+func (l *linter) securityStatement(n int, stmt string, ts toks) {
 	if len(ts) == 0 {
 		return
 	}
+	l.passwordLiteral(n, stmt)
 	l.versionFeatures(n, ts)
 	if rule, ok := securityRules[ts[0].word]; ok {
 		rule(l, n, ts)
@@ -164,8 +165,6 @@ var createRules = map[string]func(l *linter, n int, ts toks, k int){
 		l.refuse(n, ruleEventTrigger, "CREATE EVENT TRIGGER", "runs a function on every DDL statement in the database, which needs a superuser")
 	},
 	"extension": (*linter).createExtension,
-	"role":      (*linter).passwordLiteral,
-	"user":      (*linter).passwordLiteral,
 	kwTable:     (*linter).createTableColumns,
 	"index":     func(l *linter, n int, ts toks, _ int) { l.indexOnVirtual(n, ts) },
 }
@@ -180,18 +179,16 @@ func (l *linter) createObject(n int, ts toks) {
 	}
 }
 
-// passwordLiteral refuses a role, user or user mapping given a password in
-// the migration (#2411): the literal would be kept in the platform's
-// migration rows, the target's ledger and every bundle the application is
-// exported in. PASSWORD NULL sets none. The finding names the object, never
-// the value.
-func (l *linter) passwordLiteral(n int, ts toks, k int) {
-	// A user mapping's password stands inside its OPTIONS list, which
-	// findWord, reading the top level only, does not reach.
-	p := slices.IndexFunc(ts, func(t tok) bool { return t.word == "password" })
-	if p > k && !ts.at(p+1, "null") {
+// passwordLiteral refuses a role, user, group or user mapping given a
+// password in the migration (#2411): the literal would be kept in the
+// platform's migration rows, the target's ledger and every bundle the
+// application is exported in. PASSWORD NULL sets none. The statement is read
+// by pglex.PasswordLiteral, the rule the audit sanitizer redacts a stored copy
+// of the SQL by (#2475). The finding names the object, never the value.
+func (l *linter) passwordLiteral(n int, stmt string) {
+	if object, ok := pglex.PasswordLiteral(stmt); ok {
 		l.add(Finding{
-			Rule: rulePasswordLiteral, Severity: SeverityRefused, Statement: n, Object: strings.ToUpper(ts[0].word) + " " + strings.ToUpper(ts[k].word),
+			Rule: rulePasswordLiteral, Severity: SeverityRefused, Statement: n, Object: object,
 			Effect: "writes a credential into the migration, which is stored, applied and exported as written",
 			Safe:   "create the role without a password and set it outside the migration; a persona's role password belongs in the connection's persona_role_passwords, kept encrypted",
 		})
@@ -277,8 +274,6 @@ var alterRules = map[string]func(l *linter, n int, ts toks){
 		l.refuse(n, ruleAlterSystem, "ALTER SYSTEM", "changes the server's configuration for every database on it, which needs a superuser")
 	},
 	"default": (*linter).alterDefaultPrivileges,
-	"role":    func(l *linter, n int, ts toks) { l.passwordLiteral(n, ts, 1) },
-	"user":    func(l *linter, n int, ts toks) { l.passwordLiteral(n, ts, 1) },
 	kwView: func(l *linter, _ int, ts toks) {
 		if name := ts.nameAfter(2); ts.optionOn("security_invoker") {
 			l.sec.invoker[name] = true

@@ -299,8 +299,21 @@ func TestBuildOAuthCallbackURL_HonorsForwardedHeaders(t *testing.T) {
 	r.Host = "internal.svc"
 	r.Header.Set("X-Forwarded-Proto", "https")
 	r.Header.Set("X-Forwarded-Host", "platform.example.com")
-	got := buildOAuthCallbackURL(r)
+	got := (&handler{}).callbackURL(r, oauthCallbackPath)
 	assert.Equal(t, "https://platform.example.com/api/v1/admin/oauth/callback", got)
+}
+
+// A request that reached the admin API on the listen address (the
+// platform-admin connection, a script) still gets the public callback when
+// the deployment names its public base URL (#2466).
+func TestCallbackURL_PrefersThePublicBaseURL(t *testing.T) {
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://127.0.0.1:8080/", http.NoBody)
+	r.Host = "127.0.0.1:8080"
+	h := &handler{cfg: Config{PublicBaseURL: " https://platform.example.com/ "}}
+	assert.Equal(t, "https://platform.example.com/api/v1/admin/oauth/callback", h.callbackURL(r, oauthCallbackPath))
+	assert.Equal(t, "https://platform.example.com/api/v1/admin/api-gateway/oauth/callback", h.callbackURL(r, apiGatewayOAuthCallbackPath))
+	assert.Equal(t, "http://127.0.0.1:8080/api/v1/admin/oauth/callback", (&handler{}).callbackURL(r, oauthCallbackPath),
+		"with none set, the request's own address")
 }
 
 func TestBuildAuthorizationURL_AppendsToExistingQuery(t *testing.T) {

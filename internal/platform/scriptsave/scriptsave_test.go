@@ -377,3 +377,24 @@ def test_weekly():
 	res = g.Check(context.Background(), Request{Existing: older, Name: "weekly", Source: countOnly, Caller: jane})
 	assert.Contains(t, res.Refusal, "the tests leave what the script produced unread")
 }
+
+// A save carrying a recording its tests replay (an application import's
+// bundle, #2476) runs them against it, on a deployment whose store holds
+// none; without it the same save is refused for the recording it lacks.
+func TestACarriedRecordingAnswersTheTests(t *testing.T) {
+	src := &store{}
+	record(t, src, "run_1", "", weekly)
+	held, err := src.Get(context.Background(), "run_1")
+	require.NoError(t, err)
+
+	g := &Gate{Recordings: &store{}}
+	res := g.Check(context.Background(), Request{Name: "weekly", Source: weekly + replays, Caller: jane})
+	assert.Contains(t, res.Refusal, "a test failed")
+
+	res = g.Check(context.Background(), Request{
+		Name: "weekly", Source: weekly + replays, Caller: jane, Carried: map[string][]byte{"run_1": held.Data},
+	})
+	assert.Empty(t, res.Refusal)
+	require.NotNil(t, res.Tests)
+	assert.Equal(t, 1, res.Tests.Passed)
+}

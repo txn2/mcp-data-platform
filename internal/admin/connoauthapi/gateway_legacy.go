@@ -106,7 +106,7 @@ func (h *handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	redirectURI := buildOAuthCallbackURL(r)
+	redirectURI := h.callbackURL(r, oauthCallbackPath)
 	authURL := buildAuthorizationURL(cfg.OAuth, state, verifier, redirectURI)
 
 	store := h.pkceStoreFor()
@@ -663,10 +663,30 @@ func buildAuthorizationURL(cfg gatewaykit.OAuthConfig, state, verifier, redirect
 	return cfg.AuthorizationURL + sep + q.Encode()
 }
 
-// buildOAuthCallbackURL derives the callback URL from the request's
-// Host + scheme. Operators register this URL with their OAuth provider
-// once, then never have to think about it.
-func buildOAuthCallbackURL(r *http.Request) string {
+// The paths an upstream redirects the operator's browser back to.
+const (
+	oauthCallbackPath           = "/api/v1/admin/oauth/callback"
+	apiGatewayOAuthCallbackPath = "/api/v1/admin/api-gateway/oauth/callback"
+)
+
+// callbackURL is the address an upstream redirects the operator's browser to
+// after consent: the deployment's portal.public_base_url when it is set, else
+// the request's scheme and host as a proxy forwarded them (#2466). A request
+// that reached the admin API from inside the deployment (the platform-admin
+// connection, a script, a sidecar) carries the listen address as its host,
+// which a browser outside cannot reach, so the configured base URL is the
+// answer whenever there is one.
+func (h *handler) callbackURL(r *http.Request, path string) string {
+	if base := strings.TrimRight(strings.TrimSpace(h.cfg.PublicBaseURL), "/"); base != "" {
+		return base + path
+	}
+	return requestBaseURL(r) + path
+}
+
+// requestBaseURL is the scheme and host the request reached the platform at,
+// as X-Forwarded-Proto and X-Forwarded-Host report them when a proxy set
+// them.
+func requestBaseURL(r *http.Request) string {
 	scheme := "https"
 	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") == "" {
 		scheme = schemeHTTP
@@ -678,7 +698,7 @@ func buildOAuthCallbackURL(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
 		host = fwd
 	}
-	return fmt.Sprintf("%s://%s/api/v1/admin/oauth/callback", scheme, host)
+	return scheme + "://" + host
 }
 
 // writeOAuthError renders a minimal HTML page for stranded browser tabs.

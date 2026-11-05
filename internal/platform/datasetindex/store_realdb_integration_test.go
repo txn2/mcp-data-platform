@@ -61,12 +61,12 @@ func TestCatalogIndexRealDB(t *testing.T) {
 
 	// Before any sweep marker exists the corpus owes work, which is what makes
 	// a fresh deployment index itself without a bootstrap enqueue.
-	needs, err := store.NeedsSweep(ctx, "model-x", time.Hour)
+	needs, err := store.NeedsSweep(ctx, "model-x", time.Hour, 0)
 	require.NoError(t, err)
 	assert.True(t, needs)
 
 	require.NoError(t, store.StampSync(ctx))
-	needs, err = store.NeedsSweep(ctx, "model-x", time.Hour)
+	needs, err = store.NeedsSweep(ctx, "model-x", time.Hour, 0)
 	require.NoError(t, err)
 	assert.True(t, needs, "a stamped sweep with unembedded rows still owes the embedding half")
 
@@ -77,17 +77,27 @@ func TestCatalogIndexRealDB(t *testing.T) {
 	}
 	require.NoError(t, store.ReplaceVectors(ctx, rows))
 
-	needs, err = store.NeedsSweep(ctx, "model-x", time.Hour)
+	needs, err = store.NeedsSweep(ctx, "model-x", time.Hour, 0)
 	require.NoError(t, err)
 	assert.False(t, needs, "a fresh, fully embedded corpus is not re-enumerated")
 
-	needs, err = store.NeedsSweep(ctx, "model-y", time.Hour)
+	needs, err = store.NeedsSweep(ctx, "model-y", time.Hour, 0)
 	require.NoError(t, err)
 	assert.True(t, needs, "a model swap invalidates the stored vectors")
 
-	needs, err = store.NeedsSweep(ctx, "model-x", time.Nanosecond)
+	needs, err = store.NeedsSweep(ctx, "model-x", time.Nanosecond, 0)
 	require.NoError(t, err)
 	assert.True(t, needs, "an aged-out sweep is how the periodic re-enumeration is scheduled")
+
+	// A cap lowered below what the mirror holds is swept down to on the next
+	// start, not when the interval runs out (#2429); a cap the mirror is
+	// within owes nothing.
+	needs, err = store.NeedsSweep(ctx, "model-x", time.Hour, 1)
+	require.NoError(t, err)
+	assert.True(t, needs, "two mirrored datasets over a cap of one owe a sweep")
+	needs, err = store.NeedsSweep(ctx, "model-x", time.Hour, 2)
+	require.NoError(t, err)
+	assert.False(t, needs, "a mirror at the cap owes nothing")
 
 	indexed, expected, err := store.Coverage(ctx, nil)
 	require.NoError(t, err)
@@ -194,25 +204,25 @@ func TestCatalogIndexNoticesACatalogChangeRealDB(t *testing.T) {
 	store := NewStore(db)
 	cat := catalogstore.New(db)
 	require.NoError(t, store.StampSync(ctx))
-	needs, err := store.NeedsSweep(ctx, "m", time.Hour)
+	needs, err := store.NeedsSweep(ctx, "m", time.Hour, 0)
 	require.NoError(t, err)
 	require.False(t, needs, "a fresh sync over an empty catalog owes nothing")
 
 	ref := catalog.DatasetRef("trino", "w", "hive", "sales", "orders")
 	_, err = cat.PutDataset(ctx, catalog.DatasetInput{Ref: ref, Type: catalog.DatasetTable})
 	require.NoError(t, err)
-	needs, err = store.NeedsSweep(ctx, "m", time.Hour)
+	needs, err = store.NeedsSweep(ctx, "m", time.Hour, 0)
 	require.NoError(t, err)
 	assert.True(t, needs, "a dataset declared after the sync is read on the next check")
 
 	require.NoError(t, store.StampSync(ctx))
-	needs, err = store.NeedsSweep(ctx, "m", time.Hour)
+	needs, err = store.NeedsSweep(ctx, "m", time.Hour, 0)
 	require.NoError(t, err)
 	require.False(t, needs)
 
 	_, err = cat.WriteAspect(ctx, ref, catalog.AspectDescription, json.RawMessage(`"new"`), "a")
 	require.NoError(t, err)
-	needs, err = store.NeedsSweep(ctx, "m", time.Hour)
+	needs, err = store.NeedsSweep(ctx, "m", time.Hour, 0)
 	require.NoError(t, err)
 	assert.True(t, needs, "a description written after the sync is read on the next check")
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -28,6 +31,9 @@ import (
 
 // world is one deployment's stores, in memory.
 type world struct {
+	gated      []scriptsave.Request
+	recordings map[string]*scriptrec.Stored
+	kept       map[string][]string
 	apps       map[string]*application.Application
 	releases   map[string][]application.Release
 	scripts    map[string]*script.Script
@@ -49,7 +55,28 @@ func newWorld() *world {
 		scripts: map[string]*script.Script{}, versions: map[string][]script.Version{},
 		assets: map[string]*portaldomain.Asset{}, assetVers: map[string][]portaldomain.AssetVersion{},
 		blobs: map[string][]byte{}, bindings: map[string]*epbinding.Binding{}, schedules: map[string]*script.Schedule{},
+		recordings: map[string]*scriptrec.Stored{}, kept: map[string][]string{},
 	}
+}
+
+// recs is the recording store.
+type recs struct{ w *world }
+
+func (r recs) Get(_ context.Context, runID string) (*scriptrec.Stored, error) {
+	if rec, ok := r.w.recordings[runID]; ok {
+		return rec, nil
+	}
+	return nil, scriptrec.ErrNotFound
+}
+
+func (r recs) Save(_ context.Context, rec scriptrec.Stored) error {
+	r.w.recordings[rec.RunID] = &rec
+	return nil
+}
+
+func (r recs) Keep(_ context.Context, scriptID, _ string, runIDs []string) error {
+	r.w.kept[scriptID] = runIDs
+	return nil
 }
 
 // application.Store
@@ -278,7 +305,24 @@ func bundler(w *world) *Bundler {
 			return map[string]any{}, nil
 		},
 		HasSchemaConnection: func(name string) bool { return name == "orders-prod" },
+		SaveGate:            &gate{w: w}, Recordings: recs{w},
 	})
+}
+
+// gate is a save gate that formats nothing and refuses a source holding
+// "REFUSE", recording each request it was asked.
+type gate struct{ w *world }
+
+func (g *gate) Check(_ context.Context, req scriptsave.Request) scriptsave.Result {
+	g.w.gated = append(g.w.gated, req)
+	res := scriptsave.Result{}
+	res.Lint.Source = req.Source
+	if strings.Contains(req.Source, "REFUSE") {
+		res.Refusal = "statement 3: lint_rule says no"
+		return res
+	}
+	res.ChangeSummary, res.ChangeAgreedBy = req.ChangeSummary, req.Caller.Email
+	return res
 }
 
 var admin = application.Actor{Email: "admin@example.com", Admin: true, Subject: "u-admin", Roles: []string{"admin"}}
@@ -414,6 +458,13 @@ func TestImport_CreatesTheApplicationAtTheRelease(t *testing.T) {
 		created = sc
 	}
 	assert.Contains(t, created.Source, `connection="orders-prod"`, "a mapped connection is renamed in the source")
+	require.NotEmpty(t, w.gated, "every script crosses the save gate")
+	req := w.gated[len(w.gated)-1]
+	assert.Contains(t, req.Source, `connection="orders-prod"`, "the gate checks the source as it will be stored")
+	assert.Equal(t, scriptsave.Caller{Email: admin.Email, Admin: true, Roles: []string{"admin"}}, req.Caller)
+	assert.True(t, req.Agreed)
+	assert.Equal(t, "imported from release 1 of shop", req.ChangeSummary)
+	assert.Equal(t, "imported from release 1 of shop", created.ChangeSummary, "the saved version carries what the gate agreed")
 	assert.Contains(t, created.Source, "{{secret:stripe-live}}")
 	assert.Equal(t, admin.Email, created.OwnerEmail, "an imported script belongs to the importing administrator")
 	require.Len(t, w.authors, 1)
@@ -453,6 +504,7 @@ func TestImport_Refusals(t *testing.T) {
 		}, want: "differs from the bundle's"},
 		"mapped name breaks out of a string": {bundle: data, mapping: mapWith("orders", `x") + platform.call("x`), want: "a name of letters"},
 		"refused migration":                  {bundle: refusedBundle(t, data), mapping: fullMap, want: "untrusted_code"},
+		"refused script":                     {bundle: refusedScript(t, data), mapping: fullMap, want: "script shop-api is refused by this deployment's save gate: statement 3: lint_rule says no"},
 		"schema moved": {bundle: data, mapping: fullMap, setup: func(w *world) {
 			w.apps["app_shop"] = &application.Application{ID: "app_shop", Name: "shop", Connection: "orders-prod", Schema: "other"}
 		}, want: "the bundle on"},
@@ -467,17 +519,37 @@ func TestImport_Refusals(t *testing.T) {
 			b.Reader = reader{tc.bundle}
 			_, err := b.Import(ctx, admin, "mcp:resource:r1", tc.mapping)
 			require.ErrorContains(t, err, tc.want)
+			if name == "refused script" || name == "refused migration" {
+				assert.Empty(t, w.apps, "nothing is written before the review")
+				assert.Empty(t, w.migrations)
+				assert.Empty(t, w.scripts)
+			}
 		})
 	}
+	noGate := bundler(newWorld())
+	noGate.Reader, noGate.SaveGate = reader{data}, nil
+	_, err := noGate.Import(ctx, admin, "mcp:resource:r1", fullMap)
+	require.ErrorContains(t, err, "no script save gate")
 	w := newWorld()
 	b := bundler(w)
-	_, err := b.Import(ctx, admin, "mcp:resource:r1", fullMap)
+	_, err = b.Import(ctx, admin, "mcp:resource:r1", fullMap)
 	require.ErrorContains(t, err, "no managed-resource library", "no reader configured")
 	b.Reader = reader{data}
 	_, err = b.Import(ctx, admin, " ", fullMap)
 	require.ErrorContains(t, err, "name the bundle")
 	_, err = b.Import(ctx, admin, "mcp:resource:other", fullMap)
 	require.ErrorContains(t, err, "reading the bundle")
+}
+
+// refusedScript is data with its script's source one the save gate refuses.
+func refusedScript(t *testing.T, data string) string {
+	t.Helper()
+	var b Bundle
+	require.NoError(t, json.Unmarshal([]byte(data), &b))
+	b.Scripts[0].Source += "# REFUSE\n"
+	out, err := json.Marshal(b)
+	require.NoError(t, err)
+	return string(out)
 }
 
 // refusedBundle is data with its migration replaced by one the review refuses.
@@ -548,4 +620,108 @@ func TestImportAndExport_RefuseWhatADeploymentCannotHold(t *testing.T) {
 	b.Bindings, b.Schedules = nil, nil
 	_, err = b.Export(ctx, admin, "shop", 0)
 	require.NoError(t, err, "a deployment with no endpoints or schedules exports scripts without them")
+}
+
+// testedSource is a script whose test replays dpx_1, which calls the
+// connection the import maps.
+const testedSource = "def main():\n    \"\"\"Reads one row.\"\"\"\n" +
+	"    platform.query(\"SELECT 1\", connection = \"orders\")\n\n" +
+	"def test_main():\n    \"\"\"Replays a run.\"\"\"\n    out = testing.replay(\"dpx_1\")\n    assert.eq(out.result, None)\n"
+
+// testedWorld is a source deployment whose script's tests replay dpx_1.
+func testedWorld(t *testing.T) *world {
+	t.Helper()
+	w := source(t)
+	w.versions[apiID][0].Source = testedSource
+	r := scriptrec.NewRecorder(scriptrec.Header{RunID: "dpx_1"})
+	r.OnCall("trino_query", map[string]any{"connection": "orders", "sql": "SELECT 1"}, map[string]any{"rows": []any{}}, nil)
+	data, reason := r.Finish()
+	require.Empty(t, reason)
+	w.recordings["dpx_1"] = &scriptrec.Stored{RunID: "dpx_1", Data: data}
+	return w
+}
+
+// A script's test recordings travel in the bundle, renamed by the mapping,
+// reach the target's save gate, and are stored and kept for the script the
+// import writes (#2476).
+func TestImport_CarriesTheRecordingsAScriptsTestsReplay(t *testing.T) {
+	src := testedWorld(t)
+	_, err := bundler(src).Export(context.Background(), admin, "shop", 1)
+	require.NoError(t, err)
+	var bundle Bundle
+	require.NoError(t, json.Unmarshal(src.landed, &bundle))
+	require.Len(t, bundle.Scripts[0].Recordings, 1)
+	assert.Equal(t, "dpx_1", bundle.Scripts[0].Recordings[0].RunID)
+
+	w := newWorld()
+	b := bundler(w)
+	b.Reader = reader{string(src.landed)}
+	_, err = b.Import(adminCtx(), admin, "mcp:resource:r1", fullMap)
+	require.NoError(t, err)
+	require.NotEmpty(t, w.gated)
+	carried := w.gated[len(w.gated)-1].Carried["dpx_1"]
+	require.NotNil(t, carried, "the gate replays the carried recording")
+	rec, err := scriptrec.Decode(carried)
+	require.NoError(t, err)
+	args := map[string]any{"connection": "orders-prod", "sql": "SELECT 1"}
+	assert.Equal(t, args, rec.Calls[0].Args, "the recording is renamed as the source is")
+	assert.Equal(t, scriptrec.ToolKey("trino_query", args), rec.Calls[0].Key)
+
+	stored := w.recordings["dpx_1"]
+	require.NotNil(t, stored)
+	var id string
+	for k := range w.scripts {
+		id = k
+	}
+	assert.Equal(t, id, stored.ScriptID)
+	assert.Equal(t, scriptrec.KindDraft, stored.Kind)
+	assert.Equal(t, admin.Email, stored.RecordedBy)
+	assert.Equal(t, []string{"dpx_1"}, w.kept[id])
+
+	// The same bundle again finds the recording held with the same content.
+	_, err = b.Import(adminCtx(), admin, "mcp:resource:r1", fullMap)
+	require.NoError(t, err)
+
+	// A recording held here under the same run id with other content is
+	// never replaced.
+	other := newWorld()
+	other.recordings["dpx_1"] = &scriptrec.Stored{RunID: "dpx_1", ScriptID: "someone-else", Data: src.recordings["dpx_1"].Data}
+	ob := bundler(other)
+	ob.Reader = reader{string(src.landed)}
+	_, err = ob.Import(adminCtx(), admin, "mcp:resource:r1", fullMap)
+	require.ErrorContains(t, err, "recording dpx_1 is held here with other content")
+	assert.Equal(t, "someone-else", other.recordings["dpx_1"].ScriptID)
+	assert.Empty(t, other.apps)
+
+	// One over a run's own cap, and one that does not read, refuse.
+	for name, data := range map[string][]byte{"oversized": make([]byte, scriptrec.MaxBytes+1), "garbled": []byte("nope")} {
+		t.Run(name, func(t *testing.T) {
+			bundle.Scripts[0].Recordings[0].Data = data
+			raw, err := json.Marshal(bundle)
+			require.NoError(t, err)
+			nb := bundler(newWorld())
+			nb.Reader = reader{string(raw)}
+			_, err = nb.Import(adminCtx(), admin, "mcp:resource:r1", fullMap)
+			require.ErrorContains(t, err, "recording dpx_1")
+		})
+	}
+
+	// A deployment that keeps no recordings refuses such a script.
+	nr := bundler(newWorld())
+	nr.Reader, nr.Recordings = reader{string(src.landed)}, nil
+	_, err = nr.Import(adminCtx(), admin, "mcp:resource:r1", fullMap)
+	require.ErrorContains(t, err, "keeps no recordings")
+}
+
+// An export whose script's tests replay a recording this deployment does not
+// hold, or with no recording store, is refused naming it.
+func TestExport_RefusesATestRecordingItDoesNotHold(t *testing.T) {
+	w := testedWorld(t)
+	delete(w.recordings, "dpx_1")
+	_, err := bundler(w).Export(context.Background(), admin, "shop", 1)
+	require.ErrorContains(t, err, "replay recording dpx_1, which this deployment does not hold")
+	b := bundler(testedWorld(t))
+	b.Recordings = nil
+	_, err = b.Export(context.Background(), admin, "shop", 1)
+	require.ErrorContains(t, err, "keeps no recordings to export")
 }

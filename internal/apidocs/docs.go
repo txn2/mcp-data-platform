@@ -32226,6 +32226,18 @@ const docTemplate = `{
                 }
             }
         },
+        "appbundle.Recording": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "string",
+                    "format": "byte"
+                },
+                "run_id": {
+                    "type": "string"
+                }
+            }
+        },
         "appbundle.Schedule": {
             "type": "object",
             "properties": {
@@ -32293,6 +32305,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/script.Param"
+                    }
+                },
+                "recordings": {
+                    "description": "Recordings are the recorded runs the source's tests replay, so the\nimporting deployment's save gate runs the same tests (#2476).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appbundle.Recording"
                     }
                 },
                 "schedule": {

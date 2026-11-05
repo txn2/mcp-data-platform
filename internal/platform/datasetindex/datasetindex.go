@@ -194,7 +194,7 @@ func RegisterConsumer(reg interface {
 ) error {
 	store := NewStore(db)
 	src := NewSource(store, lister, cfg.ResolvedMaxEntries()).Excluding(cfg.Excluded...)
-	sink := NewSink(store, currentModel, cfg.ResolvedSyncInterval()).Excluding(cfg.Excluded...)
+	sink := NewSink(store, currentModel, cfg.ResolvedSyncInterval()).Excluding(cfg.Excluded...).Capped(cfg.ResolvedMaxEntries())
 	if err := reg.Register(src, sink); err != nil {
 		return fmt.Errorf("registering catalog-datasets index consumer: %w", err)
 	}

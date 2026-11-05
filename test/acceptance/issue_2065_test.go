@@ -199,8 +199,8 @@ func TestIssue2065_TheAuditTheCallRecordAndTheRecordingHoldThePlaceholder(t *tes
 	if recording == "" {
 		t.Fatalf("the draft kept no recording: %v", ran)
 	}
-	data := recording2051(t, recording)
-	if !bytes.Contains(data, []byte(ph)) || bytes.Contains(data, []byte(rfcSeed2065)) {
+	stored, read := recording2051(t, c, recording)
+	if !bytes.Contains(read, []byte(ph)) || bytes.Contains(read, []byte(rfcSeed2065)) || bytes.Contains(stored, []byte(rfcSeed2065)) {
 		t.Errorf("the recording does not hold the placeholder, or holds the seed")
 	}
 }

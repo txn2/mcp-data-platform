@@ -218,8 +218,12 @@ func issue2395PeakGrowth(sample func() int64, fn func()) int64 {
 	start := sample()
 	var peak int64
 	var mu sync.Mutex
-	done := make(chan struct{})
+	done, exited := make(chan struct{}), make(chan struct{})
+	// The sampler is waited for before this returns: a scrape still in
+	// flight when the test ends reads a cancelled t.Context() and fails the
+	// test from a goroutine that outlived it.
 	go func() {
+		defer close(exited)
 		tick := time.NewTicker(100 * time.Millisecond)
 		defer tick.Stop()
 		for {
@@ -237,6 +241,7 @@ func issue2395PeakGrowth(sample func() int64, fn func()) int64 {
 	}()
 	fn()
 	close(done)
+	<-exited
 	mu.Lock()
 	defer mu.Unlock()
 	return peak - start

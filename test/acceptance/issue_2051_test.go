@@ -4,9 +4,8 @@ package acceptance
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
-	"io"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -114,8 +113,8 @@ func TestIssue2051_AScriptRecordingAndTheAuditHoldOnlyThePlaceholder(t *testing.
 		t.Fatalf("the draft kept no recording: %v", ran)
 	}
 
-	data := recording2051(t, recording)
-	if bytes.Contains(data, []byte(value)) || !bytes.Contains(data, []byte("{{secret:"+name+"}}")) {
+	stored, read := recording2051(t, admin, recording)
+	if bytes.Contains(stored, []byte(value)) || bytes.Contains(read, []byte(value)) || !bytes.Contains(read, []byte("{{secret:"+name+"}}")) {
 		t.Errorf("the recording holds the value, or not the placeholder")
 	}
 
@@ -137,25 +136,28 @@ func TestIssue2051_AScriptRecordingAndTheAuditHoldOnlyThePlaceholder(t *testing.
 	}
 }
 
-// recording2051 reads a recording's calls from the dev database, unzipped.
-func recording2051(t *testing.T, runID string) []byte {
+// recording2051 returns a recording twice: the row as the dev database
+// stores it, which #2402 seals with the platform's field encryptor, and the
+// calls as its owner reads them through manage_script command=recording,
+// encoded as JSON. A secret must be absent from both, and the placeholder
+// present in what is read back.
+func recording2051(t *testing.T, c *client, runID string) (stored, read []byte) {
 	t.Helper()
 	db := issue1904DB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	var data []byte
-	if err := db.QueryRowContext(ctx, `SELECT data FROM script_recordings WHERE run_id = $1`, runID).Scan(&data); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT data FROM script_recordings WHERE run_id = $1`, runID).Scan(&stored); err != nil {
 		t.Fatalf("reading recording %s: %v", runID, err)
 	}
-	zr, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		t.Fatalf("opening the recording: %v", err)
+	got := c.call("manage_script", map[string]any{"command": "recording", "run_id": runID})
+	if calls, _ := got["calls"].([]any); len(calls) == 0 {
+		t.Fatalf("recording %s reads back with no calls: %v", runID, got)
 	}
-	out, err := io.ReadAll(zr)
+	read, err := json.Marshal(got)
 	if err != nil {
-		t.Fatalf("reading the recording: %v", err)
+		t.Fatalf("encoding recording %s: %v", runID, err)
 	}
-	return out
+	return stored, read
 }
 
 func TestIssue2051_RefusedOutsideItsScopeOrUnknownAndNothingIsSent(t *testing.T) {

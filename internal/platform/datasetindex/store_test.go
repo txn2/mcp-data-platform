@@ -202,14 +202,14 @@ func TestNeedsSweep(t *testing.T) {
 	ctx := context.Background()
 
 	mock.ExpectQuery("catalog_dataset_sync").
-		WithArgs(1800.0, "model-x").
+		WithArgs(1800.0, "model-x", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"needs"}).AddRow(true))
-	needs, err := store.NeedsSweep(ctx, "model-x", 30*time.Minute)
+	needs, err := store.NeedsSweep(ctx, "model-x", 30*time.Minute, 0)
 	require.NoError(t, err)
 	assert.True(t, needs)
 
 	mock.ExpectQuery("catalog_dataset_sync").WillReturnError(errors.New("boom"))
-	_, err = store.NeedsSweep(ctx, "model-x", time.Minute)
+	_, err = store.NeedsSweep(ctx, "model-x", time.Minute, 0)
 	require.Error(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

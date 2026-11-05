@@ -248,7 +248,7 @@ func TestBuildAPIGatewayCallbackURL_HonorsForwardedHeaders(t *testing.T) {
 	r.Host = "internal.svc"
 	r.Header.Set("X-Forwarded-Proto", "https")
 	r.Header.Set("X-Forwarded-Host", "platform.example.com")
-	got := buildAPIGatewayCallbackURL(r)
+	got := (&handler{}).callbackURL(r, apiGatewayOAuthCallbackPath)
 	assert.Equal(t,
 		"https://platform.example.com/api/v1/admin/api-gateway/oauth/callback",
 		got)

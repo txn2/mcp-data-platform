@@ -93,6 +93,10 @@ type Request struct {
 	// runs for agreed to it.
 	ChangeSummary string
 	Agreed        bool
+	// Carried is recordings the save brings that this deployment does not
+	// hold yet, by run id: an application import's bundle (#2476). A test
+	// naming one replays it.
+	Carried map[string][]byte
 }
 
 // Result is what the gate made of a save.
@@ -240,8 +244,22 @@ func (g *Gate) checkTests(ctx context.Context, req Request, source string, res *
 func (g *Gate) testRequest(req Request, source string) scripttest.Request {
 	return scripttest.Request{
 		Source: source, Name: req.Name, Destinations: g.Destinations,
-		Load: g.Loader(req.Existing, req.Caller), MaxMemoryBytes: g.MaxMemoryBytes,
+		Load: carriedFirst(req.Carried, g.Loader(req.Existing, req.Caller)), MaxMemoryBytes: g.MaxMemoryBytes,
 		Contracts: g.Contracts, Libraries: g.libraries(req.Caller),
+	}
+}
+
+// carriedFirst reads a recording the save carries, and any other through
+// stored.
+func carriedFirst(carried map[string][]byte, stored scripttest.Loader) scripttest.Loader {
+	if len(carried) == 0 {
+		return stored
+	}
+	return func(ctx context.Context, runID string) (*scriptrec.Recording, error) {
+		if data, ok := carried[runID]; ok {
+			return scriptrec.Decode(data)
+		}
+		return stored(ctx, runID)
 	}
 }
 

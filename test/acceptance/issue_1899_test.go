@@ -183,8 +183,9 @@ func TestIssue1899_TheTableSamplerReportsSizesAndTheTransactionAge(t *testing.T)
 // TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing: uploading a
 // resource raises the resources bytes and object count without waiting for the
 // full scan. The scan reports the objects it read; an upload whose count rose
-// while that figure stayed put was counted by the write, not the listing. A
-// listing that lands in between is retried once. The count is read once every
+// while that figure stayed put was counted by the write, not the listing. Each
+// attempt begins as a listing ends, and one a listing still lands in is tried
+// again. The count is read once every
 // replica has flushed what it held, so a delete made just before is not
 // netted against the upload.
 func TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing(t *testing.T) {
@@ -192,6 +193,12 @@ func TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing(t *testing.T)
 	labels := map[string]string{"bucket": issue1899Bucket, "purpose": "resources"}
 	for attempt := 1; attempt <= 3; attempt++ {
 		awaitSettledUsage(t)
+		// The attempt starts as a listing finishes, so the upload and the
+		// write's count have the time until the next listing to themselves
+		// rather than whatever was left of the interval when the attempt
+		// began; three attempts begun at arbitrary points each overlapped
+		// one on a nightly runner (#2429).
+		waitForListing(t, float64(time.Now().UnixNano())/1e9)
 		body := oneReplica(t)
 		objects := metricSeries(body, "storage_bucket_objects", labels)
 		bytes := metricSeries(body, "storage_bucket_bytes", labels)
@@ -281,8 +288,10 @@ func seedOrphanAndDangling1899(t *testing.T, c *client) (cleanup func()) {
 	t.Helper()
 	stamp := time.Now().UnixNano()
 	orphanKey := fmt.Sprintf("resources/global/global/acceptance-1899-%d/orphan.txt", stamp)
-	c.call("s3_object", map[string]any{"action": "put", "connection": issue1899Resources, "bucket": issue1899Bucket,
-		"key": orphanKey, "content": "no row names me", "content_type": "text/plain", "purpose": issue1899Purpose})
+	c.call("s3_object", map[string]any{
+		"action": "put", "connection": issue1899Resources, "bucket": issue1899Bucket,
+		"key": orphanKey, "content": "no row names me", "content_type": "text/plain", "purpose": issue1899Purpose,
+	})
 
 	id, _ := uploadResource1568(t, c, fmt.Sprintf("dangling-%d.txt", stamp), "text/plain", []byte("my object goes away"))
 	status, res := c.rest(http.MethodGet, "/api/v1/resources/"+id, http.NoBody)
@@ -290,13 +299,17 @@ func seedOrphanAndDangling1899(t *testing.T, c *client) (cleanup func()) {
 	if status != http.StatusOK || key == "" {
 		t.Fatalf("reading the resource back: %d %v", status, res)
 	}
-	c.call("s3_object", map[string]any{"action": "delete", "connection": issue1899Resources, "bucket": issue1899Bucket,
-		"key": key, "purpose": issue1899Purpose})
+	c.call("s3_object", map[string]any{
+		"action": "delete", "connection": issue1899Resources, "bucket": issue1899Bucket,
+		"key": key, "purpose": issue1899Purpose,
+	})
 
 	return func() {
 		fresh := connect(t)
-		if _, text, err := fresh.callRaw("s3_object", map[string]any{"action": "delete", "connection": issue1899Resources,
-			"bucket": issue1899Bucket, "key": orphanKey, "purpose": issue1899Purpose}); err != nil {
+		if _, text, err := fresh.callRaw("s3_object", map[string]any{
+			"action": "delete", "connection": issue1899Resources,
+			"bucket": issue1899Bucket, "key": orphanKey, "purpose": issue1899Purpose,
+		}); err != nil {
 			t.Errorf("removing the seeded orphan %s: %v %s", orphanKey, err, text)
 		}
 		if status, body := fresh.rest(http.MethodDelete, "/api/v1/resources/"+id, http.NoBody); status != http.StatusNoContent && status != http.StatusNotFound {

@@ -27,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
@@ -128,7 +129,7 @@ func Wire(deps Deps) *scriptexec.Handle {
 	layer.RegisterTool(deps.Server)
 	// Applications (#2411): scripts, assets, sources and a schema released
 	// together, over the same stores.
-	appwire.Register(deps.Server, applicationDeps(deps, endpoints))
+	appwire.Register(deps.Server, applicationDeps(deps, endpoints, layer.SaveGate()))
 	deps.Bind(layer)
 	return scripts
 }
@@ -136,10 +137,13 @@ func Wire(deps Deps) *scriptexec.Handle {
 // applicationDeps is what applications are assembled from (#2411, #2412):
 // the portal's stores and bucket, the managed-resource library a bundle is
 // written to and read from, and the endpoint commands an import binds with.
-func applicationDeps(deps Deps, endpoints *epwire.Endpoints) appwire.Deps {
+func applicationDeps(deps Deps, endpoints *epwire.Endpoints, gate *scriptsave.Gate) appwire.Deps {
 	d := appwire.Deps{
 		DB: deps.DB, Toolkits: deps.Toolkits, Bucket: deps.Bucket, Prefix: deps.Prefix,
 		Lander: deps.Lander, Reader: deps.Sources, Claims: resourcewrite.CallerClaims,
+	}
+	if gate != nil {
+		d.SaveGate, d.Recordings = gate, gate.Recordings
 	}
 	if deps.Assets != nil {
 		d.Assets = deps.Assets

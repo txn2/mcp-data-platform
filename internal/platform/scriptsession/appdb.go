@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/appdbops"
+	"github.com/txn2/mcp-data-platform/internal/jsonwalk"
+	"github.com/txn2/mcp-data-platform/internal/pglex"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
@@ -770,8 +772,10 @@ func anyList(v any) []any {
 
 // RecordedArgs is a call's arguments as a recording keeps and matches them: a
 // copy_in's rows are bound values, kept nowhere but the database, so they are
-// replaced by their count (#2453).
+// replaced by their count (#2453), and a password a SQL string gives a role
+// is replaced by a placeholder (#2475).
 func RecordedArgs(tool string, args map[string]any) map[string]any {
+	args = redactedPasswords(args)
 	if _, held := args[argRows]; tool != AppDBCopyIn || !held {
 		return args
 	}
@@ -779,6 +783,20 @@ func RecordedArgs(tool string, args map[string]any) map[string]any {
 	delete(out, argRows)
 	out["row_count"] = len(anyList(args[argRows]))
 	return out
+}
+
+// redactedPasswords is args with the password literal of every SQL string
+// that gives a role, user or group a password replaced (#2475): a statement a
+// script executes and a migration it adds are recorded without the
+// credential. A replay matches a call by these same arguments, so it still
+// finds the call. args is returned as it is when nothing in it changes.
+func redactedPasswords(args map[string]any) map[string]any {
+	out, changed := jsonwalk.Strings(args, pglex.RedactPasswords)
+	if !changed {
+		return args
+	}
+	m, _ := out.(map[string]any)
+	return m
 }
 
 // RecordedOut is a call's answer as a recording keeps it: a copy_out's bytes

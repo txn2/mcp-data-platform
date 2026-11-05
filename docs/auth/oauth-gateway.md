@@ -221,7 +221,13 @@ Salesforce's Hosted MCP requires an OAuth client registration with the
    step-by-step. What you need to capture from this step:
     - **Consumer key** (becomes `oauth_client_id`)
     - **Consumer secret** (becomes `oauth_client_secret`)
-    - **Callback URL** must be set to `https://<your-platform-host>/api/v1/admin/oauth/callback`
+    - **Callback URL** must be set to `https://<your-platform-host>/api/v1/admin/oauth/callback`.
+      The platform sends that address as `redirect_uri`: it is built on `portal.public_base_url`
+      when the deployment sets it, and otherwise on the host and scheme the request arrived with
+      (`X-Forwarded-Host` and `X-Forwarded-Proto` when a proxy sets them). Set `portal.public_base_url`
+      on any deployment reached through a proxy or called from inside it (the `platform-admin`
+      connection, a script): such a request carries the listen address, which a browser
+      outside cannot reach (#2466).
     - **Scopes** that include OAuth basics (`api`, `refresh_token`)
       plus the scope(s) Salesforce requires for Hosted MCP access —
       check the current Salesforce docs for the exact scope name(s).

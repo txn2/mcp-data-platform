@@ -17,6 +17,9 @@ type Sink struct {
 	currentModel string
 	syncInterval time.Duration
 	excluded     []Connection
+	// maxEntries is the entry cap the Source enumerates to; a mirror holding
+	// more owes a sweep. Zero checks no cap.
+	maxEntries int
 }
 
 // NewSink returns a Sink backed by the given store. currentModel is the
@@ -31,6 +34,14 @@ func NewSink(store *Store, currentModel string, syncInterval time.Duration) *Sin
 // its coverage is held to, as the Source leaves them out of the mirror.
 func (s *Sink) Excluding(conns ...Connection) *Sink {
 	s.excluded = append(s.excluded, conns...)
+	return s
+}
+
+// Capped returns the sink with the entry cap the Source enumerates to, so a
+// mirror built under a higher cap is swept down to it on the next start
+// (#2429).
+func (s *Sink) Capped(maxEntries int) *Sink {
+	s.maxEntries = maxEntries
 	return s
 }
 
@@ -71,9 +82,10 @@ func (*Sink) StampExpected(context.Context, indexjobs.Key, int) error { return n
 
 // FindGaps returns the corpus unit when it owes work: the enumeration has aged
 // out (which is how the periodic sweep is scheduled without a goroutine of its
-// own) or some mirrored dataset has no vector, or one from a superseded model.
+// own), some mirrored dataset has no vector, or one from a superseded model,
+// or the mirror holds more datasets than the cap.
 func (s *Sink) FindGaps(ctx context.Context) ([]string, error) {
-	needs, err := s.store.NeedsSweep(ctx, s.currentModel, s.syncInterval)
+	needs, err := s.store.NeedsSweep(ctx, s.currentModel, s.syncInterval, s.maxEntries)
 	if err != nil {
 		return nil, err
 	}

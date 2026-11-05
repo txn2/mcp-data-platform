@@ -85,6 +85,18 @@ type Script struct {
 	// DynamicConnections is set when the source names a connection in a way
 	// a static read cannot see; those names are not in Names.
 	DynamicConnections bool `json:"dynamic_connections,omitempty"`
+	// Recordings are the recorded runs the source's tests replay, so the
+	// importing deployment's save gate runs the same tests (#2476).
+	Recordings []Recording `json:"recordings,omitempty"`
+}
+
+// Recording is one recorded run a script's tests replay: its run id, as the
+// tests name it, and the recording as the platform writes it (gzipped JSON
+// lines, base64 in the bundle). It holds the answers the run's calls were
+// given; a secret is kept only as its {{secret:name}} placeholder.
+type Recording struct {
+	RunID string `json:"run_id"`
+	Data  []byte `json:"data" swaggertype:"string" format:"byte"`
 }
 
 // Endpoint is a script's endpoint binding.

@@ -33,11 +33,12 @@ import (
 const issue2381Key = "acceptance-2381-key"
 
 // issue2381Wait is how long each platform's client session lasts. The
-// criterion waits up to three minutes for a scan and six for the capped index
-// to embed its entries, which on a CI runner outlasts the suite's default
+// criterion waits up to three minutes for a scan, ten for the first start's
+// index queue to drain and six for the capped index to embed its entries,
+// which on a CI runner outlasts the suite's default
 // two-minute session; a session shorter than the wait ends it with "context
 // deadline exceeded" rather than with the platform's answer (#1738).
-const issue2381Wait = 8 * time.Minute
+const issue2381Wait = 20 * time.Minute
 
 const issue2381Config = `
 server:
@@ -204,6 +205,19 @@ func TestIssue2381_ACappedIndexKeepsTablesAndReadsShort(t *testing.T) {
 	phrase := fmt.Sprintf("settlement ledger reconciled nightly marker%d", time.Now().UnixNano())
 	issue1921Write(t, admin, ref, "description", phrase)
 	tables := issue2381Count(t, db, issue2381Tables)
+	// A fresh database starts with every source unindexed: the built-in
+	// knowledge pages, the platform-admin operations, the tools. Writes are
+	// claimed ahead of the reconciler, so a first start stopped with that
+	// queue still pending hands it to the second start, ahead of the capped
+	// catalog job this criterion times. On a CI runner, which embeds on a
+	// CPU shared with the dev stack, that backlog took the whole wait (#2429).
+	issue2381Await(t, 10*time.Minute, "the first start's index queue draining", func() bool {
+		left := issue2381Count(t, db, `SELECT COUNT(*) FROM index_jobs WHERE status IN ('pending', 'running')`)
+		if left > 0 {
+			t.Logf("the first start has %d index jobs left", left)
+		}
+		return left == 0
+	})
 	first.stop(t)
 
 	// Second start, with room for every table and two operations.

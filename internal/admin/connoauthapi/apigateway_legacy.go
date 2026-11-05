@@ -68,7 +68,7 @@ func (h *handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	redirectURI := buildAPIGatewayCallbackURL(r)
+	redirectURI := h.callbackURL(r, apiGatewayOAuthCallbackPath)
 	authURL := buildAPIGatewayAuthorizationURL(cfg.OAuth2, state, verifier, redirectURI)
 
 	store := h.pkceStoreFor()
@@ -264,26 +264,6 @@ func (h *handler) loadAPIGatewayAuthCodeConfig(w http.ResponseWriter, r *http.Re
 		return apigatewaykit.Config{}, false
 	}
 	return cfg, true
-}
-
-// buildAPIGatewayCallbackURL composes the callback URL the IdP
-// should redirect to after authentication. Built from the request's
-// scheme + host so deployments behind a reverse proxy (where the
-// platform sees a different host than the operator's browser) Just
-// Work as long as the proxy populates X-Forwarded-Host.
-func buildAPIGatewayCallbackURL(r *http.Request) string {
-	scheme := "https"
-	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") == "" {
-		scheme = "http"
-	}
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		scheme = proto
-	}
-	host := r.Host
-	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
-		host = fh
-	}
-	return scheme + "://" + host + "/api/v1/admin/api-gateway/oauth/callback"
 }
 
 // buildAPIGatewayAuthorizationURL composes the IdP's authorization

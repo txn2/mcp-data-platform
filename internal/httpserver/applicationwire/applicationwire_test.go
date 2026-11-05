@@ -15,7 +15,7 @@ import (
 )
 
 func TestMount_WithoutAPlatform(t *testing.T) {
-	assert.NotPanics(t, func() { Mount(http.NewServeMux(), nil, nil, nil) })
+	assert.NotPanics(t, func() { Mount(http.NewServeMux(), nil, nil, nil, nil) })
 }
 
 func TestActor(t *testing.T) {

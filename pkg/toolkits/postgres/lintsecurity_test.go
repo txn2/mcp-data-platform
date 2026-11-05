@@ -168,6 +168,16 @@ func TestReviewRefusesAndReportsTheTarget(t *testing.T) {
 	assert.Contains(t, refusal, "statement 2 (ALTER SYSTEM)")
 	assert.Empty(t, store.migrations, "nothing saved")
 
+	// The down SQL is held to the same refusals (#2475).
+	const canary = "down-canary-2475"
+	_, refusal = run(ctx, t, tk, schemaInput{
+		Command: schemaAdd, Version: 2, Name: "down", Up: "CREATE TABLE a (id int)",
+		Down: "DROP TABLE a;\nALTER ROLE app PASSWORD '" + canary + "'",
+	})
+	assert.Contains(t, refusal, "down statement 2 (ALTER ROLE)")
+	assert.NotContains(t, refusal, canary)
+	assert.Empty(t, store.migrations, "nothing saved")
+
 	tk, _ = schemaToolkit(&fakeLedger{exists: true, targetErr: errors.New("connection refused")}, baseConfig())
 	out, refusal := run(ctx, t, tk, schemaInput{Command: schemaAdd, Version: 2, Name: "t", Up: "CREATE TABLE t (id uuid DEFAULT uuidv7())"})
 	require.Empty(t, refusal)
@@ -226,6 +236,7 @@ func TestLintSecurity_PasswordLiteral(t *testing.T) {
 		"ALTER ROLE app PASSWORD '" + secret + "'",
 		"ALTER USER app WITH ENCRYPTED PASSWORD '" + secret + "'",
 		"CREATE USER MAPPING FOR app SERVER remote OPTIONS (user 'x', password '" + secret + "')",
+		"CREATE GROUP app WITH PASSWORD '" + secret + "'",
 	}
 	for _, up := range refused {
 		findings, _ := Lint(up, target17)

@@ -111,7 +111,7 @@ func (h *handler) startConnectionOAuth(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	redirectURI := buildOAuthCallbackURL(r)
+	redirectURI := h.callbackURL(r, oauthCallbackPath)
 	authURL := buildConnectionAuthorizationURL(cfg, state, verifier, redirectURI)
 
 	store := h.pkceStoreFor()

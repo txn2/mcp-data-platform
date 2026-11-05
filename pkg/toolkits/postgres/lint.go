@@ -95,7 +95,7 @@ func Lint(up string, target Target) ([]Finding, []Rename) {
 	for i, s := range splitStatements(up) {
 		ts := lex(s)
 		l.statement(i+1, ts)
-		l.securityStatement(i+1, ts)
+		l.securityStatement(i+1, s, ts)
 	}
 	l.finishSecurity()
 	if l.findings == nil {

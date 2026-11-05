@@ -116,8 +116,36 @@ func startPlatform(t *testing.T, config string) *platformProcess {
 		t.Fatalf("starting the platform: %v", err)
 	}
 	go func() { p.done <- p.cmd.Wait() }()
-	t.Cleanup(func() { p.stop(t) })
+	t.Cleanup(func() {
+		p.stop(t)
+		p.keepOutput(t, addr)
+	})
 	return p
+}
+
+// platformLogs is where each platform a criterion starts leaves its output,
+// under the directory the nightly uploads as the run's evidence: a criterion
+// that waits on one of them and gives up can then be read against what the
+// process was doing.
+const platformLogs = "../../build/acceptance/platforms"
+
+// keepOutput writes the process's output to platformLogs, named for the test
+// and the address it served on.
+func (p *platformProcess) keepOutput(t *testing.T, addr string) {
+	t.Helper()
+	if err := os.MkdirAll(platformLogs, 0o750); err != nil {
+		t.Logf("keeping the platform's output: %v", err)
+		return
+	}
+	name := strings.NewReplacer("/", "_", ":", "_").Replace(t.Name() + "-" + addr)
+	path := filepath.Join(platformLogs, name+".log")
+	if err := os.WriteFile(path, []byte(p.out.String()), 0o600); err != nil {
+		t.Logf("keeping the platform's output: %v", err)
+		return
+	}
+	if t.Failed() {
+		t.Logf("the platform on %s left its output at build/acceptance/platforms/%s.log", addr, name)
+	}
 }
 
 // stop ends the process if it is still running.

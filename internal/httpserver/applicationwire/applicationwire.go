@@ -9,6 +9,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/apphttp"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -16,7 +17,9 @@ import (
 
 // Mount registers the portal application routes behind wrap. Nothing without
 // a database.
-func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, isAdmin func([]string) bool) {
+// gate is the save gate the portal's script editor saves through, which an
+// import puts each script through (#2476).
+func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, isAdmin func([]string) bool, gate *scriptsave.Gate) {
 	if p == nil || p.DB() == nil {
 		return
 	}
@@ -34,6 +37,9 @@ func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) htt
 	}
 	if e := p.Endpoints(); e != nil && e.Commands != nil {
 		d.Endpoints = e.Commands.Run
+	}
+	if gate != nil {
+		d.SaveGate, d.Recordings = gate, gate.Recordings
 	}
 	register(mux, wrap, d, isAdmin, p.Audit().Logger())
 }

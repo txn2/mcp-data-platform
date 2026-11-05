@@ -49,7 +49,8 @@ flowchart LR
    deployment with an encryption key it is stored sealed, bound to its run.
    The exceptions are an application database's copies: a `copy_in` is kept
    as its table, columns and row count, and a `copy_out` as its row and byte
-   counts, so a test reads a copy's count and never its rows.
+   counts, so a test reads a copy's count and never its rows; and a statement
+   that gives a role a password, kept with the password as `'[REDACTED]'`.
 2. Write a `test_*` function that names that id with
    `testing.replay("<id>")`, declares the answer the write gets with
    `testing.answer(tool, args, answer)`, calls `main()`, and asserts on

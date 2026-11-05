@@ -32,6 +32,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personashare"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcelevel"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcesharewire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/savegatewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/eventshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
@@ -43,20 +44,15 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
-	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/contenturl"
 	"github.com/txn2/mcp-data-platform/internal/portal/externalfiles"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
-	"github.com/txn2/mcp-data-platform/internal/toolanswer"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -214,7 +210,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	mux.Handle(assetrefs.PathPrefix, handler)
 	mountPromptVersionPortalAPI(mux, p, wrap, isAdmin)
 	mountScriptPortalAPI(mux, p, wrap, isAdmin)
-	applicationwire.Mount(mux, p, wrap, isAdmin) // applications (#2411, #2412)
+	applicationwire.Mount(mux, p, wrap, isAdmin, savegatewire.Gate(p)) // applications (#2411, #2412)
 	// The operation browser a caller reads before composing a gateway call
 	// (#1478). Read-only: it names operations and invokes none.
 	apiwire.Mount(mux, wrap, apiwire.Deps{
@@ -352,16 +348,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		// from the producer relation rather than walked out of run history.
 		Produced: producedview.New(
 			producedby.NewPostgres(p.DB()), p.PortalAssetStore(), p.ResourceStore(), p.PortalCollectionStore(), store),
-		// The gate a source edit crosses, over the recordings runs and drafts
-		// keep (#1939, #1942): the same one manage_script saves through.
-		Gate: &scriptsave.Gate{
-			Recordings: recstore.New(p.DB()).Sealed(p.RestEncryptor()), Destinations: p.Config().Scripts.ScriptDestinations(),
-			MaxMemoryBytes: p.Config().Scripts.Worker.ProcessRunMemoryBudget(),
-			Contracts:      toolanswer.Live{Kits: p.ToolkitRegistry(), Extra: notifylayer.AnswerContracts()},
-			Libraries:      store,
-			Resources:      scriptsrc.New(p.ResourceStore(), p.ResourceS3Client(), p.Config().Resources.Managed.S3Bucket, p.Config().Resources.Managed.URIScheme),
-			CannotServe:    scriptsave.PassthroughConnections{Kits: p.ToolkitRegistry()}.CannotServe,
-		},
+		Gate: savegatewire.Gate(p),
 	}
 	if auditStore := p.Audit().Store(); auditStore != nil {
 		deps.Audit = auditStore
@@ -369,7 +356,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 	// A script's endpoint (#2171), and the save gate's refusal of a bound
 	// script's source that defines no handle(req), as manage_script's.
 	if e := p.Endpoints(); e != nil {
-		deps.Endpoints, deps.Gate.Endpoint = e.Commands, e.Commands.Bound
+		deps.Endpoints = e.Commands
 	}
 	return deps, true
 }
