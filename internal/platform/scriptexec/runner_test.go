@@ -357,14 +357,20 @@ func TestOrDefaultRetention(t *testing.T) {
 	assert.Equal(t, time.Hour, orDefaultRetention(time.Hour))
 }
 
-// recordingSubjects answers one subject and remembers what it was asked.
+// recordingSubjects answers the saved subject when there is one and its own
+// otherwise, as subjects.Book does, and remembers what it was asked.
 type recordingSubjects struct {
 	subject string
 	asked   []string
+	saved   []string
 }
 
-func (r *recordingSubjects) ForRun(_ context.Context, address string) string {
+func (r *recordingSubjects) ForRun(_ context.Context, address, saved string) string {
 	r.asked = append(r.asked, address)
+	r.saved = append(r.saved, saved)
+	if saved != "" {
+		return saved
+	}
 	return r.subject
 }
 
@@ -412,7 +418,10 @@ func TestRunner_FilesWhereTheSavingSessionFiles(t *testing.T) {
 	out := r.execute(context.Background(), run, sc, v)
 
 	require.Equal(t, script.RunStatusSucceeded, out.result.Status, out.result.Error)
-	assert.Empty(t, subjects.asked, "a recorded subject is not resolved again from the address")
+	// The book is still asked, with the saved subject, so what the author's
+	// address filed is folded into that library before the run writes (#1677).
+	assert.Equal(t, []string{"admin@example.com"}, subjects.asked)
+	assert.Equal(t, []string{"apikey:admin"}, subjects.saved)
 	assert.Equal(t, "admin@example.com", seen.OnBehalfOfEmail)
 	assert.Equal(t, "apikey:admin", seen.OnBehalfOfSub)
 }

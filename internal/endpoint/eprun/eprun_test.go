@@ -233,10 +233,16 @@ func TestServe_RunsTheHandlerAsTheScriptAndAnswersWithItsReturn(t *testing.T) {
 	assert.Empty(t, f.bindings.failures)
 }
 
-// addressSubjects resolves every address to one subject.
+// addressSubjects answers the saved subject when there is one and otherwise
+// resolves every address to one subject, as subjects.Book does.
 type addressSubjects struct{ subject string }
 
-func (a addressSubjects) ForRun(context.Context, string) string { return a.subject }
+func (a addressSubjects) ForRun(_ context.Context, _, saved string) string {
+	if saved != "" {
+		return saved
+	}
+	return a.subject
+}
 
 // A request files where the version's saving session files (#2450), and a
 // version saved before that was recorded resolves its author's address.

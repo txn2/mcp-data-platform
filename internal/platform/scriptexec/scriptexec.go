@@ -205,10 +205,11 @@ type Config struct {
 
 // SubjectResolver answers the subject a run acting for an address presents.
 type SubjectResolver interface {
-	// ForRun returns the subject the address most recently authenticated as,
-	// with what that address filed folded into the subject's library, or ""
-	// when the platform has not seen the person authenticate.
-	ForRun(ctx context.Context, address string) string
+	// ForRun returns saved, the subject the version was saved as, or when it
+	// is "" the subject the address most recently authenticated as ("" when
+	// the platform has not seen the person), with what that address filed
+	// folded into the subject's library first.
+	ForRun(ctx context.Context, address, saved string) string
 }
 
 // ExportDeps is what turning a script's rows into a portal asset needs.
