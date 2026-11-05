@@ -40,6 +40,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/script"
+	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
 // defaultServerName is the default server name used when none is configured.
@@ -1546,12 +1547,12 @@ func (c *RateLimitConfig) EffectiveBurst() int {
 type APIGatewayConfig struct {
 	// EmbedJobs tunes the api-gateway embedding job queue.
 	EmbedJobs APIGatewayEmbedJobsConfig `yaml:"embed_jobs"`
-
+	// CatalogFetch is what a spec fetched for a catalog may reach (#2483).
+	CatalogFetch apigatewaycatalog.FetchConfig `yaml:"catalog_fetch"`
 	// Memory bounds the gateway's response-body memory footprint across
 	// all connections so a burst of large responses cannot OOMKill the
 	// pod (issue #535).
 	Memory APIGatewayMemoryConfig `yaml:"memory"`
-
 	// SelfConnection configures the built-in platform-admin connection
 	// that points the API gateway at the platform's own admin REST API.
 	SelfConnection APIGatewaySelfConnectionConfig `yaml:"self_connection"`

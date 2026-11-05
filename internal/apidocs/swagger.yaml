@@ -1747,6 +1747,220 @@ definitions:
         example: Johnson
         type: string
     type: object
+  apichange.Caller:
+    properties:
+      connection:
+        type: string
+      id:
+        type: string
+      kind:
+        type: string
+      last_seen_at:
+        type: string
+      name:
+        type: string
+      via:
+        type: string
+    type: object
+  apichange.Change:
+    properties:
+      catalog_id:
+        type: string
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      id:
+        type: string
+      report:
+        $ref: '#/definitions/apichange.Report'
+      spec_name:
+        type: string
+      status:
+        type: string
+      summary:
+        type: string
+      trigger:
+        type: string
+    type: object
+  apichange.Changed:
+    properties:
+      id:
+        type: string
+      method:
+        type: string
+      parts:
+        items:
+          type: string
+        type: array
+      path:
+        type: string
+      summary:
+        type: string
+      used_by:
+        items:
+          $ref: '#/definitions/apichange.Caller'
+        type: array
+    type: object
+  apichange.Op:
+    properties:
+      id:
+        type: string
+      method:
+        type: string
+      path:
+        type: string
+      summary:
+        type: string
+      used_by:
+        items:
+          $ref: '#/definitions/apichange.Caller'
+        type: array
+    type: object
+  apichange.Report:
+    properties:
+      added:
+        items:
+          $ref: '#/definitions/apichange.Op'
+        type: array
+      changed:
+        items:
+          $ref: '#/definitions/apichange.Changed'
+        type: array
+      deprecated:
+        items:
+          $ref: '#/definitions/apichange.Op'
+        type: array
+      from_version:
+        type: string
+      removed:
+        items:
+          $ref: '#/definitions/apichange.Op'
+        type: array
+      to_version:
+        type: string
+      truncated:
+        description: Truncated is true when a list was cut at its bound.
+        type: boolean
+    type: object
+  apichange.Settings:
+    properties:
+      channels:
+        items:
+          type: string
+        type: array
+    type: object
+  apichange.Warning:
+    properties:
+      connection:
+        type: string
+      detail:
+        type: string
+      first_seen_at:
+        type: string
+      kind:
+        type: string
+      last_seen_at:
+        type: string
+      notified_at:
+        type: string
+      operation:
+        type: string
+      seen_count:
+        type: integer
+    type: object
+  apichangeapi.ChangesView:
+    properties:
+      changes:
+        items:
+          $ref: '#/definitions/apichange.Change'
+        type: array
+    type: object
+  apichangeapi.ConnectionUsedByView:
+    properties:
+      catalog_id:
+        type: string
+      connection:
+        type: string
+      operations:
+        items:
+          $ref: '#/definitions/apichangeapi.UsedByView'
+        type: array
+    type: object
+  apichangeapi.RefreshView:
+    properties:
+      change:
+        $ref: '#/definitions/apichange.Change'
+      etag:
+        type: string
+      last_fetched_at:
+        type: string
+      not_modified:
+        type: boolean
+      operation_count:
+        type: integer
+      source_kind:
+        type: string
+      spec_name:
+        type: string
+    type: object
+  apichangeapi.UsedByView:
+    properties:
+      operation:
+        type: string
+      used_by:
+        items:
+          $ref: '#/definitions/apichange.Caller'
+        type: array
+    type: object
+  apichangeapi.WarningsView:
+    properties:
+      connection:
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/apichange.Warning'
+        type: array
+    type: object
+  apichangeapi.WatchInput:
+    properties:
+      hold_changes:
+        type: boolean
+      refresh_interval:
+        description: |-
+          RefreshInterval is a Go duration from 1h to 2160h (90 days), or ""
+          to check only on request.
+        type: string
+      upstream_url:
+        description: UpstreamURL is for an uploaded or pasted spec; "" for none.
+        type: string
+    type: object
+  apichangeapi.WatchView:
+    properties:
+      hold_changes:
+        type: boolean
+      last_checked_at:
+        type: string
+      last_error:
+        type: string
+      next_check_at:
+        type: string
+      pending_change:
+        description: PendingChange is the id of the change waiting for review, if
+          any.
+        type: string
+      refresh_interval:
+        description: |-
+          RefreshInterval is a Go duration ("168h"), "" when the spec is
+          never checked on a schedule.
+        type: string
+      updated_by:
+        type: string
+      upstream_url:
+        type: string
+    type: object
   apigateway.EndpointSchemaOutput:
     properties:
       description:
@@ -16906,6 +17120,168 @@ paths:
       summary: Upsert catalog spec
       tags:
       - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/changes:
+    get:
+      description: 'Returns the spec''s most recent change reports, newest first (at
+        most 50): each check that found the upstream different, its status (applied,
+        pending, discarded, reported, superseded), its trigger, its one-line summary
+        and the report: operations added, removed, changed (with the parts that changed)
+        and newly deprecated, each with what uses it.'
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichangeapi.ChangesView'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a catalog spec's changes
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/changes/{change}:
+    get:
+      description: Returns one change report of the spec.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      - description: Change ID
+        in: path
+        name: change
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichange.Change'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a catalog spec change
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/changes/{change}/apply:
+    post:
+      description: 'Puts the document a held change fetched in use: the spec is saved,
+        its operations re-embedded and the connections that read the catalog reloaded
+        on every replica. Only a change waiting for review can be applied.'
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      - description: Change ID
+        in: path
+        name: change
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichangeapi.RefreshView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Apply a held catalog spec change
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/changes/{change}/discard:
+    post:
+      description: Drops the document a held change fetched; the spec in use is unchanged.
+        Only a change waiting for review can be discarded.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      - description: Change ID
+        in: path
+        name: change
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httpjson.StatusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Discard a held catalog spec change
+      tags:
+      - API Catalogs
   /admin/api-catalogs/{id}/specs/{spec}/operations:
     get:
       description: Returns the operations a catalog spec parses to, in either format
@@ -16994,6 +17370,51 @@ paths:
       summary: Get spec operation
       tags:
       - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}/used-by:
+    get:
+      description: 'Lists the scripts, endpoints and prompts that use the operation
+        through the connections that reference the catalog: scripts whose saved source
+        names it, scripts a run of which called it in the last 90 days, the endpoints
+        bound to those scripts, and prompts whose text names the operation and the
+        connection. operationId is the spec''s operationId, or "METHOD path" for an
+        operation with none.'
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      - description: Operation ID
+        in: path
+        name: operationId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichangeapi.UsedByView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get what uses a catalog operation
+      tags:
+      - API Catalogs
   /admin/api-catalogs/{id}/specs/{spec}/reembed:
     post:
       description: Enqueues a manual_retry embedding job for a spec, recomputing vectors
@@ -17033,8 +17454,12 @@ paths:
       - API Catalogs
   /admin/api-catalogs/{id}/specs/{spec}/refresh:
     post:
-      description: Re-fetches a URL-sourced spec from its source_url, stores the new
-        content, and enqueues an embedding job.
+      description: Reads the spec's upstream now. A URL-sourced spec is fetched (conditionally,
+        by its ETag); when the document changed, a change report is recorded and the
+        new document is applied, or held for review when the spec holds changes. An
+        uploaded or pasted spec with an upstream URL is compared with that upstream
+        and the difference reported; the spec in use is never replaced. The response
+        names the change recorded, or the one already waiting.
       parameters:
       - description: Catalog ID
         in: path
@@ -17052,7 +17477,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/catalogapi.specResponse'
+            $ref: '#/definitions/apichangeapi.RefreshView'
         "400":
           description: Bad Request
           schema:
@@ -17063,10 +17488,6 @@ paths:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "413":
           description: Request Entity Too Large
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "503":
@@ -17144,6 +17565,95 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Upload catalog spec
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/watch:
+    get:
+      description: Returns how often the spec's upstream is checked, whether a changed
+        spec waits for review, the upstream URL an uploaded or pasted spec is compared
+        with, when it was last and is next checked, the last check's failure, and
+        the change waiting for review.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichangeapi.WatchView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get how a catalog spec is kept current
+      tags:
+      - API Catalogs
+    put:
+      consumes:
+      - application/json
+      description: 'Sets how often the spec''s upstream is checked (a duration from
+        1h to 2160h, or empty for on request only), whether a changed URL-sourced
+        spec waits for review instead of replacing the one in use, and for an uploaded
+        or pasted spec the https upstream URL it is compared with. A schedule needs
+        something to check: a URL-sourced spec, or an upstream URL. Changing the upstream
+        URL forgets the copy read from the old one.'
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      - description: Settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apichangeapi.WatchInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichangeapi.WatchView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set how a catalog spec is kept current
       tags:
       - API Catalogs
   /admin/api-gateway/connections/{name}/oauth-start:
@@ -19536,6 +20046,65 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Test a connection instance
+      tags:
+      - Connections
+  /admin/connection-instances/api/{name}/used-by:
+    get:
+      description: Lists, for each operation of the connection's catalog that something
+        uses, the scripts, endpoints and prompts that use it through this connection.
+        Operations nothing uses are left out; a connection with no catalog lists none.
+      parameters:
+      - description: Connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichangeapi.ConnectionUsedByView'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get what uses an api connection
+      tags:
+      - Connections
+  /admin/connection-instances/api/{name}/warnings:
+    get:
+      description: 'Lists what the connection''s upstream said about its operations
+        in its answers, the most recent first: a Deprecation or Sunset header (with
+        its value), and a removal, a 404 or 410 from an operation that answered 2xx
+        before. Each is recorded once per operation and kind, with when it was first
+        and last seen, how often, and when it was sent to the change notification
+        channels.'
+      parameters:
+      - description: Connection name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichangeapi.WarningsView'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get an api connection's upstream warnings
       tags:
       - Connections
   /admin/connection-instances/appdb/{name}/adopt:
@@ -23441,6 +24010,60 @@ paths:
       summary: Update the access request settings
       tags:
       - Settings
+  /admin/settings/api-changes:
+    get:
+      description: Returns the notification channels API catalog change reports and
+        upstream warnings are sent to; none by default.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichange.Settings'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get where API change reports are sent
+      tags:
+      - API Catalogs
+    put:
+      consumes:
+      - application/json
+      description: Sets the notification channels API catalog change reports and upstream
+        warnings are sent to. Each must name a configured channel.
+      parameters:
+      - description: Settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apichange.Settings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apichange.Settings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set where API change reports are sent
+      tags:
+      - API Catalogs
   /admin/settings/connection-alert:
     get:
       description: Returns the configuration for the alert raised when an upstream

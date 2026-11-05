@@ -145,6 +145,33 @@ type Node struct {
 	// version).
 	Change string `json:"change,omitempty"`
 	Was    *Was   `json:"was,omitempty"`
+	// API is what an api_invoke_endpoint or api_export call names, for the
+	// used-by index (#2485); nil on every other step. Not drawn.
+	API *APICall `json:"-"`
+}
+
+// APICall is the connection and operation an API step names. Each field is
+// empty when the source computes it.
+type APICall struct {
+	Connection  string
+	OperationID string
+	Method      string
+	Path        string
+}
+
+// APICalls is every API step of source whose connection and operation it
+// names literally (#2485): a step whose connection, or whose operation id and
+// path both, the source computes is left out, since what it reaches is known
+// only when it runs.
+func APICalls(source string) []APICall {
+	var out []APICall
+	for _, n := range Derive(source).Nodes {
+		if n.API == nil || n.API.Connection == "" || (n.API.OperationID == "" && n.API.Path == "") {
+			continue
+		}
+		out = append(out, *n.API)
+	}
+	return out
 }
 
 // Edge is one value passed from a step to another, or the state saved for the

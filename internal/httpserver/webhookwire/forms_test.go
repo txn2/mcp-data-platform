@@ -5,11 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcollect"
+	"github.com/txn2/mcp-data-platform/internal/pglisten"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
@@ -76,4 +79,28 @@ func TestAttachForms_NoWebhooks(t *testing.T) {
 	run := &formRunner{}
 	none.AttachForms(FormDeps{Runner: run})
 	assert.Nil(t, run.c, "a deployment without webhooks stores nothing, as before")
+}
+
+// #2480: the listener that drops the enqueuer's map starts with the feature
+// and stops with it; a database that never answers leaves the map to its
+// re-read interval and does not hold up Stop.
+func TestStartBindings(t *testing.T) {
+	w := &Webhooks{bindings: pglisten.New("postgres://127.0.0.1:1/none?sslmode=disable&connect_timeout=1",
+		scriptevents.BindingsChannel, &scriptevents.Bindings{})}
+	w.startBindings(t.Context())
+	w.bindings.Stop()
+	(&Webhooks{}).startBindings(t.Context())
+}
+
+func TestAttachScriptRuns(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	w := &Webhooks{}
+	w.wireEventRuns(db, "", 5)
+	assert.Nil(t, w.bindings, "no DSN, no listener: the map is re-read on its interval")
+	w.wireEventRuns(db, "postgres://127.0.0.1:1/none", 5)
+	assert.NotNil(t, w.bindings)
+	var none *Webhooks
+	none.AttachScriptRuns(nil)
 }

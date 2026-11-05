@@ -107,6 +107,46 @@ Setting up an API is therefore two steps, which is what the route's description 
 
 The legacy `openapi_spec` JSONB key (inline-only, per-connection) is no longer read by the toolkit. Connections that still carry it surface a banner in the editor prompting the operator to move the content into a catalog.
 
+## Keeping specs current
+
+Vendor APIs change: an operation is deprecated or removed, a parameter renamed, a response reshaped. A spec can be checked against its upstream on a schedule, the difference reported operation by operation, and what uses each operation named, so the automations to retest are known before one fails (#2469).
+
+### Checking a spec's upstream
+
+In a spec's dialog, the **Updates** section sets **Check for updates** (Off, Daily, Weekly, Monthly; the admin API takes any duration from 1h to 2160h). One replica at a time checks the specs that are due, under an advisory lock, at most 20 a minute (#2483). The fetch is conditional: it sends the stored ETag as `If-None-Match`, and a 304 costs no parse. **Refresh** on the spec row runs the same check at once.
+
+When the fetched document differs, it is compared with the spec in use and a **change report** recorded: operations added and removed, operations whose parameters, request body or responses changed (each names the parts), operations newly marked `deprecated: true`, and a change to `info.version`. Operations are matched by `operationId`, or by `METHOD path` for one with none; schemas are compared through their `$ref`s. A change that moves no operation and no version (formatting, comments, a description) is applied with no report. Each list is cut at 500 operations, and the report says so.
+
+A changed URL-sourced spec is applied: saved, its operations queued for embedding, and the connections that read the catalog reloaded on every replica, exactly as an edit is. With **Hold changes for review** it is held instead: the fetched document is stored beside the spec in use, `api_discover` and every connection keep reading the spec in use, and the change waits in the spec's **Changes** list for **Apply** or **Discard**. A newer held change replaces the waiting one. A GraphQL schema fetched from a URL is refreshed with no report, since a report reads OpenAPI operations.
+
+### An uploaded or pasted spec's upstream
+
+An uploaded or pasted spec may name an **Upstream URL** (#2484). It is checked the same way, and the difference is recorded as **Reported**, but the spec in use is never replaced: it may have been edited or cut down on purpose, for example to fit the fetch limits. The first check compares the upstream with the spec itself; each later one compares it with the last copy read from it, so a report says what the vendor changed since. Changing the URL forgets the copy read from the old one.
+
+### What uses an operation
+
+Every report names, per operation, what uses it through the connections that reference the catalog (#2485): managed scripts whose saved source calls it with `api_invoke_endpoint` or `api_export` (read from the source, literal connection and operation only), scripts a run of which called it in the last 90 days (recorded from the audit pipeline, script, connection and operation only, never the call's arguments), the endpoints bound to either, and prompts whose text names the operation and the connection. The same list is the **Used by** section of an operation on Admin > APIs and of an api connection's page.
+
+### Upstream warnings
+
+An upstream that publishes no spec, or publishes it late, still says when an operation is going away (#2486). Every answer an api connection receives to a call addressing a catalog operation is read for a `Deprecation` or `Sunset` header, and an operation that answered 2xx before and now answers 404 or 410 is recorded as **Removed**. Each warning is recorded once per connection, operation and kind, with when it was first and last seen and how often, and shown in an api connection's **Upstream warnings**. A warning is filed under the operation id or `METHOD template`, never the concrete path, which can carry a filled secret; only those two header values are kept. The two headers are also returned to the caller in `api_invoke_endpoint`'s headers.
+
+### Change notifications
+
+**Change notifications** on the API Catalogs page names the notification channels a change report and a new upstream warning are posted to (the `api_changes` settings section); none by default. A report lists the removed, changed, deprecated and added operations with what uses each. A warning is posted once, by whichever replica records it first. Neither carries a spec URL.
+
+### Specs published on an internal network
+
+A spec fetch reaches only public addresses over https. A deployment whose spec is published by an internal service lists its prefixes:
+
+```yaml
+apigateway:
+  catalog_fetch:
+    allow_private_cidrs: ["10.20.0.0/16"]
+```
+
+A host whose every address is inside a listed prefix may also be fetched over http; any other host is held to the usual rules. The list applies to adding a spec by URL, refresh and the scheduled check alike, and is read from the configuration file only. An entry that does not parse is logged and the whole list ignored.
+
 ## REST API
 
 The admin REST API matches the portal one-to-one. All routes require admin auth.
@@ -125,7 +165,16 @@ The admin REST API matches the portal one-to-one. All routes require admin auth.
 | `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}` | One operation's parameters, body and responses; for a GraphQL spec, its arguments, input types, return shape and a document that calls it |
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Upsert spec (inline or URL source) |
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/upload` | Multipart upload of a spec file |
-| `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh` | Re-fetch a URL-sourced spec |
+| `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh` | Check the spec's upstream now: apply, hold or report what changed |
+| `GET` `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/watch` | How the spec is kept current: refresh_interval, hold_changes, upstream_url |
+| `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/changes` | The spec's change reports, newest first |
+| `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/changes/{change}` | One change report |
+| `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/changes/{change}/apply` | Put a held change in use |
+| `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/changes/{change}/discard` | Drop a held change |
+| `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}/used-by` | What uses an operation |
+| `GET` | `/api/v1/admin/connection-instances/api/{name}/used-by` | What uses each of an api connection's operations |
+| `GET` | `/api/v1/admin/connection-instances/api/{name}/warnings` | An api connection's upstream warnings |
+| `GET` `PUT` | `/api/v1/admin/settings/api-changes` | The channels change reports and warnings are posted to |
 | `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed` | Recompute and persist per-operation embeddings for the spec |
 | `DELETE` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Delete one spec |
 

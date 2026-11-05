@@ -59,10 +59,13 @@ const (
 	NameWebhookRetention    = "webhook_retention"
 	NameWebhookViews        = "webhook_views"
 	NameWebhookRefresh      = "webhook_source_refresh"
-	NameWebhookStats        = "webhook_stats_flush"
-	NameWebhookRawWindows   = "webhook_raw_windows"
-	NameWebhookSpoolDrain   = "webhook_spool_drain"
-	NameWebhookIMAPPoll     = "webhook_imap_poll"
+	// NameAPISpecRefresh checks the API catalog specs whose scheduled check
+	// has come (#2483).
+	NameAPISpecRefresh    = "api_spec_refresh"
+	NameWebhookStats      = "webhook_stats_flush"
+	NameWebhookRawWindows = "webhook_raw_windows"
+	NameWebhookSpoolDrain = "webhook_spool_drain"
+	NameWebhookIMAPPoll   = "webhook_imap_poll"
 	// NameWebhookPGListen starts and stops the listeners of the postgres
 	// webhook sources this replica holds (#2408); NameWebhookPGDeliver is one
 	// listener's filing of what it read.

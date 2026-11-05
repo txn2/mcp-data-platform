@@ -827,3 +827,32 @@ platform.batch("shop", run.params["stmts"])
 	assert.True(t, tx[4].Computed)
 	assert.Contains(t, tx[3].Title, "Batch")
 }
+
+// #2485: the API calls a source names literally, for the used-by index; a
+// call whose connection or address the source computes is left out.
+func TestAPICalls(t *testing.T) {
+	src := `def main():
+    conn = "vendor"
+    platform.call("api_invoke_endpoint", {"connection": "vendor", "operation_id": "listPets"})
+    platform.call("api_export", {"connection": "vendor", "method": "get", "path": "/pets/7", "name": "x"})
+    platform.call("api_invoke_endpoint", {"connection": run.params["c"], "operation_id": "getPet"})
+    platform.call("api_invoke_endpoint", {"connection": "vendor", "path": "/pets/" + run.params["id"]})
+    platform.call("trino_query", {"sql": "SELECT 1"})
+`
+	got := APICalls(src)
+	want := []APICall{
+		{Connection: "vendor", OperationID: "listPets"},
+		{Connection: "vendor", Method: "GET", Path: "/pets/7"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("call %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if calls := APICalls("def main(:\n"); len(calls) != 0 {
+		t.Errorf("a source that does not parse names no calls: %+v", calls)
+	}
+}

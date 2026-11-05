@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LabeledInput, LabeledTextarea } from "./forms";
+import { SpecChanges, SpecUpdatesFields, useSpecUpdates } from "./SpecUpdates";
 
 // ---------------------------------------------------------------------------
 // SpecModal — three-tab spec add/edit
@@ -233,6 +234,7 @@ export function SpecModal({
   );
   const upsert = useUpsertAPICatalogSpec();
   const upload = useUploadAPICatalogSpec();
+  const updates = useSpecUpdates(catalogID, existingSpecName ?? "", isEditing);
 
   const [specName, setSpecName] = useState(existingSpecName ?? "");
   const [tab, setTab] = useState<SourceTab>("paste");
@@ -283,6 +285,7 @@ export function SpecModal({
         upsert,
         upload,
       );
+      await updates.save(specName, tab === "url");
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "save failed");
@@ -300,6 +303,7 @@ export function SpecModal({
     file,
     upsert,
     upload,
+    updates,
     onSaved,
   ]);
 
@@ -308,7 +312,7 @@ export function SpecModal({
       onClose={onClose}
       width="max-w-3xl"
       label={isEditing ? `Edit spec ${existingSpecName}` : "Add component spec"}
-      busy={upsert.isPending || upload.isPending}
+      busy={upsert.isPending || upload.isPending || updates.saving}
       header={
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="text-base font-medium">
@@ -450,6 +454,21 @@ export function SpecModal({
             schema is served to the graphql connections that reference this
             catalog, which read the document itself.
           </p>
+        )}
+
+        {/* How the spec is kept current (#2483, #2484). A GraphQL schema
+            pasted or uploaded has no operations a report can compare, so it
+            has no upstream to watch; one fetched from a URL is still re-read. */}
+        {(copy.servesGateway || tab === "url") && (
+          <SpecUpdatesFields
+            draft={updates.draft}
+            onChange={updates.setDraft}
+            isURL={tab === "url"}
+            watch={updates.watch}
+          />
+        )}
+        {isEditing && existingSpecName && (
+          <SpecChanges catalogID={catalogID} specName={existingSpecName} isReadOnly={false} />
         )}
 
         {error && (

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "../client";
+import type { APIRefreshResult } from "./apiChanges";
 
 // ---------------------------------------------------------------------------
 // API Gateway Catalogs (global OpenAPI spec bundles)
@@ -324,7 +325,7 @@ export function useRefreshAPICatalogSpec() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ catalogID, specName }: { catalogID: string; specName: string }) =>
-      apiFetch<APICatalogSpec>(
+      apiFetch<APIRefreshResult>(
         `/api-catalogs/${catalogID}/specs/${specName}/refresh`,
         { method: "POST" },
       ),

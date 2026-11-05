@@ -262,14 +262,14 @@ func TestApplyFetchDefaults(t *testing.T) {
 
 func TestCheckDialAddress_AcceptsPublic(t *testing.T) {
 	t.Parallel()
-	if err := checkDialAddress("tcp4", "8.8.8.8:443"); err != nil {
+	if err := checkDialAddress("tcp4", "8.8.8.8:443", FetchOptions{}); err != nil {
 		t.Fatalf("public dial address blocked: %v", err)
 	}
 }
 
 func TestCheckDialAddress_RejectsLoopback(t *testing.T) {
 	t.Parallel()
-	err := checkDialAddress("tcp4", "127.0.0.1:443")
+	err := checkDialAddress("tcp4", "127.0.0.1:443", FetchOptions{})
 	if !errors.Is(err, ErrSSRFBlocked) {
 		t.Fatalf("err=%v want ErrSSRFBlocked", err)
 	}
@@ -277,7 +277,7 @@ func TestCheckDialAddress_RejectsLoopback(t *testing.T) {
 
 func TestCheckDialAddress_RejectsPrivate(t *testing.T) {
 	t.Parallel()
-	err := checkDialAddress("tcp4", "10.0.0.1:443")
+	err := checkDialAddress("tcp4", "10.0.0.1:443", FetchOptions{})
 	if !errors.Is(err, ErrSSRFBlocked) {
 		t.Fatalf("err=%v want ErrSSRFBlocked", err)
 	}
@@ -285,7 +285,7 @@ func TestCheckDialAddress_RejectsPrivate(t *testing.T) {
 
 func TestCheckDialAddress_RejectsCGNAT(t *testing.T) {
 	t.Parallel()
-	err := checkDialAddress("tcp4", "100.64.0.1:443")
+	err := checkDialAddress("tcp4", "100.64.0.1:443", FetchOptions{})
 	if !errors.Is(err, ErrSSRFBlocked) {
 		t.Fatalf("err=%v want ErrSSRFBlocked", err)
 	}
@@ -293,7 +293,7 @@ func TestCheckDialAddress_RejectsCGNAT(t *testing.T) {
 
 func TestCheckDialAddress_BadHostPort(t *testing.T) {
 	t.Parallel()
-	err := checkDialAddress("tcp4", "garbage")
+	err := checkDialAddress("tcp4", "garbage", FetchOptions{})
 	if !errors.Is(err, ErrSSRFBlocked) {
 		t.Fatalf("err=%v want ErrSSRFBlocked", err)
 	}
@@ -303,7 +303,7 @@ func TestCheckDialAddress_NonIPHost(t *testing.T) {
 	t.Parallel()
 	// Dialer only ever sees IPs, but the safety branch must report
 	// rather than silently allow.
-	err := checkDialAddress("tcp4", "example.com:443")
+	err := checkDialAddress("tcp4", "example.com:443", FetchOptions{})
 	if !errors.Is(err, ErrSSRFBlocked) {
 		t.Fatalf("err=%v want ErrSSRFBlocked", err)
 	}
@@ -841,5 +841,89 @@ func TestCountOperationsOnItem(t *testing.T) {
 	t.Parallel()
 	if got := countOperationsOnItem(nil); got != 0 {
 		t.Errorf("nil item: got %d, want 0", got)
+	}
+}
+
+// #2483: an operator's allow_private_cidrs lets a spec on a listed internal
+// host be fetched, over http too; nothing else about the guard moves.
+func TestFetchFromURL_AllowPrivateCIDRs(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("If-None-Match") == `"v1"` {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", `"v1"`)
+		_, _ = w.Write([]byte("openapi: 3.0.0\n"))
+	}))
+	t.Cleanup(srv.Close)
+	loopback, err := ParseCIDRs([]string{"127.0.0.0/8", " ::1/128 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := FetchFromURL(t.Context(), srv.URL, FetchOptions{AllowPrivateCIDRs: loopback})
+	if err != nil {
+		t.Fatalf("a listed internal host over http: %v", err)
+	}
+	if res.Content != "openapi: 3.0.0\n" || res.ETag != `"v1"` || res.NotModified {
+		t.Fatalf("got %+v", res)
+	}
+
+	res, err = FetchFromURL(t.Context(), srv.URL, FetchOptions{AllowPrivateCIDRs: loopback, IfNoneMatch: `"v1"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.NotModified || res.Content != "" || res.ETag != `"v1"` {
+		t.Fatalf("a 304 is NotModified with no content: %+v", res)
+	}
+
+	other, _ := ParseCIDRs([]string{"10.0.0.0/8"})
+	if _, err := FetchFromURL(t.Context(), srv.URL, FetchOptions{AllowPrivateCIDRs: other}); !errors.Is(err, ErrSSRFBlocked) {
+		t.Fatalf("a host outside the listed prefixes stays blocked, got %v", err)
+	}
+	if _, err := FetchFromURL(t.Context(), srv.URL, FetchOptions{}); !errors.Is(err, ErrSSRFBlocked) {
+		t.Fatalf("no prefixes: loopback over http stays blocked, got %v", err)
+	}
+	if _, err := ParseCIDRs([]string{"not-a-cidr"}); err == nil || !strings.Contains(err.Error(), "not-a-cidr") {
+		t.Fatalf("a bad prefix is refused by name, got %v", err)
+	}
+}
+
+func TestBlockedReason_HTTPOnlyInsideTheListedPrefixes(t *testing.T) {
+	t.Parallel()
+	loopback, _ := ParseCIDRs([]string{"127.0.0.0/8"})
+	o := FetchOptions{AllowPrivateCIDRs: loopback, httpOnlyAllowed: true}
+	if r := o.blockedReason(net.ParseIP("127.0.0.1")); r != "" {
+		t.Fatalf("listed: %q", r)
+	}
+	if r := o.blockedReason(net.ParseIP("8.8.8.8")); r == "" {
+		t.Fatal("over http a public address outside the prefixes is refused")
+	}
+	if err := checkDialAddress("tcp4", "8.8.8.8:80", o); !errors.Is(err, ErrSSRFBlocked) {
+		t.Fatalf("the dialer holds http to the prefixes too, got %v", err)
+	}
+	o.httpOnlyAllowed = false
+	if r := o.blockedReason(net.ParseIP("8.8.8.8")); r != "" {
+		t.Fatalf("over https a public address is fine: %q", r)
+	}
+}
+
+// #2483: the operator's prefixes, installed once, apply to every fetch whose
+// options name none. Not parallel: the default is process-wide.
+func TestFetchFromURL_TheInstalledPrefixesAreTheDefault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("openapi: 3.0.0\n"))
+	}))
+	t.Cleanup(srv.Close)
+	loopback, _ := ParseCIDRs([]string{"127.0.0.0/8"})
+	SetAllowPrivateCIDRs(loopback)
+	t.Cleanup(func() { SetAllowPrivateCIDRs(nil) })
+	if _, err := FetchFromURL(t.Context(), srv.URL, FetchOptions{}); err != nil {
+		t.Fatalf("the installed prefixes did not apply: %v", err)
+	}
+	SetAllowPrivateCIDRs(nil)
+	if _, err := FetchFromURL(t.Context(), srv.URL, FetchOptions{}); !errors.Is(err, ErrSSRFBlocked) {
+		t.Fatalf("with none installed loopback is blocked again, got %v", err)
 	}
 }

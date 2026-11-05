@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import type {
@@ -232,6 +233,9 @@ interface OperationDetailProps {
   connection?: APIConnection;
   /** Injected page origin for the snippet, so a test can state it. */
   origin?: string;
+  /** usedBy is shown after the operation on the administrator's catalog
+   * view (#2485): what calls it. Absent on a caller's connection view. */
+  usedBy?: ReactNode;
 }
 
 /** OperationDetail renders one operation in full, or says why it cannot. */
@@ -241,6 +245,7 @@ export function OperationDetail({
   error,
   connection,
   origin,
+  usedBy,
 }: OperationDetailProps) {
   if (loading) {
     return <p className="p-6 text-center text-sm text-muted-foreground">Loading operation...</p>;
@@ -282,6 +287,7 @@ export function OperationDetail({
             origin={origin}
           />
         )}
+        {usedBy}
       </div>
     </div>
   );

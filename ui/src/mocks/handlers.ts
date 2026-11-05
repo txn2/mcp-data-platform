@@ -28,6 +28,7 @@ import { mockAccessRequests } from "./data/accessRequests";
 import type { AccessRequest } from "@/api/portal/hooks";
 import { fixtureTile, resourceTileSVG } from "./data/resourceTile";
 import { catalogHandlers } from "./handlers/catalogs";
+import { apiChangeHandlers } from "./handlers/apiChanges";
 import { apiBrowseHandlers } from "./handlers/apis";
 import { userHandlers } from "./handlers/users";
 import { connectionInstanceHandlers } from "./handlers/connections";
@@ -4710,6 +4711,7 @@ export const handlers = [
   // handler above wins on an overlapping path; these only cover endpoints
   // that were previously unhandled (and rendered empty in demos/docs).
   ...catalogHandlers,
+  ...apiChangeHandlers,
   ...apiBrowseHandlers,
   ...userHandlers,
   ...connectionInstanceHandlers,

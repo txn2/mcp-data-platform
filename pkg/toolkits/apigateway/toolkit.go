@@ -1140,6 +1140,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		return toolkit.ErrorResult(addrErr.Error()), nil, nil
 	}
 	in.Method, in.Path = method, path
+	ctx = withOperation(ctx, c, in, in.OperationID)
 
 	// Run the route policy BEFORE invoke() so an unauthorized call
 	// never produces an outbound HTTP request — and never appears in

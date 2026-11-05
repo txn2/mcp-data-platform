@@ -19,6 +19,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
+	"github.com/txn2/mcp-data-platform/internal/upstreamwarn"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
@@ -283,5 +284,48 @@ func TestTransport_RecordsTheConnectionsState(t *testing.T) {
 	get(KindOAuth, "crm")
 	if _, ok := connstate.State(string(KindOAuth), "crm"); ok {
 		t.Error("a token endpoint call recorded a connection state")
+	}
+}
+
+// warnObserver records what the chain handed upstreamwarn.
+type warnObserver struct {
+	conn, op, sunset string
+	status, calls    int
+}
+
+func (w *warnObserver) Observe(_ context.Context, conn, op string, status int, h http.Header) {
+	w.conn, w.op, w.status, w.sunset = conn, op, status, h.Get("Sunset")
+	w.calls++
+}
+
+// #2486: an API connection's answer to a request naming a catalog operation
+// reaches the upstream warnings recorder with its headers; another kind's
+// does not.
+func TestRoundTrip_HandsAnAPIAnswerToTheWarningsRecorder(t *testing.T) {
+	obs := &warnObserver{}
+	upstreamwarn.SetObserver(obs)
+	t.Cleanup(func() { upstreamwarn.SetObserver(nil) })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Sunset", "Wed, 01 Jan 2027 00:00:00 GMT")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	get := func(kind Kind) {
+		t.Helper()
+		ctx := upstreamwarn.WithOperation(context.Background(), "listPets")
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, http.NoBody)
+		resp, err := NewClient(Options{Kind: kind, Connection: "vendor"}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+	}
+	get(KindAPI)
+	if obs.calls != 1 || obs.conn != "vendor" || obs.op != "listPets" || obs.status != http.StatusOK || obs.sunset == "" {
+		t.Fatalf("observed %+v", obs)
+	}
+	get(KindGraphQL)
+	if obs.calls != 1 {
+		t.Fatal("a graphql connection's answer reached the API warnings recorder")
 	}
 }

@@ -31,8 +31,9 @@ type EventSummary struct {
 	LastSkippedAt *time.Time `json:"last_skipped_at,omitempty"`
 }
 
-// scriptsForSourceSQL lists the scripts that run for a webhook source.
-const scriptsForSourceSQL = `SELECT id FROM scripts WHERE event_source = $1 ORDER BY id`
+// eventBindingsSQL lists every script that runs for a webhook source, with
+// the source it names, through idx_scripts_event_source.
+const eventBindingsSQL = `SELECT event_source, id FROM scripts WHERE event_source <> '' ORDER BY event_source, id`
 
 // lockScriptSQL holds a script's row for the transaction, so two replicas
 // enqueuing events for one script count its pending event runs one after the
@@ -77,25 +78,26 @@ type PostgresStore struct{ db *sql.DB }
 // NewStore is the PostgreSQL event run store.
 func NewStore(db *sql.DB) *PostgresStore { return &PostgresStore{db: db} }
 
-// ScriptsForSource returns the ids of the scripts that run for source.
-func (s *PostgresStore) ScriptsForSource(ctx context.Context, source string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, scriptsForSourceSQL, source)
+// EventBindings returns the ids of the scripts that run for each webhook
+// source a script names; a source none names is absent.
+func (s *PostgresStore) EventBindings(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.db.QueryContext(ctx, eventBindingsSQL)
 	if err != nil {
-		return nil, fmt.Errorf("listing the scripts that run for source %s: %w", source, err)
+		return nil, fmt.Errorf("listing the scripts that run for webhook sources: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	ids := []string{}
+	out := map[string][]string{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scanning a script that runs for source %s: %w", source, err)
+		var source, id string
+		if err := rows.Scan(&source, &id); err != nil {
+			return nil, fmt.Errorf("scanning a script that runs for a webhook source: %w", err)
 		}
-		ids = append(ids, id)
+		out[source] = append(out[source], id)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("listing the scripts that run for source %s: %w", source, err)
+		return nil, fmt.Errorf("listing the scripts that run for webhook sources: %w", err)
 	}
-	return ids, nil
+	return out, nil
 }
 
 // EnqueueEvents writes one run per event for the script the runs name, in

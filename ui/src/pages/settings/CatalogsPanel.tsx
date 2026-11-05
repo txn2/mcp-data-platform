@@ -15,6 +15,7 @@ import { CatalogCreateForm } from "./catalogs/CatalogCreateForm";
 import { CatalogEditor } from "./catalogs/CatalogEditor";
 import { CatalogListItem } from "./catalogs/CatalogListItem";
 import { compareNames, sortNames } from "@/lib/sortByName";
+import { ChangeNotificationsCard } from "./catalogs/ChangeNotificationsCard";
 
 // Preserve the historical import surface: SpecsManager and SourceBadge
 // were exported from this module before the panel was decomposed into
@@ -119,6 +120,8 @@ export function CatalogsPanel() {
           </AlertDescription>
         </Alert>
       )}
+
+      <ChangeNotificationsCard isReadOnly={isReadOnly} />
 
       {embedderUnconfigured && (
         // Alert hard-codes role="alert" (assertive); this banner is derived

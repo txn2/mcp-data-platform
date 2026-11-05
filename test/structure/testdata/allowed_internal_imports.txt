@@ -11,6 +11,10 @@ cmd/preview-content-viewer -> internal/contentviewer
 cmd/preview-content-viewer -> internal/portal/embedhosts
 cmd/preview-content-viewer -> internal/portal/publicviewer
 cmd/preview-content-viewer -> internal/wirejson
+internal/admin/apichangeapi -> internal/apichange
+internal/admin/apichangeapi -> internal/httpjson
+internal/admin/apichangeapi -> internal/logsan
+internal/admin/apichangeapi -> pkg/toolkits/apigateway/catalog
 internal/admin/apiroutesapi -> internal/httpjson
 internal/admin/apiroutesapi -> pkg/registry
 internal/admin/apiroutesapi -> pkg/toolkits/apigateway
@@ -120,6 +124,18 @@ internal/admin/webhookapi -> internal/webhook/whstore
 internal/admin/webhookapi -> internal/webhook/whtable
 internal/advisorylock -> internal/logsan
 internal/agentinstructions -> pkg/configstore
+internal/apichange -> internal/advisorylock
+internal/apichange -> internal/bgloop
+internal/apichange -> internal/logsan
+internal/apichange -> internal/pathtemplate
+internal/apichange -> internal/platform/scriptflow
+internal/apichange -> internal/platform/settingsjson
+internal/apichange -> internal/untrusted
+internal/apichange -> pkg/audit
+internal/apichange -> pkg/notification
+internal/apichange -> pkg/registry
+internal/apichange -> pkg/script
+internal/apichange -> pkg/toolkits/apigateway/catalog
 internal/apigwmetrics -> pkg/mcpcontext
 internal/apigwmetrics -> pkg/observability
 internal/apikeyissue -> internal/platform/apikeystore
@@ -304,6 +320,7 @@ internal/httpserver -> internal/httpserver/accessgate
 internal/httpserver -> internal/httpserver/accessreqwire
 internal/httpserver -> internal/httpserver/adminwire
 internal/httpserver -> internal/httpserver/alertwire
+internal/httpserver -> internal/httpserver/apichangewire
 internal/httpserver -> internal/httpserver/apiwire
 internal/httpserver -> internal/httpserver/appdbwire
 internal/httpserver -> internal/httpserver/applicationwire
@@ -435,6 +452,15 @@ internal/httpserver/alertwire -> internal/platform/storagecap
 internal/httpserver/alertwire -> internal/webhook/whalert
 internal/httpserver/alertwire -> pkg/admin
 internal/httpserver/alertwire -> pkg/platform
+internal/httpserver/apichangewire -> internal/admin/apichangeapi
+internal/httpserver/apichangewire -> internal/admin/catalogapi
+internal/httpserver/apichangewire -> internal/apichange
+internal/httpserver/apichangewire -> internal/logsan
+internal/httpserver/apichangewire -> internal/platform/notifydelivery
+internal/httpserver/apichangewire -> internal/upstreamwarn
+internal/httpserver/apichangewire -> pkg/platform
+internal/httpserver/apichangewire -> pkg/registry
+internal/httpserver/apichangewire -> pkg/toolkits/apigateway/catalog
 internal/httpserver/apishttp -> internal/httpjson
 internal/httpserver/apishttp -> pkg/toolkits/apigateway
 internal/httpserver/apiwire -> internal/httpserver/apishttp
@@ -772,6 +798,7 @@ internal/httpserver/webhookwire -> internal/httpserver/instanceheader
 internal/httpserver/webhookwire -> internal/indexpolicy
 internal/httpserver/webhookwire -> internal/logsan
 internal/httpserver/webhookwire -> internal/objectobs
+internal/httpserver/webhookwire -> internal/pglisten
 internal/httpserver/webhookwire -> internal/platform/levelalert
 internal/httpserver/webhookwire -> internal/platform/resourcelayer
 internal/httpserver/webhookwire -> internal/platform/resourcewrite
@@ -851,6 +878,7 @@ internal/outbound -> internal/connstate
 internal/outbound -> internal/egressguard
 internal/outbound -> internal/logsan
 internal/outbound -> internal/secretref
+internal/outbound -> internal/upstreamwarn
 internal/outbound -> internal/useragent
 internal/outbound -> pkg/observability
 internal/pagewalk -> internal/exportasync
@@ -868,6 +896,7 @@ internal/platform/apikeystore -> pkg/auth
 internal/platform/assetbucket -> internal/logsan
 internal/platform/assetindex -> pkg/indexjobs
 internal/platform/assetindex -> pkg/portal
+internal/platform/auditwiring -> internal/apichange
 internal/platform/auditwiring -> internal/platform/callrecord
 internal/platform/auditwiring -> internal/platform/catalogstore
 internal/platform/auditwiring -> internal/platform/provenance
@@ -2339,6 +2368,7 @@ pkg/textpatch/patchmcp -> pkg/middleware
 pkg/textpatch/patchmcp -> pkg/textpatch
 pkg/toolkit -> internal/wirejson
 pkg/toolkits/apigateway -> internal/apigwmetrics
+pkg/toolkits/apigateway -> internal/apiresponse
 pkg/toolkits/apigateway -> internal/cfgmap
 pkg/toolkits/apigateway -> internal/conncatchup
 pkg/toolkits/apigateway -> internal/connprobe
@@ -2365,6 +2395,7 @@ pkg/toolkits/apigateway -> internal/upstreamauth
 pkg/toolkits/apigateway -> internal/upstreamauth/googlekey
 pkg/toolkits/apigateway -> internal/upstreamcall
 pkg/toolkits/apigateway -> internal/upstreamretry
+pkg/toolkits/apigateway -> internal/upstreamwarn
 pkg/toolkits/apigateway -> internal/wirejson
 pkg/toolkits/apigateway -> internal/xmltree
 pkg/toolkits/apigateway -> pkg/authevents

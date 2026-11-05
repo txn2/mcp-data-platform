@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/pglisten"
 	"github.com/txn2/mcp-data-platform/internal/platform/levelalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
@@ -92,6 +94,9 @@ type Webhooks struct {
 	alerts    *whalert.Service
 	// files saves a form's files as managed resources (#2333).
 	files *formFiles
+	// bindings listens for changes to which scripts name a source and drops
+	// the event run enqueuer's map (#2480); nil without a database.
+	bindings *pglisten.Listener
 }
 
 // EnableAlerts builds the webhook alert evaluation (#2149), posting through
@@ -392,6 +397,7 @@ func (w *Webhooks) Start(ctx context.Context) {
 	if w == nil {
 		return
 	}
+	w.startBindings(ctx)
 	w.receiver.Start(ctx)
 	w.compactor.Start(ctx)
 	w.imap.Start(ctx)
@@ -435,6 +441,23 @@ func (w *Webhooks) Stop() {
 	w.imap.Stop()
 	w.pg.Stop()
 	w.alerts.Stop()
+	if w.bindings != nil {
+		w.bindings.Stop()
+	}
+}
+
+// startBindings opens the LISTEN on script source changes. A failure only
+// means the enqueuer's map is re-read on its interval rather than at once.
+func (w *Webhooks) startBindings(ctx context.Context) {
+	if w.bindings == nil {
+		return
+	}
+	go func() {
+		if err := w.bindings.Start(ctx); err != nil && !errors.Is(err, net.ErrClosed) {
+			slog.WarnContext(ctx, "webhooks: listening for script source changes; re-reading on the interval instead",
+				"error", logsan.SanitizeForLog(err.Error()))
+		}
+	}()
 }
 
 // imapLock holds an imap source's poll to one replica at a time.

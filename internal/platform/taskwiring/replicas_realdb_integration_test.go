@@ -91,7 +91,11 @@ func userOf(req mcp.Request) string {
 
 func buildReplica(t *testing.T, store calltask.Store, tool *exportTool) *replica {
 	t.Helper()
-	runner := calltask.New(calltask.Options{Store: store, Heartbeat: 10 * time.Millisecond})
+	// A task is read as failed after 15 missed heartbeats. At 10ms that was
+	// a 150ms window, which a loaded machine's scheduler stalls past and a
+	// running task then reads as failed; 100ms leaves 1.5s and a cancel still
+	// arrives within one beat.
+	runner := calltask.New(calltask.Options{Store: store, Heartbeat: 100 * time.Millisecond})
 	h := &Handle{sources: mcptask.NewSources(runner), runner: runner, resolve: resolve}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "platform", Version: "1"}, &mcp.ServerOptions{Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}}})
 	mcp.AddTool(srv, &mcp.Tool{Name: "trino_export"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {

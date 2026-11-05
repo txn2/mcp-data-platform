@@ -2,11 +2,13 @@ package webhookwire
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcollect"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epsource"
+	"github.com/txn2/mcp-data-platform/internal/pglisten"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
@@ -108,12 +110,25 @@ func (w *Webhooks) AttachEventRuns(stored func(ctx context.Context, source strin
 
 // AttachScriptRuns enqueues the runs of the automations that name a source
 // for each event this replica stores (#2332), bounded per script by
-// scripts.events.max_queued. A deployment with no database runs no script,
+// scripts.events.max_queued. Which automations name a source is kept in
+// memory and dropped on a NOTIFY from any replica (#2480). A deployment with no database runs no script,
 // and attaches nothing.
 func (w *Webhooks) AttachScriptRuns(p *platform.Platform) {
 	if w == nil || p == nil || p.DB() == nil {
 		return
 	}
-	runs := &scriptevents.Enqueuer{Store: scriptevents.NewStore(p.DB()), Scripts: scriptstore.New(p.DB()), MaxQueued: p.Config().Scripts.Events.MaxQueued}
+	w.wireEventRuns(p.DB(), p.Config().Database.DSN, p.Config().Scripts.Events.MaxQueued)
+}
+
+// wireEventRuns builds the enqueuer over db and, with a DSN, the LISTEN
+// that drops its map on a change from any replica (#2480); with none the map
+// is re-read every few seconds instead.
+func (w *Webhooks) wireEventRuns(db *sql.DB, dsn string, maxQueued int) {
+	store := scriptevents.NewStore(db)
+	bindings := &scriptevents.Bindings{Reader: store}
+	if dsn != "" {
+		w.bindings = pglisten.New(dsn, scriptevents.BindingsChannel, bindings)
+	}
+	runs := &scriptevents.Enqueuer{Store: store, Bindings: bindings, Scripts: scriptstore.New(db), MaxQueued: maxQueued}
 	w.AttachEventRuns(runs.Stored)
 }

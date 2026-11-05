@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/apichange"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
@@ -207,7 +208,9 @@ func Assemble(cfg Config) *Layer {
 	// edge from each source to the table it wrote (#1922), on the same
 	// writer goroutine the call catalog uses.
 	lineage := sqllineage.New(recorded, catalogstore.New(cfg.DB), sqllineage.TrinoResolver(cfg.Toolkits))
-	logger := NewLogger(lineage, cfg.SyncDelivery, cfg.Metrics)
+	// A script run's API call records which operation the script uses
+	// (#2485), the used-by index's view of what a source computes.
+	logger := NewLogger(apichange.NewCallers(lineage, cfg.DB, operationKeys(cfg.Toolkits)), cfg.SyncDelivery, cfg.Metrics)
 
 	return &Layer{
 		store:    store,

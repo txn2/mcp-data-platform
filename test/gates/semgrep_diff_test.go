@@ -337,3 +337,39 @@ func TestSemgrepChangedRunsEveryConfigItIsGiven(t *testing.T) {
 		tracked + ":11:", "[slog-without-context-in-context-function]",
 	}})
 }
+
+// TestSemgrepChangedSkipsWhatTheTreeScanSkips holds make semgrep-changed to
+// make semgrep's scope (#2478): a changed test file whose finding the
+// whole-tree scan does not report passes, and the same finding in a changed
+// production file still fails.
+func TestSemgrepChangedSkipsWhatTheTreeScanSkips(t *testing.T) {
+	requireSemgrep(t)
+	const prod, test = "internal/webhook/wh/back.go", "internal/webhook/wh/back_test.go"
+	cases := []struct {
+		name   string
+		path   string
+		expect expect
+	}{
+		{
+			name:   "a finding in a changed test file the tree scan skips passes",
+			path:   test,
+			expect: expect{pass: true, mustNot: []string{"[redirect-from-request]"}},
+		},
+		{
+			name:   "the same finding in a changed production file fails",
+			path:   prod,
+			expect: expect{want: []string{prod + ":6:", "[redirect-from-request]"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newGitRepo(t, semgrepDiffScript, map[string]string{
+				"rules/redirect.yml": redirectRule,
+				tc.path:              redirectFile,
+			})
+			writeFile(t, root, tc.path, redirectFile+"\nfunc more() {}\n")
+			out, passed := runScript(t, root, []string{semgrepDiffScript, "--whole-files", "rules/redirect.yml"}, nil)
+			assertOutput(t, out, passed, tc.expect)
+		})
+	}
+}

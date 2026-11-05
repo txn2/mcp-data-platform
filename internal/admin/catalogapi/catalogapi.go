@@ -195,7 +195,6 @@ func Register(mux *http.ServeMux, cfg Config) {
 	mux.HandleFunc("GET /api/v1/admin/api-catalogs/{id}/specs/{spec}", h.getCatalogSpec)
 	mux.HandleFunc("PUT /api/v1/admin/api-catalogs/{id}/specs/{spec}", h.upsertCatalogSpec)
 	mux.HandleFunc("PUT /api/v1/admin/api-catalogs/{id}/specs/{spec}/upload", h.uploadCatalogSpec)
-	mux.HandleFunc("POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh", h.refreshCatalogSpec)
 	mux.HandleFunc("DELETE /api/v1/admin/api-catalogs/{id}/specs/{spec}", h.deleteCatalogSpec)
 	// Embedding-job admin surface. The /reembed endpoint that
 	// earlier revisions of this handler shipped is gone: spec
@@ -1022,72 +1021,6 @@ func (h *handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	httpjson.WriteJSON(w, http.StatusOK, httpjson.StatusResponse{Status: "ok"})
 }
 
-// refreshCatalogSpec handles POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh.
-//
-// @Summary      Refresh catalog spec
-// @Description  Re-fetches a URL-sourced spec from its source_url, stores the new content, and enqueues an embedding job.
-// @Tags         API Catalogs
-// @Produce      json
-// @Param        id    path  string  true  "Catalog ID"
-// @Param        spec  path  string  true  "Spec name"
-// @Success      200  {object}  specResponse
-// @Failure      400  {object}  httpjson.ProblemDetail
-// @Failure      404  {object}  httpjson.ProblemDetail
-// @Failure      413  {object}  httpjson.ProblemDetail
-// @Failure      503  {object}  httpjson.ProblemDetail
-// @Failure      500  {object}  httpjson.ProblemDetail
-// @Security     ApiKeyAuth
-// @Security     BearerAuth
-// @Router       /admin/api-catalogs/{id}/specs/{spec}/refresh [post]
-func (h *handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue(catalogPathID)
-	specName := r.PathValue(catalogPathSpec)
-	existing, err := h.cfg.Catalogs.GetSpec(r.Context(), id, specName)
-	switch {
-	case errors.Is(err, apicatalog.ErrNotFound):
-		httpjson.WriteError(w, http.StatusNotFound, errSpecNotFound)
-		return
-	case err != nil:
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get spec")
-		return
-	}
-	if existing.SourceKind != apicatalog.SourceURL {
-		httpjson.WriteError(w, http.StatusBadRequest, "spec was not URL-sourced; refresh is only valid for source_kind=url")
-		return
-	}
-	res, err := apicatalog.FetchFromURL(r.Context(), existing.SourceURL, apicatalog.FetchOptions{})
-	if err != nil {
-		httpjson.WriteError(w, h.specErrorStatus(err), "fetch failed: "+err.Error())
-		return
-	}
-	entry := apicatalog.SpecEntry{
-		SpecName:      specName,
-		Content:       res.Content,
-		SourceKind:    apicatalog.SourceURL,
-		SpecFormat:    existing.SpecFormat,
-		SourceURL:     existing.SourceURL,
-		ETag:          res.ETag,
-		BasePath:      existing.BasePath,
-		Title:         existing.Title,
-		Description:   existing.Description,
-		LastFetchedAt: res.FetchedAt,
-	}
-	// A WSDL refreshed from its ?wsdl URL is re-imported here, so a spec
-	// whose upstream regenerated its service description picks up the new
-	// operations rather than keeping the render of the document it replaced.
-	if err := prepareSpec(&entry); err != nil {
-		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := h.cfg.Catalogs.UpsertSpec(r.Context(), id, entry); err != nil {
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to save refreshed spec: "+err.Error())
-		return
-	}
-	catalogindex.EnqueueBestEffort(r.Context(), h.cfg.EmbedJobs, id, entry.SpecName)
-	h.reloadConnectionsForCatalog(id)
-	httpjson.WriteJSON(w, http.StatusOK, h.specToResponseWithEmbedding(r.Context(), id, entry, false))
-}
-
 // deleteCatalogSpec handles DELETE /api/v1/admin/api-catalogs/{id}/specs/{spec}.
 //
 // @Summary      Delete catalog spec
@@ -1449,14 +1382,33 @@ func embeddingJobResponseFromJob(j catalogindex.Job) embeddingJobResponse {
 // is brought up to it from the store without waiting for the announcement
 // (#1951).
 func (h *handler) reloadConnectionsForCatalog(catalogID string) {
-	if h.cfg.Toolkits != nil {
-		storeresync.Catalog(h.cfg.Toolkits.All(), catalogID)
+	h.cfg.reloadCatalog(catalogID)
+}
+
+// WriteSpec saves entry as the spec in use, as every admin spec write does:
+// stores it, queues its operations for embedding, and reloads the
+// connections that read the catalog on this replica and its peers. The
+// scheduled and manual refresh (internal/apichange) saves through it, so a
+// refreshed spec reaches the gateway the way an edited one does. entry has
+// already been through PrepareSpec.
+func (cfg Config) WriteSpec(ctx context.Context, catalogID string, entry apicatalog.SpecEntry) error {
+	if err := cfg.Catalogs.UpsertSpec(ctx, catalogID, entry); err != nil {
+		return fmt.Errorf("saving spec %s: %w", entry.SpecName, err)
+	}
+	catalogindex.EnqueueBestEffort(ctx, cfg.EmbedJobs, catalogID, entry.SpecName)
+	cfg.reloadCatalog(catalogID)
+	return nil
+}
+
+func (cfg Config) reloadCatalog(catalogID string) {
+	if cfg.Toolkits != nil {
+		storeresync.Catalog(cfg.Toolkits.All(), catalogID)
 	}
 	// Broadcast to peer replicas so they rebuild their own in-memory
 	// connections from this catalog (issue #501). The call above only
 	// reloads this replica.
-	if h.cfg.Reload != nil {
-		h.cfg.Reload.PublishCatalogReload(catalogID)
+	if cfg.Reload != nil {
+		cfg.Reload.PublishCatalogReload(catalogID)
 	}
 }
 

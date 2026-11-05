@@ -385,6 +385,7 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 		return toolkit.ErrorResult(addrErr.Error()), nil, nil
 	}
 	in.Method, in.Path = method, endpointPath
+	ctx = withOperation(ctx, c, InvokeInput{Method: method, Path: endpointPath}, in.OperationID)
 
 	// Honor the same route policy that api_invoke_endpoint does so
 	// a persona scoped to GET /v1/users cannot export from

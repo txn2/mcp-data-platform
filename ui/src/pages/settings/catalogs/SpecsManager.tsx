@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import {
   type APICatalogSpec,
   type APICatalogEmbeddingSpecStatus,
+  type APIRefreshResult,
   useAPICatalogEmbeddingHealth,
   useAPICatalogEmbeddingStatuses,
   useDeleteAPICatalogSpec,
@@ -18,6 +19,17 @@ import { Button } from "@/components/ui/button";
 import { CatalogEmbeddingHealthBanner } from "./badges";
 import { SpecList } from "./SpecList";
 import { SpecModal } from "./SpecModal";
+
+// refreshOutcome says what a refresh found (#2483): nothing new, a change
+// applied, or one waiting for review in the spec's Changes.
+function refreshOutcome(specName: string, data: APIRefreshResult): string {
+  if (data.not_modified && !data.change) return `"${specName}" is unchanged upstream.`;
+  if (!data.change) return `Refreshed "${specName}" from its URL; no operation changed.`;
+  if (data.change.status === "pending") {
+    return `"${specName}" changed upstream (${data.change.summary}). It is waiting for review in the spec's Changes.`;
+  }
+  return `Refreshed "${specName}": ${data.change.summary}.`;
+}
 
 export function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly: boolean }) {
   const [specs, setSpecs] = useState<APICatalogSpec[]>([]);
@@ -131,15 +143,9 @@ export function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isR
     refresh.mutate(
       { catalogID, specName },
       {
-        onSuccess: () => {
+        onSuccess: (data) => {
           setRefreshCounter((n) => n + 1);
-          showStatus(
-            {
-              kind: "success",
-              text: `Refreshed "${specName}" from upstream URL.`,
-            },
-            4000,
-          );
+          showStatus({ kind: "success", text: refreshOutcome(specName, data) }, 6000);
         },
         onError: (err) => {
           showStatus({

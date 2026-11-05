@@ -85,6 +85,11 @@ func renderOpenAPI(entry *apicatalog.SpecEntry) error {
 // building the entry and storing it, and doing it in one place is what keeps a
 // WSDL refreshed from its URL going through the same conversion the first save
 // did.
+// PrepareSpec validates entry and renders the OpenAPI document it serves,
+// what every spec write runs before saving; the refresh in
+// internal/apichange runs it on a fetched spec.
+func PrepareSpec(entry *apicatalog.SpecEntry) error { return prepareSpec(entry) }
+
 func prepareSpec(entry *apicatalog.SpecEntry) error {
 	if err := renderEffective(entry); err != nil {
 		return err
