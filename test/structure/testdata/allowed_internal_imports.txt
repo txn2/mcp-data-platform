@@ -139,7 +139,10 @@ internal/application/appbundle -> internal/application
 internal/application/appbundle -> internal/application/appsvc
 internal/application/appbundle -> internal/endpoint/epbinding
 internal/application/appbundle -> internal/endpoint/epcmd
+internal/application/appbundle -> internal/platform/scriptrec
 internal/application/appbundle -> internal/platform/scriptrun
+internal/application/appbundle -> internal/platform/scriptsave
+internal/application/appbundle -> internal/platform/scripttest
 internal/application/appbundle -> internal/portal/portaldomain
 internal/application/appbundle -> internal/runstate
 internal/application/appbundle -> internal/secretref
@@ -175,6 +178,7 @@ internal/application/appwire -> internal/application/apptool
 internal/application/appwire -> internal/endpoint/epcmd
 internal/application/appwire -> internal/endpoint/epstore
 internal/application/appwire -> internal/platform/migrationstore
+internal/application/appwire -> internal/platform/scriptrec
 internal/application/appwire -> internal/platform/scriptstore
 internal/application/appwire -> internal/portal/portaldomain
 internal/application/appwire -> pkg/registry
@@ -193,6 +197,7 @@ internal/connsecretref -> internal/secretref
 internal/connsecretref -> internal/secretstore
 internal/connsecretref -> internal/upstreamauth/sessionlogin
 internal/connsecretref -> pkg/connoauth
+internal/conntrim -> pkg/connoauth
 internal/d2render -> internal/httpjson
 internal/d2render -> pkg/blobserve
 internal/d2render -> pkg/contenttype
@@ -318,6 +323,7 @@ internal/httpserver -> internal/httpserver/pdfhttp
 internal/httpserver -> internal/httpserver/personashare
 internal/httpserver -> internal/httpserver/resourcelevel
 internal/httpserver -> internal/httpserver/resourcesharewire
+internal/httpserver -> internal/httpserver/savegatewire
 internal/httpserver -> internal/httpserver/scripthttp
 internal/httpserver -> internal/httpserver/scripthttp/connchoicehttp
 internal/httpserver -> internal/httpserver/scripthttp/eventshttp
@@ -343,13 +349,9 @@ internal/httpserver -> internal/platform/connscope
 internal/httpserver -> internal/platform/knowledgebuiltin
 internal/httpserver -> internal/platform/listenbridge
 internal/httpserver -> internal/platform/notifydelivery
-internal/httpserver -> internal/platform/notifylayer
 internal/httpserver -> internal/platform/resourceaudit
 internal/httpserver -> internal/platform/scriptdraft
 internal/httpserver -> internal/platform/scriptgrant
-internal/httpserver -> internal/platform/scriptrec/recstore
-internal/httpserver -> internal/platform/scriptsave
-internal/httpserver -> internal/platform/scriptsrc
 internal/httpserver -> internal/platform/scriptstore
 internal/httpserver -> internal/platform/sessionview
 internal/httpserver -> internal/platform/tablelookup
@@ -365,7 +367,6 @@ internal/httpserver -> internal/producedby
 internal/httpserver -> internal/producedview
 internal/httpserver -> internal/selfcall
 internal/httpserver -> internal/shutdown
-internal/httpserver -> internal/toolanswer
 internal/httpserver -> internal/ui
 internal/httpserver -> internal/webhook/whsource
 internal/httpserver -> internal/webhook/whstore
@@ -459,6 +460,7 @@ internal/httpserver/appdbwire -> pkg/toolkits/postgres
 internal/httpserver/applicationwire -> internal/application
 internal/httpserver/applicationwire -> internal/application/apphttp
 internal/httpserver/applicationwire -> internal/application/appwire
+internal/httpserver/applicationwire -> internal/platform/scriptsave
 internal/httpserver/applicationwire -> pkg/middleware
 internal/httpserver/applicationwire -> pkg/platform
 internal/httpserver/applicationwire -> pkg/portal
@@ -617,6 +619,13 @@ internal/httpserver/resourcesharewire -> pkg/persona
 internal/httpserver/resourcesharewire -> pkg/platform
 internal/httpserver/resourcesharewire -> pkg/portal
 internal/httpserver/resourcesharewire -> pkg/resource
+internal/httpserver/savegatewire -> internal/platform/notifylayer
+internal/httpserver/savegatewire -> internal/platform/scriptrec/recstore
+internal/httpserver/savegatewire -> internal/platform/scriptsave
+internal/httpserver/savegatewire -> internal/platform/scriptsrc
+internal/httpserver/savegatewire -> internal/platform/scriptstore
+internal/httpserver/savegatewire -> internal/toolanswer
+internal/httpserver/savegatewire -> pkg/platform
 internal/httpserver/scripthttp -> internal/endpoint/epcmd
 internal/httpserver/scripthttp -> internal/httpjson
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/bindinghttp
@@ -1405,6 +1414,7 @@ internal/platform/scriptout/exportrecord -> internal/platform/scriptout
 internal/platform/scriptout/exportrecord -> internal/platform/starlarkconv
 internal/platform/scriptout/exportrecord -> internal/tablexlsx
 internal/platform/scriptpending -> pkg/script
+internal/platform/scriptrec -> internal/jsonwalk
 internal/platform/scriptrec -> internal/platform/scriptrun
 internal/platform/scriptrec -> internal/platform/scriptsession
 internal/platform/scriptrec -> internal/platform/scriptstmt
@@ -1468,7 +1478,9 @@ internal/platform/scriptsave -> pkg/resource
 internal/platform/scriptsave -> pkg/script
 internal/platform/scriptsession -> internal/appdbops
 internal/platform/scriptsession -> internal/inprocess
+internal/platform/scriptsession -> internal/jsonwalk
 internal/platform/scriptsession -> internal/mcpobs
+internal/platform/scriptsession -> internal/pglex
 internal/platform/scriptsession -> internal/scriptcallsite
 internal/platform/scriptsession -> pkg/middleware
 internal/platform/scriptsession -> pkg/toolkits/postgres
@@ -1514,6 +1526,7 @@ internal/platform/scriptwiring -> internal/platform/scriptlayer
 internal/platform/scriptwiring -> internal/platform/scriptrec
 internal/platform/scriptwiring -> internal/platform/scriptrec/recstore
 internal/platform/scriptwiring -> internal/platform/scriptrun
+internal/platform/scriptwiring -> internal/platform/scriptsave
 internal/platform/scriptwiring -> internal/platform/scriptsrc
 internal/platform/scriptwiring -> internal/platform/scriptstmt
 internal/platform/scriptwiring -> internal/platform/sqllineage
@@ -1894,6 +1907,7 @@ pkg/admin -> internal/apikeyissue
 pkg/admin -> internal/buildinfo
 pkg/admin -> internal/connprobe
 pkg/admin -> internal/connsecretref
+pkg/admin -> internal/conntrim
 pkg/admin -> internal/exporttrunc
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/httpobs
@@ -1948,6 +1962,7 @@ pkg/admin -> pkg/toolkits/gateway/enrichment
 pkg/admin -> pkg/toolkits/knowledge
 pkg/admin -> pkg/toolkits/postgres
 pkg/admin -> pkg/user
+pkg/audit -> internal/pglex
 pkg/audit -> pkg/observability
 pkg/audit/postgres -> internal/advisorylock
 pkg/audit/postgres -> internal/bgloop

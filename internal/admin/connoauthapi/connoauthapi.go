@@ -94,6 +94,10 @@ type Config struct {
 	// something that works — it is the NEXT revocation that would otherwise
 	// go unannounced, because the row from the last one is still open.
 	Revocations RevocationClearer
+	// PublicBaseURL is the deployment's externally reachable base URL
+	// (portal.public_base_url). An authorization-code flow's redirect_uri is
+	// built on it when set (#2466); empty builds it from the request.
+	PublicBaseURL string
 }
 
 // RevocationClearer forgets a connection's open revocation. Satisfied by the

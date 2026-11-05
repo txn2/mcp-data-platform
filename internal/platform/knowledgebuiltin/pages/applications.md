@@ -380,11 +380,16 @@ reverts none and says which. `releases` lists every release and what each
 changed.
 
 `export` writes a release as a bundle (a managed resource) carrying the
-migrations, script versions with their endpoints and schedules, and asset
-versions, and naming the connections, secrets, webhook sources and bot checks
-they use; it carries no secret value, credential, data row, script state or
-run history. On another deployment `import` reads the bundle with `map`
-naming the local connection, secret, source and bot check for each name, is
-refused until every name is mapped, and creates or releases the application
-there. A migration that writes a credential (`PASSWORD '...'`) is refused when
-it is added, so no bundle ever carries one.
+migrations, script versions with their endpoints and schedules and the
+recorded runs their tests replay, and asset versions, and naming the
+connections, secrets, webhook sources and bot checks they use; it carries no
+secret value, credential, script state or run history. A recording holds the
+answers its run's calls were given, which can include rows. On another
+deployment `import` reads the bundle with `map` naming the local connection,
+secret, source and bot check for each name, is refused until every name is
+mapped, puts every script through this deployment's save gate (format, lint,
+its tests against the carried recordings, coverage) and refuses the import
+naming any script the gate refuses, all before anything is written, then
+creates or releases the application there. A migration that writes a
+credential (`PASSWORD '...'`) is refused when it is added, so no bundle ever
+carries one.

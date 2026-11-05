@@ -39,5 +39,6 @@ func (h *Handler) registerConnectionOAuthRoutes() {
 		Decode:         decodeStrict,
 		DecodeOptional: decodeStrictOptional,
 		Revocations:    h.deps.ConnectionRevocations,
+		PublicBaseURL:  h.deps.PublicBaseURL,
 	})
 }

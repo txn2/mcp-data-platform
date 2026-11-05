@@ -69,7 +69,9 @@ var issue1692Expected = map[string]issue1692Expectation{
 	// delete and replace_content, manage_prompt delete, manage_script
 	// delete. run_script executes a saved script, which reaches any of
 	// them. api_invoke_endpoint and graphql_query carry whatever verb or
-	// mutation the caller writes.
+	// mutation the caller writes. manage_schema applies a migration, which
+	// can drop what it names; manage_application deletes an application and
+	// applies a release's migrations.
 	"apply_knowledge":     {destructive: true},
 	"memory_capture":      {destructive: true},
 	"memory_manage":       {destructive: true},
@@ -82,6 +84,8 @@ var issue1692Expected = map[string]issue1692Expectation{
 	"api_invoke_endpoint": {destructive: true},
 	"graphql_query":       {destructive: true},
 	"s3_object":           {destructive: true},
+	"manage_schema":       {destructive: true},
+	"manage_application":  {destructive: true},
 
 	// Writes that only add. An export lands a new asset, or the next
 	// version of a managed resource with the earlier versions kept;

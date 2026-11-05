@@ -39,7 +39,14 @@ func (t *Toolkit) review(ctx context.Context, in schemaInput, m Migration) ([]Fi
 		findings = append(findings, *unread)
 	}
 	if r := Refused(findings); len(r) > 0 {
-		return nil, statementRefusal(m.Version, r)
+		return nil, statementRefusal(m.Version, "", r)
+	}
+	// The down SQL is held to the same refusals (#2475): it is stored,
+	// exported and run like the up SQL, so a credential or a superuser
+	// statement in it is kept and reached the same way. Its destructive
+	// findings are what a revert is for, and are not asked about.
+	if downFindings, _ := Lint(m.Down, Target{}); len(Refused(downFindings)) > 0 {
+		return nil, statementRefusal(m.Version, "down ", Refused(downFindings))
 	}
 	findings = append(findings, t.renameFindings(ctx, m.Connection, renames)...)
 	if d := Destructive(findings); len(d) > 0 && !agreed(in) {
@@ -110,10 +117,10 @@ func (t *Toolkit) lintTarget(ctx context.Context, connection, schema string) (Ta
 }
 
 // statementRefusal names each refused statement and why.
-func statementRefusal(version int, refused []Finding) error {
+func statementRefusal(version int, half string, refused []Finding) error {
 	parts := make([]string, len(refused))
 	for i, f := range refused {
-		parts[i] = fmt.Sprintf("statement %d (%s) %s", f.Statement, f.Object, f.Effect)
+		parts[i] = fmt.Sprintf("%sstatement %d (%s) %s", half, f.Statement, f.Object, f.Effect)
 	}
 	return &RefusedError{Code: CodeStatementRefused, msg: fmt.Sprintf(
 		"%s: migration %d is refused: %s. An application's migration runs as the application's role, which must not hold "+

@@ -286,3 +286,12 @@ func TestEndpointsIsTheAssembledFeature(t *testing.T) {
 	require.NotNil(t, h.Endpoints())
 	assert.NotNil(t, h.Endpoints().Commands)
 }
+
+// The gate an application import saves through is the layer's own, with the
+// endpoint check its saves cross (#2476).
+func TestSaveGateIsTheLayersOwn(t *testing.T) {
+	h, _ := endpointHandle(t)
+	g := h.SaveGate()
+	require.NotNil(t, g)
+	assert.NotNil(t, g.Endpoint, "a bound script's save keeps the handle(req) check")
+}

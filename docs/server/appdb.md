@@ -351,7 +351,11 @@ The review also reads each migration for statements that leave the database open
 | `untrusted_code` | `CREATE LANGUAGE`, `CREATE EXTENSION` of an untrusted language, or a function, procedure or `DO` block in one (`plpython3u`, `plperlu`, `pltclu`, `C`, `internal`) | refused | |
 | `event_trigger` | `CREATE EVENT TRIGGER` | refused | |
 | `alter_system` | `ALTER SYSTEM` | refused | |
-| `password_literal` | `CREATE`/`ALTER ROLE` or `USER`, or `CREATE USER MAPPING`, given a password in the migration (`PASSWORD NULL` aside); the finding names the object, never the value | refused | Create the role without a password and set it outside the migration; a persona's role password belongs in the connection's `persona_role_passwords` (#2411) |
+| `password_literal` | `CREATE`/`ALTER ROLE` or `USER`, `CREATE GROUP`, or `CREATE`/`ALTER USER MAPPING`, given a password in the migration (`PASSWORD NULL` aside); the finding names the object, never the value | refused | Create the role without a password and set it outside the migration; a persona's role password belongs in the connection's `persona_role_passwords` (#2411) |
+
+The down SQL is held to the refused rules too (#2475): it is stored, exported and run like the up SQL. A refusal in it names the statement as `down statement <n>`. Its destructive findings are what a revert is for and are not asked about.
+
+The `password_literal` rule is also what keeps the password out of every copy of the SQL the platform keeps (#2475): the audit row of a `manage_schema` call, of a `platform.execute`, and any other call whose arguments hold SQL, and a script run's recording, have each literal after the `PASSWORD` of a statement the rule reads replaced by `'[REDACTED]'`. SQL that sets no password is stored as sent.
 
 A refused statement stops the save and the refusal names each one: they need privileges an application's role must not hold, or reach outside the database. On a 17 server a statement using an 18 feature, and on 18 an index on a virtual generated column, also fail the apply from zero below; that refusal names what the review found.
 

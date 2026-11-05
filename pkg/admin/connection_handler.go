@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/connsecretref"
+	"github.com/txn2/mcp-data-platform/internal/conntrim"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/namesort"
 	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
@@ -299,8 +300,8 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 	// canonicalized what existed when it ran; without this every later
 	// write could put the legacy shape back, and a row holding both
 	// authenticated with the canonical value while the portal displayed
-	// the operator's own entry beside it as an equal (#1682).
-	canonical, err := connoauth.Canonicalize(req.Config)
+	// the operator's own entry beside it as an equal (#1682). Pasted whitespace is trimmed first (#2467).
+	canonical, err := connoauth.Canonicalize(conntrim.Values(req.Config))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
 		return

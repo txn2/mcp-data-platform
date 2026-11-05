@@ -149,7 +149,7 @@ The same settings and scans are served at `/api/v1/admin/catalog/settings` and
 index, built from this catalog. A dataset declared or curated since the index
 last read the catalog is re-read on the index queue's next check
 (`knowledge.index_reconcile_interval`, five minutes by default), and the index
-re-reads the whole catalog at least every `knowledge.catalog_index.sync_interval`.
+re-reads the whole catalog at least every `knowledge.catalog_index.sync_interval`. A `knowledge.catalog_index.max_entries` lowered since the last read applies on the next start: a mirror holding more datasets than the cap is re-read down to it then (#2429).
 
 ## Lineage
 

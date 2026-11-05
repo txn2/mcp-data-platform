@@ -107,7 +107,7 @@ func uploadResource1568(t *testing.T, c *client, filename, declared string, cont
 		t.Fatalf("closing the upload body: %v", err)
 	}
 
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, baseURL()+"/api/v1/resources", body)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.base+"/api/v1/resources", body)
 	if err != nil {
 		t.Fatalf("building the upload: %v", err)
 	}

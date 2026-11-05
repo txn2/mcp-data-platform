@@ -725,3 +725,21 @@ func TestAppDBCaller_MaintainNeedsTheGrant(t *testing.T) {
 	assert.Contains(t, err.Error(), "lock timeout")
 	assert.True(t, IsAppDBCall(AppDBMaintain))
 }
+
+// A recording keeps a statement that sets a role's password with the literal
+// replaced, and a replay of the call matches it by the same key (#2475).
+func TestRecordedArgsRedactAPasswordLiteral(t *testing.T) {
+	const canary = "recording-canary-2475"
+	args := map[string]any{
+		"connection": "shop",
+		"sql":        "ALTER ROLE app PASSWORD '" + canary + "'",
+		"nested":     map[string]any{"up": []any{"CREATE ROLE r PASSWORD '" + canary + "'", "SELECT 1"}},
+	}
+	kept := RecordedArgs(AppDBExecute, args)
+	assert.Equal(t, "ALTER ROLE app PASSWORD '[REDACTED]'", kept["sql"])
+	assert.Equal(t, map[string]any{"up": []any{"CREATE ROLE r PASSWORD '[REDACTED]'", "SELECT 1"}}, kept["nested"])
+	assert.Contains(t, args["sql"], canary, "the call's own arguments are left alone")
+	assert.Equal(t, kept, RecordedArgs(AppDBExecute, kept), "a second pass changes nothing")
+	plain := map[string]any{"sql": "SELECT 'password'"}
+	assert.Equal(t, plain, RecordedArgs(AppDBExecute, plain))
+}

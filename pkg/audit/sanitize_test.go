@@ -116,3 +116,24 @@ func TestSanitizeParametersSecretMaps(t *testing.T) {
 	assert.Equal(t, map[string]any{"X-Quota": "[REDACTED]"}, cfg["static_headers"], "names kept, values replaced")
 	assert.Equal(t, "[REDACTED]", cfg["session_login_headers"])
 }
+
+// A manage_schema call's up and down, and a statement in a list, are stored
+// with a role's password replaced and every other statement as sent (#2475).
+func TestSanitizeParametersRedactsAPasswordInSQL(t *testing.T) {
+	const canary = "audit-canary-2475"
+	plain := "CREATE TABLE orders (id bigint PRIMARY KEY)"
+	got := SanitizeParameters(map[string]any{
+		"command":    "add",
+		"up":         plain + ";\nCREATE ROLE r LOGIN PASSWORD '" + canary + "'",
+		"down":       "ALTER ROLE r PASSWORD '" + canary + "'",
+		"statements": []any{"ALTER USER r WITH PASSWORD '" + canary + "'", plain},
+		"name":       plain,
+	})
+	b, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), canary)
+	assert.Equal(t, plain+";\nCREATE ROLE r LOGIN PASSWORD '[REDACTED]'", got["up"])
+	assert.Equal(t, "ALTER ROLE r PASSWORD '[REDACTED]'", got["down"])
+	assert.Equal(t, []any{"ALTER USER r WITH PASSWORD '[REDACTED]'", plain}, got["statements"])
+	assert.Equal(t, plain, got["name"], "SQL with no credential is kept as sent")
+}

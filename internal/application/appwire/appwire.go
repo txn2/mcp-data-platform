@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/migrationstore"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -65,6 +66,13 @@ type Deps struct {
 	Claims func(ctx context.Context) resource.Claims
 	// Endpoints carries out an endpoint command, as manage_script does.
 	Endpoints func(ctx context.Context, req epcmd.Request) (map[string]any, error)
+	// SaveGate is the gate a script's source save crosses, which an import
+	// puts each script through (#2476); nil refuses importing a script.
+	SaveGate appbundle.SaveGate
+	// Recordings is the store the gate reads recordings from, which an
+	// export writes a script's test recordings out of and an import stores
+	// them in (#2476).
+	Recordings scriptrec.Store
 }
 
 // Service builds the application service over deps, nil without a database.
@@ -98,7 +106,10 @@ func Bundler(svc *appsvc.Service, d Deps) *appbundle.Bundler {
 		Service: svc, Migrations: migrationstore.New(d.DB), Bindings: epstore.New(d.DB), Schedules: scripts,
 		FormConnection: formConnection(d.DB), Blobs: d.Blobs, Lander: d.Lander, Reader: d.Reader, Claims: d.Claims,
 		Scripts: scripts, Bucket: d.Bucket, Prefix: d.Prefix, Endpoints: d.Endpoints,
-		HasSchemaConnection: hasConnection(d.Toolkits),
+		HasSchemaConnection: hasConnection(d.Toolkits), SaveGate: d.SaveGate,
+	}
+	if d.Recordings != nil {
+		b.Recordings = d.Recordings
 	}
 	if d.Assets != nil {
 		b.Assets = d.Assets

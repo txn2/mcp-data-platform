@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/url"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/pglex"
 )
 
 // redactedSentinel replaces a sensitive value in a stored parameter map.
@@ -44,7 +46,10 @@ var secretValuePaths = []string{"/admin/secrets"}
 // holds a JSON object or array, such as an api_invoke_endpoint body sent as
 // text, is read and redacted the same way. A call to an admin route that sets
 // a stored secret has the "value" in its body replaced too. Nothing that is
-// redacted reaches audit_logs.parameters.
+// redacted reaches audit_logs.parameters. A string holding SQL that gives a
+// role, user or group a password (manage_schema's up and down, a statement a
+// script executes) has the password literal replaced, by the rule the
+// migration review refuses the statement by (#2475).
 func SanitizeParameters(params map[string]any) map[string]any {
 	if params == nil {
 		return nil
@@ -84,7 +89,7 @@ func (s sanitizer) value(v any) any {
 		}
 		return out
 	case string:
-		return s.jsonText(t)
+		return pglex.RedactPasswords(s.jsonText(t))
 	}
 	return v
 }

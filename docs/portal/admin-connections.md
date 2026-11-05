@@ -49,6 +49,8 @@ directly for the connections the file declares.
 
 Creating or editing a connection opens a kind-aware editor: a markdown description plus the configuration fields for the selected kind (Trino host/port/catalog, S3 bucket/region, or an API-gateway base URL and catalog picker), with TLS material and auth handled inline.
 
+A save removes leading and trailing whitespace, line breaks included, from the fields where it can never be part of the value (#2467): the URLs (`base_url`, `oauth_token_url`, `oauth_authorization_url`, `session_login_url`, `session_logout_url`), the identifiers and claims (`oauth_client_id`, `jwt_issuer`, `jwt_subject`, `jwt_audience`, `jwt_key_id`, `catalog_id`, `api_key_header`, `api_key_param`), `oauth_scope`, and the durations (`call_timeout`, `connect_timeout`, `jwt_token_lifetime`, `oauth_token_lifetime`). A value pasted from a provider's console with a space or a line break around it is stored without it. A secret, a login body, a header value and a PEM block are stored as sent. The admin API (`PUT /api/v1/admin/connection-instances/{kind}/{name}`) does the same, since the editor saves through it.
+
 ![New Connection](../images/screenshots/light/admin-admin-connection-create-light.webp#only-light)![New Connection](../images/screenshots/dark/admin-admin-connection-create-dark.webp#only-dark)
 
 ![Edit Connection](../images/screenshots/light/admin-admin-connection-edit-light.webp#only-light)![Edit Connection](../images/screenshots/dark/admin-admin-connection-edit-dark.webp#only-dark)
@@ -92,7 +94,9 @@ For `authorization_code` connections:
 
 1. Click **Connect** on the connection card.
 2. A new tab opens to the upstream's `/authorize` URL with PKCE state
-   and `redirect_uri=<platform-host>/api/v1/admin/oauth/callback`.
+   and `redirect_uri=<platform-host>/api/v1/admin/oauth/callback`, where the host is
+   `portal.public_base_url` when the deployment sets it and otherwise the address the request
+   arrived at (#2466).
 3. Operator authenticates with the upstream provider.
 4. The upstream redirects back to the platform's callback. The platform
    exchanges the code for tokens and stores them encrypted at rest in

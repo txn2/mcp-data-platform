@@ -2297,6 +2297,14 @@ definitions:
           type: string
         type: array
     type: object
+  appbundle.Recording:
+    properties:
+      data:
+        format: byte
+        type: string
+      run_id:
+        type: string
+    type: object
   appbundle.Schedule:
     properties:
       cron_spec:
@@ -2344,6 +2352,13 @@ definitions:
       params:
         items:
           $ref: '#/definitions/script.Param'
+        type: array
+      recordings:
+        description: |-
+          Recordings are the recorded runs the source's tests replay, so the
+          importing deployment's save gate runs the same tests (#2476).
+        items:
+          $ref: '#/definitions/appbundle.Recording'
         type: array
       schedule:
         $ref: '#/definitions/appbundle.Schedule'

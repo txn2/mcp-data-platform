@@ -186,6 +186,9 @@ func New(cfg Config) *Handle {
 	return h
 }
 
+// SaveGate is the gate sources are saved through; an import uses it too (#2476).
+func (h *Handle) SaveGate() *scriptsave.Gate { return h.gate }
+
 // HasStore reports whether the layer has a script store, which is the condition
 // under which it registers manage_script, run_script and show_scripts. Callers
 // enumerating the platform's own tools ask this rather than assuming the tools

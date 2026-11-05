@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -101,7 +102,7 @@ func TestApplicationDeps(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	bare := applicationDeps(Deps{DB: db, Bucket: "portal", Prefix: "p"}, nil)
+	bare := applicationDeps(Deps{DB: db, Bucket: "portal", Prefix: "p"}, nil, nil)
 	assert.Same(t, db, bare.DB)
 	assert.Equal(t, "portal", bare.Bucket)
 	assert.Nil(t, bare.Assets)
@@ -109,7 +110,10 @@ func TestApplicationDeps(t *testing.T) {
 	assert.Nil(t, bare.Blobs)
 	assert.Nil(t, bare.Endpoints)
 	assert.NotNil(t, bare.Claims)
+	assert.Nil(t, bare.SaveGate, "no gate stays nil, never an interface holding a nil")
 
-	with := applicationDeps(Deps{DB: db}, &epwire.Endpoints{Commands: &epcmd.Handler{}})
+	gate := &scriptsave.Gate{}
+	with := applicationDeps(Deps{DB: db}, &epwire.Endpoints{Commands: &epcmd.Handler{}}, gate)
 	assert.NotNil(t, with.Endpoints, "an import binds endpoints through the endpoint commands")
+	assert.Same(t, gate, with.SaveGate, "an import saves each script through the layer's gate (#2476)")
 }

@@ -15,6 +15,17 @@ import "strings"
 // Each statement is trimmed; an empty one is dropped.
 func Split(sql string) []string {
 	out := []string{}
+	for _, r := range statementRanges(sql) {
+		out = appendStatement(out, sql[r[0]:r[1]])
+	}
+	return out
+}
+
+// statementRanges is where each top-level statement of sql starts and ends,
+// untrimmed, by the rule Split documents. The last range runs to the end of
+// sql.
+func statementRanges(sql string) [][2]int {
+	var out [][2]int
 	start, depth := 0, 0
 	for i := 0; i < len(sql); {
 		if next := SkipLexeme(sql, i); next > i {
@@ -27,12 +38,12 @@ func Split(sql string) []string {
 			continue
 		}
 		if sql[i] == ';' && depth == 0 {
-			out = appendStatement(out, sql[start:i])
+			out = append(out, [2]int{start, i})
 			start = i + 1
 		}
 		i++
 	}
-	return appendStatement(out, sql[start:])
+	return append(out, [2]int{start, len(sql)})
 }
 
 // wordAt is the unquoted word starting at i, or "" when none starts there.

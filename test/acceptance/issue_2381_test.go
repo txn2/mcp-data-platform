@@ -33,11 +33,12 @@ import (
 const issue2381Key = "acceptance-2381-key"
 
 // issue2381Wait is how long each platform's client session lasts. The
-// criterion waits up to three minutes for a scan and six for the capped index
-// to embed its entries, which on a CI runner outlasts the suite's default
+// criterion waits up to three minutes for a scan, twenty-five for the first
+// start's index queue to drain and six for the capped index to embed its
+// entries, which on a CI runner outlasts the suite's default
 // two-minute session; a session shorter than the wait ends it with "context
 // deadline exceeded" rather than with the platform's answer (#1738).
-const issue2381Wait = 8 * time.Minute
+const issue2381Wait = 35 * time.Minute
 
 const issue2381Config = `
 server:
@@ -161,6 +162,40 @@ func issue2381Await(t *testing.T, within time.Duration, what string, ok func() b
 	}
 }
 
+// Draining the first start's queue is bounded by progress, not by a fixed
+// time: it fails when no job finishes for issue2381Stall, which is a queue
+// that stopped, and otherwise waits up to issue2381DrainCap, since a CI
+// runner's embedding speed is the dev stack's shared CPU.
+const (
+	issue2381Stall    = 5 * time.Minute
+	issue2381DrainCap = 25 * time.Minute
+)
+
+// issue2381Drain waits for the criterion's database to hold no pending or
+// running index job.
+func issue2381Drain(t *testing.T, db *sql.DB) {
+	t.Helper()
+	start := time.Now()
+	last, moved := -1, start
+	for {
+		left := issue2381Count(t, db, `SELECT COUNT(*) FROM index_jobs WHERE status IN ('pending', 'running')`)
+		if left == 0 {
+			return
+		}
+		if left != last {
+			t.Logf("the first start has %d index jobs left after %s", left, time.Since(start).Round(time.Second))
+			last, moved = left, time.Now()
+		}
+		if time.Since(moved) > issue2381Stall {
+			t.Fatalf("the first start's index queue stopped: %d jobs left and none finished in %s", left, issue2381Stall)
+		}
+		if time.Since(start) > issue2381DrainCap {
+			t.Fatalf("the first start's index queue still has %d jobs after %s", left, issue2381DrainCap)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 const (
 	issue2381LiveDatasets = `SELECT COUNT(*) FROM catalog_entities WHERE kind = 'dataset' AND removed_at IS NULL`
 	issue2381Tables       = issue2381LiveDatasets + ` AND connection_kind = 'trino'`
@@ -204,6 +239,15 @@ func TestIssue2381_ACappedIndexKeepsTablesAndReadsShort(t *testing.T) {
 	phrase := fmt.Sprintf("settlement ledger reconciled nightly marker%d", time.Now().UnixNano())
 	issue1921Write(t, admin, ref, "description", phrase)
 	tables := issue2381Count(t, db, issue2381Tables)
+	// A fresh database starts with every source unindexed: the built-in
+	// knowledge pages, the platform-admin operations, the tools. Writes are
+	// claimed ahead of the reconciler, so a first start stopped with that
+	// queue still pending hands it to the second start, ahead of the capped
+	// catalog job this criterion times. On a CI runner, which embeds on a
+	// CPU shared with the dev stack, that backlog took the whole wait (#2429),
+	// and draining it took longer than any fixed bound kept passing: one
+	// runner finished 25 of 41 jobs in ten minutes, every job completing.
+	issue2381Drain(t, db)
 	first.stop(t)
 
 	// Second start, with room for every table and two operations.
