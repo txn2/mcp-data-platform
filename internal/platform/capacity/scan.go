@@ -16,11 +16,13 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 )
 
-// Walker lists every object under a prefix of a bucket, and writes the
-// listing's start marker. pkg/portal/s3adapter.ClientAdapter is one.
+// Walker lists every object under a prefix of a bucket, writes the listing's
+// start marker, and deletes the orphans a reclaim removes.
+// pkg/portal/s3adapter.ClientAdapter is one.
 type Walker interface {
 	Walk(ctx context.Context, bucket, prefix string, fn func(s3adapter.WalkedObject) error) error
 	PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
 // markerKey is the object a listing writes before it walks a bucket, under a
@@ -93,9 +95,15 @@ type ScanResult struct {
 	Snapshot map[usageKey]usageDelta
 	Orphaned map[string]int64
 	Dangling map[string]int64
-	Objects  int64
-	Duration time.Duration
-	Buckets  []string
+	// Reclaimed is the orphans a reclaim deleted, per purpose.
+	Reclaimed map[string]int64
+	Objects   int64
+	Duration  time.Duration
+	Buckets   []string
+	// purposeObjects is every object of a reconciled purpose the listing
+	// met, and candidates the orphans old enough to reclaim (reclaim.go).
+	purposeObjects map[string]int64
+	candidates     reclaimCandidates
 }
 
 // Scanner lists every platform prefix and compares what it finds with the
@@ -109,7 +117,10 @@ type Scanner struct {
 	// not be counted as an orphan: a writer stores the object before the row
 	// that references it.
 	OrphanGrace time.Duration
-	now         func() time.Time
+	// ReclaimAge is how old an orphan must be to be a reclaim candidate; zero
+	// collects none.
+	ReclaimAge time.Duration
+	now        func() time.Time
 }
 
 // Scan reads the usage rows and the references, then lists every prefix. It
@@ -120,6 +131,7 @@ func (s *Scanner) Scan(ctx context.Context) (ScanResult, error) {
 	start := s.clock()
 	res := ScanResult{
 		Usage: map[usageKey]usageDelta{}, Orphaned: map[string]int64{}, Dangling: map[string]int64{},
+		Reclaimed: map[string]int64{}, purposeObjects: map[string]int64{}, candidates: newReclaimCandidates(),
 	}
 	snapshot, err := readUsage(ctx, s.DB, snapshotQuery)
 	if err != nil {
@@ -143,7 +155,10 @@ func (s *Scanner) Scan(ctx context.Context) (ScanResult, error) {
 			began[bp.Bucket] = markStart(ctx, w, bp.Bucket, start)
 		}
 		at := began[bp.Bucket]
-		pass := walkState{refs: refs[bp.Bucket], found: found[bp.Bucket], start: at, cutoff: at.Add(-s.OrphanGrace), res: &res}
+		pass := walkState{
+			refs: refs[bp.Bucket], found: found[bp.Bucket], start: at, cutoff: at.Add(-s.OrphanGrace),
+			reclaimCutoff: s.reclaimCutoff(at), res: &res,
+		}
 		if err := s.walk(ctx, w, bp, pass); err != nil {
 			return res, err
 		}
@@ -160,11 +175,21 @@ func (s *Scanner) Scan(ctx context.Context) (ScanResult, error) {
 // prefixes a listing walks do not overlap (Layout.Prefixes), so no object is
 // met twice.
 type walkState struct {
-	refs   bucketRefs
-	found  map[string]bool
-	start  time.Time
-	cutoff time.Time
-	res    *ScanResult
+	refs          bucketRefs
+	found         map[string]bool
+	start         time.Time
+	cutoff        time.Time
+	reclaimCutoff time.Time
+	res           *ScanResult
+}
+
+// reclaimCutoff is the LastModified an orphan must be before to be a reclaim
+// candidate, never later than the counting cutoff. Zero collects none.
+func (s *Scanner) reclaimCutoff(start time.Time) time.Time {
+	if s.ReclaimAge <= 0 {
+		return time.Time{}
+	}
+	return start.Add(-max(s.ReclaimAge, s.OrphanGrace))
 }
 
 // walk lists one prefix into the result.
@@ -175,24 +200,41 @@ func (s *Scanner) walk(ctx context.Context, w Walker, bp BucketPrefix, st walkSt
 			return nil
 		}
 		st.res.Objects++
-		if o.LastModified.IsZero() || !o.LastModified.After(st.start) {
-			k := usageKey{bp.Bucket, purpose}
-			u := st.res.Usage[k]
-			u.objects++
-			u.bytes += o.Size
-			st.res.Usage[k] = u
-		}
-		if _, referenced := st.refs.keys[o.Key]; referenced {
-			st.found[o.Key] = true
-		} else if slices.Contains(reconciled, purpose) && isOrphan(st.refs, o, st.cutoff) {
-			st.res.Orphaned[purpose]++
-		}
+		st.count(bp.Bucket, purpose, o)
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("listing %s: %w", bp.Prefix, err)
 	}
 	return nil
+}
+
+// count adds one listed object to the result: its usage when it existed as
+// the listing began, whether a row references it, and, for a reconciled
+// purpose, whether it is an orphan and old enough to reclaim.
+func (st walkState) count(bucket, purpose string, o s3adapter.WalkedObject) {
+	if o.LastModified.IsZero() || !o.LastModified.After(st.start) {
+		k := usageKey{bucket, purpose}
+		u := st.res.Usage[k]
+		u.objects++
+		u.bytes += o.Size
+		st.res.Usage[k] = u
+	}
+	_, referenced := st.refs.keys[o.Key]
+	if referenced {
+		st.found[o.Key] = true
+	}
+	if !slices.Contains(reconciled, purpose) {
+		return
+	}
+	st.res.purposeObjects[purpose]++
+	if referenced || !isOrphan(st.refs, o, st.cutoff) {
+		return
+	}
+	st.res.Orphaned[purpose]++
+	if isReclaimable(o, st.reclaimCutoff) {
+		st.res.candidates.add(candidate{bucket: bucket, key: o.Key, purpose: purpose, size: o.Size})
+	}
 }
 
 // countDangling counts, per purpose, the referenced keys a listing did not
@@ -297,9 +339,9 @@ const (
 	setUsageQuery     = `INSERT INTO storage_usage (bucket, purpose, bytes, objects, listed_at, updated_at)
 VALUES ($1, $2, $3, $4, NOW(), NOW())
 ON CONFLICT (bucket, purpose) DO UPDATE SET bytes = $3, objects = $4, listed_at = NOW(), updated_at = NOW()`
-	setReconcileQuery = `INSERT INTO storage_reconciles (purpose, orphaned, dangling, reconciled_at)
-VALUES ($1, $2, $3, NOW())
-ON CONFLICT (purpose) DO UPDATE SET orphaned = $2, dangling = $3, reconciled_at = NOW()`
+	setReconcileQuery = `INSERT INTO storage_reconciles (purpose, orphaned, dangling, reclaimed, reconciled_at)
+VALUES ($1, $2, $3, $4, NOW())
+ON CONFLICT (purpose) DO UPDATE SET orphaned = $2, dangling = $3, reclaimed = $4, reconciled_at = NOW()`
 	setScanQuery = `INSERT INTO storage_scans (id, duration_seconds, objects, finished_at) VALUES (1, $1, $2, NOW())
 ON CONFLICT (id) DO UPDATE SET duration_seconds = $1, objects = $2, finished_at = NOW()`
 )
@@ -354,7 +396,7 @@ func (r ScanResult) Save(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	for _, p := range reconciled {
-		if _, err := tx.ExecContext(ctx, setReconcileQuery, p, r.Orphaned[p], r.Dangling[p]); err != nil {
+		if _, err := tx.ExecContext(ctx, setReconcileQuery, p, max(r.Orphaned[p]-r.Reclaimed[p], 0), r.Dangling[p], r.Reclaimed[p]); err != nil {
 			return fmt.Errorf("saving storage reconcile: %w", err)
 		}
 	}

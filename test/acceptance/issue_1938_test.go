@@ -171,13 +171,20 @@ func TestIssue1938_TheBuiltInExamplesPassEveryRule(t *testing.T) {
 		name, _ := e.(map[string]any)["name"].(string)
 		source := c.call("manage_script", map[string]any{"command": "get", "name": name})["source"]
 		out := c.call("manage_script", map[string]any{"command": "validate", "source": source})
-		// An example's test names the recording an author's own draft would
-		// return, a placeholder no deployment holds, so a save of it as sent
-		// is refused for that alone (#1939).
 		refusal, _ := out["save_refusal"].(string)
-		if len(findings1944(out)) != 0 || out["formatted_source"] != source ||
-			!strings.Contains(refusal, "reading recording dpx_recording_of_a_draft") {
+		if len(findings1944(out)) != 0 || out["formatted_source"] != source {
 			t.Errorf("%s: %v %s", name, out["findings"], refusal)
+		}
+		// An application database example's tests build a copy of the
+		// deployment's "orders" connection (testing.database), so what they
+		// find is that deployment's, not the example's; #2413 saves both with
+		// their tests passing on a connection it builds. Every other example's
+		// test names the recording an author's own draft would return, a
+		// placeholder no deployment holds, so a save of it as sent is refused
+		// for that alone (#1939).
+		if src, _ := source.(string); !strings.Contains(src, "testing.database(") &&
+			!strings.Contains(refusal, "reading recording dpx_recording_of_a_draft") {
+			t.Errorf("%s: refused for something other than its placeholder recording: %s", name, refusal)
 		}
 	}
 	if !strings.Contains(fmt.Sprint(help["dialect"]), "THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS") {

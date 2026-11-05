@@ -156,7 +156,8 @@ export function GatewayRulesDrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      {/* The backdrop does not close the panel: it holds the rule editor (#2468). */}
+      <div className="absolute inset-0 bg-black/50" />
       <div className="relative w-full max-w-2xl overflow-auto bg-card shadow-xl">
         <div className="sticky top-0 z-10 border-b bg-card px-6 py-4 flex items-center justify-between">
           <div>

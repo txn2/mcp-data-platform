@@ -272,7 +272,7 @@ func TestForRun_AnswersTheSubjectAndFoldsFirst(t *testing.T) {
 
 	// The address is looked up normalized and folded verbatim: the rows a run
 	// filed are keyed by the version author exactly as recorded.
-	got := b.ForRun(context.Background(), "Jane@example.com")
+	got := b.ForRun(context.Background(), "Jane@example.com", "")
 	assert.Equal(t, "sub-1", got)
 	assert.Equal(t, "mcp://user/sub-1/qa/rolling.csv", lib.uri(runMade))
 }
@@ -284,17 +284,54 @@ func TestForRun_AnUnseenAuthorStaysKeyedByAddress(t *testing.T) {
 	b := New(store)
 	b.BindResources(resource.Deps{Store: lib, URIScheme: "mcp"})
 
-	assert.Equal(t, "", b.ForRun(context.Background(), "jane@example.com"))
+	assert.Equal(t, "", b.ForRun(context.Background(), "jane@example.com", ""))
 	assert.Equal(t, "mcp://user/jane@example.com/qa/rolling.csv", lib.uri(runMade), "nothing to fold into")
-	assert.Equal(t, "", b.ForRun(context.Background(), "   "))
+	assert.Equal(t, "", b.ForRun(context.Background(), "   ", ""))
 }
 
 func TestForRun_ALookupThatFailedIsUnknown(t *testing.T) {
 	store := newFakeStore()
 	store.fail = errors.New("database away")
-	assert.Equal(t, "", New(store).ForRun(context.Background(), "jane@example.com"))
+	assert.Equal(t, "", New(store).ForRun(context.Background(), "jane@example.com", ""))
 	var nilBook *Book
-	assert.Equal(t, "", nilBook.ForRun(context.Background(), "jane@example.com"))
+	assert.Equal(t, "", nilBook.ForRun(context.Background(), "jane@example.com", ""))
+}
+
+// A version saved by the person's own session presents that subject, and what
+// the address filed is folded into it before the run writes (#1677, #2450).
+func TestForRun_FoldsIntoTheSubjectAVersionWasSavedAs(t *testing.T) {
+	store := newFakeStore()
+	store.pairs["jane@example.com"] = "sub-1"
+	lib := newLibraryStore()
+	lib.file("jane@example.com")
+	b := New(store)
+	b.BindResources(resource.Deps{Store: lib, URIScheme: "mcp"})
+
+	assert.Equal(t, "sub-1", b.ForRun(context.Background(), "jane@example.com", "sub-1"))
+	assert.Equal(t, "mcp://user/sub-1/qa/rolling.csv", lib.uri(runMade))
+}
+
+// A saved subject the book holds no pair for is still the fold's target: it
+// is the pair the saving session presented for that address.
+func TestForRun_FoldsIntoASavedSubjectTheBookDoesNotHold(t *testing.T) {
+	store := newFakeStore()
+	store.pairs["jane@example.com"] = "sub-1"
+	lib := newLibraryStore()
+	lib.file("jane@example.com")
+	b := New(store)
+	b.BindResources(resource.Deps{Store: lib, URIScheme: "mcp"})
+
+	assert.Equal(t, "apikey:jane", b.ForRun(context.Background(), "jane@example.com", "apikey:jane"))
+	assert.Equal(t, "mcp://user/apikey:jane/qa/rolling.csv", lib.uri(runMade))
+}
+
+// With no address, a failed lookup or no book, the saved subject is the answer.
+func TestForRun_ASavedSubjectIsTheAnswerWhenNothingCanBeLookedUp(t *testing.T) {
+	failing := newFakeStore()
+	failing.fail = errors.New("database away")
+	assert.Equal(t, "sub-1", New(failing).ForRun(context.Background(), "jane@example.com", "sub-1"))
+	var nilBook *Book
+	assert.Equal(t, "sub-1", nilBook.ForRun(context.Background(), "jane@example.com", "sub-1"))
 }
 
 func TestForRun_FoldsNothingWithoutALibraryBound(t *testing.T) {
@@ -302,7 +339,7 @@ func TestForRun_FoldsNothingWithoutALibraryBound(t *testing.T) {
 	store.pairs["jane@example.com"] = "sub-1"
 	b := New(store)
 	b.BindResources(resource.Deps{}) // no store: unbound
-	assert.Equal(t, "sub-1", b.ForRun(context.Background(), "jane@example.com"))
+	assert.Equal(t, "sub-1", b.ForRun(context.Background(), "jane@example.com", ""))
 }
 
 func TestFoldInto_ReportsAFoldThatFailedAndGoesOn(t *testing.T) {
@@ -310,7 +347,7 @@ func TestFoldInto_ReportsAFoldThatFailedAndGoesOn(t *testing.T) {
 	store.pairs["jane@example.com"] = "sub-1"
 	b := New(store)
 	b.BindResources(resource.Deps{Store: brokenLibrary{}, URIScheme: "mcp"})
-	assert.Equal(t, "sub-1", b.ForRun(context.Background(), "jane@example.com"),
+	assert.Equal(t, "sub-1", b.ForRun(context.Background(), "jane@example.com", ""),
 		"the subject is still the answer; the fold is retried on the next occasion")
 }
 
@@ -416,7 +453,7 @@ func TestSubject_AKeyWrittenPairIsNotAPerson(t *testing.T) {
 
 	// The run path still reads it: a script whose author authenticates only by
 	// key files where that author's sessions file (#1677).
-	assert.Equal(t, "apikey:ci", b.ForRun(context.Background(), "jane@example.com"))
+	assert.Equal(t, "apikey:ci", b.ForRun(context.Background(), "jane@example.com", ""))
 }
 
 // TestSubject_ABoundKeyRecordsThePersonsOwnSubject holds that a key issued

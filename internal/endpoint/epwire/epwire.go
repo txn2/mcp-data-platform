@@ -56,7 +56,7 @@ type Deps struct {
 	Metrics *observability.Metrics
 	// Subjects resolves where an author's managed resources land.
 	Subjects interface {
-		ForRun(ctx context.Context, address string) string
+		ForRun(ctx context.Context, address, saved string) string
 	}
 	Limits       scriptrun.PlatformLimits
 	Destinations []script.Destination

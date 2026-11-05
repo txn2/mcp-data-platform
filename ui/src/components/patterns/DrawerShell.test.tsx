@@ -4,7 +4,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DrawerShell } from "./DrawerShell";
 
 describe("DrawerShell", () => {
-  it("closes on Escape and on a backdrop click", () => {
+  it("closes on Escape and stays open on a backdrop click (#2468)", () => {
     const onClose = vi.fn();
     render(
       <DrawerShell title="Event Detail" onClose={onClose}>
@@ -18,7 +18,7 @@ describe("DrawerShell", () => {
     // The backdrop is the dimmed sibling of the panel, not the panel itself.
     const dialog = screen.getByRole("dialog", { name: "Event Detail" });
     fireEvent.click(dialog.previousElementSibling!);
-    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("leaves Escape to a confirmation opened inside it", async () => {
@@ -50,7 +50,7 @@ describe("DrawerShell", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("refuses both dismissals while its action is in flight", () => {
+  it("refuses Escape while its action is in flight", () => {
     const onClose = vi.fn();
     render(
       <DrawerShell title="Insight Detail" onClose={onClose} busy>

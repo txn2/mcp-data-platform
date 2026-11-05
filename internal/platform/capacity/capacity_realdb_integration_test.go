@@ -115,6 +115,55 @@ func TestScan_RealDB(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestReclaim_RealDB runs a reclaim over the real schema (#2470): an orphan
+// past the reclaim age is deleted and reported reclaimed, while a soft-deleted
+// asset's object, an object a version row names, an orphan younger than the
+// reclaim age and a tile beside a referenced resource stay.
+func TestReclaim_RealDB(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO resources (id, scope, scope_id, path, filename, display_name, description, mime_type, size_bytes, s3_key, uri, uploader_sub, uploader_email)
+		VALUES ('res_kept', 'global', NULL, 'p', 'f.csv', 'f', '', 'text/csv', 4, 'resources/global/global/res_kept/f.csv', 'mcp://global/p/f.csv', 'u', 'u@example.com')`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO portal_assets (id, owner_id, name, content_type, s3_bucket, s3_key, deleted_at)
+		VALUES ('a_deleted', 'u', 'gone', 'text/html', 'p', 'artifacts/u/a_deleted/content.html', NOW())`)
+	require.NoError(t, err)
+
+	old := time.Now().Add(-48 * time.Hour)
+	walker := fakeWalker{objects: map[string][]s3adapter.WalkedObject{
+		"r": {
+			{Key: "resources/global/global/res_kept/f.csv", Size: 4, LastModified: old},
+			{Key: "resources/global/global/res_kept/.thumbnail.png", Size: 2, LastModified: old},
+			{Key: "resources/global/global/stray/h.csv", Size: 9, LastModified: old},
+			{Key: "resources/global/global/fresh/n.csv", Size: 1, LastModified: time.Now().Add(-time.Hour)},
+		},
+		"p": {{Key: "artifacts/u/a_deleted/content.html", Size: 2, LastModified: old}},
+	}}
+	s := &Scanner{DB: db, Layout: testLayout, Walkers: map[string]Walker{"r": walker, "p": walker}, ReclaimAge: DefaultReclaimAge}
+	res, err := s.Scan(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), s.Reclaim(ctx, &res, ReclaimDelete))
+	require.NoError(t, res.Save(ctx, db))
+
+	var left []string
+	for _, b := range []string{"r", "p"} {
+		for _, o := range walker.objects[b] {
+			if o.Key != markerKey {
+				left = append(left, o.Key)
+			}
+		}
+	}
+	assert.ElementsMatch(t, []string{
+		"resources/global/global/res_kept/f.csv", "resources/global/global/res_kept/.thumbnail.png",
+		"resources/global/global/fresh/n.csv", "artifacts/u/a_deleted/content.html",
+	}, left)
+
+	got, err := ReadStorage(ctx, db, nil)
+	require.NoError(t, err)
+	assert.Contains(t, got.Reconcile, observability.ReconcileCount{Purpose: observability.StoragePurposeResources, Orphaned: 1, Reclaimed: 1},
+		"the young orphan is still counted; the reclaimed one is not")
+}
+
 // TestScanLock_RealDB shows the listing is skipped while another session
 // holds its lock.
 func TestScanLock_RealDB(t *testing.T) {

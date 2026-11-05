@@ -21,7 +21,23 @@ const (
 	EnvOrphanGrace   = "MCP_PLATFORM_STORAGE_ORPHAN_GRACE"
 	EnvBudgets       = "MCP_PLATFORM_STORAGE_BUDGETS"
 	EnvBackend       = "MCP_PLATFORM_STORAGE_BACKEND"
+	EnvReclaim       = "MCP_PLATFORM_STORAGE_RECLAIM"
+	EnvReclaimAge    = "MCP_PLATFORM_STORAGE_RECLAIM_AGE"
 )
+
+// The reclaim modes (#2470): what the full listing does with the orphans it
+// finds. Off counts them only, report also logs how many a delete pass would
+// remove, and delete removes them.
+const (
+	ReclaimOff    = "off"
+	ReclaimReport = "report"
+	ReclaimDelete = "delete"
+)
+
+// reclaimModes is every mode MCP_PLATFORM_STORAGE_RECLAIM takes.
+//
+//nolint:gochecknoglobals // a read-only list.
+var reclaimModes = []string{ReclaimOff, ReclaimReport, ReclaimDelete}
 
 // Config is the service's cadence and the operator's budgets.
 type Config struct {
@@ -33,6 +49,14 @@ type Config struct {
 	Budgets []observability.BucketBudget
 	// Backend, when set, names the object store kind instead of asking it.
 	Backend string
+	// Reclaim is what a listing does with its orphans (ReclaimOff,
+	// ReclaimReport, ReclaimDelete); empty is ReclaimDelete.
+	Reclaim string
+	// ReclaimAge is how old an orphan must be before it is reclaimed, apart
+	// from the counting grace: a multipart upload's LastModified is when it
+	// began, so a long extract can read older than the grace before its row
+	// is written.
+	ReclaimAge time.Duration
 }
 
 // withDefaults fills every unset interval.
@@ -49,6 +73,12 @@ func (c Config) withDefaults() Config {
 	if c.OrphanGrace < 0 {
 		c.OrphanGrace = DefaultOrphanGrace
 	}
+	if c.Reclaim == "" {
+		c.Reclaim = ReclaimDelete
+	}
+	if c.ReclaimAge <= 0 {
+		c.ReclaimAge = DefaultReclaimAge
+	}
 	return c
 }
 
@@ -59,7 +89,10 @@ func (c Config) withDefaults() Config {
 // orphan grace is DefaultOrphanGrace; zero is accepted and counts an object
 // the moment it has no row.
 func ConfigFromEnv() (Config, error) {
-	cfg := Config{OrphanGrace: DefaultOrphanGrace, Backend: strings.TrimSpace(os.Getenv(EnvBackend))}
+	cfg := Config{
+		OrphanGrace: DefaultOrphanGrace, Backend: strings.TrimSpace(os.Getenv(EnvBackend)),
+		Reclaim: strings.ToLower(strings.TrimSpace(os.Getenv(EnvReclaim))),
+	}
 	var errs []error
 	for _, d := range []struct {
 		env string
@@ -68,6 +101,7 @@ func ConfigFromEnv() (Config, error) {
 		{EnvTableInterval, &cfg.TableInterval},
 		{EnvScanInterval, &cfg.ScanInterval},
 		{EnvOrphanGrace, &cfg.OrphanGrace},
+		{EnvReclaimAge, &cfg.ReclaimAge},
 	} {
 		v := strings.TrimSpace(os.Getenv(d.env))
 		if v == "" {
@@ -88,6 +122,10 @@ func ConfigFromEnv() (Config, error) {
 	if cfg.Backend != "" && !slices.Contains(backends, cfg.Backend) {
 		errs = append(errs, fmt.Errorf("capacity: %s: %q is not one of %s", EnvBackend, cfg.Backend, strings.Join(backends, ", ")))
 		cfg.Backend = ""
+	}
+	if cfg.Reclaim != "" && !slices.Contains(reclaimModes, cfg.Reclaim) {
+		errs = append(errs, fmt.Errorf("capacity: %s: %q is not one of %s", EnvReclaim, cfg.Reclaim, strings.Join(reclaimModes, ", ")))
+		cfg.Reclaim = ""
 	}
 	return cfg.withDefaults(), errors.Join(errs...)
 }

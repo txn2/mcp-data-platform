@@ -80,7 +80,7 @@ type Runner struct {
 	// Subjects resolves the subject the version's author authenticates as,
 	// for where a request's managed resources land; nil leaves it empty.
 	Subjects interface {
-		ForRun(ctx context.Context, address string) string
+		ForRun(ctx context.Context, address, saved string) string
 	}
 	// Limits are a platform run's ceilings; a binding's timeout and memory
 	// budget replace those two.
@@ -283,10 +283,11 @@ func failedRun(err error) Response {
 // presenting the version author's roles, exactly as a scheduled run's.
 func (r *Runner) connect(ctx context.Context, t *Target, sessionID string, requester *Caller) (scriptrun.Caller, func(), error) {
 	// The library the version's saving session files in (#2450), else the
-	// subject its author's address resolves to, as a scheduled run's.
+	// subject its author's address resolves to, with what the address filed
+	// folded in first, as a scheduled run's.
 	subject := t.Version.AuthorSubject
-	if subject == "" && r.Subjects != nil {
-		subject = r.Subjects.ForRun(ctx, t.Version.Author)
+	if r.Subjects != nil {
+		subject = r.Subjects.ForRun(ctx, t.Version.Author, subject)
 	}
 	serverCtx := middleware.WithSource(ctx, middleware.SourceScript)
 	serverCtx = pkgsession.WithAwareSessionID(serverCtx, sessionID)

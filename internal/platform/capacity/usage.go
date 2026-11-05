@@ -108,7 +108,7 @@ func (r *Recorder) Flush(ctx context.Context, db *sql.DB) error {
 // The reads of the shared rows every replica reports.
 const (
 	usageQuery     = `SELECT bucket, purpose, bytes, objects FROM storage_usage ORDER BY bucket, purpose`
-	reconcileQuery = `SELECT purpose, orphaned, dangling FROM storage_reconciles ORDER BY purpose`
+	reconcileQuery = `SELECT purpose, orphaned, dangling, reclaimed FROM storage_reconciles ORDER BY purpose`
 	scanQuery      = `SELECT duration_seconds, objects FROM storage_scans WHERE id = 1`
 )
 
@@ -170,7 +170,7 @@ func readReconcile(ctx context.Context, db *sql.DB) ([]observability.ReconcileCo
 	var out []observability.ReconcileCount
 	if err := scanRows(rows, func(r *sql.Rows) error {
 		var c observability.ReconcileCount
-		if err := r.Scan(&c.Purpose, &c.Orphaned, &c.Dangling); err != nil {
+		if err := r.Scan(&c.Purpose, &c.Orphaned, &c.Dangling, &c.Reclaimed); err != nil {
 			return err //nolint:wrapcheck // wrapped below
 		}
 		out = append(out, c)

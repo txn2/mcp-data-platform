@@ -45,6 +45,7 @@ const (
 	DefaultScanInterval  = 6 * time.Hour
 	DefaultFlushInterval = 10 * time.Second
 	DefaultOrphanGrace   = 15 * time.Minute
+	DefaultReclaimAge    = 24 * time.Hour
 
 	// scanLockKey is the full listing's advisory lock, distinct from every
 	// other maintenance lock (retention 4713210101-4713210105, the call
@@ -111,12 +112,24 @@ func Start(m *observability.Metrics, src Sources, cfg Config) *Service {
 	return s
 }
 
+// reclaimAge is the scanner's reclaim age: none collected when reclaim is
+// off.
+func reclaimAge(cfg Config) time.Duration {
+	if cfg.Reclaim == ReclaimOff {
+		return 0
+	}
+	return cfg.ReclaimAge
+}
+
 // newService builds the service without starting it.
 func newService(src Sources, cfg Config) *Service {
 	cfg = cfg.withDefaults()
 	return &Service{
 		src: src, cfg: cfg, recorder: NewRecorder(src.Layout),
-		scanner: &Scanner{DB: src.DB, Layout: src.Layout, Walkers: src.Walkers, OrphanGrace: cfg.OrphanGrace},
+		scanner: &Scanner{
+			DB: src.DB, Layout: src.Layout, Walkers: src.Walkers, OrphanGrace: cfg.OrphanGrace,
+			ReclaimAge: reclaimAge(cfg),
+		},
 	}
 }
 
@@ -315,6 +328,7 @@ func (s *Service) scan(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		s.scanner.Reclaim(ctx, &res, s.cfg.Reclaim)
 		return res.Save(ctx, s.src.DB)
 	})
 	switch {

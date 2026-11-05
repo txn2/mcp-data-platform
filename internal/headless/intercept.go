@@ -63,6 +63,7 @@ func (rs *render) answer(m message) {
 	switch {
 	case err != nil:
 		rs.refuse(ctx, m.SessionID, p.RequestID)
+	case rs.substitute(ctx, m.SessionID, p.RequestID, u):
 	case strings.EqualFold(u.Host, rs.host):
 		rs.serveOwn(ctx, m.SessionID, p.RequestID, u.Path, requestHeader(p.Request.Headers))
 	case rs.r.public != nil && fetchable(u, p.Request.Method):
@@ -70,6 +71,21 @@ func (rs *render) answer(m message) {
 	default:
 		rs.refuse(ctx, m.SessionID, p.RequestID)
 	}
+}
+
+// substitute answers a request the page's Substitute claims, and reports
+// whether it did. The document at the page's own root is never substituted.
+func (rs *render) substitute(ctx context.Context, session, requestID string, u *url.URL) bool {
+	own := strings.EqualFold(u.Host, rs.host)
+	if rs.page.Substitute == nil || (own && (u.Path == "/" || u.Path == "")) {
+		return false
+	}
+	f, ok := rs.page.Substitute(u, own)
+	if !ok {
+		return false
+	}
+	rs.fulfill(ctx, session, requestID, ownReply(f))
+	return true
 }
 
 // fetchable reports whether a request is one the platform may make on the

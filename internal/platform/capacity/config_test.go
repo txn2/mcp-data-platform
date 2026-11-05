@@ -11,7 +11,7 @@ import (
 )
 
 func TestConfigFromEnv_Defaults(t *testing.T) {
-	for _, env := range []string{EnvTableInterval, EnvScanInterval, EnvOrphanGrace, EnvBudgets, EnvBackend} {
+	for _, env := range []string{EnvTableInterval, EnvScanInterval, EnvOrphanGrace, EnvBudgets, EnvBackend, EnvReclaim, EnvReclaimAge} {
 		t.Setenv(env, "")
 	}
 	cfg, err := ConfigFromEnv()
@@ -22,6 +22,34 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 	assert.Equal(t, DefaultOrphanGrace, cfg.OrphanGrace)
 	assert.Empty(t, cfg.Budgets)
 	assert.Empty(t, cfg.Backend)
+	assert.Equal(t, ReclaimDelete, cfg.Reclaim, "orphans are reclaimed unless an operator says otherwise")
+	assert.Equal(t, DefaultReclaimAge, cfg.ReclaimAge)
+}
+
+// TestConfigFromEnv_Reclaim reads the mode in any case and the age, and names
+// a mode it does not know, falling back to delete.
+func TestConfigFromEnv_Reclaim(t *testing.T) {
+	t.Setenv(EnvReclaim, " Report ")
+	t.Setenv(EnvReclaimAge, "72h")
+	cfg, err := ConfigFromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, ReclaimReport, cfg.Reclaim)
+	assert.Equal(t, 72*time.Hour, cfg.ReclaimAge)
+
+	t.Setenv(EnvReclaim, "purge")
+	t.Setenv(EnvReclaimAge, "soon")
+	cfg, err = ConfigFromEnv()
+	require.ErrorContains(t, err, EnvReclaim)
+	require.ErrorContains(t, err, EnvReclaimAge)
+	assert.Equal(t, ReclaimDelete, cfg.Reclaim)
+	assert.Equal(t, DefaultReclaimAge, cfg.ReclaimAge)
+
+	t.Setenv(EnvReclaim, "off")
+	t.Setenv(EnvReclaimAge, "")
+	cfg, err = ConfigFromEnv()
+	require.NoError(t, err)
+	assert.Zero(t, reclaimAge(cfg), "reclaim off collects no candidates")
+	assert.Equal(t, DefaultReclaimAge, reclaimAge(Config{Reclaim: ReclaimDelete, ReclaimAge: DefaultReclaimAge}))
 }
 
 func TestConfigFromEnv_Set(t *testing.T) {
@@ -69,7 +97,7 @@ func TestConfigFromEnv_Refusals(t *testing.T) {
 		{EnvBackend, "ceph", EnvBackend},
 	} {
 		t.Run(tc.env, func(t *testing.T) {
-			for _, env := range []string{EnvTableInterval, EnvScanInterval, EnvOrphanGrace, EnvBudgets, EnvBackend} {
+			for _, env := range []string{EnvTableInterval, EnvScanInterval, EnvOrphanGrace, EnvBudgets, EnvBackend, EnvReclaim, EnvReclaimAge} {
 				t.Setenv(env, "")
 			}
 			t.Setenv(tc.env, tc.value)

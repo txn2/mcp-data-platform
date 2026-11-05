@@ -945,6 +945,7 @@ are the **Admin > Storage** page ([Storage Capacity](storage.md), #2148).
 | `storage_bucket_bytes{bucket,purpose,backend}`, `storage_bucket_objects{...}` | What the platform holds in each bucket it owns, by purpose: the last full listing plus the puts and deletes recorded since. |
 | `storage_bucket_budget_bytes{bucket}` | The operator's byte budget for a bucket, where one is set. |
 | `storage_orphaned_objects{purpose}`, `storage_dangling_references{purpose}` | Objects under a platform prefix that no row references, and rows whose object is gone, as the last listing counted them. Counts only, never keys. |
+| `storage_reclaimed_objects{purpose}` | Orphans the last listing deleted (`MCP_PLATFORM_STORAGE_RECLAIM=delete`). Counts only, never keys. |
 | `storage_scan_duration_seconds`, `storage_scan_objects` | The last full listing's duration and the objects it read. |
 | `mcp_platform_storage_backend_info{backend}` | 1 under each object store kind the buckets are on: `seaweedfs`, `s3`, `gcs` or `other`. |
 
@@ -977,6 +978,25 @@ which no row records one by one, are left out. An object written in the last
 `MCP_PLATFORM_STORAGE_ORPHAN_GRACE` is not yet an orphan, since a writer stores
 the object before the row.
 
+The listing also reclaims orphans (#2470). With `MCP_PLATFORM_STORAGE_RECLAIM`
+at its default, `delete`, an orphan older than
+`MCP_PLATFORM_STORAGE_RECLAIM_AGE` (24h) is deleted, counted in
+`storage_reclaimed_objects{purpose}`, and no longer counted as orphaned. The age
+is apart from the counting grace because a multipart upload's last-modified
+time is when the upload began, so a long extract can read older than the grace
+before its row is written. Before deleting, the listing reads every reference
+again and keeps any object a row now names, and the orphan rules above apply
+unchanged: a tile beside a referenced object, an archive under `maps/uploads/`
+and webhook segments are never deleted, and neither is the object of a
+soft-deleted item, whose row stays until the purge. A pass deletes at most
+10,000 objects, so a backlog is cleared over several listings. It deletes
+nothing under a purpose where more than 100 orphans are more than half of
+what the listing met, which is what a deployment pointed at another
+deployment's bucket, or a database restored apart from its bucket, looks like;
+that refusal is logged as a warning with the counts. `report` logs how many
+objects a delete pass would remove and removes none; `off` only counts. No
+object key is logged or used as a label.
+
 Each bucket's `backend` is read from its own S3 connection: no endpoint is
 `s3`, an amazonaws.com or googleapis.com host names itself, and anything else
 is asked for the `Server` header its root answers with, again every five
@@ -989,6 +1009,8 @@ stores.
 | `MCP_PLATFORM_CAPACITY_INTERVAL` | `15m` | How often each replica samples the tables. |
 | `MCP_PLATFORM_STORAGE_SCAN_INTERVAL` | `6h` | How often the full listing and reconcile runs. |
 | `MCP_PLATFORM_STORAGE_ORPHAN_GRACE` | `15m` | How recently an object may have been written and not be counted an orphan. |
+| `MCP_PLATFORM_STORAGE_RECLAIM` | `delete` | What the listing does with orphans: `delete`, `report` (log what would be deleted) or `off`. |
+| `MCP_PLATFORM_STORAGE_RECLAIM_AGE` | `24h` | How old an orphan must be before it is reclaimed. |
 | `MCP_PLATFORM_STORAGE_BUDGETS` | none | `bucket=size,...`, sizes in bytes or with KiB, MiB, GiB, TiB (KB, MB, GB, TB). A budget set in the storage settings overrides it for its bucket. |
 | `MCP_PLATFORM_STORAGE_HISTORY_INTERVAL` | `15m` | How often one replica samples every store for the Storage page's history and evaluates the storage alerts. |
 | `MCP_PLATFORM_STORAGE_BACKEND` | asked | Names the store kind for every bucket instead of asking. |

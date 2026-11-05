@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -124,6 +125,12 @@ type Page struct {
 	// request's headers. A path it does not know is answered 404, which is
 	// what the document would see from a real server.
 	Files func(path string, header http.Header) (File, bool)
+	// Substitute, when set, answers a request on any origin before Files and
+	// the public fetch are asked: a page's frame the platform draws in place
+	// of loading it, such as an embedded form whose own page would run the
+	// form's script (#2431). own reports whether u is on the page's own
+	// origin. It is never asked for the document itself.
+	Substitute func(u *url.URL, own bool) (File, bool)
 	// Ready is a JavaScript expression evaluating to a Promise that resolves
 	// to "" once the page is drawn, or to the reason it cannot be.
 	Ready string

@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils";
 // DrawerShell is the one shape a right-hand detail slide-over takes: the page
 // dimmed behind it, what is being shown plus the way out along the top, the
 // detail scrolling under that, and an optional pinned footer for the action the
-// drawer exists to offer. Escape closes it, so a reader who opened it from a
+// drawer exists to offer. A click on the dimmed page does not close it, since a
+// drawer may hold a form whose typing a stray click would discard (#2468).
+// Escape closes it, so a reader who opened it from a
 // table row is never trapped in it with only a mouse -- through the same hook
 // the modal shells use, which is what keeps a confirmation opened inside a
 // drawer from dismissing the drawer along with itself.
@@ -16,7 +18,7 @@ export function DrawerShell({
   onClose,
   // The action the drawer leads to, pinned below the scrolling detail.
   footer,
-  // busy refuses both dismissals while the drawer's own action is in flight.
+  // busy refuses Escape while the drawer's own action is in flight.
   busy = false,
   className,
   children,
@@ -32,10 +34,7 @@ export function DrawerShell({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={busy ? undefined : onClose}
-      />
+      <div className="absolute inset-0 bg-black/50" />
       <div
         role="dialog"
         aria-modal="true"

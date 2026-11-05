@@ -173,13 +173,32 @@ func (b *Book) Subject(ctx context.Context, address string) (string, error) {
 }
 
 // ForRun is the subject a run acting for address presents, with everything
-// that address filed folded into that subject's library first. It answers ""
-// when the platform has not seen the person authenticate, in which case the
-// run files by address as it did before and nothing is folded.
-func (b *Book) ForRun(ctx context.Context, address string) string {
+// that address filed folded into that subject's library first.
+//
+// saved is the subject the version's saving session authenticated as (#2450),
+// "" for a version saved before that was recorded. A saved subject is the
+// answer and the fold's target: it is the pair that session presented, the one
+// Observe records and folds into when that session authenticates. Without
+// one, the answer is the subject the address was last seen authenticating as,
+// or "" when the platform has not seen the person, in which case the run files
+// by address as it did before and nothing is folded.
+func (b *Book) ForRun(ctx context.Context, address, saved string) string {
 	if b == nil {
-		return ""
+		return saved
 	}
+	subject := saved
+	if subject == "" {
+		subject = b.lookup(ctx, address)
+	}
+	if subject != "" {
+		b.foldInto(ctx, strings.TrimSpace(address), subject)
+	}
+	return subject
+}
+
+// lookup is the subject the address was last seen authenticating as, "" when
+// unknown or when the read failed.
+func (b *Book) lookup(ctx context.Context, address string) string {
 	key := normalize(address)
 	if key == "" {
 		return ""
@@ -190,10 +209,6 @@ func (b *Book) ForRun(ctx context.Context, address string) string {
 			"error", logsan.SanitizeForLog(err.Error()))
 		return ""
 	}
-	if subject == "" {
-		return ""
-	}
-	b.foldInto(ctx, strings.TrimSpace(address), subject)
 	return subject
 }
 

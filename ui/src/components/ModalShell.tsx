@@ -22,15 +22,20 @@ export { modalNaturalClass, modalOverlayClass, modalPanelClass, modalRowClass };
 
 /** The props both shapes share. */
 interface CommonProps {
-  /** onClose fires on Escape and on a backdrop click. */
+  /**
+   * onClose fires on Escape. A click on the backdrop does nothing: a modal
+   * holding a form loses what was typed when a stray click closes it, as a
+   * click back into the window after copying a value from another tab does
+   * (#2468). Its own controls close it.
+   */
   onClose: () => void;
   /** width is the Tailwind max-width class, e.g. "max-w-lg". */
   width?: string;
   /** label names the dialog for assistive technology. */
   label?: string;
   /**
-   * busy refuses both dismissals for the span of a mutation the modal has
-   * already started, so closing cannot discard the outcome. Pass the same
+   * busy refuses Escape for the span of a mutation the modal has already
+   * started, so closing cannot discard the outcome. Pass the same
    * pending flag that disables the submit button.
    */
   busy?: boolean;
@@ -58,8 +63,8 @@ interface ShellProps extends CommonProps {
 /**
  * Shell is the one implementation behind both exported shapes. They differ in
  * the panel class and whether the content sits in a scrolling body, and in
- * nothing else -- so the overlay contract (the backdrop, the two dismissals and
- * the states that refuse them, the dialog role) is written once and cannot be
+ * nothing else -- so the overlay contract (the backdrop that does not dismiss,
+ * Escape and the state that refuses it, the dialog role) is written once and cannot be
  * given to one shape and forgotten for the other. `lib/modal` does the same for
  * the geometry, below both this file and the Radix route.
  */
@@ -77,11 +82,7 @@ function Shell({
   useEscapeToClose(onClose, busy);
 
   return (
-    <div
-      data-testid="modal-overlay"
-      className={modalOverlayClass}
-      onClick={busy ? undefined : onClose}
-    >
+    <div data-testid="modal-overlay" className={modalOverlayClass}>
       <div className={modalRowClass}>
         <div
           role="dialog"
@@ -89,9 +90,6 @@ function Shell({
           aria-label={label}
           data-testid="modal-panel"
           className={capped ? modalPanelClass(width) : modalNaturalClass(width)}
-          // The backdrop closes on click; the panel must not, or every click
-          // inside the modal would dismiss it.
-          onClick={(e) => e.stopPropagation()}
         >
           {capped ? (
             <>

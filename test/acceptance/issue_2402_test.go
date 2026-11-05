@@ -223,6 +223,25 @@ func TestIssue2402_AnEndpointPostInsertsInATransaction(t *testing.T) {
 	}
 }
 
+// indexBusy2402 counts the index jobs the stack is embedding or will embed.
+const indexBusy2402 = `SELECT COUNT(*) FROM index_jobs WHERE status IN ('pending', 'running')`
+
+// idle2402 waits up to five minutes for the index queue to hold no pending or
+// running job, and logs how many were left when it began and if it gave up.
+func idle2402(t *testing.T, db *sql.DB) {
+	t.Helper()
+	start := time.Now()
+	first := issue1904Count(t, db, indexBusy2402)
+	for left := first; left > 0; left = issue1904Count(t, db, indexBusy2402) {
+		if time.Since(start) > 5*time.Minute {
+			t.Logf("the index queue still has %d jobs after %s; measuring beside it", left, time.Since(start).Round(time.Second))
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Logf("the index queue held %d jobs; idle after %s", first, time.Since(start).Round(time.Second))
+}
+
 func TestIssue2402_AnEndpointHolds200RequestsASecondWithTheCacheOn(t *testing.T) {
 	admin := connect(t)
 	schema := shop2402(t, admin, "load")
@@ -251,6 +270,12 @@ func TestIssue2402_AnEndpointHolds200RequestsASecondWithTheCacheOn(t *testing.T)
 	for range 20 {
 		endpointRequestWith(t, hc, admin.base, http.MethodGet, "/endpoints/"+ep+"/", header, "")
 	}
+	// The stack embeds on the CPU it serves from, and an index queue earlier
+	// criteria filled competes with every request measured (#2381). The bound
+	// is the endpoint's, so it is measured once the queue is idle, and what
+	// was left is logged either way.
+	db := issue1904DB(t)
+	idle2402(t, db)
 	before := scrapeRaw(t)
 
 	const rate, seconds = 200, 10
@@ -289,7 +314,8 @@ func TestIssue2402_AnEndpointHolds200RequestsASecondWithTheCacheOn(t *testing.T)
 	slices.Sort(latencies)
 	p99 := latencies[len(latencies)*99/100]
 	p50 := latencies[len(latencies)/2]
-	t.Logf("%d requests at %d/s: p50 %s, p99 %s", len(latencies), rate, p50, p99)
+	t.Logf("%d requests at %d/s: p50 %s, p99 %s; %d index jobs pending or running after", len(latencies), rate, p50, p99,
+		issue1904Count(t, db, indexBusy2402))
 	if p99 > p99Bound2402 {
 		t.Errorf("p99 latency %s is over the %s bound", p99, p99Bound2402)
 	}

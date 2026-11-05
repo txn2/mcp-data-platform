@@ -891,6 +891,10 @@ export OTEL_LOGS_EXPORTER=otlp
 export MCP_PLATFORM_CAPACITY_INTERVAL="${DEV_CAPACITY_INTERVAL:-30s}"
 export MCP_PLATFORM_STORAGE_SCAN_INTERVAL="${DEV_STORAGE_SCAN_INTERVAL:-30s}"
 export MCP_PLATFORM_STORAGE_ORPHAN_GRACE="${DEV_STORAGE_ORPHAN_GRACE:-0s}"
+# Reclaim an orphan once it is three minutes old rather than a day (#2470), so
+# its criterion sees a delete. Not shorter: #1899 counts an orphan it seeds
+# across up to two listings before its cleanup removes it.
+export MCP_PLATFORM_STORAGE_RECLAIM_AGE="${DEV_STORAGE_RECLAIM_AGE:-3m}"
 # The review queue is checked every five seconds rather than hourly, so the
 # review-queue alert's criterion (#1724) runs on this stack (#2219).
 export MCP_PLATFORM_REVIEW_ALERT_INTERVAL="${MCP_PLATFORM_REVIEW_ALERT_INTERVAL:-5s}"

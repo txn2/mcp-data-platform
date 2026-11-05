@@ -238,7 +238,7 @@ func TestObserveAuthenticated_RecordsTheSubjectForAnAPIKeyToo(t *testing.T) {
 		t.Fatal("an API key is nobody to share with and must not enter the directory")
 	case <-time.After(100 * time.Millisecond):
 	}
-	if got := h.Subjects().ForRun(context.Background(), "admin@example.com"); got != "apikey:admin" {
+	if got := h.Subjects().ForRun(context.Background(), "admin@example.com", ""); got != "apikey:admin" {
 		t.Fatalf("ForRun = %q", got)
 	}
 }

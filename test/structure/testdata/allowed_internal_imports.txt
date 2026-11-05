@@ -223,6 +223,8 @@ internal/endpoint/epform -> internal/platform/scriptdialect
 internal/endpoint/epform -> internal/platform/starlarkconv
 internal/endpoint/epform -> pkg/contenttype
 internal/endpoint/epform -> pkg/portal/shareguest
+internal/endpoint/epformcard -> internal/endpoint/epform
+internal/endpoint/epformcard -> internal/headless
 internal/endpoint/epformpage -> internal/endpoint/epbinding
 internal/endpoint/epformpage -> internal/endpoint/epform
 internal/endpoint/epformpage -> internal/endpoint/eprun
@@ -581,6 +583,7 @@ internal/httpserver/notifywire -> internal/platform/notifywiring
 internal/httpserver/notifywire -> pkg/platform
 internal/httpserver/notifywire -> pkg/portal
 internal/httpserver/notifywire -> pkg/portal/mention
+internal/httpserver/pdfhttp -> internal/endpoint/epformcard
 internal/httpserver/pdfhttp -> internal/headless
 internal/httpserver/pdfhttp -> internal/httpobs
 internal/httpserver/pdfhttp -> internal/httpserver/corshttp
@@ -1630,6 +1633,7 @@ internal/platform/taskwiring -> pkg/persona
 internal/platform/taskwiring -> pkg/session
 internal/platform/thumbworker -> internal/bgloop
 internal/platform/thumbworker -> internal/d2render
+internal/platform/thumbworker -> internal/endpoint/epformcard
 internal/platform/thumbworker -> internal/headless
 internal/platform/thumbworker -> internal/inproc
 internal/platform/thumbworker -> internal/logsan
