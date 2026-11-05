@@ -43,9 +43,9 @@ func Build(p *platform.Platform, notify *notifydelivery.Handle) *Feature {
 	}
 	installPrefixes(p.Config().APIGateway.CatalogFetch)
 	catalogs := p.APIGatewayCatalogStore()
-	writer := catalogapi.Config{Catalogs: catalogs, Toolkits: p.ToolkitRegistry(), Reload: p}
-	if jobs := p.APIGatewayEmbedJobsStore(); jobs != nil {
-		writer.EmbedJobs = jobs
+	writer := catalogapi.Config{
+		Catalogs: catalogs, Toolkits: p.ToolkitRegistry(), Reload: p,
+		EmbedJobs: p.APIGatewayEmbedJobsStore(),
 	}
 	r := &apichange.Refresher{Catalogs: catalogs, Write: writer.WriteSpec, Prepare: catalogapi.PrepareSpec}
 	f := &Feature{refresher: r, routes: apichangeapi.Config{
