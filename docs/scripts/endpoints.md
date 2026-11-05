@@ -420,6 +420,11 @@ token. A form's page answers the opaque origin its requests carry, never with
 credentials. Proof of work answers a bot check inside an asset; Turnstile and
 hCaptcha may need the form opened at its own address.
 
+An asset's tile and its PDF show a card naming the form where the form sits,
+in the reader's color scheme, rather than the form itself (#2431). Drawing them
+never loads the form's page, so it runs none of the form's script and counts no
+request to its endpoint.
+
 ### File fields
 
 A field with `"type": "file"` takes files (#2333), each saved as a managed

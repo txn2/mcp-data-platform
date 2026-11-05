@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epformcard"
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/inproc"
 	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
@@ -106,6 +107,7 @@ func (w *Worker) tilePage(src tileSource) headless.Page {
 	return headless.Page{
 		Document:    tileDocument(data, src.dark, transparent, w.deps.TileEntryURL, w.deps.TileCSS),
 		Files:       w.files(extra),
+		Substitute:  epformcard.RenderedCard,
 		Ready:       tileReady,
 		Width:       width,
 		Height:      height,

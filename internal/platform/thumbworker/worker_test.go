@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -556,6 +557,30 @@ func TestDrawAsset_AnImageIsServedToThePageByURL(t *testing.T) {
 	f, ok := p.Files(contentPath, nil)
 	if !ok || string(f.Body) != "\x89PNG-bytes" || f.ContentType != "image/png" {
 		t.Fatalf("the page's content route served %v %q", ok, f.Body)
+	}
+}
+
+// TestDrawAsset_AnEmbeddedFormIsDrawnAsACard: the tile page answers an
+// embedded form's page with a card naming the form, on its own origin, and
+// never asks the platform for it (#2431).
+func TestDrawAsset_AnEmbeddedFormIsDrawnAsACard(t *testing.T) {
+	d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
+	a := asset("a9", "text/html", 1)
+	blobs.objects[bucket+"/"+a.S3Key] = []byte(`<iframe src="/forms/signup"></iframe>`)
+	if err := worker(d, assets, blobs).drawAsset(context.Background(), a); err != nil {
+		t.Fatalf("drawing the asset: %v", err)
+	}
+	if len(d.pages) == 0 || d.pages[0].Substitute == nil {
+		t.Fatal("the tile page draws an embedded form by loading it")
+	}
+	// The tile's document names the form page on its own origin with no
+	// query: the tile worker rewrites references with none.
+	form, _ := url.Parse("http://t-0.render.invalid/forms/signup")
+	for _, p := range d.pages {
+		f, ok := p.Substitute(form, true)
+		if !ok || !strings.Contains(string(f.Body), ">signup<") || strings.Contains(string(f.Body), "not found") {
+			t.Errorf("an embedded form was answered %v %q, want its card", ok, f.Body)
+		}
 	}
 }
 

@@ -62,6 +62,8 @@ function DialogContent({
   children,
   showCloseButton = true,
   capped = false,
+  onPointerDownOutside,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -98,6 +100,17 @@ function DialogContent({
               className
             )}
             {...props}
+            // A click on the backdrop does not close a dialog (#2468): one
+            // holding a form would lose what was typed. Escape and the
+            // dialog's own controls close it.
+            onPointerDownOutside={(e) => {
+              e.preventDefault()
+              onPointerDownOutside?.(e)
+            }}
+            onInteractOutside={(e) => {
+              e.preventDefault()
+              onInteractOutside?.(e)
+            }}
           >
             {children}
             {showCloseButton && (

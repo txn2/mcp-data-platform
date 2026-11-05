@@ -56,15 +56,15 @@ func TestReadStorage(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery("SELECT bucket, purpose, bytes, objects FROM storage_usage").
 		WillReturnRows(sqlmock.NewRows([]string{"bucket", "purpose", "bytes", "objects"}).AddRow("r", "resources", 10, 2))
-	mock.ExpectQuery("SELECT purpose, orphaned, dangling FROM storage_reconciles").
-		WillReturnRows(sqlmock.NewRows([]string{"purpose", "orphaned", "dangling"}).AddRow("resources", 1, 0))
+	mock.ExpectQuery("SELECT purpose, orphaned, dangling, reclaimed FROM storage_reconciles").
+		WillReturnRows(sqlmock.NewRows([]string{"purpose", "orphaned", "dangling", "reclaimed"}).AddRow("resources", 1, 0, 2))
 	mock.ExpectQuery("SELECT duration_seconds, objects FROM storage_scans").
 		WillReturnRows(sqlmock.NewRows([]string{"d", "o"}).AddRow(2.5, 12))
 	got, err := ReadStorage(context.Background(), db, map[string]string{"r": "seaweedfs"})
 	require.NoError(t, err)
 	assert.Equal(t, observability.StorageCapacity{
 		Usage:     []observability.BucketUsage{{Bucket: "r", Purpose: "resources", Backend: "seaweedfs", Bytes: 10, Objects: 2}},
-		Reconcile: []observability.ReconcileCount{{Purpose: "resources", Orphaned: 1}},
+		Reconcile: []observability.ReconcileCount{{Purpose: "resources", Orphaned: 1, Reclaimed: 2}},
 		ScanKnown: true, ScanSeconds: 2.5, ScanObjects: 12,
 	}, got)
 }
@@ -75,7 +75,7 @@ func TestReadStorage_OnlyConfiguredBuckets(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery("FROM storage_usage").WillReturnRows(sqlmock.NewRows([]string{"bucket", "purpose", "bytes", "objects"}).
 		AddRow("old", "resources", 5, 1).AddRow("r", "resources", 10, 2))
-	mock.ExpectQuery("FROM storage_reconciles").WillReturnRows(sqlmock.NewRows([]string{"purpose", "orphaned", "dangling"}))
+	mock.ExpectQuery("FROM storage_reconciles").WillReturnRows(sqlmock.NewRows([]string{"purpose", "orphaned", "dangling", "reclaimed"}))
 	mock.ExpectQuery("FROM storage_scans").WillReturnError(sql.ErrNoRows)
 	got, err := ReadStorage(context.Background(), db, map[string]string{"r": ""})
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestReadStorage_OnlyConfiguredBuckets(t *testing.T) {
 func TestReadStorage_NoScanYet(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery("FROM storage_usage").WillReturnRows(sqlmock.NewRows([]string{"bucket", "purpose", "bytes", "objects"}))
-	mock.ExpectQuery("FROM storage_reconciles").WillReturnRows(sqlmock.NewRows([]string{"purpose", "orphaned", "dangling"}))
+	mock.ExpectQuery("FROM storage_reconciles").WillReturnRows(sqlmock.NewRows([]string{"purpose", "orphaned", "dangling", "reclaimed"}))
 	mock.ExpectQuery("FROM storage_scans").WillReturnError(sql.ErrNoRows)
 	got, err := ReadStorage(context.Background(), db, nil)
 	require.NoError(t, err)

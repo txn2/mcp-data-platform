@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,10 +23,21 @@ import (
 // A put is stored with LastModified at storeNow (the store's own clock), or
 // refused with putErr.
 type fakeWalker struct {
-	objects  map[string][]s3adapter.WalkedObject
-	err      error
-	putErr   error
-	storeNow time.Time
+	objects   map[string][]s3adapter.WalkedObject
+	err       error
+	putErr    error
+	deleteErr error
+	storeNow  time.Time
+}
+
+// DeleteObject removes the object from the listing, or is refused with
+// deleteErr.
+func (f fakeWalker) DeleteObject(_ context.Context, bucket, key string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	f.objects[bucket] = slices.DeleteFunc(f.objects[bucket], func(o s3adapter.WalkedObject) bool { return o.Key == key })
+	return nil
 }
 
 func (f fakeWalker) PutObject(_ context.Context, bucket, key string, _ []byte, _ string) error {
@@ -190,11 +202,12 @@ func TestScanResult_Save(t *testing.T) {
 	assets := usageKey{"p", observability.StoragePurposePortalAssets}
 	exports := usageKey{"p", observability.StoragePurposeExports}
 	res := ScanResult{
-		Usage:    map[usageKey]usageDelta{assets: {objects: 2, bytes: 30}},
-		Snapshot: map[usageKey]usageDelta{assets: {objects: 5, bytes: 100}, exports: {objects: 1, bytes: 9}},
-		Orphaned: map[string]int64{observability.StoragePurposePortalAssets: 1},
-		Dangling: map[string]int64{observability.StoragePurposeResources: 4},
-		Objects:  2, Duration: 1500 * time.Millisecond, Buckets: []string{"p"},
+		Usage:     map[usageKey]usageDelta{assets: {objects: 2, bytes: 30}},
+		Snapshot:  map[usageKey]usageDelta{assets: {objects: 5, bytes: 100}, exports: {objects: 1, bytes: 9}},
+		Orphaned:  map[string]int64{observability.StoragePurposePortalAssets: 3},
+		Reclaimed: map[string]int64{observability.StoragePurposePortalAssets: 2},
+		Dangling:  map[string]int64{observability.StoragePurposeResources: 4},
+		Objects:   2, Duration: 1500 * time.Millisecond, Buckets: []string{"p"},
 	}
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(dropUnlistedQuery)).WillReturnResult(sqlmock.NewResult(0, 2))
@@ -206,7 +219,8 @@ func TestScanResult_Save(t *testing.T) {
 	mock.ExpectExec("INSERT INTO storage_usage").WithArgs("p", "portal_assets", int64(70), int64(3)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO storage_usage").WithArgs("p", "exports", int64(0), int64(0)).WillReturnResult(sqlmock.NewResult(0, 1))
 	for _, p := range reconciled {
-		mock.ExpectExec("INSERT INTO storage_reconciles").WithArgs(p, res.Orphaned[p], res.Dangling[p]).
+		// What is left of the orphans once the reclaimed ones are gone.
+		mock.ExpectExec("INSERT INTO storage_reconciles").WithArgs(p, res.Orphaned[p]-res.Reclaimed[p], res.Dangling[p], res.Reclaimed[p]).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 	mock.ExpectExec("INSERT INTO storage_scans").WithArgs(1.5, int64(2)).WillReturnResult(sqlmock.NewResult(0, 1))

@@ -22,7 +22,7 @@ import (
 func expectRead(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery("FROM storage_usage").
 		WillReturnRows(sqlmock.NewRows([]string{"bucket", "purpose", "bytes", "objects"}).AddRow("r", "resources", 10, 1))
-	mock.ExpectQuery("FROM storage_reconciles").WillReturnRows(sqlmock.NewRows([]string{"purpose", "orphaned", "dangling"}))
+	mock.ExpectQuery("FROM storage_reconciles").WillReturnRows(sqlmock.NewRows([]string{"purpose", "orphaned", "dangling", "reclaimed"}))
 	mock.ExpectQuery("FROM storage_scans").WillReturnRows(sqlmock.NewRows([]string{"d", "o"}).AddRow(1.0, 1))
 }
 

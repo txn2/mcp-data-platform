@@ -10,6 +10,8 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -622,6 +624,55 @@ func TestAnswer_ThePagesOwnOrigin(t *testing.T) {
 	}
 	if c := byID["missing"]; c.Params["responseCode"] != float64(http.StatusNotFound) {
 		t.Errorf("a file the page does not have was answered %v, want 404", c.Params["responseCode"])
+	}
+}
+
+// TestAnswer_ASubstitutedRequestIsNeverFetched: a request the page's
+// Substitute claims is answered with what it returns, on the page's own
+// origin and on a public host alike, and the public host is never asked; the
+// document itself and what Substitute declines go on as before (#2431).
+func TestAnswer_ASubstitutedRequestIsNeverFetched(t *testing.T) {
+	fetched := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fetched++
+		_, _ = w.Write([]byte("live"))
+	}))
+	defer upstream.Close()
+	rs, fb := harness(t, nil, upstream.Client())
+	var owns []bool
+	rs.page.Substitute = func(u *url.URL, own bool) (File, bool) {
+		owns = append(owns, own)
+		if strings.HasPrefix(u.Path, "/forms/") || u.Path == "/" {
+			return File{Body: []byte("card"), ContentType: "text/html"}, true
+		}
+		return File{}, false
+	}
+	rs.answer(paused("own", "GET", "http://t-0.render.invalid/forms/a?form_embed=x", nil))
+	rs.answer(paused("pub", "GET", upstream.URL+"/forms/a?form_embed=x", nil))
+	rs.answer(paused("doc", "GET", "http://t-0.render.invalid/", nil))
+	rs.answer(paused("css", "GET", "http://t-0.render.invalid/theme.css", nil))
+	byID := map[string]call{}
+	for _, c := range fb.recorded() {
+		if id, _ := c.Params["requestId"].(string); id != "" {
+			byID[id] = c
+		}
+	}
+	for _, id := range []string{"own", "pub"} {
+		if c := byID[id]; decodedBody(t, c) != "card" || headerOf(c, "Content-Type") != "text/html" {
+			t.Errorf("%s was answered with %+v, want the substitute", id, c)
+		}
+	}
+	if fetched != 0 {
+		t.Errorf("the public host was asked %d times for a substituted request", fetched)
+	}
+	if c := byID["doc"]; decodedBody(t, c) != "<p>doc</p>" {
+		t.Errorf("the document was substituted: %+v", c)
+	}
+	if c := byID["css"]; decodedBody(t, c) != "css" {
+		t.Errorf("a file Substitute declines was answered with %+v", c)
+	}
+	if want := []bool{true, false, true}; !slices.Equal(owns, want) {
+		t.Errorf("Substitute was told own = %v, want %v (own form, public form, own stylesheet)", owns, want)
 	}
 }
 

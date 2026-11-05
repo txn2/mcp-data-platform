@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epformcard"
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
@@ -466,10 +467,14 @@ func (h *Handler) page(doc []byte) headless.Page {
 	return headless.Page{
 		Document: WithPrintStep(doc),
 		Files:    h.files,
-		Ready:    Ready,
-		Width:    pageWidth,
-		Height:   pageHeight,
-		Scale:    1,
+		// An embedded form is drawn as a card, never loaded: its page names
+		// the deployment's public address and would run the form's script
+		// (#2431).
+		Substitute: epformcard.RenderedCard,
+		Ready:      Ready,
+		Width:      pageWidth,
+		Height:     pageHeight,
+		Scale:      1,
 	}
 }
 

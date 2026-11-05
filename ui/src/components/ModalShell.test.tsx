@@ -84,22 +84,24 @@ describe("ModalShell", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("closes on a backdrop click but not on a click inside the panel", () => {
+  it("stays open on a backdrop click, so what was typed survives a stray click", () => {
+    // #2468: a click outside a form dialog closed it and discarded the form.
     const onClose = vi.fn();
     render(
-      <ModalShell onClose={onClose} label="Details">
+      <ModalShell onClose={onClose} label="Add spec">
+        <input aria-label="Name" defaultValue="typed" />
         <button type="button">Save</button>
       </ModalShell>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(onClose).not.toHaveBeenCalled();
-
+    fireEvent.mouseDown(screen.getByTestId("modal-overlay"));
     fireEvent.click(screen.getByTestId("modal-overlay"));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Name")).toHaveValue("typed");
   });
 
-  it("refuses both dismissals while busy, so a mutation's outcome survives", () => {
+  it("refuses Escape while busy, so a mutation's outcome survives", () => {
     // Closing mid-mutation unmounts the only component that renders the
     // result, so a partial failure would read as success.
     const onClose = vi.fn();
@@ -146,7 +148,7 @@ describe("ModalScroll", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByTestId("modal-overlay"));
-    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledTimes(1);
     unmount();
 
     const busyClose = vi.fn();

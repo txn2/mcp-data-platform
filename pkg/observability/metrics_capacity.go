@@ -32,6 +32,7 @@ import (
 //   - storage_orphaned_objects{purpose}, storage_dangling_references{purpose}
 //     objects under a platform prefix with no row, and rows whose object is
 //     gone, as the last reconcile counted them
+//   - storage_reclaimed_objects{purpose}    orphans the last reconcile deleted
 //   - storage_scan_duration_seconds, storage_scan_objects  the last full
 //     listing's duration and the objects it read
 //   - mcp_platform_storage_backend_info{backend} 1
@@ -51,6 +52,7 @@ const (
 	instStorageBudget      = "storage_bucket_budget"
 	instStorageOrphans     = "storage_orphaned_objects"
 	instStorageDangling    = "storage_dangling_references"
+	instStorageReclaimed   = "storage_reclaimed_objects"
 	instStorageScanSeconds = "storage_scan_duration"
 	instStorageScanObjects = "storage_scan_objects"
 	instStorageBackendInfo = "mcp_platform_storage_backend_info"
@@ -113,6 +115,8 @@ type ReconcileCount struct {
 	Purpose  string
 	Orphaned int64
 	Dangling int64
+	// Reclaimed is the orphans the reconcile deleted (#2470).
+	Reclaimed int64
 }
 
 // StorageCapacity is the bucket side of a capacity sample. ScanKnown is false
@@ -141,7 +145,8 @@ type CapacitySampler func(ctx context.Context) CapacitySample
 type capacityInstruments struct {
 	tableSize, tableRows, vectorIndexSize, xidAge metric.Int64ObservableGauge
 	bucketBytes, bucketObjects, bucketBudget      metric.Int64ObservableGauge
-	orphans, dangling, scanObjects, backendInfo   metric.Int64ObservableGauge
+	orphans, dangling, reclaimed                  metric.Int64ObservableGauge
+	scanObjects, backendInfo                      metric.Int64ObservableGauge
 	scanSeconds                                   metric.Float64ObservableGauge
 	mu                                            sync.RWMutex
 	sampler                                       CapacitySampler
@@ -183,6 +188,8 @@ func (m *Metrics) registerCapacityInstruments(meter metric.Meter) error {
 		"Objects under a platform prefix that no database row references, as the last reconcile counted them, labeled by purpose.")
 	c.dangling = gauge(instStorageDangling, "",
 		"Database rows whose object is missing from the bucket, as the last reconcile counted them, labeled by purpose.")
+	c.reclaimed = gauge(instStorageReclaimed, "",
+		"Orphaned objects the last reconcile deleted (MCP_PLATFORM_STORAGE_RECLAIM=delete), labeled by purpose.")
 	c.scanObjects = gauge(instStorageScanObjects, "",
 		"Objects the last full bucket listing read, across every platform bucket.")
 	c.backendInfo = gauge(instStorageBackendInfo, "",
@@ -197,7 +204,7 @@ func (m *Metrics) registerCapacityInstruments(meter metric.Meter) error {
 	}
 	if _, err := meter.RegisterCallback(m.observeCapacity,
 		c.tableSize, c.tableRows, c.vectorIndexSize, c.xidAge, c.bucketBytes, c.bucketObjects,
-		c.bucketBudget, c.orphans, c.dangling, c.scanObjects, c.backendInfo, c.scanSeconds); err != nil {
+		c.bucketBudget, c.orphans, c.dangling, c.reclaimed, c.scanObjects, c.backendInfo, c.scanSeconds); err != nil {
 		return fmt.Errorf(instErrFmt, "capacity callback", err)
 	}
 	return nil
@@ -266,6 +273,7 @@ func (m *Metrics) observeStorageCapacity(o metric.Observer, s StorageCapacity) {
 		attrs := metric.WithAttributes(attribute.String(attrPurpose, r.Purpose))
 		o.ObserveInt64(c.orphans, r.Orphaned, attrs)
 		o.ObserveInt64(c.dangling, r.Dangling, attrs)
+		o.ObserveInt64(c.reclaimed, r.Reclaimed, attrs)
 	}
 	if s.ScanKnown {
 		o.ObserveFloat64(c.scanSeconds, s.ScanSeconds)
