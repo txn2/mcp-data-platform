@@ -15,6 +15,12 @@ vi.mock("@/api/admin/hooks", () => ({
   useAPICatalogSpec: vi.fn(() => ({ data: undefined })),
   useUpsertAPICatalogSpec: vi.fn(() => ({ mutateAsync: upsertMutate, isPending: false })),
   useUploadAPICatalogSpec: vi.fn(() => ({ mutateAsync: uploadMutate, isPending: false })),
+  // The Updates section (#2483): a new spec has no watch, and one left Off
+  // saves none.
+  useAPISpecWatch: vi.fn(() => ({ data: undefined })),
+  useSaveAPISpecWatch: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useAPISpecChanges: vi.fn(() => ({ data: { changes: [] }, isLoading: false })),
+  useDecideAPIChange: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
 beforeEach(() => {

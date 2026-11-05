@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/adminwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/apichangewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/appdbwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
@@ -247,6 +248,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	streetMaps.Mount(mux, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail)
 
 	// Storage capacity (#2148): the admin routes, and the sampling and alert loop, which starts once the mux is complete.
+	apiChanges := apichangewire.Build(p, notify) // API catalog specs kept current (#2469)
+	apiChanges.Mount(mux, p, buildAdminAuth, adminEmail)
 	storage := storagewire.Build(p, notify)
 	storagewire.Mount(mux, p, storage, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })
 	appdbwire.Mount(ctx, mux, p, notify, appdbwire.Admin{Auth: func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, Actor: adminEmail}) // application databases (#2406, #2409)
@@ -309,6 +312,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	defer streetMaps.Stop()
 	storage.Start(ctx)
 	defer storage.Stop()
+	apiChanges.Start(ctx)
+	defer apiChanges.Stop()
 
 	hcfg.mcpServer = mcpServer
 	hcfg.observe.Mux = mux

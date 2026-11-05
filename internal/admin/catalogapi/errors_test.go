@@ -532,29 +532,6 @@ func TestCatalog_UpsertSpecUploadKindRejected(t *testing.T) {
 	}
 }
 
-func TestCatalog_RefreshGetSpecNotFound(t *testing.T) {
-	t.Parallel()
-	store := newErrorStore()
-	h := handlerWithStore(store)
-	res := doJSON(t, h, http.MethodPost,
-		"/api/v1/admin/api-catalogs/p/specs/default/refresh", nil)
-	if res.Code != http.StatusNotFound {
-		t.Fatalf("expected 404: %d", res.Code)
-	}
-}
-
-func TestCatalog_RefreshGetSpecError(t *testing.T) {
-	t.Parallel()
-	store := newErrorStore()
-	store.getSpecErr = errors.New("boom")
-	h := handlerWithStore(store)
-	res := doJSON(t, h, http.MethodPost,
-		"/api/v1/admin/api-catalogs/p/specs/default/refresh", nil)
-	if res.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500: %d", res.Code)
-	}
-}
-
 func TestCatalog_DeleteSpecInternalError(t *testing.T) {
 	t.Parallel()
 	store := newErrorStore()

@@ -1,6 +1,7 @@
 package catalogapi
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -237,5 +238,43 @@ func TestPrepareSpecConvertsASwagger2Document(t *testing.T) {
 	bad := apicatalog.SpecEntry{SpecName: "bad", Content: `{"swagger":"2.0","paths":"no"}`}
 	if err := prepareSpec(&bad); err == nil || !strings.Contains(err.Error(), "Swagger 2.0") {
 		t.Errorf("an unconvertible 2.0 document: %v", err)
+	}
+}
+
+// publishedReloads records the peer broadcasts a write asks for.
+type publishedReloads struct{ ids []string }
+
+func (p *publishedReloads) PublishCatalogReload(id string) { p.ids = append(p.ids, id) }
+
+// #2483: WriteSpec, which the refresh saves through, does what every admin
+// spec write does: store the spec, queue its embedding, tell the peers.
+func TestWriteSpec(t *testing.T) {
+	t.Parallel()
+	store := apicatalog.NewMemoryStore()
+	if err := store.CreateCatalog(context.Background(), apicatalog.Catalog{ID: "acme", Name: "acme", DisplayName: "Acme"}); err != nil {
+		t.Fatal(err)
+	}
+	jobs := &fakeEmbedJobs{}
+	peers := &publishedReloads{}
+	cfg := Config{Catalogs: store, EmbedJobs: jobs, Reload: peers}
+	entry := apicatalog.SpecEntry{
+		SpecName: "pets", SourceKind: apicatalog.SourceURL,
+		Content: "openapi: 3.0.0\ninfo: {title: x, version: '1'}\npaths: {}\n",
+	}
+	if err := PrepareSpec(&entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.WriteSpec(context.Background(), "acme", entry); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetSpec(context.Background(), "acme", "pets")
+	if err != nil || got.Content != entry.Content {
+		t.Fatalf("stored %v %v", got, err)
+	}
+	if len(jobs.jobs) != 1 || len(peers.ids) != 1 || peers.ids[0] != "acme" {
+		t.Fatalf("jobs %d, peers %v", len(jobs.jobs), peers.ids)
+	}
+	if err := cfg.WriteSpec(context.Background(), "ghost", entry); err == nil {
+		t.Fatal("a write to a catalog that does not exist succeeded")
 	}
 }

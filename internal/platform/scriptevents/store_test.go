@@ -31,27 +31,32 @@ func runFor(id string) *script.Run {
 	}
 }
 
-func TestScriptsForSource(t *testing.T) {
+func TestEventBindings(t *testing.T) {
 	s, mock := mockStore(t)
-	mock.ExpectQuery(regexp.QuoteMeta(scriptsForSourceSQL)).WithArgs("shop").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("s1").AddRow("s2"))
-	ids, err := s.ScriptsForSource(t.Context(), "shop")
+	mock.ExpectQuery(regexp.QuoteMeta(eventBindingsSQL)).
+		WillReturnRows(sqlmock.NewRows([]string{"event_source", "id"}).AddRow("shop", "s1").AddRow("shop", "s2").AddRow("esp", "s3"))
+	got, err := s.EventBindings(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, []string{"s1", "s2"}, ids)
+	assert.Equal(t, map[string][]string{"shop": {"s1", "s2"}, "esp": {"s3"}}, got)
 
-	mock.ExpectQuery(regexp.QuoteMeta(scriptsForSourceSQL)).WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	ids, err = s.ScriptsForSource(t.Context(), "none")
+	mock.ExpectQuery(regexp.QuoteMeta(eventBindingsSQL)).WillReturnRows(sqlmock.NewRows([]string{"event_source", "id"}))
+	got, err = s.EventBindings(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, []string{}, ids, "no script is an empty list")
+	assert.Empty(t, got)
 
-	mock.ExpectQuery(regexp.QuoteMeta(scriptsForSourceSQL)).WillReturnError(errDown)
-	_, err = s.ScriptsForSource(t.Context(), "shop")
+	mock.ExpectQuery(regexp.QuoteMeta(eventBindingsSQL)).WillReturnError(errDown)
+	_, err = s.EventBindings(t.Context())
 	require.ErrorIs(t, err, errDown)
 
-	mock.ExpectQuery(regexp.QuoteMeta(scriptsForSourceSQL)).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("s1").RowError(0, errDown))
-	_, err = s.ScriptsForSource(t.Context(), "shop")
+	mock.ExpectQuery(regexp.QuoteMeta(eventBindingsSQL)).
+		WillReturnRows(sqlmock.NewRows([]string{"event_source", "id"}).AddRow("shop", "s1").RowError(0, errDown))
+	_, err = s.EventBindings(t.Context())
 	require.ErrorIs(t, err, errDown)
+
+	mock.ExpectQuery(regexp.QuoteMeta(eventBindingsSQL)).
+		WillReturnRows(sqlmock.NewRows([]string{"event_source"}).AddRow("shop"))
+	_, err = s.EventBindings(t.Context())
+	require.Error(t, err, "a row that does not scan")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

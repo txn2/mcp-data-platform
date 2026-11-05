@@ -16,6 +16,7 @@ import { shadowedOAuthKeys, storedOAuthGrant } from "./oauthVocabulary";
 import { GatewayHealthDetail, NoCatalogNotice } from "./HealthBadges";
 import { lacksCatalog } from "./connectionFilter";
 import { GraphQLSchemaCard } from "./GraphQLSchemaCard";
+import { ConnectionUsedByCard, UpstreamWarningsCard } from "./ApiUsageCards";
 import { AppDBConsoleCard } from "./AppDBConsoleCard";
 import { AppDBDriftCard } from "./AppDBDriftCard";
 import { AppDBHealthCard } from "./AppDBHealthCard";
@@ -219,6 +220,15 @@ export function ConnectionViewer({
               : undefined
           }
         />
+      )}
+
+      {/* What uses an api connection's operations and what its upstream
+          has said about them (#2485, #2486). */}
+      {connection.kind === "api" && (
+        <>
+          <ConnectionUsedByCard connectionName={connection.name} />
+          <UpstreamWarningsCard connectionName={connection.name} />
+        </>
       )}
 
       {/* An application database's migrations (#2404): what is applied,

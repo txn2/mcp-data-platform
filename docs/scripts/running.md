@@ -1459,6 +1459,16 @@ script set to run one at a time (`exclusive` `refuse` or `queue`) runs its
 event runs one at a time, in the order they arrived: an event run is never
 refused for an open run, it waits.
 
+**A source with no automation costs a delivery nothing.** Which scripts name
+each source is kept in memory on every replica (#2480): read whole, at most
+every 5 seconds, and again at once when any replica creates, edits or deletes a
+script's source (a trigger on `scripts` notifies `script_event_sources`,
+migration 000230). A delivery to a source no script names makes no database
+query, so a sender's burst does not hold the shared pool; a source with
+automations still enqueues its runs in the delivery's request, as before. A
+script bound in the few milliseconds before the notification arrives can miss
+an event delivered in that window.
+
 ```yaml
 scripts:
   events:

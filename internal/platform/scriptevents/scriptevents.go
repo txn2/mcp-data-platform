@@ -6,7 +6,9 @@
 // workers under the script's saved author roles, as a scheduled run is.
 //
 // Nothing runs inline: the sender was answered when the event was stored, and
-// enqueuing is one transaction per script that names the source. A failure to
+// enqueuing is one transaction per script that names the source. Which
+// scripts name a source is read from memory (Bindings), so a source none
+// names costs a delivery no query (#2480). A failure to
 // enqueue is logged, and never fails the delivery, which stored the event
 // whatever happens to its runs.
 package scriptevents
@@ -43,10 +45,8 @@ const (
 	KeyPayload    = "payload"
 )
 
-// Store lists the scripts that run for a source and enqueues their runs
-// (PostgresStore).
+// Store enqueues the runs of a source's events (PostgresStore).
 type Store interface {
-	ScriptsForSource(ctx context.Context, source string) ([]string, error)
 	EnqueueEvents(ctx context.Context, runs []*script.Run, maxQueued int) (EventEnqueue, error)
 }
 
@@ -59,8 +59,11 @@ type Scripts interface {
 
 // Enqueuer enqueues the runs of a source's events.
 type Enqueuer struct {
-	Store   Store
-	Scripts Scripts
+	Store Store
+	// Bindings names the scripts that run for each source, from memory
+	// (#2480).
+	Bindings *Bindings
+	Scripts  Scripts
 	// MaxQueued bounds each script's pending event runs; zero is
 	// DefaultMaxQueued.
 	MaxQueued int
@@ -77,7 +80,7 @@ func (e *Enqueuer) Stored(ctx context.Context, source string, events []whevent.E
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), e.timeout())
 	defer cancel()
-	ids, err := e.Store.ScriptsForSource(ctx, source)
+	ids, err := e.Bindings.For(ctx, source)
 	if err != nil {
 		e.fail(ctx, source, "", err)
 		return

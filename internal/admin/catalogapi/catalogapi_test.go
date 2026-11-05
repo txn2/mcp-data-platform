@@ -334,22 +334,6 @@ func TestCatalog_DeleteSpecNotFound(t *testing.T) {
 	}
 }
 
-func TestCatalog_RefreshRequiresURLSource(t *testing.T) {
-	t.Parallel()
-	h, store := newCatalogTestHandler(t)
-	_ = store.CreateCatalog(context.Background(), apicatalog.Catalog{
-		ID: "p", Name: "p", DisplayName: "P",
-	})
-	_ = store.UpsertSpec(context.Background(), "p", apicatalog.SpecEntry{
-		SpecName: "default", Content: "x", SourceKind: apicatalog.SourceInline,
-	})
-	res := doJSON(t, h, http.MethodPost,
-		"/api/v1/admin/api-catalogs/p/specs/default/refresh", nil)
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400: %d %s", res.Code, res.Body.String())
-	}
-}
-
 func TestCatalog_UploadHappyPath(t *testing.T) {
 	t.Parallel()
 	h, _ := newCatalogTestHandler(t)

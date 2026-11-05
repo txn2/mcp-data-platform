@@ -17,6 +17,9 @@ Semgrep's own --baseline-commit cannot be used: it aborts when the working tree
 has unstaged changes, and `make verify` is a PRE-commit gate that exists to be
 run on exactly that.
 
+Each changed file is scanned the way `make semgrep` scans it, through the tree
+with the same ignores (#2478).
+
 `--whole-files` scans every changed Go file whole and reports every finding in
 it. That is the scope for .semgrep/, whose rules are defects wherever they sit:
 `make semgrep` already holds the whole tree to them, so a finding in a file the
@@ -107,10 +110,19 @@ def untracked_go_files() -> list[str]:
 
 
 def findings(configs: list[str], files: list[str]) -> list[dict]:
-    """Scan the changed files and return Semgrep's results."""
+    """Scan the changed files and return Semgrep's results.
+
+    The tree is the target and each file an --include, never a file named on
+    the command line: Semgrep scans a file it is named whatever its ignore
+    rules say, so a named test file reported findings `make semgrep`, which
+    scans the tree, skips. A branch that edited a test file inherited every
+    old finding in it (#2478). Through --include the two scans apply the same
+    ignores and agree on what the tree holds.
+    """
     flags = [f for c in configs for f in ("--config", c)]
+    includes = [f for p in files for f in ("--include", "/" + p)]
     out = subprocess.run(
-        ["semgrep", "scan", *flags, "--json", "--quiet", "--"] + files,
+        ["semgrep", "scan", *flags, *includes, "--json", "--quiet", "--", "."],
         capture_output=True, text=True, check=False,
     )
     if not out.stdout:

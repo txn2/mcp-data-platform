@@ -3,6 +3,7 @@ package auditwiring
 import (
 	"context"
 
+	"github.com/txn2/mcp-data-platform/internal/apichange"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
@@ -63,4 +64,13 @@ func resolveOperationID(ctx context.Context, all []registry.Toolkit, connection,
 		}
 	}
 	return ""
+}
+
+// operationKeys names the catalog operation an api call addresses from the
+// live toolkits, nil without a toolkit registry.
+func operationKeys(toolkits provenance.ToolkitLister) apichange.OperationKeyer {
+	if toolkits == nil {
+		return nil
+	}
+	return apichange.OperationKeyOf(toolkits.All)
 }

@@ -744,6 +744,12 @@ observability:
 # it through fetch_url (test/acceptance, #1544), so the loopback is allowed
 # here and nowhere else.
 apigateway:
+  # The acceptance tests serve the specs a scheduled check reads from a
+  # platform endpoint on this host (#2483, #2484).
+  catalog_fetch:
+    allow_private_cidrs:
+      - 127.0.0.0/8
+      - ::1/128
   util_connection:
     allow_private_cidrs:
       - 127.0.0.0/8

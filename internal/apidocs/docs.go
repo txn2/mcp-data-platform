@@ -736,6 +736,251 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/api-catalogs/{id}/specs/{spec}/changes": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the spec's most recent change reports, newest first (at most 50): each check that found the upstream different, its status (applied, pending, discarded, reported, superseded), its trigger, its one-line summary and the report: operations added, removed, changed (with the parts that changed) and newly deprecated, each with what uses it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "List a catalog spec's changes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Catalog ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec name",
+                        "name": "spec",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichangeapi.ChangesView"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api-catalogs/{id}/specs/{spec}/changes/{change}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one change report of the spec.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "Get a catalog spec change",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Catalog ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec name",
+                        "name": "spec",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Change ID",
+                        "name": "change",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichange.Change"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api-catalogs/{id}/specs/{spec}/changes/{change}/apply": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Puts the document a held change fetched in use: the spec is saved, its operations re-embedded and the connections that read the catalog reloaded on every replica. Only a change waiting for review can be applied.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "Apply a held catalog spec change",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Catalog ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec name",
+                        "name": "spec",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Change ID",
+                        "name": "change",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichangeapi.RefreshView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api-catalogs/{id}/specs/{spec}/changes/{change}/discard": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Drops the document a held change fetched; the spec in use is unchanged. Only a change waiting for review can be discarded.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "Discard a held catalog spec change",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Catalog ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec name",
+                        "name": "spec",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Change ID",
+                        "name": "change",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.StatusResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/api-catalogs/{id}/specs/{spec}/operations": {
             "get": {
                 "security": [
@@ -867,6 +1112,69 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}/used-by": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the scripts, endpoints and prompts that use the operation through the connections that reference the catalog: scripts whose saved source names it, scripts a run of which called it in the last 90 days, the endpoints bound to those scripts, and prompts whose text names the operation and the connection. operationId is the spec's operationId, or \"METHOD path\" for an operation with none.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "Get what uses a catalog operation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Catalog ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec name",
+                        "name": "spec",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Operation ID",
+                        "name": "operationId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichangeapi.UsedByView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/api-catalogs/{id}/specs/{spec}/reembed": {
             "post": {
                 "security": [
@@ -934,7 +1242,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Re-fetches a URL-sourced spec from its source_url, stores the new content, and enqueues an embedding job.",
+                "description": "Reads the spec's upstream now. A URL-sourced spec is fetched (conditionally, by its ETag); when the document changed, a change report is recorded and the new document is applied, or held for review when the spec holds changes. An uploaded or pasted spec with an upstream URL is compared with that upstream and the difference reported; the spec in use is never replaced. The response names the change recorded, or the one already waiting.",
                 "produces": [
                     "application/json"
                 ],
@@ -962,7 +1270,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/catalogapi.specResponse"
+                            "$ref": "#/definitions/apichangeapi.RefreshView"
                         }
                     },
                     "400": {
@@ -979,12 +1287,6 @@ const docTemplate = `{
                     },
                     "413": {
                         "description": "Request Entity Too Large",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -1087,6 +1389,134 @@ const docTemplate = `{
                     },
                     "415": {
                         "description": "Unsupported Media Type",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api-catalogs/{id}/specs/{spec}/watch": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns how often the spec's upstream is checked, whether a changed spec waits for review, the upstream URL an uploaded or pasted spec is compared with, when it was last and is next checked, the last check's failure, and the change waiting for review.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "Get how a catalog spec is kept current",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Catalog ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec name",
+                        "name": "spec",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichangeapi.WatchView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets how often the spec's upstream is checked (a duration from 1h to 2160h, or empty for on request only), whether a changed URL-sourced spec waits for review instead of replacing the one in use, and for an uploaded or pasted spec the https upstream URL it is compared with. A schedule needs something to check: a URL-sourced spec, or an upstream URL. Changing the upstream URL forgets the copy read from the old one.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "Set how a catalog spec is kept current",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Catalog ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec name",
+                        "name": "spec",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apichangeapi.WatchInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichangeapi.WatchView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -4443,6 +4873,92 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connection-instances/api/{name}/used-by": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists, for each operation of the connection's catalog that something uses, the scripts, endpoints and prompts that use it through this connection. Operations nothing uses are left out; a connection with no catalog lists none.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Get what uses an api connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichangeapi.ConnectionUsedByView"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connection-instances/api/{name}/warnings": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists what the connection's upstream said about its operations in its answers, the most recent first: a Deprecation or Sunset header (with its value), and a removal, a 404 or 410 from an operation that answered 2xx before. Each is recorded once per operation and kind, with when it was first and last seen, how often, and when it was sent to the change notification channels.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Get an api connection's upstream warnings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichangeapi.WarningsView"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -10581,6 +11097,92 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/api-changes": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the notification channels API catalog change reports and upstream warnings are sent to; none by default.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "Get where API change reports are sent",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichange.Settings"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets the notification channels API catalog change reports and upstream warnings are sent to. Each must name a configured channel.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "Set where API change reports are sent",
+                "parameters": [
+                    {
+                        "description": "Settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apichange.Settings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apichange.Settings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -31502,6 +32104,324 @@ const docTemplate = `{
                 "last_name": {
                     "type": "string",
                     "example": "Johnson"
+                }
+            }
+        },
+        "apichange.Caller": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "last_seen_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "via": {
+                    "type": "string"
+                }
+            }
+        },
+        "apichange.Change": {
+            "type": "object",
+            "properties": {
+                "catalog_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decided_at": {
+                    "type": "string"
+                },
+                "decided_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "report": {
+                    "$ref": "#/definitions/apichange.Report"
+                },
+                "spec_name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "trigger": {
+                    "type": "string"
+                }
+            }
+        },
+        "apichange.Changed": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "parts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "used_by": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichange.Caller"
+                    }
+                }
+            }
+        },
+        "apichange.Op": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "used_by": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichange.Caller"
+                    }
+                }
+            }
+        },
+        "apichange.Report": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichange.Op"
+                    }
+                },
+                "changed": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichange.Changed"
+                    }
+                },
+                "deprecated": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichange.Op"
+                    }
+                },
+                "from_version": {
+                    "type": "string"
+                },
+                "removed": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichange.Op"
+                    }
+                },
+                "to_version": {
+                    "type": "string"
+                },
+                "truncated": {
+                    "description": "Truncated is true when a list was cut at its bound.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "apichange.Settings": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "apichange.Warning": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "first_seen_at": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "last_seen_at": {
+                    "type": "string"
+                },
+                "notified_at": {
+                    "type": "string"
+                },
+                "operation": {
+                    "type": "string"
+                },
+                "seen_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "apichangeapi.ChangesView": {
+            "type": "object",
+            "properties": {
+                "changes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichange.Change"
+                    }
+                }
+            }
+        },
+        "apichangeapi.ConnectionUsedByView": {
+            "type": "object",
+            "properties": {
+                "catalog_id": {
+                    "type": "string"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichangeapi.UsedByView"
+                    }
+                }
+            }
+        },
+        "apichangeapi.RefreshView": {
+            "type": "object",
+            "properties": {
+                "change": {
+                    "$ref": "#/definitions/apichange.Change"
+                },
+                "etag": {
+                    "type": "string"
+                },
+                "last_fetched_at": {
+                    "type": "string"
+                },
+                "not_modified": {
+                    "type": "boolean"
+                },
+                "operation_count": {
+                    "type": "integer"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "spec_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "apichangeapi.UsedByView": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string"
+                },
+                "used_by": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichange.Caller"
+                    }
+                }
+            }
+        },
+        "apichangeapi.WarningsView": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apichange.Warning"
+                    }
+                }
+            }
+        },
+        "apichangeapi.WatchInput": {
+            "type": "object",
+            "properties": {
+                "hold_changes": {
+                    "type": "boolean"
+                },
+                "refresh_interval": {
+                    "description": "RefreshInterval is a Go duration from 1h to 2160h (90 days), or \"\"\nto check only on request.",
+                    "type": "string"
+                },
+                "upstream_url": {
+                    "description": "UpstreamURL is for an uploaded or pasted spec; \"\" for none.",
+                    "type": "string"
+                }
+            }
+        },
+        "apichangeapi.WatchView": {
+            "type": "object",
+            "properties": {
+                "hold_changes": {
+                    "type": "boolean"
+                },
+                "last_checked_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "next_check_at": {
+                    "type": "string"
+                },
+                "pending_change": {
+                    "description": "PendingChange is the id of the change waiting for review, if any.",
+                    "type": "string"
+                },
+                "refresh_interval": {
+                    "description": "RefreshInterval is a Go duration (\"168h\"), \"\" when the spec is\nnever checked on a schedule.",
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "upstream_url": {
+                    "type": "string"
                 }
             }
         },

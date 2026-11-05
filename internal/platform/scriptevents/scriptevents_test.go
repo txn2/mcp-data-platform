@@ -3,6 +3,7 @@ package scriptevents
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,10 +21,17 @@ type fakeStore struct {
 	enqErr   error
 	enqueued [][]*script.Run
 	max      int
+	reads    atomic.Int32
 }
 
-func (f *fakeStore) ScriptsForSource(_ context.Context, source string) ([]string, error) {
-	return f.scripts[source], f.listErr
+func (f *fakeStore) EventBindings(context.Context) (map[string][]string, error) {
+	f.reads.Add(1)
+	return f.scripts, f.listErr
+}
+
+// enqueuer is an Enqueuer whose bindings are read from store.
+func enqueuer(store *fakeStore, scripts Scripts, maxQueued int) *Enqueuer {
+	return &Enqueuer{Store: store, Bindings: &Bindings{Reader: store}, Scripts: scripts, MaxQueued: maxQueued}
 }
 
 func (f *fakeStore) EnqueueEvents(_ context.Context, runs []*script.Run, maxQueued int) (EventEnqueue, error) {
@@ -74,7 +82,7 @@ func TestStored_EnqueuesOneRunPerEventPerScript(t *testing.T) {
 			"s2": {ID: "v2", Version: 2},
 		},
 	}
-	e := &Enqueuer{Store: store, Scripts: scripts, MaxQueued: 7}
+	e := enqueuer(store, scripts, 7)
 	e.Stored(t.Context(), "shop", events("ev1", "ev2"))
 
 	require.Len(t, store.enqueued, 2)
@@ -114,17 +122,15 @@ func TestStored_Refusals(t *testing.T) {
 		scripts:  map[string]*script.Script{"s1": disabled, "s2": needsParam, "s3": liveScript("s3")},
 		versions: map[string]*script.Version{"s2": {ID: "v2", Params: []script.Param{{Name: "day", Type: script.ParamTypeString, Required: true}}}},
 	}
-	e := &Enqueuer{Store: store, Scripts: scripts}
+	e := enqueuer(store, scripts, 0)
 	e.Stored(t.Context(), "shop", events("ev1"))
 	assert.Empty(t, store.enqueued, "a disabled script, a required parameter with no value, and a missing version")
 
 	for name, e := range map[string]*Enqueuer{
-		"listing fails": {Store: &fakeStore{listErr: errors.New("db down")}, Scripts: scripts},
-		"reading fails": {Store: &fakeStore{scripts: map[string][]string{"shop": {"s1"}}}, Scripts: fakeScripts{err: errors.New("db down")}},
-		"enqueue fails": {
-			Store:   &fakeStore{scripts: map[string][]string{"shop": {"s3"}}, enqErr: errors.New("full")},
-			Scripts: fakeScripts{scripts: map[string]*script.Script{"s3": liveScript("s3")}, versions: map[string]*script.Version{"s3": {ID: "v3"}}},
-		},
+		"listing fails": enqueuer(&fakeStore{listErr: errors.New("db down")}, scripts, 0),
+		"reading fails": enqueuer(&fakeStore{scripts: map[string][]string{"shop": {"s1"}}}, fakeScripts{err: errors.New("db down")}, 0),
+		"enqueue fails": enqueuer(&fakeStore{scripts: map[string][]string{"shop": {"s3"}}, enqErr: errors.New("full")},
+			fakeScripts{scripts: map[string]*script.Script{"s3": liveScript("s3")}, versions: map[string]*script.Version{"s3": {ID: "v3"}}}, 0),
 	} {
 		t.Run(name, func(t *testing.T) {
 			assert.NotPanics(t, func() { e.Stored(t.Context(), "shop", events("ev1")) })
@@ -142,4 +148,23 @@ func TestValue_TextPayloadAndDefaults(t *testing.T) {
 	assert.Equal(t, DefaultMaxQueued, e.maxQueued())
 	assert.Equal(t, defaultTimeout, e.timeout())
 	assert.Equal(t, time.Second, (&Enqueuer{Timeout: time.Second}).timeout())
+}
+
+// #2480: deliveries to a source no script names read the bindings once, not
+// once per delivery, and a change heard reads them again.
+func TestStored_ReadsTheBindingsOnceForABurst(t *testing.T) {
+	store := &fakeStore{scripts: map[string][]string{}}
+	e := enqueuer(store, fakeScripts{}, 0)
+	for range 50 {
+		e.Stored(t.Context(), "esp", events("ev"))
+	}
+	assert.Equal(t, int32(1), store.reads.Load(), "fifty deliveries to an unbound source are one read")
+	assert.Empty(t, store.enqueued)
+
+	store.scripts = map[string][]string{"esp": {"s1"}}
+	e.Bindings.Notify()
+	e.Scripts = fakeScripts{scripts: map[string]*script.Script{"s1": liveScript("s1")}, versions: map[string]*script.Version{"s1": {ID: "v1"}}}
+	e.Stored(t.Context(), "esp", events("ev2"))
+	assert.Equal(t, int32(2), store.reads.Load())
+	require.Len(t, store.enqueued, 1, "a script bound after the change is enqueued at the next delivery")
 }

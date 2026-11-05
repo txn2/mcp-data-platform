@@ -7,8 +7,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -42,6 +44,45 @@ type FetchOptions struct {
 	// substitute httptest.Client to terminate TLS / loopback without
 	// fighting the dialer's private-IP guard.
 	HTTPClient *http.Client
+	// AllowPrivateCIDRs exempts address prefixes from the private-range
+	// guard: the operator's apigateway.catalog_fetch.allow_private_cidrs,
+	// for a spec an internal service publishes. A host whose every
+	// address is inside one may also be fetched over http, which an
+	// internal service often serves; a host with any address outside them
+	// is held to the usual rules.
+	AllowPrivateCIDRs []netip.Prefix
+	// IfNoneMatch is the ETag of the copy the caller holds. When the
+	// upstream answers 304 the result reports NotModified and carries no
+	// content (#2483).
+	IfNoneMatch string
+
+	// httpOnlyAllowed is set for an http URL admitted only through
+	// AllowPrivateCIDRs: every address dialed must be inside them.
+	httpOnlyAllowed bool
+}
+
+// FetchConfig is the operator's apigateway.catalog_fetch block: what a spec
+// fetched for a catalog may reach beyond the public internet.
+type FetchConfig struct {
+	// AllowPrivateCIDRs exempts address prefixes from the private-range
+	// guard, for a spec an internal service publishes; a host inside one
+	// may also be fetched over http. Empty by default.
+	AllowPrivateCIDRs []string `yaml:"allow_private_cidrs"`
+}
+
+// ParseCIDRs reads the operator's allow-list of private prefixes. An
+// unparseable entry is an error naming it: dropping it would fetch less
+// than the operator wrote, and widening it would fetch more.
+func ParseCIDRs(cidrs []string) ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(cidrs))
+	for _, c := range cidrs {
+		p, err := netip.ParsePrefix(strings.TrimSpace(c))
+		if err != nil {
+			return nil, fmt.Errorf("apigateway.catalog_fetch.allow_private_cidrs: %q is not a CIDR prefix: %w", c, err)
+		}
+		out = append(out, p.Masked())
+	}
+	return out, nil
 }
 
 // hostResolver is the subset of net.Resolver used for IP checks.
@@ -56,6 +97,9 @@ type FetchResult struct {
 	Content   string
 	ETag      string
 	FetchedAt time.Time
+	// NotModified is a 304 answer to IfNoneMatch: Content is empty and the
+	// caller's copy is current.
+	NotModified bool
 }
 
 // ErrInvalidContent is returned when spec content fails OpenAPI 3.x
@@ -448,10 +492,14 @@ func (c checkedURL) rebuild() *url.URL {
 // step there avoids a circular import.
 func FetchFromURL(ctx context.Context, urlStr string, opts FetchOptions) (*FetchResult, error) {
 	opts = applyFetchDefaults(opts)
-	u, err := parseAndCheckURL(urlStr, opts.AllowInsecureScheme)
+	u, err := parseAndCheckURL(urlStr, opts.AllowInsecureScheme || len(opts.AllowPrivateCIDRs) > 0)
 	if err != nil {
 		return nil, err
 	}
+	// http is permitted by the operator's prefixes only for a host whose
+	// every address is inside them; the preflight and the dialer hold it
+	// to that.
+	opts.httpOnlyAllowed = u.Scheme == "http" && !opts.AllowInsecureScheme
 	if err := preflightHostCheck(ctx, u.Hostname(), opts); err != nil {
 		return nil, err
 	}
@@ -468,7 +516,27 @@ func FetchFromURL(ctx context.Context, urlStr string, opts FetchOptions) (*Fetch
 
 // applyFetchDefaults fills in zero-valued FetchOptions fields. Kept
 // separate so FetchFromURL's body stays focused on the request flow.
+// defaultPrivateCIDRs is the operator's apigateway.catalog_fetch
+// allow_private_cidrs, installed once at startup, which every fetch whose
+// options name none applies: the admin API's spec creation and the refresh
+// alike (#2483).
+//
+//nolint:gochecknoglobals // one process-wide operator setting, like outbound's default recorder
+var defaultPrivateCIDRs atomic.Pointer[[]netip.Prefix]
+
+// SetAllowPrivateCIDRs installs the operator's private prefixes as every
+// fetch's default.
+func SetAllowPrivateCIDRs(prefixes []netip.Prefix) {
+	cp := append([]netip.Prefix(nil), prefixes...)
+	defaultPrivateCIDRs.Store(&cp)
+}
+
 func applyFetchDefaults(opts FetchOptions) FetchOptions {
+	if opts.AllowPrivateCIDRs == nil {
+		if d := defaultPrivateCIDRs.Load(); d != nil {
+			opts.AllowPrivateCIDRs = *d
+		}
+	}
 	if opts.MaxBytes <= 0 {
 		opts.MaxBytes = defaultFetchMaxBytes
 	}
@@ -514,7 +582,7 @@ func preflightHostCheck(ctx context.Context, host string, opts FetchOptions) err
 		return nil
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if reason := blockedIPReason(ip); reason != "" {
+		if reason := opts.blockedReason(ip); reason != "" {
 			outbound.RecordBlocked(ctx, outbound.KindSpecFetch, host, blockedClass(reason))
 			return fmt.Errorf("host literal IP %s in %s range: %w",
 				ip, reason, ErrSSRFBlocked)
@@ -533,13 +601,31 @@ func preflightHostCheck(ctx context.Context, host string, opts FetchOptions) err
 		return fmt.Errorf("dns returned no addresses for %s: %w", host, ErrSSRFBlocked)
 	}
 	for _, ip := range ips {
-		if reason := blockedIPReason(ip); reason != "" {
+		if reason := opts.blockedReason(ip); reason != "" {
 			outbound.RecordBlocked(ctx, outbound.KindSpecFetch, host, blockedClass(reason))
 			return fmt.Errorf("host %s resolves to %s in %s range: %w",
 				host, ip, reason, ErrSSRFBlocked)
 		}
 	}
 	return nil
+}
+
+// blockedReason is blockedIPReason with the operator's exemptions: an
+// address inside AllowPrivateCIDRs is permitted, and for an http URL
+// admitted through them any address outside them is refused.
+func (o FetchOptions) blockedReason(ip net.IP) string {
+	if a, ok := netip.AddrFromSlice(ip); ok {
+		a = a.Unmap()
+		for _, p := range o.AllowPrivateCIDRs {
+			if p.Contains(a) {
+				return ""
+			}
+		}
+	}
+	if o.httpOnlyAllowed {
+		return "outside allow_private_cidrs over http"
+	}
+	return blockedIPReason(ip)
 }
 
 // blockedIPReason returns a human-readable category if ip is in any
@@ -615,17 +701,24 @@ func doFetch(ctx context.Context, checked checkedURL, opts FetchOptions) (*Fetch
 	// refactor, and a sanitizer barrier the static analyzer
 	// recognizes between operator-controlled URL and client.Do.
 	if !opts.AllowPrivateNetworks {
-		if reason := blockedIPReason(net.ParseIP(checked.hostname)); reason != "" {
+		if ip := net.ParseIP(checked.hostname); ip != nil && opts.blockedReason(ip) != "" {
+			reason := opts.blockedReason(ip)
 			return nil, fmt.Errorf("host %s in %s range: %w",
 				checked.hostname, reason, ErrSSRFBlocked)
 		}
 	}
 	req := buildFetchRequest(ctx, checked)
+	if opts.IfNoneMatch != "" {
+		req.Header.Set("If-None-Match", opts.IfNoneMatch)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotModified && opts.IfNoneMatch != "" {
+		return &FetchResult{ETag: opts.IfNoneMatch, FetchedAt: time.Now().UTC(), NotModified: true}, nil
+	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("status %d: %w", resp.StatusCode, ErrUpstream)
 	}
@@ -653,7 +746,7 @@ func newFetchClient(opts FetchOptions) *http.Client {
 	dialer := &net.Dialer{Timeout: opts.ConnectTimeout}
 	if !opts.AllowPrivateNetworks {
 		dialer.Control = func(network, address string, _ syscall.RawConn) error {
-			return checkDialAddress(network, address)
+			return checkDialAddress(network, address, opts)
 		}
 	}
 	// On the outbound chain (#1895), which refuses redirects: an
@@ -702,7 +795,7 @@ func buildFetchRequest(ctx context.Context, checked checkedURL) *http.Request {
 // checkDialAddress is the dial-time SSRF guard. Extracted from the
 // dialer Control callback so it can be unit-tested directly without
 // having to coax a real DNS rebinding scenario into existence.
-func checkDialAddress(network, address string) error {
+func checkDialAddress(network, address string, opts FetchOptions) error {
 	host, _, splitErr := net.SplitHostPort(address)
 	if splitErr != nil {
 		return fmt.Errorf("split host:port %q: %w: %w",
@@ -713,7 +806,7 @@ func checkDialAddress(network, address string) error {
 		return fmt.Errorf("dial address %q has no parseable IP: %w",
 			address, ErrSSRFBlocked)
 	}
-	if reason := blockedIPReason(ip); reason != "" {
+	if reason := opts.blockedReason(ip); reason != "" {
 		return fmt.Errorf("dial-time IP %s in %s range (network=%s): %w",
 			ip, reason, network, ErrSSRFBlocked)
 	}

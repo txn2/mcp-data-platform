@@ -607,6 +607,15 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      # Keeping API catalog specs current is one contract (#2469): a change
+      # report and the operations, changes and callers it is made of, a spec's
+      # watch and a change record, an upstream warning, and the views the
+      # admin routes answer with. Each is a value the routes, the notifier and
+      # the portal read.
+      - path: internal/(apichange|admin/apichangeapi)/
+        linters:
+          - revive
+        text: "max-public-structs"
       - path: pkg/audit/
         linters:
           - revive

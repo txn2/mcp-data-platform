@@ -76,12 +76,9 @@ func TestRealDB_AnEventMakesOneRun(t *testing.T) {
 	sc.EventSource = "shop"
 	require.NoError(t, g.scripts.Update(ctx, sc))
 
-	ids, err := g.events.ScriptsForSource(ctx, "shop")
+	bound, err := g.events.EventBindings(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []string{sc.ID}, ids)
-	none, err := g.events.ScriptsForSource(ctx, "other")
-	require.NoError(t, err)
-	assert.Empty(t, none, "a source no script names enqueues nothing")
+	assert.Equal(t, map[string][]string{"shop": {sc.ID}}, bound)
 
 	got, err := g.events.EnqueueEvents(ctx, eventRuns(sc, v, "shop", "ev1", "ev2"), 100)
 	require.NoError(t, err)

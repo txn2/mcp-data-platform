@@ -11,6 +11,7 @@ import {
 import type { FailedSpec } from "@/api/apis/hooks";
 import { OperationIndex, type OperationSelection } from "./OperationIndex";
 import { OperationDetail } from "./OperationDetail";
+import { OperationUsedBy } from "../settings/catalogs/UsedBy";
 import {
   useBrowseDetail,
   useBrowseIndex,
@@ -198,6 +199,13 @@ function FailedSpecsNotice({ specs }: { specs: FailedSpec[] }) {
   );
 }
 
+/** usedByFor is what uses the selected operation, shown on the
+ * administrator's catalog view only (#2485). */
+function usedByFor(scope: ApisScope, catalogID: string, selected: OperationSelection | null) {
+  if (scope !== "admin" || !selected?.spec) return undefined;
+  return <OperationUsedBy catalogID={catalogID} specName={selected.spec} operationID={selected.operationID} />;
+}
+
 export function ApisPage({ scope = "portal" }: { scope?: ApisScope } = {}) {
   const initial = useMemo(() => readUrlState(scope), [scope]);
   const [selected, setSelected] = useState<OperationSelection | null>(
@@ -273,6 +281,7 @@ export function ApisPage({ scope = "portal" }: { scope?: ApisScope } = {}) {
             loading={detail.isLoading}
             error={detail.error}
             connection={index.connection}
+            usedBy={usedByFor(scope, source, selected)}
           />
         </section>
       </div>

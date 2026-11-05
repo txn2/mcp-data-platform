@@ -29,7 +29,12 @@ vi.mock("@/api/admin/client", async (importOriginal) => {
     ...actual,
     apiFetch: vi.fn((url: string) =>
       url.includes("/specs")
-        ? Promise.resolve({ specs: [{ spec_name: "petstore", source_kind: "inline" }] })
+        ? Promise.resolve({
+            specs: [
+              { spec_name: "petstore", source_kind: "inline" },
+              { spec_name: "vendor", source_kind: "url" },
+            ],
+          })
         : Promise.resolve({}),
     ),
   };
@@ -120,4 +125,35 @@ describe("SpecsManager retry debounce", () => {
     fireEvent.click(reenabled);
     expect(h.retryMutate).toHaveBeenCalledTimes(2);
   });
+});
+
+// #2483: a refresh says what it found: nothing new, a change applied, or one
+// waiting for review.
+describe("SpecsManager refresh outcome", () => {
+  function renderManager() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <SpecsManager catalogID="cat1" isReadOnly={false} />
+      </QueryClientProvider>,
+    );
+  }
+
+  const cases: Array<{ data: object; text: RegExp }> = [
+    { data: { not_modified: true }, text: /"vendor" is unchanged upstream/ },
+    { data: { not_modified: false }, text: /no operation changed/ },
+    { data: { not_modified: false, change: { status: "applied", summary: "1 added, 0 removed, 0 changed, 0 deprecated" } }, text: /Refreshed "vendor": 1 added/ },
+    { data: { not_modified: false, change: { status: "pending", summary: "0 added, 1 removed, 0 changed, 0 deprecated" } }, text: /waiting for review/ },
+  ];
+  for (const tc of cases) {
+    it(`reports ${tc.text.source}`, async () => {
+      h.refreshMutate.mockReset();
+      h.refreshMutate.mockImplementation((_vars, opts?: { onSuccess?: (d: object) => void }) => {
+        opts?.onSuccess?.(tc.data);
+      });
+      renderManager();
+      fireEvent.click(await screen.findByRole("button", { name: /refresh vendor from url/i }));
+      expect(await screen.findByText(tc.text)).toBeInTheDocument();
+    });
+  }
 });

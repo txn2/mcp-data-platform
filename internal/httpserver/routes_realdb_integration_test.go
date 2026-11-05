@@ -45,6 +45,7 @@ var routesUnmountedHere = []struct {
 }{
 	{regexp.MustCompile(`^/portal/auth/`), "mountBrowserAuth: no browser-session OIDC flow is configured"},
 	{regexp.MustCompile(`^(GET|POST|PUT|DELETE) /api/v1/admin/api-catalogs`), "catalogapi.Register: no API catalog store (no apigateway toolkit)"},
+	{regexp.MustCompile(`^(GET /api/v1/admin/connection-instances/api/\{name\}/(used-by|warnings)|(GET|PUT) /api/v1/admin/settings/api-changes)$`), "apichangewire.Build: no API catalog store (no apigateway toolkit)"},
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/admin/auth/keys`), "registerAuthKeyRoutes: no API key manager (auth.api_keys is off)"},
 	{regexp.MustCompile(`^(GET|POST|PUT|DELETE) /api/v1/admin/webhooks/`), "mountWebhookAdminAPI: no object store for a webhook source"},
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/portal/api-keys`), "userkeywire.Wire: no API key store with principals"},

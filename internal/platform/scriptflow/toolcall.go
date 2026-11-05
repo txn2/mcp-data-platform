@@ -76,6 +76,7 @@ func (c *card) apiInvoke(n *Node, f map[string]syntax.Expr, conn string) {
 	method, _ := c.value(f["method"])
 	path, _ := c.value(f["path"])
 	opid, _ := c.value(f["operation_id"])
+	n.API = c.apiCall(f, conn)
 	switch {
 	case path != "":
 		n.Subtitle = strings.TrimSpace(method + " " + path)
@@ -88,10 +89,30 @@ func (c *card) apiInvoke(n *Node, f map[string]syntax.Expr, conn string) {
 	}
 }
 
+// apiCall is what an API step names, each part kept only when the source
+// writes it whole: a value with a computed hole is not an address.
+func (c *card) apiCall(f map[string]syntax.Expr, conn string) *APICall {
+	literal := func(key string) string {
+		v, full := c.value(f[key])
+		if !full {
+			return ""
+		}
+		return v
+	}
+	if _, full := c.value(f["connection"]); !full {
+		conn = ""
+	}
+	return &APICall{
+		Connection: conn, OperationID: literal("operation_id"),
+		Method: strings.ToUpper(literal("method")), Path: literal("path"),
+	}
+}
+
 func (c *card) apiExport(n *Node, f map[string]syntax.Expr, conn string) {
 	n.Role, n.Kind, n.Title = RoleReads, KindAPI, onConn("API", conn)+" to file"
 	method, _ := c.value(f["method"])
 	path, _ := c.value(f["path"])
+	n.API = c.apiCall(f, conn)
 	n.Subtitle = strings.TrimSpace(method + " " + path)
 	for _, k := range []string{"destination", "key", "name"} {
 		if v, ok := f[k]; ok {

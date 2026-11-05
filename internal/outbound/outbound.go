@@ -30,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/upstreamwarn"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
@@ -245,6 +246,9 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	m.RecordHTTPClientRequest(ctx, string(t.kind), t.connection, observability.HTTPStatusClass(status), d)
 	if connectionKinds[t.kind] && ctx.Value(noStateKey{}) == nil {
 		connstate.Observe(string(t.kind), t.connection, connstate.FromHTTP(status, err))
+	}
+	if t.kind == KindAPI && resp != nil {
+		upstreamwarn.Observe(ctx, t.connection, status, resp.Header)
 	}
 	var blocked *egressguard.BlockedError
 	if errors.As(err, &blocked) {

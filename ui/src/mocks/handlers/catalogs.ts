@@ -230,18 +230,6 @@ export const catalogHandlers = [
     },
   ),
 
-  // Refresh a url-backed spec.
-  http.post(
-    `${ADMIN_BASE}/api-catalogs/:id/specs/:name/refresh`,
-    ({ params }) => {
-      const spec = specs[String(params.id)]?.[String(params.name)];
-      if (!spec) return new HttpResponse(null, { status: 404 });
-      spec.last_fetched_at = new Date().toISOString();
-      spec.updated_at = spec.last_fetched_at;
-      return HttpResponse.json(spec);
-    },
-  ),
-
   // Manual re-embed (escape hatch). Returns 202 with an enqueue result.
   http.post(
     `${ADMIN_BASE}/api-catalogs/:id/specs/:name/reembed`,
