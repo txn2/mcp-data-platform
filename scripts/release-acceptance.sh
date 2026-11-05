@@ -116,6 +116,10 @@ stop_stack() {
   kill -TERM "$DEV_PID" 2> /dev/null || true
   wait "$DEV_PID" 2> /dev/null || true
   make --no-print-directory dev-stop > "$LOG_DIR/dev-stop.log" 2>&1 || true
+  # Each replica's own output and the mocks' (dev/start.sh writes them under
+  # /tmp), kept beside the stack's log: a request that hung or ran slow is
+  # named there by route and duration, and nowhere else.
+  cp /tmp/mcp-dev-*.log "$LOG_DIR"/ 2> /dev/null || true
 }
 trap stop_stack EXIT
 trap 'exit 130' INT TERM
