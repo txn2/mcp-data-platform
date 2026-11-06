@@ -24330,7 +24330,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req), or form_spec(req) and form_submit(req, values) (a form); binding a form makes the webhook source its accepted submissions are stored in, on connection (the Trino connection whose scratch catalog holds webhook_form_\u003cendpoint\u003e, defaulting to the only one, named once), with decrypt_personas the personas a script may decrypt its sensitive fields as. auth_mode is authenticated (a platform API key or a browser session among callers: \"*\", \"persona:\u003cname\u003e\" or \"api_key:\u003cname\u003e\", empty admitting no one but the administrator, who is always admitted), public (anyone, with no check) or bot_check (anyone who passes the bot check bot_check names, one configured under Admin \u003e Settings \u003e Bot checks, on the methods in checked_methods, empty for every method); a binding naming a check that does not exist is refused, and so is signed_in. Restricted to administrators: the script's owner is refused.",
+                "description": "Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req), or form_spec(req) and form_submit(req, values) (a form); binding a form makes the webhook source its accepted submissions are stored in, on connection (the Trino connection whose scratch catalog holds webhook_form_\u003cendpoint\u003e, defaulting to the only one, named once), with decrypt_personas the personas a script may decrypt its sensitive fields as. auth_mode is authenticated (a platform API key or a browser session among callers: \"*\", \"persona:\u003cname\u003e\" or \"api_key:\u003cname\u003e\", empty admitting no one but the administrator, who is always admitted), public (anyone, with no check) or bot_check (anyone who passes the bot check bot_check names, one configured under Admin \u003e Settings \u003e Bot checks, on the methods in checked_methods, empty for every method); a binding naming a check that does not exist is refused, and so is signed_in. An administrator binds any script; the script's owner binds it only when it is a form, and a form served to callers with no session (public or bot_check) needs a version approved first, which an administrator's binding records for the version it serves. Anyone else is refused.",
                 "consumes": [
                     "application/json"
                 ],
@@ -24404,7 +24404,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Turns the endpoint off: it answers 404 until it is turned on, and its binding is kept. Restricted to administrators.",
+                "description": "Turns the endpoint off: it answers 404 until it is turned on, and its binding is kept. An administrator, or the owner of a script that is a form.",
                 "produces": [
                     "application/json"
                 ],
@@ -24454,7 +24454,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Turns the endpoint on: it answers requests again. Restricted to administrators.",
+                "description": "Turns the endpoint on: it answers requests again. An administrator, or the owner of a script that is a form.",
                 "produces": [
                     "application/json"
                 ],

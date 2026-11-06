@@ -28,6 +28,7 @@ rewrite	tools-check	0.5	-
 rewrite	fmt	0.9	-
 rewrite	embed-clean	0.2	-
 rewrite	swagger-check	3.1	-
+preamble	acceptance-copy-check	0.1	-
 preamble	acceptance-check	0.2	-
 preamble	state-readers-check	0.2	-
 preamble	builtin-pages-check	0.2	-

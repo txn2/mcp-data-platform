@@ -185,14 +185,15 @@ func TestIssue2171_AnAdministratorBindsOnBothSurfacesAndItIsListed(t *testing.T)
 }
 
 // TestIssue2171_ANonAdministratorIsRefusedOnBothSurfaces: the script's own
-// owner may not bind it, through the tool or the portal.
+// owner may not bind it, through the tool or the portal, when it is not a
+// form (an owner binds their own form since #2494).
 func TestIssue2171_ANonAdministratorIsRefusedOnBothSurfaces(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	name := endpointName("acc-2171-owner")
 	id := saveEndpointScript(t, owner, name, issue2171EchoHandler, `{"params": {}, "caller": None}`)
 
 	out, refusal := endpointSet(t, owner, name, "", map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}})
-	if out != nil || !strings.Contains(refusal, "only an administrator") {
+	if out != nil || !strings.Contains(refusal, "an administrator binds an endpoint that is not a form") {
 		t.Fatalf("the owner's endpoint_set: want refused, got %v %q", out, refusal)
 	}
 	status, body := owner.rest(http.MethodPut, fmt.Sprintf("/api/v1/portal/scripts/%s/endpoint", id),
