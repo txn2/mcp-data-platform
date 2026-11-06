@@ -32919,7 +32919,10 @@ paths:
         passes the bot check bot_check names, one configured under Admin > Settings
         > Bot checks, on the methods in checked_methods, empty for every method);
         a binding naming a check that does not exist is refused, and so is signed_in.
-        Restricted to administrators: the script''s owner is refused.'
+        An administrator binds any script; the script''s owner binds it only when
+        it is a form, and a form served to callers with no session (public or bot_check)
+        needs a version approved first, which an administrator''s binding records
+        for the version it serves. Anyone else is refused.'
       parameters:
       - description: Script ID
         in: path
@@ -32965,7 +32968,8 @@ paths:
   /portal/scripts/{id}/endpoint/disable:
     post:
       description: 'Turns the endpoint off: it answers 404 until it is turned on,
-        and its binding is kept. Restricted to administrators.'
+        and its binding is kept. An administrator, or the owner of a script that is
+        a form.'
       parameters:
       - description: Script ID
         in: path
@@ -32996,8 +33000,8 @@ paths:
       - Scripts
   /portal/scripts/{id}/endpoint/enable:
     post:
-      description: 'Turns the endpoint on: it answers requests again. Restricted to
-        administrators.'
+      description: 'Turns the endpoint on: it answers requests again. An administrator,
+        or the owner of a script that is a form.'
       parameters:
       - description: Script ID
         in: path

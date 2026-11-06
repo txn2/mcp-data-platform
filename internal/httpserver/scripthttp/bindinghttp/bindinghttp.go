@@ -1,7 +1,8 @@
 // Package bindinghttp serves a managed script's endpoint binding on its
 // portal page (#2171): the binding and its recent failed requests, which the
 // script's owner and an administrator read, and the binding's setting, turning
-// on and off, which only an administrator may do. The rules are manage_script's
+// on and off, which an administrator does on any script and its owner on a
+// form (#2494). The rules are manage_script's
 // own: every route here carries its request out through the same
 // internal/endpoint/epcmd handler the tool's endpoint commands do.
 //
@@ -85,7 +86,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 // put binds the script to an endpoint, or changes its binding.
 //
 // @Summary      Bind a script to an endpoint
-// @Description  Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req), or form_spec(req) and form_submit(req, values) (a form); binding a form makes the webhook source its accepted submissions are stored in, on connection (the Trino connection whose scratch catalog holds webhook_form_<endpoint>, defaulting to the only one, named once), with decrypt_personas the personas a script may decrypt its sensitive fields as. auth_mode is authenticated (a platform API key or a browser session among callers: "*", "persona:<name>" or "api_key:<name>", empty admitting no one but the administrator, who is always admitted), public (anyone, with no check) or bot_check (anyone who passes the bot check bot_check names, one configured under Admin > Settings > Bot checks, on the methods in checked_methods, empty for every method); a binding naming a check that does not exist is refused, and so is signed_in. Restricted to administrators: the script's owner is refused.
+// @Description  Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req), or form_spec(req) and form_submit(req, values) (a form); binding a form makes the webhook source its accepted submissions are stored in, on connection (the Trino connection whose scratch catalog holds webhook_form_<endpoint>, defaulting to the only one, named once), with decrypt_personas the personas a script may decrypt its sensitive fields as. auth_mode is authenticated (a platform API key or a browser session among callers: "*", "persona:<name>" or "api_key:<name>", empty admitting no one but the administrator, who is always admitted), public (anyone, with no check) or bot_check (anyone who passes the bot check bot_check names, one configured under Admin > Settings > Bot checks, on the methods in checked_methods, empty for every method); a binding naming a check that does not exist is refused, and so is signed_in. An administrator binds any script; the script's owner binds it only when it is a form, and a form served to callers with no session (public or bot_check) needs a version approved first, which an administrator's binding records for the version it serves. Anyone else is refused.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -113,7 +114,7 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 // enable turns the script's endpoint on.
 //
 // @Summary      Turn a script's endpoint on
-// @Description  Turns the endpoint on: it answers requests again. Restricted to administrators.
+// @Description  Turns the endpoint on: it answers requests again. An administrator, or the owner of a script that is a form.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"
@@ -130,7 +131,7 @@ func (h *Handler) enable(w http.ResponseWriter, r *http.Request) {
 // disable turns the script's endpoint off.
 //
 // @Summary      Turn a script's endpoint off
-// @Description  Turns the endpoint off: it answers 404 until it is turned on, and its binding is kept. Restricted to administrators.
+// @Description  Turns the endpoint off: it answers 404 until it is turned on, and its binding is kept. An administrator, or the owner of a script that is a form.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"

@@ -104,6 +104,15 @@ jobs:
       - name: E2E tests that need no service
         run: make e2e-standalone
 
+      # An acceptance criterion that asserts text the pull request removed
+      # from production Go (#2519), the same target `make verify` runs. The
+      # criteria run here only when their own file changed, and the whole
+      # suite only in the E2E Nightly: #2498 changed a refusal issue 2171's
+      # criterion asserted, and the nightly after the merge refused v1.153.2.
+      - name: Acceptance criteria asserting removed text
+        if: github.event_name == 'pull_request'
+        run: make acceptance-copy-check
+
       # Every Go package the pull request changed, at -race -cpu=1,2 -count=5,
       # the same target `make verify` runs (#1711). A test whose assertion
       # depends on goroutine ordering passes the single run above and fails

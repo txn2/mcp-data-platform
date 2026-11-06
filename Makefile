@@ -54,7 +54,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all migrate-check-diff build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
-	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check migrate-check-lane swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
+	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check acceptance-copy-check route-manifest-check posture-check migrate-check-lane swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
 	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -653,6 +653,14 @@ builtin-pages-check:
 e2e-copy-check:
 	@python3 scripts/e2e-copy-check.py
 
+## acceptance-copy-check: Fail when an acceptance criterion asserts text the diff removed from production Go (#2519)
+## make acceptance-check runs only the criteria in acceptance files a diff
+## changes, and the whole suite runs only in the E2E Nightly. #2498 changed a
+## refusal issue 2171's criterion still asserted; the nightly after the merge
+## failed on it and refused the v1.153.2 tag. This reads both in a second.
+acceptance-copy-check:
+	@python3 scripts/acceptance-copy-check.py
+
 ## docs-build: Build the documentation site with mkdocs --strict (#2138)
 ## The deploy workflow builds the site only after a merge to main, so a broken
 ## nav entry used to stop the site deploying with every gate green. This builds
@@ -997,6 +1005,7 @@ verify:
 	@# diff-scoped steps (security-diff, route-template-diff, migrate-check-diff,
 	@# dev-smoke-diff) skip in a tenth of a second when the diff gives them
 	@# nothing to do (#2186, #2239, #2248). lint is last: it is the costliest.
+	@python3 scripts/verify-step.py $(MAKE) acceptance-copy-check
 	@python3 scripts/verify-step.py $(MAKE) acceptance-check
 	@python3 scripts/verify-step.py $(MAKE) state-readers-check
 	@python3 scripts/verify-step.py $(MAKE) builtin-pages-check

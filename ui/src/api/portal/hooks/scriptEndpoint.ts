@@ -4,8 +4,9 @@ import { scriptsKey } from "./scriptKeys";
 
 // A script's endpoint (#2171): the HTTP route at /endpoints/{name} that runs
 // its handle(req) on each request, and the requests that failed. The owner
-// and an administrator read it; only an administrator binds a script, changes
-// its binding, or turns it on and off.
+// and an administrator read it; an administrator binds any script, changes
+// its binding, or turns it on and off, and the owner does the same for a
+// script that is a form (#2494).
 
 // EndpointAuthMode is who an endpoint answers (#2259): a platform API key or a
 // browser session among its callers, anyone with no check, or anyone who
