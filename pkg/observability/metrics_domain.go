@@ -37,12 +37,17 @@ import (
 //   - dependency_up{dependency}                     1 when the dependency
 //     answered its last probe; a signal only, /readyz does not read it
 //   - mcp_platform_connections{kind, state}         connections by probe state
+//   - mcp_platform_connection_state{connection, kind, state}  1 for each
+//     connection's current state (#2442)
+//   - mcp_platform_connection_state_observed_timestamp_seconds{connection, kind}
+//     when a call last recorded that state
 //   - mcp_platform_personas                         personas registered
 //   - search_index_last_indexed_age_seconds{kind}   seconds since a source last
 //     finished indexing
 //
 // Cardinality: method, result, reason, dependency, state and code are closed
-// sets in the code; persona and kind are operator-defined; the config_info
+// sets in the code; persona, kind and connection are operator-defined (tens of
+// connections per deployment); the config_info
 // labels are one series per process and never carry an address.
 const (
 	instAuthAttempts       = "auth_attempts"
@@ -56,6 +61,8 @@ const (
 	instConfigWarnings     = "config_validation_warnings"
 	instDependencyUp       = "dependency_up"
 	instConnections        = "mcp_platform_connections"
+	instConnectionState    = "mcp_platform_connection_state"
+	instConnectionObserved = "mcp_platform_connection_state_observed_timestamp"
 	instPersonas           = "mcp_platform_personas"
 	instSearchIndexAge     = "search_index_last_indexed_age"
 
@@ -104,6 +111,8 @@ type domainInstruments struct {
 	configWarnings   metric.Int64Counter
 	dependencyUp     metric.Int64ObservableGauge
 	connections      metric.Int64ObservableGauge
+	connectionState  metric.Int64ObservableGauge
+	connObserved     metric.Float64ObservableGauge
 	personas         metric.Int64ObservableGauge
 	searchIndexAge   metric.Float64ObservableGauge
 	ops              opInstruments
@@ -151,7 +160,9 @@ func (m *Metrics) registerDomainInstruments(meter metric.Meter) error {
 	d.dependencyUp = gauge(instDependencyUp,
 		"1 when a dependency answered its last probe, 0 when it did not, labeled by dependency (database, semantic, query, object_storage, idp, renderer). Absent for a dependency this deployment does not configure. A signal only: /readyz does not read it.")
 	d.connections = gauge(instConnections,
-		"Connections by kind and state (configured: the kind has no probe; healthy; unreachable; auth_failed), from a probe of every connection on a slow interval.")
+		"Connections by kind and state: healthy, unreachable or auth_failed as the last call through a connection found it, configured when no call has used it on this replica or its last one is older than server.connection_state_max_age.")
+	d.connectionState = gauge(instConnectionState,
+		"1 for each connection under its name, kind and current state, the same states mcp_platform_connections counts. Names the connection an alert on a failing state is about.")
 	d.personas = gauge(instPersonas, "Personas registered on this replica, file and database personas together.")
 	if err != nil {
 		return err
@@ -178,6 +189,11 @@ func (m *Metrics) registerDomainTail(meter metric.Meter) error {
 		metric.WithDescription("The process's configuration as 1 under its toolkit kinds, authentication methods, whether tracing is on, the metrics exporter and the trace sampler ratio. Never an address, a hostname or a secret.")); err != nil {
 		return wrapReg(instConfigInfo, err)
 	}
+	if d.connObserved, err = meter.Float64ObservableGauge(instConnectionObserved,
+		metric.WithDescription("Unix time a call last recorded a connection's state, labeled by connection and kind. Absent for a connection with no current record. An alert on mcp_platform_connection_state can require a recent one."),
+		metric.WithUnit(unitSeconds)); err != nil {
+		return wrapReg(instConnectionObserved, err)
+	}
 	if d.searchIndexAge, err = meter.Float64ObservableGauge(instSearchIndexAge,
 		metric.WithDescription("Seconds since a search source last finished an index pass, labeled by kind. Every replica reports the same value: read with max."),
 		metric.WithUnit(unitSeconds)); err != nil {
@@ -187,7 +203,7 @@ func (m *Metrics) registerDomainTail(meter metric.Meter) error {
 		return err
 	}
 	if _, err := meter.RegisterCallback(m.observePlatformState,
-		d.dependencyUp, d.connections, d.personas, d.searchIndexAge); err != nil {
+		d.dependencyUp, d.connections, d.connectionState, d.connObserved, d.personas, d.searchIndexAge); err != nil {
 		return fmt.Errorf(instErrFmt, "platform state callback", err)
 	}
 	return nil
@@ -226,6 +242,14 @@ func (m *Metrics) observePlatformState(ctx context.Context, o metric.Observer) e
 	for _, c := range s.Connections {
 		o.ObserveInt64(d.connections, c.Count, metric.WithAttributes(
 			attribute.String(attrKind, c.Kind), attribute.String(attrState, c.State)))
+	}
+	for _, c := range s.ConnectionStates {
+		named := attribute.NewSet(attribute.String(attrConnection, c.Connection), attribute.String(attrKind, c.Kind))
+		o.ObserveInt64(d.connectionState, 1, metric.WithAttributes(attribute.String(attrConnection, c.Connection),
+			attribute.String(attrKind, c.Kind), attribute.String(attrState, c.State)))
+		if !c.Observed.IsZero() {
+			o.ObserveFloat64(d.connObserved, float64(c.Observed.UnixNano())/float64(time.Second), metric.WithAttributeSet(named))
+		}
 	}
 	if s.PersonasKnown {
 		o.ObserveInt64(d.personas, s.Personas)

@@ -30,6 +30,22 @@
 
   var state = { spec: null, token: "", tokenField: "", honeypot: "" };
 
+  // A preview (#2494) says so above the form, shows where a bot check would
+  // be, and shows a redirect instead of following it; its submissions are
+  // answered and never stored.
+  if (cfg.preview) {
+    var banner = document.createElement("p");
+    banner.className = "status preview";
+    banner.setAttribute("role", "note");
+    banner.textContent = "Preview: submissions are answered by form_submit and not stored, and no file is saved.";
+    document.body.insertBefore(banner, app);
+    var check = document.getElementById("check");
+    var box = document.createElement("p");
+    box.className = "status preview";
+    box.textContent = "A published form that requires a bot check shows it here.";
+    check.appendChild(box);
+  }
+
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     Object.keys(attrs || {}).forEach(function (k) {
@@ -270,6 +286,10 @@
       .then(function (res) {
         if (res.status === 422) { showErrors(form, res.body.errors); return; }
         if (!res.ok) { formError(form, message(res.body, "The form could not be sent.")); return; }
+        if (res.body.redirect && cfg.preview) {
+          status("Accepted. The published form would now send the person to " + res.body.redirect, "ok");
+          return;
+        }
         if (res.body.redirect) { window.location.assign(res.body.redirect); return; }
         status(res.body.confirmation || "Thank you. Your response was received.", "ok");
       })

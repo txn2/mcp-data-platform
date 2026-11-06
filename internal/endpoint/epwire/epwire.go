@@ -14,10 +14,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/eppreview"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
@@ -46,6 +48,12 @@ type Endpoints struct {
 	// Refusals counts the requests refused before their handler ran
 	// (#2208); its flush loop runs with the platform's lifecycle.
 	Refusals *eprefusal.Counter
+	// Approvals is the Approvals queue (#2437, #2494): a form's version is
+	// approved before callers with no session are served it. Its notifier
+	// and approvers are set once notifications are assembled.
+	Approvals *approval.Service
+	// Previews opens a form's preview for its owner (#2494).
+	Previews *eppreview.Previews
 }
 
 // Deps is what the script wiring hands over.
@@ -97,8 +105,10 @@ func Build(deps Deps) *Endpoints {
 		Subjects: deps.Subjects, Limits: deps.Limits, Destinations: deps.Destinations,
 		Libraries: libraries(scripts, deps.Sources), Tokens: tokens, FormKey: epform.Key(deps.Key),
 	}
+	approvals := &approval.Service{Store: approval.NewPostgresStore(deps.DB), Scripts: scripts, IsForm: epform.DefinesSource}
+	previews := &eppreview.Previews{Store: eppreview.NewStore(deps.DB), Versions: scripts, BaseURL: deps.BaseURL}
 	commands := &epcmd.Handler{
-		Store: bindings, CheckUsable: checker.Usable, BaseURL: deps.BaseURL,
+		Store: bindings, CheckUsable: checker.Usable, BaseURL: deps.BaseURL, Approvals: approvals, Previews: previews,
 		ScriptName: func(ctx context.Context, id string) string {
 			if sc, err := scripts.GetByID(ctx, id); err == nil && sc != nil {
 				return sc.Name
@@ -108,7 +118,8 @@ func Build(deps Deps) *Endpoints {
 	}
 	return &Endpoints{
 		Bindings: bindings, Checker: checker, Runner: runner, Commands: commands, Tokens: tokens,
-		Refusals: eprefusal.NewCounter(eprefusal.NewStore(deps.DB), 0),
+		Refusals: eprefusal.NewCounter(eprefusal.NewStore(deps.DB), 0), Approvals: approvals,
+		Previews: previews,
 	}
 }
 

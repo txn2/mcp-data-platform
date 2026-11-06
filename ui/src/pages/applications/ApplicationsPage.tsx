@@ -62,6 +62,7 @@ export function ApplicationsPage({ onNavigate }: Props) {
       </SectionCard>
       {creating && (
         <NewApplicationDialog
+          onNavigate={onNavigate}
           onClose={() => setCreating(false)}
           onCreated={(a) => {
             setCreating(false);

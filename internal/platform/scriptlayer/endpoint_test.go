@@ -162,7 +162,9 @@ func TestEndpointSet_AnAdministratorBindsAndTheBindingIsListed(t *testing.T) {
 	assert.Equal(t, float64(1), everyone["count"])
 }
 
-// #2171: everyone but an administrator is refused, the owner included.
+// #2171, narrowed by #2494: an endpoint that is not a form is an
+// administrator's to bind, its owner's refused naming why; another person's
+// script is refused whatever it is.
 func TestEndpointCommands_RefuseEveryoneButAnAdministrator(t *testing.T) {
 	h, bindings := endpointHandle(t, "default")
 	for _, cmd := range []string{epcmd.CmdSet, epcmd.CmdEnable, epcmd.CmdDisable} {
@@ -170,7 +172,7 @@ func TestEndpointCommands_RefuseEveryoneButAnAdministrator(t *testing.T) {
 		in.Command = cmd
 		res := call(t, h, authorCtx(), in)
 		require.True(t, res.IsError, cmd)
-		assert.Contains(t, resultText(res), "only an administrator", cmd)
+		assert.Contains(t, resultText(res), "an administrator binds an endpoint that is not a form", cmd)
 	}
 	assert.Empty(t, bindings.byScript)
 
@@ -294,4 +296,13 @@ func TestSaveGateIsTheLayersOwn(t *testing.T) {
 	g := h.SaveGate()
 	require.NotNil(t, g)
 	assert.NotNil(t, g.Endpoint, "a bound script's save keeps the handle(req) check")
+}
+
+// #2494: form_preview reaches the endpoint commands with the caller as the
+// preview's opener and the source sent, and answers why it cannot preview.
+func TestFormPreview_IsAnEndpointCommand(t *testing.T) {
+	h, _ := endpointHandle(t, "default")
+	res := call(t, h, authorCtx(), manageScriptInput{Command: epcmd.CmdFormPreview, Name: "lookup", Source: "def main():\n    pass\n"})
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "cannot preview a form", "a deployment with no previews says so")
 }

@@ -245,7 +245,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	m := t.recorder()
 	m.RecordHTTPClientRequest(ctx, string(t.kind), t.connection, observability.HTTPStatusClass(status), d)
 	if connectionKinds[t.kind] && ctx.Value(noStateKey{}) == nil {
-		connstate.Observe(string(t.kind), t.connection, connstate.FromHTTP(status, err))
+		connstate.ObserveHTTP(string(t.kind), t.connection, status, err)
 	}
 	if t.kind == KindAPI && resp != nil {
 		upstreamwarn.Observe(ctx, t.connection, status, resp.Header)

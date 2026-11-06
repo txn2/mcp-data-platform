@@ -242,7 +242,10 @@ func TestNonTransactionalMigrationRunsAlone_RealDB(t *testing.T) {
 		ctx := admin()
 		schema(t, ctx, tk, threeMigrations[0], false)
 		no := false
-		schema(t, ctx, tk, schemaInput{Command: schemaAdd, Version: 2, Name: "concurrent index", Up: "CREATE INDEX CONCURRENTLY orders_total ON orders (total)", Transactional: &no}, false)
+		schema(t, ctx, tk, schemaInput{
+			Command: schemaAdd, Version: 2, Name: "concurrent index", Up: "CREATE INDEX CONCURRENTLY orders_total ON orders (total)",
+			Down: "DROP INDEX CONCURRENTLY IF EXISTS orders_total", Transactional: &no,
+		}, false)
 		plan := schema(t, ctx, tk, schemaInput{Command: schemaPlan}, false)["plan"].(map[string]any)
 		if u, _ := json.Marshal(plan["unplanned"]); string(u) != "[2]" {
 			t.Fatalf("unplanned = %s", u)
@@ -251,6 +254,25 @@ func TestNonTransactionalMigrationRunsAlone_RealDB(t *testing.T) {
 		got := queryOK(t, tk, Statement{Connection: "target", SQL: "SELECT count(*) FROM pg_indexes WHERE indexname = 'orders_total'"})
 		if b, _ := json.Marshal(got.Rows[0][0]); string(b) != "1" {
 			t.Fatal("the concurrent index was not built")
+		}
+
+		// #2490: its down runs alone too; inside a transaction PostgreSQL
+		// refuses DROP INDEX CONCURRENTLY with SQLSTATE 25001.
+		out := schema(t, ctx, tk, schemaInput{Command: schemaDown}, false)
+		if n := len(out["done"].([]any)); n != 1 {
+			t.Fatalf("reverted = %d: %v", n, out)
+		}
+		got = queryOK(t, tk, Statement{Connection: "target", SQL: "SELECT count(*) FROM pg_indexes WHERE indexname = 'orders_total'"})
+		if b, _ := json.Marshal(got.Rows[0][0]); string(b) != "0" {
+			t.Fatal("the concurrent index is still there after down")
+		}
+		if n := count(t, tk, "mcp_schema.migrations"); n != "1" {
+			t.Fatalf("ledger rows after down = %s", n)
+		}
+		// And the migration below it reverts in its transaction.
+		schema(t, ctx, tk, schemaInput{Command: schemaDown}, false)
+		if n := count(t, tk, "mcp_schema.migrations"); n != "0" {
+			t.Fatalf("ledger rows after the second down = %s", n)
 		}
 	})
 }

@@ -233,6 +233,16 @@ the application is built for agreed; the summary is in its history. The
 schema's migrations are then applied from zero on a throwaway database, and a
 set that does not apply is refused naming the migration.
 
+A statement PostgreSQL runs only outside a transaction block (`CREATE INDEX
+CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `REINDEX ... CONCURRENTLY`) goes in
+a migration of its own added with `transactional=false`. Such a migration runs
+alone, and so does its down: `down` runs it on the session under the same lock
+and statement timeouts and `search_path`, then deletes its ledger row. Its up
+and its down each hold one statement; write the down with `IF EXISTS`, since
+a down whose ledger row could not be deleted runs again on the next `down`.
+A transactional migration whose down runs `CONCURRENTLY` is refused at `add`,
+naming `transactional=false`: its down could never be reverted.
+
 The review also warns on what leaves the database open: a `SECURITY DEFINER`
 function without `SET search_path = ..., pg_temp` or without `REVOKE EXECUTE
 ... FROM PUBLIC` in the same migration, `ENABLE ROW LEVEL SECURITY` without

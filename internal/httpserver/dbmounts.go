@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/changesethttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/embedwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/formpublishwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
@@ -45,7 +46,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -222,6 +222,9 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	accessreqwire.Mount(mux, p, accessreqwire.Deps{
 		Wrap: wrap, IsAdmin: isAdmin, Notify: notify, AdminWrap: adminAuthIfEnabled(p), Author: adminEmail,
 	})
+	// A form's preview and the Approvals queue its public use is approved
+	// through (#2494, #2437).
+	formpublishwire.Mount(mux, p, formpublishwire.Deps{Wrap: wrap, IsAdmin: isAdmin, Notify: notify})
 	// Table registration serves both the portal's assets and the managed
 	// resources API, so it is mounted once here rather than beside each.
 	mountTableAPI(mux, p, wrap, isAdmin)
@@ -300,11 +303,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap f
 		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(), Stored: platform.StoredConnections(p),
 	})
 	deps.Connections = scriptConnectionEnumerator(lister)
-	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
-		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports()).
-		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).WithStatementCeiling(p.Config().Scripts.SQL.MaxTimeout()).
-		WithRecordings(deps.Gate.Recordings).WithLibraries(deps.Gate.Libraries).WithResources(deps.Gate.Resources).
-		WithTokens(p.Endpoints().TokenIssuer())
+	deps.Drafts = savegatewire.Drafts(p, deps.Gate)
 	// A persona without Automations is refused by the persona gate, which
 	// decides every portal area from one route table (#2225).
 	wrap := portalWrap

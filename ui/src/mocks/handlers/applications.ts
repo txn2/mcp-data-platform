@@ -16,6 +16,7 @@ import { mockApplicationBundle, mockApplicationDetails } from "../data/applicati
 //   POST   /portal/applications/:app/release, POST .../rollback
 //   GET    /portal/applications/:app/export
 //   POST   /portal/applications/import
+//   GET    /portal/application-databases
 
 const BASE = "/api/v1/portal/applications";
 
@@ -60,6 +61,21 @@ function recordRelease(d: ApplicationDetail, rel: ApplicationRelease): Applicati
 }
 
 export const applicationHandlers = [
+  http.get("/api/v1/portal/application-databases", () => {
+    const held = (connection: string, schema: string) =>
+      Object.values(details).find(
+        (d) => d.application.connection === connection && d.application.schema === schema,
+      )?.application.name;
+    const schemas = (connection: string, names: string[]) =>
+      names.map((n) => ({ name: n, ...(held(connection, n) ? { held_by: held(connection, n) } : {}) }));
+    return HttpResponse.json({
+      connections: [
+        { connection: "acme-shop", description: "The storefront database", schemas: schemas("acme-shop", ["public", "shop"]) },
+        { connection: "inventory", schemas: schemas("inventory", ["public"]) },
+      ],
+    });
+  }),
+
   http.get(BASE, () => {
     const applications = Object.values(details).map((d) => d.application);
     return HttpResponse.json({ applications, total: applications.length });

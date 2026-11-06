@@ -21,9 +21,19 @@ flowchart LR
 |---|---|
 | `name` | A lowercase slug, unique on the deployment |
 | `owner_email` | The one owner; an administrator moves it to another |
-| `connection`, `schema` | The application database schema whose migrations a release applies; both or neither. One application per schema |
+| `connection`, `schema` | The application database schema whose migrations a release applies; both or neither. One application per schema. The connection must be an application database connection (kind `appdb`): any other name is refused at create (#2491) |
 | `parts` | Scripts (by id), assets (by id) and webhook sources (by name). A part belongs to at most one application |
 | `current_release` | The release in force, 0 before the first |
+
+The portal's **New application** dialog says what an application is and links
+to the `platform-applications` knowledge page. Its name is checked as it is
+typed against the rule above. The database is chosen from the application
+database connections the caller's persona reaches, or **None (no database)**
+for an application of scripts, sources and assets alone; with one chosen, the
+schema is chosen from that connection's schemas, each one another application
+holds shown with its name and not offered, or a new name is entered, which the
+first release creates. The choices are read from
+`GET /api/v1/portal/application-databases`.
 
 Everyone signed in reads an application. Its owner and administrators edit its description and its parts, except that taking out a part the current release pins, or deleting a released application, is for administrators: either puts the part's newest version live, which is what a release does. A part is added by its owner (a webhook source, which only administrators manage, by an administrator). Only administrators release, roll back, export and import: a release changes the code behind a public endpoint and runs migrations on the target database, which is the authority `endpoint_set` and `manage_schema apply` already require. There is no second approver.
 

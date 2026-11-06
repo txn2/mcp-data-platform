@@ -16,6 +16,7 @@ const SECTIONS: { slug: string; path: string }[] = [
   { slug: "prompts", path: "/portal/prompts" },
   { slug: "scripts", path: "/portal/automations" },
   { slug: "applications", path: "/portal/applications" },
+  { slug: "approvals", path: "/portal/approvals" },
   { slug: "resources", path: "/portal/resources" },
   { slug: "scratch-tables", path: "/portal/scratch-tables" },
   { slug: "feedback", path: "/portal/feedback" },

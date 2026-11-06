@@ -9,7 +9,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.starlark.net/starlark"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
@@ -348,4 +350,27 @@ func TestRun_TokensAreBoundToTheScriptUnderTheDrafter(t *testing.T) {
 
 	var none *Runner
 	assert.Nil(t, none.WithTokens(issuer))
+}
+
+// TestRun_CallsAHandlerInPlaceOfMain is a form's preview (#2494): the draft
+// calls the function named, with the arguments given, hands back what it
+// returned, and runs no main().
+func TestRun_CallsAHandlerInPlaceOfMain(t *testing.T) {
+	var got starlark.Value
+	st := &recordings{}
+	outcome, err := New(server(t), nil).WithRecordings(st).Run(context.Background(), Request{
+		Source: "def main():\n    fail(\"main ran\")\n\ndef form_spec(req):\n    return {\"seen\": req}\n",
+		Name:   "preview", Identity: jane,
+		Handler: &scriptdialect.Handler{Name: "form_spec", Args: starlark.Tuple{starlark.String("r")}, Returned: func(v starlark.Value) error {
+			got = v
+			return nil
+		}},
+	})
+	require.NoError(t, err)
+	require.False(t, outcome.Failed(), "%v", outcome.Err)
+	assert.False(t, outcome.Recorded, "a handler's draft keeps no recording: its arguments can carry a submission")
+	d, ok := got.(*starlark.Dict)
+	require.True(t, ok)
+	seen, _, _ := d.Get(starlark.String("seen"))
+	assert.Equal(t, starlark.String("r"), seen)
 }

@@ -208,3 +208,66 @@ func TestReferenceRewriteNamesThisPage(t *testing.T) {
 	assert.Equal(t, PathPrefix, assetrefs.FormPagePrefix)
 	assert.Equal(t, PathPrefix, epform.PagePrefix)
 }
+
+// previews owns one preview, fp1, opened by ann.
+type previews struct{ err error }
+
+func (p previews) Owner(_ context.Context, id string) (string, error) {
+	if p.err != nil {
+		return "", p.err
+	}
+	if id != "fp1" {
+		return "", ErrNoPreview
+	}
+	return "ann@example.com", nil
+}
+
+// TestPreview is #2494's preview page: rendered for the person who opened
+// it, signed for the preview's own name and answered at its own route;
+// refused to anyone else; a browser with no session is sent to sign in.
+func TestPreview(t *testing.T) {
+	mux := http.NewServeMux()
+	h := &Handler{Runner: targets(), BaseURL: "https://data.example.com", ViewerKey: viewerKey, Session: session, SignIn: LoginURL, Previews: previews{}}
+	h.Mount(mux)
+
+	rec := get(mux, "/forms/_preview/fp1", sessionHeader, "ann")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	cfg := pageConfig(t, rec.Body.String())
+	assert.True(t, cfg.Preview)
+	assert.Equal(t, "/endpoints/_preview/fp1", cfg.URL)
+	assert.Equal(t, eprun.PreviewPrefix+"fp1", cfg.Endpoint)
+	v, err := epform.OpenViewer(viewerKey, eprun.PreviewPrefix+"fp1", cfg.Viewer, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, "ann@example.com", v.Email)
+	assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "frame-ancestors 'self'")
+
+	rec = get(mux, "/forms/_preview/fp1", sessionHeader, "bob")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	cfg = pageConfig(t, rec.Body.String())
+	assert.Contains(t, cfg.Refused, "belongs to the person who opened it")
+	assert.Empty(t, cfg.Viewer)
+	assert.Equal(t, http.StatusForbidden, get(mux, "/forms/_preview/fp1", sessionHeader, "refused").Code)
+
+	rec = get(mux, "/forms/_preview/fp1")
+	assert.Equal(t, http.StatusSeeOther, rec.Code)
+	assert.Contains(t, rec.Header().Get("Location"), "/portal/auth/login?return_to=%2Fforms%2F_preview%2Ffp1")
+
+	assert.Equal(t, http.StatusNotFound, get(mux, "/forms/_preview/gone", sessionHeader, "ann").Code)
+	broken := http.NewServeMux()
+	(&Handler{Runner: targets(), Previews: previews{err: errors.New("down")}}).Mount(broken)
+	assert.Equal(t, http.StatusInternalServerError, get(broken, "/forms/_preview/fp1").Code)
+	nosession := http.NewServeMux()
+	(&Handler{Runner: targets(), Previews: previews{}}).Mount(nosession)
+	assert.Equal(t, http.StatusForbidden, get(nosession, "/forms/_preview/fp1").Code, "no session reader: nobody")
+}
+
+// #2494: a signed-in person opening a public form's page is signed a viewer,
+// so they are served the version the script runs.
+func TestPage_PublicFormSignsASignedInViewer(t *testing.T) {
+	mux := fixture()
+	cfg := pageConfig(t, get(mux, "/forms/open", sessionHeader, "ann").Body.String())
+	v, err := epform.OpenViewer(viewerKey, "open", cfg.Viewer, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, "ann@example.com", v.Email)
+	assert.Empty(t, pageConfig(t, get(mux, "/forms/open").Body.String()).Viewer, "no session, no viewer")
+}

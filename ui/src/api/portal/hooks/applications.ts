@@ -142,6 +142,35 @@ export function useApplication(app: string) {
   });
 }
 
+/** One schema of an application database connection, and the application holding it. */
+export interface ApplicationSchemaChoice {
+  name: string;
+  held_by?: string;
+}
+
+/** An application database connection the caller reaches, with its schemas (#2491). */
+export interface ApplicationDatabaseChoice {
+  connection: string;
+  description?: string;
+  schemas: ApplicationSchemaChoice[];
+  /** Set when the schemas could not be read; a new name can still be entered. */
+  problem?: string;
+}
+
+export function useApplicationDatabases(enabled = true) {
+  return useQuery({
+    queryKey: ["application-databases"],
+    queryFn: () =>
+      apiFetch<{ connections: ApplicationDatabaseChoice[] }>("/application-databases").then(
+        (r) => r.connections,
+      ),
+    enabled,
+  });
+}
+
+/** The rule an application's name follows, as the server checks it. */
+export const APPLICATION_NAME_RE = /^[a-z][a-z0-9-]{0,62}$/;
+
 export function useCreateApplication() {
   const queryClient = useQueryClient();
   return useMutation({

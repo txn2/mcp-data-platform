@@ -737,6 +737,28 @@ answers, records nothing and leaves what real calls found. A connection's
 state is dropped on every replica when it is deleted or its configuration
 changes (#2444), so a connection saved again under a deleted one's name, or
 with a new credential, reads `configured` until a call uses it.
+
+A recorded state stands for `MCP_PLATFORM_CONNECTION_STATE_MAX_AGE` (a Go
+duration, default `15m`) with no later call to confirm it, and the connection
+then reads `configured` again (#2442): a connection that failed once and is
+not called again stops reporting the failure. Each connection is also
+reported under its name: `mcp_platform_connection_state{connection, kind,
+state}` is 1 for its current state, and
+`mcp_platform_connection_state_observed_timestamp_seconds{connection, kind}`
+is when a call last recorded it (absent for a connection with no current
+record), so an alert names the failing connection and can require a recent
+observation. Connection names are the operator's, tens per deployment.
+
+Every move into a failure is logged at WARN as `connection state changed`, and
+every move out of one at INFO as `connection recovered`, with `connection`,
+`kind`, `from_state` (`configured` for a connection with no current record),
+`to_state` and `reason`. The reason is a word the platform chooses: the status
+it answered with (`http_401`, `http_407`, `http_502`, `http_503`, `http_504`,
+or the class, `http_2xx`, `http_4xx`), `timeout` or `transport_error` for an
+error, or `credential_refused`, `network_error` and `answered` where only the
+state is known. It never carries the upstream's address, its answer or an
+error's text. A first call that finds a connection healthy logs nothing.
+
 `mcp_platform_personas` is the number of personas registered.
 
 **Search index age.** `search_index_last_indexed_age_seconds{kind}` is how

@@ -143,6 +143,13 @@ const (
 	// KindAccessDecision marks the answer to a person's request for access
 	// (#2090). Message says how it was answered.
 	KindAccessDecision = "access_decision"
+	// KindApprovalRequest marks a request for an administrator's approval
+	// (#2437, #2494): ItemTitle names what is to be approved, Actor the
+	// requester, Message their reason.
+	KindApprovalRequest = "approval_request"
+	// KindApprovalDecision marks the decision on a person's request for
+	// approval. Message says how it was decided.
+	KindApprovalDecision = "approval_decision"
 )
 
 // ReviewQueue is the pending-review rollup a KindReviewQueue notification

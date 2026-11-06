@@ -103,6 +103,7 @@ const pageTitles: Record<string, string> = {
   "/": "Assets",
   "/apis": "APIs",
   "/applications": "Applications",
+  "/approvals": "Approvals",
   "/collections": "Collections",
   "/resources": "Resources",
   "/scratch-tables": "Scratch Tables",
@@ -560,7 +561,7 @@ export function AppShell() {
               onBack={() => navigate("/prompts")}
             />
           )}
-          {!adminRoute && isInSection(route, "/applications") && (
+          {!adminRoute && (isInSection(route, "/applications") || route === "/approvals") && (
             <ApplicationRoutes route={route} onNavigate={navigate} />
           )}
           {!adminRoute && isInSection(route, "/automations") && (

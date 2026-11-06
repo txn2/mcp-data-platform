@@ -132,7 +132,7 @@ func (s *Sampler) Sample(_ context.Context) observability.PlatformStateSample {
 		out.Personas = int64(len(s.deps.Personas.All()))
 		out.PersonasKnown = true
 	}
-	out.Connections = connectionStates(s.deps.Toolkits)
+	out.Connections, out.ConnectionStates = connectionStates(s.deps.Toolkits)
 	sortSample(&out)
 	return out
 }

@@ -32,6 +32,7 @@ flowchart LR
 | Publish an event to several consumers | `NOTIFY`, a pub/sub table | webhook events: each script naming the source runs once per event |
 | Store an uploaded file | a `bytea` column | managed resources: object storage with versions, a library, scopes and a URL |
 | Serve an HTTP API | a separate service | an endpoint: a managed script bound to `/endpoints/{name}/...`, with authentication, rate limits and an audit row |
+| A form on a page | a forms service storing rows | a form script: previewed by its owner unbound, published to signed-in people by its owner, and served to everyone at a version an administrator approved; each accepted submission is stored for it |
 | Send an email or a chat message | a mail extension | `platform.notify` to a channel an administrator configured: an email list, Slack, Mattermost or an incoming webhook |
 | Maintenance on a timer | `pg_cron` running `VACUUM` | a scheduled script calling `platform.maintain` |
 

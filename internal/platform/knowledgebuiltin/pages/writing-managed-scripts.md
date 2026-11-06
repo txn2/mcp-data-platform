@@ -52,6 +52,16 @@ the edit is how you try a change without making it live.
    at the save. A script that belongs to a released application runs the
    version its application's release pins instead (`manage_application`).
 
+A form (a script defining `form_spec(req)` and `form_submit(req, values)`)
+is seen before anything is bound: `command=form_preview` returns a link to the
+form rendered as `/forms/<endpoint>` renders it, from the latest saved version,
+`preview_version`, or the unsaved `source`. It opens for you only, for half an
+hour; its `form_spec` and `form_submit` run as drafts under your identity, so
+a submission there writes nothing, stores nothing and saves no file. Hand the
+link to the person to open in their browser. Its owner then publishes it with
+`endpoint_set` `auth_mode=authenticated`; serving it to people who are not
+signed in takes a version an administrator approved (`manage_approval`).
+
 ## The dialect is deliberately smaller than Python
 
 Starlark looks like Python but has no `import`, no `try/except`, no `while`, no

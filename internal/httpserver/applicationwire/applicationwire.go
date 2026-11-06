@@ -4,16 +4,23 @@
 package applicationwire
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/apphttp"
+	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
+	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
+
+// errNoKit is a schema read with no application database toolkit registered.
+var errNoKit = errors.New("no application database toolkit is registered")
 
 // Mount registers the portal application routes behind wrap. Nothing without
 // a database.
@@ -41,16 +48,42 @@ func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) htt
 	if gate != nil {
 		d.SaveGate, d.Recordings = gate, gate.Recordings
 	}
-	register(mux, wrap, d, isAdmin, p.Audit().Logger())
+	lister := connreach.New(connreach.Deps{Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(), Stored: platform.StoredConnections(p)})
+	src := databaseSources{
+		reach:   lister.ForPersona,
+		persona: func(roles []string) string { return personaOf(p, roles) },
+		schemas: readSchemas(func() *postgreskit.Toolkit { return appwire.Live(p.ToolkitRegistry()) }),
+		held:    appstore.New(p.DB()).List,
+	}
+	register(mux, wrap, d, routes{isAdmin: isAdmin, audit: p.Audit().Logger(), databases: src.choices})
+}
+
+// routes is what the routes are mounted with besides the stores.
+type routes struct {
+	isAdmin   func([]string) bool
+	audit     middleware.AuditLogger
+	databases func(*http.Request, application.Actor) []apphttp.DatabaseChoice
+}
+
+// personaOf is the persona a caller's roles resolve to, "" for none.
+func personaOf(p *platform.Platform, roles []string) string {
+	if pr := p.PersonaRegistry(); pr != nil {
+		if per, ok := pr.GetForRoles(roles); ok && per != nil {
+			return per.Name
+		}
+	}
+	return ""
 }
 
 // register assembles the service and bundler over d and mounts the routes.
-func register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, d appwire.Deps, isAdmin func([]string) bool, audit middleware.AuditLogger) {
+func register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, d appwire.Deps, r routes) {
 	svc := appwire.Service(d)
 	if svc == nil {
 		return
 	}
-	apphttp.Register(mux, wrap, apphttp.Config{Service: svc, Bundles: appwire.Bundler(svc, d), Actor: Actor(isAdmin), Audit: audit})
+	apphttp.Register(mux, wrap, apphttp.Config{
+		Service: svc, Bundles: appwire.Bundler(svc, d), Actor: Actor(r.isAdmin), Audit: r.audit, Databases: r.databases,
+	})
 }
 
 // Actor is the portal caller as an application actor, nil when signed out.

@@ -1,9 +1,11 @@
+import { ApprovalsPage } from "@/pages/approvals/ApprovalsPage";
 import { ApplicationDetailPage } from "./ApplicationDetailPage";
 import { ApplicationsPage } from "./ApplicationsPage";
 
 // ApplicationRoutes is the portal's Applications section (#2411): the listing
-// and one application. It owns its route matching, as the Automations section
-// does, so the shell mounts the section rather than each of its pages.
+// and one application, and the Approvals queue a form's public use is
+// approved through (#2494). It owns its route matching, as the Automations
+// section does, so the shell mounts the section rather than each of its pages.
 export function ApplicationRoutes({
   route,
   onNavigate,
@@ -12,6 +14,7 @@ export function ApplicationRoutes({
   onNavigate: (path: string) => void;
 }) {
   if (route === "/applications") return <ApplicationsPage onNavigate={onNavigate} />;
+  if (route === "/approvals") return <ApprovalsPage onNavigate={onNavigate} />;
   const detail = route.match(/^\/applications\/([^/]+)$/);
   if (!detail) return null;
   return (

@@ -120,6 +120,39 @@ type Target struct {
 	stamp   epbinding.Stamp
 	// Form is whether the version defines form_spec and form_submit (#2176).
 	Form bool
+	// public is what a public or bot_check form serves a caller with no
+	// session (#2494): the version approved for it, which may be older than
+	// Version. Nil on a form with no approved version, which serves such a
+	// caller nothing, and on everything that is not such a form.
+	public *Target
+}
+
+// ServesPublicly reports whether the target is a public or bot_check form,
+// whose callers with no session are served its approved version. A binding
+// with an approved version stays one when a later version is not a form: a
+// form's owner cannot get a version approved and then serve a handler of
+// their own publicly in its place.
+func (t *Target) ServesPublicly() bool {
+	return t.Binding.AuthMode != epbinding.AuthAuthenticated && (t.Form || t.stamp.ApprovedVersion > 0)
+}
+
+// For is the target a request from caller runs: on a public or bot_check
+// form, a caller with no session gets the approved version (nil when none
+// is), and a signed-in caller the version the script runs (#2494).
+func (t *Target) For(caller *Caller) *Target {
+	if caller != nil || !t.ServesPublicly() {
+		return t
+	}
+	return t.public
+}
+
+// PublicVersion is the version a public form serves a caller with no
+// session, 0 for none.
+func (t *Target) PublicVersion() int {
+	if t.public == nil {
+		return 0
+	}
+	return t.public.Version.Version
 }
 
 // Resolve is the endpoint a name serves, current as of this call.
@@ -175,7 +208,41 @@ func (r *Runner) load(ctx context.Context, name string, stamp epbinding.Stamp, h
 	} else {
 		t.Form = epform.DefinesSource(v.Source)
 	}
+	if err := r.loadPublic(ctx, t, held); err != nil {
+		return nil, err
+	}
 	return t, nil
+}
+
+// loadPublic gives a public or bot_check form the version approved for
+// callers with no session (#2494), keeping a held module of that version.
+func (r *Runner) loadPublic(ctx context.Context, t, held *Target) error {
+	approved := t.stamp.ApprovedVersion
+	if !t.ServesPublicly() || approved <= 0 {
+		return nil
+	}
+	if approved == t.Version.Version {
+		t.public = t
+		return nil
+	}
+	if held != nil && held.public != nil && held.public.Version.Version == approved && held.public.Script.ID == t.Script.ID {
+		pub := *held.public
+		pub.Binding, pub.Script, pub.stamp, pub.public = t.Binding, t.Script, t.stamp, nil
+		t.public = &pub
+		return nil
+	}
+	v, err := r.Scripts.GetVersion(ctx, t.Script.ID, approved)
+	if err != nil {
+		return fmt.Errorf("reading the endpoint's approved version: %w", err)
+	}
+	if v == nil {
+		return nil
+	}
+	t.public = &Target{
+		Binding: t.Binding, Script: t.Script, Version: v, program: &scriptdialect.Program{},
+		stamp: t.stamp, Form: epform.DefinesSource(v.Source),
+	}
+	return nil
 }
 
 // Serve runs t's handler for req and returns its response. It never fails:
@@ -193,6 +260,13 @@ func (r *Runner) Serve(ctx context.Context, t *Target, req Request) Response {
 		return resp
 	}
 	started := time.Now()
+	run := t.For(req.Caller)
+	if run == nil {
+		resp := errorResponse(http.StatusNotFound, "this form is waiting for an administrator's approval before it is served without signing in")
+		r.Metrics.RecordEndpointRequest(ctx, t.Binding.Name, observability.HTTPStatusClass(resp.Status), 0)
+		return resp
+	}
+	t = run
 	var resp Response
 	var failure error
 	sessionID, err := pkgsession.GenerateScriptSessionID()

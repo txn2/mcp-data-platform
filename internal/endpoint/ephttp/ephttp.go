@@ -199,9 +199,12 @@ func (h *Handler) admit(w http.ResponseWriter, r *http.Request, t *eprun.Target)
 	case epbinding.AuthAuthenticated:
 		return h.authenticated(w, r, t)
 	case epbinding.AuthPublic:
-		return nil, true
+		return h.optional(r, t), true
 	case epbinding.AuthBotCheck:
-		return nil, h.checked(w, r, b)
+		if !h.checked(w, r, b) {
+			return nil, false
+		}
+		return h.optional(r, t), true
 	}
 	httpjson.WriteError(w, http.StatusServiceUnavailable, "the endpoint's access mode is not one this platform answers")
 	return nil, false
@@ -256,6 +259,22 @@ func (h *Handler) authenticated(w http.ResponseWriter, r *http.Request, t *eprun
 		return nil, false
 	}
 	return caller, true
+}
+
+// optional is who sent a request to a public or bot_check form when they say
+// (#2494): a signed-in person is served the version the script runs, a caller
+// with no session the version approved for them. A credential that does not
+// open is no caller, as on any public endpoint, and an endpoint that is not a
+// form never asks.
+func (h *Handler) optional(r *http.Request, t *eprun.Target) *eprun.Caller {
+	if !t.ServesPublicly() || h.Authenticate == nil {
+		return nil
+	}
+	caller, err := h.caller(r, t)
+	if err != nil {
+		return nil
+	}
+	return caller
 }
 
 // caller is who sent the request: the browser session or API key it carries,

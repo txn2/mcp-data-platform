@@ -649,7 +649,12 @@ a green night closes it. A merge to main whose pull request closes that issue
 dispatches the nightly on main at once (`e2e-nightly-on-fix.yml`), and when a
 tag is refused over a red run that ran on an older commit than the tag's, the
 refusal says so and names the run on a newer commit that is queued or running,
-or that none is (#2310).
+or that none is (#2310). A passing nightly on any branch whose commit has the tagged commit's
+tree counts as the tag's own (#2487): a nightly-fix pull request runs the full
+nightly on its branch before it merges, and the merge commit of an up-to-date
+branch has the same tree, so the tag check accepts that run and names it,
+unless a run on `main` that failed finished after it. The release job frees
+the runner's disk before GoReleaser builds every platform (#2488).
 
 A pull request that changes how the dev stack starts or how the suite is
 launched (`dev/`, the `Makefile`, `scripts/acceptance*`,
@@ -658,6 +663,17 @@ or the two acceptance workflows) runs one acceptance group in CI on Linux
 before it merges: the `worker-off` environment, with `make dev-smoke` first
 (#2274). Its steps are `.github/workflows/acceptance-run.yml`, the workflow
 every nightly acceptance job calls, so the two cannot drift apart.
+
+A criterion that runs a binary with `exec.Command` runs only what that job
+provides (#2398). `.github/acceptance-binaries.tsv` lists each binary the suite
+runs and where the job gets it (`runner-image`, `step:<name>` naming a step of
+`acceptance-run.yml`, or `darwin-only`), and
+`TestAcceptanceExecsOnlyWhatCIProvides` (`test/structure`) fails on a binary
+not listed, naming the file and line, on a `step:` the job does not have, on a
+listed binary no criterion runs any longer, and on a `darwin-only` binary run
+outside a function that branches on `runtime.GOOS`. The platform binary a
+criterion builds with `go build` is not listed. Draw a fixture another way
+before adding a tool to the job.
 
 ## Getting Help
 

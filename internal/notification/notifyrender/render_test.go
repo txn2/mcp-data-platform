@@ -6,6 +6,9 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
@@ -386,4 +389,31 @@ func TestSubject(t *testing.T) {
 	if !strings.Contains(email.Subject, got) {
 		t.Errorf("Subject() = %q, which is not the line the email carries (%q)", got, email.Subject)
 	}
+}
+
+// TestRender_ApprovalRequestAndDecision is #2494's two emails: an approver is
+// asked to approve or deny, and the requester is told how it was decided.
+func TestRender_ApprovalRequestAndDecision(t *testing.T) {
+	req := notification.Notification{Recipient: "admin@b.io", Payload: notification.Payload{
+		Kind: notification.KindApprovalRequest, Actor: "jane@b.io", ItemTitle: "version 2 of the form intake",
+		Message: "launch", Link: "https://x.io/portal/approvals",
+	}}
+	assert.Equal(t, "jane@b.io asked for approval of version 2 of the form intake", Subject(req))
+	item := buildItem(req)
+	assert.Equal(t, "Approve or deny", item.LinkText)
+	assert.Equal(t, "launch", item.Message)
+
+	dec := req
+	dec.Payload.Kind, dec.Payload.Actor, dec.Payload.Message = notification.KindApprovalDecision, "admin@b.io", "admin@b.io approved it."
+	assert.Equal(t, "admin@b.io decided your request for approval of version 2 of the form intake", Subject(dec))
+	item = buildItem(dec)
+	assert.Equal(t, "admin@b.io approved it.", item.Body)
+	assert.Empty(t, item.Message)
+	assert.Equal(t, "Open it", item.LinkText)
+	dec.Payload.Link = ""
+	assert.Empty(t, buildItem(dec).LinkText)
+
+	email, err := testRenderer(t).Render([]notification.Notification{req})
+	require.NoError(t, err)
+	assert.Contains(t, email.Subject, Subject(req))
 }

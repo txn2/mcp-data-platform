@@ -48,8 +48,10 @@ func releaseRepo(t *testing.T) (root string, commits []string) {
 
 // fakeGH puts a gh on PATH that answers the nightly's run list with runs, a
 // run's failed log with log, and the issue list with issues, and records every
-// other call it is given in calls.txt under root. The env it returns is what
-// the script runs under.
+// other call it is given in calls.txt under root. A run list with no --branch
+// is answered from runs-all.json when a test wrote one, and a commit read
+// through the API from trees/<sha>. The env it returns is what the script runs
+// under.
 func fakeGH(t *testing.T, root, runs, log, issues string) []string {
 	t.Helper()
 	writeFile(t, root, "fake/runs.json", runs)
@@ -57,7 +59,14 @@ func fakeGH(t *testing.T, root, runs, log, issues string) []string {
 	writeFile(t, root, "fake/issues.json", issues)
 	writeFile(t, root, "fake/bin/gh", `#!/bin/sh
 case "$1 $2" in
-  "run list") cat "$FAKE/runs.json" ;;
+  "run list")
+    case "$*" in
+      *--branch*) cat "$FAKE/runs.json" ;;
+      *) if [ -f "$FAKE/runs-all.json" ]; then cat "$FAKE/runs-all.json"; else cat "$FAKE/runs.json"; fi ;;
+    esac ;;
+  "api repos/{owner}/{repo}/git/commits/"*)
+    sha="${2##*/}"
+    if [ -f "$FAKE/trees/$sha" ]; then cat "$FAKE/trees/$sha"; else exit 1; fi ;;
   "run view") cat "$FAKE/log.txt" ;;
   "issue list") cat "$FAKE/issues.json" ;;
   "api graphql") cat "$FAKE/graphql.json" ;;
@@ -370,5 +379,70 @@ func TestNightlyRerunOnFixRunsOnEveryPushToMain(t *testing.T) {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("e2e-nightly-on-fix.yml does not contain %q", want)
 		}
+	}
+}
+
+// nightlyRun is one completed nightly as gh run list reports it.
+func nightlyRun(id int, conclusion, created, sha string) string {
+	return fmt.Sprintf(`{"databaseId": %d, "status": "completed", "conclusion": %q, "url": "https://example.com/runs/%d", "createdAt": %q, "headSha": %q}`,
+		id, conclusion, id, created, sha)
+}
+
+// TestReleaseTag_AGreenNightlyOnTheTaggedTree is #2487: a final tag whose
+// commit has the tree a passing nightly ran on, on any branch, passes and names
+// that run; a passing branch run on another tree is not counted; and a failed
+// run on main that finished after the matching run still refuses.
+func TestReleaseTag_AGreenNightlyOnTheTaggedTree(t *testing.T) {
+	root, commits := releaseRepo(t)
+	runIn(t, root, "git", "tag", "v1.140.0", commits[3])
+	tree := gitOut(t, root, "rev-parse", commits[3]+"^{tree}")
+	// The branch commit the pull request was tested on: the tagged commit's
+	// tree under another parent, as a merge of an up-to-date branch makes.
+	branchSHA := gitOut(t, root, "-c", "user.name=gate", "-c", "user.email=gate@example.com", "commit-tree", tree, "-p", commits[2], "-m", "fix on a branch")
+	const absentSHA = "0123456789abcdef0123456789abcdef01234567"
+
+	cases := []struct {
+		name   string
+		main   string
+		all    string
+		trees  map[string]string
+		expect expect
+	}{
+		{
+			name:   "a green branch run on the tagged tree after a red run on main",
+			main:   "[" + nightlyRun(13, "failure", "2026-11-04T07:00:00Z", commits[2]) + "]",
+			all:    "[" + nightlyRun(20, "success", "2026-11-04T18:00:00Z", branchSHA) + ", " + nightlyRun(13, "failure", "2026-11-04T07:00:00Z", commits[2]) + "]",
+			expect: expect{pass: true, want: []string{"passed on v1.140.0's tree (https://example.com/runs/20", "commit " + branchSHA[:12]}},
+		},
+		{
+			name:   "a green run on a commit this clone lacks, its tree read from GitHub",
+			main:   "[" + nightlyRun(13, "failure", "2026-11-04T07:00:00Z", commits[2]) + "]",
+			all:    "[" + nightlyRun(21, "success", "2026-11-04T18:00:00Z", absentSHA) + "]",
+			trees:  map[string]string{absentSHA: tree},
+			expect: expect{pass: true, want: []string{"https://example.com/runs/21"}},
+		},
+		{
+			name:   "a green branch run on another tree is not counted",
+			main:   "[" + nightlyRun(13, "failure", "2026-11-04T07:00:00Z", commits[2]) + "]",
+			all:    "[" + nightlyRun(22, "success", "2026-11-04T18:00:00Z", commits[1]) + ", " + nightlyRun(13, "failure", "2026-11-04T07:00:00Z", commits[2]) + "]",
+			expect: expect{want: []string{"the most recent E2E Nightly on main failure (https://example.com/runs/13"}, mustNot: []string{"runs/22"}},
+		},
+		{
+			name:   "a red run on main newer than the matching green run refuses",
+			main:   "[" + nightlyRun(14, "failure", "2026-11-05T07:00:00Z", commits[1]) + "]",
+			all:    "[" + nightlyRun(14, "failure", "2026-11-05T07:00:00Z", commits[1]) + ", " + nightlyRun(20, "success", "2026-11-04T18:00:00Z", branchSHA) + "]",
+			expect: expect{want: []string{"https://example.com/runs/14"}, mustNot: []string{"passed on v1.140.0's tree"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := fakeGH(t, root, tc.main, failedLog, "[]")
+			writeFile(t, root, "fake/runs-all.json", tc.all)
+			for sha, tr := range tc.trees {
+				writeFile(t, root, "fake/trees/"+sha, tr+"\n")
+			}
+			out, ok := runScript(t, root, []string{releaseTagScript, "check", "v1.140.0"}, env)
+			assertOutput(t, out, ok, tc.expect)
+		})
 	}
 }

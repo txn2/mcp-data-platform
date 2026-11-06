@@ -19,7 +19,10 @@ release, and a red night notified no one. This module is both halves.
 
 scripts/release-tag.py imports latest_run, pending_runs and run_failures to
 refuse a final tag while the most recent nightly on main failed, and to say
-whether a run on a newer commit is already on its way.
+whether a run on a newer commit is already on its way; and green_run_on_tree to
+accept a passing run on any branch whose commit has the tagged commit's tree
+(#2487): a nightly-fix pull request runs the full nightly on its branch before
+it merges, and the merge commit tests the same tree again for nothing.
 
 Every GitHub read and write goes through the gh CLI, which reads the repository
 from the checkout's origin and the token from GH_TOKEN.
@@ -73,9 +76,11 @@ class Run:
         return self.conclusion != "success"
 
 
-def runs() -> list[Run]:
-    """The nightly's most recent runs on main, newest first, in any state."""
-    out = gh("run", "list", "--workflow", WORKFLOW, "--branch", "main", "--limit", "30", "--json", RUN_FIELDS)
+def runs(branch: str | None = "main") -> list[Run]:
+    """The nightly's most recent runs on branch (any branch for None), newest first, in any state."""
+    scope = ["--branch", branch] if branch else []
+    out = gh("run", "list", "--workflow", WORKFLOW, *scope, "--limit", "50" if branch is None else "30",
+             "--json", RUN_FIELDS)
     return [Run(id=int(r["databaseId"]), conclusion=r.get("conclusion") or "", url=r.get("url", ""),
                 created=r.get("createdAt", ""), head_sha=r.get("headSha", ""),
                 status=r.get("status") or "completed")
@@ -87,6 +92,29 @@ def latest_run() -> Run | None:
     for r in runs():
         if r.status == "completed" and r.conclusion in DECISIVE:
             return r
+    return None
+
+
+def tree_of(sha: str) -> str:
+    """The tree a commit records: read from this clone, else from GitHub, since a
+    merged pull request's branch is often deleted and absent from the clone."""
+    try:
+        out = subprocess.run(["git", "rev-parse", f"{sha}^{{tree}}"], capture_output=True, text=True, check=True)
+        return out.stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return gh("api", f"repos/{{owner}}/{{repo}}/git/commits/{sha}", "--jq", ".tree.sha").strip()
+
+
+def green_run_on_tree(tree: str) -> Run | None:
+    """The newest passing nightly, on any branch, whose commit has this tree, or None."""
+    for r in runs(branch=None):
+        if r.status != "completed" or r.conclusion != "success" or not r.head_sha:
+            continue
+        try:
+            if tree_of(r.head_sha) == tree:
+                return r
+        except (OSError, subprocess.CalledProcessError):
+            continue
     return None
 
 

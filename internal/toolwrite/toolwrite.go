@@ -312,6 +312,9 @@ var actionTools = map[string]actionRule{
 	"manage_application": {arg: "command", reads: set(
 		"get", "list", "releases",
 	), writes: set("create", "update", "delete", "add_part", "remove_part", "release", "rollback", "export", "import")},
+	// manage_approval (#2437, #2494): submit files a request and decide
+	// decides one; list and get read.
+	"manage_approval": {arg: "command", reads: set("list", "get"), writes: set("submit", "decide")},
 	// manage_prompt: use renders a stored prompt and writes nothing.
 	"manage_prompt": {arg: "command", reads: set(
 		"list", "get", "use", "locate", "get_content", "outline", "stats", "diff",
@@ -328,7 +331,7 @@ var actionTools = map[string]actionRule{
 		"versions", "runs", "get_run", "schedule_list", "test", "recording", "endpoint_list",
 	), writes: set(
 		"create", "update", "delete", "patch", "run_draft", "cancel_run",
-		"schedule_set", "schedule_enable", "schedule_disable",
+		"schedule_set", "schedule_enable", "schedule_disable", "form_preview",
 		"endpoint_set", "endpoint_enable", "endpoint_disable",
 	), split: map[string]actionRule{
 		"state": {arg: "state_action", reads: set("", "get"), writes: set("set", "clear")},

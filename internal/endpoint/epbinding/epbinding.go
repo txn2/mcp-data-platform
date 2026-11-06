@@ -88,8 +88,9 @@ var (
 	// ErrNameTaken reports a name another script's binding already has.
 	ErrNameTaken = errors.New("another script's endpoint has this name")
 	// ErrNotAllowed reports a caller who may not create or change a binding:
-	// everyone but an administrator, the script's owner included.
-	ErrNotAllowed = errors.New("only an administrator can bind a script to an endpoint")
+	// an administrator binds any script, and a form's owner binds their own
+	// form (#2494). The error wrapping it says which rule refused.
+	ErrNotAllowed = errors.New("the endpoint binding was refused")
 	// ErrNoSuchCheck reports a binding naming a bot check that does not
 	// exist.
 	ErrNoSuchCheck = errors.New("no bot check has this name; an administrator configures them under Admin > Settings > Bot checks")

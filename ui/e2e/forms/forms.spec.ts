@@ -132,3 +132,46 @@ test("criterion snippet: the snippet works on a listed site and is refused on an
   expect(refusals.join(" | "), "the browser names the policy that refused the frame").toContain("frame-ancestors");
   await unlisted.close();
 });
+
+// #2494: a form's preview, opened by its owner with nothing bound, at 375px
+// in both themes: every field type with its help, choices and prefill, the
+// bot check's place, a field error form_submit returned and the confirmation.
+// The owner's API key is the session the page is opened with.
+test("criterion preview: the owner sees an unbound form's preview at phone width in both themes", async ({ browser }) => {
+  for (const scheme of ["light", "dark"] as const) {
+    const context = await browser.newContext({
+      colorScheme: scheme,
+      viewport: { width: 375, height: 812 },
+      extraHTTPHeaders: { Authorization: `Bearer ${env("FORMS_OWNER_KEY")}` },
+    });
+    const page = await context.newPage();
+    await page.goto(env("FORMS_PREVIEW_PATH"));
+    await expect(page.getByRole("note")).toContainText("Preview");
+    for (const id of ["#f-email", "#f-account", "#f-notes", "#f-seats", "#f-start", "#f-plan"]) {
+      await expect(page.locator(id)).toBeVisible();
+    }
+    await expect(page.getByText("Where we reach you")).toBeVisible();
+    await expect(page.getByText("Channels")).toBeVisible();
+    await expect(page.getByText("I agree to be contacted")).toBeVisible();
+    await expect(page.locator("#f-plan option", { hasText: "Team" })).toHaveCount(1);
+    await expect(page.locator("input[name=customer]")).toHaveValue("c-2494");
+    await expect(page.getByText("A published form that requires a bot check shows it here.")).toBeVisible();
+    const scroll = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(scroll).toBeLessThanOrEqual(0);
+
+    await page.locator("#f-email").fill("taken@example.com");
+    await page.locator("#f-account").fill("acct-preview-secret");
+    await page.locator("#f-plan").selectOption("team");
+    await page.waitForTimeout(2500); // the platform's minimum fill time is 2 seconds
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(page.locator("#f-email-error")).toContainText("already used");
+    await page.screenshot({ path: `${env("FORMS_SCREENSHOT_DIR")}/preview-${scheme}-error.png`, fullPage: true });
+
+    await page.locator("#f-email").fill("ann@example.com");
+    await page.waitForTimeout(2500);
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(page.getByText(env("FORMS_CONFIRMATION"))).toBeVisible();
+    await page.screenshot({ path: `${env("FORMS_SCREENSHOT_DIR")}/preview-${scheme}-confirmed.png`, fullPage: true });
+    await context.close();
+  }
+});

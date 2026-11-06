@@ -17,12 +17,13 @@ import (
 )
 
 // connectionStates counts every connection of every toolkit that lists them
-// by the state the last call through it found it in (internal/connstate). A
-// connection no call has used on this replica is configured. Nothing is sent
-// to an upstream to find out.
-func connectionStates(reg *registry.Registry) []observability.ConnectionStateCount {
+// by the state the last call through it found it in (internal/connstate), and
+// lists each under its name (#2442). A connection no call has used on this
+// replica, or whose last call is older than the maximum age, is configured.
+// Nothing is sent to an upstream to find out.
+func connectionStates(reg *registry.Registry) (byState, named []observability.ConnectionStateCount) {
 	if reg == nil {
-		return nil
+		return nil, nil
 	}
 	type key struct{ kind, state string }
 	counts := map[key]int64{}
@@ -33,18 +34,19 @@ func connectionStates(reg *registry.Registry) []observability.ConnectionStateCou
 		}
 		kind := tk.Kind()
 		for _, c := range lister.ListConnections() {
-			state, seen := connstate.State(kind, c.Name)
-			if !seen {
-				state = opsobs.ConnectionConfigured
+			cs := observability.ConnectionStateCount{Connection: c.Name, Kind: kind, State: opsobs.ConnectionConfigured, Count: 1}
+			if o, seen := connstate.Observed(kind, c.Name); seen {
+				cs.State, cs.Observed = o.State, o.At
 			}
-			counts[key{kind, state}]++
+			counts[key{kind, cs.State}]++
+			named = append(named, cs)
 		}
 	}
-	out := make([]observability.ConnectionStateCount, 0, len(counts))
+	byState = make([]observability.ConnectionStateCount, 0, len(counts))
 	for k, n := range counts {
-		out = append(out, observability.ConnectionStateCount{Kind: k.kind, State: k.state, Count: n})
+		byState = append(byState, observability.ConnectionStateCount{Kind: k.kind, State: k.state, Count: n})
 	}
-	return out
+	return byState, named
 }
 
 // indexAgesQuery reads, per source kind, how long ago its newest successful
@@ -92,6 +94,9 @@ func sortSample(s *observability.PlatformStateSample) {
 	})
 	slices.SortFunc(s.Connections, func(a, b observability.ConnectionStateCount) int {
 		return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.State, b.State))
+	})
+	slices.SortFunc(s.ConnectionStates, func(a, b observability.ConnectionStateCount) int {
+		return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Connection, b.Connection))
 	})
 	slices.SortFunc(s.IndexAges, func(a, b observability.IndexAgeSample) int {
 		return cmp.Compare(a.Kind, b.Kind)

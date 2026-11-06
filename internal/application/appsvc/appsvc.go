@@ -54,6 +54,9 @@ type Service struct {
 	AssetVersions portaldomain.VersionReader
 	Sources       Sources
 	Schema        Schema
+	// HasConnection reports whether an application database connection
+	// (kind appdb) is named so; nil checks nothing.
+	HasConnection func(name string) bool
 }
 
 // RefusedError is an operation refused for a reason the caller can act on.
@@ -87,6 +90,12 @@ func (s *Service) Create(ctx context.Context, actor application.Actor, a applica
 	a.OwnerEmail, a.CreatedBy = actor.Email, actor.Email
 	if err := a.Validate(); err != nil {
 		return nil, &RefusedError{Msg: err.Error()}
+	}
+	if a.Connection != "" && s.HasConnection != nil && !s.HasConnection(a.Connection) {
+		// Stored, a mistyped name surfaced only later, as a problem on the
+		// application's page (#2491).
+		return nil, refused("connection %q is not an application database connection (kind appdb) on this deployment; "+
+			"name one, or leave connection and schema empty for an application with no database", a.Connection)
 	}
 	if err := s.Store.Create(ctx, &a); err != nil {
 		return nil, err //nolint:wrapcheck // the store's errors are read by identity

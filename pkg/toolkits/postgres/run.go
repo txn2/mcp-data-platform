@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/pglex"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -77,7 +79,7 @@ var sessionControl = map[string]bool{"deallocate": true, "discard": true}
 func refuseTransactionControl(sql string) error {
 	word := sqltables.StatementKind(sql)
 	if word == sqltables.KindOther {
-		word = firstWord(sql)
+		word = pglex.FirstWord(sql)
 	}
 	if word == "copy" {
 		return errors.New("a COPY statement is not run: copy rows with platform.copy_in and platform.copy_out, which " +
@@ -121,35 +123,6 @@ func savepointWords(word string) string {
 		return "ROLLBACK TO"
 	}
 	return strings.ToUpper(word)
-}
-
-// firstWord is the lowercased first word of sql after whitespace, comments and
-// opening parentheses.
-func firstWord(sql string) string {
-	s := strings.TrimLeft(sql, " \t\r\n(")
-	for {
-		switch {
-		case strings.HasPrefix(s, "--"):
-			if i := strings.IndexByte(s, '\n'); i >= 0 {
-				s = strings.TrimLeft(s[i+1:], " \t\r\n(")
-				continue
-			}
-			return ""
-		case strings.HasPrefix(s, "/*"):
-			if i := strings.Index(s, "*/"); i >= 0 {
-				s = strings.TrimLeft(s[i+2:], " \t\r\n(")
-				continue
-			}
-			return ""
-		}
-		end := strings.IndexFunc(s, func(r rune) bool {
-			return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
-		})
-		if end < 0 {
-			end = len(s)
-		}
-		return strings.ToLower(s[:end])
-	}
 }
 
 // beginSQL begins a transaction in opts' mode with every statement of it

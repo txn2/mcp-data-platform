@@ -21,6 +21,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
 import { ACCESS_LABELS, PUBLIC_NOTE, accessLabel, callersSummary } from "./endpoints/endpointLabels";
 import { FormEmbed } from "./endpoints/FormEmbed";
+import { FormPublish, approvedVersion } from "./endpoints/FormPublish";
+import { useApprovals } from "@/api/portal/hooks/approvals";
 import { FormStorageFields, formStorage } from "./endpoints/FormStorageFields";
 import { formatBytes, formatWhen } from "./runFormat";
 import { byName } from "@/lib/sortByName";
@@ -28,8 +30,10 @@ import { byName } from "@/lib/sortByName";
 // ScriptEndpointCard is the script's endpoint (#2171): the HTTP route at
 // /endpoints/{name} that runs its handle(req) on each request, the binding's
 // limits, and the requests that failed in the last seven days. Its owner reads
-// it; only an administrator binds the script, changes the binding, or turns
-// it on and off, because an endpoint can answer the public. Each endpoint has
+// it; an administrator binds any script, changes the binding, or turns it on
+// and off, because an endpoint can answer the public. A form's owner does the
+// same for their own form (#2494): for signed-in people at once, and for
+// everyone once an administrator approved a version. Each endpoint has
 // one access mode (#2259): authenticated callers it names, anyone, or anyone
 // who passes a named bot check.
 
@@ -60,18 +64,36 @@ export function ScriptEndpointCard({ scriptId }: { scriptId: string }) {
 // the failed requests.
 function EndpointBody({ scriptId, endpoint }: { scriptId: string; endpoint: ScriptEndpoint }) {
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  const isForm = Boolean(endpoint.is_form);
+  // The card is shown to the script's owner and administrators only, so a
+  // reader who is not an administrator is the owner (#2494).
+  const canEdit = isAdmin || isForm;
+  const approvals = useApprovals({ scriptId, status: "approved" });
+  const modes = modesFor(isAdmin, approvedVersion(approvals.data));
   const [editing, setEditing] = useState(false);
-  if (isAdmin && editing) {
-    return <EndpointForm scriptId={scriptId} endpoint={endpoint} onDone={() => setEditing(false)} />;
+  if (canEdit && editing) {
+    return <EndpointForm scriptId={scriptId} endpoint={endpoint} modes={modes} onDone={() => setEditing(false)} />;
   }
   return (
     <>
-      {endpoint.bound ? <EndpointFacts endpoint={endpoint} /> : <Unbound isAdmin={isAdmin} isForm={Boolean(endpoint.is_form)} />}
+      {endpoint.bound ? <EndpointFacts endpoint={endpoint} /> : <Unbound isAdmin={isAdmin} isForm={isForm} />}
       <BoundFormEmbed endpoint={endpoint} />
-      {isAdmin && <EndpointActions scriptId={scriptId} endpoint={endpoint} onEdit={() => setEditing(true)} />}
+      {isForm && <FormPublish scriptId={scriptId} />}
+      {canEdit && <EndpointActions scriptId={scriptId} endpoint={endpoint} onEdit={() => setEditing(true)} />}
       {endpoint.bound && <FailureList failures={endpoint.failures ?? []} />}
     </>
   );
+}
+
+// The access modes a form's owner chooses from: signed-in people at once,
+// and everyone once a version is approved (#2494). A bot check is chosen by
+// an administrator, who reads the deployment's checks.
+const internalModes: EndpointAuthMode[] = ["authenticated"];
+const publicModes: EndpointAuthMode[] = ["authenticated", "public"];
+
+function modesFor(isAdmin: boolean, approved: number): EndpointAuthMode[] {
+  if (isAdmin) return AUTH_MODES;
+  return approved > 0 ? publicModes : internalModes;
 }
 
 // BoundFormEmbed is a bound form's embed snippet (#2331), nothing for any
@@ -85,6 +107,9 @@ function BoundFormEmbed({ endpoint }: { endpoint: ScriptEndpoint }) {
 
 function Unbound({ isAdmin, isForm }: { isAdmin: boolean; isForm: boolean }) {
   let text = "Only an administrator can bind a script to an endpoint.";
+  if (!isAdmin && isForm) {
+    text = "This form is not published. Preview it first, then publish it for the signed-in people of this deployment.";
+  }
   if (isAdmin) {
     text = isForm
       ? "This form answers no requests. Bind it to an endpoint to show it at /forms/{name} and store each accepted submission."
@@ -190,7 +215,7 @@ function EndpointActions({ scriptId, endpoint, onEdit }: { scriptId: string; end
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={onEdit}>
-          {endpoint.bound ? "Edit" : "Bind"}
+          {endpoint.bound ? "Edit" : endpoint.is_form ? "Publish" : "Bind"}
         </Button>
         {endpoint.bound && (
           <Button
@@ -311,7 +336,17 @@ function modeFields(f: formState): ScriptEndpointInput {
   }
 }
 
-function EndpointForm({ scriptId, endpoint, onDone }: { scriptId: string; endpoint: ScriptEndpoint; onDone: () => void }) {
+function EndpointForm({
+  scriptId,
+  endpoint,
+  modes,
+  onDone,
+}: {
+  scriptId: string;
+  endpoint: ScriptEndpoint;
+  modes: EndpointAuthMode[];
+  onDone: () => void;
+}) {
   const save = useSetScriptEndpoint(scriptId);
   const [form, setForm] = useState<formState>(() => initialForm(endpoint));
   const set = <K extends keyof formState>(key: K, value: formState[K]) => setForm((f) => ({ ...f, [key]: value }));
@@ -340,7 +375,7 @@ function EndpointForm({ scriptId, endpoint, onDone }: { scriptId: string; endpoi
             value={form.authMode}
             onChange={(e) => set("authMode", e.target.value as EndpointAuthMode)}
           >
-            {AUTH_MODES.map((m) => (
+            {(modes.includes(form.authMode) ? modes : [...modes, form.authMode]).map((m) => (
               <option key={m} value={m}>
                 {ACCESS_LABELS[m]}
               </option>

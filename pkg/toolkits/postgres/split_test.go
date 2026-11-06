@@ -54,6 +54,15 @@ func TestAddRefusesSQLThatEndsItsTransaction(t *testing.T) {
 	no := false
 	_, text = run(t.Context(), t, tk, schemaInput{Command: schemaAdd, Version: 1, Name: "x", Up: "CREATE INDEX CONCURRENTLY i ON a (id); CREATE INDEX CONCURRENTLY j ON a (id)", Transactional: &no})
 	assert.Contains(t, text, "exactly one statement")
+	// A non-transactional migration's down runs alone too, so it holds one
+	// statement; a transactional one's down may not run CONCURRENTLY (#2490).
+	_, text = run(t.Context(), t, tk, schemaInput{
+		Command: schemaAdd, Version: 1, Name: "x", Up: "CREATE INDEX CONCURRENTLY i ON a (id)",
+		Down: "DROP INDEX CONCURRENTLY i; SELECT 1", Transactional: &no,
+	})
+	assert.Contains(t, text, "down SQL: a migration that runs outside a transaction holds exactly one statement")
+	_, text = run(t.Context(), t, tk, schemaInput{Command: schemaAdd, Version: 1, Name: "x", Up: "CREATE TABLE a (id int)", Down: "DROP INDEX CONCURRENTLY IF EXISTS i"})
+	assert.Contains(t, text, "add the migration with transactional=false")
 }
 
 func TestPlanOneEncodesAndLaysOutTheRows(t *testing.T) {

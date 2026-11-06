@@ -73,9 +73,13 @@ var segmentAreas = map[string]struct {
 	"shared-prompts":     {AreaPrompts, func(a persona.PortalAccess) *bool { return a.Prompts }},
 	"scripts":            {AreaAutomations, func(a persona.PortalAccess) *bool { return a.Automations }},
 	"applications":       {AreaAutomations, func(a persona.PortalAccess) *bool { return a.Automations }},
-	"search":             {AreaSearch, func(a persona.PortalAccess) *bool { return a.Search }},
-	"memory":             {AreaMemory, func(a persona.PortalAccess) *bool { return a.Memory }},
-	"knowledge":          {AreaMemory, func(a persona.PortalAccess) *bool { return a.Memory }},
+	// The databases a new application chooses from (#2491) and the queue a
+	// form's public use is approved through (#2494) are Automations'.
+	"application-databases": {AreaAutomations, func(a persona.PortalAccess) *bool { return a.Automations }},
+	"approvals":             {AreaAutomations, func(a persona.PortalAccess) *bool { return a.Automations }},
+	"search":                {AreaSearch, func(a persona.PortalAccess) *bool { return a.Search }},
+	"memory":                {AreaMemory, func(a persona.PortalAccess) *bool { return a.Memory }},
+	"knowledge":             {AreaMemory, func(a persona.PortalAccess) *bool { return a.Memory }},
 }
 
 // Refused returns the area a request belongs to when the permissions do not

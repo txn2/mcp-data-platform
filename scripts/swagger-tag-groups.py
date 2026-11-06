@@ -25,6 +25,11 @@ TAG_DESCRIPTIONS = {
         "served. Everyone signed in reads; the owner and administrators edit; administrators "
         "release, roll back, export and import."
     ),
+    "Approvals": (
+        "The Approvals queue: a request for an administrator's decision. A form is served to "
+        "callers with no session only at a version an administrator approved; its owner files "
+        "the request, and administrators decide every request, their own included."
+    ),
     "Activity": (
         "Personal analytics for the authenticated user's tool usage. "
         "Timeseries, breakdowns, and summary statistics scoped to the calling user."
@@ -213,6 +218,7 @@ TAG_GROUPS = [
             "Access requests",
             "Activity",
             "Applications",
+            "Approvals",
             "API Keys",
             "APIs",
             "Assets",

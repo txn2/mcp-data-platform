@@ -6,7 +6,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/connstate"
 
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -76,6 +80,7 @@ type CapacitySources struct {
 // Wire records mcp_platform_config_info and starts the sampler over src's
 // dependencies. Nil-safe on m.
 func Wire(m *observability.Metrics, src Sources) *Sampler {
+	connstate.SetMaxAge(connectionStateMaxAge())
 	m.RecordConfigInfo(context.Background(), observability.ConfigInfo{
 		ToolkitKinds: toolkitKinds(src.Toolkits),
 		AuthMethods:  src.Auth.methods(),
@@ -246,3 +251,16 @@ func (i idpProbe) Ping(ctx context.Context) error {
 
 // errNoJWKS is a discovery document that names no signing keys.
 var errNoJWKS = errors.New("discovery document names no jwks_uri")
+
+// EnvConnectionStateMaxAge is how long the state a call found a connection in
+// stands with no later call to confirm it (#2442), a Go duration;
+// connstate.DefaultMaxAge when unset or unreadable.
+const EnvConnectionStateMaxAge = "MCP_PLATFORM_CONNECTION_STATE_MAX_AGE"
+
+func connectionStateMaxAge() time.Duration {
+	d, err := time.ParseDuration(strings.TrimSpace(os.Getenv(EnvConnectionStateMaxAge)))
+	if err != nil || d <= 0 {
+		return connstate.DefaultMaxAge
+	}
+	return d
+}

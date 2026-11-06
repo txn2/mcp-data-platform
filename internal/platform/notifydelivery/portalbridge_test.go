@@ -703,3 +703,27 @@ func TestNotifyAccessRequestAndDecision(t *testing.T) {
 		t.Errorf("decision row: %+v", dec)
 	}
 }
+
+// #2494: each approver is told of a request once, with the link to the
+// Approvals page, and the requester of the decision.
+func TestNotifyApprovalRequestAndDecision(t *testing.T) {
+	n, queue := bridgeUnderTest(t, PortalStores{}, "https://x.io")
+	n.NotifyApprovalRequest(context.Background(), []string{"a1@b.io", "a2@b.io"}, AccessNotice{
+		Actor: "jane@b.io", ItemTitle: "version 2 of the form intake", ItemID: "apr_1", Message: "launch",
+	})
+	n.NotifyApprovalDecision(context.Background(), AccessNotice{
+		To: "jane@b.io", Actor: "a1@b.io", ItemTitle: "version 2 of the form intake", ItemID: "apr_1", Message: "a1@b.io approved it.",
+	})
+	rows := queue.snapshot()
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(rows))
+	}
+	for i, to := range []string{"a1@b.io", "a2@b.io"} {
+		if rows[i].Recipient != to || rows[i].Payload.Kind != notification.KindApprovalRequest || rows[i].Payload.Link != "https://x.io/portal/approvals" {
+			t.Errorf("request row %d: %+v", i, rows[i])
+		}
+	}
+	if rows[2].Recipient != "jane@b.io" || rows[2].Payload.Kind != notification.KindApprovalDecision {
+		t.Errorf("decision row: %+v", rows[2])
+	}
+}

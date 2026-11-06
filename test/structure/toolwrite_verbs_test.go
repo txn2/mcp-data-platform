@@ -23,6 +23,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/approval"
+	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
@@ -108,6 +111,7 @@ func actionToolServer(t *testing.T) *mcp.Server {
 	objects.RegisterTools(server)
 
 	(&apptool.Tool{Service: &appsvc.Service{}}).Register(server)
+	(&apprtool.Tool{Service: &approval.Service{}}).Register(server)
 
 	appdb := postgreskit.NewMulti(postgreskit.MultiConfig{})
 	appdb.SetMigrationStore(registrationMigrationStore{})

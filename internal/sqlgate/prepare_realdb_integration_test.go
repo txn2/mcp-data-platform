@@ -26,6 +26,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/approval"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -105,6 +107,7 @@ var sampleSources = map[string]source{
 	"github.com/txn2/mcp-data-platform/pkg/prompt/postgres":           {promptpg.SQLSamples, 5},
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore": {scriptstore.SQLSamples, 4},
 	"github.com/txn2/mcp-data-platform/internal/thumbdue":             {thumbdue.SQLSamples, 1},
+	"github.com/txn2/mcp-data-platform/internal/approval":             {approval.SQLSamples, 0},
 }
 
 func TestStoreStatementsPrepare_RealDB(t *testing.T) {

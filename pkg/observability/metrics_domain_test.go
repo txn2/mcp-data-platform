@@ -125,8 +125,12 @@ func TestPlatformState_Observed(t *testing.T) {
 	m := newEnabledMetrics(t)
 	m.RegisterPlatformState(func(context.Context) PlatformStateSample {
 		return PlatformStateSample{
-			Dependencies:  []DependencySample{{Dependency: "database", Up: true}, {Dependency: "idp", Up: false}},
-			Connections:   []ConnectionStateCount{{Kind: "trino", State: "unreachable", Count: 2}},
+			Dependencies: []DependencySample{{Dependency: "database", Up: true}, {Dependency: "idp", Up: false}},
+			Connections:  []ConnectionStateCount{{Kind: "trino", State: "unreachable", Count: 2}},
+			ConnectionStates: []ConnectionStateCount{
+				{Connection: "warehouse", Kind: "trino", State: "unreachable", Observed: time.Unix(1_790_000_000, 0)},
+				{Connection: "lake", Kind: "s3", State: "configured"},
+			},
 			Personas:      3,
 			PersonasKnown: true,
 			IndexAges:     []IndexAgeSample{{Kind: "tools", Age: 90 * time.Second}},
@@ -137,6 +141,9 @@ func TestPlatformState_Observed(t *testing.T) {
 		`dependency_up{dependency="database"} 1`,
 		`dependency_up{dependency="idp"} 0`,
 		`mcp_platform_connections{kind="trino",state="unreachable"} 2`,
+		`mcp_platform_connection_state{connection="warehouse",kind="trino",state="unreachable"} 1`,
+		`mcp_platform_connection_state{connection="lake",kind="s3",state="configured"} 1`,
+		`mcp_platform_connection_state_observed_timestamp_seconds{connection="warehouse",kind="trino"} 1.79e+09`,
 		`mcp_platform_personas 3`,
 		`search_index_last_indexed_age_seconds{kind="tools"} 90`,
 	} {

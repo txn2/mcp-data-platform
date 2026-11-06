@@ -20,6 +20,13 @@ vi.mock("@/api/admin/hooks", () => ({
   }),
 }));
 
+const approved: { status: string; version: number }[] = [];
+vi.mock("@/api/portal/hooks/approvals", () => ({
+  useApprovals: () => ({ data: approved }),
+  useOpenFormPreview: () => ({ mutate: vi.fn(), isPending: false, error: null, data: undefined }),
+  useRequestApproval: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+}));
+
 vi.mock("@/api/portal/hooks/scriptEndpoint", () => ({
   useScriptEndpoint: vi.fn(),
   useSetScriptEndpoint: vi.fn(),

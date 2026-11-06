@@ -57,10 +57,15 @@ type Store interface {
 	Stamp(ctx context.Context, name string) (Stamp, error)
 }
 
-// Stamp is when a binding and its script were last written. Every write of a
-// script row moves its updated_at, a new version included, so two equal
-// stamps mean nothing a request runs has changed.
+// Stamp is when a binding and its script were last written, and the version
+// of a form approved to be served to callers with no session (#2494). Every
+// write of a script row moves its updated_at, a new version included, and an
+// approval moves ApprovedVersion, so two equal stamps mean nothing a request
+// runs has changed.
 type Stamp struct {
 	Binding time.Time
 	Script  time.Time
+	// ApprovedVersion is the highest version approved for form_public, 0
+	// for none.
+	ApprovedVersion int
 }
