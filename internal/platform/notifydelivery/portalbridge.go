@@ -27,6 +27,32 @@ type PortalStores struct {
 	// An internal thread notifies none of them (#2227). nil treats no address
 	// as one.
 	External func(ctx context.Context, email string) bool
+	// Participants lists the people a thread involves: everyone who wrote a
+	// message in it and everyone a message mentions (#2512). nil narrows the
+	// fan-out to the owner, the thread author and the grantees.
+	Participants ThreadParticipants
+	// Reach reports whether a person can open a thread's target now, by the
+	// rule the target's read applies (#2512). Every comment recipient passes
+	// it, so a person who lost access is told nothing. nil checks nobody.
+	Reach TargetReach
+}
+
+// ThreadParticipants lists the people a thread involves. Satisfied by the
+// PostgreSQL thread store (threads.EventEditor).
+type ThreadParticipants interface {
+	Participants(ctx context.Context, threadID string) ([]string, error)
+}
+
+// TargetReach reports whether the person at an address can open a thread
+// target. Satisfied by internal/portal/threadreach.Reach.
+type TargetReach interface {
+	CanOpen(ctx context.Context, email, targetType, targetID string) bool
+}
+
+// EventRetractor takes a deleted thread message's text out of the
+// notification queue (#2514). Satisfied by the PostgreSQL queue store.
+type EventRetractor interface {
+	RetractEvent(ctx context.Context, eventID string) error
 }
 
 // ThreadGrantees lists the addresses holding an explicit grant on a thread
@@ -44,6 +70,7 @@ type PortalNotifier struct {
 	enq     *notification.Enqueuer
 	stores  PortalStores
 	baseURL string
+	retract EventRetractor
 }
 
 // NewPortalNotifier builds a notifier over an enqueuer directly; tests and
@@ -59,7 +86,21 @@ func (h *Handle) PortalNotifier(stores PortalStores, baseURL string) *PortalNoti
 	if h == nil {
 		return nil
 	}
-	return NewPortalNotifier(h.enqueuer, stores, baseURL)
+	n := NewPortalNotifier(h.enqueuer, stores, baseURL)
+	n.retract = h.retract
+	return n
+}
+
+// RetractThreadMessage removes a deleted message's text from every
+// notification it produced and drops the ones not yet sent (#2514).
+func (n *PortalNotifier) RetractThreadMessage(ctx context.Context, eventID string) {
+	if n.retract == nil {
+		return
+	}
+	if err := n.retract.RetractEvent(ctx, eventID); err != nil {
+		slog.WarnContext(ctx, "notification: retracting a deleted message failed", // #nosec G706 -- structured slog call; error sanitized
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
 }
 
 // NotifyShare queues a "shared with you" email for a direct share.
@@ -159,41 +200,56 @@ func shareMessage(share *portal.Share, ev portal.ShareEvent) string {
 	return share.NoticeText
 }
 
-// NotifyThreadEvent queues the emails one thread event produces: a mention
-// email for each person the body named, and a "new comment/feedback" email for
-// everyone else attached to the target -- its owner, the thread author, and the
-// people it is shared with.
+// NotifyThreadEvent queues the notifications one thread event produces. It is
+// NotifyThreadMessage for a caller that does not name the message.
+func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.Thread, actorEmail, body string, mentioned []string) {
+	n.NotifyThreadMessage(ctx, threads.MessageNotice{Thread: thread, ActorEmail: actorEmail, Body: body, Mentioned: mentioned})
+}
+
+// NotifyThreadMessage queues the notifications one message produces: a
+// mention for each person the body named, and a "new comment/feedback"
+// notification for everyone else attached to the thread -- the target's
+// owner, the people it is shared with, and its participants: the thread's
+// author, everyone who wrote in it and everyone mentioned in it (#2512).
+// Every one of them must be able to open the target now; a person who lost
+// access is told nothing. Each row names the message, so deleting it can take
+// its text back out of the queue (#2514).
 //
 // Mentions are queued first, per recipient: the author chose those addresses,
 // so each one costs a token of their rate limit. The general fan-out then goes
-// out as one batch, because the size of a target's share list is a property of
-// the item rather than something the author picked.
+// out as one batch, because who a thread involves is a property of the
+// thread rather than something the author picked.
 //
 // Only a mention that was actually queued removes someone from the general
 // fan-out. A recipient whose mention was dropped -- they muted the mention
 // category, or the enqueue failed -- has been told nothing, so they still get
 // the comment notification they would have had without being named.
-func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.Thread, actorEmail, body string, mentioned []string) {
+func (n *PortalNotifier) NotifyThreadMessage(ctx context.Context, msg threads.MessageNotice) {
+	thread := msg.Thread
 	target := n.threadTarget(ctx, thread)
 	payload := notification.Payload{
 		ItemID:    thread.ID,
 		ItemTitle: target.title,
-		Actor:     actorEmail,
-		Message:   notification.Snippet(body),
+		Actor:     msg.ActorEmail,
+		Message:   notification.Snippet(msg.Body),
 		Link:      target.link,
+		EventID:   msg.EventID,
 	}
 
 	mentionPayload := payload
 	mentionPayload.Kind = notification.KindMention
 	notifiedByName := n.queueMentions(ctx,
-		notification.RecipientsExcluding(actorEmail, mentioned...), mentionPayload)
+		notification.RecipientsExcluding(msg.ActorEmail, msg.Mentioned...), mentionPayload)
+	if msg.MentionsOnly {
+		return
+	}
 
 	// An event whose author has no resolvable address cannot be shown not to
 	// be a self-notification, and the target owner -- the likeliest recipient
 	// of that mistake -- is always in the fan-out set. Drop the fan-out and
 	// say so. Mentions above still went out: the body named those addresses
 	// explicitly, so they are not guesses about who wrote this.
-	if notification.NormalizeAddress(actorEmail) == "" {
+	if notification.NormalizeAddress(msg.ActorEmail) == "" {
 		slog.WarnContext(ctx, "notification: thread event has no actor address; skipping comment fan-out", // #nosec G706 -- structured slog call; thread ID is server-generated and sanitized
 			"thread", logsan.SanitizeForLog(thread.ID))
 		return
@@ -205,12 +261,48 @@ func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.T
 	if thread.Kind == portal.ThreadKindComment || thread.Kind == portal.ThreadKindQuestion {
 		payload.Kind = notification.KindComment
 	}
-	grantees := n.grantees(ctx, thread)
-	candidates := make([]string, 0, len(grantees)+2)
-	candidates = append(candidates, target.owner, thread.AuthorEmail)
-	candidates = append(candidates, grantees...)
-	general := excluding(notification.RecipientsExcluding(actorEmail, candidates...), notifiedByName)
+	candidates := notification.RecipientsExcluding(msg.ActorEmail, n.involved(ctx, thread, target.owner)...)
+	general := excluding(n.reachable(ctx, thread, candidates), notifiedByName)
 	n.enq.NotifyFanout(ctx, n.audienceOf(ctx, thread, general), notification.CategoryComment, payload)
+}
+
+// involved lists everyone attached to a thread: the target's owner, the
+// thread's author, its participants and the target's grantees.
+func (n *PortalNotifier) involved(ctx context.Context, thread *portal.Thread, owner string) []string {
+	grantees := n.grantees(ctx, thread)
+	participants := n.participants(ctx, thread)
+	out := []string{owner, thread.AuthorEmail}
+	out = append(out, participants...)
+	return append(out, grantees...)
+}
+
+// participants lists the people who wrote in the thread or are mentioned in
+// it, or none when no source is wired or the lookup fails.
+func (n *PortalNotifier) participants(ctx context.Context, thread *portal.Thread) []string {
+	if n.stores.Participants == nil {
+		return nil
+	}
+	people, err := n.stores.Participants.Participants(ctx, thread.ID)
+	if err != nil {
+		slog.WarnContext(ctx, "notification: thread participant lookup failed", // #nosec G706 -- structured slog call; error sanitized
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	return people
+}
+
+// reachable keeps the recipients who can open the thread's target now.
+func (n *PortalNotifier) reachable(ctx context.Context, thread *portal.Thread, recipients []string) []string {
+	if n.stores.Reach == nil {
+		return recipients
+	}
+	out := make([]string, 0, len(recipients))
+	for _, r := range recipients {
+		if n.stores.Reach.CanOpen(ctx, r, thread.TargetType, thread.TargetID()) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // audienceOf drops the external accounts from an internal thread's fan-out

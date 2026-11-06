@@ -260,6 +260,10 @@ type Payload struct {
 	Message string `json:"message,omitempty"`
 	// Link is the absolute portal deep link for the item.
 	Link string `json:"link,omitempty"`
+	// EventID is the thread message a comment, feedback or mention
+	// notification is about (#2512), so deleting the message can take its
+	// text out of every row it produced (#2514). Empty for every other kind.
+	EventID string `json:"event_id,omitempty"`
 	// Cause is why a KindScriptRun run failed, one of the script.Cause*
 	// values (#1859), which decides whether the alert tells the owner to fix
 	// the script or that the next run should succeed. Empty for every other

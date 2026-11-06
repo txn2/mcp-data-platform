@@ -45,6 +45,34 @@ test.describe("Feedback panel", () => {
     await expect(page.getByText("The y-axis label is misspelled.")).toBeVisible();
   });
 
+  // #2513: a thread takes no title, lists by its first message, and the
+  // composer is at least four rows, grows with its text and sends on
+  // Cmd/Ctrl+Enter while Enter is a new line.
+  test("starts a thread with no title field and sends it with Ctrl+Enter", async ({ page }) => {
+    await openAssetFeedback(page);
+    await page.getByRole("button", { name: "New", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "New feedback" })).toBeVisible();
+    await expect(page.getByLabel(/Title/)).toHaveCount(0);
+
+    const message = page.getByRole("textbox", { name: "Message" });
+    await expect(message).toHaveAttribute("rows", "4");
+    const before = (await message.boundingBox())!.height;
+    await message.fill("The legend hides the last series.\nIt overlaps the plot.\nSee the bottom-right corner.\nOn every width.\nAnd on print.");
+    await expect.poll(async () => (await message.boundingBox())!.height).toBeGreaterThan(before);
+    await message.press("Enter");
+    await expect(message).toHaveValue(/\n$/);
+
+    const [resp] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/threads") && r.request().method() === "POST"),
+      message.press("Control+Enter"),
+    ]);
+    expect(resp.status()).toBe(201);
+    expect(resp.request().postDataJSON()).not.toHaveProperty("title");
+
+    await page.getByRole("button", { name: "Back to list" }).click();
+    await expect(page.getByText("The legend hides the last series.")).toBeVisible();
+  });
+
   test("opens a thread, replies, and changes status", async ({ page }) => {
     await openAssetFeedback(page);
     await page.getByText("We don't use that term").click();
@@ -85,10 +113,11 @@ test.describe("Inbox page", () => {
     await expect(page.getByTestId("section-intro")).toContainText(
       sectionIntroFor("/feedback")!.summary,
     );
-    // Recent is the default tab: rows carry the target's display label and title.
+    // Recent is the default tab: rows carry the target's display label and the
+    // thread's title, or for a thread without one its first message (#2513).
     await expect(page.getByText("Q4 Revenue Dashboard").first()).toBeVisible();
     await expect(page.getByText("We don't use that term")).toBeVisible();
-    await expect(page.getByText("Add a glossary section")).toBeVisible();
+    await expect(page.getByText("A glossary up front would help new readers.")).toBeVisible();
   });
 
   test("opens a thread in the slide-over with a link back to the item", async ({ page }) => {
@@ -101,7 +130,7 @@ test.describe("Inbox page", () => {
   test("navigates to the target item from the activity row", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/feedback");
-    await page.getByText("Add a glossary section").click();
+    await page.getByText("A glossary up front would help new readers.").click();
     await page.getByRole("button", { name: /Go to collection/i }).click();
     await expect(page).toHaveURL(/\/collections\/col-001/);
   });
@@ -110,7 +139,7 @@ test.describe("Inbox page", () => {
     await authenticate(page);
     await page.goto("/portal/feedback");
     await page.getByRole("tab", { name: /General/ }).click();
-    await expect(page.getByText("Quarterly data refresh is one day late")).toBeVisible();
+    await expect(page.getByText("The Monday refresh landed Tuesday again this week.")).toBeVisible();
   });
 
   // The three worklists are selected by CHIPS, not by a second tab strip
@@ -140,8 +169,9 @@ test.describe("Inbox page", () => {
       page.getByRole("button", { name: /Post feedback/ }).click(),
     ]);
     expect(resp.status()).toBe(201);
-    // Lands on the General tab with the posted thread open in the slide-over.
-    await expect(page.getByText("Please add a data dictionary.")).toBeVisible();
+    // Lands on the General tab with the posted thread open in the slide-over;
+    // the list behind it shows the thread by the same first line (#2513).
+    await expect(page.getByTestId("comment-body").getByText("Please add a data dictionary.")).toBeVisible();
   });
 });
 

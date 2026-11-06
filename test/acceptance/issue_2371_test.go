@@ -17,7 +17,7 @@ import (
 // portal's terms.
 //
 // Wire forms: action, asset_id, collection_id, prompt_id, knowledge_page_id,
-// target_type, body, kind, title and visibility as JSON strings; anchor as a
+// target_type, body, kind and visibility as JSON strings; anchor as a
 // JSON object and as a string holding one; target_version as a JSON number;
 // requires_resolution as a JSON boolean. Each is sent as literal tools/call
 // params.
@@ -100,7 +100,7 @@ func TestIssue2371_ACommentOpensAThreadOnAnAssetThatHasNone(t *testing.T) {
 
 	thread := issue2371Create(t, commenter.client, map[string]any{
 		"asset_id": assetID, "body": "acc-2371 is the March total final?", "kind": "question",
-		"title": "acc-2371 March", "visibility": "internal", "anchor": map[string]any{"section": "totals"},
+		"visibility": "internal", "anchor": map[string]any{"section": "totals"},
 		"target_version": 1, "requires_resolution": true,
 	})
 	id, _ := thread["id"].(string)
@@ -112,7 +112,7 @@ func TestIssue2371_ACommentOpensAThreadOnAnAssetThatHasNone(t *testing.T) {
 		t.Fatalf("the portal's threads on the asset: %v, want the new thread", list)
 	}
 	shown := issue2371Thread(t, admin, id)
-	if shown["author_id"] != me["user_id"] || shown["title"] != "acc-2371 March" {
+	if shown["author_id"] != me["user_id"] {
 		t.Errorf("the portal shows %v, want it authored by %v", shown, me["user_id"])
 	}
 

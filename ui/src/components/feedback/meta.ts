@@ -32,6 +32,17 @@ export const MODERATION_STATUSES: ThreadStatus[] = [
   "acknowledged",
 ];
 
+// threadHeading is the line a thread is listed by (#2513): a title it was
+// stored with, otherwise the first line of its first message, otherwise its
+// kind (a rating left with no words). A thread is never "untitled".
+export function threadHeading(t: {
+  title?: string;
+  first_message?: string;
+  kind: ThreadKind;
+}): string {
+  return t.title?.trim() || t.first_message?.trim() || KIND_LABEL[t.kind] || "Feedback";
+}
+
 // formatRelative renders an ISO timestamp as a short relative string.
 export function formatRelative(iso: string): string {
   const then = new Date(iso).getTime();

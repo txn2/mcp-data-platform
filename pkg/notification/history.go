@@ -23,6 +23,9 @@ type HistoryFilter struct {
 	// Channel scopes the listing to rows sent to one notification channel.
 	// Empty means any row.
 	Channel string
+	// Unread scopes the listing to rows the recipient has not read in the
+	// portal (#2512).
+	Unread bool
 	// Limit bounds the page; zero or negative means DefaultHistoryLimit.
 	// Values above MaxHistoryLimit are clamped.
 	Limit int
@@ -112,4 +115,20 @@ type RunPost struct {
 	LastSentAt *time.Time
 	// LastError is a failure recorded on one of them.
 	LastError string
+}
+
+// InboxStore is the read state of a person's own notifications in the portal
+// (#2512): the unread count and list work with no mail server at all, so a
+// deployment whose email is unset or filtered still tells people that someone
+// replied to them or mentioned them.
+type InboxStore interface {
+	// CountUnread returns how many of the recipient's notifications are
+	// unread.
+	CountUnread(ctx context.Context, recipient string) (int, error)
+	// UnreadAmong reports which of ids are the recipient's unread rows.
+	UnreadAmong(ctx context.Context, recipient string, ids []int64) (map[int64]bool, error)
+	// MarkRead marks the recipient's rows read: those in ids, or every one
+	// when ids is empty. It returns how many changed. Another person's id
+	// changes nothing.
+	MarkRead(ctx context.Context, recipient string, ids []int64) (int64, error)
 }

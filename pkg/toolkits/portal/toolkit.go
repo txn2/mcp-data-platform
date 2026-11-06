@@ -137,6 +137,9 @@ const (
 	fbActionResolve           = "resolve"
 	fbActionRequestValidation = "request_validation"
 	fbActionRespondValidation = "respond_validation"
+	// fbActionEdit and fbActionDelete change one message (#2514).
+	fbActionEdit   = "edit"
+	fbActionDelete = "delete"
 
 	// JSON field names used in MCP tool result payloads.
 	fieldAssetID = "asset_id"
@@ -251,13 +254,15 @@ type manageFeedbackInput struct {
 	TargetType   string `json:"target_type,omitempty"`
 	ThreadID     string `json:"thread_id,omitempty"`
 	Body         string `json:"body,omitempty"`
+	// EventID names the message edit and delete change (#2514).
+	EventID string `json:"event_id,omitempty"`
 
 	// create (#2371): the knowledge page a thread may hang off, and the
 	// thread's own fields as POST /api/v1/portal/threads takes them. Anchor
-	// is a JSON object or a string holding one.
+	// is a JSON object or a string holding one. A thread takes no title
+	// (#2513): it is its messages, and is listed by its first one.
 	KnowledgePageID string `json:"knowledge_page_id,omitempty"`
 	Kind            string `json:"kind,omitempty"`
-	Title           string `json:"title,omitempty"`
 	Visibility      string `json:"visibility,omitempty"`
 	Anchor          any    `json:"anchor,omitempty"`
 	TargetVersion   int    `json:"target_version,omitempty"`
@@ -472,6 +477,9 @@ const saveToolDescription = "Saves AI-generated content (JSX dashboard, HTML rep
 	"with a CDN library, not hand-drawn SVG (see mcp:knowledge_page:platform-visual-libraries). There is no local file system to build a file in and nothing to install, and " +
 	"object storage is not where a document goes. When the user's word names a format this does not " +
 	"produce (a .pptx, an .xlsx), say what you are making instead, then make it. " +
+	"In an HTML, JSX or Markdown asset, a link to a website (http:, https:) or an email address (mailto:) " +
+	"opens in a new tab when the reader clicks it, as does window.open with one; write ordinary links. " +
+	"Other schemes do not open. " +
 	"IMPORTANT: When creating content that should be saved, call this tool directly with the content " +
 	"rather than first outputting it to the conversation and then saving separately - " +
 	"this avoids regenerating the whole asset. " +
@@ -641,12 +649,14 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"correction, rating, approval, rejection or suggestion; visibility is internal (default, your organization's " +
 			"people) or shared (everyone who can open the target, external people included). " +
 			"Other actions: get (a thread + its timeline), reply (post a comment), resolve (mark resolved), " +
-			"request_validation, respond_validation (the thread author records validated/disputed via validation_result). " +
+			"request_validation, respond_validation (the thread author records validated/disputed via validation_result), " +
+			"edit (replace the text of a message you wrote: thread_id, event_id, body) and delete (remove a message: yours, or " +
+			"any on a target you own; thread_id, event_id). Only comments and replies can be edited or deleted, never an " +
+			"approval, rejection, rating, status change or validation result. " +
 			"memory_capture thread_ids=[...] folds a thread into the knowledge loop and resolves it.",
 		InputSchema: manageFeedbackSchema,
-		// A thread accumulates a timeline: reply, resolve and the two
-		// validation verbs all append, and no action removes from it.
-		Annotations: toolkit.WriteAnnotations(false),
+		// delete removes a message's text from the thread (#2514).
+		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManageFeedback)
 
 	t.registerPrompts(s)
@@ -890,7 +900,7 @@ func (t *Toolkit) handleManageFeedback(ctx context.Context, _ *mcp.CallToolReque
 	handler, ok := t.feedbackActions[input.Action]
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: list, create, get, reply, resolve, request_validation, respond_validation",
+			"invalid action %q: must be one of: list, create, get, reply, resolve, request_validation, respond_validation, edit, delete",
 			input.Action)), nil, nil
 	}
 	return handler(ctx, input)
@@ -935,6 +945,8 @@ func (t *Toolkit) buildFeedbackActions() map[string]feedbackActionHandler {
 		fbActionResolve:           t.handleResolveThread,
 		fbActionRequestValidation: t.handleRequestValidation,
 		fbActionRespondValidation: t.handleRespondValidation,
+		fbActionEdit:              t.handleEditMessage,
+		fbActionDelete:            t.handleDeleteMessage,
 	}
 }
 

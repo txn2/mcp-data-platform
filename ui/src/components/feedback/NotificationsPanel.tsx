@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
-import { useMyNotifications } from "@/api/portal/hooks";
+import {
+  useMarkNotificationsRead,
+  useMyNotifications,
+  useUnreadNotificationCount,
+} from "@/api/portal/hooks";
+import { FilterChip } from "@/components/FilterChip";
 import type { NotificationItem, NotificationStatus } from "@/api/portal/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -56,8 +61,13 @@ function describeRetention(retentionDays: number): string {
  */
 export function NotificationsPanel() {
   const [page, setPage] = useState(1);
-  const query = useMemo(() => ({ page, per_page: PER_PAGE }), [page]);
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const query = useMemo(
+    () => ({ page, per_page: PER_PAGE, unread: unreadOnly }),
+    [page, unreadOnly],
+  );
   const { data, isLoading, error } = useMyNotifications(query);
+  const markRead = useMarkNotificationsRead();
   const totalPages = data ? Math.ceil(data.total / PER_PAGE) : 0;
   const retentionDays = data?.retention_days ?? 0;
 
@@ -65,6 +75,13 @@ export function NotificationsPanel() {
     <div className="rounded-lg border bg-card">
       <div className="border-b px-5 py-3">
         <p className="text-xs text-muted-foreground">{describeRetention(retentionDays)}</p>
+        <UnreadFilter
+          unreadOnly={unreadOnly}
+          onSelect={(only) => {
+            setUnreadOnly(only);
+            setPage(1);
+          }}
+        />
       </div>
 
       {error && (
@@ -75,7 +92,11 @@ export function NotificationsPanel() {
         </Alert>
       )}
 
-      <Body isLoading={isLoading} items={data?.data ?? []} />
+      <Body
+        isLoading={isLoading}
+        items={data?.data ?? []}
+        onOpen={(item) => markRead.mutate([item.id])}
+      />
 
       {totalPages > 1 && (
         <Pager
@@ -89,24 +110,74 @@ export function NotificationsPanel() {
   );
 }
 
+// UnreadFilter chooses every notification or the unread ones (#2512), and
+// marks every one read.
+function UnreadFilter({
+  unreadOnly,
+  onSelect,
+}: {
+  unreadOnly: boolean;
+  onSelect: (unreadOnly: boolean) => void;
+}) {
+  const unread = useUnreadNotificationCount().data?.unread ?? 0;
+  const markRead = useMarkNotificationsRead();
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <FilterChip label="All" active={!unreadOnly} onClick={() => onSelect(false)} />
+      <FilterChip
+        label="Unread"
+        count={unread}
+        active={unreadOnly}
+        onClick={() => onSelect(true)}
+      />
+      {unread > 0 && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          disabled={markRead.isPending}
+          onClick={() => markRead.mutate([])}
+        >
+          Mark all read
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // Body renders the three states the list can be in. An empty history says why
 // it is empty rather than leaving a blank panel.
-function Body({ isLoading, items }: { isLoading: boolean; items: NotificationItem[] }) {
+function Body({
+  isLoading,
+  items,
+  onOpen,
+}: {
+  isLoading: boolean;
+  items: NotificationItem[];
+  onOpen: (item: NotificationItem) => void;
+}) {
   if (isLoading) {
     return <p className="p-5 text-sm text-muted-foreground">Loading...</p>;
   }
   if (items.length === 0) {
     return (
       <p className="p-5 text-sm text-muted-foreground">
-        No notifications yet. When someone shares something with you or replies to
-        your feedback, it will appear here.
+        No notifications yet. When someone shares something with you or replies to your feedback, it
+        will appear here.
       </p>
     );
   }
   return (
     <ul className="divide-y">
       {items.map((item) => (
-        <NotificationRow key={item.id} item={item} />
+        <NotificationRow
+          key={item.id}
+          item={item}
+          onOpen={() => {
+            if (item.unread) onOpen(item);
+          }}
+        />
       ))}
     </ul>
   );
@@ -152,16 +223,22 @@ function Pager({
   );
 }
 
-function NotificationRow({ item }: { item: NotificationItem }) {
+function NotificationRow({ item, onOpen }: { item: NotificationItem; onOpen: () => void }) {
   // A queued row has no send time yet; showing when it was raised is more
   // useful than showing nothing.
   const when = item.sent_at ?? item.created_at;
   return (
     <li className="flex items-start justify-between gap-3 px-5 py-3">
       <div className="min-w-0">
-        <p className="truncate text-sm">
+        <p className={`truncate text-sm ${item.unread ? "font-semibold" : ""}`}>
+          {item.unread && (
+            <span
+              className="mr-1.5 inline-block size-2 rounded-full bg-primary"
+              aria-label="Unread"
+            />
+          )}
           {item.link ? (
-            <a href={item.link} className="hover:underline">
+            <a href={item.link} className="hover:underline" onClick={onOpen}>
               {item.subject}
             </a>
           ) : (

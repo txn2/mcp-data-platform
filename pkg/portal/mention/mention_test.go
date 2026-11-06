@@ -1,6 +1,7 @@
 package mention
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -123,5 +124,26 @@ func TestFormatRoundTripsThroughScan(t *testing.T) {
 		token := Format(email)
 		require.NotEmpty(t, token, "expected a token for %s", email)
 		assert.Equal(t, []string{email}, Emails(Scan("hi "+token+", thanks")))
+	}
+}
+
+func TestReplaceMentions(t *testing.T) {
+	got, err := ReplaceMentions(json.RawMessage(`{"mentions":["a@x.io"],"k":1}`), nil)
+	if err != nil || string(got) != `{"k":1}` {
+		t.Errorf("removing every mention: %s, %v", got, err)
+	}
+	got, err = ReplaceMentions(json.RawMessage(`{"mentions":["a@x.io"]}`), []string{"b@x.io"})
+	if err != nil || len(FromMetadata(got)) != 1 || FromMetadata(got)[0] != "b@x.io" {
+		t.Errorf("replacing: %s, %v", got, err)
+	}
+	got, err = ReplaceMentions(json.RawMessage(`{"k":1}`), nil)
+	if err != nil || string(got) != `{"k":1}` {
+		t.Errorf("no mentions to remove leaves metadata alone: %s, %v", got, err)
+	}
+	if got, err = ReplaceMentions(nil, nil); err != nil || got != nil {
+		t.Errorf("empty metadata: %s, %v", got, err)
+	}
+	if _, err = ReplaceMentions(json.RawMessage(`[`), nil); err == nil {
+		t.Error("malformed metadata is an error")
 	}
 }

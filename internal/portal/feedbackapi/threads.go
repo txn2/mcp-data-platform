@@ -2,17 +2,16 @@ package feedbackapi
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/threadreach"
 	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 )
 
@@ -162,7 +161,7 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req createThreadRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBody)).Decode(&req); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -221,7 +220,9 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to create thread")
 		return
 	}
-	h.notifyThreadEvent(r.Context(), created, user.Email, req.Body, mentions)
+	h.notifyThreadEvent(r.Context(), threads.MessageNotice{
+		Thread: created, EventID: first.ID, ActorEmail: user.Email, Body: req.Body, Mentioned: mentions,
+	})
 	httpjson.WriteJSON(w, http.StatusCreated, created)
 }
 
@@ -362,7 +363,7 @@ func (h *Handler) appendThreadEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req appendEventRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBody)).Decode(&req); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -390,7 +391,9 @@ func (h *Handler) appendThreadEvent(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to append event")
 		return
 	}
-	h.notifyThreadEvent(r.Context(), thread, user.Email, req.Body, mentions)
+	h.notifyThreadEvent(r.Context(), threads.MessageNotice{
+		Thread: thread, EventID: created.ID, ActorEmail: user.Email, Body: req.Body, Mentioned: mentions,
+	})
 	httpjson.WriteJSON(w, http.StatusCreated, created)
 }
 
@@ -419,7 +422,7 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateThreadRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBody)).Decode(&req); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -620,90 +623,48 @@ func (h *Handler) hiddenFrom(user *access.User, t *threads.Thread) bool {
 
 // canAccessThreadTarget reports whether the user may read/author feedback on the
 // given target, writing an HTTP error on denial. Standalone is open to any
-// authenticated user; object targets require view access to the object.
+// authenticated user; object targets require view access to the object. The
+// decision is threadreach's, the same one that decides who a mention and a
+// reply notify (#2512), so the two cannot disagree about who can open a target.
 func (h *Handler) canAccessThreadTarget(w http.ResponseWriter, r *http.Request, user *access.User, t threadTarget) bool {
-	switch t.kind {
-	case portaldomain.TargetTypeStandalone:
+	outcome := h.reach.Decide(r.Context(), user, true, t.kind, t.id())
+	if outcome == threadreach.Open {
 		return true
-	case portaldomain.TargetTypeAsset:
-		return h.threadAssetAccess(w, r, user, t.asset)
-	case portaldomain.TargetTypeCollection:
-		return h.threadCollectionAccess(w, r, user, t.collection)
-	case portaldomain.TargetTypePrompt:
-		return h.threadPromptAccess(w, r, user, t.prompt)
-	case portaldomain.TargetTypeKnowledgePage:
-		return h.threadKnowledgePageAccess(w, r, t.knowledgePage)
+	}
+	status, msg := targetRefusal(t.kind, outcome)
+	httpjson.WriteError(w, status, msg)
+	return false
+}
+
+// targetRefusal is the answer a refused target read gets, by what the
+// decision found and the kind of target it was about.
+func targetRefusal(kind string, outcome threadreach.Outcome) (status int, msg string) {
+	switch outcome {
+	case threadreach.Missing:
+		return http.StatusNotFound, missingTargetMsg[kind]
+	case threadreach.Unavailable:
+		return http.StatusServiceUnavailable, unavailableTargetMsg[kind]
+	case threadreach.Failed:
+		return http.StatusInternalServerError, "failed to check access to the target"
+	case threadreach.BadTarget:
+		return http.StatusBadRequest, errThreadScope
 	default:
-		httpjson.WriteError(w, http.StatusBadRequest, errThreadScope)
-		return false
+		return http.StatusForbidden, errAccessDenied
 	}
 }
 
-// threadKnowledgePageAccess allows any authenticated user to read and add
-// feedback on a knowledge page: pages are org-shared canonical knowledge, so
-// view access is universal. It only verifies the page exists and is not deleted.
-// Moderation (status change, delete) is gated separately in canModerateThread.
-func (h *Handler) threadKnowledgePageAccess(w http.ResponseWriter, r *http.Request, pageID string) bool {
-	if h.cfg.KnowledgePages == nil {
-		httpjson.WriteError(w, http.StatusServiceUnavailable, "knowledge pages not configured")
-		return false
-	}
-	page, err := h.cfg.KnowledgePages.Get(r.Context(), pageID)
-	if errors.Is(err, knowledgepage.ErrNotFound) || (err == nil && page.DeletedAt != nil) {
-		httpjson.WriteError(w, http.StatusNotFound, errKnowledgePageNotFoundMsg)
-		return false
-	}
-	if err != nil {
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to verify knowledge page")
-		return false
-	}
-	return true
+var missingTargetMsg = map[string]string{
+	portaldomain.TargetTypeAsset:         errAssetNotFound,
+	portaldomain.TargetTypeCollection:    errCollectionNotFound,
+	portaldomain.TargetTypePrompt:        "prompt not found",
+	portaldomain.TargetTypeKnowledgePage: errKnowledgePageNotFoundMsg,
 }
 
-func (h *Handler) threadAssetAccess(w http.ResponseWriter, r *http.Request, user *access.User, assetID string) bool {
-	asset, err := h.cfg.Assets.Get(r.Context(), assetID)
-	if err != nil || asset.DeletedAt != nil {
-		httpjson.WriteError(w, http.StatusNotFound, errAssetNotFound)
-		return false
-	}
-	if h.userIsAdmin(user) {
-		return true
-	}
-	return h.assetViewable(w, r, assetID, asset, user)
-}
-
-func (h *Handler) threadCollectionAccess(w http.ResponseWriter, r *http.Request, user *access.User, collectionID string) bool {
-	if h.cfg.Collections == nil {
-		httpjson.WriteError(w, http.StatusServiceUnavailable, "collections not configured")
-		return false
-	}
-	coll, err := h.cfg.Collections.Get(r.Context(), collectionID)
-	if err != nil || coll.DeletedAt != nil {
-		httpjson.WriteError(w, http.StatusNotFound, errCollectionNotFound)
-		return false
-	}
-	if h.userIsAdmin(user) || coll.OwnerID == user.UserID || h.access.CollectionSharePermission(r.Context(), collectionID, user) != "" {
-		return true
-	}
-	httpjson.WriteError(w, http.StatusForbidden, errAccessDenied)
-	return false
-}
-
-func (h *Handler) threadPromptAccess(w http.ResponseWriter, r *http.Request, user *access.User, promptID string) bool {
-	if h.cfg.Prompts == nil {
-		httpjson.WriteError(w, http.StatusServiceUnavailable, "prompts not configured")
-		return false
-	}
-	pr, err := h.cfg.Prompts.GetByID(r.Context(), promptID)
-	if err != nil || pr == nil {
-		httpjson.WriteError(w, http.StatusNotFound, "prompt not found")
-		return false
-	}
-	if h.access.CanViewPrompt(r.Context(), user, pr) {
-		return true
-	}
-	httpjson.WriteError(w, http.StatusForbidden, errAccessDenied)
-	return false
+var unavailableTargetMsg = map[string]string{
+	portaldomain.TargetTypeAsset:         "assets not configured",
+	portaldomain.TargetTypeCollection:    "collections not configured",
+	portaldomain.TargetTypePrompt:        "prompts not configured",
+	portaldomain.TargetTypeKnowledgePage: "knowledge pages not configured",
 }
 
 // canModerateThread reports whether the user may change a thread's status or
@@ -726,6 +687,16 @@ type threadTarget struct {
 	collection    string
 	prompt        string
 	knowledgePage string
+}
+
+// id is the id of whichever object the target names, empty for standalone.
+func (t threadTarget) id() string {
+	for _, id := range []string{t.asset, t.collection, t.prompt, t.knowledgePage} {
+		if id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 // countSet returns how many of the given ids are non-empty.

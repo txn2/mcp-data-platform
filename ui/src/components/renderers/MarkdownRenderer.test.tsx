@@ -199,4 +199,17 @@ describe("MarkdownRenderer entity chips", () => {
     );
     expect(container.querySelector('a[href="https://example.com"]')).not.toBeNull();
   });
+
+  it("opens a link to another site in a new tab, and leaves portal, anchor and mailto links in place (#2501)", () => {
+    const { container } = render(
+      <MarkdownRenderer content={"[site](https://example.com) [here](/portal/assets/x) [jump](#top) [mail](mailto:a@example.com)"} />,
+    );
+    const site = container.querySelector('a[href="https://example.com"]')!;
+    expect(site).toHaveAttribute("target", "_blank");
+    expect(site).toHaveAttribute("rel", "noopener noreferrer");
+    for (const href of ["/portal/assets/x", "#top", "mailto:a@example.com"]) {
+      const a = container.querySelector(`a[href="${href}"]`)!;
+      expect(a, href).not.toHaveAttribute("target");
+    }
+  });
 });

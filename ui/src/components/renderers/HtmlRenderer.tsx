@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { FileDown, LayoutGrid, Presentation } from "lucide-react";
 import { isSlideDeck, overviewMessage } from "@/lib/deck";
 import { downloadPdf } from "@/lib/pdfExport";
-import { OPEN_VIDEO_MESSAGE, videoWatchURL, withEmbedPolicy, withVideoCards } from "@/lib/videoCards";
+import { withEmbedPolicy, withVideoCards } from "@/lib/videoCards";
+import { useFrameOpener, withAssetLinks } from "@/lib/assetLinks";
 import { withLocalRefs } from "@/lib/localRefs";
 import { useAuthStore } from "@/stores/auth";
 import { ASSET_FRAME_ALLOW, ASSET_FRAME_SANDBOX } from "./assetFrame";
@@ -77,6 +78,12 @@ interface Props {
  * opaque origin, is drawn as a card (lib/videoCards.ts); its click asks this
  * page to open the video, and only a message from this frame naming a YouTube
  * or Vimeo video id is acted on.
+ *
+ * Links (#2501): a link the reader clicks to an http:, https: or mailto:
+ * address, or a window.open with one, is posted to this page by a handler the
+ * document carries, and this page opens it in a new tab (lib/assetLinks.ts).
+ * The sandbox is unchanged; the frame still cannot open a window or navigate
+ * this page itself.
  */
 export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -87,19 +94,11 @@ export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
   // A form the document embeds is handed this page's query string (#2177).
   const embedHosts = useAuthStore((s) => s.user?.embed_hosts);
   const framed = useMemo(() => {
-    const carded = withVideoCards(withLocalRefs(withFormQuery(content, true)));
+    const carded = withAssetLinks(withVideoCards(withLocalRefs(withFormQuery(content, true))));
     return embedHosts ? withEmbedPolicy(carded, embedHosts) : carded;
   }, [content, embedHosts]);
 
-  useEffect(() => {
-    function onMessage(e: MessageEvent) {
-      if (e.source !== iframeRef.current?.contentWindow || e.data?.type !== OPEN_VIDEO_MESSAGE) return;
-      const url = videoWatchURL(e.data.video);
-      if (url) window.open(url, "_blank", "noopener,noreferrer");
-    }
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, []);
+  useFrameOpener(iframeRef);
 
   useEffect(() => {
     setCanPresent(fullscreenAvailable());

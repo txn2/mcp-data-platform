@@ -76,7 +76,11 @@ type FeedbackNotice struct {
 	// Kind is the thread's classification (comment, question, correction, ...).
 	Kind   string `json:"kind"`
 	Status string `json:"status"`
-	Title  string `json:"title,omitempty"`
+	// Title is the thread's stored title, or, for a thread opened since
+	// titles were dropped (#2513), the first line of its first message. It
+	// is not a key of its own because releases up to v1.137.1 advertised
+	// this object closed (#1971).
+	Title string `json:"title,omitempty"`
 	// AuthorEmail is who opened the thread; never the caller.
 	AuthorEmail string `json:"author_email,omitempty"`
 	AssetID     string `json:"asset_id"`

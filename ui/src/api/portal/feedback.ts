@@ -91,6 +91,12 @@ export interface ThreadWithMeta extends Thread {
   event_count: number;
   last_event_at: string;
   last_event_type?: ThreadEventType;
+  /** The first line of the thread's first message (#2513); a thread with no
+   *  title is listed by it. */
+  first_message?: string;
+  /** The target's display name, on the activity feed and the practitioner
+   *  and validation worklists. */
+  target_label?: string;
 }
 
 // An activity-feed row (#617): a thread enriched with the display label of the
@@ -111,6 +117,10 @@ export interface ThreadEvent {
   parent_event_id?: string;
   metadata?: Record<string, unknown>;
   created_at: string;
+  /** When the author last changed the text (#2514). */
+  edited_at?: string;
+  /** Set on a deleted message, which comes back with no body (#2514). */
+  deleted_at?: string;
 }
 
 // Open-thread counts keyed by target id (for list-page badges).

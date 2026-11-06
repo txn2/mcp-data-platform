@@ -23,6 +23,10 @@ type HistoryAPI struct {
 	// UserEmail resolves the authenticated user's email from the request,
 	// returning "" when unauthenticated.
 	UserEmail func(*http.Request) string
+	// Inbox is the read state of the caller's rows (#2512): an unread count
+	// and list that work with no mail server. nil reports every row read and
+	// leaves the read routes unregistered.
+	Inbox notification.InboxStore
 	// Retention is how long a resolved row survives the worker's purge,
 	// reported so the screen can say it shows recent activity rather than a
 	// complete record. Zero omits the claim.
@@ -46,6 +50,8 @@ type HistoryItem struct {
 	Status    string     `json:"status"`
 	SentAt    *time.Time `json:"sent_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
+	// Unread reports a row the caller has not read in the portal (#2512).
+	Unread bool `json:"unread"`
 }
 
 // HistoryResponse is one page of the caller's own notifications.
@@ -62,6 +68,10 @@ type HistoryResponse struct {
 // Register mounts the history endpoint on mux.
 func (a *HistoryAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/portal/notifications", a.listMine)
+	if a.Inbox != nil {
+		mux.HandleFunc("GET /api/v1/portal/notifications/unread-count", a.unreadCount)
+		mux.HandleFunc("POST /api/v1/portal/notifications/read", a.markRead)
+	}
 }
 
 // listMine handles GET /api/v1/portal/notifications.
@@ -72,6 +82,7 @@ func (a *HistoryAPI) Register(mux *http.ServeMux) {
 // @Produce      json
 // @Param        status    query  string   false  "Filter by status (pending, sending, sent, failed)"
 // @Param        category  query  string   false  "Filter by category (share, comment, mention)"
+// @Param        unread    query  boolean  false  "Only the notifications not yet read in the portal"
 // @Param        page      query  integer  false  "Page number, 1-based (default: 1)"
 // @Param        per_page  query  integer  false  "Results per page (default: 50, max: 200)"
 // @Success      200  {object}  HistoryResponse
@@ -101,9 +112,12 @@ func (a *HistoryAPI) listMine(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit := filter.EffectiveLimit()
+	unread := a.unreadAmong(r, email, rows)
 	data := make([]HistoryItem, 0, len(rows))
 	for _, n := range rows {
-		data = append(data, historyItem(n))
+		item := historyItem(n)
+		item.Unread = unread[n.ID]
+		data = append(data, item)
 	}
 	writePrefsJSON(w, HistoryResponse{
 		Data:          data,
@@ -122,6 +136,7 @@ func historyFilter(r *http.Request, email string) notification.HistoryFilter {
 		Status:   q.Get("status"),
 		Category: q.Get("category"),
 		Limit:    httpjson.ParseLimit(q),
+		Unread:   q.Get("unread") == "true",
 	}
 	filter.Offset = httpjson.ParsePageOffset(q, filter.EffectiveLimit())
 	filter.Recipient = email

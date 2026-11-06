@@ -267,6 +267,20 @@ deck load the slide runtime the platform serves at `/portal/vendor/reveal/`
 
 ![The JSX artifact viewer](../images/screenshots/light/user-asset-jsx-light.webp#only-light)![The JSX artifact viewer](../images/screenshots/dark/user-asset-jsx-dark.webp#only-dark)
 
+### Links in an asset
+
+A link the reader clicks in an HTML, JSX or Markdown asset opens if its address is `http:`, `https:` or `mailto:`, in a new tab, and the viewer page stays where it is (#2501). The rule is the same on the asset page and on both kinds of share link, since both draw an asset with the same renderers.
+
+The HTML and JSX frame keeps its sandbox, `allow-scripts allow-downloads`: no `allow-popups`, no `allow-top-navigation`, no `allow-same-origin`. The document the viewer frames carries a small handler, placed before the asset's own scripts, that resolves a clicked link (and an address passed to `window.open`) against the document's base URL and, for one of the three schemes, posts it to the viewer page instead of navigating the frame. The viewer page opens it with `window.open(url, "_blank", "noopener,noreferrer")`, so the opened site has no `window.opener` and is sent no referrer. The viewer acts on such a message only when:
+
+- it comes from the frame that viewer rendered (`event.source`), never another frame or window;
+- the address parses as an absolute URL whose `protocol` is exactly `http:`, `https:` or `mailto:`, so `javascript:`, `data:`, `blob:`, `file:` and any other scheme, a relative or protocol-relative address, and a scheme disguised with case, whitespace or control characters are ignored;
+- the reader's click is still a current user activation (`navigator.userActivation.isActive`, where the browser has it). A click in the frame activates the page around it, and `window.open` consumes the activation, so one click opens at most one tab, and a script that opens pages with no click opens none.
+
+An in-page `#anchor` link moves the frame's own fragment rather than being left to the browser: an `srcdoc` document resolves `#name` against the page that framed it, which would load the viewer page into the frame. A link with a `download` attribute downloads as before (see [Asset References](asset-references.md)). A click an asset's own handler already cancelled is left alone.
+
+A Markdown asset renders in the viewer page itself, so an `http:` or `https:` link to another site carries `target="_blank"` and `rel="noopener noreferrer"`; a link within the portal, an in-page anchor and a `mailto:` link are left as written, and an `mcp:` reference keeps its in-portal chip. Nothing in the public share viewer's Content-Security-Policy governs a navigation the page opens, and the handler is inline script, which that policy and the JSX frame's own already allow.
+
 SVG, sanitized and rendered inline rather than framed:
 
 ![The SVG viewer](../images/screenshots/light/user-asset-svg-light.webp#only-light)![The SVG viewer](../images/screenshots/dark/user-asset-svg-dark.webp#only-dark)
@@ -492,6 +506,22 @@ React's own answer to one is to unmount the document. The share page keeps its
 metadata and download link and says the preview could not be loaded; the portal
 keeps its chrome and offers a reload, which is the fix when the cause is a
 deploy that moved the chunk names.
+
+The portal's own page load needs a second guard, because the files that fail
+there are the ones that would run the error boundary. During a rolling update
+the portal's `index.html` can come from a replica on the new build and ask a
+replica on the old build for its entry script and preloaded modules
+(`/portal/assets/index-<hash>.js`, `client-<hash>.js`, ...), which that replica
+answers 404; the entry never runs, so nothing in the app can recover. A small
+script written inline into `index.html` by the build, above the tags it injects,
+watches for a failed module script, module preload or stylesheet under
+`/portal/assets/`: on the first one it reloads the page, which usually lands on
+a replica with the matching build, and if a reload already happened in the last
+30 seconds it shows "The portal is being updated. Reload in a moment." with a
+Reload button instead of a blank page. It shares the 30-second window and its
+session storage key with the lazy chunk reload, so the two cannot reload each
+other in a loop, and it does nothing once the app has drawn, where the error
+boundary takes over (#2495).
 
 The stylesheet is inline rather than a second request because it is small: it is
 compiled against the viewer's own bundle (`ui/src/content-viewer.css` declares

@@ -162,11 +162,15 @@ the slide you want on the tile.
 
 ## What the frame does not allow
 
-The deck runs in a sandboxed frame with no window-opening permission. The
+The deck runs in a sandboxed frame with no window-opening permission of its own. The
 reveal.js speaker view, which opens a second window, is not available inside
 the portal, so speaker notes written as `<aside class="notes">` are kept with
 the document but not shown to a presenter. Put what the presenter needs to say
 in the slide's own detail, or in a vertical slide beneath it.
+
+A link on a slide to a website (`http:`, `https:`) or an email address
+(`mailto:`) does open, in a new tab, when the presenter clicks it; the deck
+stays on its slide.
 
 A deck is a document with a fixed origin for its runtime, so a downloaded copy
 opened from disk has no runtime to load and shows its sections stacked. The

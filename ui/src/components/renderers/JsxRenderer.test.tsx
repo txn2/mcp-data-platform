@@ -322,3 +322,33 @@ describe("buildCSP: the reference route", () => {
     expect(html).toContain("/portal/refs/");
   });
 });
+
+describe("JsxRenderer links (#2501)", () => {
+  it("frames the component with the link handler and opens a link only for its own frame", async () => {
+    const { OPEN_LINK_MESSAGE } = await import("@/lib/assetLinks");
+    const { act } = await import("@testing-library/react");
+    const blobs: Blob[] = [];
+    const create = URL.createObjectURL as unknown as ReturnType<typeof vi.fn>;
+    create.mockImplementation((b: Blob) => {
+      blobs.push(b);
+      return `blob:test/links-${blobs.length}`;
+    });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const { container } = render(<JsxRenderer content={"export default function App() { return <a href='https://example.com'>x</a>; }"} />);
+    const html = await blobs[blobs.length - 1]!.text();
+    expect(html).toContain(OPEN_LINK_MESSAGE);
+    expect(html.indexOf(OPEN_LINK_MESSAGE)).toBeLessThan(html.indexOf("importmap"));
+
+    const frame = container.querySelector("iframe")!;
+    const send = (url: string, source: Window | null) =>
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", { data: { type: OPEN_LINK_MESSAGE, url }, source }));
+      });
+    send("https://example.com/", window);
+    send("javascript:alert(1)", frame.contentWindow);
+    expect(open).not.toHaveBeenCalled();
+    send("https://example.com/", frame.contentWindow);
+    expect(open).toHaveBeenCalledWith("https://example.com/", "_blank", "noopener,noreferrer");
+    open.mockRestore();
+  });
+});

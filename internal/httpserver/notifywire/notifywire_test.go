@@ -88,7 +88,7 @@ func TestWirePortalNotifications(t *testing.T) {
 
 	// Nil handle: the portal deps stay unset.
 	var deps portal.Deps
-	WirePortalNotifications(&deps, p, nil, nil)
+	WirePortalNotifications(&deps, p, nil, nil, nil)
 	if deps.Notifier != nil || deps.NotificationRegistrar != nil {
 		t.Fatal("nil handle must leave the portal deps unset")
 	}
@@ -106,7 +106,7 @@ func TestWirePortalNotifications(t *testing.T) {
 	}
 	defer handle.Stop()
 
-	WirePortalNotifications(&deps, p, handle, nil)
+	WirePortalNotifications(&deps, p, handle, nil, nil)
 	if deps.Notifier == nil {
 		t.Error("live handle must wire the trigger bridge")
 	}

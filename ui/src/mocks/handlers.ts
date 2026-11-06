@@ -2783,7 +2783,8 @@ export const handlers = [
       knowledge_page_id: body.knowledge_page_id,
       anchor: body.anchor,
       target_version: body.target_version,
-      title: body.title,
+      // A new thread has no title (#2513); it lists by its first message.
+      first_message: String(body.body ?? "").split("\n").map((l) => l.trim()).find(Boolean),
       author_id: "sarah.chen@example.com",
       author_email: "sarah.chen@example.com",
       status: "open",
@@ -2945,6 +2946,27 @@ export const handlers = [
       thread.updated_at = now;
     }
     return HttpResponse.json(evt, { status: 201 });
+  }),
+
+  // Edit and delete one message (#2514). Only a comment can change; a
+  // deleted one keeps its place with no body.
+  http.patch(`${PORTAL_BASE}/threads/:id/events/:eventId`, async ({ params, request }) => {
+    const events = portalThreadEvents[params.id as string] ?? [];
+    const evt = events.find((e) => e.id === params.eventId);
+    if (!evt) return HttpResponse.json({ detail: "message not found" }, { status: 404 });
+    if (evt.event_type !== "comment") {
+      return HttpResponse.json({ detail: "only comment and reply text can be edited or deleted" }, { status: 409 });
+    }
+    const body = (await request.json()) as { body?: string };
+    Object.assign(evt, { body: body.body, edited_at: new Date().toISOString() });
+    return HttpResponse.json(evt);
+  }),
+  http.delete(`${PORTAL_BASE}/threads/:id/events/:eventId`, ({ params }) => {
+    const events = portalThreadEvents[params.id as string] ?? [];
+    const evt = events.find((e) => e.id === params.eventId);
+    if (!evt) return HttpResponse.json({ detail: "message not found" }, { status: 404 });
+    Object.assign(evt, { body: undefined, metadata: undefined, deleted_at: new Date().toISOString() });
+    return HttpResponse.json({ event_id: evt.id, deleted: true, thread_deleted: false });
   }),
 
   http.get(`${PORTAL_BASE}/threads/:id`, ({ params }) => {
@@ -4549,6 +4571,12 @@ export const handlers = [
       retention_days: 30,
     });
   }),
+
+  // The portal's unread notifications (#2512), self-scoped like the list.
+  http.get(`${PORTAL_BASE}/notifications/unread-count`, () =>
+    HttpResponse.json({ unread: mockNotificationRows.filter((n) => !n.recipient.startsWith("channel:")).length > 0 ? 1 : 0 }),
+  ),
+  http.post(`${PORTAL_BASE}/notifications/read`, () => HttpResponse.json({ marked: 1 })),
 
   http.get(`${ADMIN_BASE}/notifications`, ({ request }) => {
     const params = new URL(request.url).searchParams;

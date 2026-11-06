@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { transform } from "sucrase";
+import { useFrameOpener, withAssetLinks } from "@/lib/assetLinks";
 import { ASSET_FRAME_SANDBOX } from "./assetFrame";
 import { withFormQuery } from "./formFrames";
 
@@ -288,9 +289,16 @@ try {
 </html>`;
 }
 
+/**
+ * A JSX asset, framed. A link the reader clicks to an http:, https: or mailto:
+ * address is opened by this page in a new tab, as for an HTML asset (#2501,
+ * lib/assetLinks.ts).
+ */
 export function JsxRenderer({ content }: { content: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  useFrameOpener(iframeRef);
   const blobUrl = useMemo(() => {
-    const html = buildJsxIframeHtml(withFormQuery(content, false));
+    const html = withAssetLinks(buildJsxIframeHtml(withFormQuery(content, false)));
     return URL.createObjectURL(
       new Blob([html], { type: "text/html;charset=utf-8" }),
     );
@@ -304,6 +312,7 @@ export function JsxRenderer({ content }: { content: string }) {
 
   return (
     <iframe
+      ref={iframeRef}
       sandbox={ASSET_FRAME_SANDBOX}
       src={blobUrl}
       className="w-full border border-border rounded-lg"

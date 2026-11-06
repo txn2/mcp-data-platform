@@ -9,6 +9,11 @@
  * names), which every browser following the HTML spec otherwise blocks inside
  * a sandbox (#2127). It grants the frame nothing it could not already read:
  * the page can fetch a declared file and draw it.
+ *
+ * There is deliberately no `allow-popups` or `allow-top-navigation`. A link to
+ * a website or an email address opens because the viewer page opens it on the
+ * frame's behalf, for the frame it rendered, only for http:, https: and
+ * mailto:, and only on the reader's click (lib/assetLinks.ts, #2501).
  */
 export const ASSET_FRAME_SANDBOX = "allow-scripts allow-downloads";
 

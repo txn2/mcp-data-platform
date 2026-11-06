@@ -57,8 +57,15 @@ graph LR
    platform consults the recipient's preferences and queues a notification
    row. The queue insert is cheap and failures are logged, never surfaced:
    a share or comment always succeeds regardless of notification state.
-   A thread event reaches the target's owner, the thread's author, and the
-   people it is shared with. Anyone the comment @-mentioned is notified in the
+   A thread event reaches the target's owner, the people it is shared with,
+   and the thread's participants: its author, everyone who wrote a message in
+   it, and everyone a message mentions (#2512). Every one of them must be able
+   to open the target when the row is queued, decided by the same rule the
+   portal's read applies (ownership, an email share, a persona share, a
+   collection share, administration), so a person who lost access is told
+   nothing; a message that was deleted makes nobody a participant. Each row
+   names the message it is about, and deleting the message drops its rows not
+   yet sent and removes its text from the rest (#2514). Anyone the comment @-mentioned is notified in the
    mention category instead, so one comment never sends the same person two
    emails, and mentions are queued first: enqueueing is rate-limited per
    author, so on a widely-shared item the people addressed by name are the ones
@@ -883,6 +890,21 @@ is the only recipient it queries, and there is no parameter to widen it:
 
 ```
 GET /api/v1/portal/notifications
+```
+
+Each row also says whether its recipient has read it in the portal, and the
+list can be narrowed to the unread ones. The unread count and list read the
+rows themselves, so a reply or a mention reaches a person in the portal
+whether the mail server delivered it, failed, or was never configured
+(#2512). The Inbox's Notifications tab and the Inbox entry in the sidebar
+carry the count; opening a row, or **Mark all read**, marks it read. Rows
+written before the read state existed are read. An id belonging to someone
+else changes nothing:
+
+```
+GET  /api/v1/portal/notifications?unread=true
+GET  /api/v1/portal/notifications/unread-count
+POST /api/v1/portal/notifications/read      {"ids": [12, 13]}   (no ids: all)
 ```
 
 The user view deliberately omits the delivery error text the admin view

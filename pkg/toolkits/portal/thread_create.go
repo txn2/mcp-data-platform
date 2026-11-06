@@ -55,7 +55,6 @@ type createThreadPayload struct {
 	KnowledgePageID    string          `json:"knowledge_page_id,omitempty"`
 	Anchor             json.RawMessage `json:"anchor,omitempty"`
 	TargetVersion      int             `json:"target_version,omitempty"`
-	Title              string          `json:"title,omitempty"`
 	RequiresResolution bool            `json:"requires_resolution"`
 	Body               string          `json:"body"`
 	Visibility         string          `json:"visibility,omitempty"`
@@ -124,7 +123,6 @@ func createPayload(input manageFeedbackInput) (payload createThreadPayload, errT
 		KnowledgePageID:    input.KnowledgePageID,
 		Anchor:             anchor,
 		TargetVersion:      input.TargetVersion,
-		Title:              input.Title,
 		RequiresResolution: input.RequiresResolution != nil && *input.RequiresResolution,
 		Body:               input.Body,
 		Visibility:         input.Visibility,

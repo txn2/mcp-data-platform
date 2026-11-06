@@ -11,7 +11,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { FilterChip } from "@/components/FilterChip";
 import type { ThreadWithMeta } from "@/api/portal/types";
 import { ThreadStatusBadge } from "./ThreadBadges";
-import { KIND_LABEL, formatRelative } from "./meta";
+import { KIND_LABEL, formatRelative, threadHeading } from "./meta";
+import { targetMeta } from "./targetRoute";
 
 type Tab = "practitioner" | "sme" | "mentions";
 
@@ -118,22 +119,31 @@ function WorklistBody({
   );
 }
 
+// WorklistRow lists a thread by what it says (#2513): its title if it was
+// stored with one, otherwise the first line of its first message, with who
+// wrote it and where.
 function WorklistRow({ thread: t, onOpen }: { thread: ThreadWithMeta; onOpen: () => void }) {
+  const target = t.target_label || targetMeta(t).label;
   return (
     <li>
       <button
         type="button"
         onClick={onOpen}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+        className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent"
       >
-        <span className="shrink-0 text-xs text-muted-foreground">{KIND_LABEL[t.kind]}</span>
-        <span className="min-w-0 flex-1 truncate">{t.title || "(untitled feedback)"}</span>
-        <ThreadStatusBadge status={t.status} />
-        {t.last_event_at && (
-          <span className="shrink-0 text-[10px] text-muted-foreground">
-            {formatRelative(t.last_event_at)}
-          </span>
-        )}
+        <span className="flex w-full items-center gap-2">
+          <span className="shrink-0 text-xs text-muted-foreground">{KIND_LABEL[t.kind]}</span>
+          <span className="min-w-0 flex-1 truncate">{threadHeading(t)}</span>
+          <ThreadStatusBadge status={t.status} />
+          {t.last_event_at && (
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {formatRelative(t.last_event_at)}
+            </span>
+          )}
+        </span>
+        <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+          {t.author_email} · {target}
+        </span>
       </button>
     </li>
   );

@@ -123,3 +123,35 @@ test("criterion 6: with the setting off the login screen is unchanged", async ({
   await expect(page.locator('input[placeholder="X-API-Key"]')).toBeVisible();
   expect(IDP_LOGIN.test(page.url())).toBe(false);
 });
+
+// #2499: Sign out under login_redirect signed the user straight back in.
+// Clearing the signed-in state drew the login screen, whose redirect replaced
+// the navigation to /portal/auth/logout, so the cookie and the identity
+// provider's session both survived.
+test("criterion 2499: Sign out ends the session and the identity provider's", async ({ page }) => {
+  const asset = `/portal/assets/${env("LOGIN_REDIRECT_ASSET_ID")}`;
+  await page.goto(asset);
+  await page.waitForURL(IDP_LOGIN);
+  await signInAtIdP(page);
+  await page.waitForURL((u) => u.pathname === asset);
+
+  const logout = page.waitForRequest((r) => new URL(r.url()).pathname === "/portal/auth/logout");
+  const endSession = page.waitForRequest((r) => /\/protocol\/openid-connect\/logout/.test(r.url()));
+  await page.getByRole("button", { name: "Sign Out" }).click();
+  await logout;
+  await endSession;
+
+  // The identity provider returns to the post-logout address registered for
+  // the client, which is the dev stack's public address and not this
+  // replica's port, so the page lands on whichever sign-in that portal draws:
+  // the identity provider's form when it redirects, its own login screen when
+  // it does not. Either way the user is asked to sign in, not signed back in.
+  const signIn = page.locator("#username").or(page.getByRole("button", { name: /^Sign in with/ }).first());
+  await expect(signIn).toBeVisible();
+  expect(new URL(page.url()).pathname.startsWith("/portal/auth/callback"), "the identity provider signed the user back in").toBe(false);
+
+  // The session cookie is scoped to the host, so it is the same cookie the
+  // replica would read: it is gone.
+  const me = await page.request.get(new URL("/api/v1/portal/me", env("LOGIN_REDIRECT_BASE_URL")).toString());
+  expect(me.status(), "the portal session survived Sign out").toBe(401);
+});

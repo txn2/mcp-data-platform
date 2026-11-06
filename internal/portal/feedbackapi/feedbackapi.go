@@ -23,7 +23,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/threadreach"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -34,6 +36,11 @@ import (
 // spelled here rather than imported from the parent because pkg/portal imports
 // this package to register its routes and so cannot be imported back; the
 // wording is what a client sees and must stay identical on both sides.
+// maxRequestBody bounds a feedback route's JSON body: a message, a thread
+// with its first message and anchor, a validation answer. A larger body is
+// refused before it is read into memory.
+const maxRequestBody = 1 << 20
+
 const (
 	errAuthRequired             = "authentication required"
 	errAccessDenied             = "access denied"
@@ -85,6 +92,21 @@ type ThreadNotifier interface {
 	NotifyThreadEvent(ctx context.Context, thread *threads.Thread, actorEmail, body string, mentioned []string)
 }
 
+// MessageNotifier is the half of the notifier that knows which message an
+// event is (#2512, #2514). The platform notifier implements it; a notifier that
+// does not is sent NotifyThreadEvent and cannot retract a deleted message.
+type MessageNotifier interface {
+	// NotifyThreadMessage queues the notifications one message produces,
+	// recording the message on each so a delete can find them. MentionsOnly
+	// notifies the people the message newly mentions and nobody else: an
+	// edit that names someone tells that person, and says nothing new to the
+	// rest.
+	NotifyThreadMessage(ctx context.Context, msg threads.MessageNotice)
+	// RetractThreadMessage removes a deleted message's text from every
+	// notification it produced, and drops the ones not yet sent.
+	RetractThreadMessage(ctx context.Context, eventID string)
+}
+
 // Config carries everything the feedback routes need. A nil store disables the
 // routes that require it rather than failing them at request time, except where
 // the handler reports the capability as unconfigured (503).
@@ -109,17 +131,32 @@ type Config struct {
 	// ExternalAddress reports whether an address has an external account
 	// (#2092), which an internal thread does not mention (#2227).
 	ExternalAddress func(ctx context.Context, email string) bool
+	// Reach decides who can open a thread target, for the caller and for
+	// the people a message names (#2512). nil builds one over the stores
+	// above with no directory.
+	Reach *threadreach.Reach
+	// Audit records a message edited or deleted in the portal (#2514). nil
+	// records nothing.
+	Audit middleware.AuditLogger
 }
 
 // Handler serves the portal's feedback routes.
 type Handler struct {
 	cfg    Config
 	access *access.Checker
+	reach  *threadreach.Reach
 }
 
 // New returns a Handler over cfg.
 func New(cfg Config) *Handler {
-	return &Handler{cfg: cfg, access: cfg.Access}
+	reach := cfg.Reach
+	if reach == nil {
+		reach = threadreach.New(threadreach.Config{
+			Access: cfg.Access, Assets: cfg.Assets, Collections: cfg.Collections,
+			Prompts: cfg.Prompts, KnowledgePages: cfg.KnowledgePages, PersonaName: cfg.PersonaName,
+		})
+	}
+	return &Handler{cfg: cfg, access: cfg.Access, reach: reach}
 }
 
 // Register wires the feedback routes onto mux. Threads require a thread store;
@@ -138,6 +175,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/portal/threads/{id}/events", h.listThreadEvents)
 	mux.HandleFunc("GET /api/v1/portal/threads/{id}/chain", h.getThreadChain)
 	mux.HandleFunc("POST /api/v1/portal/threads/{id}/events", h.appendThreadEvent)
+	mux.HandleFunc("PATCH /api/v1/portal/threads/{id}/events/{eventID}", h.editThreadEvent)
+	mux.HandleFunc("DELETE /api/v1/portal/threads/{id}/events/{eventID}", h.deleteThreadEvent)
 	mux.HandleFunc("GET /api/v1/portal/feedback/activity", h.feedbackActivity)
 	mux.HandleFunc("GET /api/v1/portal/worklist/practitioner", h.practitionerWorklist)
 	mux.HandleFunc("GET /api/v1/portal/worklist/sme", h.smeWorklist)
@@ -197,8 +236,23 @@ func (h *Handler) assetViewable(w http.ResponseWriter, r *http.Request, assetID 
 
 // notifyThreadEvent fires the thread notification trigger when a notifier is
 // wired. It never fails the originating request.
-func (h *Handler) notifyThreadEvent(ctx context.Context, thread *threads.Thread, actorEmail, body string, mentioned []string) {
-	if h.cfg.Notifier != nil {
-		h.cfg.Notifier.NotifyThreadEvent(ctx, thread, actorEmail, body, mentioned)
+func (h *Handler) notifyThreadEvent(ctx context.Context, msg threads.MessageNotice) {
+	if h.cfg.Notifier == nil {
+		return
+	}
+	if mn, ok := h.cfg.Notifier.(MessageNotifier); ok {
+		mn.NotifyThreadMessage(ctx, msg)
+		return
+	}
+	if !msg.MentionsOnly {
+		h.cfg.Notifier.NotifyThreadEvent(ctx, msg.Thread, msg.ActorEmail, msg.Body, msg.Mentioned)
+	}
+}
+
+// retractThreadMessage removes a deleted message's text from the
+// notifications it produced, when the notifier can.
+func (h *Handler) retractThreadMessage(ctx context.Context, eventID string) {
+	if mn, ok := h.cfg.Notifier.(MessageNotifier); ok {
+		mn.RetractThreadMessage(ctx, eventID)
 	}
 }

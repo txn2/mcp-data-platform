@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/changesethttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/embedwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/feedbackwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formpublishwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
@@ -167,8 +168,6 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// address is an external person's (#2290).
 	personashare.Wire(&deps, p.PersonaRegistry(), p.UserStore())
 
-	notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p))
-
 	userkeywire.Wire(&deps, p)
 
 	// Signed content URLs (#1848) are keyed off the browser-session signing
@@ -176,6 +175,12 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	deps.ContentURLKey = contentURLKey(p)
 
 	wirePortalOptionalDeps(&deps, p)
+
+	// Who a mention and a reply reach (#2512), after the persona resolver.
+	reach := feedbackwire.Wire(&deps, feedbackwire.Sources{
+		Directory: p.UserStore(), Audit: p.Audit().Logger(), HasDatabase: p.DB() != nil,
+	})
+	notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p), reach)
 
 	// Guest access path for email shares (#1001): branded denial pages plus
 	// one-time view links for recipients without an account. The share store
@@ -217,7 +222,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(),
 		Resolver: deps.PersonaResolver, IsAdmin: isAdmin, Stored: platform.StoredConnections(p),
 	})
-	mountMentionAPI(mux, p, wrap, isAdmin)
+	mountMentionAPI(mux, p, wrap, isAdmin, reach)
 	changesethttp.Mount(mux, wrap, changesethttp.KnowledgeHandler(p), deps.PersonaResolver, isAdmin) // #2337
 	accessreqwire.Mount(mux, p, accessreqwire.Deps{
 		Wrap: wrap, IsAdmin: isAdmin, Notify: notify, AdminWrap: adminAuthIfEnabled(p), Author: adminEmail,
@@ -560,11 +565,12 @@ func resourceClaimsExtractor(p *platform.Platform) func(*http.Request) (*resourc
 // mountMentionAPI registers the people and mention routes with the portal's
 // authentication middleware. Called from mountPortalAPI; each route registers
 // only when the dependency behind it exists.
-func mountMentionAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, isAdmin func([]string) bool) {
+func mountMentionAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, isAdmin func([]string) bool, reach mentionhttp.Reach) {
 	deps := mentionhttp.Deps{
 		Threads:  p.PortalThreadStore(),
 		Caller:   mentionIdentityResolver(isAdmin),
 		External: p.PersonaRegistry().IsExternalRoles,
+		Reach:    reach,
 	}
 	// Assign only a live audience: a typed nil in the interface field would
 	// read as wired and panic on the first lookup.

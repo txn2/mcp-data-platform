@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   useMentionCandidates,
   useMentionEligibility,
@@ -20,6 +20,31 @@ interface Props {
   required?: boolean;
   className?: string;
   "aria-label"?: string;
+}
+
+// The composer grows with its body to this height, then scrolls (#2513).
+export const COMPOSER_MAX_HEIGHT_PX = 320;
+
+// useGrowWithContent sizes a textarea to its content, from the height its rows
+// give it up to COMPOSER_MAX_HEIGHT_PX, past which the box scrolls.
+function useGrowWithContent(ref: React.RefObject<HTMLTextAreaElement | null>, value: string) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Back to the rows height first, so the box shrinks when text is removed.
+    el.style.height = "auto";
+    const borders = el.offsetHeight - el.clientHeight;
+    const wanted = el.scrollHeight + borders;
+    if (wanted <= borders) return; // not laid out (hidden, or no layout engine)
+    el.style.height = `${Math.min(wanted, COMPOSER_MAX_HEIGHT_PX)}px`;
+    el.style.overflowY = wanted > COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
+  }, [ref, value]);
+}
+
+// isSendKey reports Cmd+Enter or Ctrl+Enter, which sends the message; Enter
+// alone is a new line.
+function isSendKey(e: React.KeyboardEvent): boolean {
+  return e.key === "Enter" && (e.metaKey || e.ctrlKey);
 }
 
 function candidateName(c: MentionCandidate): string {
@@ -60,13 +85,18 @@ function DeliveryHint({ willNotify, unreachable }: { willNotify: string[]; unrea
  * nobody -- and the hint below the box says so before the comment is sent. The
  * author's own address is excluded from both: you cannot notify yourself, and
  * saying you lack access to your own item would be false.
+ *
+ * It is the one composer for a new thread and a reply (#2513): at least
+ * `rows` lines high, growing with its body to a cap and then scrolling, full
+ * width, and Cmd/Ctrl+Enter submits the form it sits in while Enter is a new
+ * line.
  */
 export function MentionTextarea({
   target,
   value,
   onChange,
   placeholder,
-  rows = 3,
+  rows = 4,
   required,
   className,
   "aria-label": ariaLabel,
@@ -83,6 +113,8 @@ export function MentionTextarea({
   // previewing shows the body as it will read once posted (#2214): Markdown,
   // with the mentions that will be delivered as chips.
   const [previewing, setPreviewing] = useState(false);
+
+  useGrowWithContent(textareaRef, value);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(active?.query.trim() ?? ""), 150);
@@ -128,6 +160,12 @@ export function MentionTextarea({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isSendKey(e)) {
+      e.preventDefault();
+      setActive(null);
+      e.currentTarget.form?.requestSubmit();
+      return;
+    }
     if (!open) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -179,10 +217,10 @@ export function MentionTextarea({
         onKeyUp={(e) => syncTrigger(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
         onClick={(e) => syncTrigger(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
         onBlur={() => setPendingCaret(null)}
-        // ui/textarea sizes to its content by default, which silently overrides
-        // the caller's `rows`; the composer asks for a fixed height so the
-        // suggestion list below it does not move as the body is typed.
-        className={cn("field-sizing-fixed min-h-0 py-1.5 text-sm", className)}
+        // ui/textarea sizes to its content by CSS, which ignores `rows` as a
+        // floor and has no cap; the composer sizes itself instead
+        // (useGrowWithContent), from `rows` up to COMPOSER_MAX_HEIGHT_PX.
+        className={cn("field-sizing-fixed min-h-0 w-full resize-none py-1.5 text-sm", className)}
       />
       {open && (
         <ul

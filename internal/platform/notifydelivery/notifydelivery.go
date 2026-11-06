@@ -88,6 +88,10 @@ type Handle struct {
 	history notification.HistoryStore
 	// activity is the same store's per-channel activity read.
 	activity channelActivityReader
+	// inbox is the same store's read state of each person's own rows
+	// (#2512), and retract its removal of a deleted message's text (#2514).
+	inbox    notification.InboxStore
+	retract  EventRetractor
 	enqueuer *notification.Enqueuer
 	renderer *notifyrender.Renderer
 	sender   notifysend.Sender
@@ -120,6 +124,8 @@ func New(cfg Config) (*Handle, error) {
 		queue:    queue,
 		history:  queue,
 		activity: queue,
+		inbox:    queue,
+		retract:  queue,
 		renderer: renderer,
 		sender:   notifysend.NewSMTPSender(),
 	}
@@ -181,6 +187,15 @@ func (h *Handle) Enqueuer() *notification.Enqueuer {
 		return nil
 	}
 	return h.enqueuer
+}
+
+// Inbox returns the read state of each person's own notifications, or nil
+// when the feature is unavailable.
+func (h *Handle) Inbox() notification.InboxStore {
+	if h == nil {
+		return nil
+	}
+	return h.inbox
 }
 
 // Prefs returns the preference store, or nil when the feature is unavailable.

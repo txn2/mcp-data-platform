@@ -167,7 +167,8 @@ func openThread() []threads.ThreadWithMeta {
 			ID: "thr-1", Kind: threads.ThreadKindCorrection, Status: threads.ThreadStatusOpen,
 			Title: "wrong currency", AuthorEmail: "sme@example.com", AssetID: "asset-1",
 		},
-		LastEventAt: testMark.Add(time.Hour),
+		LastEventAt:  testMark.Add(time.Hour),
+		FirstMessage: "Revenue is in EUR, not USD.",
 	}}
 }
 
@@ -443,3 +444,12 @@ var (
 	_ threads.ThreadStore     = (*fakeThreads)(nil)
 	_ WatermarkStore          = (*fakeMarks)(nil)
 )
+
+// #2513: a thread with no stored title is named in a notice by the first line
+// of its first message, under the key the notice already had (#1971).
+func TestNoticeTitle(t *testing.T) {
+	titled := threads.ThreadWithMeta{Title: "wrong currency", FirstMessage: "Revenue is in EUR."}
+	assert.Equal(t, "wrong currency", noticeTitle(titled))
+	untitled := threads.ThreadWithMeta{FirstMessage: "Revenue is in EUR."}
+	assert.Equal(t, "Revenue is in EUR.", noticeTitle(untitled))
+}

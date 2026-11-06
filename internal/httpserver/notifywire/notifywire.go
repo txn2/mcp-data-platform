@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifywiring"
+	"github.com/txn2/mcp-data-platform/internal/portal/threadreach"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
@@ -128,14 +129,14 @@ type feedbackNotificationSink interface {
 // It runs only on the HTTP path, which is where that substrate lives: under
 // stdio the feedback tool stores replies but mails nothing (see
 // portal.Toolkit.SetFeedbackNotifications).
-func wireFeedbackToolNotifications(p *platform.Platform, notifier portal.Notifier, audience *mention.Audience) {
+func wireFeedbackToolNotifications(p *platform.Platform, notifier portal.Notifier, reach *threadreach.Reach) {
 	registry := p.ToolkitRegistry()
 	if registry == nil {
 		return
 	}
 	var resolver portal.MentionResolver
-	if audience != nil {
-		resolver = mention.NewService(audience)
+	if reach != nil {
+		resolver = mention.NewService(reach)
 	}
 	for _, tk := range registry.GetByKind(PortalToolkitKind) {
 		if sink, ok := tk.(feedbackNotificationSink); ok {
@@ -153,7 +154,7 @@ const PortalToolkitKind = "portal"
 //
 // The mention audience is supplied rather than built here: the composition root
 // builds one and hands the same one to every surface that resolves a mention.
-func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *notifydelivery.Handle, audience *mention.Audience) {
+func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *notifydelivery.Handle, audience *mention.Audience, reach *threadreach.Reach) {
 	if notify == nil {
 		return
 	}
@@ -170,9 +171,17 @@ func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 	}
 	// Set from the external accounts mounted before this (#2092, #2227).
 	stores.External = deps.ExternalAddress
+	// A reply notifies the thread's participants, and only the people who
+	// can open its target now (#2512).
+	if reach != nil {
+		stores.Reach = reach
+	}
+	if participants, ok := p.PortalThreadStore().(notifydelivery.ThreadParticipants); ok {
+		stores.Participants = participants
+	}
 	if bridge := notify.PortalNotifier(stores, p.Config().Portal.PublicBaseURL); bridge != nil {
 		deps.Notifier = bridge
-		wireFeedbackToolNotifications(p, bridge, audience)
+		wireFeedbackToolNotifications(p, bridge, reach)
 	}
 	callerEmail := func(r *http.Request) string {
 		if user := portal.GetUser(r.Context()); user != nil {
@@ -190,6 +199,7 @@ func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 	}
 	historyAPI := &notifyhttp.HistoryAPI{
 		Store:     notify.History(),
+		Inbox:     notify.Inbox(),
 		UserEmail: callerEmail,
 		Retention: notifydelivery.HistoryRetention,
 	}

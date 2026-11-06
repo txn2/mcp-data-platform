@@ -201,6 +201,13 @@ type ThreadEvent struct {
 	ParentEventID string          `json:"parent_event_id,omitempty"`
 	Metadata      json.RawMessage `json:"metadata,omitempty" swaggertype:"object"`
 	CreatedAt     time.Time       `json:"created_at"`
+	// EditedAt is when the author last changed the text (#2514); the text
+	// before each edit is kept in portal_thread_event_revisions.
+	EditedAt *time.Time `json:"edited_at,omitempty"`
+	// DeletedAt marks a deleted message (#2514). Every read returns it with
+	// no body and no metadata, so its place in the timeline stays and its
+	// text reaches nobody.
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 // ThreadWithMeta is a thread list row enriched with timeline aggregates so the
@@ -210,6 +217,10 @@ type ThreadWithMeta struct {
 	EventCount    int       `json:"event_count"`
 	LastEventAt   time.Time `json:"last_event_at"`
 	LastEventType string    `json:"last_event_type,omitempty"`
+	// FirstMessage is the first line of the thread's first message, cut to a
+	// snippet (#2513). A thread is listed by it, its author and its target:
+	// new threads carry no title.
+	FirstMessage string `json:"first_message,omitempty"`
 }
 
 // ThreadFilter selects threads for listing.
@@ -406,12 +417,16 @@ func (s *postgresThreadStore) ListThreads(ctx context.Context, filter ThreadFilt
 		"COALESCE(e.event_count, 0)",
 		"COALESCE(e.last_event_at, t.created_at)",
 		"COALESCE(e.last_event_type, '')",
+		"COALESCE(e.first_body, '')",
 	).From("portal_threads t").
 		JoinClause(`LEFT JOIN LATERAL (
 			SELECT COUNT(*) AS event_count,
 			       MAX(created_at) AS last_event_at,
 			       (SELECT event_type FROM portal_thread_events
-			          WHERE thread_id = t.id ORDER BY created_at DESC LIMIT 1) AS last_event_type
+			          WHERE thread_id = t.id ORDER BY created_at DESC LIMIT 1) AS last_event_type,
+			       (SELECT LEFT(body, 400) FROM portal_thread_events
+			          WHERE thread_id = t.id AND deleted_at IS NULL AND COALESCE(body, '') <> ''
+			          ORDER BY created_at, id LIMIT 1) AS first_body
 			FROM portal_thread_events WHERE thread_id = t.id
 		) e ON TRUE`), filter).
 		Where(sq.Eq{"t.deleted_at": nil}).
@@ -495,7 +510,7 @@ func (s *postgresThreadStore) SearchThreads(ctx context.Context, ownerEmail, int
 		  AND lower(author_email) = lower($1)
 		  AND (title ILIKE $2 OR EXISTS (
 		        SELECT 1 FROM portal_thread_events e
-		        WHERE e.thread_id = portal_threads.id AND e.body ILIKE $2))
+		        WHERE e.thread_id = portal_threads.id AND e.deleted_at IS NULL AND e.body ILIKE $2))
 		ORDER BY updated_at DESC
 		LIMIT $3`
 	rows, err := s.db.QueryContext(ctx, query, ownerEmail, pattern, limit)
@@ -519,10 +534,8 @@ func (s *postgresThreadStore) SearchThreads(ctx context.Context, ownerEmail, int
 }
 
 func (s *postgresThreadStore) ListEvents(ctx context.Context, threadID string) ([]ThreadEvent, error) { //nolint:revive // interface impl
-	query := `
-		SELECT id, thread_id, event_type, author_id, author_email, body, rating, parent_event_id, metadata, created_at
-		FROM portal_thread_events WHERE thread_id = $1 ORDER BY created_at ASC
-	`
+	// #nosec G202 -- eventSelectColumns is a fixed package-internal column list, not user input
+	query := `SELECT ` + eventSelectColumns + ` FROM portal_thread_events WHERE thread_id = $1 ORDER BY created_at ASC`
 	rows, err := s.db.QueryContext(ctx, query, threadID)
 	if err != nil {
 		return nil, fmt.Errorf("querying thread events: %w", err)
@@ -961,7 +974,8 @@ func applyThreadMentionFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuil
 	}
 	return qb.Where(sq.Expr(
 		`EXISTS (SELECT 1 FROM portal_thread_events e
-		          WHERE e.thread_id = t.id AND e.metadata -> 'mentions' @> ?::jsonb)`,
+		          WHERE e.thread_id = t.id AND e.deleted_at IS NULL
+		            AND e.metadata -> 'mentions' @> ?::jsonb)`,
 		mention.ContainmentFilter(f.MentionedEmail)))
 }
 
@@ -1129,7 +1143,7 @@ func scanThreadWithMeta(rows *sql.Rows, tm *ThreadWithMeta) error {
 		&tm.ID, &tm.Kind, &tm.TargetType, &assetID, &collectionID, &promptID, &knowledgePageID, &anchor, &targetVersion,
 		&tm.Title, &tm.AuthorID, &tm.AuthorEmail, &tm.Status, &tm.RequiresResolution, &tm.ValidationState, &insightID,
 		&tm.CreatedAt, &tm.UpdatedAt, &deletedAt, &tm.Visibility,
-		&tm.EventCount, &tm.LastEventAt, &tm.LastEventType,
+		&tm.EventCount, &tm.LastEventAt, &tm.LastEventType, &tm.FirstMessage,
 	); err != nil {
 		return fmt.Errorf("scanning thread row: %w", err)
 	}
@@ -1147,19 +1161,27 @@ func scanThreadWithMeta(rows *sql.Rows, tm *ThreadWithMeta) error {
 	if deletedAt.Valid {
 		tm.DeletedAt = &deletedAt.Time
 	}
+	tm.FirstMessage = FirstLineSnippet(tm.FirstMessage)
 	return nil
 }
 
-func scanThreadEvent(rows *sql.Rows) (ThreadEvent, error) {
+func scanThreadEvent(rows interface{ Scan(...any) error }) (ThreadEvent, error) {
 	var e ThreadEvent
 	var body, parentID sql.NullString
 	var rating sql.NullInt64
 	var metadata []byte
+	var editedAt, deletedAt sql.NullTime
 	if err := rows.Scan(
 		&e.ID, &e.ThreadID, &e.EventType, &e.AuthorID, &e.AuthorEmail,
-		&body, &rating, &parentID, &metadata, &e.CreatedAt,
+		&body, &rating, &parentID, &metadata, &e.CreatedAt, &editedAt, &deletedAt,
 	); err != nil {
 		return e, fmt.Errorf("scanning thread event row: %w", err)
+	}
+	if editedAt.Valid {
+		e.EditedAt = &editedAt.Time
+	}
+	if deletedAt.Valid {
+		e.DeletedAt = &deletedAt.Time
 	}
 	e.Body = body.String
 	e.ParentEventID = parentID.String
@@ -1283,4 +1305,25 @@ func metadataOrEmpty(raw json.RawMessage) []byte {
 		return []byte("{}")
 	}
 	return raw
+}
+
+// firstMessageRunes bounds the snippet a thread is listed by. The query reads
+// at most 400 characters of the first body, so a long first line is cut here.
+const firstMessageRunes = 160
+
+// FirstLineSnippet returns the first non-blank line of a message, trimmed and
+// cut to firstMessageRunes with an ellipsis (#2513).
+func FirstLineSnippet(body string) string {
+	for line := range strings.SplitSeq(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		runes := []rune(line)
+		if len(runes) > firstMessageRunes {
+			return strings.TrimSpace(string(runes[:firstMessageRunes])) + "\u2026"
+		}
+		return line
+	}
+	return ""
 }

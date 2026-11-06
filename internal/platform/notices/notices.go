@@ -217,7 +217,7 @@ func (h *Handle) feedback(ctx context.Context, c caller, since time.Time) ([]Fee
 			ThreadID:       t.ID,
 			Kind:           t.Kind,
 			Status:         t.Status,
-			Title:          t.Title,
+			Title:          noticeTitle(t),
 			AuthorEmail:    t.AuthorEmail,
 			AssetID:        t.AssetID,
 			AssetName:      names[t.AssetID],
@@ -289,4 +289,13 @@ func (h *Handle) newShares(ctx context.Context, c caller, since time.Time) ([]Sh
 // scheme's type segment (asset, collection, prompt), so no mapping is needed.
 func reference(kind, id string) string {
 	return "mcp:" + kind + ":" + id
+}
+
+// noticeTitle is how a thread is named in a notice: its stored title, else
+// the first line of its first message (#2513).
+func noticeTitle(t threads.ThreadWithMeta) string {
+	if t.Title != "" {
+		return t.Title
+	}
+	return t.FirstMessage
 }

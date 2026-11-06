@@ -5,7 +5,7 @@ import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { Button } from "@/components/ui/button";
 import { ThreadKindBadge, ThreadStatusBadge } from "./ThreadBadges";
-import { formatRelative } from "./meta";
+import { formatRelative, threadHeading } from "./meta";
 import { targetMeta } from "./targetRoute";
 
 interface Props {
@@ -115,7 +115,7 @@ function ActivityRow({
             </span>
           </div>
           <p className="mt-0.5 truncate text-sm text-foreground/90">
-            {item.title || "(untitled feedback)"}
+            {threadHeading(item)}
           </p>
           <div className="mt-1 flex items-center gap-1.5">
             <ThreadKindBadge kind={item.kind} />

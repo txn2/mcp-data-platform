@@ -82,7 +82,6 @@ function AnchorToggle({
 export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: Props) {
   const [kind, setKind] = useState<ThreadKind>("comment");
   const [body, setBody] = useState("");
-  const [title, setTitle] = useState("");
   const [requiresResolution, setRequiresResolution] = useState(false);
   const [rating, setRating] = useState(5);
   const [useAnchor, setUseAnchor] = useState(true);
@@ -95,13 +94,15 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
 
   const anchor = ANCHORABLE.includes(target.type) ? availableAnchor : null;
 
+  // A thread is its messages (#2513): it takes no title, and is listed by the
+  // first line of this one.
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!body.trim() || create.isPending) return;
     const input: CreateThreadInput = {
       kind,
       body: body.trim(),
       requires_resolution: requiresResolution,
-      ...(title.trim() ? { title: title.trim() } : {}),
       ...(kind === "rating" ? { rating } : {}),
       ...(anchor && useAnchor ? { anchor } : {}),
       ...(external ? {} : { visibility }),
@@ -163,18 +164,6 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
       )}
 
       <div className="space-y-1">
-        <Label htmlFor={`${ids}-title`} className="text-xs text-muted-foreground">
-          Title (optional)
-        </Label>
-        <Input
-          id={`${ids}-title`}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Short summary"
-        />
-      </div>
-
-      <div className="space-y-1">
         <Label className="text-xs text-muted-foreground">Message</Label>
         <MentionTextarea
           target={target}
@@ -184,7 +173,6 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
           rows={4}
           placeholder="Describe your feedback. Type @ to mention someone."
           aria-label="Message"
-          className="resize-y"
         />
       </div>
 
