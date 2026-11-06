@@ -41,8 +41,14 @@ func TestApprovers(t *testing.T) {
 	}}
 	assert.Equal(t, []string{"a@b.io"}, Approvers(u, isAdmin)(context.Background()))
 	assert.True(t, u.asked.ConfirmedOnly)
+	assert.Equal(t, []string{"key@b.io", "A@b.io"}, Approvers(u, isAdmin, "key@b.io", "A@b.io")(context.Background()),
+		"a configured address is told, and an address is told once")
 	u.err = errors.New("down")
-	assert.Nil(t, Approvers(u, isAdmin)(context.Background()))
+	assert.Equal(t, []string{"key@b.io"}, Approvers(u, isAdmin, "key@b.io")(context.Background()), "the configured addresses survive a failed read")
+	assert.Empty(t, Approvers(u, isAdmin)(context.Background()))
+	assert.Equal(t, []string{"k@b.io"}, keyAdmins([]platform.APIKeyDef{
+		{Email: "k@b.io", Roles: []string{"admin"}}, {Email: "a@b.io", Roles: []string{"analyst"}}, {Roles: []string{"admin"}},
+	}, isAdmin))
 }
 
 type bridge struct {
@@ -120,7 +126,7 @@ func TestRegister(t *testing.T) {
 
 func TestWireNoticesAndPersonaName(t *testing.T) {
 	svc := &approval.Service{}
-	wireNotices(svc, &bridge{}, &users{}, isAdmin)
+	wireNotices(svc, &bridge{}, &users{}, isAdmin, nil)
 	assert.NotNil(t, svc.Notifier)
 	assert.NotNil(t, svc.Approvers)
 

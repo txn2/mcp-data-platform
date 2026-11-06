@@ -64,9 +64,21 @@ func TestIssue2442_AConnectionsStateChangesAreLoggedAndNamed(t *testing.T) {
 	if refused["level"] != "WARN" || refused["to_state"] != "auth_failed" || refused["kind"] != "api" || refused["reason"] != "http_401" {
 		t.Fatalf("the refused call's record: %v", refused)
 	}
-	body := scrapeOne(t, metricsURLs()[0])
-	if metricSeries(body, "mcp_platform_connection_state", map[string]string{"connection": name, "kind": "api", "state": "auth_failed"}) < 1 {
-		t.Errorf("the scrape does not name the failing connection")
+	// The state is the replica's that made the call, and a scrape answers
+	// from a sample taken at most once per server.state_probe_interval (1m),
+	// refreshed by the scrape that finds it stale: every replica is read
+	// until one names the connection.
+	named := false
+	var body string
+	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(2 * time.Second) {
+		body = scrapeRaw(t)
+		if metricSeries(body, "mcp_platform_connection_state", map[string]string{"connection": name, "kind": "api", "state": "auth_failed"}) >= 1 {
+			named = true
+			break
+		}
+	}
+	if !named {
+		t.Fatalf("no replica's scrape names the failing connection")
 	}
 	if metricSeries(body, "mcp_platform_connection_state_observed_timestamp_seconds", map[string]string{"connection": name, "kind": "api"}) <= 0 {
 		t.Errorf("the scrape carries no observation time for the connection")
@@ -84,7 +96,7 @@ func TestIssue2442_AConnectionsStateChangesAreLoggedAndNamed(t *testing.T) {
 			t.Errorf("a state record carries the credential or the upstream's address: %s", raw)
 		}
 	}
-	if strings.Contains(scrapeOne(t, metricsURLs()[0]), token2442) {
+	if strings.Contains(scrapeRaw(t), token2442) {
 		t.Errorf("a label carries the credential")
 	}
 }

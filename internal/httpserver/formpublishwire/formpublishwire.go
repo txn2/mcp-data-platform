@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/approval/apprhttp"
@@ -39,16 +40,29 @@ func Mount(mux *http.ServeMux, p *platform.Platform, d Deps) {
 		return
 	}
 	if bridge := d.Notify.PortalNotifier(notifydelivery.PortalStores{}, p.Config().Portal.PublicBaseURL); bridge != nil {
-		wireNotices(e.Approvals, bridge, user.NewPostgresStore(p.DB()), d.IsAdmin)
+		wireNotices(e.Approvals, bridge, user.NewPostgresStore(p.DB()), d.IsAdmin, keyAdmins(p.Config().Auth.APIKeys.Keys, d.IsAdmin))
 	}
 	register(mux, d, routes{approvals: e.Approvals, previews: e.Previews, db: p.DB(), personaOf: personaName(p.PersonaRegistry()), audit: p.Audit().Logger()})
 }
 
 // wireNotices points the queue's emails at bridge, telling the
 // administrators users names.
-func wireNotices(svc *approval.Service, bridge Bridge, users Users, isAdmin func([]string) bool) {
+func wireNotices(svc *approval.Service, bridge Bridge, users Users, isAdmin func([]string) bool, configured []string) {
 	svc.Notifier = Notifier{Bridge: bridge}
-	svc.Approvers = Approvers(users, isAdmin)
+	svc.Approvers = Approvers(users, isAdmin, configured...)
+}
+
+// keyAdmins are the addresses of the configured API keys whose roles make
+// them administrators: a deployment administered by keys, whose people never
+// sign in through the identity provider, still has someone to tell.
+func keyAdmins(keys []platform.APIKeyDef, isAdmin func([]string) bool) []string {
+	var out []string
+	for _, k := range keys {
+		if k.Email != "" && isAdmin(k.Roles) {
+			out = append(out, k.Email)
+		}
+	}
+	return out
 }
 
 // personaName is the persona a caller's roles resolve to, "" for none.
@@ -106,19 +120,31 @@ type Users interface {
 	List(ctx context.Context, filter user.Filter) ([]user.User, int, error)
 }
 
-// Approvers lists the administrators to notify: the people whose roles, as
-// their identity provider last reported them, make them administrators.
-func Approvers(users Users, isAdmin func([]string) bool) func(ctx context.Context) []string {
+// Approvers lists the administrators to notify, each once: the people whose
+// roles, as their identity provider last reported them, make them
+// administrators, and the configured addresses.
+func Approvers(users Users, isAdmin func([]string) bool, configured ...string) func(ctx context.Context) []string {
 	return func(ctx context.Context) []string {
+		seen := map[string]bool{}
+		out := []string{}
+		add := func(email string) {
+			key := strings.ToLower(email)
+			if email != "" && !seen[key] {
+				seen[key] = true
+				out = append(out, email)
+			}
+		}
+		for _, email := range configured {
+			add(email)
+		}
 		people, _, err := users.List(ctx, user.Filter{ConfirmedOnly: true, Limit: user.MaxListLimit})
 		if err != nil {
 			slog.WarnContext(ctx, "approvals: listing administrators failed", "error", logsan.SanitizeForLog(err.Error()))
-			return nil
+			return out
 		}
-		out := []string{}
 		for _, u := range people {
-			if u.Email != "" && isAdmin(u.Roles) {
-				out = append(out, u.Email)
+			if isAdmin(u.Roles) {
+				add(u.Email)
 			}
 		}
 		return out
