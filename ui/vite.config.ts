@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import fs from "fs";
 import { buildSync } from "esbuild";
+import { bootRecovery } from "./bootRecoveryPlugin";
 
 // Serve mockServiceWorker.js from root "/" so the service worker scope covers
 // /api/* requests. Without this, the worker at /portal/mockServiceWorker.js can
@@ -273,6 +274,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
+      bootRecovery(),
       vendorFiles("reveal-vendor", REVEAL_VENDOR_PREFIX, revealFiles),
       vendorFiles("maplibre-vendor", MAP_VENDOR_PREFIX, mapFiles),
       ...(mode === "development" ? [mswRootWorker(), mockRefRoute()] : []),

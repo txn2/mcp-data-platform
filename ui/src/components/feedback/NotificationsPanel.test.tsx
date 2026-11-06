@@ -2,14 +2,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import type { NotificationHistory, NotificationItem } from "@/api/portal/hooks";
 
+const markRead = vi.fn();
+
 vi.mock("@/api/portal/hooks", () => ({
   useMyNotifications: vi.fn(),
+  useUnreadNotificationCount: vi.fn(),
+  useMarkNotificationsRead: () => ({ mutate: markRead, isPending: false }),
 }));
 
-import { useMyNotifications } from "@/api/portal/hooks";
+import { useMyNotifications, useUnreadNotificationCount } from "@/api/portal/hooks";
 import { NotificationsPanel } from "./NotificationsPanel";
 
 const mockUseHistory = vi.mocked(useMyNotifications);
+const mockUnread = vi.mocked(useUnreadNotificationCount);
 
 function item(overrides: Partial<NotificationItem> = {}): NotificationItem {
   return {
@@ -22,6 +27,7 @@ function item(overrides: Partial<NotificationItem> = {}): NotificationItem {
     status: "sent",
     sent_at: "2026-07-01T12:00:00Z",
     created_at: "2026-07-01T11:59:00Z",
+    unread: false,
     ...overrides,
   };
 }
@@ -46,8 +52,16 @@ function show(data?: NotificationHistory, state: { isLoading?: boolean; error?: 
   render(<NotificationsPanel />);
 }
 
+function unreadCount(n: number) {
+  mockUnread.mockReturnValue({ data: { unread: n } } as ReturnType<
+    typeof useUnreadNotificationCount
+  >);
+}
+
 beforeEach(() => {
   mockUseHistory.mockReset();
+  markRead.mockReset();
+  unreadCount(0);
 });
 
 afterEach(cleanup);
@@ -96,6 +110,59 @@ describe("NotificationsPanel", () => {
 
     fireEvent.click(next);
     // The page number is what the hook is asked for, so the request advances.
-    expect(mockUseHistory).toHaveBeenLastCalledWith({ page: 2, per_page: 20 });
+    expect(mockUseHistory).toHaveBeenLastCalledWith({
+      page: 2,
+      per_page: 20,
+      unread: false,
+    });
+  });
+
+  // #2512: a reply or a mention reaches the person in the portal whether or
+  // not an email does.
+  it("marks an unread row and counts the unread ones", () => {
+    unreadCount(2);
+    show(
+      history({
+        data: [
+          item({
+            unread: true,
+            category: "mention",
+            link: "/portal/assets/a1",
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByLabelText("Unread")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /unread/i })).toHaveTextContent("2");
+  });
+
+  it("lists only unread rows when asked", () => {
+    unreadCount(1);
+    show(history());
+    fireEvent.click(screen.getByRole("button", { name: /unread/i }));
+    expect(mockUseHistory).toHaveBeenLastCalledWith({
+      page: 1,
+      per_page: 20,
+      unread: true,
+    });
+  });
+
+  it("marks every row read", () => {
+    unreadCount(3);
+    show(history());
+    fireEvent.click(screen.getByRole("button", { name: /mark all read/i }));
+    expect(markRead).toHaveBeenCalledWith([]);
+  });
+
+  it("marks a row read when it is opened", () => {
+    unreadCount(1);
+    show(history({ data: [item({ id: 7, unread: true, link: "#thread" })] }));
+    fireEvent.click(screen.getByRole("link"));
+    expect(markRead).toHaveBeenCalledWith([7]);
+  });
+
+  it("offers no mark-all when nothing is unread", () => {
+    show(history());
+    expect(screen.queryByRole("button", { name: /mark all read/i })).not.toBeInTheDocument();
   });
 });

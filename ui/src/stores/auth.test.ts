@@ -154,3 +154,56 @@ describe("checkSession access denial (403)", () => {
     expect(sessionStorage.getItem("mcp-portal-api-key")).toBe("stored-key");
   });
 });
+
+describe("logout (#2499)", () => {
+  const originalLocation = window.location;
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
+    useAuthStore.setState({ user: null, authMethod: null, apiKey: "" });
+  });
+
+  function captureHref(): { href: string; userAtNavigation: unknown } {
+    const seen = { href: "", userAtNavigation: undefined as unknown };
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        pathname: "/",
+        search: "",
+        hash: "",
+        set href(v: string) {
+          seen.href = v;
+          seen.userAtNavigation = useAuthStore.getState().user;
+        },
+      },
+    });
+    return seen;
+  }
+
+  const user = { user_id: "u1", email: "a@example.com", roles: [], is_admin: false };
+
+  it("navigates to the server logout without clearing the session state that drives LoginForm", () => {
+    useAuthStore.setState({ user: user as never, authMethod: "cookie" });
+    const seen = captureHref();
+    useAuthStore.getState().logout();
+    expect(seen.href).toBe("/portal/auth/logout");
+    // Clearing user would render LoginForm, whose login_redirect effect
+    // replaces this navigation with the login URL.
+    expect(seen.userAtNavigation).not.toBeNull();
+    expect(useAuthStore.getState().user).not.toBeNull();
+  });
+
+  it("clears an API key session in place without navigating", () => {
+    sessionStorage.setItem("mcp-portal-api-key", "k");
+    useAuthStore.setState({ user: user as never, authMethod: "apikey", apiKey: "k" });
+    const seen = captureHref();
+    useAuthStore.getState().logout();
+    expect(seen.href).toBe("");
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().apiKey).toBe("");
+    expect(sessionStorage.getItem("mcp-portal-api-key")).toBeNull();
+  });
+});

@@ -71,6 +71,7 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
   const update = useUpdateThread();
   const del = useDeleteThread();
   const { isAuthor, mayModerate, canApply } = useThreadPermissions(thread, canModerate);
+  const isAdmin = useAuthStore((s) => s.user?.is_admin === true);
 
   if (!thread) {
     return <div className="p-4 text-sm text-muted-foreground">Loading…</div>;
@@ -103,7 +104,13 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
         <ValidationPanel threadId={threadId} />
       )}
 
-      <ThreadTimeline events={events} isLoading={isLoading} />
+      <ThreadTimeline
+        events={events}
+        isLoading={isLoading}
+        threadId={threadId}
+        target={targetOfThread(thread)}
+        canRemoveAny={canModerate || isAdmin}
+      />
 
       {mayModerate && (
         <ModerationBar
@@ -156,7 +163,8 @@ function ReplyForm({ threadId, thread }: { threadId: string; thread: Thread }) {
 
   const postReply = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reply.trim()) return;
+    // Cmd/Ctrl+Enter submits from the composer, past the disabled button.
+    if (!reply.trim() || append.isPending) return;
     append.mutate(
       { threadId, event_type: "comment", body: reply.trim() },
       { onSuccess: () => setReply("") },
@@ -169,10 +177,9 @@ function ReplyForm({ threadId, thread }: { threadId: string; thread: Thread }) {
         target={targetOfThread(thread)}
         value={reply}
         onChange={setReply}
-        rows={2}
+        rows={4}
         placeholder="Reply… type @ to mention someone"
         aria-label="Reply"
-        className="resize-y"
       />
       {append.isError && (
         <p className="mt-1 text-xs text-destructive">Failed to post reply.</p>

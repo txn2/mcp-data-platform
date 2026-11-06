@@ -88,12 +88,25 @@ func TestRealDB_ThreadLifecycle(t *testing.T) {
 	require.Len(t, list, 1)
 	assert.Equal(t, 1, list[0].EventCount)
 	assert.Equal(t, threads.EventTypeComment, list[0].LastEventType)
+	assert.Equal(t, "we don't use that term", list[0].FirstMessage, "a thread lists by its first message (#2513)")
 	assert.Equal(t, 2, list[0].TargetVersion)
 	assert.JSONEq(t, `{"type":"text_quote","exact":"churn"}`, string(list[0].Anchor))
 
 	// Append a reply.
 	_, err = store.AppendEvent(ctx, threads.ThreadEvent{ID: "evt_life_2", ThreadID: "thr_life", EventType: threads.EventTypeComment, AuthorID: "owner", AuthorEmail: "owner@example.com", Body: "fixed"})
 	require.NoError(t, err)
+	list, _, err = store.ListThreads(ctx, threads.ThreadFilter{TargetType: portaldomain.TargetTypeAsset, AssetID: "asset_life"})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "we don't use that term", list[0].FirstMessage, "a reply does not change what the thread lists by")
+	// A deleted first message (#2514) is not what the thread lists by: its
+	// text reaches nobody, so the next message with text names the thread.
+	_, err = db.ExecContext(ctx, `UPDATE portal_thread_events SET deleted_at = NOW() WHERE id = 'evt_life_1'`)
+	require.NoError(t, err)
+	list, _, err = store.ListThreads(ctx, threads.ThreadFilter{TargetType: portaldomain.TargetTypeAsset, AssetID: "asset_life"})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "fixed", list[0].FirstMessage)
 
 	// Resolve → status flips and a resolution event is recorded in the same tx.
 	resolved := threads.ThreadStatusResolved

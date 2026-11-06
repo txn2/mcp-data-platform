@@ -137,6 +137,14 @@ Read back what you have written and look for the five things that break it:
 Each of them is one line to fix while you are still composing, and each of them
 is a document the reader has to pan across once it is saved.
 
+Links work as written. In an HTML, JSX or Markdown document, a link to a
+website (`http:` or `https:`) or an email address (`mailto:`) opens in a new
+tab when the reader clicks it, and the page they were reading stays put; in
+HTML and JSX so does a link with `target="_blank"` and a `window.open` from a
+click. An in-page `#anchor` scrolls within the document. Any other scheme
+(`javascript:`, `data:`, `tel:`) opens nothing, and nothing opens without the
+reader's click, so a link is never a substitute for showing the thing itself.
+
 A video in a document plays only from a host on the deployment's embed hosts
 list or from an uploaded clip; mcp:knowledge_page:platform-visual-libraries
 says which. A document that references a logo or a data file rather than

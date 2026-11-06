@@ -27,7 +27,7 @@ present, every authenticated caller gets it.
         "thread_id": "thr_01HK7R8Z",
         "kind": "correction",
         "status": "open",
-        "title": "wrong currency",
+        "title": "Revenue is in EUR, not USD.",
         "author_email": "sme@example.com",
         "asset_id": "asset_01HK7R8Z",
         "asset_name": "Q3 revenue",
@@ -82,7 +82,11 @@ excluded: your own comment on your own asset is not feedback awaiting you. The
 list is capped at ten; `feedback_total` is the whole count, so an agent says
 "three threads, here are the first two" rather than implying the list is
 complete. Each entry carries the asset's `mcp:asset:` reference, which `fetch`
-dereferences, and `manage_feedback` answers or resolves the thread.
+dereferences, and `manage_feedback` answers or resolves the thread. A thread is
+named by `title`: the title it was stored with before #2513, or else the first
+line of its first message. The first line is carried in `title` rather than a
+key of its own because releases up to v1.137.1 advertised this object closed
+to clients that still validate against it.
 
 **`new_shares`** holds assets, collections, and prompts granted to the caller
 by name, newest first. A public link nobody was named on is not a share with

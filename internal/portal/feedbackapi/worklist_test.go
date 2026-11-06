@@ -96,3 +96,33 @@ func TestPractitionerWorklistNoArtifacts(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, 0, resp.Total)
 }
+
+// A worklist row names its target and carries the first message (#2513): a
+// thread without a title is listed by those, never as untitled.
+func TestSMEWorklistRowsNameTheirTarget(t *testing.T) {
+	store := &mockThreadStore{listResult: []threads.ThreadWithMeta{
+		{
+			ID: "thr_1", TargetType: portaldomain.TargetTypeAsset, AssetID: "asset_1", ValidationState: threads.ValidationStatePending,
+			FirstMessage: "The totals are off by one.",
+		},
+	}, listTotal: 1}
+	assets := &mockAssetStore{getAsset: &portaldomain.Asset{ID: "asset_1", Name: "Q3 revenue"}}
+	h := newThreadHandlerFull(store, assets, &mockShareStore{}, nil, nil, &access.User{UserID: "sme1", Email: "sme1@example.com"})
+
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/worklist/sme", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Data []map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Data, 1)
+	assert.Equal(t, "Q3 revenue", resp.Data[0]["target_label"])
+	assert.Equal(t, "The totals are off by one.", resp.Data[0]["first_message"])
+}
+
+func TestSMEWorklistEmptyIsAnEmptyList(t *testing.T) {
+	h := newThreadHandlerFull(&mockThreadStore{}, &mockAssetStore{}, &mockShareStore{}, nil, nil, &access.User{UserID: "sme1", Email: "sme1@example.com"})
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/worklist/sme", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"data":[]`)
+}

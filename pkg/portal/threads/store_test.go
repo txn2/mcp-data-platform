@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,12 +114,12 @@ func TestThreadStoreListThreads(t *testing.T) {
 			"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "knowledge_page_id", "anchor", "target_version",
 			"title", "author_id", "author_email", "status", "requires_resolution", "validation_state", "insight_id",
 			"created_at", "updated_at", "deleted_at", "visibility",
-			"event_count", "last_event_at", "last_event_type",
+			"event_count", "last_event_at", "last_event_type", "first_body",
 		}).AddRow(
 			"thr_1", ThreadKindComment, targetTypeAsset, "asset_1", nil, nil, nil, []byte(`{"type":"text_quote","exact":"x"}`), 3,
 			"title", "u1", "u1@example.com", ThreadStatusOpen, false, "none", nil,
 			now, now, nil, VisibilityInternal,
-			2, now, EventTypeComment,
+			2, now, EventTypeComment, "\n  The totals are off by one.\nSecond line",
 		))
 
 	out, total, err := store.ListThreads(context.Background(), ThreadFilter{TargetType: targetTypeAsset, AssetID: "asset_1"})
@@ -127,6 +128,7 @@ func TestThreadStoreListThreads(t *testing.T) {
 	require.Len(t, out, 1)
 	assert.Equal(t, 2, out[0].EventCount)
 	assert.Equal(t, EventTypeComment, out[0].LastEventType)
+	assert.Equal(t, "The totals are off by one.", out[0].FirstMessage, "listed by the first line of the first message")
 	assert.Equal(t, 3, out[0].TargetVersion)
 	assert.JSONEq(t, `{"type":"text_quote","exact":"x"}`, string(out[0].Anchor))
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -164,8 +166,8 @@ func TestThreadStoreListEvents(t *testing.T) {
 	mock.ExpectQuery("FROM portal_thread_events WHERE thread_id").
 		WithArgs("thr_1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "thread_id", "event_type", "author_id", "author_email", "body", "rating", "parent_event_id", "metadata", "created_at",
-		}).AddRow("evt_1", "thr_1", EventTypeRating, "u1", "u1@example.com", "great", rating, nil, []byte(`{}`), now))
+			"id", "thread_id", "event_type", "author_id", "author_email", "body", "rating", "parent_event_id", "metadata", "created_at", "edited_at", "deleted_at",
+		}).AddRow("evt_1", "thr_1", EventTypeRating, "u1", "u1@example.com", "great", rating, nil, []byte(`{}`), now, nil, nil))
 
 	events, err := store.ListEvents(context.Background(), "thr_1")
 	require.NoError(t, err)
@@ -656,4 +658,23 @@ func TestThreadStoreUpdateThreadRecordsAVisibilityChange(t *testing.T) {
 	assert.True(t, ValidVisibility(VisibilityShared))
 	assert.False(t, ValidVisibility("public"))
 	assert.Equal(t, VisibilityInternal, visibilityOrDefault(""))
+}
+
+func TestFirstLineSnippet(t *testing.T) {
+	long := strings.Repeat("é", firstMessageRunes+5)
+	tests := []struct {
+		name, body, want string
+	}{
+		{"empty", "", ""},
+		{"blank lines only", "\n \n\t", ""},
+		{"first non-blank line", "\n\n  hello there  \nmore", "hello there"},
+		{"single line", "one", "one"},
+		{"cut at the rune bound", long, strings.Repeat("é", firstMessageRunes) + "\u2026"},
+		{"exactly the bound is kept whole", strings.Repeat("a", firstMessageRunes), strings.Repeat("a", firstMessageRunes)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, FirstLineSnippet(tc.body))
+		})
+	}
 }

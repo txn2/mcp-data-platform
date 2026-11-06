@@ -2,7 +2,7 @@ import { Quote, MessageCircle, AlertCircle } from "lucide-react";
 import type { ThreadWithMeta } from "@/api/portal/types";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { ThreadKindBadge, ThreadStatusBadge, ThreadVisibilityBadge } from "./ThreadBadges";
-import { formatRelative } from "./meta";
+import { formatRelative, threadHeading } from "./meta";
 
 interface Props {
   threads: ThreadWithMeta[];
@@ -43,7 +43,7 @@ export function ThreadList({ threads, isLoading, onSelect }: Props) {
                   {formatRelative(t.last_event_at)}
                 </span>
               </div>
-              {t.title && <span className="text-sm font-medium">{t.title}</span>}
+              <span className="line-clamp-2 text-sm font-medium">{threadHeading(t)}</span>
               {t.anchor?.type === "text_quote" && (
                 <span className="flex items-center gap-1 text-xs italic text-muted-foreground">
                   <Quote className="h-3 w-3 shrink-0" />

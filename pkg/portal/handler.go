@@ -36,6 +36,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
@@ -270,6 +271,8 @@ type Deps struct {
 	// the people who can open the thread's target (#627). nil disables
 	// mentions (no database): tokens stay ordinary text and notify nobody.
 	MentionResolver MentionResolver
+	// AuditLogger records a feedback message edited or deleted (#2514).
+	AuditLogger middleware.AuditLogger
 	// Authenticator resolves a logged-in user from a public (unauthenticated)
 	// request so the public viewer can auto-promote a signed-in viewer to a
 	// derived share. Optional; nil disables auto-promote.
@@ -478,6 +481,7 @@ func (h *Handler) feedbackConfig() feedbackapi.Config {
 		Notifier:        h.deps.Notifier,
 		Access:          h.access,
 		ExternalAddress: h.deps.ExternalAddress,
+		Audit:           h.deps.AuditLogger,
 	}
 	if h.deps.PersonaResolver != nil {
 		cfg.PersonaName = func(roles []string) string {

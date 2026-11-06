@@ -264,6 +264,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     const method = get().authMethod;
     sessionStorage.removeItem(API_KEY_STORAGE);
+
+    if (method === "cookie") {
+      // Navigate to the server-side logout, which clears the cookie and
+      // redirects to the OIDC end_session_endpoint. The signed-in state is
+      // left as it is: clearing it would redraw the app as LoginForm, whose
+      // login_redirect effect calls location.replace(login URL), and that
+      // navigation replaces this one, so the IdP signs the user straight
+      // back in (#2499). The page unloads, so the state goes with it.
+      window.location.href = "/portal/auth/logout";
+      return;
+    }
+
     set({
       user: null,
       authMethod: null,
@@ -273,12 +285,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       accessDenied: false,
       deniedEmail: "",
     });
-
-    if (method === "cookie") {
-      // Redirect to server-side logout which clears the cookie and redirects
-      // to the OIDC end_session_endpoint.
-      window.location.href = "/portal/auth/logout";
-    }
   },
 
   expireSession: () => {

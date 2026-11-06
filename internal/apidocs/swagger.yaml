@@ -6671,6 +6671,20 @@ definitions:
         example: internal
         type: string
     type: object
+  feedbackapi.deleteEventResponse:
+    properties:
+      deleted:
+        type: boolean
+      event_id:
+        type: string
+      thread_deleted:
+        type: boolean
+    type: object
+  feedbackapi.editEventRequest:
+    properties:
+      body:
+        type: string
+    type: object
   feedbackapi.pagedResponse:
     properties:
       data: {}
@@ -8161,6 +8175,9 @@ definitions:
         type: string
       subject:
         type: string
+      unread:
+        description: Unread reports a row the caller has not read in the portal (#2512).
+        type: boolean
     type: object
   notifyhttp.HistoryResponse:
     properties:
@@ -8178,6 +8195,18 @@ definitions:
           deployment did not report one.
         type: integer
       total:
+        type: integer
+    type: object
+  notifyhttp.MarkReadRequest:
+    properties:
+      ids:
+        items:
+          type: integer
+        type: array
+    type: object
+  notifyhttp.MarkReadResponse:
+    properties:
+      marked:
         type: integer
     type: object
   notifyhttp.PrefsRequest:
@@ -8208,6 +8237,11 @@ definitions:
         type: string
       shares_enabled:
         type: boolean
+    type: object
+  notifyhttp.UnreadCountResponse:
+    properties:
+      unread:
+        type: integer
     type: object
   outputshttp.listResponse:
     properties:
@@ -15466,6 +15500,17 @@ definitions:
       body:
         type: string
       created_at:
+        type: string
+      deleted_at:
+        description: |-
+          DeletedAt marks a deleted message (#2514). Every read returns it with
+          no body and no metadata, so its place in the timeline stays and its
+          text reaches nobody.
+        type: string
+      edited_at:
+        description: |-
+          EditedAt is when the author last changed the text (#2514); the text
+          before each edit is kept in portal_thread_event_revisions.
         type: string
       event_type:
         example: comment
@@ -31286,6 +31331,10 @@ paths:
         in: query
         name: category
         type: string
+      - description: Only the notifications not yet read in the portal
+        in: query
+        name: unread
+        type: boolean
       - description: 'Page number, 1-based (default: 1)'
         in: query
         name: page
@@ -31317,6 +31366,81 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List my notifications
+      tags:
+      - Notifications
+  /portal/notifications/read:
+    post:
+      consumes:
+      - application/json
+      description: 'Marks the calling user''s own notifications read: the ones named
+        in ids, or every one when ids is empty. An id that is not the caller''s changes
+        nothing.'
+      parameters:
+      - description: Rows to mark read
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/notifyhttp.MarkReadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notifyhttp.MarkReadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Mark my notifications read
+      tags:
+      - Notifications
+  /portal/notifications/unread-count:
+    get:
+      description: 'Returns how many of the calling user''s own notifications they
+        have not read in the portal: mentions, replies and comments on threads they
+        are part of, and shares. Self-scoped server-side. Works with no mail server
+        configured.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notifyhttp.UnreadCountResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Count my unread notifications
       tags:
       - Notifications
   /portal/prompt-collections:
@@ -35139,6 +35263,110 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Add a thread event
+      tags:
+      - Feedback
+  /portal/threads/{id}/events/{eventID}:
+    delete:
+      description: Deletes a message. Its author, the target's owner or editor, and
+        an administrator may delete one. Only comment events can be deleted. The thread
+        shows the message as deleted in its place and no route returns its text; deleting
+        the opening message of a thread nothing else followed deletes the thread.
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Event ID
+        in: path
+        name: eventID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/feedbackapi.deleteEventResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a message
+      tags:
+      - Feedback
+    patch:
+      consumes:
+      - application/json
+      description: Replaces the text of a message the caller wrote. Only comment events
+        (the opening message of a comment, question, correction or suggestion thread,
+        and every reply) can be edited; an approval, rejection, rating, status change
+        or validation result cannot. The previous text is kept. A person the new text
+        mentions who was not mentioned before is notified; nobody else is.
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Event ID
+        in: path
+        name: eventID
+        required: true
+        type: string
+      - description: New text
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/feedbackapi.editEventRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/threads.ThreadEvent'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Edit a message
       tags:
       - Feedback
   /portal/threads/{id}/insight:

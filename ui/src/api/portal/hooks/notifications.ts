@@ -40,6 +40,8 @@ export interface NotificationItem {
   status: NotificationStatus;
   sent_at?: string;
   created_at: string;
+  /** Not yet read in the portal (#2512). */
+  unread: boolean;
 }
 
 export interface NotificationHistory {
@@ -56,6 +58,8 @@ export interface NotificationHistory {
 export interface NotificationHistoryQuery {
   status?: string;
   category?: string;
+  /** Only the notifications not yet read in the portal (#2512). */
+  unread?: boolean;
   page?: number;
   per_page?: number;
 }
@@ -66,6 +70,7 @@ export function useMyNotifications(query: NotificationHistoryQuery = {}) {
   const params = new URLSearchParams();
   if (query.status) params.set("status", query.status);
   if (query.category) params.set("category", query.category);
+  if (query.unread) params.set("unread", "true");
   if (query.page && query.page > 1) params.set("page", String(query.page));
   if (query.per_page) params.set("per_page", String(query.per_page));
   const qs = params.toString();
@@ -73,6 +78,31 @@ export function useMyNotifications(query: NotificationHistoryQuery = {}) {
   return useQuery({
     queryKey: ["my-notifications", query],
     queryFn: () => apiFetch<NotificationHistory>(`/notifications${qs ? `?${qs}` : ""}`),
+  });
+}
+
+// useUnreadNotificationCount is how many of the caller's notifications they
+// have not read in the portal (#2512). It is what tells a person someone
+// replied or mentioned them when no email reaches them.
+export function useUnreadNotificationCount() {
+  return useQuery({
+    queryKey: ["my-notifications", "unread-count"],
+    queryFn: () => apiFetch<{ unread: number }>("/notifications/unread-count"),
+    refetchInterval: 60_000,
+  });
+}
+
+// useMarkNotificationsRead marks the caller's notifications read: the ids
+// given, or every one when none are.
+export function useMarkNotificationsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[] = []) =>
+      apiFetch<{ marked: number }>("/notifications/read", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["my-notifications"] }),
   });
 }
 

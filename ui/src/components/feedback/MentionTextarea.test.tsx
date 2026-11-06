@@ -13,7 +13,7 @@ vi.mock("@/stores/auth", () => ({
     sel({ user: { email: "sarah.chen@example.com" } }),
 }));
 
-import { MentionTextarea } from "./MentionTextarea";
+import { COMPOSER_MAX_HEIGHT_PX, MentionTextarea } from "./MentionTextarea";
 import { useMentionCandidates, useMentionEligibility } from "@/api/portal/hooks";
 
 const mockCandidates = vi.mocked(useMentionCandidates);
@@ -156,5 +156,75 @@ describe("MentionTextarea preview (#2214)", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
     expect(screen.getByText("Nothing to preview.")).toBeInTheDocument();
+  });
+});
+
+// #2513: the composer for a new thread and a reply.
+describe("MentionTextarea as the composer", () => {
+  function FormHarness({ onSubmit }: { onSubmit: () => void }) {
+    const [value, setValue] = useState("");
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+      >
+        <MentionTextarea target={target} value={value} onChange={setValue} aria-label="Reply" />
+      </form>
+    );
+  }
+
+  it("starts at four rows and is full width", () => {
+    render(<Harness />);
+    const box = screen.getByLabelText("Reply");
+    expect(box).toHaveAttribute("rows", "4");
+    expect(box.className).toContain("w-full");
+  });
+
+  it("submits its form on Cmd+Enter and on Ctrl+Enter, and Enter alone does not", () => {
+    const onSubmit = vi.fn();
+    render(<FormHarness onSubmit={onSubmit} />);
+    const box = screen.getByLabelText("Reply");
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends on Ctrl+Enter even while the mention picker is open", () => {
+    const onSubmit = vi.fn();
+    render(<FormHarness onSubmit={onSubmit} />);
+    const box = typeInto("cc @mar");
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  // jsdom has no layout, so the content height is stubbed: the box takes the
+  // height of its content up to the cap, then holds the cap and scrolls.
+  it("grows with its content up to the cap, then scrolls", () => {
+    let content = 96;
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(() => content);
+    const offset = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(() => 2);
+    try {
+      render(<Harness />);
+      const box = screen.getByLabelText("Reply");
+      expect(box.style.height).toBe("98px");
+      expect(box.style.overflowY).toBe("hidden");
+
+      content = 200;
+      fireEvent.change(box, { target: { value: "a\nb\nc\nd\ne\nf\ng" } });
+      expect(box.style.height).toBe("202px");
+
+      content = COMPOSER_MAX_HEIGHT_PX + 100;
+      fireEvent.change(box, { target: { value: "a\n".repeat(40) } });
+      expect(box.style.height).toBe(`${COMPOSER_MAX_HEIGHT_PX}px`);
+      expect(box.style.overflowY).toBe("auto");
+    } finally {
+      scroll.mockRestore();
+      offset.mockRestore();
+    }
   });
 });

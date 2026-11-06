@@ -76,4 +76,15 @@ describe("ActivityFeed", () => {
     render(<ActivityFeed onOpenThread={vi.fn()} onNavigate={vi.fn()} />);
     expect(screen.getByText(/no feedback yet/i)).toBeInTheDocument();
   });
+
+  // #2513: a thread without a title is shown by its first message.
+  it("shows an untitled thread by its first message, never as untitled", () => {
+    mockActivity.mockReturnValue(
+      result([item({ title: undefined, first_message: "Which source feeds the revenue column?" })], 1),
+    );
+    render(<ActivityFeed onOpenThread={vi.fn()} onNavigate={vi.fn()} />);
+    expect(screen.getByText("Which source feeds the revenue column?")).toBeInTheDocument();
+    expect(screen.getByText(/u@example.com/)).toBeInTheDocument();
+    expect(screen.queryByText(/untitled/i)).not.toBeInTheDocument();
+  });
 });

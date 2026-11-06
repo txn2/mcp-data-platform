@@ -258,8 +258,8 @@ var manageFeedbackSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["list", "create", "get", "reply", "resolve", "request_validation", "respond_validation"],
-      "description": "Action to perform. list (with NO target = your pending feedback across the assets and collections you own or can edit AND the general channel, newest first, excluding your own threads, plus threads awaiting your validation; with a target = threads on that one asset/collection/prompt or the standalone channel). create (open a new thread with body as its first comment, on exactly one of asset_id, collection_id, prompt_id, knowledge_page_id, or target_type=standalone; anyone who can view the target may, and you are the author). get (one thread + its timeline). reply (post a comment). resolve (mark resolved). request_validation (route a validation request to the thread author). respond_validation (the thread author records validated/disputed via validation_result)."
+      "enum": ["list", "create", "get", "reply", "resolve", "request_validation", "respond_validation", "edit", "delete"],
+      "description": "Action to perform. list (with NO target = your pending feedback across the assets and collections you own or can edit AND the general channel, newest first, excluding your own threads, plus threads awaiting your validation; with a target = threads on that one asset/collection/prompt or the standalone channel). create (open a new thread with body as its first comment, on exactly one of asset_id, collection_id, prompt_id, knowledge_page_id, or target_type=standalone; anyone who can view the target may, and you are the author). get (one thread + its timeline). reply (post a comment). resolve (mark resolved). request_validation (route a validation request to the thread author). respond_validation (the thread author records validated/disputed via validation_result). edit (replace the text of a message you wrote; thread_id, event_id and body). delete (remove a message you wrote, or any message on a target you own or edit; thread_id and event_id). Only comments and replies can be edited or deleted; an approval, rejection, rating, status change or validation result cannot."
     },
     "asset_id": {
       "type": "string",
@@ -283,20 +283,20 @@ var manageFeedbackSchema = json.RawMessage(`{
     },
     "thread_id": {
       "type": "string",
-      "description": "Feedback thread ID (required for get, reply, resolve, request_validation, respond_validation; to start a thread, use action=create)"
+      "description": "Feedback thread ID (required for get, reply, resolve, request_validation, respond_validation, edit, delete; to start a thread, use action=create)"
     },
     "body": {
       "type": "string",
-      "description": "Comment text (required for reply, and for create, where it is the thread's first comment)"
+      "description": "Comment text (required for reply, for create, where it is the thread's first comment, and for edit, where it replaces the message's text)"
+    },
+    "event_id": {
+      "type": "string",
+      "description": "For edit and delete: the message to change, an event id from action=get"
     },
     "kind": {
       "type": "string",
       "enum": ["comment", "question", "correction", "rating", "approval", "rejection", "suggestion"],
       "description": "For create: what the thread is (default comment)"
-    },
-    "title": {
-      "type": "string",
-      "description": "For create: an optional title for the thread"
     },
     "visibility": {
       "type": "string",

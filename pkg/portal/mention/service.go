@@ -20,12 +20,20 @@ const MetadataKey = "mentions"
 // the MCP feedback tool run a body through it, so a mention behaves the same
 // whichever surface authored it.
 type Service struct {
-	audience *Audience
+	gate Gate
 }
 
-// NewService builds the resolver over an audience.
-func NewService(audience *Audience) *Service {
-	return &Service{audience: audience}
+// Gate decides which of the named addresses may be mentioned on a target:
+// the people who can open it. Audience is one; the portal's access rule
+// (internal/portal/threadreach, #2512) is the one the platform wires, so a
+// mention reaches exactly the people the target's read admits.
+type Gate interface {
+	Eligible(ctx context.Context, t Target, emails []string) ([]string, error)
+}
+
+// NewService builds the resolver over a gate.
+func NewService(gate Gate) *Service {
+	return &Service{gate: gate}
 }
 
 // ResolveMentions returns the addresses named in body that may actually be
@@ -44,14 +52,14 @@ func NewService(audience *Audience) *Service {
 // yields no mentions, exactly like a body that named nobody. A nil Service
 // (mentions unavailable, e.g. no database) resolves nothing.
 func (s *Service) ResolveMentions(ctx context.Context, targetType, targetID, body, author string) []string {
-	if s == nil || s.audience == nil {
+	if s == nil || s.gate == nil {
 		return nil
 	}
 	named := withoutAuthor(Emails(Scan(body)), author)
 	if len(named) == 0 {
 		return nil
 	}
-	eligible, err := s.audience.Eligible(ctx, Target{Type: targetType, ID: targetID}, named)
+	eligible, err := s.gate.Eligible(ctx, Target{Type: targetType, ID: targetID}, named)
 	if err != nil {
 		slog.WarnContext(ctx, "mention: audience lookup failed; treating mentions as plain text", // #nosec G706 -- structured slog call; values sanitized
 			"target_type", logsan.SanitizeForLog(targetType),
@@ -95,6 +103,31 @@ func WithMentions(metadata json.RawMessage, emails []string) (json.RawMessage, e
 		return nil, fmt.Errorf("encoding mentions: %w", err)
 	}
 	fields[MetadataKey] = encoded
+	merged, err := json.Marshal(fields)
+	if err != nil {
+		return nil, fmt.Errorf("encoding event metadata: %w", err)
+	}
+	return merged, nil
+}
+
+// ReplaceMentions returns metadata whose mentions are exactly emails: an edit
+// that removes every mention removes the key, where WithMentions would keep
+// the old list.
+func ReplaceMentions(metadata json.RawMessage, emails []string) (json.RawMessage, error) {
+	if len(emails) > 0 {
+		return WithMentions(metadata, emails)
+	}
+	if len(metadata) == 0 {
+		return metadata, nil
+	}
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(metadata, &fields); err != nil {
+		return nil, fmt.Errorf("reading event metadata: %w", err)
+	}
+	if _, ok := fields[MetadataKey]; !ok {
+		return metadata, nil
+	}
+	delete(fields, MetadataKey)
 	merged, err := json.Marshal(fields)
 	if err != nil {
 		return nil, fmt.Errorf("encoding event metadata: %w", err)

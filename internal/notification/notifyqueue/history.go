@@ -26,6 +26,9 @@ func historyWhere(filter notification.HistoryFilter) (clause string, args []any)
 	add("status", filter.Status)
 	add("category", filter.Category)
 	add("channel", filter.Channel)
+	if filter.Unread {
+		clauses = append(clauses, "read_at IS NULL")
+	}
 	if len(clauses) == 0 {
 		return "", nil
 	}

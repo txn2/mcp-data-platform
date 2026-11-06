@@ -361,6 +361,39 @@ export function useUpdateThread() {
   });
 }
 
+// useEditThreadEvent replaces the text of a message the signed-in person
+// wrote (#2514). The server refuses anyone but the author.
+export function useEditThreadEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ threadId, eventId, body }: { threadId: string; eventId: string; body: string }) =>
+      apiFetch<ThreadEvent>(`/threads/${threadId}/events/${eventId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ body }),
+      }),
+    onSuccess: () => invalidateThreadQueries(qc),
+  });
+}
+
+export interface DeleteThreadEventResult {
+  event_id: string;
+  deleted: boolean;
+  thread_deleted: boolean;
+}
+
+// useDeleteThreadEvent deletes a message (#2514): its author's, or any on a
+// target the person owns or edits. The server decides.
+export function useDeleteThreadEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ threadId, eventId }: { threadId: string; eventId: string }) =>
+      apiFetch<DeleteThreadEventResult>(`/threads/${threadId}/events/${eventId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => invalidateThreadQueries(qc),
+  });
+}
+
 export function useDeleteThread() {
   const qc = useQueryClient();
   return useMutation({

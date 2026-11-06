@@ -2,6 +2,7 @@ package feedbackapi
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -115,7 +116,7 @@ func (h *Handler) captureThreadInsight(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) buildThreadInsightRecord(r *http.Request, thread *threads.Thread, user *access.User) (rec memory.Record, status int, msg string) {
 	var req captureInsightRequest
 	if r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBody)).Decode(&req); err != nil {
 			return memory.Record{}, http.StatusBadRequest, errInvalidRequestBody
 		}
 	}

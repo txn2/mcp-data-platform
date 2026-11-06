@@ -21803,6 +21803,12 @@
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Only the notifications not yet read in the portal",
+                        "name": "unread",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Page number, 1-based (default: 1)",
                         "name": "page",
@@ -21820,6 +21826,120 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/notifyhttp.HistoryResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/notifications/read": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Marks the calling user's own notifications read: the ones named in ids, or every one when ids is empty. An id that is not the caller's changes nothing.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Mark my notifications read",
+                "parameters": [
+                    {
+                        "description": "Rows to mark read",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/notifyhttp.MarkReadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notifyhttp.MarkReadResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/notifications/unread-count": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns how many of the calling user's own notifications they have not read in the portal: mentions, replies and comments on threads they are part of, and shares. Self-scoped server-side. Works with no mail server configured.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Count my unread notifications",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notifyhttp.UnreadCountResponse"
                         }
                     },
                     "401": {
@@ -27503,6 +27623,158 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/threads/{id}/events/{eventID}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes a message. Its author, the target's owner or editor, and an administrator may delete one. Only comment events can be deleted. The thread shows the message as deleted in its place and no route returns its text; deleting the opening message of a thread nothing else followed deletes the thread.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Delete a message",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "eventID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/feedbackapi.deleteEventResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the text of a message the caller wrote. Only comment events (the opening message of a comment, question, correction or suggestion thread, and every reply) can be edited; an approval, rejection, rating, status change or validation result cannot. The previous text is kept. A person the new text mentions who was not mentioned before is notified; nobody else is.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Edit a message",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "eventID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New text",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/feedbackapi.editEventRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/threads.ThreadEvent"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -38838,6 +39110,28 @@
                 }
             }
         },
+        "feedbackapi.deleteEventResponse": {
+            "type": "object",
+            "properties": {
+                "deleted": {
+                    "type": "boolean"
+                },
+                "event_id": {
+                    "type": "string"
+                },
+                "thread_deleted": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "feedbackapi.editEventRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                }
+            }
+        },
         "feedbackapi.pagedResponse": {
             "type": "object",
             "properties": {
@@ -40779,6 +41073,10 @@
                 },
                 "subject": {
                     "type": "string"
+                },
+                "unread": {
+                    "description": "Unread reports a row the caller has not read in the portal (#2512).",
+                    "type": "boolean"
                 }
             }
         },
@@ -40802,6 +41100,25 @@
                     "type": "integer"
                 },
                 "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "notifyhttp.MarkReadRequest": {
+            "type": "object",
+            "properties": {
+                "ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "notifyhttp.MarkReadResponse": {
+            "type": "object",
+            "properties": {
+                "marked": {
                     "type": "integer"
                 }
             }
@@ -40841,6 +41158,14 @@
                 },
                 "shares_enabled": {
                     "type": "boolean"
+                }
+            }
+        },
+        "notifyhttp.UnreadCountResponse": {
+            "type": "object",
+            "properties": {
+                "unread": {
+                    "type": "integer"
                 }
             }
         },
@@ -49558,6 +49883,14 @@
                     "type": "string"
                 },
                 "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "description": "DeletedAt marks a deleted message (#2514). Every read returns it with\nno body and no metadata, so its place in the timeline stays and its\ntext reaches nobody.",
+                    "type": "string"
+                },
+                "edited_at": {
+                    "description": "EditedAt is when the author last changed the text (#2514); the text\nbefore each edit is kept in portal_thread_event_revisions.",
                     "type": "string"
                 },
                 "event_type": {

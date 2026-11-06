@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -61,7 +62,7 @@ func TestHandleCreateThread_OpensThroughThePortalAsTheCaller(t *testing.T) {
 	yes := true
 	res, _, err := tk.handleManageFeedback(callerCtx(), nil, manageFeedbackInput{
 		Action: fbActionCreate, AssetID: "asset_1", Body: "Is Q3 complete?", Kind: portal.ThreadKindQuestion,
-		Title: "Q3", Visibility: "shared", Anchor: map[string]any{"line": 12.0}, TargetVersion: 3, RequiresResolution: &yes,
+		Visibility: "shared", Anchor: map[string]any{"line": 12.0}, TargetVersion: 3, RequiresResolution: &yes,
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, "%v", decodeResult(t, res))
@@ -73,7 +74,7 @@ func TestHandleCreateThread_OpensThroughThePortalAsTheCaller(t *testing.T) {
 	assert.Equal(t, []string{"analyst"}, stub.caller.Roles)
 	assert.Equal(t, map[string]any{
 		"kind": "question", "target_type": "asset", "asset_id": "asset_1", "anchor": map[string]any{"line": 12.0},
-		"target_version": 3.0, "title": "Q3", "requires_resolution": true, "body": "Is Q3 complete?", "visibility": "shared",
+		"target_version": 3.0, "requires_resolution": true, "body": "Is Q3 complete?", "visibility": "shared",
 	}, stub.body)
 	assert.Equal(t, "thr_1", decodeResult(t, res)["id"])
 }
@@ -202,4 +203,42 @@ func TestReplyWithoutAThread_NamesCreate(t *testing.T) {
 	res, _, _ := tk.handleManageFeedback(callerCtx(), nil, manageFeedbackInput{Action: fbActionReply, AssetID: "asset_1", Body: "x"})
 	require.True(t, res.IsError)
 	assert.Contains(t, decodeResult(t, res)["error"], "use action=create")
+}
+
+// TestCreateOverMCPSession_TakesNoTitle holds #2513 on the wire: create opens a
+// thread from its body alone, and a title is no longer an argument the tool
+// takes, so a call still sending one is refused by the schema rather than
+// stored.
+func TestCreateOverMCPSession_TakesNoTitle(t *testing.T) {
+	ctx := callerCtx()
+	stub := &portalStub{status: http.StatusCreated, answer: `{"id":"thr_1","target_type":"asset","asset_id":"asset_1"}`}
+	tk := createToolkit(t, stub)
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, nil)
+	tk.RegisterTools(server)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSess, err := server.Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer func() { _ = serverSess.Close() }()
+	clientSess, err := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0"}, nil).
+		Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer func() { _ = clientSess.Close() }()
+
+	res, err := clientSess.CallTool(ctx, &mcp.CallToolParams{Name: feedbackToolName, Arguments: map[string]any{
+		"action": fbActionCreate, "asset_id": "asset_1", "body": "The totals are off by one.",
+	}})
+	require.NoError(t, err)
+	require.False(t, res.IsError, resultText(t, res))
+	assert.NotContains(t, stub.body, "title")
+	assert.Equal(t, "The totals are off by one.", stub.body["body"])
+
+	stub.body = nil
+	res, err = clientSess.CallTool(ctx, &mcp.CallToolParams{Name: feedbackToolName, Arguments: map[string]any{
+		"action": fbActionCreate, "asset_id": "asset_1", "body": "x", "title": "Q3",
+	}})
+	if err == nil {
+		require.True(t, res.IsError, "a title was accepted")
+	}
+	assert.Nil(t, stub.body, "a create carrying a title reached the portal")
 }

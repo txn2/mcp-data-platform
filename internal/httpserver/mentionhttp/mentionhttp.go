@@ -15,7 +15,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
@@ -61,6 +63,16 @@ type Deps struct {
 	// External reports whether a person's recorded roles resolve to a
 	// persona for people outside the organization (#2290); nil marks no one.
 	External func(roles []string) bool
+	// Reach decides who can open a thread target (#2512). With it and the
+	// directory set, the mention picker also offers directory people the
+	// target is open to by a route the audience SQL does not list (a persona
+	// share), decided by the rule a mention is delivered by.
+	Reach Reach
+}
+
+// Reach is the subset of internal/portal/threadreach the picker reads.
+type Reach interface {
+	Filter(ctx context.Context, targetType, targetID string, emails []string) []string
 }
 
 // Handler serves the people and mention routes.
@@ -213,16 +225,85 @@ func (h *Handler) listMentionCandidates(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusForbidden, "you do not have access to this item")
 		return
 	}
-	people, err := h.deps.Audience.List(r.Context(), target, mention.ListOptions{
+	opts := mention.ListOptions{
 		Query:   r.URL.Query().Get(paramQuery),
 		Exclude: caller.Email,
 		Limit:   intParam(r, paramLimit, 0),
-	})
+	}
+	people, err := h.deps.Audience.List(r.Context(), target, opts)
 	if err != nil {
 		writeAudienceError(w, err, "failed to list mention candidates")
 		return
 	}
-	writeJSON(w, http.StatusOK, mentionCandidatesResponse{Candidates: people})
+	writeJSON(w, http.StatusOK, mentionCandidatesResponse{Candidates: h.withReached(r.Context(), target, opts, people)})
+}
+
+// reachScan bounds how many directory matches the picker checks against the
+// reach for one keystroke; it is also the largest candidate page.
+const reachScan = 100
+
+// defaultCandidatePage is the page size a request that names none gets, the
+// audience's own default.
+const defaultCandidatePage = 20
+
+// candidatePage is the candidate page size a request asks for, clamped the
+// way the audience clamps it.
+func candidatePage(limit int) int {
+	switch {
+	case limit <= 0:
+		return defaultCandidatePage
+	case limit > reachScan:
+		return reachScan
+	}
+	return limit
+}
+
+// withReached adds to an asset's or collection's audience the directory
+// people the target is open to by a route the audience SQL does not list,
+// a persona share above all (#2512), as decided by the reach a mention is
+// delivered by. The result stays ordered by address and capped at the page
+// size. Any failure leaves the audience as it was.
+func (h *Handler) withReached(ctx context.Context, t mention.Target, opts mention.ListOptions, people []mention.Person) []mention.Person {
+	limit := candidatePage(opts.Limit)
+	if h.deps.Reach == nil || h.deps.Directory == nil || len(people) >= limit ||
+		(t.Type != mention.TargetAsset && t.Type != mention.TargetCollection) {
+		return people
+	}
+	users, _, err := h.deps.Directory.List(ctx, userdir.Filter{Query: opts.Query, ConfirmedOnly: true, Limit: reachScan})
+	if err != nil {
+		return people
+	}
+	byEmail := unlisted(users, people, opts.Exclude)
+	emails := make([]string, 0, len(byEmail))
+	for _, u := range byEmail {
+		emails = append(emails, u.Email)
+	}
+	for _, email := range h.deps.Reach.Filter(ctx, t.Type, t.ID, emails) {
+		u := byEmail[strings.ToLower(email)]
+		people = append(people, mention.Person{Email: u.Email, FirstName: u.FirstName, LastName: u.LastName, Confirmed: true})
+	}
+	sort.SliceStable(people, func(i, j int) bool { return strings.ToLower(people[i].Email) < strings.ToLower(people[j].Email) })
+	if len(people) > limit {
+		people = people[:limit]
+	}
+	return people
+}
+
+// unlisted returns the directory users not already among people and not the
+// caller, keyed by lower-cased address.
+func unlisted(users []userdir.User, people []mention.Person, exclude string) map[string]userdir.User {
+	seen := make(map[string]bool, len(people))
+	seen[strings.ToLower(exclude)] = true
+	for _, p := range people {
+		seen[strings.ToLower(p.Email)] = true
+	}
+	out := map[string]userdir.User{}
+	for _, u := range users {
+		if key := strings.ToLower(u.Email); !seen[key] {
+			out[key] = u
+		}
+	}
+	return out
 }
 
 // writeAudienceError maps an audience lookup failure to a status. An
@@ -257,7 +338,12 @@ func (h *Handler) callerMaySeeAudience(r *http.Request, caller *Identity, target
 	if err != nil {
 		return false, fmt.Errorf("resolving audience membership: %w", err)
 	}
-	return len(member) == 1, nil
+	if len(member) == 1 {
+		return true, nil
+	}
+	// A caller the audience SQL does not list may still open the target by
+	// a persona share, which the reach decides (#2512).
+	return h.deps.Reach != nil && len(h.deps.Reach.Filter(r.Context(), target.Type, target.ID, []string{caller.Email})) == 1, nil
 }
 
 // paginatedResponse mirrors the portal's list envelope so these routes page

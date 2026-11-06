@@ -3,6 +3,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import { EntityChip } from "@/components/knowledge/EntityChip";
+import { externalLinkProps } from "@/lib/assetLinks";
 import { isRefUrn, REF_TOKEN_SOURCE, trimRefToken, type ResolvedRef } from "@/lib/entityRefs";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -83,8 +84,10 @@ export function MarkdownRenderer({
           }
           return <EntityChip urn={href as string} resolved={resolved} onNavigate={onNavigate} />;
         }
+        // A link to another site opens in a new tab, so the reader keeps the
+        // portal (#2501).
         return (
-          <a href={href} {...rest}>
+          <a href={href} {...rest} {...externalLinkProps(href)}>
             {children}
           </a>
         );

@@ -92,4 +92,30 @@ describe("InboxPanel", () => {
     fireEvent.click(screen.getByText("Confirm the wording"));
     expect(onOpen).toHaveBeenCalledWith("t9");
   });
+
+  // #2513: a thread is listed by its stored title if it has one, otherwise by
+  // the first line of its first message, with its author and target; never
+  // as untitled.
+  it("lists a titled thread by its title and an untitled one by its first message", () => {
+    mockPractitioner.mockReturnValue(
+      result(
+        [
+          row({ id: "t1", target_label: "Q3 revenue" }),
+          row({ id: "t2", title: undefined, first_message: "The totals are off by one.", target_label: "Q3 revenue" }),
+          row({ id: "t3", title: undefined, kind: "rating", first_message: undefined }),
+        ],
+        3,
+      ),
+    );
+    mockSME.mockReturnValue(result([], 0));
+
+    render(<InboxPanel />);
+    expect(screen.getByText("Churn is actually retention")).toBeInTheDocument();
+    expect(screen.getByText("The totals are off by one.")).toBeInTheDocument();
+    expect(screen.getAllByText("sme@example.com · Q3 revenue")).toHaveLength(2);
+    // No label and no message: the kind names it, the target type names where.
+    expect(screen.getByText("Rating", { selector: "span.truncate" })).toBeInTheDocument();
+    expect(screen.getByText("sme@example.com · Asset")).toBeInTheDocument();
+    expect(screen.queryByText(/untitled/i)).not.toBeInTheDocument();
+  });
 });

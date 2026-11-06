@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { HtmlRenderer } from "./HtmlRenderer";
 import { useAuthStore } from "@/stores/auth";
+import { OPEN_LINK_MESSAGE, withAssetLinks } from "@/lib/assetLinks";
 
 const DECK = `<!DOCTYPE html><html><head><script src="/portal/vendor/reveal/reveal.js"></script></head><body><div class="reveal"><div class="slides"><section>One</section></div></div></body></html>`;
 const DASHBOARD = `<!DOCTYPE html><html><head><title>Revenue</title></head><body><h1>Revenue</h1></body></html>`;
@@ -27,7 +28,7 @@ describe("HtmlRenderer", () => {
     expect(frame).not.toBeNull();
     // srcdoc, not a blob: URL, so a root-relative script path in the artifact
     // resolves against the page (#1767).
-    expect(frame).toHaveAttribute("srcdoc", DECK);
+    expect(frame).toHaveAttribute("srcdoc", withAssetLinks(DECK));
     expect(frame).not.toHaveAttribute("src");
     // allow-downloads lets a download the reader starts go ahead (#2127);
     // there is still no allow-same-origin.
@@ -167,7 +168,7 @@ describe("HtmlRenderer video embeds (#2069)", () => {
 
   it("adds no policy where no list was given: the share page's header carries it", () => {
     const { container } = render(<HtmlRenderer content={DASHBOARD} />);
-    expect(container.querySelector("iframe")).toHaveAttribute("srcdoc", DASHBOARD);
+    expect(container.querySelector("iframe")).toHaveAttribute("srcdoc", withAssetLinks(DASHBOARD));
   });
 
   it("opens a card's video only for a message from its own frame naming a YouTube or Vimeo id", () => {
@@ -194,5 +195,37 @@ describe("HtmlRenderer video embeds (#2069)", () => {
       );
     });
     expect(open).toHaveBeenCalledWith("https://www.youtube.com/watch?v=M7lc1UVf-VE", "_blank", "noopener,noreferrer");
+  });
+});
+
+describe("HtmlRenderer links (#2501)", () => {
+  it("frames the document with the link handler ahead of its own scripts", () => {
+    const { container } = render(<HtmlRenderer content={DECK} />);
+    const doc = container.querySelector("iframe")!.getAttribute("srcdoc")!;
+    expect(doc.indexOf(OPEN_LINK_MESSAGE)).toBeGreaterThan(-1);
+    expect(doc.indexOf(OPEN_LINK_MESSAGE)).toBeLessThan(doc.indexOf("reveal.js"));
+  });
+
+  it("opens a link only for its own frame and only for http, https and mailto", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const { container } = render(<HtmlRenderer content={DASHBOARD} />);
+    const frame = container.querySelector("iframe")!;
+    const send = (url: string, source: Window | null) =>
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", { data: { type: OPEN_LINK_MESSAGE, url }, source }));
+      });
+
+    send("https://example.com/", window);
+    send("javascript:alert(1)", frame.contentWindow);
+    send("data:text/html,x", frame.contentWindow);
+    send("file:///etc/passwd", frame.contentWindow);
+    expect(open).not.toHaveBeenCalled();
+
+    send("https://example.com/", frame.contentWindow);
+    send("mailto:a@example.com", frame.contentWindow);
+    expect(open.mock.calls).toEqual([
+      ["https://example.com/", "_blank", "noopener,noreferrer"],
+      ["mailto:a@example.com", "_blank", "noopener,noreferrer"],
+    ]);
   });
 });

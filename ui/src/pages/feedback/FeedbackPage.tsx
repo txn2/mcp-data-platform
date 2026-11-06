@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { Bell, Clock, ListChecks, Megaphone, Plus, type LucideIcon } from "lucide-react";
-import { usePractitionerWorklist, useSMEWorklist } from "@/api/portal/hooks";
+import {
+  usePractitionerWorklist,
+  useSMEWorklist,
+  useUnreadNotificationCount,
+} from "@/api/portal/hooks";
 import { ActivityFeed } from "@/components/feedback/ActivityFeed";
 import { InboxPanel } from "@/components/feedback/InboxPanel";
 import { FeedbackPanel } from "@/components/feedback/FeedbackPanel";
@@ -57,6 +61,7 @@ export function FeedbackPage({ onNavigate }: Props) {
   const practitioner = usePractitionerWorklist();
   const sme = useSMEWorklist();
   const worklistCount = (practitioner.data?.total ?? 0) + (sme.data?.total ?? 0);
+  const unreadCount = useUnreadNotificationCount().data?.unread ?? 0;
 
   return (
     <div className="space-y-4">
@@ -93,6 +98,15 @@ export function FeedbackPage({ onNavigate }: Props) {
               {t.key === "worklist" && worklistCount > 0 ? (
                 <Badge variant="info" className="px-1.5 text-[11px]">
                   {worklistCount}
+                </Badge>
+              ) : null}
+              {t.key === "notifications" && unreadCount > 0 ? (
+                <Badge
+                  variant="info"
+                  className="px-1.5 text-[11px]"
+                  aria-label={`${unreadCount} unread`}
+                >
+                  {unreadCount}
                 </Badge>
               ) : null}
             </TabsTrigger>

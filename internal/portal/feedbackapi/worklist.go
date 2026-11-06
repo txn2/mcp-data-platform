@@ -84,7 +84,8 @@ func (h *Handler) smeWorklist(w http.ResponseWriter, r *http.Request) {
 	h.writeWorklist(w, r, filter)
 }
 
-// writeWorklist runs a worklist filter and writes the paginated result.
+// writeWorklist runs a worklist filter and writes the paginated result, each
+// row labeled with its target the way the activity feed labels it.
 func (h *Handler) writeWorklist(w http.ResponseWriter, r *http.Request, filter threads.ThreadFilter) {
 	filter.SharedOnly = h.external(access.GetUser(r.Context()))
 	found, total, err := h.cfg.Threads.ListThreads(r.Context(), filter)
@@ -92,11 +93,11 @@ func (h *Handler) writeWorklist(w http.ResponseWriter, r *http.Request, filter t
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to load worklist")
 		return
 	}
-	if found == nil {
-		found = []threads.ThreadWithMeta{}
-	}
+	// Each row names its target (#2513): a worklist spans every artifact the
+	// caller can act on, and a thread without a title is known by its first
+	// message and where it was left.
 	httpjson.WriteJSON(w, http.StatusOK, pagedResponse{
-		Data: found, Total: total, Limit: filter.EffectiveLimit(), Offset: filter.Offset,
+		Data: h.labelActivityThreads(r.Context(), found), Total: total, Limit: filter.EffectiveLimit(), Offset: filter.Offset,
 	})
 }
 

@@ -383,3 +383,103 @@ func TestListMentionCandidates_UnknownTargetTypeOnTheAccessCheck(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+// fakeReach admits the addresses it holds, per target id.
+type fakeReach struct {
+	open map[string][]string
+	got  []string
+}
+
+func (f *fakeReach) Filter(_ context.Context, _, targetID string, emails []string) []string {
+	f.got = append(f.got, emails...)
+	out := []string{}
+	for _, e := range emails {
+		for _, o := range f.open[targetID] {
+			if strings.EqualFold(e, o) {
+				out = append(out, e)
+			}
+		}
+	}
+	return out
+}
+
+func decodeCandidates(t *testing.T, rec *httptest.ResponseRecorder) []mention.Person {
+	t.Helper()
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body mentionCandidatesResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	return body.Candidates
+}
+
+// #2512: a person who opens an asset only through a persona share is offered
+// by the picker, decided by the reach, and a directory person the asset is
+// not open to is not.
+func TestListMentionCandidates_PersonaShareRecipientsOffered(t *testing.T) {
+	audience := &fakeAudience{
+		members: []string{"me@example.com"},
+		people:  []mention.Person{{Email: "dana@example.com", Confirmed: true}},
+	}
+	dir := &fakeDirectory{users: []userdir.User{
+		{Email: "me@example.com"},
+		{Email: "dana@example.com", FirstName: "Dana"},
+		{Email: "bea@example.com", FirstName: "Bea", LastName: "Ng"},
+		{Email: "out@example.com"},
+	}}
+	reach := &fakeReach{open: map[string][]string{"asset_1": {"bea@example.com", "dana@example.com"}}}
+	rec := serve(t, Deps{Audience: audience, Directory: dir, Reach: reach, Caller: callerIs(member)},
+		"/api/v1/portal/mention-candidates?target_type=asset&target_id=asset_1&q=e")
+
+	assert.Equal(t, []mention.Person{
+		{Email: "bea@example.com", FirstName: "Bea", LastName: "Ng", Confirmed: true},
+		{Email: "dana@example.com", Confirmed: true},
+	}, decodeCandidates(t, rec))
+	assert.ElementsMatch(t, []string{"bea@example.com", "out@example.com"}, reach.got,
+		"only people the audience did not list, never the caller, are checked")
+	assert.Equal(t, userdir.Filter{Query: "e", ConfirmedOnly: true, Limit: reachScan}, dir.gotFilter)
+}
+
+// A caller who opens the asset only through a persona share may list its
+// audience; one the reach does not admit is still refused.
+func TestListMentionCandidates_PersonaShareCallerAdmitted(t *testing.T) {
+	audience := &fakeAudience{people: []mention.Person{{Email: "owner@example.com"}}}
+	reach := &fakeReach{open: map[string][]string{"asset_1": {"me@example.com"}}}
+	rec := serve(t, Deps{Audience: audience, Reach: reach, Caller: callerIs(member)},
+		"/api/v1/portal/mention-candidates?target_type=asset&target_id=asset_1")
+	assert.Equal(t, []mention.Person{{Email: "owner@example.com"}}, decodeCandidates(t, rec))
+
+	rec = serve(t, Deps{Audience: audience, Reach: reach, Caller: callerIs(member)},
+		"/api/v1/portal/mention-candidates?target_type=asset&target_id=asset_2")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// The picker's page is the audience's when it is already full, the directory
+// failing leaves the audience alone, and other target types are not widened.
+func TestListMentionCandidates_ReachLeavesAudienceAlone(t *testing.T) {
+	full := make([]mention.Person, 0, 2)
+	full = append(full, mention.Person{Email: "a@example.com"}, mention.Person{Email: "b@example.com"})
+	reach := &fakeReach{open: map[string][]string{"x": {"c@example.com"}}}
+	dir := &fakeDirectory{users: []userdir.User{{Email: "c@example.com"}}}
+	admin := &Identity{UserID: "u9", Email: "admin@example.com", IsAdmin: true}
+
+	rec := serve(t, Deps{Audience: &fakeAudience{people: full}, Directory: dir, Reach: reach, Caller: callerIs(admin)},
+		"/api/v1/portal/mention-candidates?target_type=asset&target_id=x&limit=2")
+	assert.Equal(t, full, decodeCandidates(t, rec))
+
+	rec = serve(t, Deps{Audience: &fakeAudience{people: full[:1]}, Directory: &fakeDirectory{err: assert.AnError}, Reach: reach, Caller: callerIs(admin)},
+		"/api/v1/portal/mention-candidates?target_type=asset&target_id=x")
+	assert.Equal(t, full[:1], decodeCandidates(t, rec))
+
+	rec = serve(t, Deps{Audience: &fakeAudience{people: full[:1]}, Directory: dir, Reach: reach, Caller: callerIs(admin)},
+		"/api/v1/portal/mention-candidates?target_type=prompt&target_id=x")
+	assert.Equal(t, full[:1], decodeCandidates(t, rec))
+
+	rec = serve(t, Deps{Audience: &fakeAudience{people: full[:1]}, Directory: dir, Reach: reach, Caller: callerIs(admin)},
+		"/api/v1/portal/mention-candidates?target_type=collection&target_id=x&limit=500")
+	assert.Equal(t, []mention.Person{{Email: "a@example.com"}, {Email: "c@example.com", Confirmed: true}}, decodeCandidates(t, rec))
+}
+
+func TestCandidatePage(t *testing.T) {
+	assert.Equal(t, 20, candidatePage(0))
+	assert.Equal(t, 7, candidatePage(7))
+	assert.Equal(t, reachScan, candidatePage(500))
+}

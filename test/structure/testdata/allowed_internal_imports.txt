@@ -356,6 +356,7 @@ internal/httpserver -> internal/httpserver/changesethttp
 internal/httpserver -> internal/httpserver/corshttp
 internal/httpserver -> internal/httpserver/embedwire
 internal/httpserver -> internal/httpserver/endpointwire
+internal/httpserver -> internal/httpserver/feedbackwire
 internal/httpserver -> internal/httpserver/formpublishwire
 internal/httpserver -> internal/httpserver/formwire
 internal/httpserver -> internal/httpserver/gatewayhttp
@@ -584,6 +585,12 @@ internal/httpserver/endpointwire -> internal/httpserver/savegatewire
 internal/httpserver/endpointwire -> internal/platform/scriptstore
 internal/httpserver/endpointwire -> pkg/platform
 internal/httpserver/endpointwire -> pkg/portal
+internal/httpserver/feedbackwire -> internal/portal/access
+internal/httpserver/feedbackwire -> internal/portal/threadreach
+internal/httpserver/feedbackwire -> pkg/middleware
+internal/httpserver/feedbackwire -> pkg/portal
+internal/httpserver/feedbackwire -> pkg/portal/mention
+internal/httpserver/feedbackwire -> pkg/user
 internal/httpserver/formpublishwire -> internal/approval
 internal/httpserver/formpublishwire -> internal/approval/apprhttp
 internal/httpserver/formpublishwire -> internal/endpoint/eppreview
@@ -649,6 +656,7 @@ internal/httpserver/notifywire -> internal/notification/notifyrender
 internal/httpserver/notifywire -> internal/platform/branding
 internal/httpserver/notifywire -> internal/platform/notifydelivery
 internal/httpserver/notifywire -> internal/platform/notifywiring
+internal/httpserver/notifywire -> internal/portal/threadreach
 internal/httpserver/notifywire -> pkg/platform
 internal/httpserver/notifywire -> pkg/portal
 internal/httpserver/notifywire -> pkg/portal/mention
@@ -1798,7 +1806,11 @@ internal/portal/feedbackapi -> internal/httpjson
 internal/portal/feedbackapi -> internal/logsan
 internal/portal/feedbackapi -> internal/portal/access
 internal/portal/feedbackapi -> internal/portal/portaldomain
+internal/portal/feedbackapi -> internal/portal/threadreach
+internal/portal/feedbackapi -> internal/selfcall
+internal/portal/feedbackapi -> pkg/audit
 internal/portal/feedbackapi -> pkg/memory
+internal/portal/feedbackapi -> pkg/middleware
 internal/portal/feedbackapi -> pkg/portal/knowledgepage
 internal/portal/feedbackapi -> pkg/portal/mention
 internal/portal/feedbackapi -> pkg/portal/threads
@@ -1841,6 +1853,12 @@ internal/portal/sharelink -> internal/httpjson
 internal/portal/sharelink -> internal/portal/access
 internal/portal/sharelink -> internal/portal/portaldomain
 internal/portal/sharelink -> pkg/prompt
+internal/portal/threadreach -> internal/portal/access
+internal/portal/threadreach -> internal/portal/portaldomain
+internal/portal/threadreach -> pkg/portal/knowledgepage
+internal/portal/threadreach -> pkg/portal/mention
+internal/portal/threadreach -> pkg/prompt
+internal/portal/threadreach -> pkg/user
 internal/portal/viewerlimit -> internal/httpobs
 internal/portal/viewerlimit -> pkg/ratelimit
 internal/producedby -> internal/logsan
@@ -2546,6 +2564,7 @@ pkg/toolkits/portal -> pkg/portal
 pkg/toolkits/portal -> pkg/portal/knowledgepage
 pkg/toolkits/portal -> pkg/portal/mention
 pkg/toolkits/portal -> pkg/portal/shareaccess
+pkg/toolkits/portal -> pkg/portal/threads
 pkg/toolkits/portal -> pkg/query
 pkg/toolkits/portal -> pkg/registry
 pkg/toolkits/portal -> pkg/resource

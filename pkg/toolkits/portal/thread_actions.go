@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
+	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -207,10 +208,29 @@ func (t *Toolkit) handleReplyThread(ctx context.Context, input manageFeedbackInp
 	if err != nil {
 		return toolkit.ErrorResult("failed to reply: " + err.Error()), nil, nil
 	}
-	if t.notifier != nil {
-		t.notifier.NotifyThreadEvent(ctx, thread, author, input.Body, mentioned)
-	}
+	t.notifyReply(ctx, threads.MessageNotice{
+		Thread: thread, EventID: evt.ID, ActorEmail: author, Body: input.Body, Mentioned: mentioned,
+	})
 	return toolkit.JSONResultTyped(evt)
+}
+
+// messageNotifier is the half of the platform notifier that names the message
+// a notification is about, so deleting it takes its text back out (#2514).
+type messageNotifier interface {
+	NotifyThreadMessage(ctx context.Context, msg threads.MessageNotice)
+}
+
+// notifyReply tells the people a thread involves about an agent's reply, as a
+// reply written in the portal does (#2512).
+func (t *Toolkit) notifyReply(ctx context.Context, msg threads.MessageNotice) {
+	if t.notifier == nil {
+		return
+	}
+	if mn, ok := t.notifier.(messageNotifier); ok {
+		mn.NotifyThreadMessage(ctx, msg)
+		return
+	}
+	t.notifier.NotifyThreadEvent(ctx, msg.Thread, msg.ActorEmail, msg.Body, msg.Mentioned)
 }
 
 // resolveMentions returns the people an agent-authored reply may mention on the

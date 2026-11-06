@@ -5,6 +5,8 @@ const SME = "dana.sme@example.com";
 
 // Seeded feedback threads. ast-001 / col-001 match the assets/collections mock
 // data so the per-object panels and list badges render in dev + screenshots.
+// Threads opened before #2513 keep their stored title; the rest carry none and
+// are listed by their first message, as every new thread is.
 export const mockThreads: ThreadWithMeta[] = [
   {
     id: "thr-asset-1",
@@ -14,6 +16,7 @@ export const mockThreads: ThreadWithMeta[] = [
     anchor: { type: "text_quote", exact: "monthly active users", prefix: "the ", suffix: " metric" },
     target_version: 2,
     title: "We don't use that term",
+    first_message: "We call these 'active practitioners', not 'monthly active users'.",
     author_id: SME,
     author_email: SME,
     status: "open",
@@ -30,7 +33,7 @@ export const mockThreads: ThreadWithMeta[] = [
     kind: "question",
     target_type: "asset",
     asset_id: "ast-001",
-    title: "Where does the revenue column come from?",
+    first_message: "Which source feeds the revenue column?",
     author_id: ME,
     author_email: ME,
     status: "answered",
@@ -47,7 +50,7 @@ export const mockThreads: ThreadWithMeta[] = [
     kind: "suggestion",
     target_type: "collection",
     collection_id: "col-001",
-    title: "Add a glossary section",
+    first_message: "A glossary up front would help new readers.",
     author_id: SME,
     author_email: SME,
     status: "open",
@@ -63,7 +66,7 @@ export const mockThreads: ThreadWithMeta[] = [
     id: "thr-standalone-1",
     kind: "comment",
     target_type: "standalone",
-    title: "Quarterly data refresh is one day late",
+    first_message: "The Monday refresh landed Tuesday again this week.",
     author_id: SME,
     author_email: SME,
     status: "open",
@@ -83,6 +86,7 @@ export const mockThreads: ThreadWithMeta[] = [
     target_type: "asset",
     asset_id: "ast-001",
     title: "Churn is actually retention",
+    first_message: "The 'churn' column measures monthly active retention, not churn.",
     author_id: SME,
     author_email: SME,
     status: "resolved",
@@ -103,6 +107,7 @@ export const mockThreads: ThreadWithMeta[] = [
     target_type: "knowledge_page",
     knowledge_page_id: "kp-seed-2",
     title: "Fiscal year start is wrong",
+    first_message: "This page says the fiscal year starts in January, but it starts in February.",
     author_id: SME,
     author_email: SME,
     status: "open",

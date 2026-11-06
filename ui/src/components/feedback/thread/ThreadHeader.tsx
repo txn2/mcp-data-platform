@@ -57,8 +57,10 @@ export function ThreadHeader({
   );
 }
 
-// ThreadSubject is what the thread is about: its title, who opened it and when,
-// and the passage it was anchored to if it was raised against one.
+// ThreadSubject is what the thread is about: who opened it and when, and the
+// passage it was anchored to if it was raised against one. A thread opened
+// before #2513 keeps its stored title as a heading; a newer one has none and
+// is read from its first message, the first entry of the timeline below.
 export function ThreadSubject({ thread }: { thread: Thread }) {
   return (
     <div className="border-b p-3">
