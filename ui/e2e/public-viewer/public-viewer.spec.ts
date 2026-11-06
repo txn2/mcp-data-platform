@@ -479,6 +479,31 @@ test.describe("a share link on a phone", () => {
     await expect(page).not.toHaveURL(/view=full/);
   });
 
+  // #2496: the expanded view's bar is hidden until the view is expanded, at
+  // desktop and phone width, and the frame fills the content area under the
+  // notice and feedback line rather than sharing it with an empty block.
+  for (const [width, viewport] of [["desktop", { width: 1440, height: 900 }], ["phone", PHONE]] as const) {
+    test(`the expand bar is hidden in the normal view at ${width} width`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
+      await expect(page.locator("#expanded-bar")).toBeHidden();
+      await expect(page.getByRole("button", { name: "Close" })).toBeHidden();
+      const content = await page.locator(".content").boundingBox();
+      const root = await page.locator("#content-root").boundingBox();
+      expect(root!.height).toBeGreaterThan(content!.height - 40);
+    });
+  }
+
+  test("the expand bar shows with Close at its own height when expanded", async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    await page.goto(`/portal/view/${DECK_TOKEN}?view=full`, { waitUntil: "networkidle" });
+    const bar = page.locator("#expanded-bar");
+    await expect(bar).toBeVisible();
+    expect((await bar.boundingBox())!.height).toBeLessThan(80);
+    await page.getByRole("button", { name: "Close" }).click();
+    await expect(bar).toBeHidden();
+  });
+
   test("Expand is not offered at desktop width", async ({ page }) => {
     await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
     await expect(page.locator("#expand-toggle")).toBeHidden();

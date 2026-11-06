@@ -1,0 +1,23 @@
+# The binaries test/acceptance runs with exec.Command, and where the
+# acceptance CI job (.github/workflows/acceptance-run.yml) gets each one (#2398).
+# TestAcceptanceExecsOnlyWhatCIProvides reads this file: a binary the suite runs
+# that is not listed here fails it, a "step:" source must name a step of that
+# job, and a "darwin-only" binary may run only in a function that branches on
+# runtime.GOOS. The platform binary the suite builds itself with go build is
+# not listed.
+#
+# binary	source
+aws	runner-image
+bash	runner-image
+docker	runner-image
+lsof	runner-image
+pgrep	runner-image
+ps	runner-image
+python3	runner-image
+sudo	runner-image
+go	step:Set up Go
+node	step:Set up Node.js
+npx	step:Set up Node.js
+semgrep	step:Install semgrep
+diskutil	darwin-only
+hdiutil	darwin-only

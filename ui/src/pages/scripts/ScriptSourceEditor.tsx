@@ -32,6 +32,8 @@ import {
   type Values,
 } from "./ScriptParameterForm";
 import { LibrarySaveNotice, RunButtons } from "./ScriptEditorRunControls";
+import { PreviewButton } from "./endpoints/FormPublish";
+import { definesForm } from "@/api/portal/hooks/approvals";
 import { ScriptTestsView } from "./ScriptTestsView";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
@@ -208,6 +210,7 @@ export function ScriptSourceEditor({
           // a button that cannot work is worse than its absence.
           runnable={!contract.refusal}
           library={library}
+          preview={!library && definesForm(current) ? { scriptId, source: current } : undefined}
           onRevert={revert}
           onValidate={check}
           onDryRun={execute}
@@ -338,6 +341,7 @@ function EditorActions({
   queueing,
   runnable,
   library,
+  preview,
   onRevert,
   onValidate,
   onDryRun,
@@ -356,6 +360,8 @@ function EditorActions({
   runnable: boolean;
   /** A library offers neither run: it has no main() to execute (#1941). */
   library: boolean;
+  /** A form's source on screen, which Preview form renders unsaved (#2494). */
+  preview?: { scriptId: string; source: string };
   onRevert: () => void;
   onValidate: () => void;
   onDryRun: () => void;
@@ -385,6 +391,7 @@ function EditorActions({
         >
           {validating ? "Checking..." : "Validate"}
         </Button>
+        {preview && <PreviewButton scriptId={preview.scriptId} source={preview.source} label="Preview form" disabled={busy} />}
         {!library && (
           <RunButtons
             disabled={busy || unbound.length > 0}

@@ -113,12 +113,32 @@ func (n *PortalNotifier) NotifyAccessDecision(ctx context.Context, a AccessNotic
 	n.enqueue(ctx, notification.KindAccessDecision, a)
 }
 
+// NotifyApprovalRequest tells each approver that a request waits on them
+// (#2437, #2494), once, with the link to the Approvals page.
+func (n *PortalNotifier) NotifyApprovalRequest(ctx context.Context, approvers []string, a AccessNotice) {
+	a.Link = notification.PortalLink(n.baseURL, "/approvals")
+	for _, to := range approvers {
+		a.To = to
+		n.enqueueKind(ctx, notification.KindApprovalRequest, a, "approval request")
+	}
+}
+
+// NotifyApprovalDecision tells a requester how their request was decided.
+func (n *PortalNotifier) NotifyApprovalDecision(ctx context.Context, a AccessNotice) {
+	a.Link = notification.PortalLink(n.baseURL, "/approvals")
+	n.enqueueKind(ctx, notification.KindApprovalDecision, a, "approval decision")
+}
+
 func (n *PortalNotifier) enqueue(ctx context.Context, kind string, a AccessNotice) {
+	n.enqueueKind(ctx, kind, a, "access request")
+}
+
+func (n *PortalNotifier) enqueueKind(ctx context.Context, kind string, a AccessNotice, what string) {
 	p := notification.Payload{
 		Kind: kind, ItemID: a.ItemID, ItemTitle: a.ItemTitle, Actor: a.Actor, Message: a.Message, Link: a.Link,
 	}
 	if _, err := n.enq.Notify(ctx, a.To, notification.CategoryShare, p); err != nil {
-		slog.WarnContext(ctx, "notification: access request enqueue failed", // #nosec G706 -- structured slog call; error sanitized
+		slog.WarnContext(ctx, "notification: enqueue failed", "what", what, // #nosec G706 -- structured slog call; error sanitized
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }

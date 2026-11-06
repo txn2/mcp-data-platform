@@ -17,6 +17,19 @@ jobs:
       attestations: write  # Required for GitHub attestations
       actions: read  # The E2E Nightly's last result, read by the tag rules (#2036)
     steps:
+      # GoReleaser builds every platform and the multi-arch images on this one
+      # runner, and the v1.153.0 run's first attempt failed compiling
+      # linux_amd64_v1 with "disk quota exceeded" (#2488). The image ships
+      # toolchains no step here uses; they are removed before anything else,
+      # with the free space printed either side. The same step as the
+      # acceptance runs' (#2429), inline, so no third-party action is pulled in.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
+          df -h /
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

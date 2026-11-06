@@ -35,12 +35,12 @@ func TestRegister_MountsTheRoutes(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	mux := http.NewServeMux()
-	register(mux, func(h http.Handler) http.Handler { return h }, appwire.Deps{}, nil, nil)
+	register(mux, func(h http.Handler) http.Handler { return h }, appwire.Deps{}, routes{})
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/applications", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, w.Code, "no database, no routes")
 
-	register(mux, func(h http.Handler) http.Handler { return h }, appwire.Deps{DB: db}, func([]string) bool { return false }, nil)
+	register(mux, func(h http.Handler) http.Handler { return h }, appwire.Deps{DB: db}, routes{isAdmin: func([]string) bool { return false }})
 	mock.ExpectQuery("FROM applications ORDER BY name").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	r := httptest.NewRequestWithContext(portal.ContextWithUser(context.Background(), &portal.User{Email: "a@b"}),
 		"GET", "/api/v1/portal/applications", http.NoBody)

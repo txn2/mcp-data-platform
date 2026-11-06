@@ -10,6 +10,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/eppreview"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -267,6 +269,13 @@ func (h *Handle) handleEndpoint(ctx context.Context, input manageScriptInput) (*
 	req := epcmd.Request{
 		Command: input.Command, Input: input.Input, TimeoutSeconds: input.TimeoutSeconds,
 		Admin: h.isAdminPersona(ctx), Actor: resolveEmail(ctx), Limit: input.Limit,
+	}
+	if input.Command == epcmd.CmdFormPreview {
+		// The preview's drafts run as the caller (#2494), as run_draft does.
+		if pc := middleware.GetPlatformContext(ctx); pc != nil {
+			req.Opener = eppreview.Opener{UserID: pc.UserID, Email: pc.UserEmail, Roles: pc.Roles, AuthType: pc.AuthType}
+		}
+		req.Source = input.Source
 	}
 	if input.Name != "" || input.Command != epcmd.CmdList {
 		sc, errResult := h.owned(ctx, input)

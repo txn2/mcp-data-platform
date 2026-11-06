@@ -141,7 +141,10 @@ The checkout is a form: `form_spec` returns the fields, `form_submit` places
 the order. Everything it writes is one `platform.transaction`, so either the
 order, its lines and the stock decrements all commit, or none do. The order's
 `customer_email` is written from `mcp.email` in SQL, never from a submitted
-field, so a submission cannot claim another customer.
+field, so a submission cannot claim another customer. Preview the form with
+`manage_script command=form_preview` before binding it; the checkout is
+served to people who are not signed in only at a version an administrator
+approved (`manage_approval`), so request that approval early.
 
 ```python
 CONNECTION = "orders"
@@ -358,7 +361,9 @@ reads the same list from `/endpoints/shop/products`.
 `manage_application` names the parts and releases them:
 
 1. `create` with `name: "shop"`, `connection: "orders"`, `schema: "shop"`,
-   the schema the migrations are in.
+   the schema the migrations are in. The connection must be an application
+   database connection (kind `appdb`); any other name is refused at create.
+   Leave both out for an application with no database.
 2. `add_part` for each script (`kind: "script"`, its id: checkout, API,
    confirmation, maintenance), the storefront asset (`kind: "asset"`), and the
    outbox webhook source (`kind: "source"`, its name). A part belongs to one

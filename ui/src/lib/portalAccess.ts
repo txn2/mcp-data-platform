@@ -90,6 +90,8 @@ const SECTION_VISIBLE: Record<string, (p: ResolvedPortal) => boolean> = {
   "/automations": (p) => p.automations,
   // Applications are made of automations, and share their switch (#2411).
   "/applications": (p) => p.automations,
+  // A form's public use is approved here (#2494): forms are automations.
+  "/approvals": (p) => p.automations,
   "/feedback": (p) => p.feedback,
   "/prompts": (p) => p.prompts,
   "/knowledge": (p) => p.knowledge !== "none" || p.catalog !== "none" || p.memory || p.search,
@@ -97,7 +99,7 @@ const SECTION_VISIBLE: Record<string, (p: ResolvedPortal) => boolean> = {
 
 /** The section a route belongs to, when an area governs it. */
 export function portalSectionOf(route: string): string | null {
-  for (const section of ["/resources", "/apis", "/scratch-tables", "/automations", "/applications", "/feedback", "/prompts", "/knowledge"]) {
+  for (const section of ["/resources", "/apis", "/scratch-tables", "/automations", "/applications", "/approvals", "/feedback", "/prompts", "/knowledge"]) {
     if (route === section || route.startsWith(section + "/")) return section;
   }
   return null;

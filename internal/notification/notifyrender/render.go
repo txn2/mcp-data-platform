@@ -318,6 +318,13 @@ func buildItem(n notification.Notification) emailItem {
 		item.LinkText = connAuthLinkTextFor(n.Payload.Connection)
 	case notification.KindAccessRequest:
 		item.LinkText = "Approve or decline"
+	case notification.KindApprovalRequest:
+		item.LinkText = "Approve or deny"
+	case notification.KindApprovalDecision:
+		item.Body, item.Message = item.Message, ""
+		if item.Link != "" {
+			item.LinkText = "Open it"
+		}
 	case notification.KindAccessDecision:
 		item.Body, item.Message = item.Message, ""
 		if item.Link != "" {
@@ -366,6 +373,10 @@ func subjectFor(n notification.Notification) string {
 		return fmt.Sprintf("%s asked for access to %q", n.Payload.Actor, n.Payload.ItemTitle)
 	case notification.KindAccessDecision:
 		return fmt.Sprintf("%s answered your request for access to %q", n.Payload.Actor, n.Payload.ItemTitle)
+	case notification.KindApprovalRequest:
+		return fmt.Sprintf("%s asked for approval of %s", n.Payload.Actor, n.Payload.ItemTitle)
+	case notification.KindApprovalDecision:
+		return fmt.Sprintf("%s decided your request for approval of %s", n.Payload.Actor, n.Payload.ItemTitle)
 	default:
 		return fmt.Sprintf("%s commented on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	}

@@ -2707,7 +2707,7 @@ func TestPlatformTools(t *testing.T) {
 		assert.Equal(t, []string{
 			"platform_info", "list_connections", "platform_find_tools",
 			"manage_prompt", "show_prompts",
-			"manage_script", "run_script", "show_scripts", "manage_application",
+			"manage_script", "run_script", "show_scripts", "manage_application", "manage_approval",
 		}, names(p.PlatformTools()))
 	})
 }

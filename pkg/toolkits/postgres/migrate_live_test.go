@@ -273,6 +273,47 @@ func TestRevert(t *testing.T) {
 	}
 }
 
+// TestRevertNonTransactional is #2490: a migration added with
+// transactional=false is reverted the way it is applied, its down run on the
+// session with the timeouts and search_path set, never in a transaction, and
+// its ledger row deleted after it.
+func TestRevertNonTransactional(t *testing.T) {
+	ctx := context.Background()
+	ms := []Migration{
+		migration(1, "CREATE TABLE a (id int)", "DROP TABLE a", true),
+		migration(2, "CREATE INDEX CONCURRENTLY i ON a (id)", "DROP INDEX CONCURRENTLY IF EXISTS i", false),
+	}
+	applied := []Applied{{Version: 1, Checksum: ms[0].Checksum}, {Version: 2, Checksum: ms[1].Checksum}}
+	sess := &fakeSession{ledger: fakeLedger{exists: true, applied: applied}}
+	done, err := liveToolkit(sess, baseConfig()).Revert(ctx, applyOpts(), ms, 0)
+	require.NoError(t, err)
+	assert.Equal(t, []int{2, 1}, versionsOf(done))
+	assert.Contains(t, sess.scripts, "DROP INDEX CONCURRENTLY IF EXISTS i", "the down ran on the session")
+	for _, tx := range sess.txs {
+		assert.NotContains(t, tx.scripts, "DROP INDEX CONCURRENTLY IF EXISTS i", "the down ran in a transaction")
+	}
+	execs := strings.Join(sess.execs, "\n")
+	assert.Contains(t, execs, "set_config('search_path'")
+	setAt := strings.Index(execs, "set_config('lock_timeout'")
+	deleteAt := strings.Index(execs, "DELETE FROM mcp_schema.migrations")
+	require.GreaterOrEqual(t, setAt, 0)
+	require.Greater(t, deleteAt, setAt, "the ledger row is deleted on the session after the down")
+	assert.Equal(t, []string{"DROP TABLE a"}, sess.txs[0].scripts, "the transactional one still reverts in its transaction")
+
+	for name, sess := range map[string]*fakeSession{
+		"settings": {ledger: fakeLedger{exists: true, applied: applied}, execErr: errors.New("reset")},
+		"script":   {ledger: fakeLedger{exists: true, applied: applied}, scriptErr: &pgconn.PgError{Code: "25001"}},
+	} {
+		_, err := liveToolkit(sess, baseConfig()).Revert(ctx, applyOpts(), ms, 1)
+		require.Error(t, err, name)
+	}
+
+	twoStatements := []Migration{ms[0], migration(2, ms[1].Up, "DROP INDEX CONCURRENTLY i; SELECT 1", false)}
+	sess = &fakeSession{ledger: fakeLedger{exists: true, applied: []Applied{applied[0], {Version: 2, Checksum: twoStatements[1].Checksum}}}}
+	_, err = liveToolkit(sess, baseConfig()).Revert(ctx, applyOpts(), twoStatements, 1)
+	require.ErrorContains(t, err, "exactly one statement")
+}
+
 func TestPlanMigrations(t *testing.T) {
 	ctx := context.Background()
 	sess := &fakeSession{ledger: fakeLedger{exists: true}}

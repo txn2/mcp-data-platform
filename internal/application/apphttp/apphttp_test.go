@@ -255,3 +255,46 @@ func TestWithoutBundlesAndStatus(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, status(application.ErrStale))
 	assert.NotPanics(t, func() { Register(http.NewServeMux(), nil, Config{}) })
 }
+
+// TestDatabasesRoute is the route the New application dialog fills its
+// choices from (#2491): signed in only, never null, and absent without a
+// source.
+func TestDatabasesRoute(t *testing.T) {
+	mux := http.NewServeMux()
+	var who *application.Actor
+	var asked application.Actor
+	answer := []DatabaseChoice{{Connection: "orders", Schemas: []SchemaChoice{{Name: "shop", HeldBy: "shop"}, {Name: "public"}}}}
+	Register(mux, func(h http.Handler) http.Handler { return h }, Config{
+		Service: &appsvc.Service{Store: &store{apps: map[string]*application.Application{}}},
+		Actor:   func(*http.Request) *application.Actor { return who },
+		Databases: func(_ *http.Request, a application.Actor) []DatabaseChoice {
+			asked = a
+			if a.Email == "none@example.com" {
+				return nil
+			}
+			return answer
+		},
+	})
+	get := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", DatabasesPath, http.NoBody))
+		return w
+	}
+	assert.Equal(t, http.StatusUnauthorized, get().Code)
+	who = &application.Actor{Email: "jane@example.com", Roles: []string{"analyst"}}
+	w := get()
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.JSONEq(t, `{"connections":[{"connection":"orders","schemas":[{"name":"shop","held_by":"shop"},{"name":"public"}]}]}`, w.Body.String())
+	assert.Equal(t, []string{"analyst"}, asked.Roles)
+	who = &application.Actor{Email: "none@example.com"}
+	assert.JSONEq(t, `{"connections":[]}`, get().Body.String())
+
+	bare := http.NewServeMux()
+	Register(bare, func(h http.Handler) http.Handler { return h }, Config{
+		Service: &appsvc.Service{Store: &store{apps: map[string]*application.Application{}}},
+		Actor:   func(*http.Request) *application.Actor { return who },
+	})
+	w = httptest.NewRecorder()
+	bare.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", DatabasesPath, http.NoBody))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}

@@ -52,6 +52,38 @@ type Config struct {
 	// Actor is who made a request, nil for none.
 	Actor func(r *http.Request) *application.Actor
 	Audit middleware.AuditLogger
+	// Databases lists the application database connections a request's
+	// caller reaches and their schemas (#2491); nil leaves the route
+	// unmounted.
+	Databases func(r *http.Request, actor application.Actor) []DatabaseChoice
+}
+
+// DatabasesPath is the route the New application dialog fills its
+// connection and schema choices from. It is beside Prefix, not under it, so
+// no application's name is shadowed by it.
+const DatabasesPath = "/api/v1/portal/application-databases"
+
+// DatabaseChoice is one application database connection the caller reaches,
+// with the schemas it holds.
+type DatabaseChoice struct {
+	Connection  string         `json:"connection" example:"orders"`
+	Description string         `json:"description,omitempty"`
+	Schemas     []SchemaChoice `json:"schemas"`
+	// Problem says the schemas could not be read, empty when they were. It
+	// never repeats the database's error, which can name its address.
+	Problem string `json:"problem,omitempty"`
+}
+
+// SchemaChoice is one schema of a connection, and the application holding
+// it, if any: a schema is held by one application.
+type SchemaChoice struct {
+	Name   string `json:"name" example:"shop"`
+	HeldBy string `json:"held_by,omitempty" example:"shop"`
+}
+
+// databasesResponse is the dialog's choices.
+type databasesResponse struct {
+	Connections []DatabaseChoice `json:"connections"`
 }
 
 // Bundles assembles a release's bundle and imports one.
@@ -79,6 +111,9 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 	mux.Handle("POST "+Prefix+"/{app}/release", wrap(http.HandlerFunc(h.release)))
 	mux.Handle("POST "+Prefix+"/{app}/rollback", wrap(http.HandlerFunc(h.rollback)))
 	mux.Handle("GET "+Prefix+"/{app}/export", wrap(http.HandlerFunc(h.export)))
+	if cfg.Databases != nil {
+		mux.Handle("GET "+DatabasesPath, wrap(http.HandlerFunc(h.databases)))
+	}
 }
 
 // importRequest is an uploaded bundle and the names it is mapped with.
@@ -214,6 +249,29 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 	})
 	h.record(r, actor, apptool.CmdCreate, map[string]any{"name": req.Name}, err)
 	h.answer(w, a, err)
+}
+
+// databases answers the connection and schema choices of a new application.
+//
+// @Summary      List the databases an application may hold a schema of
+// @Description  The application database connections (kind appdb) the caller's persona reaches, each with its schemas and the application holding each, if any. The New application dialog chooses from it; a schema another application holds cannot be chosen.
+// @Success      200  {object}  databasesResponse
+// @Tags         Applications
+// @Produce      json
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/application-databases [get]
+func (h *handler) databases(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	choices := h.cfg.Databases(r, actor)
+	if choices == nil {
+		choices = []DatabaseChoice{}
+	}
+	httpjson.WriteJSON(w, http.StatusOK, databasesResponse{Connections: choices})
 }
 
 // listResponse is every application.

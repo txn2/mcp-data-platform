@@ -6,6 +6,7 @@
 package endpointwire
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,8 +17,10 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epformpage"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/ephttp"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/eppreview"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/savegatewire"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -60,6 +63,7 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 		signIn = epformpage.LoginURL
 	}
 	mountOver(mux, e, identity{auth: Authenticator(portal.NewAuthenticator(p.Authenticator(), opts...), personas), signIn: signIn}, settings, author)
+	mountPreviews(mux, p, e)
 	if settings != nil && p.DB() != nil {
 		scripts := scriptstore.New(p.DB())
 		endpointapi.Register(mux, settings, endpointapi.Config{
@@ -68,6 +72,18 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 		})
 		slog.Info("Endpoints admin API on /api/v1/admin/endpoints enabled")
 	}
+}
+
+// mountPreviews mounts where a form's preview answers its spec and
+// submissions (#2494), run as drafts on the portal's draft runner.
+func mountPreviews(mux *http.ServeMux, p *platform.Platform, e *epwire.Endpoints) {
+	if e.Previews == nil || p.DB() == nil {
+		return
+	}
+	(&eppreview.Handler{
+		Store: e.Previews.Store, Scripts: scriptstore.New(p.DB()), Runner: e.Runner,
+		Drafts: savegatewire.Drafts(p, savegatewire.Gate(p)), ViewerKey: epform.ViewerKey(e.Runner.FormKey),
+	}).Mount(mux)
 }
 
 // identity is how a request's caller is found: the authenticator, and where a
@@ -88,7 +104,11 @@ func mountOver(mux *http.ServeMux, e *epwire.Endpoints, id identity, settings fu
 	h.Mount(mux)
 	// The page a form is rendered on (#2177, #2331). It reads the session only
 	// to sign a viewer token for an authenticated form opened directly.
-	(&epformpage.Handler{Runner: e.Runner, BaseURL: e.Commands.BaseURL, ViewerKey: viewerKey, Session: id.auth, SignIn: id.signIn}).Mount(mux)
+	page := &epformpage.Handler{Runner: e.Runner, BaseURL: e.Commands.BaseURL, ViewerKey: viewerKey, Session: id.auth, SignIn: id.signIn}
+	if e.Previews != nil {
+		page.Previews = previewOwners{e.Previews.Store}
+	}
+	page.Mount(mux)
 	if settings == nil {
 		return
 	}
@@ -96,6 +116,18 @@ func mountOver(mux *http.ServeMux, e *epwire.Endpoints, id identity, settings fu
 		Checks: e.Checker.Checks, KeyAvailable: e.Checker.Key != nil, Secret: e.Checker.Secret, Author: author,
 	})
 	slog.Info("Endpoints on /endpoints/ and the bot checks admin API on /api/v1/admin/bot-checks enabled")
+}
+
+// previewOwners reads who opened a preview, for its page.
+type previewOwners struct{ store *eppreview.Store }
+
+// Owner is the address of the person who opened the preview.
+func (o previewOwners) Owner(ctx context.Context, id string) (string, error) {
+	owner, err := o.store.Owner(ctx, id)
+	if errors.Is(err, eppreview.ErrNotFound) {
+		return "", epformpage.ErrNoPreview
+	}
+	return owner, err //nolint:wrapcheck // logged by the page, never shown
 }
 
 // portalAuth is the portal's authentication of a request.

@@ -3217,6 +3217,32 @@ definitions:
       updated_by:
         type: string
     type: object
+  apphttp.DatabaseChoice:
+    properties:
+      connection:
+        example: orders
+        type: string
+      description:
+        type: string
+      problem:
+        description: |-
+          Problem says the schemas could not be read, empty when they were. It
+          never repeats the database's error, which can name its address.
+        type: string
+      schemas:
+        items:
+          $ref: '#/definitions/apphttp.SchemaChoice'
+        type: array
+    type: object
+  apphttp.SchemaChoice:
+    properties:
+      held_by:
+        example: shop
+        type: string
+      name:
+        example: shop
+        type: string
+    type: object
   apphttp.createRequest:
     properties:
       connection:
@@ -3231,6 +3257,13 @@ definitions:
       schema:
         example: shop
         type: string
+    type: object
+  apphttp.databasesResponse:
+    properties:
+      connections:
+        items:
+          $ref: '#/definitions/apphttp.DatabaseChoice'
+        type: array
     type: object
   apphttp.detail:
     properties:
@@ -3436,6 +3469,99 @@ definitions:
         type: array
       restored:
         description: Restored is the release a rollback restored the pins of.
+        example: 2
+        type: integer
+    type: object
+  apprhttp.decideRequest:
+    properties:
+      comment:
+        type: string
+      decision:
+        example: approve
+        type: string
+    type: object
+  apprhttp.listResponse:
+    properties:
+      count:
+        type: integer
+      requests:
+        items:
+          $ref: '#/definitions/approval.Request'
+        type: array
+    type: object
+  apprhttp.submitRequest:
+    properties:
+      purpose:
+        example: form_public
+        type: string
+      reason:
+        type: string
+      script:
+        example: order-intake
+        type: string
+      version:
+        example: 2
+        type: integer
+    type: object
+  approval.Changes:
+    properties:
+      added:
+        description: Added and Removed count the diff's changed lines.
+        type: integer
+      approved_version:
+        description: ApprovedVersion is the version approved before, 0 for none.
+        type: integer
+      diff:
+        description: |-
+          Diff is the unified diff of the source from that version, empty for a
+          first request; Truncated says it was cut at the bound.
+        type: string
+      removed:
+        type: integer
+      truncated:
+        type: boolean
+    type: object
+  approval.Request:
+    properties:
+      changes:
+        $ref: '#/definitions/approval.Changes'
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      decision_comment:
+        type: string
+      id:
+        example: apr_0f3c9d2e
+        type: string
+      purpose:
+        example: form_public
+        type: string
+      reason:
+        type: string
+      requester_email:
+        example: jane@example.com
+        type: string
+      requester_persona:
+        type: string
+      script_id:
+        type: string
+      script_name:
+        example: order-intake
+        type: string
+      self_approved:
+        type: boolean
+      source_sha256:
+        type: string
+      status:
+        example: pending
+        type: string
+      subject_kind:
+        example: script_version
+        type: string
+      version:
         example: 2
         type: integer
     type: object
@@ -4184,6 +4310,11 @@ definitions:
         type: array
       path:
         type: string
+      preview_version:
+        description: |-
+          PreviewVersion is the saved version form_preview renders, 0 for the
+          latest (#2494).
+        type: integer
       rate_limit:
         type: integer
       timeout_seconds:
@@ -6296,6 +6427,23 @@ definitions:
         type: string
       user_id:
         type: string
+    type: object
+  eppreview.Opened:
+    properties:
+      expires_at:
+        type: string
+      id:
+        type: string
+      url:
+        type: string
+    type: object
+  eppreview.openRequest:
+    properties:
+      source:
+        type: string
+      version:
+        example: 2
+        type: integer
     type: object
   epsubmit.Page:
     properties:
@@ -26029,6 +26177,29 @@ paths:
       summary: Revoke one of my API keys
       tags:
       - API Keys
+  /portal/application-databases:
+    get:
+      description: The application database connections (kind appdb) the caller's
+        persona reaches, each with its schemas and the application holding each, if
+        any. The New application dialog chooses from it; a schema another application
+        holds cannot be chosen.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apphttp.databasesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the databases an application may hold a schema of
+      tags:
+      - Applications
   /portal/applications:
     get:
       description: Every application on the deployment, by name, without parts. Readable
@@ -26601,6 +26772,157 @@ paths:
       summary: Import an application bundle
       tags:
       - Applications
+  /portal/approvals:
+    get:
+      description: The caller's own requests, or for an administrator every request,
+        newest first. status filters by pending, approved or denied; script_id by
+        script.
+      parameters:
+      - description: pending, approved or denied
+        in: query
+        name: status
+        type: string
+      - description: One script's requests
+        in: query
+        name: script_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apprhttp.listResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List approval requests
+      tags:
+      - Approvals
+    post:
+      consumes:
+      - application/json
+      description: Asks the administrators to approve a version of the caller's form
+        to be served to callers with no session (purpose form_public). Each administrator
+        is notified once.
+      parameters:
+      - description: The request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apprhttp.submitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/approval.Request'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Request approval of a version
+      tags:
+      - Approvals
+  /portal/approvals/{id}:
+    get:
+      description: One request with what changed since the version approved before.
+        The requester and administrators read it.
+      parameters:
+      - description: Request id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/approval.Request'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read an approval request
+      tags:
+      - Approvals
+  /portal/approvals/{id}/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approves or denies a pending request. Administrators decide every
+        request, their own included (recorded as self-approved); anyone else is refused.
+      parameters:
+      - description: Request id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The decision
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apprhttp.decideRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/approval.Request'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Decide an approval request
+      tags:
+      - Approvals
   /portal/assets:
     get:
       description: Returns paginated assets owned by the current user with optional
@@ -32729,6 +33051,56 @@ paths:
       summary: Set whether a script's runs may overlap
       tags:
       - Scripts
+  /portal/scripts/{id}/form-preview:
+    post:
+      consumes:
+      - application/json
+      description: Opens a preview of the script's form as /forms/<endpoint> renders
+        it, from a saved version (the latest when omitted) or the unsaved source sent,
+        with no endpoint bound. The address opens for the caller only and expires
+        within the hour; a submission there runs form_submit as a draft and stores
+        nothing. Restricted to the script's owner and administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: What to preview
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/eppreview.openRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/eppreview.Opened'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Open a preview of a script's form
+      tags:
+      - Scripts
   /portal/scripts/{id}/grants:
     get:
       description: 'Returns who other than the owner may run this script: each persona,
@@ -36634,6 +37006,8 @@ tags:
     description: "Current user identity, roles, persona, and available tools."
   - name: "Applications"
     description: "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."
+  - name: "Approvals"
+    description: "The Approvals queue: a request for an administrator's decision. A form is served to callers with no session only at a version an administrator approved; its owner files the request, and administrators decide every request, their own included."
   - name: "Activity"
     description: "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."
   - name: "Assets"
@@ -36716,6 +37090,7 @@ x-tagGroups:
       - "Access requests"
       - "Activity"
       - "Applications"
+      - "Approvals"
       - "API Keys"
       - "APIs"
       - "Assets"

@@ -27,6 +27,7 @@ import {
   Library,
   Boxes,
   type LucideIcon,
+  BadgeCheck,
 } from "lucide-react";
 
 export interface NavItem {
@@ -49,6 +50,7 @@ export const portalMoreNavItems: NavItem[] = [
   { path: "/activity", label: "Activity", icon: Activity },
   { path: "/apis", label: "APIs", icon: Network },
   { path: "/applications", label: "Applications", icon: Boxes },
+  { path: "/approvals", label: "Approvals", icon: BadgeCheck },
   { path: "/automations", label: "Automations", icon: FileCode2 },
   { path: "/feedback", label: "Inbox", icon: MessageCircle },
   { path: "/knowledge", label: "Knowledge", icon: BookOpen },

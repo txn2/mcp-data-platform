@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/pglex"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -358,8 +360,13 @@ func checkAdd(in schemaInput, transactional bool) error {
 	if in.Down == "" {
 		return nil
 	}
-	if err := checkMigrationSQL(in.Down, true); err != nil {
+	if err := checkMigrationSQL(in.Down, transactional); err != nil {
 		return &RefusedError{Code: CodeInvalidStatement, msg: fmt.Sprintf("%s: down SQL: %v", errPrefix, err)}
+	}
+	if transactional && pglex.RunsConcurrently(in.Down) {
+		return &RefusedError{Code: CodeInvalidStatement, msg: errPrefix + ": down SQL runs CONCURRENTLY, which " +
+			"PostgreSQL refuses inside a transaction, and this migration's down runs in one; " +
+			"add the migration with transactional=false so its down runs alone, as its up does"}
 	}
 	return nil
 }

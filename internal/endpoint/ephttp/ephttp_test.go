@@ -468,3 +468,28 @@ func TestABodyThatCannotBeReadIsNotABodyLimitRefusal(t *testing.T) {
 type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
+
+// #2494: a signed-in person filling a public or bot_check form is passed on
+// as the caller, so they are served the version the script runs; a caller
+// with no session, or a credential that does not open, is no caller; and an
+// endpoint that is not a form never asks who it is.
+func TestPublicForm_PassesOnASignedInCaller(t *testing.T) {
+	f := newFixture()
+	f.runner.forms = map[string]bool{"open": true, "contact": true}
+	bearer := func(v string) http.Header { return http.Header{"Authorization": {"Bearer " + v}} }
+
+	rec := f.do("GET", "/endpoints/open/1", bearer("ann-key"), "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "ann@example.com", fields(t, rec)["caller"])
+	assert.Equal(t, "", fields(t, f.do("GET", "/endpoints/open/1", nil, ""))["caller"])
+	assert.Equal(t, "", fields(t, f.do("GET", "/endpoints/open/1", bearer("csrf"), ""))["caller"], "a refused credential is no caller")
+
+	h := bearer("ann-key")
+	h.Set(HeaderBotCheck, "good")
+	rec = f.do("GET", "/endpoints/contact/1", h, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "ann@example.com", fields(t, rec)["caller"])
+
+	f.runner.forms = nil
+	assert.Equal(t, "", fields(t, f.do("GET", "/endpoints/open/1", bearer("ann-key"), ""))["caller"], "not a form: never asked")
+}

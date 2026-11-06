@@ -226,7 +226,7 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdScheduleDisable: h.handleScheduleDisable,
 
 		epcmd.CmdSet: h.handleEndpoint, epcmd.CmdList: h.handleEndpoint,
-		epcmd.CmdEnable: h.handleEndpoint, epcmd.CmdDisable: h.handleEndpoint,
+		epcmd.CmdEnable: h.handleEndpoint, epcmd.CmdDisable: h.handleEndpoint, epcmd.CmdFormPreview: h.handleEndpoint,
 	}
 }
 

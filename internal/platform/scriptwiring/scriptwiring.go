@@ -13,6 +13,8 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
@@ -130,6 +132,15 @@ func Wire(deps Deps) *scriptexec.Handle {
 	// Applications (#2411): scripts, assets, sources and a schema released
 	// together, over the same stores.
 	appwire.Register(deps.Server, applicationDeps(deps, endpoints, layer.SaveGate()))
+	// Approvals (#2437, #2494): a form's version approved before callers
+	// with no session are served it.
+	if endpoints != nil {
+		tool := &apprtool.Tool{Service: endpoints.Approvals}
+		if deps.Authority != nil {
+			tool.Persona = func(roles []string) string { name, _ := deps.Authority(roles); return name }
+		}
+		tool.Register(deps.Server)
+	}
 	deps.Bind(layer)
 	return scripts
 }

@@ -85,6 +85,9 @@ func Service(d Deps) *appsvc.Service {
 		Scripts: scriptstore.New(d.DB),
 		Sources: sources{db: d.DB},
 		Schema:  &appschema.Schema{Kit: Kit(d.Toolkits), Store: migrationstore.New(d.DB)},
+		// A connection named at create must be an application database
+		// one (#2491).
+		HasConnection: hasConnection(d.Toolkits),
 	}
 	// A nil store is left nil, never an interface holding a nil.
 	if d.Assets != nil {
@@ -135,7 +138,7 @@ func Register(server *mcp.Server, d Deps) *appsvc.Service {
 // Kit is the live application database toolkit, nil when none is registered.
 func Kit(reg *registry.Registry) func() appschema.Kit {
 	return func() appschema.Kit {
-		pg := live(reg)
+		pg := Live(reg)
 		if pg == nil {
 			return nil // an interface holding a nil *Toolkit is not nil
 		}
@@ -143,7 +146,9 @@ func Kit(reg *registry.Registry) func() appschema.Kit {
 	}
 }
 
-func live(reg *registry.Registry) *postgreskit.Toolkit {
+// Live is the application database toolkit in the live registry, nil when
+// none is registered.
+func Live(reg *registry.Registry) *postgreskit.Toolkit {
 	if reg == nil {
 		return nil
 	}
@@ -157,7 +162,7 @@ func live(reg *registry.Registry) *postgreskit.Toolkit {
 
 func hasConnection(reg *registry.Registry) func(name string) bool {
 	return func(name string) bool {
-		pg := live(reg)
+		pg := Live(reg)
 		return pg != nil && pg.HasConnection(name)
 	}
 }

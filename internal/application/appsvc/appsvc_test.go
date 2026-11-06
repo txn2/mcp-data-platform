@@ -273,6 +273,28 @@ func TestCreateAndEdit(t *testing.T) {
 	require.ErrorIs(t, err, application.ErrNotFound)
 }
 
+// TestCreateRefusesAConnectionThatIsNoApplicationDatabase is #2491's server
+// half: a connection naming no appdb connection is refused at create, naming
+// the way out, instead of being stored and reported later as a problem.
+func TestCreateRefusesAConnectionThatIsNoApplicationDatabase(t *testing.T) {
+	svc, store, _, _, _ := fixture()
+	svc.HasConnection = func(name string) bool { return name == "orders" }
+	ctx := context.Background()
+	_, err := svc.Create(ctx, jane, application.Application{Name: "shop", Connection: "appdb-qq", Schema: "shop"})
+	var refusedErr *RefusedError
+	require.ErrorAs(t, err, &refusedErr)
+	assert.Contains(t, err.Error(), `connection "appdb-qq" is not an application database connection`)
+	assert.Contains(t, err.Error(), "leave connection and schema empty")
+	_, err = svc.Find(ctx, "shop")
+	require.ErrorIs(t, err, application.ErrNotFound, "nothing was stored")
+	assert.Empty(t, store.apps)
+
+	_, err = svc.Create(ctx, jane, application.Application{Name: "shop", Connection: "orders", Schema: "shop"})
+	require.NoError(t, err)
+	_, err = svc.Create(ctx, jane, application.Application{Name: "notes"})
+	require.NoError(t, err, "no database is still allowed")
+}
+
 func TestAddPart_OwnershipAndExclusivity(t *testing.T) {
 	svc, _, _, _, _ := fixture()
 	ctx := context.Background()

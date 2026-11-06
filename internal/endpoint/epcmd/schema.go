@@ -24,7 +24,9 @@ func Properties() map[string]any {
 	return map[string]any{
 		"endpoint": str("For endpoint_set: the endpoint's name, the segment of /endpoints/{name} it answers at " +
 			"(lowercase letters, digits, hyphens, underscores), unique across the deployment. Binding a script to an " +
-			"endpoint, and changing or turning one off, is an administrator's."),
+			"endpoint, and changing or turning one off, is an administrator's, except a form's owner, who binds their " +
+			"own form authenticated, and public or bot_check once an administrator approved a version of it " +
+			"(manage_approval)."),
 		"methods": strings(fmt.Sprintf("For endpoint_set: the HTTP methods the endpoint answers (%v; default GET). "+
 			"HEAD is answered wherever GET is.", epbinding.Methods)),
 		"path": str("For endpoint_set: the path template under /endpoints/{name}, empty for the name alone. " +
@@ -60,6 +62,9 @@ func Properties() map[string]any {
 			"webhook_form_<endpoint>. Defaults to the only such connection; named once, when the form is first bound."),
 		"decrypt_personas": strings("For endpoint_set on a form: the personas a script may decrypt the form's " +
 			"sensitive fields as, with platform.decrypt. The administrator always may. Omit to keep them; [] removes them."),
+		"preview_version": integer("For form_preview: the saved version whose form to preview, default the latest. " +
+			"With source, the unsaved source is previewed instead. The link the result names opens for you only, " +
+			"expires within the hour, and runs form_spec and form_submit as drafts: a submission there stores nothing."),
 		"caller_rate_limit": integer(fmt.Sprintf("For endpoint_set on an authenticated endpoint: one caller's requests a "+
 			"minute on each replica (default %d), at most rate_limit.", epbinding.DefaultCallerRateLimit)),
 	}

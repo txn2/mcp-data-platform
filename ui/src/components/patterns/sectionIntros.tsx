@@ -151,6 +151,13 @@ export const SECTION_INTROS: SectionIntroCopy[] = [
     storageKey: "portal.intro.applications",
   },
   {
+    path: "/approvals",
+    summary: "Requests for an administrator's approval.",
+    about:
+      "A form is served to people who are not signed in only at a version an administrator approved. Its owner asks for that approval from the automation's page; administrators preview the version, read what changed since the version approved before, and approve or deny it here. Everyone else sees their own requests.",
+    storageKey: "portal.intro.approvals",
+  },
+  {
     path: "/resources",
     summary:
       "Logos, templates and ad-hoc data stored as business resources, usable by agents and scripts.",

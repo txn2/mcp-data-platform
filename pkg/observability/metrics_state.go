@@ -15,11 +15,16 @@ type DependencySample struct {
 	Up         bool
 }
 
-// ConnectionStateCount is how many connections of a kind are in a state.
+// ConnectionStateCount is how many connections of a kind are in a state; in
+// PlatformStateSample.ConnectionStates, one connection under its name, with
+// when a call last recorded its state (zero when none has, or its record aged
+// out) (#2442).
 type ConnectionStateCount struct {
-	Kind  string
-	State string
-	Count int64
+	Kind       string
+	State      string
+	Count      int64
+	Connection string
+	Observed   time.Time
 }
 
 // IndexAgeSample is how long ago a search source last finished indexing.
@@ -32,6 +37,8 @@ type IndexAgeSample struct {
 type PlatformStateSample struct {
 	Dependencies []DependencySample
 	Connections  []ConnectionStateCount
+	// ConnectionStates is every connection under its name (#2442).
+	ConnectionStates []ConnectionStateCount
 	// Personas is the number of registered personas; PersonasKnown is false
 	// when the sampler has no registry to count.
 	Personas      int64

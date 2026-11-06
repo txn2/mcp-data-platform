@@ -16,7 +16,10 @@ final tag: a fix is another candidate.
                   failed (#2036), naming the run and its failing tests;
                   `release-without-nightly: <reason>` in the tag's annotation
                   releases over it. A candidate is not held to this: it may be
-                  the fix the red night is waiting for.
+                  the fix the red night is waiting for. A passing nightly on
+                  any branch whose commit has the tagged commit's tree counts
+                  as the tag's own (#2487), unless a run on main that failed
+                  finished after it.
   previous <tag>  print the last FINAL release before <tag>: what the changelog
                   and the release gates measure from, so neither a final tag's
                   notes nor its checks shrink to what changed since a candidate.
@@ -82,11 +85,16 @@ def check_nightly(tag: str) -> int:
     override = "or annotate the tag with `release-without-nightly: <reason>`"
     try:
         run = e2e_nightly.latest_run()
+        same_tree = e2e_nightly.green_run_on_tree(e2e_nightly.tree_of(commit_of(tag)))
     except (OSError, subprocess.CalledProcessError) as err:
         detail = getattr(err, "stderr", "") or str(err)
         print(f"FAIL release tag: {tag}: the E2E Nightly's result could not be read ({detail.strip()}); "
               f"fix gh access {override}.", file=sys.stderr)
         return 1
+    if same_tree is not None and (run is None or not run.failed or run.created <= same_tree.created):
+        print(f"release tag: an E2E Nightly passed on {tag}'s tree ({same_tree.url}, "
+              f"commit {same_tree.head_sha[:12]}).")
+        return 0
     if run is None:
         print(f"FAIL release tag: {tag}: no E2E Nightly on main has finished; dispatch one {override}.",
               file=sys.stderr)

@@ -38,6 +38,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/scratch-tables",
   "/automations",
   "/applications",
+  "/approvals",
   "/admin",
   "/admin/assets",
   "/admin/audit",

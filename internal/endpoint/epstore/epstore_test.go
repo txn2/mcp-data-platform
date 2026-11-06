@@ -204,10 +204,10 @@ func TestFailures(t *testing.T) {
 func TestStamp(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_endpoints e JOIN scripts s")).WithArgs("orders").
-		WillReturnRows(sqlmock.NewRows([]string{"e", "s"}).AddRow(rowTime, rowTime.Add(time.Second)))
+		WillReturnRows(sqlmock.NewRows([]string{"e", "s", "a"}).AddRow(rowTime, rowTime.Add(time.Second), 2))
 	st, err := s.Stamp(context.Background(), "orders")
 	require.NoError(t, err)
-	assert.Equal(t, epbinding.Stamp{Binding: rowTime, Script: rowTime.Add(time.Second)}, st)
+	assert.Equal(t, epbinding.Stamp{Binding: rowTime, Script: rowTime.Add(time.Second), ApprovedVersion: 2}, st)
 
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_endpoints e JOIN scripts s")).WillReturnError(sql.ErrNoRows)
 	_, err = s.Stamp(context.Background(), "nope")

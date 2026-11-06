@@ -8,6 +8,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** choose picks an option of a Radix select, opened from the keyboard: jsdom has no PointerEvent. */
+async function choose(control: RegExp, option: RegExp) {
+  fireEvent.keyDown(screen.getByLabelText(control), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+}
+
 function renderPage() {
   const onNavigate = vi.fn();
   renderWithQuery(<ApplicationsPage onNavigate={onNavigate} />);
@@ -60,8 +66,8 @@ describe("ApplicationsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "New application" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "ledger" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "The books" } });
-    fireEvent.change(screen.getByLabelText("Connection"), { target: { value: "acme-shop" } });
-    fireEvent.change(screen.getByLabelText("Schema"), { target: { value: "ledger" } });
+    await choose(/^Database$/, /^acme-shop/);
+    fireEvent.change(screen.getByLabelText("New schema name"), { target: { value: "ledger" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith("/applications/app-ledger"));
@@ -72,6 +78,44 @@ describe("ApplicationsPage", () => {
       connection: "acme-shop",
       schema: "ledger",
     });
+  });
+
+  // #2491: what each field accepts is said before Create, not after.
+  it("guides the new application: name rule, no database, held schemas", async () => {
+    const sent = serveApplications();
+    signIn("j.martinez@example.com", false);
+    const onNavigate = renderPage();
+    await screen.findByTestId("application-row-app-shop");
+    fireEvent.click(screen.getByRole("button", { name: "New application" }));
+
+    expect(screen.getByText(/lowercase letters, digits and hyphens, starting with a letter; at most 63/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Order System" } });
+    expect(screen.getByText(/Not a valid name/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+
+    // No database is a choice, and the schema is asked for only with one.
+    expect(screen.getByLabelText("Database")).toHaveTextContent("None (no database)");
+    expect(screen.queryByLabelText("Schema")).toBeNull();
+
+    // A schema another application holds is listed and cannot be chosen.
+    await choose(/^Database$/, /^acme-shop/);
+    fireEvent.keyDown(screen.getByLabelText("Schema"), { key: "Enter" });
+    const held = screen.getByRole("option", { name: "shop (held by shop)" });
+    expect(held).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("option", { name: "public" })).not.toHaveAttribute("aria-disabled");
+    fireEvent.keyDown(held, { key: "Escape" });
+
+    fireEvent.click(screen.getByRole("button", { name: "About applications" }));
+    expect(onNavigate).toHaveBeenCalledWith("/knowledge/pages/platform-applications");
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "order-system" } });
+    await choose(/^Database$/, /^None \(no database\)/);
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() =>
+      expect(sent.some((r) => r.method === "POST" && r.path === "/api/v1/portal/applications")).toBe(true),
+    );
+    const post = sent.find((r) => r.method === "POST" && r.path === "/api/v1/portal/applications");
+    expect(post?.body).toEqual({ name: "order-system", description: "" });
   });
 
   it("shows the server's refusal when the name is taken", async () => {

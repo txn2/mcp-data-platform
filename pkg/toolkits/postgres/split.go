@@ -12,7 +12,7 @@ import (
 func splitStatements(sql string) []string {
 	var out []string
 	for _, s := range pglex.Split(sql) {
-		if firstWord(s) != "" {
+		if pglex.FirstWord(s) != "" {
 			out = append(out, s)
 		}
 	}
@@ -27,7 +27,7 @@ func splitStatements(sql string) []string {
 func checkMigrationSQL(sql string, transactional bool) error {
 	stmts := splitStatements(sql)
 	for i, s := range stmts {
-		if word := firstWord(s); transactionControl[word] {
+		if word := pglex.FirstWord(s); transactionControl[word] {
 			return fmt.Errorf("statement %d is %s, and a migration does not end or split the transaction it runs in; "+
 				"the platform commits each migration itself", i+1, strings.ToUpper(word))
 		}

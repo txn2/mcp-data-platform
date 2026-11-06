@@ -31,9 +31,18 @@ sequenceDiagram
 
 ## Binding a script
 
-Binding a script to an endpoint is an administrator's. The script's owner and
-everyone else are refused, on every surface. A persona that can be granted the
-permission comes in a later release.
+Binding a script to an endpoint is an administrator's, with one exception: the
+owner of a form (a script defining `form_spec` and `form_submit`) binds,
+changes, turns on and turns off their own form (#2494). Every other caller,
+and the owner of a script that is not a form, is refused on every surface,
+naming why.
+
+A form's owner publishes it to the signed-in people of the deployment
+(`auth_mode: authenticated`) with no administrator involved: its `form_spec`
+and `form_submit` run under the persona the owner's version captured, so the
+form can do nothing its owner cannot already do. Serving it to people who are
+not signed in (`public` or `bot_check`) takes a version an administrator
+approved; see [Publishing a form](#publishing-a-form).
 
 With `manage_script`:
 
@@ -51,7 +60,7 @@ disabled endpoint answers 404. A script run may read a binding but not set
 or turn one on or off.
 
 On the portal, the script's page under Automations shows the binding, and an
-administrator binds, changes and turns it on and off there. The routes are
+administrator, or a form's owner, binds, changes and turns it on and off there. The routes are
 `GET|PUT /api/v1/portal/scripts/{id}/endpoint` and
 `POST /api/v1/portal/scripts/{id}/endpoint/enable|disable`.
 
@@ -350,6 +359,46 @@ submissions readable: set the new key as `ENCRYPTION_KEY` and the old one in
 `ENCRYPTION_KEY_PREVIOUS` (comma-separated for several); new values are
 written with the new key, and a value the new key does not open is opened with
 each previous key in turn.
+
+### Publishing a form
+
+A form's owner sees the form before anything is bound (#2494). **Preview
+form** on the script's page (the Endpoint section, and the editor for the
+unsaved edit) and `manage_script` `form_preview` open a preview: the form
+rendered as `/forms/<endpoint>` renders it, from the latest saved version, a
+given one (`preview_version`) or the unsaved `source`, with a bot check's place
+marked and a redirect shown rather than followed. The address
+(`/forms/_preview/<id>`) renders only for the person who opened it, an
+administrator included, and expires after 30 minutes; anyone else is refused.
+Its `form_spec` and `form_submit` run as drafts under the identity it was
+opened with: every write a host call would make is stopped by the draft's
+barrier, an accepted submission is answered and never stored in the form's
+source, a file is described to `form_submit` with an empty `uri` and never
+saved, and no endpoint audit row, failed request, metric or recording is
+written. The portal opens one with
+`POST /api/v1/portal/scripts/{id}/form-preview` (`version` or `source`).
+
+**Publish** binds the form for signed-in people. To serve it to people who are
+not signed in, the owner asks for a version to be approved, at any time, well
+before going public: **Request public access** on the script's page, or
+`manage_approval` `submit` with the script and version. Each administrator is
+notified once. The request fixes the version by the sha256 of its source and
+names what changed since the version approved before. An administrator reads
+it under **Approvals** (or `manage_approval` `get`), previews that version, and
+approves or denies it; the requester is notified. Administrators decide every
+request, their own included (recorded as self-approved); nobody else decides
+one. Once a version is approved, the owner switches the form to `public`
+whenever they choose; until then `endpoint_set` with `public` or `bot_check`
+is refused, naming the request to file. An administrator binding a form
+public approves the version it serves, recorded as self-approved.
+
+A public or `bot_check` form serves a caller with no session its approved
+version. A version saved after the approval is served to signed-in people at
+once (the page signs a viewer for a person with a session, and the endpoint
+reads it) and to everyone else once it is approved too. A public form with no
+approved version answers a caller with no session 404. A form served publicly
+before this release keeps being served: the upgrade records its current version
+as approved.
 
 ### The form's page
 

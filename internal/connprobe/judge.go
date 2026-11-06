@@ -59,12 +59,12 @@ func JudgeGET(g GET) Result {
 // (outbound.WithoutConnectionState). Nothing is recorded for an answer that
 // says nothing about the credential.
 func RecordGET(kind, connection string, status int, declared bool) {
-	connstate.Observe(kind, connection, stateOfGET(status, declared))
+	connstate.ObserveStatus(kind, connection, stateOfGET(status, declared), status)
 }
 
 // Unreached records a probe that reached no upstream.
 func Unreached(kind, connection string, err error) {
-	connstate.Observe(kind, connection, connstate.FromHTTP(0, err))
+	connstate.ObserveHTTP(kind, connection, 0, err)
 }
 
 // stateOfGET is the connection state a probing GET's answer records. A declared

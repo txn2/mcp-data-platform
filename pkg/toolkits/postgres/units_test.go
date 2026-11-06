@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/pglex"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -205,7 +207,7 @@ func TestTransactionControl(t *testing.T) {
 	for _, sql := range []string{"SELECT 1", "-- only a comment", "/* unterminated", "WITH x AS (SELECT 1) SELECT * FROM x", "commitments"} {
 		assert.NoError(t, refuseTransactionControl(sql), sql)
 	}
-	assert.Equal(t, "", firstWord("-- no newline"))
+	assert.Equal(t, "", pglex.FirstWord("-- no newline"))
 }
 
 func TestEffectiveTimeout(t *testing.T) {

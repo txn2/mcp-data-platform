@@ -6,6 +6,7 @@ package savegatewire
 
 import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
@@ -31,4 +32,17 @@ func Gate(p *platform.Platform) *scriptsave.Gate {
 		gate.Endpoint = e.Commands.Bound
 	}
 	return gate
+}
+
+// Drafts is the runner a draft started on the portal executes on: the script
+// editor's dry run and a form's preview (#2494). It reads the libraries and
+// files gate reads and keeps a draft's recording in gate's store, over the
+// assembled MCP server, so a draft's platform calls cross the middleware chain
+// an agent's calls cross.
+func Drafts(p *platform.Platform, gate *scriptsave.Gate) *scriptdraft.Runner {
+	return scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
+		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports()).
+		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).WithStatementCeiling(p.Config().Scripts.SQL.MaxTimeout()).
+		WithRecordings(gate.Recordings).WithLibraries(gate.Libraries).WithResources(gate.Resources).
+		WithTokens(p.Endpoints().TokenIssuer())
 }

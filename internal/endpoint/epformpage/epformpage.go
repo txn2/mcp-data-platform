@@ -109,12 +109,37 @@ type Handler struct {
 	// SignIn is where a browser signs in and comes back to returnTo; nil
 	// when the deployment has no browser sign-in.
 	SignIn func(returnTo string) string
+	// Previews reads who opened a form's preview (#2494); nil serves no
+	// preview page.
+	Previews PreviewOwners
 }
+
+// PreviewOwners says who opened a preview: the address of the one person its
+// page renders for, and ErrNoPreview for none or an expired one.
+type PreviewOwners interface {
+	Owner(ctx context.Context, id string) (string, error)
+}
+
+// logKeyError is the log attribute an error is recorded under.
+const logKeyError = "error"
+
+// ErrNoPreview is a preview that does not exist or has expired.
+var ErrNoPreview = errors.New("no such preview")
+
+// The preview routes (#2494): its page, and where its spec and submissions
+// are answered (internal/endpoint/eppreview).
+const (
+	PreviewPrefix    = "/forms/_preview/"
+	previewAPIPrefix = "/endpoints/_preview/"
+)
 
 // Mount registers the routes on mux.
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+ScriptPath, script)
 	mux.HandleFunc("GET "+PathPrefix+"{name}", h.page)
+	if h.Previews != nil {
+		mux.HandleFunc("GET "+PreviewPrefix+"{id}", h.preview)
+	}
 }
 
 // config is what the page is handed: the endpoint, where it answers, and
@@ -137,6 +162,10 @@ type config struct {
 	SignIn string `json:"sign_in,omitempty"`
 	// Refused says why the signed-in person cannot fill in the form.
 	Refused string `json:"refused,omitempty"`
+	// Preview marks a form's preview (#2494): the page says submissions are
+	// not stored, shows where a bot check would be, and shows a redirect
+	// rather than following it.
+	Preview bool `json:"preview,omitempty"`
 }
 
 // page answers a form's page, or 404 for a name that serves no enabled form.
@@ -144,11 +173,11 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	t, err := h.Runner.Resolve(r.Context(), name)
 	switch {
-	case errors.Is(err, epbinding.ErrNotFound) || (err == nil && (!t.Binding.Enabled || !t.Form)):
+	case errors.Is(err, epbinding.ErrNotFound) || (err == nil && (!t.Binding.Enabled || (!t.Form && t.PublicVersion() == 0))):
 		http.Error(w, "No form answers at this address.", http.StatusNotFound)
 		return
 	case err != nil:
-		slog.ErrorContext(r.Context(), "form page: resolving the endpoint failed", "error", logsan.SanitizeForLog(err.Error()))
+		slog.ErrorContext(r.Context(), "form page: resolving the endpoint failed", logKeyError, logsan.SanitizeForLog(err.Error()))
 		http.Error(w, "The form could not be read.", http.StatusInternalServerError)
 		return
 	}
@@ -165,14 +194,91 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) {
 	if b.AuthMode == epbinding.AuthAuthenticated && !h.identify(w, r, &cfg) {
 		return
 	}
+	if t.ServesPublicly() && r.URL.Query().Get(epform.ViewerParam) == "" {
+		// A signed-in person filling a public form is served the version the
+		// script runs, a caller with no session the approved one (#2494).
+		if tok, _ := h.sessionViewer(r, cfg.Endpoint); tok != "" {
+			cfg.Viewer = tok
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", contentPolicy(assetrefs.BaseURL(r, h.BaseURL), h.ancestors(r, b)))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
 	if err := page.Execute(w, map[string]any{"Config": cfg, "Solver": solverPath, "Script": ScriptPath}); err != nil {
-		slog.WarnContext(r.Context(), "form page: writing the page failed", "error", logsan.SanitizeForLog(err.Error()))
+		slog.WarnContext(r.Context(), "form page: writing the page failed", logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
+}
+
+// preview answers a form's preview page (#2494), for the person who opened
+// it only: anyone else, an administrator included, opens a preview of their
+// own. Its form_spec and form_submit are answered at previewAPIPrefix+id.
+func (h *Handler) preview(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	owner, err := h.Previews.Owner(r.Context(), id)
+	switch {
+	case errors.Is(err, ErrNoPreview):
+		http.Error(w, "This preview does not exist or has expired. Open a new one from the script's page.", http.StatusNotFound)
+		return
+	case err != nil:
+		slog.ErrorContext(r.Context(), "form preview: reading the preview failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		http.Error(w, "The preview could not be read.", http.StatusInternalServerError)
+		return
+	}
+	endpoint := eprun.PreviewPrefix + id
+	cfg := config{
+		Endpoint: endpoint, URL: previewAPIPrefix + id, CheckedMethods: []string{}, ViewerParam: epform.ViewerParam,
+		ViewerHeader: epform.ViewerHeader, ThemeParam: ThemeParam, EmbedParam: epform.EmbedParam,
+		HeightMessage: HeightMessage, Preview: true,
+	}
+	if !h.previewViewer(w, r, owner, &cfg) {
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", contentPolicy(assetrefs.BaseURL(r, h.BaseURL), []string{}))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Cache-Control", "no-store")
+	if cfg.Refused != "" {
+		w.WriteHeader(http.StatusForbidden)
+	}
+	if err := page.Execute(w, map[string]any{"Config": cfg, "Solver": solverPath, "Script": ScriptPath}); err != nil {
+		slog.WarnContext(r.Context(), "form preview: writing the page failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
+}
+
+// previewViewer signs the preview's viewer for the person who opened it, or
+// sets the refusal anyone else is shown. A browser with no session is sent to
+// sign in, and it reports false.
+func (h *Handler) previewViewer(w http.ResponseWriter, r *http.Request, owner string, cfg *config) bool {
+	c, err := h.sessionCaller(r)
+	switch {
+	case err == nil && c == nil && h.SignIn != nil:
+		// The target is always the platform's own sign-in path; only the
+		// escaped return_to comes from the request.
+		// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
+		http.Redirect(w, r, h.SignIn(r.URL.RequestURI()), http.StatusSeeOther)
+		return false
+	case err != nil || c == nil || c.Email != owner:
+		cfg.Refused = "This preview belongs to the person who opened it. Open your own from the script's page."
+		return true
+	}
+	v := epform.Viewer{UserID: c.UserID, Email: c.Email, AuthType: c.AuthType, Persona: c.Persona, Admin: c.Admin}
+	tok, err := epform.SignViewer(h.ViewerKey, cfg.Endpoint, v, time.Now())
+	if err != nil {
+		cfg.Refused = "This deployment cannot sign a preview."
+	}
+	cfg.Viewer = tok
+	return true
+}
+
+// sessionCaller is who the request's session names, nil for none.
+func (h *Handler) sessionCaller(r *http.Request) (*eprun.Caller, error) {
+	if h.Session == nil || len(h.ViewerKey) == 0 {
+		return nil, errors.New("no session reader")
+	}
+	return h.Session(r)
 }
 
 // ancestors are the origins that may frame the page for r: none for a page

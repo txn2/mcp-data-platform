@@ -268,7 +268,9 @@
            content's elements stay where they are, so a document's frame is
            not reloaded. */
         .expand-toggle { display: none; }
-        .expanded-bar { display: none; }
+        /* .content > div (0,1,1) would otherwise show the bar, which sits
+           inside .content, as a growing column beside the frame (#2496). */
+        .content > .expanded-bar { display: none; }
         body.expanded .header, body.expanded .notice, body.expanded .feedback-cta { display: none; }
         body.expanded .content {
             position: fixed;
@@ -277,7 +279,7 @@
             background: var(--bg);
             padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
         }
-        body.expanded .expanded-bar {
+        body.expanded .content > .expanded-bar {
             display: flex;
             align-items: center;
             gap: 8px;

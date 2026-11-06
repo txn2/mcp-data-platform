@@ -108,11 +108,22 @@ func TestSampler_ReportsDependenciesAndConnections(t *testing.T) {
 		`mcp_platform_connections{kind="trino",state="unreachable"} 1`,
 		`mcp_platform_connections{kind="api",state="auth_failed"} 1`,
 		`mcp_platform_connections{kind="s3",state="configured"} 1`,
+		// #2442: each connection under its name, and when its state was seen.
+		`mcp_platform_connection_state{connection="down",kind="trino",state="unreachable"} 1`,
+		`mcp_platform_connection_state{connection="crm",kind="api",state="auth_failed"} 1`,
+		`mcp_platform_connection_state{connection="lake",kind="s3",state="configured"} 1`,
+		`mcp_platform_connection_state_observed_timestamp_seconds{connection="down",kind="trino"} `,
 		`mcp_platform_personas 1`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scrape missing %q", want)
 		}
+	}
+	if strings.Contains(body, `mcp_platform_connection_state_observed_timestamp_seconds{connection="lake"`) {
+		t.Error("a connection no call used reported an observation time")
+	}
+	if strings.Contains(body, `connection="not-listed"`) {
+		t.Error("a connection no toolkit lists was reported")
 	}
 	if strings.Contains(body, `dependency="query"`) {
 		t.Error("an unconfigured dependency was reported")
@@ -364,5 +375,18 @@ func TestWire_CapacityConfigIgnoredWhenMalformed(t *testing.T) {
 	var nilSampler *Sampler
 	if err := nilSampler.Close(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// #2442: the connection state's maximum age is read from the environment,
+// the default when unset or unreadable.
+func TestConnectionStateMaxAge(t *testing.T) {
+	for value, want := range map[string]time.Duration{
+		"": connstate.DefaultMaxAge, "nonsense": connstate.DefaultMaxAge, "-1m": connstate.DefaultMaxAge, "90m": 90 * time.Minute,
+	} {
+		t.Setenv(EnvConnectionStateMaxAge, value)
+		if got := connectionStateMaxAge(); got != want {
+			t.Errorf("%q: max age = %v, want %v", value, got, want)
+		}
 	}
 }

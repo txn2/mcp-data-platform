@@ -274,9 +274,11 @@ func (s *Store) SweepFailures(ctx context.Context, cutoff time.Time) (int64, err
 func (s *Store) Stamp(ctx context.Context, name string) (epbinding.Stamp, error) {
 	var st epbinding.Stamp
 	err := s.db.QueryRowContext(ctx, `
-		SELECT e.updated_at, s.updated_at
+		SELECT e.updated_at, s.updated_at,
+		       COALESCE((SELECT MAX(a.version) FROM approval_requests a
+		                  WHERE a.script_id = e.script_id AND a.purpose = 'form_public' AND a.status = 'approved'), 0)
 		  FROM script_endpoints e JOIN scripts s ON s.id = e.script_id
-		 WHERE e.name = $1`, name).Scan(&st.Binding, &st.Script)
+		 WHERE e.name = $1`, name).Scan(&st.Binding, &st.Script, &st.ApprovedVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return st, epbinding.ErrNotFound
 	}

@@ -14083,6 +14083,40 @@
                 }
             }
         },
+        "/portal/application-databases": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The application database connections (kind appdb) the caller's persona reaches, each with its schemas and the application holding each, if any. The New application dialog chooses from it; a schema another application holds cannot be chosen.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "List the databases an application may hold a schema of",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.databasesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/applications": {
             "get": {
                 "security": [
@@ -14943,6 +14977,240 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/approvals": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The caller's own requests, or for an administrator every request, newest first. status filters by pending, approved or denied; script_id by script.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Approvals"
+                ],
+                "summary": "List approval requests",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "pending, approved or denied",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "One script's requests",
+                        "name": "script_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apprhttp.listResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Asks the administrators to approve a version of the caller's form to be served to callers with no session (purpose form_public). Each administrator is notified once.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Approvals"
+                ],
+                "summary": "Request approval of a version",
+                "parameters": [
+                    {
+                        "description": "The request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apprhttp.submitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/approval.Request"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/approvals/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One request with what changed since the version approved before. The requester and administrators read it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Approvals"
+                ],
+                "summary": "Read an approval request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/approval.Request"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/approvals/{id}/decide": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approves or denies a pending request. Administrators decide every request, their own included (recorded as self-approved); anyone else is refused.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Approvals"
+                ],
+                "summary": "Decide an approval request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The decision",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apprhttp.decideRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/approval.Request"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -24306,6 +24574,79 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/form-preview": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Opens a preview of the script's form as /forms/<endpoint> renders it, from a saved version (the latest when omitted) or the unsaved source sent, with no endpoint bound. The address opens for the caller only and expires within the hour; a submission there runs form_submit as a draft and stores nothing. Restricted to the script's owner and administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Open a preview of a script's form",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "What to preview",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/eppreview.openRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/eppreview.Opened"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -34120,6 +34461,41 @@
                 }
             }
         },
+        "apphttp.DatabaseChoice": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string",
+                    "example": "orders"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "problem": {
+                    "description": "Problem says the schemas could not be read, empty when they were. It\nnever repeats the database's error, which can name its address.",
+                    "type": "string"
+                },
+                "schemas": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apphttp.SchemaChoice"
+                    }
+                }
+            }
+        },
+        "apphttp.SchemaChoice": {
+            "type": "object",
+            "properties": {
+                "held_by": {
+                    "type": "string",
+                    "example": "shop"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "shop"
+                }
+            }
+        },
         "apphttp.createRequest": {
             "type": "object",
             "properties": {
@@ -34138,6 +34514,17 @@
                 "schema": {
                     "type": "string",
                     "example": "shop"
+                }
+            }
+        },
+        "apphttp.databasesResponse": {
+            "type": "object",
+            "properties": {
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apphttp.DatabaseChoice"
+                    }
                 }
             }
         },
@@ -34420,6 +34807,138 @@
                 },
                 "restored": {
                     "description": "Restored is the release a rollback restored the pins of.",
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "apprhttp.decideRequest": {
+            "type": "object",
+            "properties": {
+                "comment": {
+                    "type": "string"
+                },
+                "decision": {
+                    "type": "string",
+                    "example": "approve"
+                }
+            }
+        },
+        "apprhttp.listResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/approval.Request"
+                    }
+                }
+            }
+        },
+        "apprhttp.submitRequest": {
+            "type": "object",
+            "properties": {
+                "purpose": {
+                    "type": "string",
+                    "example": "form_public"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "script": {
+                    "type": "string",
+                    "example": "order-intake"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "approval.Changes": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "description": "Added and Removed count the diff's changed lines.",
+                    "type": "integer"
+                },
+                "approved_version": {
+                    "description": "ApprovedVersion is the version approved before, 0 for none.",
+                    "type": "integer"
+                },
+                "diff": {
+                    "description": "Diff is the unified diff of the source from that version, empty for a\nfirst request; Truncated says it was cut at the bound.",
+                    "type": "string"
+                },
+                "removed": {
+                    "type": "integer"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "approval.Request": {
+            "type": "object",
+            "properties": {
+                "changes": {
+                    "$ref": "#/definitions/approval.Changes"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decided_at": {
+                    "type": "string"
+                },
+                "decided_by": {
+                    "type": "string"
+                },
+                "decision_comment": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "apr_0f3c9d2e"
+                },
+                "purpose": {
+                    "type": "string",
+                    "example": "form_public"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "requester_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "requester_persona": {
+                    "type": "string"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "script_name": {
+                    "type": "string",
+                    "example": "order-intake"
+                },
+                "self_approved": {
+                    "type": "boolean"
+                },
+                "source_sha256": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "subject_kind": {
+                    "type": "string",
+                    "example": "script_version"
+                },
+                "version": {
                     "type": "integer",
                     "example": 2
                 }
@@ -35297,6 +35816,10 @@
                 },
                 "path": {
                     "type": "string"
+                },
+                "preview_version": {
+                    "description": "PreviewVersion is the saved version form_preview renders, 0 for the\nlatest (#2494).",
+                    "type": "integer"
                 },
                 "rate_limit": {
                     "type": "integer"
@@ -37980,6 +38503,32 @@
                 },
                 "user_id": {
                     "type": "string"
+                }
+            }
+        },
+        "eppreview.Opened": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "eppreview.openRequest": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 2
                 }
             }
         },
@@ -50502,6 +51051,10 @@
             "description": "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."
         },
         {
+            "name": "Approvals",
+            "description": "The Approvals queue: a request for an administrator's decision. A form is served to callers with no session only at a version an administrator approved; its owner files the request, and administrators decide every request, their own included."
+        },
+        {
             "name": "Activity",
             "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."
         },
@@ -50658,6 +51211,7 @@
                 "Access requests",
                 "Activity",
                 "Applications",
+                "Approvals",
                 "API Keys",
                 "APIs",
                 "Assets",

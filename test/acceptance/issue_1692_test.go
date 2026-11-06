@@ -95,6 +95,8 @@ var issue1692Expected = map[string]issue1692Expectation{
 	"save_asset":      {destructive: false},
 	"manage_feedback": {destructive: false},
 	"notify":          {destructive: false},
+	// A request for approval and its decision add a record and remove none.
+	"manage_approval": {destructive: false},
 	"trino_export":    {destructive: false},
 	"api_export":      {destructive: false},
 	"graphql_export":  {destructive: false},

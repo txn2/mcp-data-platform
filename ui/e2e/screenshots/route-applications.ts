@@ -15,4 +15,11 @@ export const applicationRoutes: ScreenshotRoute[] = [
     path: "/portal/applications/app-shop",
     category: "user",
   },
+  // The Approvals queue (#2494): a pending request for a form's public use,
+  // with what changed since the version approved before.
+  {
+    slug: "approvals",
+    path: "/portal/approvals",
+    category: "user",
+  },
 ];

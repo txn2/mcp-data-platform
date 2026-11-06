@@ -32,6 +32,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
@@ -128,6 +129,11 @@ type Request struct {
 	// reporter get_run reads its log and progress from, and how long it may
 	// run. The zero value is an inline draft held to scriptrun.DraftTimeout.
 	Long Long
+	// Handler calls one of the script's functions in place of main(): a
+	// form's preview calls form_spec(req) and form_submit(req, values)
+	// (#2494). Nil runs main(). A draft calling a handler is not recorded:
+	// its arguments are a submission, which can carry sensitive values.
+	Handler *scriptdialect.Handler
 }
 
 // Long is what a draft longer than the inline wait runs with (#2117).
@@ -386,7 +392,12 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		// lets it get as far as its time limit does.
 		opts.MaxSteps = scriptrun.RunMaxSteps
 	}
-	rec := r.record(&opts)
+	var rec *scriptrec.Recorder
+	if req.Handler != nil {
+		opts.Handler = req.Handler
+	} else {
+		rec = r.record(&opts)
+	}
 	result, runErr := scriptrun.Run(ctx, opts)
 	out := &Outcome{RunID: runID, Result: result, Err: runErr, AllowWrites: req.AllowWrites}
 	if rec != nil {

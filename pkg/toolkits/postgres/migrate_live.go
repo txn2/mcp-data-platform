@@ -313,13 +313,8 @@ func (c *conn) applyOne(ctx context.Context, pc session, o ApplyOptions, m Migra
 // applyAlone runs a migration that cannot run in a transaction, then writes
 // its ledger row.
 func (c *conn) applyAlone(ctx context.Context, pc session, o ApplyOptions, m Migration, start time.Time) error {
-	timeout := o.Timeout
-	if timeout <= 0 {
-		timeout = c.cfg.StatementTimeout
-	}
-	if _, err := pc.Exec(ctx, "SELECT set_config('lock_timeout', $1, false), set_config('statement_timeout', $2, false), "+
-		"set_config('search_path', $3, false)", millis(migrationLockTimeout), millis(timeout), o.Schema); err != nil {
-		return err //nolint:wrapcheck // read by its type
+	if err := c.prepareAlone(ctx, pc, o); err != nil {
+		return err
 	}
 	if _, err := pc.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+o.Schema); err != nil {
 		return err //nolint:wrapcheck // read by its type
@@ -330,10 +325,32 @@ func (c *conn) applyAlone(ctx context.Context, pc session, o ApplyOptions, m Mig
 	return c.recordApplied(ctx, pc, o, m, time.Since(start))
 }
 
-// revertOne reverts one migration and deletes its ledger row.
+// prepareAlone sets on the session what prepareMigration sets on a
+// migration's transaction, for a migration run outside one.
+func (c *conn) prepareAlone(ctx context.Context, pc session, o ApplyOptions) error {
+	timeout := o.Timeout
+	if timeout <= 0 {
+		timeout = c.cfg.StatementTimeout
+	}
+	_, err := pc.Exec(ctx, "SELECT set_config('lock_timeout', $1, false), set_config('statement_timeout', $2, false), "+
+		"set_config('search_path', $3, false)", millis(migrationLockTimeout), millis(timeout), o.Schema)
+	return err //nolint:wrapcheck // read by its type
+}
+
+// revertOne reverts one migration and deletes its ledger row. A migration
+// added with transactional=false is reverted the way it was applied (#2490):
+// its down usually holds the statement that made it non-transactional (DROP
+// INDEX CONCURRENTLY undoing CREATE INDEX CONCURRENTLY), which PostgreSQL
+// refuses inside a transaction block.
 func (c *conn) revertOne(ctx context.Context, pc session, o ApplyOptions, m Migration) error {
-	if err := checkMigrationSQL(m.Down, true); err != nil {
+	if err := checkMigrationSQL(m.Down, m.Transactional); err != nil {
 		return migrationFailure(m.Version, c.failure(ctx, refuse(err)))
+	}
+	if !m.Transactional {
+		if err := c.revertAlone(ctx, pc, o, m); err != nil {
+			return migrationFailure(m.Version, c.failure(ctx, err))
+		}
+		return nil
 	}
 	tx, err := pc.Begin(ctx)
 	if err != nil {
@@ -353,4 +370,19 @@ func (c *conn) revertOne(ctx context.Context, pc session, o ApplyOptions, m Migr
 		return migrationFailure(m.Version, c.failure(ctx, err))
 	}
 	return nil
+}
+
+// revertAlone runs a non-transactional migration's down on the session, then
+// deletes its ledger row. Should the row's delete fail after the down ran, the
+// ledger still lists the migration and a later down runs it again, which is
+// why such a down is written with IF EXISTS.
+func (c *conn) revertAlone(ctx context.Context, pc session, o ApplyOptions, m Migration) error {
+	if err := c.prepareAlone(ctx, pc, o); err != nil {
+		return err
+	}
+	if err := pc.Script(ctx, m.Down); err != nil {
+		return err //nolint:wrapcheck // read by its type
+	}
+	_, err := pc.Exec(ctx, "DELETE FROM "+c.ledger()+" WHERE schema_name = $1 AND version = $2", o.Schema, m.Version)
+	return err //nolint:wrapcheck // read by its type
 }

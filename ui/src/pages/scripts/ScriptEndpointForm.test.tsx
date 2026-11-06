@@ -12,14 +12,22 @@ vi.mock("@/api/admin/hooks", () => ({
   usePersonas: () => ({ data: { personas: [{ name: "analyst" }, { name: "credit" }] }, isLoading: false }),
 }));
 
+let approved: { status: string; version: number }[] = [];
+vi.mock("@/api/portal/hooks/approvals", () => ({
+  useApprovals: () => ({ data: approved }),
+  useOpenFormPreview: () => ({ mutate: vi.fn(), isPending: false, error: null, data: undefined }),
+  useRequestApproval: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+}));
+
 vi.mock("@/api/portal/hooks/scriptEndpoint", () => ({
   useScriptEndpoint: vi.fn(),
   useSetScriptEndpoint: vi.fn(),
   useSetScriptEndpointEnabled: vi.fn(),
 }));
 
+let admin = true;
 vi.mock("@/stores/auth", () => ({
-  useAuthStore: (selector: (s: { isAdmin: () => boolean }) => unknown) => selector({ isAdmin: () => true }),
+  useAuthStore: (selector: (s: { isAdmin: () => boolean }) => unknown) => selector({ isAdmin: () => admin }),
 }));
 
 import { useScriptEndpoint, useSetScriptEndpoint, useSetScriptEndpointEnabled } from "@/api/portal/hooks/scriptEndpoint";
@@ -52,7 +60,11 @@ beforeEach(() => {
   vi.mocked(useSetScriptEndpointEnabled).mockReturnValue({ mutate: vi.fn(), isPending: false, error: null } as never);
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  admin = true;
+  approved = [];
+});
 
 describe("ScriptEndpointCard on a form", () => {
   it("offers a bound form's embed snippet (#2331)", () => {
@@ -73,7 +85,7 @@ describe("ScriptEndpointCard on a form", () => {
 
   it("binds a form only once a connection is chosen, and sends it with the decrypt personas", () => {
     show(unboundForm);
-    fireEvent.click(screen.getByRole("button", { name: "Bind" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "contact" } });
     fireEvent.change(screen.getByLabelText("Access"), { target: { value: "public" } });
     const saveButton = screen.getByRole("button", { name: "Save" });
@@ -103,7 +115,34 @@ describe("ScriptEndpointCard on a form", () => {
 
   it("says no connection can hold a form's submissions", () => {
     show({ ...unboundForm, form_connections: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Bind" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
     expect(screen.getByText(/No Trino connection has a scratch catalog/)).toBeInTheDocument();
+  });
+});
+
+// #2494: a form's owner previews it, publishes it for signed-in people, and
+// chooses "anyone" only once a version is approved; a bot check stays an
+// administrator's choice.
+describe("a form's owner (#2494)", () => {
+  it("publishes an internal form and offers public access only once a version is approved", () => {
+    admin = false;
+    approved = [];
+    show({ ...unboundForm, form_connections: ["scratch"] });
+    expect(screen.getByText(/This form is not published/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview form" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request public access" })).toBeInTheDocument();
+    expect(screen.getByTestId("form-public-status")).toHaveTextContent("No version is approved");
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const access = screen.getByLabelText("Access") as HTMLSelectElement;
+    expect(Array.from(access.options).map((o) => o.value)).toEqual(["authenticated"]);
+    cleanup();
+
+    approved = [{ status: "approved", version: 2 }];
+    show({ ...unboundForm, form_connections: ["scratch"] });
+    expect(screen.getByTestId("form-public-status")).toHaveTextContent("Version 2 is approved");
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const access2 = screen.getByLabelText("Access") as HTMLSelectElement;
+    expect(Array.from(access2.options).map((o) => o.value)).toEqual(["authenticated", "public"]);
   });
 });

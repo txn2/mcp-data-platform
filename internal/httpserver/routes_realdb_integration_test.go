@@ -59,6 +59,8 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`^/endpoints/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^(GET|OPTIONS) /botcheck/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^GET /forms/`), "endpointwire.Mount: a form's page is mounted with the endpoints, which Platform.Start assembles with the script layer, which this test does not run"},
+	{regexp.MustCompile(`^(GET|POST) /endpoints/_preview/\{id\}$`), "endpointwire.mountPreviews: a form's preview is answered with the endpoints, which Platform.Start assembles with the script layer, which this test does not run"},
+	{regexp.MustCompile(`^((GET|POST) /api/v1/portal/approvals(/\{id\})?|POST /api/v1/portal/approvals/\{id\}/decide|POST /api/v1/portal/scripts/\{id\}/form-preview)$`), "formpublishwire.Mount: the Approvals queue and a form's preview are assembled with the endpoints, which Platform.Start assembles with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^GET /api/v1/portal/scripts/\{id\}/submissions`), "submissionshttp.ForPortal: a form's submissions are read through Trino, and the test platform has no Trino connection"},
 	{regexp.MustCompile(`^(GET|PUT|DELETE) /api/v1/admin/bot-checks(/\{name\})?$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^GET /api/v1/admin/endpoints(/\{name\})?$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
