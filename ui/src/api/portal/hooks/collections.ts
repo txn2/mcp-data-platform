@@ -18,7 +18,9 @@ import type {
   CreateShareBody,
   CollectionTarget,
   AppendedItem,
+  CollectionFacets,
 } from "../types";
+import type { Scope } from "@/components/ScopeFilter";
 
 // --- Collections ---
 
@@ -33,21 +35,59 @@ const sharedCollectionKey = (s: SharedCollection): string => s.collection.id;
 // useInfiniteCollections is the paginated counterpart of useCollections: it
 // accumulates pages so a caller with more than one page of collections can load
 // them all, exposing a single merged page plus fetchNextPage/hasNextPage.
-export function useInfiniteCollections(params?: {
-  sort?: string;
-  dir?: string;
-}): InfiniteResult<Collection> {
+/** What narrows a collection listing or search to what the caller can open (#2500). */
+export interface CollectionQueryFilters {
+  scope?: Scope;
+  owners?: string[];
+}
+
+export function useInfiniteCollections(
+  params?: CollectionQueryFilters & { sort?: string; dir?: string },
+): InfiniteResult<Collection> {
   return useOffsetInfiniteQuery<Collection>({
     queryKey: ["collections", "infinite", params],
     pageSize: COLLECTION_PAGE_SIZE,
     keyOf: collectionKey,
     // Sent as given; the server resolves both against its own allowlist, so an
-    // unknown column orders by the default rather than failing the page.
+    // unknown column orders by the default rather than failing the page. The
+    // owners travel comma-separated, which the server splits.
     fetchPage: (offset, limit) =>
       paginatedFetch<Collection>("/collections", offset, limit, {
+        scope: params?.scope,
+        owner: params?.owners?.join(","),
         sort: params?.sort,
         dir: params?.dir,
       }),
+  });
+}
+
+// useInfiniteSearchCollections ranks the collections the caller can open in a
+// scope by relevance, a page at a time (#2500).
+export function useInfiniteSearchCollections(
+  query: string,
+  params?: CollectionQueryFilters,
+): InfiniteResult<ScoredCollection> {
+  const q = query.trim();
+  return useOffsetInfiniteQuery<ScoredCollection>({
+    queryKey: ["search-collections", "infinite", q, params],
+    pageSize: COLLECTION_PAGE_SIZE,
+    keyOf: (s) => s.collection.id,
+    enabled: q.length > 0,
+    fetchPage: (offset, limit) =>
+      paginatedFetch<ScoredCollection>("/collections/search", offset, limit, {
+        q,
+        scope: params?.scope,
+        owner: params?.owners?.join(","),
+      }),
+  });
+}
+
+// useCollectionFacets lists the authors of the collections the scope covers.
+export function useCollectionFacets(scope: Scope) {
+  return useQuery({
+    queryKey: ["collection-facets", scope],
+    queryFn: () => apiFetch<CollectionFacets>(`/collections/facets?scope=${scope}`),
+    staleTime: 30_000,
   });
 }
 

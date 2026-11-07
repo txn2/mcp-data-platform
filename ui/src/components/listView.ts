@@ -1,5 +1,4 @@
 import type { SharePermission } from "@/api/portal/types";
-import type { Scope } from "@/components/ScopeFilter";
 
 const VIEW_STORAGE_KEY = "asset-view-mode";
 
@@ -41,25 +40,13 @@ export interface LoadMoreControls {
 export interface ShareMeta {
   shared_by: string;
   permission: SharePermission;
-  shared_at: string;
+  /** When it was shared, where the list that carried it knows. */
+  shared_at?: string;
 }
 
-/**
- * The paginated lists the active scope draws from: the browse list for "mine",
- * shared-with-me for "shared", both for "all" — and neither while relevance
- * ranking answers the query, since a ranked top-K has no further pages.
- */
-export function activeSources(
-  scope: Scope,
-  semanticSearch: boolean,
-  mine: LoadMoreControls,
-  shared: LoadMoreControls,
-): LoadMoreControls[] {
-  if (semanticSearch) return [];
-  const sources: LoadMoreControls[] = [];
-  if (scope !== "shared") sources.push(mine);
-  if (scope !== "mine") sources.push(shared);
-  return sources;
+/** The date a row shows: when it was shared, where known, else its own. */
+export function rowDate(share: ShareMeta | undefined, own: string): string {
+  return share?.shared_at ?? own;
 }
 
 /**
@@ -76,23 +63,4 @@ export function loadMoreState(sources: LoadMoreControls[]) {
       }
     },
   };
-}
-
-/** Which source the active scope is waiting on before it can render rows. */
-export function scopeIsLoading({
-  scope,
-  semanticSearch,
-  searchLoading,
-  mineLoading,
-  sharedLoading,
-}: {
-  scope: Scope;
-  semanticSearch: boolean;
-  searchLoading: boolean;
-  mineLoading: boolean;
-  sharedLoading: boolean;
-}): boolean {
-  if (scope === "mine") return semanticSearch ? searchLoading : mineLoading;
-  if (scope === "shared") return sharedLoading;
-  return mineLoading || sharedLoading;
 }

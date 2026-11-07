@@ -165,13 +165,24 @@ var manageAssetSchemaBase = json.RawMessage(`{
     },
     "tags": {
       "type": "array",
-      "description": "New tags (for update action)",
+      "description": "New tags (update action), or for list and search the tags an asset must carry, every one of them",
       "items": {"type": "string"},
       "maxItems": 20
     },
     "content_type": {
       "type": "string",
-      "description": "New content type (for update action, only when replacing content). Accepts the same types as save_asset; omit it to keep the type the asset already carries."
+      "description": "New content type (update action, only when replacing content; accepts the same types as save_asset, omit it to keep the type the asset already carries), or for list and search the content type an asset must have"
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["mine", "shared", "all"],
+      "description": "Which assets list and search cover: mine (yours), shared (shared with you by a person, your address or your persona, directly or through a shared collection), or all (both). search defaults to all, list to mine."
+    },
+    "owners": {
+      "type": "array",
+      "description": "For list and search: only assets owned by one of these email addresses",
+      "items": {"type": "string"},
+      "maxItems": 20
     },
     "change_summary": {
       "type": "string",
@@ -191,7 +202,7 @@ var manageAssetSchemaBase = json.RawMessage(`{
     },
     "limit": {
       "type": "integer",
-      "description": "Max results for list/list_versions/list_collections (default 50, max 200), or captures per page for provenance (default 20, max 100)"
+      "description": "Max results for list/list_versions/list_collections (default 50, max 200), search (default 20, max 100), or captures per page for provenance (default 20, max 100)"
     },
     "version": {
       "type": "integer",
@@ -207,11 +218,11 @@ var manageAssetSchemaBase = json.RawMessage(`{
     },
     "query": {
       "type": "string",
-      "description": "Free-text relevance query for the 'search' action. Ranks your saved assets by semantic + keyword similarity within your own assets."
+      "description": "Free-text relevance query for the 'search' action. Ranks the assets you can open in the scope (default all: yours and those shared with you) by semantic + keyword similarity; total counts every result and offset pages them."
     },
     "offset": {
       "type": "integer",
-      "description": "Offset for paginated results (list_collections), or captures to skip counting back from the newest (provenance)"
+      "description": "Offset for paginated results (list, search, list_collections), or captures to skip counting back from the newest (provenance)"
     },
     "sections": {
       "type": "array",

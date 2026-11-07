@@ -587,10 +587,14 @@ ok "Keycloak ready on :9090 (realm mcp-platform)"
 # admin API, since the realm file is imported only on a fresh volume.
 if [ "$DEV_OFFSET" != 0 ]; then
   KC_ORIGIN="http://localhost:$DEV_PUBLIC_API_PORT"
-  KC_ADMIN_TOKEN=$(curl -sf -d client_id=admin-cli -d username=admin -d password=admin -d grant_type=password \
-    http://localhost:9090/realms/master/protocol/openid-connect/token \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])') \
+  # The token response is captured first and parsed from the variable: a curl
+  # piped straight into an interpreter reads as running a download (#2493).
+  KC_TOKEN_RESPONSE=$(curl -sf -d client_id=admin-cli -d username=admin -d password=admin -d grant_type=password \
+    http://localhost:9090/realms/master/protocol/openid-connect/token) \
     || fail "Could not sign in to Keycloak's admin API to register $KC_ORIGIN"
+  KC_ADMIN_TOKEN=$(printf '%s' "$KC_TOKEN_RESPONSE" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])') \
+    || fail "Keycloak's admin token response had no access_token"
   KC_CLIENTS="http://localhost:9090/admin/realms/mcp-platform/clients"
   KC_CLIENT=$(curl -sf -H "Authorization: Bearer $KC_ADMIN_TOKEN" "$KC_CLIENTS?clientId=mcp-data-platform-portal") \
     || fail "Could not read the portal client from Keycloak"

@@ -104,6 +104,69 @@ type AssetSearchQuery struct {
 	Limit      int // max results; clamped into [1, maxSearchLimit]
 }
 
+// RankedAssetQuery ranks what one person can open (#2500): every asset in the
+// reach whose text matches the query, and the ones the embedding model places
+// near it, paged. Filters narrow the set before it is ranked.
+type RankedAssetQuery struct {
+	Embedding   []float32 // query vector; nil selects lexical-only ranking
+	QueryText   string
+	Reach       *Reach
+	ContentType string
+	Tags        []string
+	Owners      []string
+	Limit       int
+	Offset      int
+}
+
+// RankedCollectionQuery is RankedAssetQuery for collections.
+type RankedCollectionQuery struct {
+	Embedding []float32
+	QueryText string
+	Reach     *Reach
+	Owners    []string
+	Limit     int
+	Offset    int
+}
+
+// RankedPage clamps a ranked page to the search bounds and MaxRankedDepth.
+func RankedPage(limit, offset int) (lim, off int) {
+	lim = clampSearchLimit(limit)
+	off = max(offset, 0)
+	if off+lim > MaxRankedDepth {
+		off = max(MaxRankedDepth-lim, 0)
+	}
+	return lim, off
+}
+
+// ReachSearcher ranks within a person's reach. The PostgreSQL stores implement
+// it beside AssetSearcher and CollectionSearcher.
+type ReachSearcher interface {
+	SearchReach(ctx context.Context, q RankedAssetQuery) ([]ScoredAsset, int, error)
+}
+
+// CollectionReachSearcher is ReachSearcher for collections.
+type CollectionReachSearcher interface {
+	SearchCollectionReach(ctx context.Context, q RankedCollectionQuery) ([]ScoredCollection, int, error)
+}
+
+// AssetFaceter computes the tag and author facets over a listing's filter.
+type AssetFaceter interface {
+	AssetFacets(ctx context.Context, filter AssetFilter) (AssetFacets, error)
+}
+
+// CollectionAuthorFaceter lists the authors of the collections a reach covers.
+type CollectionAuthorFaceter interface {
+	CollectionAuthors(ctx context.Context, r *Reach) ([]FacetCount, error)
+}
+
+// ReachPermissions reports, per asset id, the highest permission the reach's
+// shares grant on it, directly or through a collection: the share half of
+// access.ResolveAssetPermission over a page of rows. Owned rows are not the
+// share store's to answer and come back absent unless also shared.
+type ReachPermissions interface {
+	ReachPermissions(ctx context.Context, ids []string, r *Reach) (map[string]SharePermission, error)
+}
+
 // EffectiveLimit clamps the requested limit into the search bounds.
 func (q AssetSearchQuery) EffectiveLimit() int { return clampSearchLimit(q.Limit) }
 
@@ -146,3 +209,97 @@ type ScoredCollection struct {
 type CollectionSearcher interface {
 	SearchCollections(ctx context.Context, q CollectionSearchQuery) ([]ScoredCollection, error)
 }
+
+// Scope selects which part of what a person can open a listing or a search
+// covers (#2500): what they own, what was shared with them, or both.
+type Scope string
+
+// The scopes a listing or search accepts.
+const (
+	ScopeMine   Scope = "mine"
+	ScopeShared Scope = "shared"
+	ScopeAll    Scope = "all"
+)
+
+// ParseScope reads a scope parameter, falling back when it is blank or names
+// no scope.
+func ParseScope(raw string, fallback Scope) Scope {
+	switch s := Scope(strings.ToLower(strings.TrimSpace(raw))); s {
+	case ScopeMine, ScopeShared, ScopeAll:
+		return s
+	default:
+		return fallback
+	}
+}
+
+// Reach is a person asking for what they can open, narrowed to a scope
+// (#2500). A row is theirs when they own it on either identifier it records
+// (AssetOwner), and shared with them when an active share names their id,
+// their address or the persona they resolved to, on the row itself or, for an
+// asset, on a collection that contains it. That is the rule the per-item
+// access checks apply one row at a time (internal/portal/access); the store
+// applies it to a set, so a listing, a ranked search and a facet count cannot
+// disagree with the check that opens the row.
+//
+// An administrator's reach is their own: the administrator's all-assets
+// listing is a separate route, and organizing never grants access.
+type Reach struct {
+	Owner   AssetOwner
+	Persona string
+	Scope   Scope
+}
+
+// NewReach builds a person's reach. The identifiers are normalized the way
+// NewAssetOwner normalizes them, so the anonymous sentinel names nobody.
+func NewReach(userID, email, persona string, scope Scope) *Reach {
+	return &Reach{
+		Owner:   NewAssetOwner(userID, email),
+		Persona: strings.TrimSpace(persona),
+		Scope:   ParseScope(string(scope), ScopeAll),
+	}
+}
+
+// Identified reports whether the reach names anyone a row or a share could be
+// addressed to.
+func (r *Reach) Identified() bool {
+	return r != nil && (r.Owner.UserID != "" || r.Owner.Email != "" || r.Persona != "")
+}
+
+// NormalizeOwners lowercases and trims an author filter, dropping blanks and
+// repeats.
+func NormalizeOwners(owners []string) []string {
+	out := make([]string, 0, len(owners))
+	seen := make(map[string]bool, len(owners))
+	for _, raw := range owners {
+		for part := range strings.SplitSeq(raw, ",") {
+			o := strings.ToLower(strings.TrimSpace(part))
+			if o == "" || seen[o] {
+				continue
+			}
+			seen[o] = true
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// FacetCount is one value of a facet and how many rows carry it.
+type FacetCount struct {
+	Value string `json:"value"`
+	Count int    `json:"count"`
+}
+
+// AssetFacets are the tags and authors on the assets a listing covers, each
+// with its count, computed over the caller's reach and every other filter
+// (#2500). The tag facet ignores the tag filter and the author facet the
+// author filter, so a picker lists the values a person can switch to.
+type AssetFacets struct {
+	Tags    []FacetCount `json:"tags"`
+	Authors []FacetCount `json:"authors"`
+}
+
+// MaxFacetValues bounds each facet's list.
+const MaxFacetValues = 200
+
+// MaxRankedDepth bounds how deep a ranked search pages: offset plus limit.
+const MaxRankedDepth = 1000

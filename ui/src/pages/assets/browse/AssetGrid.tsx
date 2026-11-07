@@ -1,3 +1,4 @@
+import { rowDate } from "@/components/listView";
 import { FolderOpen } from "lucide-react";
 import type { ShareSummary } from "@/api/portal/types";
 import { ThumbCard } from "@/components/cards/ThumbCard";
@@ -126,7 +127,7 @@ function AssetCard({
         {/* The card's date carries no visible label, so the title says which
             timestamp it is — the same one the list is ordered by. */}
         <span title={dateLabelFor(dateKey, !!share)}>
-          {new Date(share ? share.shared_at : asset[dateKey]).toLocaleDateString()}
+          {new Date(rowDate(share, asset[dateKey])).toLocaleDateString()}
         </span>
       </div>
     </ThumbCard>

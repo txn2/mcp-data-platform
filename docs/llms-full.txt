@@ -2088,7 +2088,7 @@ Response includes asset_id, portal_url (if public_base_url configured), provenan
 
 ### manage_asset
 
-List, retrieve, update, delete, share, or relevance-search saved assets (and manage collections). Ownership is enforced: users can only modify, share, or find their own assets. Human feedback on assets is handled by the separate `manage_feedback` tool.
+List, retrieve, update, delete, share, or relevance-search saved assets (and manage collections). Ownership is enforced for changes: users can only modify or share their own assets; list and search cover what the caller can open (#2500). Human feedback on assets is handled by the separate `manage_feedback` tool.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -2097,7 +2097,10 @@ List, retrieve, update, delete, share, or relevance-search saved assets (and man
 | `content` | string | No | - | New content (for update — replaces S3 object) |
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
-| `tags` | array | No | - | New tags (for update) |
+| `tags` | array | No | - | New tags (for update), or for list and search the tags an asset must carry, every one |
+| `scope` | string | No | search: `all`, list: `mine` | Which assets list and search cover: `mine`, `shared` (shared by a person, the caller's address or persona, directly or through a shared collection) or `all` |
+| `owners` | array | No | - | For list and search: only assets owned by one of these email addresses |
+| `offset` | integer | No | 0 | Rows to skip in list and search; a search pages at most 1,000 results deep |
 | `max_versions` | integer \| null | No | - | How many versions this asset keeps (update). Omit to leave the setting alone, `null` to go back to the deployment's `portal.max_versions`, `0` to keep every version, `N` to keep the newest N. Negative is refused |
 | `content_type` | string | No | - | New content type (for update, only when replacing content) |
 | `sources` | array | No | session window | The calls behind a content edit (update and patch), as `call_id` values or `mcp:call:<id>` references. Recorded as a new capture beside the ones earlier versions carry |
@@ -2109,7 +2112,7 @@ List, retrieve, update, delete, share, or relevance-search saved assets (and man
 | `expires_in` | string | Conditional | - | Duration bounding a public link (`24h`). Required for `access_mode: public`, refused for every other share |
 | `share_id` | string | Conditional | - | Share to end (required for revoke_share) |
 
-The `search` action ranks the caller's own assets by relevance to `query` using the shared hybrid (vector + lexical) ranking — weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise — and returns each match with a `score` plus a `ranking` field (`hybrid` or `lexical`). It is scoped server-side to the caller's own assets by `owner_id` — the same ownership key the asset library list and the update/delete checks use, so search returns exactly the assets the caller can list (note: `owner_email` is a secondary display field that can diverge from `owner_id` across API-key vs OIDC identities, so it is deliberately NOT the scope key) — and fails closed when the caller has no identity. The Portal exposes the same ranking over HTTP at `GET /api/v1/portal/assets/search?q=...` and `GET /api/v1/portal/collections/search?q=...` (each row carries a `score`), mirroring the Knowledge & Memory and prompt search endpoints.
+The `search` action ranks the assets the caller can open (#2500) by relevance to `query`: `scope` `all` by default (owned, on either identifier the row records, or named by an active share to the caller's id, address or resolved persona, on the asset or on a collection holding it), narrowed by `owners`, `tags` and `content_type` before ranking. Every asset whose text matches is a result, and so is one whose blended semantic score reaches `opranking.ScoreFloor` (the owner and producer searches rank the same way); the candidate set is materialized and scored by exact distance (an HNSW scan filters after its nearest-neighbor step, which drops most of a narrow reach), `total` counts every result and `offset` pages them up to 1,000 deep. It returns each match with a `score` plus a `ranking` field (`hybrid` or `lexical`). The reach condition is the per-asset access rule in SQL (`internal/portal/reachstore`), the ranked statement over any candidate set is `internal/sqlrank`, and the routes are `internal/portal/reachapi`, held to `access.CanViewAsset` by `TestReach_RealDB_ListingIsTheAccessRule`; an administrator's reach is their own. A managed-script run's search keeps its producer scope. The Portal exposes the same over HTTP: `GET /api/v1/portal/assets`, `GET /api/v1/portal/assets/search` and the collection equivalents take `scope` (default `mine`) and `owner` (repeated or comma-separated), the asset routes also `tag` and `content_type`; each page carries `permissions`, the caller's permission on each row they do not own, and `share_summaries` only for rows they own. `GET /api/v1/portal/assets/facets` lists the tags and authors on the assets the scope and other filters cover with counts (the tag facet ignores the tag filter, the author facet the owner filter), and `GET /api/v1/portal/collections/facets` the collection authors; an asset or collection the caller cannot open contributes nothing to either. The portal's Assets and Collections tabs read only these: every scope, search and filter runs on the server, with Tag and Author pickers.
 
 ### Version retention (max_versions)
 

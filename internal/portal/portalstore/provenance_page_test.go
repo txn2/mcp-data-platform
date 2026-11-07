@@ -121,7 +121,6 @@ func TestListingProjectionsCarryTheSummaryNotTheCaptures(t *testing.T) {
 
 	for name, sql := range map[string]string{
 		"list":           listing,
-		"search columns": assetSearchColumns,
 		"shared with me": buildSharedWithUserSelect(),
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -11,7 +11,7 @@ import {
   type ListSort,
 } from "@/components/listSort";
 import { getStoredViewMode, storeViewMode, type ViewMode } from "@/components/listView";
-import { getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
+import { getStoredScope, scopePhrase, storeScope, type Scope } from "@/components/ScopeFilter";
 import { useResolvedDark } from "@/stores/theme";
 import { AssetFilterBar } from "./browse/AssetFilterBar";
 import { AssetGrid } from "./browse/AssetGrid";
@@ -31,11 +31,12 @@ export function MyAssetsPage({ onNavigate }: Props) {
   const [search, setSearch] = useState("");
   const [contentType, setContentType] = useState("");
   const [tag, setTag] = useState("");
+  const [owners, setOwners] = useState<string[]>([]);
   const [sort, setSort] = useState<ListSort<AssetSortKey>>(DEFAULT_ASSET_SORT);
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
   const [previewing, setPreviewing] = useState<Previewing | null>(null);
 
-  const browse = useAssetBrowse({ scope, search, contentType, tag, sort });
+  const browse = useAssetBrowse({ scope, search, contentType, tag, owners, sort });
 
   function changeViewMode(mode: ViewMode) {
     setViewMode(mode);
@@ -60,10 +61,14 @@ export function MyAssetsPage({ onNavigate }: Props) {
         onContentTypeChange={setContentType}
         tag={tag}
         onTagChange={setTag}
+        tagFacets={browse.tagFacets}
+        owners={owners}
+        onOwnersChange={setOwners}
+        authorFacets={browse.authorFacets}
         sort={sort}
         onSortChange={setSort}
         // Relevance ranking, not a column, decides the order of a search.
-        sortDisabled={browse.semanticSearch}
+        sortDisabled={browse.searching}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
       />
@@ -132,22 +137,13 @@ function Results({
   if (browse.isLoadingList) {
     return (
       <p className="py-12 text-center text-sm text-muted-foreground">
-        {browse.semanticSearch ? "Searching..." : "Loading..."}
+        {browse.searching ? "Searching..." : "Loading..."}
       </p>
     );
   }
 
   if (browse.displayItems.length === 0) {
-    // With more pages available (shared/all client-side filters only see the
-    // loaded rows), steer to "Load more" instead of a contradictory "no
-    // assets" empty state next to a Load-more button.
-    return browse.canLoadMore ? (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        No matching assets in the loaded set yet &mdash; load more to keep looking.
-      </p>
-    ) : (
-      <AssetsEmpty scope={scope} searching={browse.searching} query={browse.query} />
-    );
+    return <AssetsEmpty scope={scope} searching={browse.searching} query={browse.query} />;
   }
 
   return viewMode === "grid" ? (
@@ -167,7 +163,7 @@ function Results({
       sort={sort}
       // A relevance search is ranked, not sorted; its headers would otherwise
       // claim an ordering the rows do not have.
-      onSort={browse.semanticSearch ? undefined : onSort}
+      onSort={browse.searching ? undefined : onSort}
       onNavigate={onNavigate}
       onPreview={onPreview}
     />
@@ -176,24 +172,16 @@ function Results({
 
 /** How much of the list is on screen, phrased for the scope that produced it. */
 function ResultCount({ browse, scope }: { browse: BrowseResult; scope: Scope }) {
-  if (scope !== "mine") {
-    if (browse.displayItems.length === 0) return null;
-    return (
-      <p className="text-center text-sm text-muted-foreground">
-        Showing {browse.displayItems.length} {scope === "shared" ? "shared " : ""}asset
-        {browse.displayItems.length === 1 ? "" : "s"}
-      </p>
-    );
-  }
-  if (browse.semanticSearch) {
-    if (browse.assets.length === 0) return null;
+  if (browse.total === undefined || browse.assets.length === 0) return null;
+  if (browse.searching) {
     return (
       <p className="text-center text-xs text-muted-foreground">
-        Ranked by relevance to &ldquo;{browse.query}&rdquo; across your assets.
+        {browse.total} {browse.total === 1 ? "match" : "matches"} for &ldquo;{browse.query}&rdquo; in{" "}
+        {scopePhrase(scope, "assets")}, ranked by relevance.
       </p>
     );
   }
-  if (browse.total === undefined || browse.assets.length >= browse.total) return null;
+  if (browse.assets.length >= browse.total) return null;
   return (
     <p className="text-center text-sm text-muted-foreground">
       Showing {browse.assets.length} of {browse.total} assets

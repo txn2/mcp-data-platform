@@ -4,7 +4,8 @@ import { SearchInput } from "@/components/patterns/SearchInput";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
 import { SortControl } from "@/components/patterns/SortControl";
 import { ScopeFilter, type Scope } from "@/components/ScopeFilter";
-import { Input } from "@/components/ui/input";
+import { AuthorPicker, tagOptions } from "@/components/patterns/AuthorPicker";
+import type { FacetCount } from "@/api/portal/types";
 import { ASSET_SORT_OPTIONS, type AssetSortKey, type ListSort } from "@/components/listSort";
 import type { ViewMode } from "@/components/listView";
 
@@ -33,6 +34,10 @@ export function AssetFilterBar({
   onContentTypeChange,
   tag,
   onTagChange,
+  tagFacets,
+  owners,
+  onOwnersChange,
+  authorFacets,
   sort,
   onSortChange,
   sortDisabled,
@@ -47,6 +52,10 @@ export function AssetFilterBar({
   onContentTypeChange: (contentType: string) => void;
   tag: string;
   onTagChange: (tag: string) => void;
+  tagFacets: FacetCount[];
+  owners: string[];
+  onOwnersChange: (owners: string[]) => void;
+  authorFacets: FacetCount[];
   sort: ListSort<AssetSortKey>;
   onSortChange: (sort: ListSort<AssetSortKey>) => void;
   /** True while relevance ranking, not a column, decides the order. */
@@ -61,9 +70,8 @@ export function AssetFilterBar({
         className="min-w-[200px] flex-1"
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
-        // Relevance ranking is a Mine-scope feature; say so in the affordance
-        // rather than letting the other scopes promise a search they downgrade.
-        placeholder={scope === "mine" ? "Search assets by meaning..." : "Search assets..."}
+        // Every scope is ranked by meaning on the server (#2500).
+        placeholder="Search assets by meaning..."
       />
       <FilterSelect
         label="Filter by content type"
@@ -72,14 +80,14 @@ export function AssetFilterBar({
         options={CONTENT_TYPES}
         className="w-[9.5rem]"
       />
-      <Input
-        type="text"
+      <FilterSelect
+        label="Filter by tag"
         value={tag}
-        onChange={(e) => onTagChange(e.target.value)}
-        aria-label="Filter by tag"
-        placeholder="Filter by tag..."
+        onChange={onTagChange}
+        options={tagOptions(tagFacets, tag)}
         className="w-[10rem]"
       />
+      <AuthorPicker authors={authorFacets} value={owners} onChange={onOwnersChange} className="w-[11rem]" />
       <SortControl
         value={sort}
         onChange={onSortChange}

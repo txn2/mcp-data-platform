@@ -23,6 +23,14 @@ func newThreadStoreMock(t *testing.T) (*postgresThreadStore, sqlmock.Sqlmock) {
 	return &postgresThreadStore{db: db}, mock
 }
 
+// eventStoredAt is the created_at the event inserts in these tests read back.
+var eventStoredAt = time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+
+// eventCreatedRow is the row an event insert returns: the stored created_at.
+func eventCreatedRow() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"created_at"}).AddRow(eventStoredAt)
+}
+
 func TestSearchThreads(t *testing.T) {
 	t.Run("matches owner threads and maps rows", func(t *testing.T) {
 		store, mock := newThreadStoreMock(t)
@@ -71,8 +79,8 @@ func TestThreadStoreCreateThread(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO portal_threads").
 		WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).AddRow(now, now))
-	mock.ExpectExec("INSERT INTO portal_thread_events").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("INSERT INTO portal_thread_events").
+		WillReturnRows(eventCreatedRow())
 	mock.ExpectCommit()
 
 	thread := Thread{
@@ -95,7 +103,7 @@ func TestThreadStoreCreateThreadRollbackOnEventError(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO portal_threads").
 		WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).AddRow(now, now))
-	mock.ExpectExec("INSERT INTO portal_thread_events").
+	mock.ExpectQuery("INSERT INTO portal_thread_events").
 		WillReturnError(fmt.Errorf("boom"))
 	mock.ExpectRollback()
 
@@ -181,13 +189,14 @@ func TestThreadStoreAppendEvent(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 	mock.ExpectExec("UPDATE portal_threads SET updated_at").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	got, err := store.AppendEvent(context.Background(), ThreadEvent{ID: "evt_2", ThreadID: "thr_1", EventType: EventTypeComment, AuthorID: "u1", AuthorEmail: "u1@example.com", Body: "reply"})
 	require.NoError(t, err)
 	assert.Equal(t, "evt_2", got.ID)
+	assert.Equal(t, eventStoredAt, got.CreatedAt, "the appended event carries the stored time (#2522)")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -199,7 +208,7 @@ func TestThreadStoreUpdateThreadWithStatusChange(t *testing.T) {
 		WithArgs("thr_1").
 		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility"}).AddRow(ThreadStatusOpen, VisibilityInternal))
 	mock.ExpectExec("UPDATE portal_threads").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 	mock.ExpectCommit()
 
 	resolved := ThreadStatusResolved
@@ -252,7 +261,7 @@ func TestThreadStoreCreateThreadInsertError(t *testing.T) {
 func TestThreadStoreAppendEventRollbackOnTouchError(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 	mock.ExpectExec("UPDATE portal_threads SET updated_at").WillReturnError(fmt.Errorf("boom"))
 	mock.ExpectRollback()
 	_, err := store.AppendEvent(context.Background(), ThreadEvent{ID: "e", ThreadID: "t", EventType: EventTypeComment, AuthorID: "u", AuthorEmail: "u@x"})
@@ -338,7 +347,7 @@ func TestThreadStoreLinkInsight(t *testing.T) {
 	mock.ExpectExec("UPDATE portal_threads SET insight_id").
 		WithArgs("ins_1", ThreadStatusResolved, "thr_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 	mock.ExpectExec("UPDATE portal_threads SET insight_id").
 		WithArgs("ins_1", ThreadStatusResolved, "thr_missing").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -388,7 +397,7 @@ func TestThreadStoreLinkInsightErrors(t *testing.T) {
 		mock.ExpectExec("UPDATE portal_threads SET insight_id").
 			WithArgs("ins_1", ThreadStatusResolved, "t1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 		mock.ExpectCommit().WillReturnError(errors.New("commit boom"))
 		_, err := store.LinkInsight(context.Background(), []string{"t1"}, "ins_1", "u", "e")
 		require.Error(t, err)
@@ -403,7 +412,7 @@ func TestThreadStoreLinkInsightDeduplicates(t *testing.T) {
 	mock.ExpectExec("UPDATE portal_threads SET insight_id").
 		WithArgs("ins_1", ThreadStatusResolved, "thr_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 	mock.ExpectCommit()
 
 	linked, err := store.LinkInsight(context.Background(), []string{"thr_1", "thr_1"}, "ins_1", "u1", "u1@example.com")
@@ -426,7 +435,7 @@ func TestThreadStoreRequestValidationErrors(t *testing.T) {
 		mock.ExpectExec("UPDATE portal_threads SET validation_state").
 			WithArgs(ValidationStatePending, "t1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 		mock.ExpectCommit().WillReturnError(errors.New("commit boom"))
 		require.Error(t, store.RequestValidation(context.Background(), "t1", "u", "e"))
 		assert.NoError(t, mock.ExpectationsWereMet())
@@ -440,7 +449,7 @@ func TestThreadStoreRequestValidation(t *testing.T) {
 	mock.ExpectExec("UPDATE portal_threads SET validation_state").
 		WithArgs(ValidationStatePending, "thr_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 	mock.ExpectCommit()
 
 	require.NoError(t, store.RequestValidation(context.Background(), "thr_1", "u1", "u1@example.com"))
@@ -454,7 +463,7 @@ func TestThreadStoreRespondValidation(t *testing.T) {
 		mock.ExpectExec("UPDATE portal_threads SET validation_state = \\$1, updated_at").
 			WithArgs(ValidationStateValidated, "thr_1", ValidationStatePending).
 			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 		mock.ExpectCommit()
 		err := store.RespondValidation(context.Background(), "thr_1",
 			ValidationResponse{Result: ValidationStateValidated}, "sme", "sme@example.com")
@@ -469,7 +478,7 @@ func TestThreadStoreRespondValidation(t *testing.T) {
 		mock.ExpectExec("UPDATE portal_threads SET validation_state = \\$1, status = \\$2").
 			WithArgs(ValidationStateDisputed, ThreadStatusOpen, "thr_1", ValidationStatePending).
 			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 		mock.ExpectCommit()
 		err := store.RespondValidation(context.Background(), "thr_1",
 			ValidationResponse{Result: ValidationStateDisputed, Reason: "still wrong"}, "sme", "sme@example.com")
@@ -504,7 +513,7 @@ func TestThreadStoreRespondValidation(t *testing.T) {
 		mock.ExpectExec("UPDATE portal_threads SET validation_state").
 			WithArgs(ValidationStateValidated, "t1", ValidationStatePending).
 			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 		mock.ExpectCommit().WillReturnError(errors.New("commit boom"))
 		require.Error(t, store.RespondValidation(context.Background(), "t1",
 			ValidationResponse{Result: ValidationStateValidated}, "sme", "sme@example.com"))
@@ -651,7 +660,7 @@ func TestThreadStoreUpdateThreadRecordsAVisibilityChange(t *testing.T) {
 	mock.ExpectQuery("SELECT status, visibility FROM portal_threads").WithArgs("thr_1").
 		WillReturnRows(sqlmock.NewRows([]string{"status", "visibility"}).AddRow(ThreadStatusOpen, VisibilityInternal))
 	mock.ExpectExec("UPDATE portal_threads").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("INSERT INTO portal_thread_events").WillReturnRows(eventCreatedRow())
 	mock.ExpectCommit()
 	require.NoError(t, store.UpdateThread(context.Background(), "thr_1", ThreadUpdate{Visibility: &shared}, "u1", "u1@example.com"))
 	assert.NoError(t, mock.ExpectationsWereMet())

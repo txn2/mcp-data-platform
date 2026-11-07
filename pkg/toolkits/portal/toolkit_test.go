@@ -679,6 +679,11 @@ func (s *inMemoryAssetStore) List(_ context.Context, filter portal.AssetFilter) 
 		if filter.Owner.Identified() && !filter.Owner.OwnsAsset(&a) {
 			continue
 		}
+		// A reach is its owned arm here: this fake holds no shares, so the
+		// shared scope covers nothing and mine and all cover what is owned.
+		if filter.Reach != nil && (filter.Reach.Scope == portaldomain.ScopeShared || !filter.Reach.Owner.OwnsAsset(&a)) {
+			continue
+		}
 		// Keyed on the whole producer, not on its id alone: the real predicate
 		// compares (producer_kind, producer_id), and a fake that ignored the
 		// kind would let a session's write pass for a script's.

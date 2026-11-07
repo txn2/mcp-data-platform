@@ -395,7 +395,7 @@ func (s *postgresThreadStore) CreateThread(ctx context.Context, t Thread, first 
 		return nil, fmt.Errorf("inserting thread: %w", err)
 	}
 
-	if err := insertEventTx(ctx, tx, first); err != nil {
+	if err := insertEventTx(ctx, tx, &first); err != nil {
 		return nil, err
 	}
 
@@ -563,7 +563,7 @@ func (s *postgresThreadStore) AppendEvent(ctx context.Context, e ThreadEvent) (*
 	}
 	defer tx.Rollback() //nolint:errcheck // commit below on success
 
-	if err := insertEventTx(ctx, tx, e); err != nil {
+	if err := insertEventTx(ctx, tx, &e); err != nil {
 		return nil, err
 	}
 	if err := touchThreadTx(ctx, tx, e.ThreadID); err != nil {
@@ -572,8 +572,8 @@ func (s *postgresThreadStore) AppendEvent(ctx context.Context, e ThreadEvent) (*
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf(errCommitTx, err)
 	}
-	// created_at was assigned by the DB default; re-read is unnecessary for the
-	// caller, which already holds the event it submitted.
+	// created_at is the column default, read back by the insert, so the
+	// handler answers with the time the event was stored (#2522).
 	return &e, nil
 }
 
@@ -610,7 +610,7 @@ func (s *postgresThreadStore) UpdateThread(ctx context.Context, id string, u Thr
 			AuthorEmail: actorEmail,
 			Metadata:    statusChangeMetadata(oldStatus, *u.Status),
 		}
-		if err := insertEventTx(ctx, tx, evt); err != nil {
+		if err := insertEventTx(ctx, tx, &evt); err != nil {
 			return err
 		}
 	}
@@ -620,7 +620,7 @@ func (s *postgresThreadStore) UpdateThread(ctx context.Context, id string, u Thr
 			AuthorID: actorID, AuthorEmail: actorEmail,
 			Metadata: visibilityChangeMetadata(oldVisibility, *u.Visibility),
 		}
-		if err := insertEventTx(ctx, tx, evt); err != nil {
+		if err := insertEventTx(ctx, tx, &evt); err != nil {
 			return err
 		}
 	}
@@ -711,7 +711,7 @@ func linkInsightToThreadTx(ctx context.Context, tx *sql.Tx, id, insightID string
 		AuthorEmail: actor.email,
 		Metadata:    insightLinkedMetadata(insightID),
 	}
-	if err := insertEventTx(ctx, tx, evt); err != nil {
+	if err := insertEventTx(ctx, tx, &evt); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -746,7 +746,7 @@ func (s *postgresThreadStore) RequestValidation(ctx context.Context, id, actorID
 		AuthorID:    actorID,
 		AuthorEmail: actorEmail,
 	}
-	if err := insertEventTx(ctx, tx, evt); err != nil {
+	if err := insertEventTx(ctx, tx, &evt); err != nil {
 		return err
 	}
 
@@ -811,7 +811,7 @@ func (s *postgresThreadStore) RespondValidation(ctx context.Context, id string, 
 		AuthorEmail: actorEmail,
 		Metadata:    validationResultMetadata(resp),
 	}
-	if err := insertEventTx(ctx, tx, evt); err != nil {
+	if err := insertEventTx(ctx, tx, &evt); err != nil {
 		return err
 	}
 
@@ -1080,16 +1080,17 @@ func threadUpdateSetMap(u ThreadUpdate) map[string]any {
 }
 
 // insertEventTx inserts one event row inside an existing transaction.
-func insertEventTx(ctx context.Context, tx *sql.Tx, e ThreadEvent) error {
+func insertEventTx(ctx context.Context, tx *sql.Tx, e *ThreadEvent) error {
 	query := `
 		INSERT INTO portal_thread_events
 		(id, thread_id, event_type, author_id, author_email, body, rating, parent_event_id, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING created_at
 	`
-	_, err := tx.ExecContext(ctx, query,
+	err := tx.QueryRowContext(ctx, query,
 		e.ID, e.ThreadID, e.EventType, e.AuthorID, e.AuthorEmail,
 		nullString(e.Body), nullIntPtr(e.Rating), nullString(e.ParentEventID), metadataOrEmpty(e.Metadata),
-	)
+	).Scan(&e.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("inserting thread event: %w", err)
 	}

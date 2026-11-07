@@ -25,49 +25,6 @@ func SQLSamples() map[string]string {
 	scriptProducerSample := portaldomain.NewContentProducer(
 		producedby.KindScript, "7c1f0e2b-5a44-4c19-9f3e-8b2d6a1c4e07")
 
-	// 768 is the width of the embedding columns (migration 000068 and its
-	// successors). The gate prepares rather than executes, so the values do not
-	// matter, but a vector of the declared width is what types $1.
-	assetQuery := portaldomain.AssetSearchQuery{
-		Embedding: make([]float32, 768),
-		QueryText: "quarterly report",
-		Owner: portaldomain.NewAssetOwner(
-			"550e8400-e29b-41d4-a716-446655440444", "analyst@example.com"),
-		Limit: 10,
-	}
-	// A caller with no address renders a different ownership arm, and an
-	// arm nothing prepares is an arm the gate does not cover.
-	assetQueryIDOnly := portaldomain.AssetSearchQuery{
-		Embedding: make([]float32, 768),
-		QueryText: "quarterly report",
-		Owner:     portaldomain.NewAssetOwner("550e8400-e29b-41d4-a716-446655440444", ""),
-		Limit:     10,
-	}
-	// A managed script run ranks its own outputs through the producer arm, a
-	// different statement from either ownership shape (#1579).
-	assetQueryScript := portaldomain.AssetSearchQuery{
-		Embedding:  make([]float32, 768),
-		QueryText:  "quarterly report",
-		ProducedBy: scriptProducerSample,
-		Limit:      10,
-	}
-	// A query carrying both is rendered as the two arms conjoined, which is
-	// what the listing does with the same pair.
-	assetQueryBoth := portaldomain.AssetSearchQuery{
-		Embedding: make([]float32, 768),
-		QueryText: "quarterly report",
-		Owner: portaldomain.NewAssetOwner(
-			"550e8400-e29b-41d4-a716-446655440444", "analyst@example.com"),
-		ProducedBy: scriptProducerSample,
-		Limit:      10,
-	}
-	collectionQuery := portaldomain.CollectionSearchQuery{
-		Embedding: make([]float32, 768),
-		QueryText: "quarterly report",
-		OwnerID:   "550e8400-e29b-41d4-a716-446655440444",
-		Limit:     10,
-	}
-
 	// The listing's ownership arm is assembled, not written down, and it is the
 	// arm a script's output is returned through, so both shapes are prepared.
 	listFilter := portaldomain.AssetFilter{
@@ -105,16 +62,6 @@ func SQLSamples() map[string]string {
 	assetCountBoth, _, _ := buildAssetCount(listFilterBoth)
 	assetSelectBoth, _, _ := buildAssetSelect(listFilterBoth)
 
-	assetHybrid, _ := buildAssetHybridSearch(assetQuery)
-	assetHybridIDOnly, _ := buildAssetHybridSearch(assetQueryIDOnly)
-	assetHybridScript, _ := buildAssetHybridSearch(assetQueryScript)
-	assetLexical, _ := buildAssetLexicalSearch(assetQuery)
-	assetLexicalIDOnly, _ := buildAssetLexicalSearch(assetQueryIDOnly)
-	assetLexicalScript, _ := buildAssetLexicalSearch(assetQueryScript)
-	assetHybridBoth, _ := buildAssetHybridSearch(assetQueryBoth)
-	assetLexicalBoth, _ := buildAssetLexicalSearch(assetQueryBoth)
-	collectionHybrid, _ := buildCollectionHybridSearch(collectionQuery)
-
 	// The collection listing's ownership arm is assembled the same way, and a
 	// run's adds a second, conjoined comparison to it.
 	collCount, collSelect := (*postgresCollectionStore)(nil).buildListQueries(
@@ -128,7 +75,7 @@ func SQLSamples() map[string]string {
 	collCountScriptSQL, _, _ := collCountScript.ToSql()
 	collSelectScriptSQL, _, _ := collSelectScript.ToSql()
 
-	return map[string]string{
+	samples := map[string]string{
 		"buildThumbnailClaim":                      thumbnailClaim,
 		"buildCollectionThumbnailClaim":            buildCollectionThumbnailClaim(),
 		"buildThumbnailBacklog":                    thumbnailBacklog,
@@ -144,20 +91,10 @@ func SQLSamples() map[string]string {
 		"buildAssetSelect/idOnly":                  assetSelectIDOnly,
 		"buildAssetSelect/script":                  assetSelectScript,
 		"buildAssetSelect/ownerAndProducer":        assetSelectBoth,
-		"buildAssetHybridSearch":                   assetHybrid,
-		"buildAssetHybridSearch/idOnly":            assetHybridIDOnly,
-		"buildAssetHybridSearch/script":            assetHybridScript,
-		"buildAssetHybridSearch/ownerAndProducer":  assetHybridBoth,
-		"buildAssetLexicalSearch":                  assetLexical,
-		"buildAssetLexicalSearch/idOnly":           assetLexicalIDOnly,
-		"buildAssetLexicalSearch/script":           assetLexicalScript,
-		"buildAssetLexicalSearch/ownerAndProducer": assetLexicalBoth,
 		"buildCollectionListQueries/count":         collCountSQL,
 		"buildCollectionListQueries/select":        collSelectSQL,
 		"buildCollectionListQueries/count/script":  collCountScriptSQL,
 		"buildCollectionListQueries/select/script": collSelectScriptSQL,
-		"buildCollectionHybridSearch":              collectionHybrid,
-		"buildCollectionLexicalSearch":             buildCollectionLexicalSearch(collectionQuery),
 		"buildActiveShareForTarget/asset":          buildActiveShareForTarget(colAssetID),
 		"buildActiveShareForTarget/coll":           buildActiveShareForTarget(colCollectionID),
 		"buildShareSummaries/asset":                buildShareSummaries(colAssetID),
@@ -166,4 +103,8 @@ func SQLSamples() map[string]string {
 		// assembled rather than written down (#1623).
 		"buildSharedWithUserSelect": buildSharedWithUserSelect(),
 	}
+	for name, stmt := range reachSQLSamples() {
+		samples[name] = stmt
+	}
+	return samples
 }

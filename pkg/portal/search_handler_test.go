@@ -12,6 +12,8 @@ import (
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
 // searchableAssetStore adds the AssetSearcher capability to the mock asset
@@ -19,13 +21,24 @@ import (
 type searchableAssetStore struct {
 	*mockAssetStore
 	gotQuery AssetSearchQuery
+	gotReach portaldomain.RankedAssetQuery
 	result   []ScoredAsset
+	total    int
 	err      error
 }
 
 func (s *searchableAssetStore) SearchAssets(_ context.Context, q AssetSearchQuery) ([]ScoredAsset, error) {
 	s.gotQuery = q
 	return s.result, s.err
+}
+
+func (s *searchableAssetStore) SearchReach(_ context.Context, q portaldomain.RankedAssetQuery) (scored []ScoredAsset, total int, err error) {
+	s.gotReach = q
+	total = s.total
+	if total == 0 {
+		total = len(s.result)
+	}
+	return s.result, total, s.err
 }
 
 var _ AssetSearcher = (*searchableAssetStore)(nil)
@@ -35,6 +48,7 @@ var _ AssetSearcher = (*searchableAssetStore)(nil)
 type searchableCollectionStore struct {
 	*mockCollectionStore
 	gotQuery CollectionSearchQuery
+	gotReach portaldomain.RankedCollectionQuery
 	result   []ScoredCollection
 	err      error
 }
@@ -42,6 +56,11 @@ type searchableCollectionStore struct {
 func (s *searchableCollectionStore) SearchCollections(_ context.Context, q CollectionSearchQuery) ([]ScoredCollection, error) {
 	s.gotQuery = q
 	return s.result, s.err
+}
+
+func (s *searchableCollectionStore) SearchCollectionReach(_ context.Context, q portaldomain.RankedCollectionQuery) (scored []ScoredCollection, total int, err error) {
+	s.gotReach = q
+	return s.result, len(s.result), s.err
 }
 
 var _ CollectionSearcher = (*searchableCollectionStore)(nil)
@@ -60,10 +79,10 @@ func TestSearchMyAssets_Unauthenticated(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-// withScopedUserID injects a portal user with the given owner_id (and a fixed
-// email) so the search owner-scope guard, which keys on UserID, can be exercised.
+// withScopedUserID injects a portal user with the given owner id and address,
+// so the search guard, which refuses a caller naming nobody, can be exercised.
 func withScopedUserID(r *http.Request, userID string) *http.Request {
-	return r.WithContext(ContextWithUser(r.Context(), &User{UserID: userID, Email: "alice@example.com"}))
+	return r.WithContext(ContextWithUser(r.Context(), &User{UserID: userID, Email: userID}))
 }
 
 func TestSearchMyAssets_EmptyIdentityFailsClosed(t *testing.T) {
@@ -110,10 +129,42 @@ func TestSearchMyAssets_Success(t *testing.T) {
 	assert.InDelta(t, 0.88, resp.Data[0].Score, 1e-9)
 	assert.Equal(t, 1, resp.Total)
 	assert.Equal(t, 5, resp.Limit)
-	// Owner scope reaches the store as the caller's identity (withUser sets it).
-	assert.Equal(t, "user-123", store.gotQuery.Owner.UserID)
-	assert.Equal(t, "cohort retention", store.gotQuery.QueryText)
-	assert.Equal(t, 5, store.gotQuery.Limit)
+	// The caller's reach reaches the store (withUser sets the identity); the
+	// route's default scope is the caller's own assets.
+	require.NotNil(t, store.gotReach.Reach)
+	assert.Equal(t, "user-123", store.gotReach.Reach.Owner.UserID)
+	assert.Equal(t, portaldomain.ScopeMine, store.gotReach.Reach.Scope)
+	assert.Equal(t, "cohort retention", store.gotReach.QueryText)
+	assert.Equal(t, 5, store.gotReach.Limit)
+}
+
+// Every filter the gallery sends reaches the ranked query, and total is the
+// store's count of all results, not the length of the page.
+func TestSearchMyAssets_ScopeFiltersAndPaging(t *testing.T) {
+	result := []ScoredAsset{{Asset: Asset{ID: "a-2", OwnerID: "someone-else"}, Score: 0.7}}
+	h, store := newAssetSearchHandler(result)
+	store.total = 37
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/portal/assets/search?q=revenue&scope=all&owner=B@Example.com&owner=c@example.com&tag=finance&content_type=text/csv&limit=10&offset=20",
+		http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Total  int `json:"total"`
+		Offset int `json:"offset"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 37, resp.Total)
+	assert.Equal(t, 20, resp.Offset)
+	q := store.gotReach
+	assert.Equal(t, portaldomain.ScopeAll, q.Reach.Scope)
+	assert.Equal(t, []string{"b@example.com", "c@example.com"}, q.Owners)
+	assert.Equal(t, []string{"finance"}, q.Tags)
+	assert.Equal(t, "text/csv", q.ContentType)
+	assert.Equal(t, 10, q.Limit)
+	assert.Equal(t, 20, q.Offset)
 }
 
 func TestSearchMyAssets_StoreError(t *testing.T) {
@@ -123,17 +174,6 @@ func TestSearchMyAssets_StoreError(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-// TestSearchMyAssets_Unavailable hits the defensive 503 branch directly: a
-// non-searcher asset store does not register the route, so the guard is only
-// reachable by invoking the handler method.
-func TestSearchMyAssets_Unavailable(t *testing.T) {
-	h := NewHandler(Deps{AssetStore: &mockAssetStore{}, ShareStore: &mockShareStore{}}, nil)
-	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/assets/search?q=x", http.NoBody), "alice@example.com")
-	w := httptest.NewRecorder()
-	h.searchMyAssets(w, req)
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestSearchMyCollections_Success(t *testing.T) {
@@ -155,7 +195,9 @@ func TestSearchMyCollections_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Data, 1)
 	assert.Equal(t, "c-1", resp.Data[0].Collection.ID)
-	assert.Equal(t, "user-123", store.gotQuery.OwnerID)
+	require.NotNil(t, store.gotReach.Reach)
+	assert.Equal(t, "user-123", store.gotReach.Reach.Owner.UserID)
+	assert.Equal(t, portaldomain.ScopeMine, store.gotReach.Reach.Scope)
 }
 
 func TestSearchMyCollections_EmptyIdentityFailsClosed(t *testing.T) {
@@ -198,15 +240,6 @@ func TestSearchMyCollections_StoreError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
-// TestSearchMyCollections_Unavailable hits the defensive 503 branch directly.
-func TestSearchMyCollections_Unavailable(t *testing.T) {
-	h := NewHandler(Deps{AssetStore: &mockAssetStore{}, ShareStore: &mockShareStore{}, CollectionStore: &mockCollectionStore{}}, nil)
-	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/collections/search?q=x", http.NoBody), "alice@example.com")
-	w := httptest.NewRecorder()
-	h.searchMyCollections(w, req)
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-}
-
 // TestIntegration_SearchMyAssets_RealStoreEnforcesOwnerScope wires the real
 // portal Handler to a real postgresAssetStore (sqlmock at the DB boundary) and
 // a configured embedder, then sends a real HTTP request through the real mux +
@@ -222,13 +255,17 @@ func TestIntegration_SearchMyAssets_RealStoreEnforcesOwnerScope(t *testing.T) {
 	store := NewPostgresAssetStore(db, nil)
 	const callerID = "u1"
 
-	// Hybrid binds $1=vector, $2=query, $3=owner_id, $4=owner_email. If the
-	// handler failed to scope by the caller, this expectation would not be met.
-	rows := sqlmock.NewRows(append(append([]string{}, rankedAssetCols...), "vec_score", "lex_match"))
-	rows.AddRow(rankedAssetRow("a-1", callerID, "Cohort retention", 0.9, true)...)
-	mock.ExpectQuery("UNION ALL").
-		WithArgs(sqlmock.AnyArg(), "retention", callerID, "alice@example.com").
-		WillReturnRows(rows)
+	// The reach's mine scope binds the caller's two identifiers first, then
+	// the query text and the vector. If the handler failed to scope by the
+	// caller, this expectation would not be met.
+	mock.ExpectQuery("WITH c AS MATERIALIZED").
+		WithArgs(callerID, "alice@example.com", "retention", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "score", "total"}).AddRow("a-1", 0.9, 1))
+	// The page's rows are read through the listing itself.
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	rows := sqlmock.NewRows(rankedAssetCols)
+	rows.AddRow(rankedAssetRow("a-1", callerID, "Cohort retention", 0.9, true)[:len(rankedAssetCols)]...)
+	mock.ExpectQuery("FROM portal_assets").WillReturnRows(rows)
 	mock.ExpectQuery("FROM portal_collection_items").
 		WillReturnRows(sqlmock.NewRows([]string{"asset_id", "id", "name"}))
 

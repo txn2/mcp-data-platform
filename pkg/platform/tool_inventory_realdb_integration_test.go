@@ -34,11 +34,48 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/test/toolsurface"
 )
 
 func TestRealDB_EveryToolAToolkitNamesIsRegisteredOnTheServer(t *testing.T) {
-	_, dsn := testdb.NewWithDSN(t)
 	ctx := context.Background()
+	p := everyToolkitPlatform(ctx, t)
+
+	named := platform.RegisteredToolNames(p.ToolkitRegistry().AllTools(), p.PlatformTools())
+	listed := listToolsOverAClient(ctx, t, p.MCPServer())
+
+	// graphql_export is named explicitly: it is the tool #1675 shipped
+	// unreachable, and a comparison that happened to pass because neither
+	// side carried the name would prove nothing.
+	require.Contains(t, named, "graphql_export", "the graphql toolkit names its export tool")
+
+	missing, unexpected := diffNames(named, listed)
+	require.Empty(t, missing, "named by a toolkit and absent from tools/list")
+	require.Empty(t, unexpected, "carried by tools/list and claimed by no toolkit or platform tool")
+}
+
+// TestRealDB_AdvertisedSurfaceMatchesTheTables holds every listed tool's
+// action enum and read-only/destructive annotations to the tables the #1692
+// and #1827 acceptance criteria assert (test/toolsurface), on the same
+// assembled platform. #2515 added edit and delete to manage_feedback with the
+// tables unchanged, and only the E2E Nightly said so, after a tag had been
+// refused (#2521). This runs in the real-database gate every pull request runs.
+func TestRealDB_AdvertisedSurfaceMatchesTheTables(t *testing.T) {
+	ctx := context.Background()
+	p := everyToolkitPlatform(ctx, t)
+
+	tools := listToolObjectsOverAClient(ctx, t, p.MCPServer())
+	require.NotEmpty(t, toolsurface.Native(tools), "tools/list carries platform tools")
+	require.Empty(t, toolsurface.Mismatches(tools),
+		"tools/list disagrees with test/toolsurface: change the table with the tool, "+
+			"since the #1692 and #1827 acceptance criteria assert it")
+}
+
+// everyToolkitPlatform starts a platform with every connection kind and
+// optional dependency that changes which tools register, and wires its runtime.
+func everyToolkitPlatform(ctx context.Context, t *testing.T) *platform.Platform {
+	t.Helper()
+	_, dsn := testdb.NewWithDSN(t)
 
 	// Upstreams that answer at once with a refusal. Nothing here calls a
 	// tool: what is under test is which tools registered, and a connection
@@ -85,28 +122,29 @@ func TestRealDB_EveryToolAToolkitNamesIsRegisteredOnTheServer(t *testing.T) {
 
 	p, err := platform.New(platform.WithConfig(cfg))
 	require.NoError(t, err)
-	defer func() { _ = p.Close() }()
+	t.Cleanup(func() { _ = p.Close() })
 	require.NoError(t, p.Start(ctx))
-	defer func() { _ = p.Stop(ctx) }()
+	t.Cleanup(func() { _ = p.Stop(ctx) })
 	require.NoError(t, p.WireRuntime(platform.RuntimeConfig{Transport: "http", Address: ":0"}),
 		"the platform refuses to start on a tool inventory it cannot honor")
-
-	named := platform.RegisteredToolNames(p.ToolkitRegistry().AllTools(), p.PlatformTools())
-	listed := listToolsOverAClient(ctx, t, p.MCPServer())
-
-	// graphql_export is named explicitly: it is the tool #1675 shipped
-	// unreachable, and a comparison that happened to pass because neither
-	// side carried the name would prove nothing.
-	require.Contains(t, named, "graphql_export", "the graphql toolkit names its export tool")
-
-	missing, unexpected := diffNames(named, listed)
-	require.Empty(t, missing, "named by a toolkit and absent from tools/list")
-	require.Empty(t, unexpected, "carried by tools/list and claimed by no toolkit or platform tool")
+	return p
 }
 
 // listToolsOverAClient reads tools/list the way a caller does, through a real
 // client session over the in-memory transport.
 func listToolsOverAClient(ctx context.Context, t *testing.T, server *mcp.Server) []string {
+	t.Helper()
+	tools := listToolObjectsOverAClient(ctx, t, server)
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.Name)
+	}
+	return names
+}
+
+// listToolObjectsOverAClient returns the listed tools whole, schemas and
+// annotations as a client receives them.
+func listToolObjectsOverAClient(ctx context.Context, t *testing.T, server *mcp.Server) []*mcp.Tool {
 	t.Helper()
 	t1, t2 := mcp.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, t1, nil)
@@ -118,11 +156,7 @@ func listToolsOverAClient(ctx context.Context, t *testing.T, server *mcp.Server)
 
 	res, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 	require.NoError(t, err)
-	names := make([]string, 0, len(res.Tools))
-	for _, tool := range res.Tools {
-		names = append(names, tool.Name)
-	}
-	return names
+	return res.Tools
 }
 
 // diffNames returns what the listing lacks and what it carries beyond the

@@ -1,14 +1,15 @@
 package portalstore
 
 import (
+	"strings"
 	"testing"
 
-	sq "github.com/Masterminds/squirrel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/sqlrank"
 )
 
 // TestApplyAssetFilterOwnerArms renders the ownership predicate the listing
@@ -82,100 +83,34 @@ func TestApplyAssetFilterUnidentifiedOwnerAddsNoPredicate(t *testing.T) {
 	assert.Empty(t, args)
 }
 
-// The ranked-search statements bind the same two arms, numbered from the first
-// placeholder the caller has left.
-func TestAssetSearchOwnerScope(t *testing.T) {
-	scope, args := assetSearchScope(portaldomain.AssetSearchQuery{Owner: portaldomain.NewAssetOwner("u1", "alice@example.com")}, 3)
-	assert.Equal(t, "(owner_id = $3 OR LOWER(owner_email) = LOWER($4))", scope)
-	assert.Equal(t, []any{"u1", "alice@example.com"}, args)
-
-	scope, args = assetSearchScope(portaldomain.AssetSearchQuery{Owner: portaldomain.NewAssetOwner("u1", "")}, 2)
-	assert.Equal(t, "owner_id = $2", scope)
-	assert.Equal(t, []any{"u1"}, args)
-
-	scope, args = assetSearchScope(portaldomain.AssetSearchQuery{Owner: portaldomain.NewAssetOwner("", "alice@example.com")}, 2)
-	assert.Equal(t, "LOWER(owner_email) = LOWER($2)", scope)
-	assert.Equal(t, []any{"alice@example.com"}, args)
-
-	// The two renderings of the same judgment must agree, or a run would rank
-	// rows a listing would not return (#1579).
-	scope, args = assetSearchScope(portaldomain.AssetSearchQuery{
-		Owner: portaldomain.NewAssetOwner("script:daily-sales", "alice@example.com").
-			ActingFor("alice@example.com"),
-	}, 2)
-	assert.Equal(t, "LOWER(owner_email) = LOWER($2)", scope)
-	assert.Equal(t, []any{"alice@example.com"}, args)
-}
-
-// The listing predicate and the ranked-search statement are two renderings of
-// one judgment, and Owns is a third. A row either belongs to a caller on all
-// three or on none: the collision #1579 fixes was reachable through the search
-// as well as the listing, so a fix in one rendering only would have left it.
-func TestOwnerRenderingsAgree(t *testing.T) {
-	owners := map[string]portaldomain.AssetOwner{
-		"person": portaldomain.NewAssetOwner("u-alice", "alice@example.com"),
-		"run":    portaldomain.NewAssetOwner("script:daily-sales", "alice@example.com").ActingFor("alice@example.com"),
-	}
-	for name, owner := range owners {
+// A ranking reads the listing's own statement over the same filter, so the
+// listing and the search cannot disagree about whose row a row is: the
+// collision #1579 fixes was reachable through the search as well as the
+// listing. Each shape the search is asked in renders the predicate the
+// listing count does, with the same arguments.
+func TestRankedCandidatesAreTheListing(t *testing.T) {
+	producer := portaldomain.NewContentProducer(producedby.KindScript, "script-uuid")
+	for name, filter := range map[string]portaldomain.AssetFilter{
+		"person":             {Owner: portaldomain.NewAssetOwner("u-alice", "alice@example.com")},
+		"run":                {Owner: portaldomain.NewAssetOwner("script:daily-sales", "alice@example.com").ActingFor("alice@example.com")},
+		"run inventory":      {ProducedBy: producer},
+		"owner and producer": {Owner: portaldomain.NewAssetOwner("u-alice", "alice@example.com"), ProducedBy: producer},
+	} {
 		t.Run(name, func(t *testing.T) {
-			listing, listArgs, err := assetOwnerPredicate(owner).ToSql()
+			ranked, rankedArgs, err := rankedCandidates(filter)
 			require.NoError(t, err)
-			// The listing is assembled by squirrel, which numbers its
-			// placeholders when the whole statement is rendered; the search
-			// numbers its own. Compare them in the same dialect.
-			listing, err = sq.Dollar.ReplacePlaceholders(listing)
+			count, countArgs, err := buildAssetCount(filter)
 			require.NoError(t, err)
-			search, searchArgs := assetSearchScope(portaldomain.AssetSearchQuery{Owner: owner}, 1)
-			assert.Equal(t, listing, search,
-				"the listing and the ranked search must render the same arm")
-			assert.Equal(t, listArgs, searchArgs)
+			assert.Equal(t, whereOf(count), whereOf(ranked), "the ranking reads the listing's predicate")
+			assert.Equal(t, countArgs, rankedArgs)
 		})
 	}
+}
 
-	// The producer scope is the third rendering, and the two statements have to
-	// agree about it too: a run ranks and lists exactly the rows its own script
-	// produced (#1579).
-	producer := portaldomain.NewContentProducer(producedby.KindScript, "script-uuid")
-	t.Run("run inventory", func(t *testing.T) {
-		listing, listArgs, err := producedByPredicate(
-			producedby.TargetAsset, "portal_assets.id", producer).ToSql()
-		require.NoError(t, err)
-		listing, err = sq.Dollar.ReplacePlaceholders(listing)
-		require.NoError(t, err)
-		search, searchArgs := assetSearchScope(
-			portaldomain.AssetSearchQuery{ProducedBy: producer}, 1)
-		assert.Equal(t, listing, search)
-		assert.Equal(t, listArgs, searchArgs)
-		assert.Equal(t, []any{producedby.TargetAsset, producedby.KindScript, "script-uuid"}, searchArgs)
-	})
-
-	// A query carrying both narrows to their intersection on both statements.
-	// No surface in the tree sets both, but AssetSearchQuery is on the
-	// supported surface, and a search returning MORE than the listing for one
-	// query would be a widening nobody asked for.
-	t.Run("owner and producer", func(t *testing.T) {
-		owner := portaldomain.NewAssetOwner("u-alice", "alice@example.com")
-		qb := applyAssetFilter(psq.Select("id").From("portal_assets"),
-			portaldomain.AssetFilter{Owner: owner, ProducedBy: producer})
-		listing, listArgs, err := qb.ToSql()
-		require.NoError(t, err)
-		search, searchArgs := assetSearchScope(
-			portaldomain.AssetSearchQuery{Owner: owner, ProducedBy: producer}, 1)
-
-		// The producer arm binds three values from $1, so the ownership arm
-		// that follows it starts at $4. Each statement orders its own bindings;
-		// what has to match is the set of values and the fact that both arms
-		// are conjoined.
-		assert.Contains(t, search, "content_producers")
-		assert.Contains(t, search, "owner_id = $4")
-		assert.Contains(t, search, "LOWER(owner_email) = LOWER($5)")
-		assert.Contains(t, search, " AND ")
-		assert.ElementsMatch(t, listArgs, searchArgs,
-			"both statements bind the same values")
-		assert.Contains(t, listing, "content_producers")
-		assert.Contains(t, listing, "owner_id =")
-		assert.Contains(t, listing, "LOWER(owner_email)")
-	})
+// whereOf is a statement's WHERE clause.
+func whereOf(stmt string) string {
+	_, where, _ := strings.Cut(stmt, " WHERE ")
+	return where
 }
 
 // The inventory is what a producer CREATED. A producer row is written for every
@@ -211,25 +146,17 @@ func TestApplyAssetFilterProducerScope(t *testing.T) {
 	assert.Empty(t, args)
 }
 
-// Both ranked statements have to carry the arm, not just the one the
-// deployment happens to run: which arm runs is decided by whether an embedding
-// provider is configured.
+// The ranked statement binds the owner's address beside its id, whichever
+// mode runs: hybrid when an embedding provider is configured, lexical when
+// not.
 func TestRankedSearchStatementsCarryTheAddressArm(t *testing.T) {
-	q := portaldomain.AssetSearchQuery{
-		Embedding: []float32{0.1},
-		QueryText: "revenue",
-		Owner:     portaldomain.NewAssetOwner("u1", "alice@example.com"),
+	inner, args, err := rankedCandidates(portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner("u1", "alice@example.com")})
+	require.NoError(t, err)
+	for _, emb := range [][]float32{{0.1}, nil} {
+		stmt, stmtArgs := sqlrank.BuildRanked(sqlrank.Ranking{Candidates: inner, Args: args, FTS: searchFTS, QueryText: "revenue", Embedding: emb})
+		assert.Contains(t, stmt, "(owner_id = $1 OR LOWER(owner_email) = LOWER($2))")
+		assert.Equal(t, []any{"u1", "alice@example.com", "revenue"}, stmtArgs[:3])
 	}
-	hybrid, hybridArgs := buildAssetHybridSearch(q)
-	assert.Contains(t, hybrid, "(owner_id = $3 OR LOWER(owner_email) = LOWER($4))")
-	require.Len(t, hybridArgs, 4)
-	assert.Equal(t, "u1", hybridArgs[2])
-	assert.Equal(t, "alice@example.com", hybridArgs[3])
-
-	q.Embedding = nil
-	lexical, lexicalArgs := buildAssetLexicalSearch(q)
-	assert.Contains(t, lexical, "(owner_id = $2 OR LOWER(owner_email) = LOWER($3))")
-	assert.Equal(t, []any{"revenue", "u1", "alice@example.com"}, lexicalArgs)
 }
 
 // A search for a caller with neither identifier never reaches the database: an
@@ -248,10 +175,6 @@ func TestOwnerArmsOfAnUnidentifiedOwnerMatchNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "FALSE", got)
 	assert.Empty(t, args)
-
-	scope, scopeArgs := assetSearchScope(portaldomain.AssetSearchQuery{}, 2)
-	assert.Equal(t, "FALSE", scope)
-	assert.Empty(t, scopeArgs)
 }
 
 // Every tag named and every metadata value must hold (#1848): one containment

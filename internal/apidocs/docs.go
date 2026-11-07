@@ -15234,7 +15234,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns paginated assets owned by the current user with optional filtering. A repeated tag requires every named tag, and each metadata.\u003ckey\u003e=\u003cvalue\u003e requires that value in the asset's metadata (the metadata a script output's latest version recorded), all combined with AND.",
+                "description": "Returns paginated assets the current user can open in the given scope: mine (owned, the default), shared (shared with them by user, address or persona, directly or through a shared collection) or all. A repeated tag requires every named tag, a repeated owner matches any named owner address, and each metadata.\u003ckey\u003e=\u003cvalue\u003e requires that value in the asset's metadata (the metadata a script output's latest version recorded), all combined with AND. share_summaries covers the rows the caller owns; permissions gives the caller's permission on each row they do not.",
                 "produces": [
                     "application/json"
                 ],
@@ -15243,6 +15243,27 @@ const docTemplate = `{
                 ],
                 "summary": "List assets",
                 "parameters": [
+                    {
+                        "enum": [
+                            "mine",
+                            "shared",
+                            "all"
+                        ],
+                        "type": "string",
+                        "description": "mine, shared or all (default: mine)",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Filter by owner address; repeat it for several",
+                        "name": "owner",
+                        "in": "query"
+                    },
                     {
                         "type": "string",
                         "description": "Filter by content type",
@@ -15398,6 +15419,85 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/facets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the tags and the authors (owner addresses) on the assets the caller can open in the given scope, each with how many of those assets carry it. The tag facet ignores the tag filter and the author facet the owner filter, so each lists the values a picker can switch to. An asset the caller cannot open contributes no value and no count.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Asset tag and author facets",
+                "parameters": [
+                    {
+                        "enum": [
+                            "mine",
+                            "shared",
+                            "all"
+                        ],
+                        "type": "string",
+                        "description": "mine, shared or all (default: all)",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by content type",
+                        "name": "content_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Filter by tag; repeat it to require every one",
+                        "name": "tag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Filter by owner address; repeat it for several",
+                        "name": "owner",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reachapi.assetFacetsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/search": {
             "get": {
                 "security": [
@@ -15408,14 +15508,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Ranks the current user's saved assets by relevance to q. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Always scoped server-side to the requesting user's own assets.",
+                "description": "Ranks the assets the current user can open in the given scope by relevance to q: mine (the default), shared, or all. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Every asset whose name, description or tags match is a result, and so is one the embedding model places near the query; results page with limit and offset, and total counts them all. The scope, content type, tag and owner filters are applied before ranking, so an asset the caller cannot open is never ranked or counted. permissions gives the caller's permission on each result they do not own.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Assets"
                 ],
-                "summary": "Search my assets",
+                "summary": "Search assets",
                 "parameters": [
                     {
                         "type": "string",
@@ -15425,9 +15525,52 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "enum": [
+                            "mine",
+                            "shared",
+                            "all"
+                        ],
+                        "type": "string",
+                        "description": "mine, shared or all (default: mine)",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by content type",
+                        "name": "content_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Filter by tag; repeat it to require every one",
+                        "name": "tag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Filter by owner address; repeat it for several",
+                        "name": "owner",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
-                        "description": "Max results (default: 20)",
+                        "description": "Results per page (default: 20, max: 100)",
                         "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset into the ranked results (default: 0)",
+                        "name": "offset",
                         "in": "query"
                     }
                 ],
@@ -15435,37 +15578,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/reachapi.page"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -18875,7 +19018,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns paginated collections owned by the current user.",
+                "description": "Returns paginated collections the current user can open in the given scope: mine (owned, the default), shared (named by an active collection share to them, their address or their persona) or all. share_summaries covers the collections the caller owns; permissions gives the caller's permission on each one they do not.",
                 "produces": [
                     "application/json"
                 ],
@@ -18884,6 +19027,27 @@ const docTemplate = `{
                 ],
                 "summary": "List collections",
                 "parameters": [
+                    {
+                        "enum": [
+                            "mine",
+                            "shared",
+                            "all"
+                        ],
+                        "type": "string",
+                        "description": "mine, shared or all (default: mine)",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Filter by owner address; repeat it for several",
+                        "name": "owner",
+                        "in": "query"
+                    },
                     {
                         "type": "string",
                         "description": "Search term",
@@ -19004,6 +19168,59 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/collections/facets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the authors (owner addresses) of the collections the caller can open in the given scope, each with how many of those collections they own. A collection the caller cannot open contributes nothing.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Collections"
+                ],
+                "summary": "Collection author facet",
+                "parameters": [
+                    {
+                        "enum": [
+                            "mine",
+                            "shared",
+                            "all"
+                        ],
+                        "type": "string",
+                        "description": "mine, shared or all (default: all)",
+                        "name": "scope",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reachapi.collectionFacetsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/collections/search": {
             "get": {
                 "security": [
@@ -19014,14 +19231,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Ranks the current user's collections by relevance to q (matching name, description, and section titles/descriptions). Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Always scoped server-side to the requesting user's own collections.",
+                "description": "Ranks the collections the current user can open in the given scope by relevance to q (matching name, description, and section titles/descriptions): mine (the default), shared, or all. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Results page with limit and offset; total counts them all. A collection the caller cannot open is never ranked or counted.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Collections"
                 ],
-                "summary": "Search my collections",
+                "summary": "Search collections",
                 "parameters": [
                     {
                         "type": "string",
@@ -19031,9 +19248,36 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "enum": [
+                            "mine",
+                            "shared",
+                            "all"
+                        ],
+                        "type": "string",
+                        "description": "mine, shared or all (default: mine)",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Filter by owner address; repeat it for several",
+                        "name": "owner",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
-                        "description": "Max results (default: 20)",
+                        "description": "Results per page (default: 20, max: 100)",
                         "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset into the ranked results (default: 0)",
+                        "name": "offset",
                         "in": "query"
                     }
                 ],
@@ -19041,37 +19285,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/reachapi.page"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -42986,6 +43230,13 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 0
                 },
+                "permissions": {
+                    "description": "Permissions is the caller's share permission on each listed collection\nthey do not own (#2500).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/portaldomain.SharePermission"
+                    }
+                },
                 "share_summaries": {
                     "type": "object",
                     "additionalProperties": {
@@ -43133,6 +43384,13 @@ const docTemplate = `{
                 "offset": {
                     "type": "integer",
                     "example": 0
+                },
+                "permissions": {
+                    "description": "Permissions is the caller's permission on each listed row they do not\nown, keyed by id: viewer or editor, through a share of the row or of a\ncollection holding it (#2500).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/portaldomain.SharePermission"
+                    }
                 },
                 "share_summaries": {
                     "type": "object",
@@ -43663,6 +43921,17 @@ const docTemplate = `{
                 }
             }
         },
+        "portaldomain.FacetCount": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
         "portaldomain.Provenance": {
             "type": "object",
             "properties": {
@@ -44025,6 +44294,19 @@ const docTemplate = `{
                 "PermissionViewer",
                 "PermissionEditor"
             ]
+        },
+        "portaldomain.ShareSummary": {
+            "type": "object",
+            "properties": {
+                "has_public_link": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "has_user_share": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
         },
         "postgres.Column": {
             "type": "object",
@@ -44623,6 +44905,67 @@ const docTemplate = `{
                 "version": {
                     "type": "integer",
                     "example": 4
+                }
+            }
+        },
+        "reachapi.assetFacetsResponse": {
+            "type": "object",
+            "properties": {
+                "authors": {
+                    "description": "Authors are the owner addresses of those assets, with counts.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.FacetCount"
+                    }
+                },
+                "tags": {
+                    "description": "Tags are the tags on the assets the scope and the other filters cover,\nwith counts, most used first.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.FacetCount"
+                    }
+                }
+            }
+        },
+        "reachapi.collectionFacetsResponse": {
+            "type": "object",
+            "properties": {
+                "authors": {
+                    "description": "Authors are the owner addresses of the collections the scope covers,\nwith counts.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.FacetCount"
+                    }
+                }
+            }
+        },
+        "reachapi.page": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "permissions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/portaldomain.SharePermission"
+                    }
+                },
+                "share_summaries": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/portaldomain.ShareSummary"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 42
                 }
             }
         },

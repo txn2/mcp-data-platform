@@ -79,6 +79,7 @@ export function flattenPages<T>(
       {},
       ...list.map((p) => p.share_summaries ?? {}),
     ),
+    permissions: Object.assign({}, ...list.map((p) => p.permissions ?? {})),
   };
 }
 

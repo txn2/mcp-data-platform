@@ -12,6 +12,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/reachstore"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
@@ -267,9 +268,26 @@ func (*postgresCollectionStore) buildListQueries(filter portaldomain.CollectionF
 	).From("portal_collections").Where("deleted_at IS NULL").
 		OrderBy(filter.Order()...).Limit(uint64(limit)).Offset(uint64(filter.Offset)) // #nosec G115 -- limit/offset are validated positive ints from EffectiveLimit()
 
-	if filter.OwnerID != "" {
+	switch {
+	case filter.Reach != nil:
+		// A reach replaces the owner scope (#2500); an unidentified one
+		// matches nothing.
+		reach := reachstore.CollectionPredicate(filter.Reach)
+		countQB = countQB.Where(reach)
+		selectQB = selectQB.Where(reach)
+	case filter.OwnerID != "":
 		countQB = countQB.Where(sq.Eq{colOwnerID: filter.OwnerID})
 		selectQB = selectQB.Where(sq.Eq{colOwnerID: filter.OwnerID})
+	}
+	if len(filter.Owners) > 0 {
+		byOwner := reachstore.OwnersPredicate(colOwnerEmail, filter.Owners)
+		countQB = countQB.Where(byOwner)
+		selectQB = selectQB.Where(byOwner)
+	}
+	if filter.IDs != nil {
+		byID := sq.Expr("portal_collections.id = ANY(?)", pq.Array(filter.IDs))
+		countQB = countQB.Where(byID)
+		selectQB = selectQB.Where(byID)
 	}
 	if filter.ProducedBy.Named() {
 		// What this producer created, not what shares its owner id: a run's

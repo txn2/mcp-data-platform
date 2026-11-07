@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -57,6 +58,14 @@ func (t *Toolkit) handleSearch(ctx context.Context, input manageAssetInput) (*mc
 		ranking = rankingHybrid
 	}
 
+	// A person ranks everything they can open (#2500), in the scope they
+	// name, all by default; a managed-script run ranks what it produced.
+	if reach := callerReach(ctx, input.Scope, portaldomain.ScopeAll); reach != nil {
+		if rs, ok := t.assetStore.(portaldomain.ReachSearcher); ok {
+			return t.searchReach(ctx, rs, input, reachSearch{query: query, emb: emb, reach: reach, ranking: ranking})
+		}
+	}
+
 	scored, err := searcher.SearchAssets(ctx, portal.AssetSearchQuery{
 		Embedding:  emb,
 		QueryText:  query,
@@ -75,5 +84,44 @@ func (t *Toolkit) handleSearch(ctx context.Context, input manageAssetInput) (*mc
 		"assets":     scored,
 		fieldTotal:   len(scored),
 		fieldRanking: ranking,
+	})
+}
+
+// reachSearch is one search over a person's reach.
+type reachSearch struct {
+	query   string
+	emb     []float32
+	reach   *portaldomain.Reach
+	ranking string
+}
+
+// searchReach ranks a person's reach with the filters the call names, one page
+// at a time; total counts every result.
+func (*Toolkit) searchReach(ctx context.Context, rs portaldomain.ReachSearcher, input manageAssetInput, q reachSearch) (*mcp.CallToolResult, any, error) {
+	query, emb, reach, ranking := q.query, q.emb, q.reach, q.ranking
+	limit, offset := portaldomain.RankedPage(input.Limit, input.Offset)
+	scored, total, err := rs.SearchReach(ctx, portaldomain.RankedAssetQuery{
+		Embedding:   emb,
+		QueryText:   query,
+		Reach:       reach,
+		ContentType: input.ContentType,
+		Tags:        input.Tags,
+		Owners:      portaldomain.NormalizeOwners(input.Owners),
+		Limit:       limit,
+		Offset:      offset,
+	})
+	if err != nil {
+		return toolkit.ErrorResult("failed to search assets: " + err.Error()), nil, nil
+	}
+	if scored == nil {
+		scored = []portal.ScoredAsset{}
+	}
+	return toolkit.JSONResultTyped(map[string]any{
+		"assets":     scored,
+		fieldTotal:   total,
+		fieldRanking: ranking,
+		"scope":      reach.Scope,
+		"offset":     offset,
+		"limit":      limit,
 	})
 }
