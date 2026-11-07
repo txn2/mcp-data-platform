@@ -99,6 +99,12 @@ jobs:
           npm ci --prefix ui
           cd ui && npx playwright install --with-deps chromium
 
+      - name: Sample the host's memory, I/O and containers for the run
+        # A stall of every container at once (#2516) is unreadable from the
+        # platform's own logs; these samples say whether it was memory, I/O or
+        # the host itself.
+        run: nohup scripts/host-sampler.sh build/release/host-samples.log 5 >/dev/null 2>&1 &
+
       - name: Run the acceptance suite
         shell: bash
         env:
@@ -117,6 +123,13 @@ jobs:
           path: nightly-output-acceptance-${{ inputs.id }}.txt
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Keep the database's log and the kernel's
+        if: always()
+        run: |
+          mkdir -p build/release
+          docker logs acme-dev-postgres > build/release/postgres.log 2>&1 || true
+          sudo dmesg -T > build/release/dmesg.log 2>&1 || true
 
       - name: Upload the stack's logs and the run's evidence
         if: always()

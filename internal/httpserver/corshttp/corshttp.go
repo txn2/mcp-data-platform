@@ -6,12 +6,18 @@ package corshttp
 
 import (
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/ephttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/maphttp"
 	whreceiver "github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 )
+
+// headerOrigin is the request header a browser names the requesting page's
+// origin in.
+const headerOrigin = "Origin"
 
 // publicReadPrefixes are the paths a map reads with no session (#2068): the
 // basemap archives and the map runtime the portal serves. A map runs in a
@@ -42,8 +48,8 @@ func publicRead(w http.ResponseWriter, r *http.Request, next http.Handler, admit
 		return
 	}
 	allow := "*"
-	if admit != nil && r.Header.Get("Origin") != "" {
-		allow = r.Header.Get("Origin")
+	if admit != nil && r.Header.Get(headerOrigin) != "" {
+		allow = r.Header.Get(headerOrigin)
 	}
 	w.Header().Set("Access-Control-Allow-Origin", allow)
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
@@ -55,6 +61,19 @@ func publicRead(w http.ResponseWriter, r *http.Request, next http.Handler, admit
 		return
 	}
 	next.ServeHTTP(w, r)
+}
+
+// isOwnOrigin reports whether origin is the platform's own: the host the
+// request arrived on, or one of the configured origins.
+func isOwnOrigin(r *http.Request, origin string, trusted []string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	return slices.Contains(trusted, strings.ToLower(u.Scheme+"://"+u.Host))
 }
 
 func isPublicRead(path string) bool {
@@ -75,36 +94,62 @@ func Middleware(next http.Handler) http.Handler {
 }
 
 // Gated is Middleware with the public map paths served only to the sites
-// admit allows.
-func Gated(admit SiteCheck) func(http.Handler) http.Handler {
+// admit allows. own are the platform's own origins beside the one a request
+// arrives on (the portal's public base URL); only those are answered with
+// credentials.
+func Gated(admit SiteCheck, own ...string) func(http.Handler) http.Handler {
+	trusted := ownOrigins(own)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if isPublicRead(r.URL.Path) {
 				publicRead(w, r, next, admit)
 				return
 			}
-			credentialed(w, r, next)
+			credentialed(w, r, next, trusted)
 		})
 	}
 }
 
-// credentialed answers every other path for the origin that asked, with
-// credentials.
-func credentialed(w http.ResponseWriter, r *http.Request, next http.Handler) {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		origin = "*"
+// ownOrigins reduces each configured base URL to its origin, the form a
+// browser's Origin header carries; a value that is not a URL is dropped.
+func ownOrigins(urls []string) []string {
+	out := make([]string, 0, len(urls))
+	for _, raw := range urls {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			continue
+		}
+		out = append(out, strings.ToLower(u.Scheme+"://"+u.Host))
 	}
-	w.Header().Set("Access-Control-Allow-Origin", origin)
+	return out
+}
+
+// credentialed answers every other path for the origin that asked. A
+// browser-based client on any origin may call with a bearer token or an API
+// key, neither of which needs credentials mode. Credentials are allowed only
+// for the platform's own origin: the session cookie is a credential, and a
+// page on another origin whose requests carry it (a sibling host on the same
+// site, or any site under same_site none) must not read what it unlocks
+// (#2526).
+func credentialed(w http.ResponseWriter, r *http.Request, next http.Handler, trusted []string) {
+	origin := r.Header.Get(headerOrigin)
+	w.Header().Add("Vary", headerOrigin)
+	if origin == "" {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		if isOwnOrigin(r, origin, trusted) {
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers",
 		"Content-Type, Authorization, Accept, X-API-Key, "+
 			"Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
 	w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Max-Age", "86400")
 
-	if r.Method == "OPTIONS" {
+	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return
 	}

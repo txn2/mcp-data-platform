@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -271,6 +272,7 @@ def handle(req):
 `)
 	resp := f.serve(t, Request{Method: "GET", Header: http.Header{
 		"Authorization": {"Bearer k"}, "Cookie": {"s=1"}, "X-Api-Key": {"k"}, "Accept": {"a/b", "c/d"},
+		"Proxy-Authorization": {"Basic p"}, epform.ViewerHeader: {"viewer-token"},
 	}})
 	require.Equal(t, http.StatusOK, resp.Status, string(resp.Body))
 	assert.Equal(t, map[string]any{"accept": "a/b, c/d"}, decode(t, resp.Body))
