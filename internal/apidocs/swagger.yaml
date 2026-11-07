@@ -9716,6 +9716,13 @@ definitions:
       offset:
         example: 0
         type: integer
+      permissions:
+        additionalProperties:
+          $ref: '#/definitions/portaldomain.SharePermission'
+        description: |-
+          Permissions is the caller's share permission on each listed collection
+          they do not own (#2500).
+        type: object
       share_summaries:
         additionalProperties:
           $ref: '#/definitions/portal.ShareSummary'
@@ -9833,6 +9840,14 @@ definitions:
       offset:
         example: 0
         type: integer
+      permissions:
+        additionalProperties:
+          $ref: '#/definitions/portaldomain.SharePermission'
+        description: |-
+          Permissions is the caller's permission on each listed row they do not
+          own, keyed by id: viewer or editor, through a share of the row or of a
+          collection holding it (#2500).
+        type: object
       share_summaries:
         additionalProperties:
           $ref: '#/definitions/portal.ShareSummary'
@@ -10216,6 +10231,13 @@ definitions:
       updated_at:
         type: string
     type: object
+  portaldomain.FacetCount:
+    properties:
+      count:
+        type: integer
+      value:
+        type: string
+    type: object
   portaldomain.Provenance:
     properties:
       captures:
@@ -10529,6 +10551,15 @@ definitions:
     x-enum-varnames:
     - PermissionViewer
     - PermissionEditor
+  portaldomain.ShareSummary:
+    properties:
+      has_public_link:
+        example: false
+        type: boolean
+      has_user_share:
+        example: true
+        type: boolean
+    type: object
   postgres.Column:
     properties:
       name:
@@ -11007,6 +11038,52 @@ definitions:
         type: array
       version:
         example: 4
+        type: integer
+    type: object
+  reachapi.assetFacetsResponse:
+    properties:
+      authors:
+        description: Authors are the owner addresses of those assets, with counts.
+        items:
+          $ref: '#/definitions/portaldomain.FacetCount'
+        type: array
+      tags:
+        description: |-
+          Tags are the tags on the assets the scope and the other filters cover,
+          with counts, most used first.
+        items:
+          $ref: '#/definitions/portaldomain.FacetCount'
+        type: array
+    type: object
+  reachapi.collectionFacetsResponse:
+    properties:
+      authors:
+        description: |-
+          Authors are the owner addresses of the collections the scope covers,
+          with counts.
+        items:
+          $ref: '#/definitions/portaldomain.FacetCount'
+        type: array
+    type: object
+  reachapi.page:
+    properties:
+      data: {}
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      permissions:
+        additionalProperties:
+          $ref: '#/definitions/portaldomain.SharePermission'
+        type: object
+      share_summaries:
+        additionalProperties:
+          $ref: '#/definitions/portaldomain.ShareSummary'
+        type: object
+      total:
+        example: 42
         type: integer
     type: object
   resindexapi.IndexState:
@@ -26970,11 +27047,30 @@ paths:
       - Approvals
   /portal/assets:
     get:
-      description: Returns paginated assets owned by the current user with optional
-        filtering. A repeated tag requires every named tag, and each metadata.<key>=<value>
-        requires that value in the asset's metadata (the metadata a script output's
-        latest version recorded), all combined with AND.
+      description: 'Returns paginated assets the current user can open in the given
+        scope: mine (owned, the default), shared (shared with them by user, address
+        or persona, directly or through a shared collection) or all. A repeated tag
+        requires every named tag, a repeated owner matches any named owner address,
+        and each metadata.<key>=<value> requires that value in the asset''s metadata
+        (the metadata a script output''s latest version recorded), all combined with
+        AND. share_summaries covers the rows the caller owns; permissions gives the
+        caller''s permission on each row they do not.'
       parameters:
+      - description: 'mine, shared or all (default: mine)'
+        enum:
+        - mine
+        - shared
+        - all
+        in: query
+        name: scope
+        type: string
+      - collectionFormat: multi
+        description: Filter by owner address; repeat it for several
+        in: query
+        items:
+          type: string
+        name: owner
+        type: array
       - description: Filter by content type
         in: query
         name: content_type
@@ -28616,21 +28712,111 @@ paths:
       summary: Revert to version
       tags:
       - Assets
+  /portal/assets/facets:
+    get:
+      description: Lists the tags and the authors (owner addresses) on the assets
+        the caller can open in the given scope, each with how many of those assets
+        carry it. The tag facet ignores the tag filter and the author facet the owner
+        filter, so each lists the values a picker can switch to. An asset the caller
+        cannot open contributes no value and no count.
+      parameters:
+      - description: 'mine, shared or all (default: all)'
+        enum:
+        - mine
+        - shared
+        - all
+        in: query
+        name: scope
+        type: string
+      - description: Filter by content type
+        in: query
+        name: content_type
+        type: string
+      - collectionFormat: multi
+        description: Filter by tag; repeat it to require every one
+        in: query
+        items:
+          type: string
+        name: tag
+        type: array
+      - collectionFormat: multi
+        description: Filter by owner address; repeat it for several
+        in: query
+        items:
+          type: string
+        name: owner
+        type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reachapi.assetFacetsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Asset tag and author facets
+      tags:
+      - Assets
   /portal/assets/search:
     get:
-      description: Ranks the current user's saved assets by relevance to q. Uses hybrid
-        (semantic + lexical) ranking when an embedding provider is configured, falling
-        back to lexical-only otherwise. Always scoped server-side to the requesting
-        user's own assets.
+      description: 'Ranks the assets the current user can open in the given scope
+        by relevance to q: mine (the default), shared, or all. Uses hybrid (semantic
+        + lexical) ranking when an embedding provider is configured, falling back
+        to lexical-only otherwise. Every asset whose name, description or tags match
+        is a result, and so is one the embedding model places near the query; results
+        page with limit and offset, and total counts them all. The scope, content
+        type, tag and owner filters are applied before ranking, so an asset the caller
+        cannot open is never ranked or counted. permissions gives the caller''s permission
+        on each result they do not own.'
       parameters:
       - description: Search query
         in: query
         name: q
         required: true
         type: string
-      - description: 'Max results (default: 20)'
+      - description: 'mine, shared or all (default: mine)'
+        enum:
+        - mine
+        - shared
+        - all
+        in: query
+        name: scope
+        type: string
+      - description: Filter by content type
+        in: query
+        name: content_type
+        type: string
+      - collectionFormat: multi
+        description: Filter by tag; repeat it to require every one
+        in: query
+        items:
+          type: string
+        name: tag
+        type: array
+      - collectionFormat: multi
+        description: Filter by owner address; repeat it for several
+        in: query
+        items:
+          type: string
+        name: owner
+        type: array
+      - description: 'Results per page (default: 20, max: 100)'
         in: query
         name: limit
+        type: integer
+      - description: 'Offset into the ranked results (default: 0)'
+        in: query
+        name: offset
         type: integer
       produces:
       - application/json
@@ -28638,31 +28824,31 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.paginatedResponse'
+            $ref: '#/definitions/reachapi.page'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Search my assets
+      summary: Search assets
       tags:
       - Assets
   /portal/calls:
@@ -29408,8 +29594,27 @@ paths:
       - Notifications
   /portal/collections:
     get:
-      description: Returns paginated collections owned by the current user.
+      description: 'Returns paginated collections the current user can open in the
+        given scope: mine (owned, the default), shared (named by an active collection
+        share to them, their address or their persona) or all. share_summaries covers
+        the collections the caller owns; permissions gives the caller''s permission
+        on each one they do not.'
       parameters:
+      - description: 'mine, shared or all (default: mine)'
+        enum:
+        - mine
+        - shared
+        - all
+        in: query
+        name: scope
+        type: string
+      - collectionFormat: multi
+        description: Filter by owner address; repeat it for several
+        in: query
+        items:
+          type: string
+        name: owner
+        type: array
       - description: Search term
         in: query
         name: search
@@ -30110,22 +30315,77 @@ paths:
       summary: Get collection thumbnail
       tags:
       - Collections
+  /portal/collections/facets:
+    get:
+      description: Lists the authors (owner addresses) of the collections the caller
+        can open in the given scope, each with how many of those collections they
+        own. A collection the caller cannot open contributes nothing.
+      parameters:
+      - description: 'mine, shared or all (default: all)'
+        enum:
+        - mine
+        - shared
+        - all
+        in: query
+        name: scope
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reachapi.collectionFacetsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Collection author facet
+      tags:
+      - Collections
   /portal/collections/search:
     get:
-      description: Ranks the current user's collections by relevance to q (matching
-        name, description, and section titles/descriptions). Uses hybrid (semantic
-        + lexical) ranking when an embedding provider is configured, falling back
-        to lexical-only otherwise. Always scoped server-side to the requesting user's
-        own collections.
+      description: 'Ranks the collections the current user can open in the given scope
+        by relevance to q (matching name, description, and section titles/descriptions):
+        mine (the default), shared, or all. Uses hybrid (semantic + lexical) ranking
+        when an embedding provider is configured, falling back to lexical-only otherwise.
+        Results page with limit and offset; total counts them all. A collection the
+        caller cannot open is never ranked or counted.'
       parameters:
       - description: Search query
         in: query
         name: q
         required: true
         type: string
-      - description: 'Max results (default: 20)'
+      - description: 'mine, shared or all (default: mine)'
+        enum:
+        - mine
+        - shared
+        - all
+        in: query
+        name: scope
+        type: string
+      - collectionFormat: multi
+        description: Filter by owner address; repeat it for several
+        in: query
+        items:
+          type: string
+        name: owner
+        type: array
+      - description: 'Results per page (default: 20, max: 100)'
         in: query
         name: limit
+        type: integer
+      - description: 'Offset into the ranked results (default: 0)'
+        in: query
+        name: offset
         type: integer
       produces:
       - application/json
@@ -30133,31 +30393,31 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.paginatedResponse'
+            $ref: '#/definitions/reachapi.page'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Search my collections
+      summary: Search collections
       tags:
       - Collections
   /portal/content/{token}:

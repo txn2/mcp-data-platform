@@ -16,6 +16,7 @@ import { CollectionGrid } from "./browse/CollectionGrid";
 import { CollectionsEmpty } from "./browse/CollectionsEmpty";
 import { CollectionTable } from "./browse/CollectionTable";
 import { useCollectionBrowse, type CollectionBrowse } from "./browse/useCollectionBrowse";
+import { scopePhrase } from "@/components/ScopeFilter";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -24,11 +25,12 @@ interface Props {
 export function CollectionsPage({ onNavigate }: Props) {
   const [scope, setScope] = useState<Scope>(getStoredScope);
   const [search, setSearch] = useState("");
+  const [owners, setOwners] = useState<string[]>([]);
   const [sort, setSort] = useState<ListSort<CollectionSortKey>>(DEFAULT_COLLECTION_SORT);
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
   const createMutation = useCreateCollection();
 
-  const browse = useCollectionBrowse({ scope, search, sort });
+  const browse = useCollectionBrowse({ scope, search, owners, sort });
 
   function changeViewMode(mode: ViewMode) {
     setViewMode(mode);
@@ -57,10 +59,13 @@ export function CollectionsPage({ onNavigate }: Props) {
         onScopeChange={changeScope}
         search={search}
         onSearchChange={setSearch}
+        owners={owners}
+        onOwnersChange={setOwners}
+        authorFacets={browse.authorFacets}
         sort={sort}
         onSortChange={setSort}
         // Relevance ranking, not a column, decides the order of a search.
-        sortDisabled={browse.semanticSearch}
+        sortDisabled={browse.searching}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
         onCreate={() => void handleCreate()}
@@ -107,22 +112,13 @@ function Results({
   if (browse.isLoadingList) {
     return (
       <p className="py-12 text-center text-sm text-muted-foreground">
-        {browse.semanticSearch ? "Searching..." : "Loading..."}
+        {browse.searching ? "Searching..." : "Loading..."}
       </p>
     );
   }
 
   if (browse.displayItems.length === 0) {
-    // With more pages available (shared/all client-side filters only see the
-    // loaded rows), steer to "Load more" instead of a contradictory empty
-    // state next to a Load-more button.
-    return browse.canLoadMore ? (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        No matching collections in the loaded set yet &mdash; load more to keep looking.
-      </p>
-    ) : (
-      <CollectionsEmpty scope={scope} searching={browse.searching} query={browse.query} />
-    );
+    return <CollectionsEmpty scope={scope} searching={browse.searching} query={browse.query} />;
   }
 
   return viewMode === "grid" ? (
@@ -141,7 +137,7 @@ function Results({
       sort={sort}
       // A relevance search is ranked, not sorted; its headers would otherwise
       // claim an ordering the rows do not have.
-      onSort={browse.semanticSearch ? undefined : onSort}
+      onSort={browse.searching ? undefined : onSort}
       onNavigate={onNavigate}
     />
   );
@@ -149,29 +145,19 @@ function Results({
 
 /** How much of the list is on screen, phrased for the scope that produced it. */
 function ResultCount({ browse, scope }: { browse: CollectionBrowse; scope: Scope }) {
-  if (scope !== "mine") {
-    if (browse.displayItems.length === 0) return null;
-    return (
-      <p className="text-center text-sm text-muted-foreground">
-        Showing {browse.displayItems.length} {scope === "shared" ? "shared " : ""}collection
-        {browse.displayItems.length === 1 ? "" : "s"}
-      </p>
-    );
-  }
-  if (browse.semanticSearch) {
-    if (browse.collections.length === 0) return null;
+  if (browse.total === undefined || browse.collections.length === 0) return null;
+  const where = scopePhrase(scope, "collections");
+  if (browse.searching) {
     return (
       <p className="text-center text-xs text-muted-foreground">
-        Ranked by relevance to &ldquo;{browse.query}&rdquo; across your collections.
+        {browse.total} {browse.total === 1 ? "match" : "matches"} for &ldquo;{browse.query}&rdquo; in{" "}
+        {where}, ranked by relevance.
       </p>
     );
   }
-  // Only advertise a remaining count while more can actually be loaded.
-  // flattenPages de-dupes by id but total is the raw server count, so a
-  // concurrent insert that re-emits a deduped row would otherwise leave a
-  // permanent "Showing 119 of 120" with no Load-more control to close it.
-  if (!browse.canLoadMore || browse.total === undefined) return null;
-  if (browse.collections.length >= browse.total) return null;
+  // flattenPages de-dupes by id but total is the raw server count, so only
+  // a list that can still load more advertises a remainder.
+  if (!browse.canLoadMore || browse.collections.length >= browse.total) return null;
   return (
     <p className="text-center text-sm text-muted-foreground">
       Showing {browse.collections.length} of {browse.total} collections

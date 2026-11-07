@@ -33,7 +33,9 @@ import (
 
 	scriptstore "github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	portalstore "github.com/txn2/mcp-data-platform/internal/portal/portalstore"
+	"github.com/txn2/mcp-data-platform/internal/portal/reachstore"
 	"github.com/txn2/mcp-data-platform/internal/sqlgate"
+	"github.com/txn2/mcp-data-platform/internal/sqlrank"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/internal/thumbdue"
 	auditpg "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
@@ -103,7 +105,9 @@ type source struct {
 var sampleSources = map[string]source{
 	"github.com/txn2/mcp-data-platform/pkg/audit/postgres":            {auditpg.SQLSamples, 1},
 	"github.com/txn2/mcp-data-platform/pkg/resource":                  {resource.SQLSamples, 19},
-	"github.com/txn2/mcp-data-platform/internal/portal/portalstore":   {portalstore.SQLSamples, 13},
+	"github.com/txn2/mcp-data-platform/internal/portal/portalstore":   {portalstore.SQLSamples, 7},
+	"github.com/txn2/mcp-data-platform/internal/portal/reachstore":    {reachstore.SQLSamples, 3},
+	"github.com/txn2/mcp-data-platform/internal/sqlrank":              {sqlrank.SQLSamples, 0},
 	"github.com/txn2/mcp-data-platform/pkg/prompt/postgres":           {promptpg.SQLSamples, 5},
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore": {scriptstore.SQLSamples, 4},
 	"github.com/txn2/mcp-data-platform/internal/thumbdue":             {thumbdue.SQLSamples, 1},

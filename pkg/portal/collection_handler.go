@@ -10,6 +10,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/reachapi"
 )
 
 // Common error messages for collection handlers.
@@ -108,14 +109,19 @@ type listCollectionsResponse struct {
 	Limit          int                       `json:"limit" example:"20"`
 	Offset         int                       `json:"offset" example:"0"`
 	ShareSummaries map[string]ShareSummary   `json:"share_summaries,omitempty"`
+	// Permissions is the caller's share permission on each listed collection
+	// they do not own (#2500).
+	Permissions map[string]portaldomain.SharePermission `json:"permissions,omitempty"`
 }
 
 // listCollections handles GET /api/v1/portal/collections.
 //
 // @Summary      List collections
-// @Description  Returns paginated collections owned by the current user.
+// @Description  Returns paginated collections the current user can open in the given scope: mine (owned, the default), shared (named by an active collection share to them, their address or their persona) or all. share_summaries covers the collections the caller owns; permissions gives the caller's permission on each one they do not.
 // @Tags         Collections
 // @Produce      json
+// @Param        scope   query  string   false  "mine, shared or all (default: mine)"  Enums(mine, shared, all)
+// @Param        owner   query  []string false  "Filter by owner address; repeat it for several"  collectionFormat(multi)
 // @Param        search  query  string   false  "Search term"
 // @Param        limit   query  integer  false  "Results per page (default: 20)"
 // @Param        offset  query  integer  false  "Offset for pagination (default: 0)"
@@ -134,7 +140,7 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filter := CollectionFilter{OwnerID: user.UserID}
+	filter := CollectionFilter{Reach: reachapi.Reach(r, user, portaldomain.ScopeMine), Owners: reachapi.Owners(r)}
 	filter.SortBy, filter.SortDir = sortParams(r)
 	if v := r.URL.Query().Get("search"); v != "" {
 		filter.Search = v
@@ -160,12 +166,8 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 		collections = []Collection{}
 	}
 
-	// Fetch share summaries for the listed collections.
-	ids := make([]string, len(collections))
-	for i, c := range collections {
-		ids[i] = c.ID
-	}
-	summaries, _ := h.deps.ShareStore.ListActiveCollectionShareSummaries(r.Context(), ids)
+	// Share summaries are the owner's to see, so only owned rows carry one.
+	summaries, _ := h.deps.ShareStore.ListActiveCollectionShareSummaries(r.Context(), reachapi.OwnedCollectionIDs(collections, user))
 
 	writeJSON(w, http.StatusOK, listCollectionsResponse{
 		Data:           collections,
@@ -173,6 +175,7 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 		Limit:          filter.EffectiveLimit(),
 		Offset:         filter.Offset,
 		ShareSummaries: summaries,
+		Permissions:    h.reach.CollectionPermissions(r.Context(), collections, user),
 	})
 }
 

@@ -23,7 +23,9 @@ import type {
   ShareResponse,
   ScoredAsset,
   CreateShareBody,
+  AssetFacets,
 } from "../types";
+import type { Scope } from "@/components/ScopeFilter";
 
 // Re-exported so existing importers (assets.test.ts and page components) keep
 // resolving these from "./assets" after the shared paging primitives moved to
@@ -95,10 +97,11 @@ export function useAssets(params?: {
 // useSearchAssets ranks the caller's own assets by relevance to a free-text
 // query (semantic + keyword, server-side). Disabled when the query is empty so
 // the asset library falls back to the plain list. Mirrors useSearchMyMemories.
-export function useSearchAssets(query: string, params?: { limit?: number }) {
+export function useSearchAssets(query: string, params?: { limit?: number; scope?: Scope }) {
   const q = query.trim();
   const sp = new URLSearchParams({ q });
   if (params?.limit) sp.set("limit", String(params.limit));
+  if (params?.scope) sp.set("scope", params.scope);
 
   return useQuery({
     queryKey: ["search-assets", q, params],
@@ -161,23 +164,45 @@ export const ASSET_PAGE_SIZE = 50;
 // across renders. A shared asset is keyed by the underlying asset id.
 export const assetKey = (a: Asset): string => a.id;
 export const sharedKey = (s: SharedAsset): string => s.asset.id;
+export const scoredAssetKey = (s: ScoredAsset): string => s.asset.id;
+
+// SEARCH_PAGE_SIZE is the ranked results requested per page; the server caps a
+// search page at 100.
+export const SEARCH_PAGE_SIZE = 50;
 
 // useInfiniteAssets is the paginated counterpart of useAssets: it accumulates
 // pages so a caller with more than one page of assets can load them all,
 // exposing a single merged page plus fetchNextPage/hasNextPage controls.
-export function useInfiniteAssets(params?: {
+/**
+ * AssetQueryFilters narrow a listing, a search or the facets to what the
+ * caller can open (#2500): the scope, the owners an asset must have one of,
+ * its content type and a tag it must carry. The server applies every one of
+ * them before paging, ranking or counting.
+ */
+export interface AssetQueryFilters {
+  scope?: Scope;
+  owners?: string[];
   content_type?: string;
   tag?: string;
-  sort?: string;
-  dir?: string;
-}): InfiniteAssetsResult<Asset> {
+}
+
+/** The query-string form of AssetQueryFilters. */
+export function assetFilterParams(f: AssetQueryFilters | undefined, sp: URLSearchParams) {
+  if (f?.scope) sp.set("scope", f.scope);
+  for (const o of f?.owners ?? []) sp.append("owner", o);
+  if (f?.content_type) sp.set("content_type", f.content_type);
+  if (f?.tag) sp.set("tag", f.tag);
+}
+
+export function useInfiniteAssets(
+  params?: AssetQueryFilters & { sort?: string; dir?: string },
+): InfiniteAssetsResult<Asset> {
   const q = useInfiniteQuery({
     queryKey: ["assets", "infinite", params],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
       const sp = new URLSearchParams();
-      if (params?.content_type) sp.set("content_type", params.content_type);
-      if (params?.tag) sp.set("tag", params.tag);
+      assetFilterParams(params, sp);
       // Sent as given; the server resolves both against its own allowlist, so
       // an unknown column orders by the default rather than failing the page.
       if (params?.sort) sp.set("sort", params.sort);
@@ -190,6 +215,43 @@ export function useInfiniteAssets(params?: {
   });
 
   return useInfiniteResult(q, assetKey);
+}
+
+// useInfiniteSearchAssets ranks what the caller can open in a scope by
+// relevance to the query (semantic + keyword, server-side), a page at a time:
+// every match is a result, total counts them all, and the filters narrow the
+// set before it is ranked (#2500). Disabled while the query is empty.
+export function useInfiniteSearchAssets(
+  query: string,
+  params?: AssetQueryFilters,
+): InfiniteAssetsResult<ScoredAsset> {
+  const q = query.trim();
+  const inf = useInfiniteQuery({
+    queryKey: ["search-assets", "infinite", q, params],
+    enabled: q.length > 0,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => {
+      const sp = new URLSearchParams({ q });
+      assetFilterParams(params, sp);
+      sp.set("limit", String(SEARCH_PAGE_SIZE));
+      sp.set("offset", String(pageParam));
+      return apiFetch<PaginatedResponse<ScoredAsset>>(`/assets/search?${sp.toString()}`);
+    },
+    getNextPageParam: (_last, all) => nextOffset(all),
+  });
+  return useInfiniteResult(inf, scoredAssetKey);
+}
+
+// useAssetFacets lists the tags and authors on the assets the scope and the
+// other filters cover, each with its count (#2500).
+export function useAssetFacets(params: AssetQueryFilters) {
+  const sp = new URLSearchParams();
+  assetFilterParams(params, sp);
+  return useQuery({
+    queryKey: ["asset-facets", params],
+    queryFn: () => apiFetch<AssetFacets>(`/assets/facets?${sp.toString()}`),
+    staleTime: 30_000,
+  });
 }
 
 // useInfiniteSharedWithMe is the paginated shared-with-me list.

@@ -28,92 +28,16 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/test/toolsurface"
 )
 
-// issue1692Expectation is what one tool must advertise: whether it can modify
-// state, and -- when it can -- whether any of its actions removes or
-// overwrites state that is already there.
-type issue1692Expectation struct {
-	readOnly bool
-	// destructive is read only when readOnly is false, which is the same
-	// condition the MCP specification puts on destructiveHint.
-	destructive bool
-}
-
-// issue1692Expected classifies every tool this repository registers. A tool
-// present in tools/list and absent from this table fails the first criterion,
-// so a toolkit added later cannot ship without the decision being made.
-//
-// The read-only set is the first seven rows plus the three that already
-// carried the hint before this ticket; the write rows carry destructive=true
-// wherever one of the tool's actions removes or overwrites existing state, and
-// destructive=false where every action only adds.
-var issue1692Expected = map[string]issue1692Expectation{
-	// Reads. Nothing here modifies state, so a conforming client can call
-	// them without asking anyone.
-	"platform_info":       {readOnly: true},
-	"platform_find_tools": {readOnly: true},
-	"list_connections":    {readOnly: true},
-	"search":              {readOnly: true},
-	"fetch":               {readOnly: true},
-	"show_prompts":        {readOnly: true},
-	"show_scripts":        {readOnly: true},
-	"api_discover":        {readOnly: true},
-	"graphql_discover":    {readOnly: true},
-	"s3_list":             {readOnly: true},
-
-	// Writes that can remove or overwrite. apply_knowledge carries
-	// bulk_untag and delete_tag; memory_manage carries forget and
-	// consolidate, and memory_capture supersedes a record it restates;
-	// manage_asset carries delete, manage_table unregister, manage_resource
-	// delete and replace_content, manage_prompt delete, manage_script
-	// delete. run_script executes a saved script, which reaches any of
-	// them. api_invoke_endpoint and graphql_query carry whatever verb or
-	// mutation the caller writes. manage_schema applies a migration, which
-	// can drop what it names; manage_application deletes an application and
-	// applies a release's migrations.
-	"apply_knowledge":     {destructive: true},
-	"memory_capture":      {destructive: true},
-	"memory_manage":       {destructive: true},
-	"manage_asset":        {destructive: true},
-	"manage_table":        {destructive: true},
-	"manage_resource":     {destructive: true},
-	"manage_prompt":       {destructive: true},
-	"manage_script":       {destructive: true},
-	"run_script":          {destructive: true},
-	"api_invoke_endpoint": {destructive: true},
-	"graphql_query":       {destructive: true},
-	"s3_object":           {destructive: true},
-	"manage_schema":       {destructive: true},
-	"manage_application":  {destructive: true},
-
-	// Writes that only add. An export lands a new asset, or the next
-	// version of a managed resource with the earlier versions kept;
-	// save_asset lands a new asset or a new version of one; a notification
-	// is queued, and nothing already sent is changed.
-	"save_asset": {destructive: false},
-	"notify":     {destructive: false},
-	// manage_feedback edits and deletes a message of a thread (#2514).
-	"manage_feedback": {destructive: true},
-	// A request for approval and its decision add a record and remove none.
-	"manage_approval": {destructive: false},
-	"trino_export":    {destructive: false},
-	"api_export":      {destructive: false},
-	"graphql_export":  {destructive: false},
-
-	// The trino and s3 toolkits are built on the mcp-trino and mcp-s3
-	// libraries, which declare these annotations
-	// themselves. #1692 did not change them and named them as already
-	// correct; the rows are here so that claim is asserted rather than
-	// assumed, and so an upstream upgrade that drops one is caught where a
-	// user would feel it.
-	"trino_query":            {readOnly: true},
-	"trino_explain":          {readOnly: true},
-	"trino_browse":           {readOnly: true},
-	"trino_describe_table":   {readOnly: true},
-	"trino_list_connections": {readOnly: true},
-	"trino_execute":          {destructive: true},
-}
+// issue1692Expected classifies every tool this repository registers. The
+// table lives in test/toolsurface, where the real-database gate every pull
+// request runs reads it too (#2521); a tool present in tools/list and absent
+// from it fails the first criterion, so a toolkit added later cannot ship
+// without the decision being made.
+var issue1692Expected = toolsurface.Annotations
 
 // issue1692Native returns the tools this repository is answerable for: what
 // the session lists, less the gateway's proxied upstream tools.
@@ -174,7 +98,7 @@ func TestIssue1692_ReadToolsAdvertiseReadOnly(t *testing.T) {
 
 	for _, tool := range issue1692Native(t, c) {
 		want, ok := issue1692Expected[tool.Name]
-		if !ok || !want.readOnly {
+		if !ok || !want.ReadOnly {
 			continue
 		}
 		delete(required, tool.Name)
@@ -202,7 +126,7 @@ func TestIssue1692_WriteToolsAdvertiseTheirReach(t *testing.T) {
 
 	for _, tool := range issue1692Native(t, c) {
 		want, ok := issue1692Expected[tool.Name]
-		if !ok || want.readOnly {
+		if !ok || want.ReadOnly {
 			continue
 		}
 		if tool.Annotations == nil {
@@ -217,8 +141,8 @@ func TestIssue1692_WriteToolsAdvertiseTheirReach(t *testing.T) {
 			t.Errorf("%s writes and advertises no destructiveHint", tool.Name)
 			continue
 		}
-		if got != want.destructive {
-			t.Errorf("%s advertises destructiveHint: %t, want %t", tool.Name, got, want.destructive)
+		if got != want.Destructive {
+			t.Errorf("%s advertises destructiveHint: %t, want %t", tool.Name, got, want.Destructive)
 		}
 	}
 }

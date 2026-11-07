@@ -1,3 +1,4 @@
+import { rowDate } from "@/components/listView";
 import { Eye, FolderOpen } from "lucide-react";
 import type { Asset, ShareSummary } from "@/api/portal/types";
 import { contentTypeIcon, ContentTypeBadge } from "@/components/ContentTypeBadge";
@@ -100,7 +101,7 @@ export function AssetTable({
                 )}
               </TableCell>
               <TableCell className="text-muted-foreground">
-                {new Date(share ? share.shared_at : asset[dateKey]).toLocaleDateString()}
+                {new Date(rowDate(share, asset[dateKey])).toLocaleDateString()}
               </TableCell>
               <TableCell>
                 <Button

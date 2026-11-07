@@ -548,9 +548,18 @@ type AssetFilter struct {
 	// so it survives a rename and a transfer, neither of which the identifiers
 	// on the row do (#1579). It is ANDed with Owner when both are set; the zero
 	// value narrows nothing.
-	ProducedBy  ContentProducer `json:"produced_by,omitzero"`
-	ContentType string          `json:"content_type,omitempty"`
-	Tag         string          `json:"tag,omitempty"`
+	ProducedBy ContentProducer `json:"produced_by,omitzero"`
+	// Reach scopes the listing to what one person can open, narrowed to its
+	// Scope (#2500). It replaces Owner when set: a person's own assets are
+	// its mine scope.
+	Reach *Reach `json:"-"`
+	// Owners narrows to the assets whose owner address is one of these,
+	// compared case-insensitively: the author filter.
+	Owners []string `json:"owners,omitempty"`
+	// IDs narrows to these asset ids: how a ranked page reads its rows.
+	IDs         []string `json:"-"`
+	ContentType string   `json:"content_type,omitempty"`
+	Tag         string   `json:"tag,omitempty"`
 	// Tags narrows to the assets carrying every one of these tags, and
 	// Metadata to those whose metadata holds every one of these values
 	// (#1848); both are ANDed with Tag and with each other.
@@ -1078,6 +1087,15 @@ type CollectionItem struct {
 // CollectionFilter defines filtering criteria for listing collections.
 type CollectionFilter struct {
 	OwnerID string `json:"owner_id,omitempty"`
+	// Reach scopes the listing to the collections one person can open,
+	// narrowed to its Scope (#2500): owned, or named by an active collection
+	// share. It replaces OwnerID when set.
+	Reach *Reach `json:"-"`
+	// Owners narrows to the collections whose owner address is one of these:
+	// the author filter.
+	Owners []string `json:"owners,omitempty"`
+	// IDs narrows to these collection ids: how a ranked page reads its rows.
+	IDs []string `json:"-"`
 	// ProducedBy narrows the listing to the collections one producer created,
 	// joined to content_producers. It is what scopes a managed-script run to
 	// its own collections: the owner id such a row records is the principal

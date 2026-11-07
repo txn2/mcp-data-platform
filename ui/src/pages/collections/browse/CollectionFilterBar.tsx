@@ -9,7 +9,9 @@ import { SearchInput } from "@/components/patterns/SearchInput";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
 import { SortControl } from "@/components/patterns/SortControl";
 import { ScopeFilter, type Scope } from "@/components/ScopeFilter";
+import { AuthorPicker } from "@/components/patterns/AuthorPicker";
 import { Button } from "@/components/ui/button";
+import type { FacetCount } from "@/api/portal/types";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
 
 const VIEW_OPTIONS = [
@@ -23,6 +25,9 @@ export function CollectionFilterBar({
   onScopeChange,
   search,
   onSearchChange,
+  owners,
+  onOwnersChange,
+  authorFacets,
   sort,
   onSortChange,
   sortDisabled,
@@ -35,6 +40,9 @@ export function CollectionFilterBar({
   onScopeChange: (scope: Scope) => void;
   search: string;
   onSearchChange: (search: string) => void;
+  owners: string[];
+  onOwnersChange: (owners: string[]) => void;
+  authorFacets: FacetCount[];
   sort: ListSort<CollectionSortKey>;
   onSortChange: (sort: ListSort<CollectionSortKey>) => void;
   /** True while relevance ranking, not a column, decides the order. */
@@ -52,10 +60,9 @@ export function CollectionFilterBar({
         className="min-w-[200px] flex-1"
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
-        placeholder={
-          scope === "mine" ? "Search collections by meaning..." : "Search collections..."
-        }
+        placeholder="Search collections by meaning..."
       />
+      <AuthorPicker authors={authorFacets} value={owners} onChange={onOwnersChange} className="w-[11rem]" />
       {/* Creating from the Shared scope would drop the new collection out of
           the list it was made from, so the action is not offered there; nor
           to a persona that only reads what is shared with it (#2225). */}

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/txn2/mcp-data-platform/test/toolsurface"
 )
 
 // Issue #1827: the draft write barrier classifies each action tool by listing
@@ -24,22 +26,14 @@ import (
 // Wire forms: s3_object's `action` and `purpose` are typed string, `action`
 // with an enum, and each is sent in that one form.
 
-// issue1827Enums are the verbs each tool's schema now advertises.
-var issue1827Enums = map[string][]string{
-	"manage_asset": {
-		"list", "get", "update", "delete", "list_versions", "revert", "search", "provenance", "patch",
-		"locate", "get_content", "outline", "stats", "diff", "share", "list_shares", "revoke_share",
-		"create_collection", "list_collections", "get_collection", "update_collection",
-		"delete_collection", "set_sections",
-	},
-	"manage_feedback": {"create", "list", "get", "reply", "resolve", "request_validation", "respond_validation", "edit", "delete"},
-	"memory_manage":   {"update", "forget", "list", "review_stale", "review_duplicates", "consolidate"},
-	"s3_object":       {"get", "metadata", "put", "copy", "delete", "presign"},
-	"notify":          {"list", "send", "publish"},
-}
-
-// issue1827VerbArg is the argument each tool names its verb in.
-var issue1827VerbArg = map[string]string{"memory_manage": "command"}
+// issue1827Enums are the verbs each tool's schema now advertises, and
+// issue1827VerbArg the argument each tool names its verb in where it is not
+// "action". Both live in test/toolsurface, where the real-database gate every
+// pull request runs reads them too (#2521).
+var (
+	issue1827Enums   = toolsurface.ActionEnums
+	issue1827VerbArg = toolsurface.VerbArg
+)
 
 // TestIssue1827_ActionToolsAdvertiseTheirVerbs reads each tool's schema the
 // way a client does.
@@ -60,6 +54,7 @@ func TestIssue1827_ActionToolsAdvertiseTheirVerbs(t *testing.T) {
 				arg = "action"
 			}
 			got := issue1827Enum(t, schema, arg)
+			want = slices.Clone(want)
 			slices.Sort(got)
 			slices.Sort(want)
 			if !slices.Equal(got, want) {

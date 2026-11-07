@@ -1,3 +1,4 @@
+import { rowDate } from "@/components/listView";
 import { FolderOpen } from "lucide-react";
 import type { ShareSummary } from "@/api/portal/types";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
@@ -107,7 +108,7 @@ export function CollectionTable({
                   )}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {new Date(share ? share.shared_at : coll[dateKey]).toLocaleDateString()}
+                  {new Date(rowDate(share, coll[dateKey])).toLocaleDateString()}
                 </TableCell>
               </TableRow>
             );

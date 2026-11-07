@@ -187,6 +187,11 @@ type manageAssetInput struct {
 	Name        string   `json:"name,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	// Scope and Owners narrow list and search to what the caller can open
+	// (#2500): mine, shared or all, and the owner addresses an asset must
+	// have one of.
+	Scope  string   `json:"scope,omitempty"`
+	Owners []string `json:"owners,omitempty"`
 	// MaxVersions caps how many versions the asset keeps (update action).
 	// Absent leaves the setting alone, null returns the asset to the
 	// deployment default, 0 keeps every version, N keeps the newest N.
@@ -977,11 +982,21 @@ func (t *Toolkit) handleList(ctx context.Context, input manageAssetInput) (*mcp.
 		), nil, nil
 	}
 
-	assets, total, err := t.assetStore.List(ctx, portal.AssetFilter{
-		Owner:      owner,
-		ProducedBy: producer,
-		Limit:      input.Limit,
-	})
+	filter := portal.AssetFilter{
+		Owner:       owner,
+		ProducedBy:  producer,
+		Limit:       input.Limit,
+		Offset:      input.Offset,
+		Tags:        input.Tags,
+		ContentType: input.ContentType,
+		Owners:      portaldomain.NormalizeOwners(input.Owners),
+	}
+	// A person lists their reach; a managed-script run lists what it
+	// produced, which no scope widens.
+	if reach := callerReach(ctx, input.Scope, portaldomain.ScopeMine); reach != nil {
+		filter.Owner, filter.Reach = portaldomain.AssetOwner{}, reach
+	}
+	assets, total, err := t.assetStore.List(ctx, filter)
 	if err != nil {
 		return toolkit.ErrorResult("failed to list assets: " + err.Error()), nil, nil
 	}
@@ -1485,6 +1500,22 @@ func callerAssetScope(ctx context.Context) (portaldomain.AssetOwner, portaldomai
 		return portaldomain.AssetOwner{}, callerProducer(ctx)
 	}
 	return portaldomain.NewAssetOwner(pc.UserID, pc.UserEmail), portaldomain.ContentProducer{}
+}
+
+// callerReach is a person's reach for list and search: what they can open,
+// narrowed to scope (fallback when it names none), with the persona the call
+// resolved to. A managed-script run has none; it is scoped by what it
+// produced.
+func callerReach(ctx context.Context, scope string, fallback portaldomain.Scope) *portaldomain.Reach {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc == nil || pc.OnBehalfOfEmail != "" {
+		return nil
+	}
+	r := portaldomain.NewReach(pc.UserID, pc.UserEmail, pc.PersonaName, portaldomain.ParseScope(scope, fallback))
+	if !r.Identified() {
+		return nil
+	}
+	return r
 }
 
 // callerProducer is the producer scope of a managed-script run: the script the

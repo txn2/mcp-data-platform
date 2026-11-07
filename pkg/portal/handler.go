@@ -27,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/feedbackapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/portal/producerapi"
+	"github.com/txn2/mcp-data-platform/internal/portal/reachapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/sharelink"
 	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
@@ -387,6 +388,7 @@ type Handler struct {
 	deps        Deps
 	rateLimiter *viewerlimit.RateLimiter
 	access      *access.Checker
+	reach       *reachapi.Handler
 	// viewerAssets serves the share viewer's code-split chunks. See ServeHTTP
 	// for why it is dispatched by prefix rather than registered on publicMux.
 	viewerAssets http.Handler
@@ -419,6 +421,10 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		rateLimiter: viewerlimit.New(deps.RateLimit, deps.RateLimitResolver, httpobs.LimiterPortalViewer),
 		access:      newAccessChecker(deps),
 	}
+	h.reach = reachapi.New(reachapi.Config{
+		Assets: deps.AssetStore, Collections: deps.CollectionStore, Shares: deps.ShareStore, Access: h.access,
+		Embed: h.embedSearchQuery,
+	})
 	h.viewerAssets = contentviewer.Handler()
 	h.refLimiter = viewerlimit.New(refRateLimit(deps.RateLimit, deps.MaxRefs), deps.RateLimitResolver, httpobs.LimiterPortalRefs)
 	h.contentLimiter = viewerlimit.New(contentRateLimit(deps.RateLimit), deps.RateLimitResolver, httpobs.LimiterPortalContent)
@@ -554,11 +560,9 @@ func (h *Handler) registerRoutes() {
 		h.deps.APIKeyRegistrar(h.mux)
 	}
 	h.mux.HandleFunc("GET /api/v1/portal/assets", h.listAssets)
-	// Relevance search is registered only when the wired asset store supports it
-	// (pgvector-backed deployments); see AssetSearcher.
-	if _, ok := h.deps.AssetStore.(AssetSearcher); ok {
-		h.mux.HandleFunc("GET /api/v1/portal/assets/search", h.searchMyAssets)
-	}
+	// Search and facets over the caller's reach (#2500); search is mounted
+	// only where the wired store ranks (pgvector-backed deployments).
+	h.reach.Register(h.mux)
 	h.mux.HandleFunc("POST /api/v1/portal/assets", h.createAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}", h.getAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/provenance", h.listAssetProvenance)
@@ -598,9 +602,6 @@ func (h *Handler) registerRoutes() {
 	if h.deps.CollectionStore != nil {
 		h.mux.HandleFunc("POST /api/v1/portal/collections", h.createCollection)
 		h.mux.HandleFunc("GET /api/v1/portal/collections", h.listCollections)
-		if _, ok := h.deps.CollectionStore.(CollectionSearcher); ok {
-			h.mux.HandleFunc("GET /api/v1/portal/collections/search", h.searchMyCollections)
-		}
 		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}", h.getCollection)
 		h.mux.HandleFunc("PUT /api/v1/portal/collections/{id}", h.updateCollection)
 		h.mux.HandleFunc("DELETE /api/v1/portal/collections/{id}", h.deleteCollection)
@@ -805,14 +806,20 @@ type paginatedResponse struct {
 	Limit          int                     `json:"limit" example:"20"`
 	Offset         int                     `json:"offset" example:"0"`
 	ShareSummaries map[string]ShareSummary `json:"share_summaries,omitempty"`
+	// Permissions is the caller's permission on each listed row they do not
+	// own, keyed by id: viewer or editor, through a share of the row or of a
+	// collection holding it (#2500).
+	Permissions map[string]portaldomain.SharePermission `json:"permissions,omitempty"`
 }
 
 // listAssets handles GET /api/v1/portal/assets.
 //
 // @Summary      List assets
-// @Description  Returns paginated assets owned by the current user with optional filtering. A repeated tag requires every named tag, and each metadata.<key>=<value> requires that value in the asset's metadata (the metadata a script output's latest version recorded), all combined with AND.
+// @Description  Returns paginated assets the current user can open in the given scope: mine (owned, the default), shared (shared with them by user, address or persona, directly or through a shared collection) or all. A repeated tag requires every named tag, a repeated owner matches any named owner address, and each metadata.<key>=<value> requires that value in the asset's metadata (the metadata a script output's latest version recorded), all combined with AND. share_summaries covers the rows the caller owns; permissions gives the caller's permission on each row they do not.
 // @Tags         Assets
 // @Produce      json
+// @Param        scope         query  string   false  "mine, shared or all (default: mine)"  Enums(mine, shared, all)
+// @Param        owner         query  []string false  "Filter by owner address; repeat it for several"  collectionFormat(multi)
 // @Param        content_type  query  string   false  "Filter by content type"
 // @Param        tag           query  []string false  "Filter by tag; repeat it to require every one"  collectionFormat(multi)
 // @Param        metadata.key  query  string   false  "Filter by a metadata value, as metadata.<key>=<value>; several are ANDed"
@@ -833,18 +840,19 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// An authenticated user with neither identifier owns nothing; an empty
-	// owner scope on the store means every owner, which is the administrator's
-	// listing and not this route's.
-	owner := access.AssetOwnerOf(user)
-	if !owner.Identified() {
+	// The caller's reach, never an empty owner scope: on the store that
+	// means every owner, which is the administrator's listing and not this
+	// route's. A reach naming nobody matches nothing.
+	reach := reachapi.Reach(r, user, portaldomain.ScopeMine)
+	if !reach.Identified() {
 		writeJSON(w, http.StatusOK, paginatedResponse{Data: []Asset{}, Total: 0, Limit: defaultLimit})
 		return
 	}
 
 	sortBy, sortDir := sortParams(r)
 	filter := AssetFilter{
-		Owner:       owner,
+		Reach:       reach,
+		Owners:      reachapi.Owners(r),
 		ContentType: r.URL.Query().Get("content_type"),
 		Tags:        r.URL.Query()["tag"],
 		Metadata:    metadataFilter(r.URL.Query()),
@@ -864,20 +872,11 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 		assets = []Asset{}
 	}
 
-	// Fetch share summaries for the returned assets.
-	var summaries map[string]ShareSummary
-	if len(assets) > 0 {
-		ids := make([]string, len(assets))
-		for i, a := range assets {
-			ids[i] = a.ID
-		}
-		summaries, _ = h.deps.ShareStore.ListActiveShareSummaries(r.Context(), ids)
-	}
-
+	rows := h.reach.DescribeAssets(r.Context(), assets, reach, user)
 	writeJSON(w, http.StatusOK, paginatedResponse{
 		Data: assets, Total: total,
 		Limit: filter.EffectiveLimit(), Offset: filter.Offset,
-		ShareSummaries: summaries,
+		ShareSummaries: rows.Summaries, Permissions: rows.Permissions,
 	})
 }
 

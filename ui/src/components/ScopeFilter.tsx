@@ -20,6 +20,13 @@ export function getStoredScope(): Scope {
   }
 }
 
+/** The scope in words, for result copy: "your assets", "assets shared with you". */
+export function scopePhrase(scope: Scope, noun: string): string {
+  if (scope === "mine") return `your ${noun}`;
+  if (scope === "shared") return `${noun} shared with you`;
+  return `your ${noun} and ${noun} shared with you`;
+}
+
 export function storeScope(scope: Scope) {
   try {
     globalThis.localStorage?.setItem(SCOPE_STORAGE_KEY, scope);

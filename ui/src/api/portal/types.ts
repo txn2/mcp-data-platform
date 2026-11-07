@@ -175,6 +175,25 @@ export interface PaginatedResponse<T> {
   limit: number;
   offset: number;
   share_summaries?: Record<string, ShareSummary>;
+  /** The caller's permission on each listed row they do not own (#2500). */
+  permissions?: Record<string, SharePermission>;
+}
+
+/** One value of a facet and how many rows carry it (#2500). */
+export interface FacetCount {
+  value: string;
+  count: number;
+}
+
+/** The tags and authors on the assets a scope and its filters cover. */
+export interface AssetFacets {
+  tags: FacetCount[];
+  authors: FacetCount[];
+}
+
+/** The authors of the collections a scope covers. */
+export interface CollectionFacets {
+  authors: FacetCount[];
 }
 
 export interface ShareResponse {

@@ -1824,7 +1824,9 @@ internal/portal/portalpurge -> internal/logsan
 internal/portal/portalpurge -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/portal/collitems
 internal/portal/portalstore -> internal/portal/portaldomain
+internal/portal/portalstore -> internal/portal/reachstore
 internal/portal/portalstore -> internal/producedby
+internal/portal/portalstore -> internal/sqlrank
 internal/portal/portalstore -> internal/thumbdue
 internal/portal/portalstore -> internal/thumbtypes
 internal/portal/portalstore -> pkg/indexjobs
@@ -1838,6 +1840,10 @@ internal/portal/producerapi -> internal/portal/portaldomain
 internal/portal/producerapi -> internal/producedby
 internal/portal/producerapi -> pkg/resource
 internal/portal/publicviewer -> internal/portal/embedhosts
+internal/portal/reachapi -> internal/httpjson
+internal/portal/reachapi -> internal/portal/access
+internal/portal/reachapi -> internal/portal/portaldomain
+internal/portal/reachstore -> internal/portal/portaldomain
 internal/portal/resourceshare -> internal/httpjson
 internal/portal/resourceshare -> internal/logsan
 internal/portal/resourceshare -> internal/portal/access
@@ -1881,6 +1887,8 @@ internal/server -> pkg/platform
 internal/shutdown -> internal/inprocess
 internal/soap -> internal/xmltree
 internal/sourcecheck -> pkg/contenttype
+internal/sqlrank -> internal/opranking
+internal/sqlrank -> internal/portal/portaldomain
 internal/tableavail -> pkg/query
 internal/tableparquet -> internal/tabletype
 internal/thumbdue -> internal/advisorylock
@@ -2350,6 +2358,7 @@ pkg/portal -> internal/portal/portalstore
 pkg/portal -> internal/portal/portalversions
 pkg/portal -> internal/portal/producerapi
 pkg/portal -> internal/portal/publicviewer
+pkg/portal -> internal/portal/reachapi
 pkg/portal -> internal/portal/sessionapi
 pkg/portal -> internal/portal/sharecache
 pkg/portal -> internal/portal/sharelink

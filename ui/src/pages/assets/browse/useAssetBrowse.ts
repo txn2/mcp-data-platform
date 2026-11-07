@@ -1,12 +1,20 @@
 import {
+  useAssetFacets,
   useInfiniteAssets,
-  useInfiniteSharedWithMe,
-  useSearchAssets,
+  useInfiniteSearchAssets,
   useThreadCounts,
 } from "@/api/portal/hooks";
-import type { Asset, ShareSummary } from "@/api/portal/types";
-import { sortRowsBy, timeValue, type AssetSortKey, type ListSort } from "@/components/listSort";
-import { activeSources, loadMoreState, scopeIsLoading } from "@/components/listView";
+import type { AssetQueryFilters } from "@/api/portal/hooks/assets";
+import type {
+  Asset,
+  AssetFacets,
+  FacetCount,
+  PaginatedResponse,
+  ScoredAsset,
+  ShareSummary,
+} from "@/api/portal/types";
+import type { AssetSortKey, ListSort } from "@/components/listSort";
+import { loadMoreState } from "@/components/listView";
 import type { Scope } from "@/components/ScopeFilter";
 import { useDebounced } from "@/lib/useDebounced";
 import type { DisplayAsset } from "./types";
@@ -17,22 +25,25 @@ export interface AssetBrowseFilters {
   search: string;
   contentType: string;
   tag: string;
+  /** Owner addresses an asset must have one of: the Author filter. */
+  owners: string[];
   sort: ListSort<AssetSortKey>;
 }
 
 export interface AssetBrowse {
-  /** The rows to render, after scope selection and client-side filtering. */
+  /** The rows to render, in the server's order. */
   displayItems: DisplayAsset[];
   assets: Asset[];
   threadCounts?: Record<string, number>;
   shareSummaries?: Record<string, ShareSummary>;
-  /** The server's count of the caller's own assets, once the first page lands. */
+  /** The server's count of every row the scope, query and filters cover. */
   total?: number;
+  /** The tags and authors of the assets the scope and filters cover. */
+  tagFacets: FacetCount[];
+  authorFacets: FacetCount[];
   isLoadingList: boolean;
-  /** Whether the debounced query is non-empty. */
+  /** Whether the debounced query is non-empty; it is ranked by relevance. */
   searching: boolean;
-  /** Whether that query is being answered by relevance ranking. */
-  semanticSearch: boolean;
   /** The debounced, trimmed query — what the result copy quotes back. */
   query: string;
   canLoadMore: boolean;
@@ -43,48 +54,35 @@ export interface AssetBrowse {
 /**
  * useAssetBrowse resolves the Assets list for one set of filters.
  *
- * Three sources feed it and the active scope decides which: browse (the
- * caller's own assets, filtered server-side), relevance search (own assets
- * only), and shared-with-me. Browse and shared paginate; relevance search
- * returns a ranked top-K with no further pages.
+ * Every scope, the search and every filter run on the server over exactly the
+ * assets the caller can open (#2500): a listing pages in the chosen order, a
+ * search pages by relevance, and both report the count of all their rows. The
+ * caller's permission on each row they do not own comes back with the page.
  */
 export function useAssetBrowse({
   scope,
   search,
   contentType,
   tag,
+  owners,
   sort,
 }: AssetBrowseFilters): AssetBrowse {
   const debouncedSearch = useDebounced(search, 300);
   const query = debouncedSearch.trim();
   const searching = query.length > 0;
-  // Semantic ranking only covers the caller's own assets; in shared/all scopes
-  // the search box falls back to client-side name/description matching.
-  const semanticSearch = searching && scope === "mine";
 
-  const mineQuery = useInfiniteAssets(serverFilters(scope, contentType, tag, sort));
-  const { data, isLoading } = mineQuery;
-  const searchResults = useSearchAssets(semanticSearch ? debouncedSearch : "");
-  const sharedQuery = useInfiniteSharedWithMe();
-  const { data: sharedData, isLoading: sharedLoading } = sharedQuery;
+  const filters = queryFilters(scope, owners, contentType, tag);
+  // The listing stays mounted while a search runs, so clearing the box returns
+  // to the page already loaded.
+  const listQuery = useInfiniteAssets({ ...filters, sort: sort.key, dir: sort.dir });
+  const searchQuery = useInfiniteSearchAssets(searching ? query : "", filters);
+  const facets = useAssetFacets(filters);
 
-  const items = mergeScope(
-    scope,
-    semanticSearch ? rankedAssets(searchResults.data) : browsedAssets(data),
-    sharedAssets(sharedData),
-  );
-  // The mine scope is already filtered, ordered, and ranked server-side; the
-  // merged scopes are two paginated queries stitched together here, so they
-  // filter and order the rows loaded so far themselves.
-  const displayItems =
-    scope === "mine"
-      ? items
-      : sortAssets(
-          items.filter((it) => matchesClientFilters(it.asset, { query, contentType, tag })),
-          sort,
-        );
+  const active = searching ? searchQuery : listQuery;
+  const assets = searching ? rankedRows(searchQuery.data) : (listQuery.data?.data ?? []);
+  const page = active.data as PaginatedResponse<unknown> | undefined;
+  const displayItems = assets.map((asset) => describe(asset, page?.permissions));
 
-  const assets = displayItems.map((it) => it.asset);
   const { data: threadCounts } = useThreadCounts(
     "asset",
     assets.map((a) => a.id),
@@ -94,101 +92,46 @@ export function useAssetBrowse({
     displayItems,
     assets,
     threadCounts,
-    shareSummaries: data?.share_summaries,
-    total: data?.total,
-    isLoadingList: scopeIsLoading({
-      scope,
-      semanticSearch,
-      searchLoading: searchResults.isLoading,
-      mineLoading: isLoading,
-      sharedLoading,
-    }),
+    shareSummaries: page?.share_summaries,
+    total: page?.total,
+    ...facetLists(facets.data),
+    isLoadingList: active.isLoading,
     searching,
-    semanticSearch,
     query,
-    ...loadMoreState(activeSources(scope, semanticSearch, mineQuery, sharedQuery)),
+    ...loadMoreState([active]),
   };
 }
 
-/**
- * The browse query's server-side parameters. The facets only apply to the
- * caller's own assets, so the wider scopes send none and filter the merged set
- * themselves. The ordering does travel in the All scope, because that scope
- * draws its owned half from this query and would otherwise page through it in
- * one order while displaying another. The Shared scope discards this query's
- * rows entirely, so it sends nothing and its key stays put.
- */
-function serverFilters(scope: Scope, contentType: string, tag: string, sort: ListSort<AssetSortKey>) {
-  if (scope === "shared") return {};
-  const order = { sort: sort.key, dir: sort.dir };
-  if (scope === "all") return order;
-  return { content_type: contentType || undefined, tag: tag || undefined, ...order };
+/** The server-side filters, with the unset ones left out. */
+function queryFilters(
+  scope: Scope,
+  owners: string[],
+  contentType: string,
+  tag: string,
+): AssetQueryFilters {
+  return {
+    scope,
+    owners: owners.length > 0 ? owners : undefined,
+    content_type: contentType || undefined,
+    tag: tag || undefined,
+  };
 }
 
-/** The merged scopes' own ordering, over the rows loaded so far. */
-function sortAssets(items: DisplayAsset[], sort: ListSort<AssetSortKey>): DisplayAsset[] {
-  return sortRowsBy(items, sort.dir, (it) => assetSortValue(it.asset, sort.key), (it) => it.asset.id);
-}
-
-function assetSortValue(a: Asset, key: AssetSortKey): string | number {
-  switch (key) {
-    case "name":
-      return (a.name ?? "").toLowerCase();
-    case "size_bytes":
-      return a.size_bytes ?? 0;
-    case "created_at":
-      return timeValue(a.created_at);
-    default:
-      return timeValue(a.updated_at);
-  }
-}
-
-type SearchData = ReturnType<typeof useSearchAssets>["data"];
-type BrowseData = ReturnType<typeof useInfiniteAssets>["data"];
-type SharedData = ReturnType<typeof useInfiniteSharedWithMe>["data"];
-
-function rankedAssets(data: SearchData): Asset[] {
+function rankedRows(data: PaginatedResponse<ScoredAsset> | undefined): Asset[] {
   return (data?.data ?? []).map((s) => s.asset);
 }
 
-function browsedAssets(data: BrowseData): Asset[] {
-  return data?.data ?? [];
+function facetLists(data: AssetFacets | undefined): { tagFacets: FacetCount[]; authorFacets: FacetCount[] } {
+  return { tagFacets: data?.tags ?? [], authorFacets: data?.authors ?? [] };
 }
 
-function sharedAssets(data: SharedData): DisplayAsset[] {
-  return (data?.data ?? []).map((s) => ({
-    asset: s.asset,
-    share: { shared_by: s.shared_by, permission: s.permission, shared_at: s.shared_at },
-  }));
-}
-
-/** The rows the scope draws from, with owned items winning a duplicate id. */
-function mergeScope(scope: Scope, mine: Asset[], shared: DisplayAsset[]): DisplayAsset[] {
-  if (scope === "mine") return mine.map((asset) => ({ asset }));
-  if (scope === "shared") return shared;
-  const mineIds = new Set(mine.map((a) => a.id));
-  return [...mine.map((asset) => ({ asset })), ...shared.filter((s) => !mineIds.has(s.asset.id))];
-}
-
-function matchesClientFilters(
-  a: Asset,
-  { query, contentType, tag }: { query: string; contentType: string; tag: string },
-): boolean {
-  return matchesText(a, query) && matchesType(a, contentType) && matchesTag(a, tag);
-}
-
-function matchesText(a: Asset, query: string): boolean {
-  if (!query) return true;
-  const q = query.toLowerCase();
-  return (a.name ?? "").toLowerCase().includes(q) || (a.description ?? "").toLowerCase().includes(q);
-}
-
-function matchesType(a: Asset, contentType: string): boolean {
-  return !contentType || a.content_type === contentType;
-}
-
-function matchesTag(a: Asset, tag: string): boolean {
-  if (!tag) return true;
-  const t = tag.toLowerCase();
-  return (a.tags ?? []).some((x) => x.toLowerCase().includes(t));
+/**
+ * A row for display. A row the caller does not own carries the permission a
+ * share gives them and its owner, which is who the grid names as having
+ * shared it.
+ */
+function describe(asset: Asset, permissions: PaginatedResponse<unknown>["permissions"]): DisplayAsset {
+  const permission = permissions?.[asset.id];
+  if (!permission) return { asset };
+  return { asset, share: { shared_by: asset.owner_email || asset.owner_id, permission } };
 }

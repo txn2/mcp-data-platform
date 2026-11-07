@@ -19,6 +19,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/reachstore"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
@@ -1228,6 +1229,7 @@ func (s *postgresShareStore) shareSummariesByTarget(ctx context.Context, targetT
 func (s *postgresShareStore) GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (portaldomain.SharePermission, error) { //nolint:revive // interface impl
 	query := `
 		SELECT ps.permission FROM portal_shares ps
+		JOIN portal_collections pc ON pc.id = ps.collection_id AND pc.deleted_at IS NULL
 		JOIN portal_collection_sections cs ON cs.collection_id = ps.collection_id
 		JOIN portal_collection_items ci ON ci.section_id = cs.id
 		WHERE ci.asset_id = $1
@@ -1438,24 +1440,7 @@ func producedByPredicate(targetKind, idColumn string, p portaldomain.ContentProd
 // because addresses reach the platform from several identity providers, and it
 // is index-backed by idx_portal_assets_owner_email_lower (migration 000133).
 func assetOwnerPredicate(owner portaldomain.AssetOwner) sq.Sqlizer {
-	arms := owner.Arms()
-	byEmail := sq.Expr("LOWER(owner_email) = LOWER(?)", arms.Email)
-	byID := sq.Eq{colOwnerID: arms.UserID}
-	switch {
-	case arms.UserID == "" && arms.Email == "":
-		// An identity naming nobody matches nothing. Callers scope the
-		// listing before they get here (applyAssetFilter asks nothing of the
-		// store for an unidentified owner, which is the administrator's
-		// all-owners listing); this is what keeps the two apart if one ever
-		// does not.
-		return sq.Expr("FALSE")
-	case arms.UserID == "":
-		return byEmail
-	case arms.Email == "":
-		return byID
-	default:
-		return sq.Or{byID, byEmail}
-	}
+	return reachstore.OwnerPredicate(owner)
 }
 
 // filterTags is every tag a listing names: the single tag and the repeated
@@ -1471,8 +1456,20 @@ func filterTags(filter portaldomain.AssetFilter) []string {
 }
 
 func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.SelectBuilder {
-	if filter.Owner.Identified() {
+	switch {
+	case filter.Reach != nil:
+		// A reach replaces the owner scope: its mine scope is the owner
+		// scope, and an unidentified reach matches nothing rather than
+		// falling through to the administrator's every-owner listing.
+		qb = qb.Where(reachstore.AssetPredicate(filter.Reach))
+	case filter.Owner.Identified():
 		qb = qb.Where(assetOwnerPredicate(filter.Owner))
+	}
+	if len(filter.Owners) > 0 {
+		qb = qb.Where(reachstore.OwnersPredicate(colOwnerEmail, filter.Owners))
+	}
+	if filter.IDs != nil {
+		qb = qb.Where(sq.Expr("portal_assets.id = ANY(?)", pq.Array(filter.IDs)))
 	}
 	if filter.ProducedBy.Named() {
 		qb = qb.Where(producedByPredicate(producedby.TargetAsset, "portal_assets.id", filter.ProducedBy))
