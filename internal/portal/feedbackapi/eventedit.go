@@ -310,7 +310,7 @@ func (h *Handler) undoStatusChange(w http.ResponseWriter, r *http.Request) {
 	restored, err := undoer.UndoStatusChange(r.Context(), threads.StatusUndo{
 		ThreadID: thread.ID, EventID: eventID, ActorID: user.UserID, ActorEmail: user.Email, Now: now(),
 	})
-	h.auditThread(r, user, map[string]any{auditKeyAction: "undo_status", auditKeyThread: thread.ID, "event_id": eventID}, err)
+	h.auditThread(r, user, "undo_status", map[string]any{auditKeyThread: thread.ID, "event_id": eventID}, err)
 	if err != nil {
 		writeUndoError(w, err)
 		return
@@ -337,13 +337,14 @@ func writeUndoError(w http.ResponseWriter, err error) {
 // parameters name the thread and the statuses, never text. A change an agent
 // made through manage_feedback is served in process and already audited as
 // that call.
-func (h *Handler) auditThread(r *http.Request, user *access.User, params map[string]any, opErr error) {
+func (h *Handler) auditThread(r *http.Request, user *access.User, action string, params map[string]any, opErr error) {
 	if h.cfg.Audit == nil {
 		return
 	}
 	if _, viaTool := selfcall.From(r.Context()); viaTool {
 		return
 	}
+	params[auditKeyAction] = action
 	ev := middleware.AuditEvent{
 		ID: audit.NewEventID(), Timestamp: time.Now().UTC(), ToolName: feedbackToolName,
 		Source: auditSourcePortal, Transport: "http", Authorized: true, Success: opErr == nil,
@@ -356,7 +357,7 @@ func (h *Handler) auditThread(r *http.Request, user *access.User, params map[str
 		ev.ErrorMessage = opErr.Error()
 	}
 	if err := h.cfg.Audit.Log(r.Context(), ev); err != nil {
-		slog.Warn("feedback audit failed", auditKeyAction, params[auditKeyAction], // #nosec G706 -- structured slog call; error sanitized
+		slog.Warn("feedback audit failed", auditKeyAction, action, // #nosec G706 -- structured slog call; error sanitized
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }
