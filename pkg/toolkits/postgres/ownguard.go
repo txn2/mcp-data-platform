@@ -25,7 +25,7 @@ var ErrPlatformDatabase = errors.New("postgres: this connection reaches the plat
 // connection's database is the platform's, whatever host name, address,
 // port or pooler led here. A single-key advisory lock appears with the key's
 // high 32 bits in classid, its low 32 bits in objid, and objsubid 1.
-const ownQuery = `SELECT EXISTS (
+const ownQuery = `/* mcp-data-platform */ SELECT EXISTS (
   SELECT 1 FROM pg_catalog.pg_locks l
   JOIN pg_catalog.pg_database d ON d.oid = l.database
   WHERE l.locktype = 'advisory' AND l.granted

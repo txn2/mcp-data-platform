@@ -114,15 +114,15 @@ type Domain struct {
 	Checks   []string `json:"checks"`
 }
 
-const describeServerSQL = `SELECT current_setting('server_version'), current_setting('server_version_num')::int / 10000`
+const describeServerSQL = `/* mcp-data-platform */ SELECT current_setting('server_version'), current_setting('server_version_num')::int / 10000`
 
-const describeExtensionsSQL = `SELECT e.extname, e.extversion, n.nspname
+const describeExtensionsSQL = `/* mcp-data-platform */ SELECT e.extname, e.extversion, n.nspname
 FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace ORDER BY e.extname`
 
-const describeAvailableSQL = `SELECT name, COALESCE(default_version, ''), COALESCE(comment, '')
+const describeAvailableSQL = `/* mcp-data-platform */ SELECT name, COALESCE(default_version, ''), COALESCE(comment, '')
 FROM pg_available_extensions WHERE installed_version IS NULL ORDER BY name`
 
-const describeFunctionsSQL = `SELECT p.proname, pg_get_function_identity_arguments(p.oid),
+const describeFunctionsSQL = `/* mcp-data-platform */ SELECT p.proname, pg_get_function_identity_arguments(p.oid),
 COALESCE(pg_get_function_result(p.oid), ''), p.prokind::text, l.lanname, p.provolatile::text, p.prosecdef,
 COALESCE((SELECT substr(cfg, 13) FROM unnest(p.proconfig) cfg WHERE cfg LIKE 'search_path=%' LIMIT 1), ''),
 COALESCE(NULLIF(p.prosrc, ''), pg_get_function_sqlbody(p.oid), '')
@@ -131,33 +131,33 @@ WHERE n.nspname = $1 AND p.prokind IN ('f', 'p')
 AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
 ORDER BY p.proname, 2`
 
-const describeTriggersSQL = `SELECT c.relname, t.tgname, t.tgtype::int, t.tgenabled::text, fn.nspname || '.' || p.proname,
+const describeTriggersSQL = `/* mcp-data-platform */ SELECT c.relname, t.tgname, t.tgtype::int, t.tgenabled::text, fn.nspname || '.' || p.proname,
 COALESCE(substring(pg_get_triggerdef(t.oid) FROM 'WHEN \((.*)\) EXECUTE'), ''), pg_get_triggerdef(t.oid)
 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_proc p ON p.oid = t.tgfoid JOIN pg_namespace fn ON fn.oid = p.pronamespace
 WHERE n.nspname = $1 AND NOT t.tgisinternal ORDER BY c.relname, t.tgname`
 
-const describeViewsSQL = `SELECT c.relname, pg_get_viewdef(c.oid, true), COALESCE(c.reloptions, '{}')
+const describeViewsSQL = `/* mcp-data-platform */ SELECT c.relname, pg_get_viewdef(c.oid, true), COALESCE(c.reloptions, '{}')
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relkind IN ('v', 'm') ORDER BY c.relname`
 
-const describePoliciesSQL = `SELECT tablename, policyname, cmd, COALESCE(roles::text[], '{}'), permissive = 'PERMISSIVE',
+const describePoliciesSQL = `/* mcp-data-platform */ SELECT tablename, policyname, cmd, COALESCE(roles::text[], '{}'), permissive = 'PERMISSIVE',
 COALESCE(qual, ''), COALESCE(with_check, '')
 FROM pg_policies WHERE schemaname = $1 ORDER BY tablename, policyname`
 
-const describePartitionsSQL = `SELECT parent.relname,
+const describePartitionsSQL = `/* mcp-data-platform */ SELECT parent.relname,
 CASE WHEN cn.nspname = $1 THEN child.relname ELSE cn.nspname || '.' || child.relname END,
 pg_get_expr(child.relpartbound, child.oid)
 FROM pg_inherits i JOIN pg_class parent ON parent.oid = i.inhparent JOIN pg_class child ON child.oid = i.inhrelid
 JOIN pg_namespace n ON n.oid = parent.relnamespace JOIN pg_namespace cn ON cn.oid = child.relnamespace
 WHERE n.nspname = $1 AND parent.relkind = 'p' ORDER BY parent.relname, 2`
 
-const describeEnumsSQL = `SELECT t.typname, e.enumlabel
+const describeEnumsSQL = `/* mcp-data-platform */ SELECT t.typname, e.enumlabel
 FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid JOIN pg_namespace n ON n.oid = t.typnamespace
 WHERE n.nspname = $1 AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = t.oid AND d.deptype = 'e')
 ORDER BY t.typname, e.enumsortorder`
 
-const describeDomainsSQL = `SELECT t.typname, format_type(t.typbasetype, t.typtypmod), NOT t.typnotnull, COALESCE(t.typdefault, ''),
+const describeDomainsSQL = `/* mcp-data-platform */ SELECT t.typname, format_type(t.typbasetype, t.typtypmod), NOT t.typnotnull, COALESCE(t.typdefault, ''),
 COALESCE(ARRAY(SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c WHERE c.contypid = t.oid AND c.contype = 'c' ORDER BY c.conname), '{}')
 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
 WHERE n.nspname = $1 AND t.typtype = 'd' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = t.oid AND d.deptype = 'e')

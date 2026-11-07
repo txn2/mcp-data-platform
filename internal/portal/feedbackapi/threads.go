@@ -450,7 +450,13 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.cfg.Threads.UpdateThread(r.Context(), thread.ID, threads.ThreadUpdate(req), user.UserID, user.Email); err != nil {
+	err := h.cfg.Threads.UpdateThread(r.Context(), thread.ID, threads.ThreadUpdate(req), user.UserID, user.Email)
+	if req.Status != nil && *req.Status != thread.Status {
+		h.auditThread(r, user, map[string]any{
+			auditKeyAction: "status", auditKeyThread: thread.ID, "old_status": thread.Status, "new_status": *req.Status,
+		}, err)
+	}
+	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to update thread")
 		return
 	}

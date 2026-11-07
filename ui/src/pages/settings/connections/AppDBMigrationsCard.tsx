@@ -191,6 +191,8 @@ export function AppDBMigrationsCard({ connectionName }: { connectionName: string
 
   return (
     <SectionCard
+      id="appdb-migrations"
+      className="scroll-mt-4"
       title="Migrations"
       collapsible
       summary={data ? `version ${data.current_version}, ${pending} pending` : undefined}

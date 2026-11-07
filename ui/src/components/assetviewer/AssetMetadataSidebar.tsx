@@ -15,6 +15,7 @@ import { assetSubject } from "@/lib/thumbnailSubject";
 import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
 import { ThumbnailPanel } from "@/components/thumbnail/ThumbnailPanel";
+import { PeopleSection } from "./PeopleSection";
 import { ReferencesPanel } from "./ReferencesPanel";
 import { ProducersPanel } from "@/components/producers/ProducersPanel";
 import { UsedByAssets } from "@/components/references/UsedByAssets";
@@ -151,6 +152,8 @@ export function AssetMetadataSidebar({
               <SessionRow sessionId={asset.session_id} onOpen={openSession} />
             </dl>
           </div>
+
+          <PeopleSection assetId={asset.id} />
 
           {asset.tags.length > 0 && (
             <div className="space-y-2">

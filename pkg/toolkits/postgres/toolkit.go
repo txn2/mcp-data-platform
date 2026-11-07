@@ -403,7 +403,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 		return connprobe.Failure(fmt.Sprintf("connection %q is not served by this toolkit", name), nil)
 	}
 	var version, database, user string
-	err := c.pool.QueryRow(ctx, "SELECT current_setting('server_version'), current_database(), current_user").
+	err := c.pool.QueryRow(ctx, "/* mcp-data-platform */ SELECT current_setting('server_version'), current_database(), current_user").
 		Scan(&version, &database, &user)
 	observe(name, err)
 	if old, ok := tooOld(err); ok {

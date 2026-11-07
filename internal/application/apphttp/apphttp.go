@@ -56,6 +56,10 @@ type Config struct {
 	// caller reaches and their schemas (#2491); nil leaves the route
 	// unmounted.
 	Databases func(r *http.Request, actor application.Actor) []DatabaseChoice
+	// ViewAsset reports whether a request's caller opens an asset, which an
+	// asset part's name is told only to (#2527); nil tells it to no one but
+	// administrators.
+	ViewAsset appsvc.AssetViewer
 }
 
 // DatabasesPath is the route the New application dialog fills its
@@ -107,6 +111,7 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 	mux.Handle("PATCH "+Prefix+"/{app}", wrap(http.HandlerFunc(h.update)))
 	mux.Handle("DELETE "+Prefix+"/{app}", wrap(http.HandlerFunc(h.remove)))
 	mux.Handle("POST "+Prefix+"/{app}/parts", wrap(http.HandlerFunc(h.addPart)))
+	mux.Handle("GET "+Prefix+"/{app}/candidates", wrap(http.HandlerFunc(h.candidates)))
 	mux.Handle("DELETE "+Prefix+"/{app}/parts/{kind}/{id}", wrap(http.HandlerFunc(h.removePart)))
 	mux.Handle("POST "+Prefix+"/{app}/release", wrap(http.HandlerFunc(h.release)))
 	mux.Handle("POST "+Prefix+"/{app}/rollback", wrap(http.HandlerFunc(h.rollback)))
@@ -305,16 +310,20 @@ type (
 	}
 )
 
-// detail is an application's page: where it stands and its releases.
+// detail is an application's page: where it stands, each part as the
+// caller reads it, and its releases.
 type detail struct {
 	*appsvc.Status
+	// Parts is each part with its name and the facts its row describes,
+	// in the order application.parts lists them (#2527).
+	Parts    []appsvc.PartView     `json:"parts"`
 	Releases []application.Release `json:"releases"`
 }
 
 // get answers an application's page.
 //
 // @Summary      Read an application
-// @Description  An application by name or id: its parts, its current release, what a release now would change (pending), where its schema's migrations stand, the parts a release would refuse (problems), and its releases newest first with what each changed.
+// @Description  An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), its current release, what a release now would change (pending), where its schema's migrations stand, the parts a release would refuse (problems), and its releases newest first with what each changed.
 // @Param        app  path  string  true  "Application name or id"
 // @Success      200  {object}  detail
 // @Tags         Applications
@@ -329,7 +338,8 @@ type detail struct {
 // @Security     BearerAuth
 // @Router       /portal/applications/{app} [get]
 func (h *handler) get(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.actor(w, r); !ok {
+	actor, ok := h.actor(w, r)
+	if !ok {
 		return
 	}
 	st, err := h.cfg.Service.StatusOf(r.Context(), r.PathValue(pathApp))
@@ -337,8 +347,41 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 		h.answer(w, nil, err)
 		return
 	}
+	parts := h.cfg.Service.Describe(r.Context(), actor, st.Application.Parts, h.cfg.ViewAsset)
 	rels, err := h.cfg.Service.Store.Releases(r.Context(), st.Application.ID)
-	h.answer(w, detail{Status: st, Releases: rels}, err)
+	h.answer(w, detail{Status: st, Parts: parts, Releases: rels}, err)
+}
+
+// candidates answers the parts the caller may add to an application.
+//
+// @Summary      Search parts to add to an application
+// @Description  The scripts and assets the caller owns (every one for an administrator) and, for an administrator, the webhook sources, whose name contains q, at most 50 of each kind. A part already in this application is left out; one in another application carries that application, and adding it is refused. kind (script, asset, source) narrows the list; counts are for every kind. For the application's owner and administrators.
+// @Param        app   path   string  true   "Application name or id"
+// @Param        q     query  string  false  "Text the name contains"
+// @Param        kind  query  string  false  "script, asset or source"
+// @Success      200  {object}  appsvc.Candidates
+// @Tags         Applications
+// @Produce      json
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      422  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/applications/{app}/candidates [get]
+func (h *handler) candidates(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	kind := r.URL.Query().Get("kind")
+	if kind != "" && !application.ValidKind(kind) {
+		h.answer(w, nil, &appsvc.RefusedError{Msg: "kind: one of script, asset, source"})
+		return
+	}
+	out, err := h.cfg.Service.FindCandidates(r.Context(), actor, r.PathValue(pathApp), r.URL.Query().Get("q"), kind)
+	h.answer(w, out, err)
 }
 
 // update writes the description and, for an administrator, the owner.

@@ -1,27 +1,21 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useThread,
   useThreadEvents,
-  useAppendThreadEvent,
+  useUndoStatusChange,
   useUpdateThread,
   useDeleteThread,
 } from "@/api/portal/hooks";
-import type { Thread, ThreadStatus } from "@/api/portal/types";
+import type { Thread, ThreadEvent, ThreadStatus } from "@/api/portal/types";
 import { useAuthStore } from "@/stores/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { MentionTextarea } from "./MentionTextarea";
+import { ShareToast, useShareToast } from "@/components/share/ShareToast";
 import { targetOfThread } from "./targetFilter";
-import { STATUS_LABEL, MODERATION_STATUSES } from "./meta";
+import { STATUS_LABEL } from "./meta";
 import { CaptureInsightPanel } from "./thread/CaptureInsightPanel";
 import { KnowledgeChainPanel } from "./thread/KnowledgeChainPanel";
+import { ReplyComposer } from "./thread/ReplyComposer";
+import { StatusMenu, undoableStatusEvent } from "./thread/StatusMenu";
 import { ThreadHeader, ThreadSubject } from "./thread/ThreadHeader";
 import { ThreadTimeline } from "./thread/ThreadTimeline";
 import { ValidationPanel } from "./thread/ValidationPanel";
@@ -65,30 +59,78 @@ function offersCapture(thread: Thread, canApply: boolean): boolean {
   return thread.kind === "correction" || thread.kind === "suggestion";
 }
 
+/** useNow ticks every 15 seconds so an Undo goes away when its window ends. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
+
+/**
+ * useStatusChange changes a thread's status and offers its Undo (#2532): a
+ * notice saying what changed with an Undo, and the same Undo on the line the
+ * change wrote, while the server would still allow it.
+ */
+function useStatusChange(threadId: string, events: ThreadEvent[] | undefined) {
+  const update = useUpdateThread();
+  const undo = useUndoStatusChange();
+  const latestEvents = useRef(events);
+  latestEvents.current = events;
+  const myEmail = useAuthStore((s) => s.user?.email ?? "");
+  const toast = useShareToast();
+  const now = useNow();
+  const undoableId = undoableStatusEvent(events, myEmail, now)?.id ?? null;
+  const undoLatest = useCallback(() => {
+    // The notice's Undo names no event: it takes back the newest change of
+    // the reader's, read from the timeline as it now stands.
+    const latest = undoableStatusEvent(latestEvents.current, myEmail, Date.now());
+    if (latest) undo.mutate({ threadId, eventId: latest.id });
+  }, [threadId, myEmail, undo]);
+  const change = (status: ThreadStatus) =>
+    update.mutate(
+      { id: threadId, status },
+      { onSuccess: () => toast.show(`Status set to ${STATUS_LABEL[status]}`, undoLatest) },
+    );
+  return { update, undo, toast, undoableId, change };
+}
+
 export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props) {
   const { data: thread } = useThread(threadId);
   const { data: events, isLoading } = useThreadEvents(threadId);
-  const update = useUpdateThread();
   const del = useDeleteThread();
   const { isAuthor, mayModerate, canApply } = useThreadPermissions(thread, canModerate);
   const isAdmin = useAuthStore((s) => s.user?.is_admin === true);
+  const status = useStatusChange(threadId, events);
 
   if (!thread) {
     return <div className="p-4 text-sm text-muted-foreground">Loading…</div>;
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <ThreadHeader
         thread={thread}
         mayModerate={mayModerate}
         deleting={del.isPending}
         onBack={onBack}
         onDelete={() => del.mutate(threadId, { onSuccess: onDeleted })}
+        statusControl={
+          mayModerate ? (
+            <StatusMenu status={thread.status} disabled={status.update.isPending} onChange={status.change} />
+          ) : undefined
+        }
       />
       {del.isError && (
         <Alert variant="destructive" className="rounded-none border-x-0 border-t-0">
           <AlertDescription>Failed to delete this thread.</AlertDescription>
+        </Alert>
+      )}
+      {status.undo.isError && (
+        <Alert variant="destructive" className="rounded-none border-x-0 border-t-0">
+          <AlertDescription>{status.undo.error.message}</AlertDescription>
         </Alert>
       )}
 
@@ -110,85 +152,13 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
         threadId={threadId}
         target={targetOfThread(thread)}
         canRemoveAny={canModerate || isAdmin}
+        undoableId={status.undoableId}
+        onUndo={(eventId) => status.undo.mutate({ threadId, eventId })}
+        undoing={status.undo.isPending}
       />
 
-      {mayModerate && (
-        <ModerationBar
-          status={thread.status}
-          disabled={update.isPending}
-          onChange={(status) => update.mutate({ id: threadId, status })}
-        />
-      )}
-
-      <ReplyForm threadId={threadId} thread={thread} />
+      <ReplyComposer threadId={threadId} thread={thread} mayResolve={mayModerate} />
+      <ShareToast toast={status.toast.toast} onDismiss={status.toast.dismiss} />
     </div>
-  );
-}
-
-function ModerationBar({
-  status,
-  disabled,
-  onChange,
-}: {
-  status: ThreadStatus;
-  disabled: boolean;
-  onChange: (status: ThreadStatus) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 border-t p-3">
-      <span className="text-xs font-medium text-muted-foreground">Set status</span>
-      <Select
-        value={status}
-        onValueChange={(v) => onChange(v as ThreadStatus)}
-        disabled={disabled}
-      >
-        <SelectTrigger size="sm" aria-label="Set status" className="text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {MODERATION_STATUSES.map((s) => (
-            <SelectItem key={s} value={s}>
-              {STATUS_LABEL[s]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function ReplyForm({ threadId, thread }: { threadId: string; thread: Thread }) {
-  const append = useAppendThreadEvent();
-  const [reply, setReply] = useState("");
-
-  const postReply = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Cmd/Ctrl+Enter submits from the composer, past the disabled button.
-    if (!reply.trim() || append.isPending) return;
-    append.mutate(
-      { threadId, event_type: "comment", body: reply.trim() },
-      { onSuccess: () => setReply("") },
-    );
-  };
-
-  return (
-    <form onSubmit={postReply} className="border-t p-3">
-      <MentionTextarea
-        target={targetOfThread(thread)}
-        value={reply}
-        onChange={setReply}
-        rows={4}
-        placeholder="Reply… type @ to mention someone"
-        aria-label="Reply"
-      />
-      {append.isError && (
-        <p className="mt-1 text-xs text-destructive">Failed to post reply.</p>
-      )}
-      <div className="mt-2 flex justify-end">
-        <Button type="submit" size="sm" disabled={!reply.trim() || append.isPending}>
-          {append.isPending ? "Posting…" : "Reply"}
-        </Button>
-      </div>
-    </form>
   );
 }

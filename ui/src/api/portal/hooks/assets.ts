@@ -19,6 +19,7 @@ import type {
   AssetResponse,
   Share,
   SharedAsset,
+  SharePermission,
   PaginatedResponse,
   ShareResponse,
   ScoredAsset,
@@ -461,6 +462,44 @@ export function useCreateAsset() {
 // useAssetVersions reads an asset's version history. enabled is false for a
 // reader whose access is viewer, who is shown the current version only and
 // whom the route refuses (#2226).
+/** Who is behind an asset (#2531): its owner and the others who wrote a version. */
+export interface AssetPeople {
+  owner: { email: string };
+  contributors: { email: string; versions: number; last_change: string }[];
+}
+
+/** Whom an asset is shared with (#2531): never a token or a link address. */
+export interface AssetShareSummary {
+  total: number;
+  personas: { persona: string; permission: SharePermission }[];
+  people: { email: string; permission: SharePermission; expires_at?: string }[];
+  links: {
+    access_mode: "public" | "authenticated" | "restricted";
+    origin?: string;
+    posted_to?: string;
+    created_by: string;
+    opened: number;
+    expires_at?: string;
+  }[];
+}
+
+export function useAssetPeople(assetId: string) {
+  return useQuery({
+    queryKey: ["asset-people", assetId],
+    queryFn: () => apiFetch<AssetPeople>(`/assets/${encodeURIComponent(assetId)}/people`),
+    enabled: assetId !== "",
+  });
+}
+
+/** The share summary; only fetched for a reader who is not external. */
+export function useAssetShareSummary(assetId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["asset-share-summary", assetId],
+    queryFn: () => apiFetch<AssetShareSummary>(`/assets/${encodeURIComponent(assetId)}/share-summary`),
+    enabled: enabled && assetId !== "",
+  });
+}
+
 export function useAssetVersions(assetId: string, enabled = true) {
   return useQuery({
     queryKey: ["asset-versions", assetId],

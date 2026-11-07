@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -27,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
@@ -35,6 +38,7 @@ import (
 type Assets interface {
 	appsvc.Assets
 	Insert(ctx context.Context, asset portaldomain.Asset) error
+	List(ctx context.Context, filter portaldomain.AssetFilter) ([]portaldomain.Asset, int, error)
 }
 
 // Versions is the portal version store as applications use it.
@@ -80,11 +84,14 @@ func Service(d Deps) *appsvc.Service {
 	if d.DB == nil {
 		return nil
 	}
+	scripts := scriptstore.New(d.DB)
 	svc := &appsvc.Service{
-		Store:   appstore.New(d.DB),
-		Scripts: scriptstore.New(d.DB),
-		Sources: sources{db: d.DB},
-		Schema:  &appschema.Schema{Kit: Kit(d.Toolkits), Store: migrationstore.New(d.DB)},
+		Store:     appstore.New(d.DB),
+		Scripts:   scripts,
+		Sources:   sources{db: d.DB},
+		Schedules: scripts,
+		Activity:  sources{db: d.DB},
+		Schema:    &appschema.Schema{Kit: Kit(d.Toolkits), Store: migrationstore.New(d.DB)},
 		// A connection named at create must be an application database
 		// one (#2491).
 		HasConnection: hasConnection(d.Toolkits),
@@ -96,6 +103,7 @@ func Service(d Deps) *appsvc.Service {
 	if d.AssetVersions != nil {
 		svc.AssetVersions = d.AssetVersions
 	}
+	svc.Lister = lister{scripts: scripts, assets: d.Assets, db: d.DB}
 	return svc
 }
 
@@ -194,4 +202,72 @@ func (s sources) Exists(ctx context.Context, name string) (bool, error) {
 		return false, fmt.Errorf("reading webhook source: %w", err)
 	}
 	return ok, nil
+}
+
+// AcceptedSince counts the requests the webhook source named name accepted
+// since a time, from the per-minute totals the receiver records.
+func (s sources) AcceptedSince(ctx context.Context, name string, since time.Time) (int64, error) {
+	var n int64
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(count), 0) FROM webhook_request_counts
+		WHERE source = $1 AND outcome = 'accepted' AND minute >= $2`, name, since.UTC()).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("reading webhook request counts: %w", err)
+	}
+	return n, nil
+}
+
+// lister reads what the Add parts dialog searches (#2527).
+type lister struct {
+	scripts *scriptstore.Store
+	assets  Assets
+	db      *sql.DB
+}
+
+// ListScripts lists scripts by the filter.
+func (l lister) ListScripts(ctx context.Context, f script.ListFilter) ([]script.Script, error) {
+	out, err := l.scripts.List(ctx, f)
+	if err != nil {
+		return nil, fmt.Errorf("listing scripts: %w", err)
+	}
+	return out, nil
+}
+
+// ListAssets lists assets by the filter, none without an asset store.
+func (l lister) ListAssets(ctx context.Context, f portaldomain.AssetFilter) ([]portaldomain.Asset, int, error) {
+	if l.assets == nil {
+		return nil, 0, nil
+	}
+	out, n, err := l.assets.List(ctx, f)
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing assets: %w", err)
+	}
+	return out, n, nil
+}
+
+// ListSources lists the names of webhook sources containing query, without
+// reading their configuration.
+func (l lister) ListSources(ctx context.Context, query string, limit int) ([]string, error) {
+	rows, err := l.db.QueryContext(ctx, `SELECT name FROM webhook_sources
+		WHERE $1 = '' OR name ILIKE '%' || $1 || '%' ORDER BY name LIMIT $2`, likeEscape(query), limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing webhook sources: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []string{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, fmt.Errorf("listing webhook sources: %w", err)
+		}
+		out = append(out, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing webhook sources: %w", err)
+	}
+	return out, nil
+}
+
+// likeEscape escapes the characters ILIKE reads as patterns.
+func likeEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }

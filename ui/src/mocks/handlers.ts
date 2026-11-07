@@ -1658,6 +1658,19 @@ export const handlers = [
   http.get(`${ADMIN_BASE}/connection-instances/effective`, () => {
     return HttpResponse.json([
       {
+        // An application database (#2404, #2528): its Migrations, Drift and
+        // Health cards read the appdb mocks.
+        kind: "appdb",
+        name: "acme-shop",
+        connection: "acme-shop",
+        description: "The storefront's own database",
+        source: "database",
+        tools: [],
+        config: { host: "shop-db.internal", port: 5432, database: "shop", user: "shop_app", password: "[REDACTED]" },
+        created_by: "sarah.chen@example.com",
+        updated_at: new Date(Date.now() - 3 * 86400000).toISOString(),
+      },
+      {
         kind: "trino",
         name: "acme-warehouse",
         connection: "acme-warehouse",
@@ -2897,6 +2910,35 @@ export const handlers = [
     return HttpResponse.json({ data, total: data.length, limit: 50, offset: 0 });
   }),
 
+  // Who is behind an asset and whom it is shared with (#2531). The summary
+  // carries no token or link address.
+  http.get(`${PORTAL_BASE}/assets/:id/people`, ({ params }) => {
+    const versions = versionsForAsset(params.id as string);
+    const byWho = new Map<string, { email: string; versions: number; last_change: string }>();
+    for (const v of versions) {
+      if (!v.created_by || v.created_by === "sarah.chen@example.com") continue;
+      const c = byWho.get(v.created_by) ?? { email: v.created_by, versions: 0, last_change: v.created_at };
+      c.versions += 1;
+      if (v.created_at > c.last_change) c.last_change = v.created_at;
+      byWho.set(v.created_by, c);
+    }
+    return HttpResponse.json({
+      owner: { email: "sarah.chen@example.com" },
+      contributors: [...byWho.values()].sort((a, b) => b.last_change.localeCompare(a.last_change)),
+    });
+  }),
+  http.get(`${PORTAL_BASE}/assets/:id/share-summary`, () =>
+    HttpResponse.json({
+      total: 4,
+      personas: [{ persona: "finance", permission: "viewer" }],
+      people: [
+        { email: "j.martinez@example.com", permission: "editor" },
+        { email: "alex.kim@example.com", permission: "viewer", expires_at: "2025-12-01T00:00:00Z" },
+      ],
+      links: [{ access_mode: "public", origin: "explicit", created_by: "sarah.chen@example.com", opened: 41 }],
+    }),
+  ),
+
   // Content of a specific asset version (viewing an older version read-only).
   http.get(`${PORTAL_BASE}/assets/:id/versions/:version/content`, ({ params }) => {
     const versions = versionsForAsset(params.id as string);
@@ -2969,6 +3011,23 @@ export const handlers = [
     return HttpResponse.json({ event_id: evt.id, deleted: true, thread_deleted: false });
   }),
 
+  // Undo a status change (#2532): the status it replaced is restored and its
+  // line removed.
+  http.post(`${PORTAL_BASE}/threads/:id/events/:eventId/undo`, ({ params }) => {
+    const id = params.id as string;
+    const events = portalThreadEvents[id] ?? [];
+    const evt = events.find((e) => e.id === params.eventId);
+    const thread = portalThreads.find((t) => t.id === id);
+    if (!evt || !thread) return HttpResponse.json({ detail: "message not found" }, { status: 404 });
+    if (evt.event_type !== "status_change" && evt.event_type !== "resolution") {
+      return HttpResponse.json({ detail: "only a status change can be undone" }, { status: 409 });
+    }
+    const previous = (evt.metadata?.["old_status"] as typeof thread.status | undefined) ?? "open";
+    portalThreadEvents[id] = events.filter((e) => e.id !== evt.id);
+    thread.status = previous;
+    return HttpResponse.json({ thread_id: id, status: previous });
+  }),
+
   http.get(`${PORTAL_BASE}/threads/:id`, ({ params }) => {
     const thread = portalThreads.find((t) => t.id === params.id && !t.deleted_at);
     if (!thread) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
@@ -2979,7 +3038,24 @@ export const handlers = [
     const thread = portalThreads.find((t) => t.id === params.id);
     if (!thread) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     const body = (await request.json()) as Record<string, unknown>;
-    if (typeof body.status === "string") thread.status = body.status as typeof thread.status;
+    if (typeof body.status === "string" && body.status !== thread.status) {
+      // A status change writes its line, as the server does (#2532).
+      const id = thread.id;
+      const closes = body.status === "resolved" || body.status === "wont_fix";
+      portalThreadEvents[id] = [
+        ...(portalThreadEvents[id] ?? []),
+        {
+          id: `evt-${id}-status-${Date.now()}`,
+          thread_id: id,
+          event_type: closes ? "resolution" : "status_change",
+          author_id: "sarah.chen@example.com",
+          author_email: "sarah.chen@example.com",
+          metadata: { old_status: thread.status, new_status: body.status },
+          created_at: new Date().toISOString(),
+        } as (typeof portalThreadEvents)[string][number],
+      ];
+      thread.status = body.status as typeof thread.status;
+    }
     if (typeof body.requires_resolution === "boolean") thread.requires_resolution = body.requires_resolution;
     thread.updated_at = new Date().toISOString();
     return HttpResponse.json(thread);

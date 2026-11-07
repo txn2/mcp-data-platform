@@ -45,9 +45,52 @@ export interface AppDBSession {
   query: string;
 }
 
+/** The level of a finding: an alert threshold's, or info for advice (#2528). */
+export type AppDBFindingLevel = "critical" | "warning" | "info";
+
+/**
+ * One thing the Health card names (#2528): a condition past its alert
+ * threshold, or advice no alert is posted for. A session's text is joined
+ * from sessions by pid.
+ */
+export interface AppDBFinding {
+  kind:
+    | "transaction_id_age"
+    | "idle_in_transaction"
+    | "connections"
+    | "invalid_index"
+    | "dead_tuples"
+    | "unused_index"
+    | "duplicate_index"
+    | "blocking"
+    | "long_running";
+  level: AppDBFindingLevel;
+  title: string;
+  detail: string;
+  value: number;
+  threshold?: number;
+  table?: string;
+  index?: string;
+  pid?: number;
+}
+
+/** One statement pg_stat_statements ranks, the application's own. */
+export interface AppDBStatement {
+  query_id: string;
+  calls: number;
+  total_ms: number;
+  mean_ms: number;
+  max_ms: number;
+  rows: number;
+  query: string;
+}
+
 export interface AppDBHealthReport {
   connection: string;
   generated_at: string;
+  /** The report judged against the alert thresholds (#2528). */
+  status?: "healthy" | "warning" | "critical";
+  findings: AppDBFinding[];
   server: {
     version: string;
     version_num: number;
@@ -72,7 +115,9 @@ export interface AppDBHealthReport {
   statements: {
     installed: boolean;
     note?: string;
-    top: { query_id: string; calls: number; total_ms: number; mean_ms: number; rows: number; query: string }[];
+    top: AppDBStatement[];
+    /** Statements of other roles whose text the connection cannot read. */
+    hidden_other_roles: number;
   };
   errors: { section: string; error: string }[];
 }

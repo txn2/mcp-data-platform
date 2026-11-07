@@ -34,7 +34,7 @@ type Plan struct {
 
 // planChangesSQL reads the relations and columns whose catalog rows the
 // current transaction wrote: what its DDL created or altered.
-const planChangesSQL = `SELECT n.nspname || '.' || c.relname AS object FROM pg_class c
+const planChangesSQL = `/* mcp-data-platform */ SELECT n.nspname || '.' || c.relname AS object FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE c.xmin::text = (txid_current() % 4294967296)::text AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
 UNION
@@ -46,7 +46,7 @@ ORDER BY 1`
 
 // planLocksSQL reads the relation locks this session holds, outside the
 // system catalogs the reads themselves lock.
-const planLocksSQL = `SELECT n.nspname || '.' || c.relname, l.mode FROM pg_locks l
+const planLocksSQL = `/* mcp-data-platform */ SELECT n.nspname || '.' || c.relname, l.mode FROM pg_locks l
 JOIN pg_class c ON c.oid = l.relation JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND l.granted
 AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')

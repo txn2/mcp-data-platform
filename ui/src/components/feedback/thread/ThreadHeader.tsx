@@ -14,12 +14,15 @@ export function ThreadHeader({
   deleting,
   onBack,
   onDelete,
+  statusControl,
 }: {
   thread: Thread;
   mayModerate: boolean;
   deleting: boolean;
   onBack: () => void;
   onDelete: () => void;
+  /** statusControl replaces the status badge for a moderator (#2532). */
+  statusControl?: React.ReactNode;
 }) {
   // Whoever moderates the thread changes who sees it; an external person
   // cannot (#2227).
@@ -31,7 +34,7 @@ export function ThreadHeader({
         <ArrowLeft />
       </Button>
       <ThreadKindBadge kind={thread.kind} />
-      <ThreadStatusBadge status={thread.status} />
+      {statusControl ?? <ThreadStatusBadge status={thread.status} />}
       <ThreadVisibilityBadge visibility={thread.visibility} />
       {mayModerate && !external && (
         <VisibilityChoice

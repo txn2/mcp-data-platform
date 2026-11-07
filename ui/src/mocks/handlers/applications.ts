@@ -5,7 +5,13 @@ import type {
   ApplicationPartKind,
   ApplicationRelease,
 } from "@/api/portal/hooks/applications";
-import { mockApplicationBundle, mockApplicationDetails } from "../data/applications";
+import {
+  candidateOf,
+  mockApplicationBundle,
+  mockApplicationDetails,
+  mockPartCatalog,
+  partView,
+} from "../data/applications";
 
 // Applications (#2411): the portal routes the Applications pages read and
 // write. Module state, so a write within one mock session is what the page
@@ -13,6 +19,7 @@ import { mockApplicationBundle, mockApplicationDetails } from "../data/applicati
 //   GET    /portal/applications, POST /portal/applications
 //   GET    /portal/applications/:app, PATCH, DELETE
 //   POST   /portal/applications/:app/parts, DELETE .../parts/:kind/:id
+//   GET    /portal/applications/:app/candidates
 //   POST   /portal/applications/:app/release, POST .../rollback
 //   GET    /portal/applications/:app/export
 //   POST   /portal/applications/import
@@ -42,6 +49,7 @@ function now(): string {
 
 function touch(d: ApplicationDetail): Application {
   d.application.updated_at = now();
+  d.parts = d.application.parts.map(partView);
   return d.application;
 }
 
@@ -107,6 +115,7 @@ export const applicationHandlers = [
     };
     details[id] = {
       application,
+      parts: [],
       current_release: null,
       pending: [],
       problems: [],
@@ -138,6 +147,7 @@ export const applicationHandlers = [
         updated_at: now(),
         parts: [],
       },
+      parts: [],
       current_release: null,
       pending: [],
       problems: [],
@@ -181,6 +191,23 @@ export const applicationHandlers = [
     if (!d) return notFound(String(params.app));
     delete details[d.application.id];
     return HttpResponse.json({ deleted: String(params.app) });
+  }),
+
+  http.get(`${BASE}/:app/candidates`, ({ params, request }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    const q = (new URL(request.url).searchParams.get("q") ?? "").toLowerCase();
+    const candidates = Object.values(mockPartCatalog)
+      .filter((v) => (v.name ?? v.id).toLowerCase().includes(q))
+      .filter((v) => !d.application.parts.some((p) => p.kind === v.kind && p.id === v.id))
+      .map((v) => {
+        const owner = owningApp(v.kind, v.id);
+        const c = candidateOf(v);
+        return owner ? { ...c, application: { id: owner.application.id, name: owner.application.name } } : c;
+      });
+    const counts: Partial<Record<ApplicationPartKind, number>> = {};
+    for (const c of candidates) counts[c.kind] = (counts[c.kind] ?? 0) + 1;
+    return HttpResponse.json({ candidates, counts });
   }),
 
   http.post(`${BASE}/:app/parts`, async ({ params, request }) => {

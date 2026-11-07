@@ -28,6 +28,8 @@ interface Props {
 export function ApplicationReleases({ detail, isAdmin }: Props) {
   return (
     <SectionCard
+      id="application-releases"
+      className="scroll-mt-4"
       title="Releases"
       action={isAdmin && <ReleaseControls detail={detail} />}
     >

@@ -77,7 +77,7 @@ const CodeStatementRefused = "statement_refused"
 
 // lintTargetSQL reads what the version and row-security rules need of the
 // connection's server and schema, in one round trip.
-const lintTargetSQL = `SELECT current_setting('server_version_num')::int / 10000,
+const lintTargetSQL = `/* mcp-data-platform */ SELECT current_setting('server_version_num')::int / 10000,
 COALESCE(ARRAY(SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = $1 AND c.relrowsecurity), '{}'),
 COALESCE(ARRAY(SELECT c.relname || '.' || a.attname FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid

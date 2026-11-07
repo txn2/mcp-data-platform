@@ -28,8 +28,12 @@ type Report struct {
 	GeneratedAt time.Time `json:"generated_at"`
 	Server      Server    `json:"server"`
 	// Extensions are the extensions the database holds.
-	Extensions  []Extension       `json:"extensions"`
-	Connections ConnectionUse     `json:"connections"`
+	Extensions  []Extension   `json:"extensions"`
+	Connections ConnectionUse `json:"connections"`
+	// Status and Findings are the report judged against the health settings,
+	// by the rule the alerts are posted by (#2528); empty until judged.
+	Status      string            `json:"status,omitempty"`
+	Findings    []Problem         `json:"findings"`
 	Tables      []TableStats      `json:"tables"`
 	Indexes     IndexReport       `json:"indexes"`
 	Sessions    []Session         `json:"sessions"`
@@ -158,6 +162,9 @@ type StatementsSection struct {
 	// or installed and not loaded by shared_preload_libraries.
 	Note string      `json:"note,omitempty"`
 	Top  []Statement `json:"top"`
+	// HiddenOtherRoles counts the statements of other roles whose text this
+	// connection's role cannot read; they are left out of Top (#2528).
+	HiddenOtherRoles int64 `json:"hidden_other_roles"`
 }
 
 // Statement is one normalized statement and its totals. Query is
@@ -168,8 +175,10 @@ type Statement struct {
 	Calls   int64   `json:"calls"`
 	TotalMS float64 `json:"total_ms"`
 	MeanMS  float64 `json:"mean_ms"`
-	Rows    int64   `json:"rows"`
-	Query   string  `json:"query"`
+	// MaxMS is the slowest single call.
+	MaxMS float64 `json:"max_ms"`
+	Rows  int64   `json:"rows"`
+	Query string  `json:"query"`
 }
 
 // SectionError is a section the database did not answer.
@@ -213,7 +222,7 @@ func Read(ctx context.Context, q Querier, connection string, o Options) *Report 
 		Connections: ConnectionUse{ByState: map[string]int64{}}, Tables: []TableStats{},
 		Indexes:  IndexReport{Unused: []IndexRef{}, Duplicate: []DuplicateIndexes{}, Invalid: []IndexRef{}},
 		Sessions: []Session{}, Blocking: []Blocked{}, Replication: []Replica{},
-		Statements: StatementsSection{Top: []Statement{}}, Errors: []SectionError{},
+		Statements: StatementsSection{Top: []Statement{}}, Errors: []SectionError{}, Findings: []Problem{},
 	}
 	rd := reader{ctx: ctx, q: q, connection: connection, r: r}
 	rd.section(SectionServer, serverSQL, rd.server)
@@ -346,7 +355,50 @@ func (rd *reader) statements() {
 	for _, x := range rows {
 		rd.r.Statements.Top = append(rd.r.Statements.Top, Statement{
 			QueryID: x.str("query_id"), Calls: x.num("calls"), TotalMS: x.float("total_ms"),
-			MeanMS: x.float("mean_ms"), Rows: x.num("rows"), Query: x.str("query"),
+			MeanMS: x.float("mean_ms"), MaxMS: x.float("max_ms"), Rows: x.num("rows"), Query: x.str("query"),
 		})
 	}
+	rd.section(SectionStatements, hiddenStatementsSQL, func(x row) { rd.r.Statements.HiddenOtherRoles = x.num("n") })
 }
+
+// Problem is one thing an application database's health card names (#2528):
+// a condition past its alert threshold, or advice an operator may act on. It
+// names objects, numbers and a session's process, never statement text; the
+// card joins a session's text from Sessions by PID.
+type Problem struct {
+	// Kind is one of the Problem* kinds.
+	Kind string `json:"kind"`
+	// Level is critical or warning, from the alert thresholds, or info for
+	// advice no alert is posted for.
+	Level  string `json:"level"`
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
+	// Value is the number judged, and Threshold the level it crossed; 0 for
+	// advice.
+	Value     float64 `json:"value"`
+	Threshold float64 `json:"threshold,omitempty"`
+	Table     string  `json:"table,omitempty"`
+	Index     string  `json:"index,omitempty"`
+	PID       int64   `json:"pid,omitempty"`
+}
+
+// The kinds of problem.
+const (
+	ProblemTransactionIDAge  = "transaction_id_age"
+	ProblemIdleInTransaction = "idle_in_transaction"
+	ProblemConnections       = "connections"
+	ProblemInvalidIndex      = "invalid_index"
+	ProblemDeadTuples        = "dead_tuples"
+	ProblemUnusedIndex       = "unused_index"
+	ProblemDuplicateIndex    = "duplicate_index"
+	ProblemBlocking          = "blocking"
+	ProblemLongRunning       = "long_running"
+)
+
+// The statuses a report is judged to, and the advice level.
+const (
+	StatusHealthy  = "healthy"
+	StatusWarning  = "warning"
+	StatusCritical = "critical"
+	LevelInfo      = "info"
+)

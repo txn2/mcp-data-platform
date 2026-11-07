@@ -1,6 +1,9 @@
 import type {
   Application,
+  ApplicationCandidate,
   ApplicationDetail,
+  ApplicationPart,
+  ApplicationPartView,
   ApplicationRelease,
 } from "@/api/portal/hooks/applications";
 
@@ -110,9 +113,65 @@ const shopReleases: ApplicationRelease[] = [
   },
 ];
 
+/**
+ * What each script, asset and webhook source the mocks know is called and
+ * what its row says (#2527), keyed kind/id. A part missing from it reads as
+ * deleted, which is what the server answers for one that is gone.
+ */
+export const mockPartCatalog: Record<string, Omit<ApplicationPartView, "state" | "added_by" | "added_at">> = {
+  "script/script-001": {
+    kind: "script", id: "script-001", name: "Daily sales report", description: "Summarizes yesterday's sales by region",
+    latest_version: 5, owner_email: "sarah.chen@example.com", updated_at: "2025-01-21T11:00:00Z",
+    schedule: { cron_spec: "0 7 * * *", timezone: "UTC", enabled: true },
+  },
+  "script/script-002": {
+    kind: "script", id: "script-002", name: "Order intake API", description: "Answers the storefront's order calls",
+    latest_version: 2, owner_email: "sarah.chen@example.com", updated_at: "2025-01-12T11:00:00Z",
+  },
+  "script/script-004": {
+    kind: "script", id: "script-004", name: "Intake form", description: "Files each customer intake submission",
+    latest_version: 1, owner_email: "j.martinez@example.com", updated_at: "2025-01-20T10:00:00Z", event_source: "intake-form",
+  },
+  "script/script-005": {
+    kind: "script", id: "script-005", name: "Monthly revenue close", latest_version: 3,
+    owner_email: "sarah.chen@example.com", updated_at: "2025-01-24T09:00:00Z",
+  },
+  "script/script-006": {
+    kind: "script", id: "script-006", name: "Revenue forecast refresh", latest_version: 1,
+    owner_email: "sarah.chen@example.com", updated_at: "2025-01-18T09:00:00Z",
+  },
+  "asset/ast-001": {
+    kind: "asset", id: "ast-001", name: "Sales dashboard", latest_version: 3, content_type: "text/html",
+    owner_email: "sarah.chen@example.com", updated_at: "2025-01-21T12:00:00Z",
+  },
+  "asset/ast-002": {
+    kind: "asset", id: "ast-002", name: "Revenue by region", latest_version: 4, content_type: "text/jsx",
+    owner_email: "sarah.chen@example.com", updated_at: "2025-01-23T12:00:00Z",
+  },
+  "source/billing-events": { kind: "source", id: "billing-events", name: "billing-events", latest_version: null, requests_last_day: 1284 },
+  "source/revenue-events": { kind: "source", id: "revenue-events", name: "revenue-events", latest_version: null, requests_last_day: 312 },
+};
+
+/** partView is a part as the detail route reads it from the catalog. */
+export function partView(p: ApplicationPart): ApplicationPartView {
+  const known = mockPartCatalog[`${p.kind}/${p.id}`];
+  return known
+    ? { ...known, state: "ok", added_by: p.added_by, added_at: p.added_at }
+    : { kind: p.kind, id: p.id, state: "deleted", latest_version: null, added_by: p.added_by, added_at: p.added_at };
+}
+
+/** candidateOf is a catalog entry as the candidates route lists it. */
+export function candidateOf(v: Omit<ApplicationPartView, "state" | "added_by" | "added_at">): ApplicationCandidate {
+  return {
+    kind: v.kind, id: v.id, name: v.name ?? v.id, owner_email: v.owner_email,
+    content_type: v.content_type, updated_at: v.updated_at,
+  };
+}
+
 export const mockApplicationDetails: Record<string, ApplicationDetail> = {
   "app-shop": {
     application: mockApplications[0]!,
+    parts: mockApplications[0]!.parts.map(partView),
     current_release: shopReleases[0]!,
     pending: [{ kind: "script", part_id: "script-001", from: 4, to: 5 }],
     migrations: { applied: 3, pending: [4] },
@@ -121,6 +180,7 @@ export const mockApplicationDetails: Record<string, ApplicationDetail> = {
   },
   "app-intake": {
     application: mockApplications[1]!,
+    parts: mockApplications[1]!.parts.map(partView),
     current_release: null,
     pending: [{ kind: "script", part_id: "script-004", from: 0, to: 1 }],
     problems: ["script-004 has no saved version that passed its tests"],

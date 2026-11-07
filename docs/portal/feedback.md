@@ -25,7 +25,11 @@ Open the **Feedback** button in an asset, collection, prompt, or knowledge-page 
 
 ![Asset feedback panel](../images/screenshots/light/user-asset-feedback-light.webp#only-light)![Asset feedback panel](../images/screenshots/dark/user-asset-feedback-dark.webp#only-dark)
 
-Opening a thread shows its full timeline. Anyone can reply; the item's owner, an editor, or an admin can change the status (for example resolve it) or delete the thread. The status change is recorded on the timeline.
+Opening a thread shows its full timeline: each message is a card with its author's name, and each status or visibility change is a thin line between them ("Name marked Answered"). Anyone can reply; the item's owner, an editor, or an admin can change the status or delete the thread. The status is a button in the thread's header that opens the statuses grouped into **Still open** (Open, Answered, Acknowledged) and **Closes the thread** (Resolved, Won't fix), each with a line saying what it means.
+
+Picking a status shows a notice with **Undo**, and the line the change wrote carries the same Undo. Undo restores the previous status and removes the line, so the thread reads as if the change never happened; nobody is notified of either, and the audit log records both (`POST /api/v1/portal/threads/{id}/events/{eventID}/undo`). It is offered to the person who made the change, for 10 minutes, and only until someone else adds to the thread; after that a change is reverted by picking the earlier status, which writes a line of its own.
+
+The reply box opens at least 150px tall, can be resized or expanded, has a formatting toolbar (bold, italic, code, link, list, mention) over the Markdown a reply is written in and a Preview, keeps a draft while the thread is open, and offers **Reply and resolve** to whoever may change the thread's status.
 
 ![Feedback thread detail](../images/screenshots/light/user-asset-feedback-detail-light.webp#only-light)![Feedback thread detail](../images/screenshots/dark/user-asset-feedback-detail-dark.webp#only-dark)
 

@@ -71,12 +71,12 @@ var relKinds = map[string]string{"r": "table", "p": "partitioned_table", "v": "v
 // conKinds names the constraint kinds.
 var conKinds = map[string]string{"p": "primary_key", "u": "unique", "f": "foreign_key", "c": "check", "x": "exclusion", "t": "trigger"}
 
-const describeTablesSQL = `SELECT c.relname, c.relkind::text, COALESCE(obj_description(c.oid, 'pg_class'), ''),
+const describeTablesSQL = `/* mcp-data-platform */ SELECT c.relname, c.relkind::text, COALESCE(obj_description(c.oid, 'pg_class'), ''),
 c.relrowsecurity, c.relforcerowsecurity, CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE '' END
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relkind IN ('r', 'p', 'v', 'm') ORDER BY c.relname`
 
-const describeColumnsSQL = `SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
+const describeColumnsSQL = `/* mcp-data-platform */ SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
 COALESCE(pg_get_expr(d.adbin, d.adrelid), ''), COALESCE(col_description(c.oid, a.attnum), '')
 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
@@ -86,11 +86,11 @@ ORDER BY c.relname, a.attnum`
 // describeConstraintsSQL leaves out the NOT NULL constraints PostgreSQL 18
 // records in pg_constraint (contype n): a column's nullable says the same on
 // every major.
-const describeConstraintsSQL = `SELECT c.relname, con.conname, con.contype::text, pg_get_constraintdef(con.oid)
+const describeConstraintsSQL = `/* mcp-data-platform */ SELECT c.relname, con.conname, con.contype::text, pg_get_constraintdef(con.oid)
 FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND con.contype <> 'n' ORDER BY c.relname, con.conname`
 
-const describeIndexesSQL = `SELECT t.relname, i.relname, pg_get_indexdef(i.oid)
+const describeIndexesSQL = `/* mcp-data-platform */ SELECT t.relname, i.relname, pg_get_indexdef(i.oid)
 FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid JOIN pg_class t ON t.oid = x.indrelid
 JOIN pg_namespace n ON n.oid = t.relnamespace
 WHERE n.nspname = $1 ORDER BY t.relname, i.relname`

@@ -42,7 +42,8 @@ export type ThreadEventType =
   | "validation_request"
   | "validation_result"
   | "insight_linked"
-  | "changeset_linked";
+  | "changeset_linked"
+  | "visibility_change";
 
 export type ValidationState = "none" | "pending" | "validated" | "disputed";
 

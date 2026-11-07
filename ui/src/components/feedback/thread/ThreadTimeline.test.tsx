@@ -135,3 +135,29 @@ describe("ThreadTimeline message changes", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 });
+
+describe("ThreadTimeline lines and cards (#2532)", () => {
+  it("draws a status change as a line, not a card, and offers its Undo", () => {
+    const onUndo = vi.fn();
+    render(
+      <ThreadTimeline
+        events={[
+          event(),
+          event({ id: "evt_2", event_type: "status_change", body: undefined, metadata: { old_status: "open", new_status: "acknowledged" } }),
+        ]}
+        isLoading={false}
+        threadId="t1"
+        target={{ type: "asset", id: "a1" }}
+        undoableId="evt_2"
+        onUndo={onUndo}
+      />,
+    );
+    expect(screen.getByTestId("timeline-card-evt_1")).toHaveTextContent("the total is wrong");
+    expect(screen.queryByTestId("timeline-card-evt_2")).toBeNull();
+    const line = screen.getByTestId("timeline-line-evt_2");
+    expect(line).toHaveTextContent("You marked Acknowledged");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(onUndo).toHaveBeenCalledWith("evt_2");
+  });
+});
+

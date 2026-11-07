@@ -24,6 +24,24 @@ const APPDB = `${ADMIN_BASE}/connection-instances/appdb/:name`;
 export const mockAppDBHealth: AppDBHealthReport = {
   connection: "acme-shop",
   generated_at: "2025-01-23T10:00:00Z",
+  status: "warning",
+  findings: [
+    {
+      kind: "idle_in_transaction", level: "warning", pid: 4242, value: 612, threshold: 300,
+      title: "A session has been idle in a transaction for 10 minutes",
+      detail: "Its open transaction holds the locks it took and keeps vacuum from reclaiming rows. The warning alert is set at 5 minutes.",
+    },
+    {
+      kind: "dead_tuples", level: "warning", table: "public.orders", value: 23, threshold: 20,
+      title: "23% of orders's rows are dead",
+      detail: "Rows are updated or deleted faster than autovacuum reclaims them, so the table and its indexes grow. The warning alert is set at 20%.",
+    },
+    {
+      kind: "unused_index", level: "info", table: "public.orders", index: "orders_note_idx", value: 0,
+      title: "orders_note_idx has not been used",
+      detail: "16 KiB on public.orders, 0 scans since the statistics were reset. Every write to orders still updates it.",
+    },
+  ],
   server: {
     version: "17.8", version_num: 170008, database: "orders", size_bytes: 9_437_184,
     transaction_id_age: 1840, cache_hit_ratio: 0.993, in_recovery: false,
@@ -50,7 +68,20 @@ export const mockAppDBHealth: AppDBHealthReport = {
   ],
   blocking: [],
   replication: [],
-  statements: { installed: false, note: "pg_stat_statements is not installed in this database", top: [] },
+  statements: {
+    installed: true,
+    hidden_other_roles: 4,
+    top: [
+      {
+        query_id: "101", calls: 18402, total_ms: 44200, mean_ms: 2.4, max_ms: 31, rows: 18402,
+        query: "SELECT o.id, o.total, c.email FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.status = $1 AND o.created_at >= $2 ORDER BY o.created_at DESC LIMIT $3",
+      },
+      {
+        query_id: "102", calls: 1, total_ms: 4100, mean_ms: 4100, max_ms: 4100, rows: 3870,
+        query: "DELETE FROM carts WHERE updated_at < now() - $1::interval",
+      },
+    ],
+  },
   errors: [],
 };
 

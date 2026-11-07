@@ -153,7 +153,7 @@ func (h *handler) kitFor(w http.ResponseWriter, r *http.Request) (Kit, string, b
 // health handles GET .../appdb/{name}/health.
 //
 // @Summary      Read an application database's health
-// @Description  Reads the database's own statistics views now: server version and extensions, table and index sizes, row estimates, dead tuples and the last vacuum and analyze of each table, unused, duplicate and invalid indexes, transaction id age, connections against max_connections, long-running and idle-in-transaction sessions, blocking lock chains, the cache hit ratio, replication lag, and the statements pg_stat_statements ranks first when it is installed. Session and statement text can repeat a literal and is served here alone: it is never stored, logged or sent in an alert. A section the database refused is listed under errors and the rest of the report stands.
+// @Description  Reads the database's own statistics views now: server version and extensions, table and index sizes, row estimates, dead tuples and the last vacuum and analyze of each table, unused, duplicate and invalid indexes, transaction id age, connections against max_connections, long-running and idle-in-transaction sessions, blocking lock chains, the cache hit ratio, replication lag, and the application's statements pg_stat_statements ranks first when it is installed (the platform's own statements left out, and those of other roles whose text the connection cannot read counted in hidden_other_roles). status (healthy, warning, critical) and findings judge the report against the health settings by the rule the alerts are posted by: a finding past an alert threshold carries its level and the threshold, and advice no alert is posted for (an unused or duplicate index, a blocked session, a long-running statement) is level info. Session and statement text can repeat a literal and is served here alone: it is never stored, logged or sent in an alert. A section the database refused is listed under errors and the rest of the report stands.
 // @Tags         Connections
 // @Produce      json
 // @Param        name  path  string  true  "Application database connection name"
@@ -172,9 +172,11 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusInternalServerError, "reading the health settings failed")
 		return
 	}
-	httpjson.WriteJSON(w, http.StatusOK, appdbhealth.Read(r.Context(), kit, name, appdbhealth.Options{
+	report := appdbhealth.Read(r.Context(), kit, name, appdbhealth.Options{
 		LongRunning: time.Duration(view.LongRunningSeconds) * time.Second,
-	}))
+	})
+	appdbwatch.Assess(report, view.Settings)
+	httpjson.WriteJSON(w, http.StatusOK, report)
 }
 
 // historyResponse is a connection's stored samples.

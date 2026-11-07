@@ -5220,7 +5220,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Reads the database's own statistics views now: server version and extensions, table and index sizes, row estimates, dead tuples and the last vacuum and analyze of each table, unused, duplicate and invalid indexes, transaction id age, connections against max_connections, long-running and idle-in-transaction sessions, blocking lock chains, the cache hit ratio, replication lag, and the statements pg_stat_statements ranks first when it is installed. Session and statement text can repeat a literal and is served here alone: it is never stored, logged or sent in an alert. A section the database refused is listed under errors and the rest of the report stands.",
+                "description": "Reads the database's own statistics views now: server version and extensions, table and index sizes, row estimates, dead tuples and the last vacuum and analyze of each table, unused, duplicate and invalid indexes, transaction id age, connections against max_connections, long-running and idle-in-transaction sessions, blocking lock chains, the cache hit ratio, replication lag, and the application's statements pg_stat_statements ranks first when it is installed (the platform's own statements left out, and those of other roles whose text the connection cannot read counted in hidden_other_roles). status (healthy, warning, critical) and findings judge the report against the health settings by the rule the alerts are posted by: a finding past an alert threshold carries its level and the threshold, and advice no alert is posted for (an unused or duplicate index, a blocked session, a long-running statement) is level info. Session and statement text can repeat a literal and is served here alone: it is never stored, logged or sent in an alert. A section the database refused is listed under errors and the rest of the report stands.",
                 "produces": [
                     "application/json"
                 ],
@@ -14351,7 +14351,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "An application by name or id: its parts, its current release, what a release now would change (pending), where its schema's migrations stand, the parts a release would refuse (problems), and its releases newest first with what each changed.",
+                "description": "An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), its current release, what a release now would change (pending), where its schema's migrations stand, the parts a release would refuse (problems), and its releases newest first with what each changed.",
                 "produces": [
                     "application/json"
                 ],
@@ -14552,6 +14552,85 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/candidates": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The scripts and assets the caller owns (every one for an administrator) and, for an administrator, the webhook sources, whose name contains q, at most 50 of each kind. A part already in this application is left out; one in another application carries that application, and adding it is refused. kind (script, asset, source) narrows the list; counts are for every kind. For the application's owner and administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Search parts to add to an application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Text the name contains",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "script, asset or source",
+                        "name": "kind",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/appsvc.Candidates"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -16589,6 +16668,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/{id}/people": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The asset's owner and every other person who wrote a version of it, each with how many versions and when they wrote the newest, newest first. For everyone who can open the asset.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Who is behind an asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/peopleapi.People"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/producers": {
             "get": {
                 "security": [
@@ -16944,6 +17078,61 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/share-summary": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The asset's active shares: the personas and people it is shared with, with their permission and any expiry, and its links by kind, with who made each and how often it was opened. Never a share's token or a link's address. For the organization's own people who can open the asset; a caller whose persona is external is refused. Revoked and expired shares are left out.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Whom an asset is shared with",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/peopleapi.ShareSummary"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -28032,6 +28221,74 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/threads/{id}/events/{eventID}/undo": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Restores the status a status change replaced and removes the line it wrote, as if the change never happened. Only the person who made the change, within 10 minutes of it, and only until someone else adds an event to the thread. Nobody is notified; the audit log records the change and the undo.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Undo a status change",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The status change event's ID",
+                        "name": "eventID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/feedbackapi.undoStatusResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/threads/{id}/insight": {
             "post": {
                 "security": [
@@ -34496,6 +34753,41 @@ const docTemplate = `{
                 }
             }
         },
+        "appdbhealth.Problem": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind is one of the Problem* kinds.",
+                    "type": "string"
+                },
+                "level": {
+                    "description": "Level is critical or warning, from the alert thresholds, or info for\nadvice no alert is posted for.",
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "table": {
+                    "type": "string"
+                },
+                "threshold": {
+                    "type": "number"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Value is the number judged, and Threshold the level it crossed; 0 for\nadvice.",
+                    "type": "number"
+                }
+            }
+        },
         "appdbhealth.Replica": {
             "type": "object",
             "properties": {
@@ -34542,6 +34834,12 @@ const docTemplate = `{
                         "$ref": "#/definitions/appdbhealth.Extension"
                     }
                 },
+                "findings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appdbhealth.Problem"
+                    }
+                },
                 "generated_at": {
                     "type": "string"
                 },
@@ -34565,6 +34863,10 @@ const docTemplate = `{
                 },
                 "statements": {
                     "$ref": "#/definitions/appdbhealth.StatementsSection"
+                },
+                "status": {
+                    "description": "Status and Findings are the report judged against the health settings,\nby the rule the alerts are posted by (#2528); empty until judged.",
+                    "type": "string"
                 },
                 "tables": {
                     "type": "array",
@@ -34653,6 +34955,10 @@ const docTemplate = `{
                 "calls": {
                     "type": "integer"
                 },
+                "max_ms": {
+                    "description": "MaxMS is the slowest single call.",
+                    "type": "number"
+                },
                 "mean_ms": {
                     "type": "number"
                 },
@@ -34673,6 +34979,10 @@ const docTemplate = `{
         "appdbhealth.StatementsSection": {
             "type": "object",
             "properties": {
+                "hidden_other_roles": {
+                    "description": "HiddenOtherRoles counts the statements of other roles whose text this\nconnection's role cannot read; they are left out of Top (#2528).",
+                    "type": "integer"
+                },
                 "installed": {
                     "type": "boolean"
                 },
@@ -35066,6 +35376,13 @@ const docTemplate = `{
                             "$ref": "#/definitions/appschema.State"
                         }
                     ]
+                },
+                "parts": {
+                    "description": "Parts is each part with its name and the facts its row describes,\nin the order application.parts lists them (#2527).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appsvc.PartView"
+                    }
                 },
                 "pending": {
                     "description": "Pending is the parts whose newest version differs from the current\nrelease's pin.",
@@ -35479,6 +35796,143 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "appsvc.AppRef": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "app_01J9..."
+                },
+                "name": {
+                    "type": "string",
+                    "example": "billing"
+                }
+            }
+        },
+        "appsvc.Candidate": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "description": "Application is the application the part already belongs to, which\nrefuses it here; nil for none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/appsvc.AppRef"
+                        }
+                    ]
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "5b0c..."
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "script"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Monthly revenue close"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "appsvc.Candidates": {
+            "type": "object",
+            "properties": {
+                "candidates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appsvc.Candidate"
+                    }
+                },
+                "counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "appsvc.PartSchedule": {
+            "type": "object",
+            "properties": {
+                "cron_spec": {
+                    "type": "string",
+                    "example": "0 2 * * *"
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "timezone": {
+                    "type": "string",
+                    "example": "UTC"
+                }
+            }
+        },
+        "appsvc.PartView": {
+            "type": "object",
+            "properties": {
+                "added_at": {
+                    "type": "string"
+                },
+                "added_by": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "description": "ContentType is an asset's media type.",
+                    "type": "string"
+                },
+                "description": {
+                    "description": "Description is the script's or asset's own description.",
+                    "type": "string"
+                },
+                "event_source": {
+                    "description": "EventSource is the webhook source a script runs for, empty for none.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "5b0c..."
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "script"
+                },
+                "latest_version": {
+                    "description": "LatestVersion is the script's or asset's newest version; nil for a\nwebhook source and for a part not read.",
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Nightly order sync"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "requests_last_day": {
+                    "description": "RequestsLastDay is how many requests a webhook source accepted in the\nlast 24 hours; told to administrators, who manage sources.",
+                    "type": "integer"
+                },
+                "schedule": {
+                    "$ref": "#/definitions/appsvc.PartSchedule"
+                },
+                "state": {
+                    "type": "string",
+                    "example": "ok"
+                },
+                "updated_at": {
+                    "type": "string"
                 }
             }
         },
@@ -39460,6 +39914,17 @@ const docTemplate = `{
                 }
             }
         },
+        "feedbackapi.undoStatusResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                }
+            }
+        },
         "feedbackapi.updateThreadRequest": {
             "type": "object",
             "properties": {
@@ -41464,6 +41929,147 @@ const docTemplate = `{
                 "version": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "peopleapi.Contributor": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "bob@example.com"
+                },
+                "last_change": {
+                    "type": "string"
+                },
+                "versions": {
+                    "description": "Versions is how many versions they wrote, and LastChange when they\nwrote the newest.",
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "peopleapi.People": {
+            "type": "object",
+            "properties": {
+                "contributors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/peopleapi.Contributor"
+                    }
+                },
+                "owner": {
+                    "$ref": "#/definitions/peopleapi.person"
+                }
+            }
+        },
+        "peopleapi.ShareSummary": {
+            "type": "object",
+            "properties": {
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/peopleapi.linkShare"
+                    }
+                },
+                "people": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/peopleapi.personShare"
+                    }
+                },
+                "personas": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/peopleapi.personaShare"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 23
+                }
+            }
+        },
+        "peopleapi.linkShare": {
+            "type": "object",
+            "properties": {
+                "access_mode": {
+                    "description": "AccessMode is who may open it: public, authenticated or restricted.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.ShareAccessMode"
+                        }
+                    ],
+                    "example": "authenticated"
+                },
+                "created_by": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "opened": {
+                    "type": "integer",
+                    "example": 14
+                },
+                "origin": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.ShareOrigin"
+                        }
+                    ],
+                    "example": "explicit"
+                },
+                "posted_to": {
+                    "description": "PostedTo names the channel a channel post's link went to.",
+                    "type": "string"
+                }
+            }
+        },
+        "peopleapi.person": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                }
+            }
+        },
+        "peopleapi.personShare": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "bob@example.com"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "permission": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.SharePermission"
+                        }
+                    ],
+                    "example": "viewer"
+                }
+            }
+        },
+        "peopleapi.personaShare": {
+            "type": "object",
+            "properties": {
+                "permission": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.SharePermission"
+                        }
+                    ],
+                    "example": "viewer"
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "finance"
                 }
             }
         },

@@ -161,9 +161,9 @@ func (t *Toolkit) DrainOutbox(ctx context.Context, connection, table string, lim
 // rows, locking them and skipping the ones another session holds, and the
 // delete of the rows it filed.
 func outboxSQL(ident string) (sel, del string) {
-	sel = fmt.Sprintf("SELECT %s, %s, %s, %s::text, %s FROM %s ORDER BY %s LIMIT $1::int FOR UPDATE SKIP LOCKED",
+	sel = fmt.Sprintf("/* mcp-data-platform */ SELECT %s, %s, %s, %s::text, %s FROM %s ORDER BY %s LIMIT $1::int FOR UPDATE SKIP LOCKED",
 		outboxColID, outboxColTable, outboxColOp, outboxColPayload, outboxColCreated, ident, outboxColID)
-	del = fmt.Sprintf("DELETE FROM %s WHERE %s = ANY($1::bigint[])", ident, outboxColID)
+	del = fmt.Sprintf("/* mcp-data-platform */ DELETE FROM %s WHERE %s = ANY($1::bigint[])", ident, outboxColID)
 	return sel, del
 }
 
@@ -295,7 +295,7 @@ func (t *Toolkit) probeListen(ctx context.Context, c *conn) string {
 		return "; LISTEN failed, so a webhook source with input postgres cannot use this connection"
 	}
 	defer l.Close()
-	if _, err := c.pool.Exec(ctx, "SELECT pg_notify($1, 'probe')", channel); err != nil {
+	if _, err := c.pool.Exec(ctx, "/* mcp-data-platform */ SELECT pg_notify($1, 'probe')", channel); err != nil {
 		return "; NOTIFY failed, so a webhook source with input postgres cannot use this connection"
 	}
 	wctx, cancel := context.WithTimeout(ctx, listenProbeWait)
@@ -313,7 +313,7 @@ var errOutboxPrivileges = errors.New("the connection's role needs SELECT and DEL
 
 // outboxPrivilegeSQL asks whether the connection's role may read and delete
 // from an outbox; it fails (42P01) when the table does not exist.
-const outboxPrivilegeSQL = "SELECT has_table_privilege($1::text, 'SELECT') AND has_table_privilege($1::text, 'DELETE')"
+const outboxPrivilegeSQL = "/* mcp-data-platform */ SELECT has_table_privilege($1::text, 'SELECT') AND has_table_privilege($1::text, 'DELETE')"
 
 // CheckOutbox refuses an outbox table that does not exist on connection, or
 // that the connection's role cannot read and delete from, which a drain does.
