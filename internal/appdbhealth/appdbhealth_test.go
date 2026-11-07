@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/sqltag"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
 
@@ -181,4 +182,37 @@ func TestRowReaders(t *testing.T) {
 	assert.Zero(t, r.float("s"))
 	assert.Equal(t, []int64{}, r.nums("missing"))
 	assert.Equal(t, []string{}, r.strs("missing"))
+}
+
+// TestStatements_LeavesOutThePlatformsOwn is #2528's statement half: every
+// statement the report runs carries the platform's tag, the ranking leaves
+// out tagged statements, the toolkit's session plumbing and unreadable text,
+// and the unreadable ones are counted.
+func TestStatements_LeavesOutThePlatformsOwn(t *testing.T) {
+	for name, sql := range map[string]string{
+		"server": serverSQL, "extensions": extensionsSQL, "connections": connectionsSQL, "tables": tablesSQL,
+		"unused": unusedIndexesSQL, "duplicate": duplicateIndexesSQL, "invalid": invalidIndexesSQL,
+		"sessions": sessionsSQL(time.Minute), "blocking": blockingSQL, "replication": replicationSQL,
+		"statements": statementsSQL, "hidden": hiddenStatementsSQL,
+	} {
+		assert.True(t, strings.HasPrefix(sql, sqltag.Platform), "%s carries the platform's tag", name)
+	}
+	assert.Contains(t, statementsSQL, "strpos(query, '"+sqltag.Platform+"') = 0")
+	assert.Contains(t, statementsSQL, "query <> '<insufficient privilege>'")
+	assert.Contains(t, statementsSQL, "DISCARD ")
+	assert.Contains(t, statementsSQL, "max_exec_time")
+	assert.Contains(t, hiddenStatementsSQL, "query = '<insufficient privilege>'")
+
+	answers := append([]answer{
+		{marker: "count(*)::int8 AS n", cols: []string{"n"}, rows: [][]any{{int64(4)}}},
+		{
+			marker: "max_exec_time", cols: []string{"query_id", "calls", "total_ms", "mean_ms", "max_ms", "rows", "query"},
+			rows: [][]any{{"7", int64(1), 4100.0, 4100.0, 4100.0, int64(3870), "DELETE FROM carts"}},
+		},
+	}, healthyAnswers()...)
+	r := Read(context.Background(), &fake{answers: answers}, "shop", Options{})
+	require.Len(t, r.Statements.Top, 1)
+	assert.InDelta(t, 4100.0, r.Statements.Top[0].MaxMS, 1e-9)
+	assert.Equal(t, int64(4), r.Statements.HiddenOtherRoles)
+	assert.NotNil(t, r.Findings, "findings are [] until judged, never null")
 }

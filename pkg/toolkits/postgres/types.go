@@ -49,9 +49,10 @@ func newTypeCache() *typeCache {
 	return &typeCache{types: make(map[uint32]typeInfo)}
 }
 
-// typeQuery reads the types the cache does not hold yet, with the type each
+// typeQuery reads the types (each bookkeeping statement opens with
+// sqltag.Platform, #2528) the cache does not hold yet, with the type each
 // structured kind is made of: a range's subtype and a multirange's range.
-const typeQuery = `SELECT t.oid, t.typname, format_type(t.oid, NULL), t.typcategory = 'A', t.typtype::text,
+const typeQuery = `/* mcp-data-platform */ SELECT t.oid, t.typname, format_type(t.oid, NULL), t.typcategory = 'A', t.typtype::text,
 COALESCE(r.rngsubtype, m.rngtypid, 0::oid)
 FROM pg_catalog.pg_type t
 LEFT JOIN pg_catalog.pg_range r ON r.rngtypid = t.oid
@@ -59,7 +60,7 @@ LEFT JOIN pg_catalog.pg_range m ON m.rngmultitypid = t.oid
 WHERE t.oid = ANY($1::oid[])`
 
 // attrQuery reads the attributes of composite types, in order.
-const attrQuery = `SELECT t.oid, a.attname, a.atttypid
+const attrQuery = `/* mcp-data-platform */ SELECT t.oid, a.attname, a.atttypid
 FROM pg_catalog.pg_type t JOIN pg_catalog.pg_attribute a ON a.attrelid = t.typrelid
 WHERE t.oid = ANY($1::oid[]) AND a.attnum > 0 AND NOT a.attisdropped
 ORDER BY t.oid, a.attnum`

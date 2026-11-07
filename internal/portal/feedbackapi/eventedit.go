@@ -30,8 +30,12 @@ const (
 	// the one an agent makes the same change with.
 	feedbackToolName  = "manage_feedback"
 	auditSourcePortal = "portal"
-	errEventsUnavail  = "editing messages is not available"
-	errEventNotFound  = "message not found"
+	// auditKeyAction and auditKeyThread are the audit parameters naming what
+	// was done and to which thread.
+	auditKeyAction   = "action"
+	auditKeyThread   = "thread_id"
+	errEventsUnavail = "editing messages is not available"
+	errEventNotFound = "message not found"
 )
 
 // editEventRequest is the body of PATCH /threads/{id}/events/{eventID}.
@@ -248,7 +252,7 @@ func (h *Handler) audit(r *http.Request, c *eventChange, action string, opErr er
 		ID: audit.NewEventID(), Timestamp: time.Now().UTC(), ToolName: feedbackToolName,
 		Source: auditSourcePortal, Transport: "http", Authorized: true, Success: opErr == nil,
 		UserID: c.user.UserID, UserEmail: c.user.Email,
-		Parameters: map[string]any{"action": action, "thread_id": c.thread.ID, "event_id": c.event.ID},
+		Parameters: map[string]any{auditKeyAction: action, auditKeyThread: c.thread.ID, "event_id": c.event.ID},
 	}
 	if h.cfg.PersonaName != nil {
 		ev.Persona = h.cfg.PersonaName(c.user.Roles)
@@ -257,7 +261,103 @@ func (h *Handler) audit(r *http.Request, c *eventChange, action string, opErr er
 		ev.ErrorMessage = opErr.Error()
 	}
 	if err := h.cfg.Audit.Log(r.Context(), ev); err != nil {
-		slog.Warn("feedback audit failed", "action", action, // #nosec G706 -- structured slog call; error sanitized
+		slog.Warn("feedback audit failed", auditKeyAction, action, // #nosec G706 -- structured slog call; error sanitized
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
+}
+
+// Undoing a status change (#2532): the person who changed a thread's status
+// takes it back within threads.StatusUndoWindow, before anyone else adds to
+// the thread. The status is restored and the line the change wrote removed;
+// nobody is notified of either, and the audit log records both.
+
+// now is the clock an undo is measured by; a test replaces it.
+var now = time.Now
+
+// undoStatusResponse is the thread after an undo.
+type undoStatusResponse struct {
+	ThreadID string `json:"thread_id"`
+	Status   string `json:"status"`
+}
+
+// undoStatusChange handles POST /api/v1/portal/threads/{id}/events/{eventID}/undo.
+//
+// @Summary      Undo a status change
+// @Description  Restores the status a status change replaced and removes the line it wrote, as if the change never happened. Only the person who made the change, within 10 minutes of it, and only until someone else adds an event to the thread. Nobody is notified; the audit log records the change and the undo.
+// @Tags         Feedback
+// @Produce      json
+// @Param        id       path  string  true  "Thread ID"
+// @Param        eventID  path  string  true  "The status change event's ID"
+// @Success      200  {object}  undoStatusResponse
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      409  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/threads/{id}/events/{eventID}/undo [post]
+func (h *Handler) undoStatusChange(w http.ResponseWriter, r *http.Request) {
+	undoer, ok := h.cfg.Threads.(threads.StatusUndoer)
+	if !ok {
+		httpjson.WriteError(w, http.StatusServiceUnavailable, "undoing a status change is not available")
+		return
+	}
+	user, thread := h.loadThreadForRead(w, r)
+	if thread == nil {
+		return
+	}
+	eventID := r.PathValue(pathKeyEventID)
+	restored, err := undoer.UndoStatusChange(r.Context(), threads.StatusUndo{
+		ThreadID: thread.ID, EventID: eventID, ActorID: user.UserID, ActorEmail: user.Email, Now: now(),
+	})
+	h.auditThread(r, user, "undo_status", map[string]any{auditKeyThread: thread.ID, "event_id": eventID}, err)
+	if err != nil {
+		writeUndoError(w, err)
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, undoStatusResponse{ThreadID: thread.ID, Status: restored})
+}
+
+// writeUndoError answers a refused or failed undo.
+func writeUndoError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, threads.ErrEventNotFound):
+		httpjson.WriteError(w, http.StatusNotFound, errEventNotFound)
+	case errors.Is(err, threads.ErrUndoNotAuthor):
+		httpjson.WriteError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, threads.ErrUndoNotStatus), errors.Is(err, threads.ErrUndoExpired), errors.Is(err, threads.ErrUndoSuperseded):
+		httpjson.WriteError(w, http.StatusConflict, err.Error())
+	default:
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to undo the status change")
+	}
+}
+
+// auditThread records a portal change to a thread as the manage_feedback
+// call an agent would make: a status change and its undo (#2532). The
+// parameters name the thread and the statuses, never text. A change an agent
+// made through manage_feedback is served in process and already audited as
+// that call.
+func (h *Handler) auditThread(r *http.Request, user *access.User, action string, params map[string]any, opErr error) {
+	if h.cfg.Audit == nil {
+		return
+	}
+	if _, viaTool := selfcall.From(r.Context()); viaTool {
+		return
+	}
+	params[auditKeyAction] = action
+	ev := middleware.AuditEvent{
+		ID: audit.NewEventID(), Timestamp: time.Now().UTC(), ToolName: feedbackToolName,
+		Source: auditSourcePortal, Transport: "http", Authorized: true, Success: opErr == nil,
+		UserID: user.UserID, UserEmail: user.Email, Parameters: params,
+	}
+	if h.cfg.PersonaName != nil {
+		ev.Persona = h.cfg.PersonaName(user.Roles)
+	}
+	if opErr != nil {
+		ev.ErrorMessage = opErr.Error()
+	}
+	if err := h.cfg.Audit.Log(r.Context(), ev); err != nil {
+		slog.Warn("feedback audit failed", auditKeyAction, action, // #nosec G706 -- structured slog call; error sanitized
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }

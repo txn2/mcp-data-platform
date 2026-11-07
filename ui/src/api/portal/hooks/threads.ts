@@ -361,6 +361,26 @@ export function useUpdateThread() {
   });
 }
 
+/**
+ * useUndoStatusChange takes back a status change (#2532): the status it
+ * replaced is restored and its line removed. The server allows it to the
+ * person who made the change, for STATUS_UNDO_MS, until someone else adds to
+ * the thread.
+ */
+export function useUndoStatusChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ threadId, eventId }: { threadId: string; eventId: string }) =>
+      apiFetch<{ thread_id: string; status: string }>(`/threads/${threadId}/events/${eventId}/undo`, {
+        method: "POST",
+      }),
+    onSuccess: () => invalidateThreadQueries(qc),
+  });
+}
+
+/** STATUS_UNDO_MS is how long after a status change its author may undo it. */
+export const STATUS_UNDO_MS = 10 * 60 * 1000;
+
 // useEditThreadEvent replaces the text of a message the signed-in person
 // wrote (#2514). The server refuses anyone but the author.
 export function useEditThreadEvent() {

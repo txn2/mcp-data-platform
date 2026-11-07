@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -47,4 +48,38 @@ func TestRegister_MountsTheRoutes(t *testing.T) {
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	assert.NotEqual(t, http.StatusNotFound, w.Code, "the listing route is mounted")
+}
+
+// TestAssetViewer reads the portal caller off the context and answers by the
+// portal's own view rule: the owner opens an asset, a stranger does not, and
+// a signed-out request or a missing asset opens nothing (#2527).
+type shareStore struct {
+	portaldomain.ShareStore
+	direct []portaldomain.Share
+}
+
+func (s shareStore) ListByAsset(context.Context, string) ([]portaldomain.Share, error) {
+	return s.direct, nil
+}
+
+func (shareStore) GetUserAssetPermissionViaCollection(context.Context, string, string, string) (portaldomain.SharePermission, error) {
+	return "", nil
+}
+
+func TestAssetViewer(t *testing.T) {
+	view := assetViewer(nil)
+	asset := &portaldomain.Asset{ID: "as1", OwnerEmail: "jane@example.com", OwnerID: "u-jane"}
+	ctx := context.Background()
+	assert.False(t, view(ctx, asset), "signed out")
+	jane := portal.ContextWithUser(ctx, &portal.User{UserID: "u-jane", Email: "jane@example.com"})
+	assert.True(t, view(jane, asset), "the owner opens it")
+	assert.False(t, view(jane, nil))
+	joe := portal.ContextWithUser(ctx, &portal.User{UserID: "u-joe", Email: "joe@example.com"})
+	assert.False(t, view(joe, asset), "a person it is not shared with does not")
+
+	shared := assetViewer(shareStore{direct: []portaldomain.Share{{
+		AssetID: "as1", SharedWithEmail: "joe@example.com", Permission: portaldomain.PermissionViewer,
+	}}})
+	assert.True(t, shared(joe, asset), "a person it is shared with opens it")
+	assert.False(t, assetViewer(shareStore{})(joe, asset))
 }

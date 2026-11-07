@@ -85,13 +85,13 @@ type ledgerReader interface {
 // database with no ledger yet has applied nothing.
 func (c *conn) readLedger(ctx context.Context, q ledgerReader, schema string) ([]Applied, error) {
 	var exists bool
-	if err := q.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", c.ledger()).Scan(&exists); err != nil {
+	if err := q.QueryRow(ctx, "/* mcp-data-platform */ SELECT to_regclass($1) IS NOT NULL", c.ledger()).Scan(&exists); err != nil {
 		return nil, err //nolint:wrapcheck // read by its type
 	}
 	if !exists {
 		return []Applied{}, nil
 	}
-	rows, err := q.Query(ctx, "SELECT version, name, checksum, applied_at, applied_by, duration_ms FROM "+
+	rows, err := q.Query(ctx, "/* mcp-data-platform */ SELECT version, name, checksum, applied_at, applied_by, duration_ms FROM "+
 		c.ledger()+" WHERE schema_name = $1 ORDER BY version", schema)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by its type

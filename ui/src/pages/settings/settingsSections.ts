@@ -14,6 +14,7 @@ export const SETTINGS_SECTIONS = [
   { id: "run-failures", label: "Run failures", group: "Alerts" },
   { id: "webhooks", label: "Webhooks", group: "Alerts" },
   { id: "storage", label: "Storage", group: "Alerts" },
+  { id: "application-databases", label: "Application databases", group: "Alerts" },
   { id: "maps", label: "Maps", group: "Content" },
   { id: "embed-hosts", label: "Embed hosts", group: "Content" },
   { id: "bot-checks", label: "Bot checks", group: "Endpoints" },

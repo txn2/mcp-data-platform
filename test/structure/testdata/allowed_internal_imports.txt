@@ -199,6 +199,7 @@ internal/application/appwire -> internal/platform/scriptstore
 internal/application/appwire -> internal/portal/portaldomain
 internal/application/appwire -> pkg/registry
 internal/application/appwire -> pkg/resource
+internal/application/appwire -> pkg/script
 internal/application/appwire -> pkg/toolkit
 internal/application/appwire -> pkg/toolkits/postgres
 internal/approval -> internal/logsan
@@ -515,10 +516,13 @@ internal/httpserver/appdbwire -> pkg/toolkits/postgres
 internal/httpserver/applicationwire -> internal/application
 internal/httpserver/applicationwire -> internal/application/apphttp
 internal/httpserver/applicationwire -> internal/application/appstore
+internal/httpserver/applicationwire -> internal/application/appsvc
 internal/httpserver/applicationwire -> internal/application/appwire
 internal/httpserver/applicationwire -> internal/logsan
 internal/httpserver/applicationwire -> internal/platform/connreach
 internal/httpserver/applicationwire -> internal/platform/scriptsave
+internal/httpserver/applicationwire -> internal/portal/access
+internal/httpserver/applicationwire -> internal/portal/portaldomain
 internal/httpserver/applicationwire -> pkg/middleware
 internal/httpserver/applicationwire -> pkg/platform
 internal/httpserver/applicationwire -> pkg/portal
@@ -1816,6 +1820,9 @@ internal/portal/feedbackapi -> pkg/portal/mention
 internal/portal/feedbackapi -> pkg/portal/threads
 internal/portal/feedbackapi -> pkg/prompt
 internal/portal/feedbackapi -> pkg/toolkits/knowledge
+internal/portal/peopleapi -> internal/httpjson
+internal/portal/peopleapi -> internal/portal/access
+internal/portal/peopleapi -> internal/portal/portaldomain
 internal/portal/portaldomain -> pkg/contenttype
 internal/portal/portaldomain -> pkg/portal/shareaccess
 internal/portal/portalnoop -> internal/portal/portaldomain
@@ -2352,6 +2359,7 @@ pkg/portal -> internal/portal/callapi
 pkg/portal -> internal/portal/contenturl
 pkg/portal -> internal/portal/embedhosts
 pkg/portal -> internal/portal/feedbackapi
+pkg/portal -> internal/portal/peopleapi
 pkg/portal -> internal/portal/portaldomain
 pkg/portal -> internal/portal/portalnoop
 pkg/portal -> internal/portal/portalstore

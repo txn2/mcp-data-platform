@@ -1,7 +1,11 @@
 import type {
   ApplicationPartKind,
+  ApplicationPartView,
   ApplicationReleaseAction,
 } from "@/api/portal/hooks/applications";
+import { formatRelative } from "@/components/feedback/meta";
+import { familyLabel } from "@/components/renderers/registry";
+import { scheduleLine } from "@/pages/scripts/cadence";
 
 // The words the Applications pages show for the values the API carries. A
 // script is called an automation in the portal (#1912), so a script part is
@@ -14,6 +18,58 @@ export const PART_KIND_LABEL: Record<ApplicationPartKind, string> = {
 };
 
 export const PART_KINDS: ApplicationPartKind[] = ["script", "asset", "source"];
+
+/** The heading of each kind's group on the Parts card and its filter pill. */
+export const PART_GROUP_LABEL: Record<ApplicationPartKind, string> = {
+  script: "Automations",
+  asset: "Assets",
+  source: "Webhook sources",
+};
+
+/** partName is what a part is called on the page, never its id. */
+export function partName(p: Pick<ApplicationPartView, "kind" | "state" | "name">): string {
+  if (p.state === "ok" && p.name) return p.name;
+  const noun = PART_KIND_LABEL[p.kind].toLowerCase();
+  return p.state === "not_visible" ? `${PART_KIND_LABEL[p.kind]} you can't open` : `Deleted ${noun}`;
+}
+
+/** partDescription is the line under a part's name: what it is and how it runs. */
+export function partDescription(p: ApplicationPartView): string {
+  if (p.state !== "ok") return "";
+  const pieces = p.kind === "script" ? scriptPieces(p) : p.kind === "asset" ? assetPieces(p) : sourcePieces(p);
+  return pieces.join(" · ");
+}
+
+function scriptPieces(p: ApplicationPartView): string[] {
+  const pieces: string[] = [];
+  if (p.description) pieces.push(p.description);
+  if (p.event_source) pieces.push(`runs on each ${p.event_source} event`);
+  if (p.schedule) {
+    pieces.push(p.schedule.enabled ? lowerFirst(scheduleLine(p.schedule.cron_spec, p.schedule.timezone)) : "schedule paused");
+  }
+  return pieces;
+}
+
+function assetPieces(p: ApplicationPartView): string[] {
+  const pieces: string[] = [];
+  if (p.content_type) pieces.push(familyLabel(p.content_type));
+  if (p.description) pieces.push(p.description);
+  else if (p.updated_at) pieces.push(`updated ${formatRelative(p.updated_at)}`);
+  return pieces;
+}
+
+function sourcePieces(p: ApplicationPartView): string[] {
+  return p.requests_last_day === undefined ? [] : [`${p.requests_last_day.toLocaleString()} requests in the last day`];
+}
+
+function lowerFirst(s: string): string {
+  return s.length > 0 ? s[0]!.toLowerCase() + s.slice(1) : s;
+}
+
+/** partReference is the mcp: reference a part is cited by; a webhook source has none. */
+export function partReference(kind: ApplicationPartKind, id: string): string | null {
+  return kind === "source" ? null : `mcp:${kind}:${id}`;
+}
 
 export const ACTION_LABEL: Record<ApplicationReleaseAction, string> = {
   release: "Release",

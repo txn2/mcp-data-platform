@@ -50,6 +50,10 @@ services:
   postgres-target:
     image: pgvector/pgvector:0.8.1-pg17@sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21
     container_name: acme-dev-postgres-target
+    # pg_stat_statements is loaded so a database that installs it reports the
+    # statements its application runs on the connection's Health card (#2528);
+    # loading it installs it nowhere, and `orders` does not install it.
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
     environment:
       POSTGRES_USER: orders_app
       POSTGRES_PASSWORD: orders_secret

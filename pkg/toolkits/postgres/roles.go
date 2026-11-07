@@ -54,7 +54,7 @@ func IdentityOf(ctx context.Context) Identity {
 // on the same physical connection set: a setting made with is_local ends with
 // its transaction, and the reset a released connection runs (RESET ALL)
 // removes one a statement made for its session.
-const claimsSQL = "SELECT set_config('mcp.user_id', $1, true), set_config('mcp.email', $2, true), " +
+const claimsSQL = "/* mcp-data-platform */ SELECT set_config('mcp.user_id', $1, true), set_config('mcp.email', $2, true), " +
 	"set_config('mcp.persona', $3, true), set_config('mcp.source', $4, true)"
 
 // claims are the values claimsSQL binds, in order, as text.
@@ -130,7 +130,7 @@ func (c *conn) close() {
 
 // roleProbeSQL is what a persona role's probe asks: who it logged in as, and
 // whether row-level security applies to it at all.
-const roleProbeSQL = "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
+const roleProbeSQL = "/* mcp-data-platform */ SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
 
 // probeRoles logs in as every persona role the connection maps and reports
 // each, warning of one that row-level security does not apply to: a

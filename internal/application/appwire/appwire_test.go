@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
@@ -83,4 +85,48 @@ func TestSourceReads(t *testing.T) {
 	mock.ExpectQuery("SELECT connection_name").WillReturnError(errors.New("down"))
 	_, err = read(ctx, "x")
 	require.Error(t, err)
+}
+
+// TestPartReads covers what the Parts card and the Add parts dialog read
+// (#2527): a webhook source's accepted requests, the source names a search
+// matches with its pattern characters escaped, and the stores the lister
+// passes through.
+func TestPartReads(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+
+	mock.ExpectQuery("SELECT COALESCE").WithArgs("hook", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1284))
+	n, err := sources{db: db}.AcceptedSince(ctx, "hook", time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, int64(1284), n)
+	mock.ExpectQuery("SELECT COALESCE").WillReturnError(errors.New("down"))
+	_, err = sources{db: db}.AcceptedSince(ctx, "hook", time.Now())
+	require.Error(t, err)
+
+	l := lister{db: db}
+	mock.ExpectQuery("SELECT name FROM webhook_sources").WithArgs(`50\%\_off`, 50).
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("50%_off-events"))
+	names, err := l.ListSources(ctx, "50%_off", 50)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"50%_off-events"}, names)
+	mock.ExpectQuery("SELECT name FROM webhook_sources").WillReturnRows(sqlmock.NewRows([]string{"name"}))
+	names, err = l.ListSources(ctx, "", 50)
+	require.NoError(t, err)
+	assert.NotNil(t, names, "an empty list is [], never null")
+	mock.ExpectQuery("SELECT name FROM webhook_sources").WillReturnError(errors.New("down"))
+	_, err = l.ListSources(ctx, "", 50)
+	require.Error(t, err)
+	mock.ExpectQuery("SELECT name FROM webhook_sources").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("a").RowError(0, errors.New("broken")))
+	_, err = l.ListSources(ctx, "", 50)
+	require.Error(t, err)
+
+	assets, total, err := l.ListAssets(ctx, portaldomain.AssetFilter{})
+	require.NoError(t, err, "no asset store lists nothing")
+	assert.Empty(t, assets)
+	assert.Zero(t, total)
+	assert.Equal(t, `a\\b`, likeEscape(`a\b`))
 }

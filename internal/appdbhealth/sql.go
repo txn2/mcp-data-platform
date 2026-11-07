@@ -10,7 +10,7 @@ import (
 // the toolkit maps to a plain JSON value. They read the database the
 // connection reaches, except connections, which counts the server's.
 
-const serverSQL = `SELECT current_setting('server_version') AS version,
+const serverSQL = `/* mcp-data-platform */ SELECT current_setting('server_version') AS version,
  current_setting('server_version_num')::int8 AS version_num,
  current_database() AS database,
  pg_database_size(current_database())::int8 AS size_bytes,
@@ -21,14 +21,14 @@ const serverSQL = `SELECT current_setting('server_version') AS version,
  pg_is_in_recovery() AS in_recovery,
  (SELECT stats_reset FROM pg_stat_database WHERE datname = current_database()) AS stats_reset`
 
-const extensionsSQL = `SELECT extname AS name, extversion AS version FROM pg_extension ORDER BY extname`
+const extensionsSQL = `/* mcp-data-platform */ SELECT extname AS name, extversion AS version FROM pg_extension ORDER BY extname`
 
-const connectionsSQL = `SELECT COALESCE(state, 'unknown') AS state, count(*)::int8 AS n
+const connectionsSQL = `/* mcp-data-platform */ SELECT COALESCE(state, 'unknown') AS state, count(*)::int8 AS n
 FROM pg_stat_activity WHERE backend_type = 'client backend' GROUP BY 1 ORDER BY 1`
 
 // tablesSQL lists the largest user tables. A partitioned parent holds no
 // rows and no transaction ids of its own, so its age is zero.
-const tablesSQL = `SELECT s.schemaname AS schema, s.relname AS name,
+const tablesSQL = `/* mcp-data-platform */ SELECT s.schemaname AS schema, s.relname AS name,
  pg_total_relation_size(s.relid)::int8 AS size_bytes, GREATEST(c.reltuples, 0)::int8 AS row_estimate,
  s.n_live_tup::int8 AS live_tuples, s.n_dead_tup::int8 AS dead_tuples,
  s.seq_scan::int8 AS seq_scans, COALESCE(s.idx_scan, 0)::int8 AS index_scans,
@@ -40,7 +40,7 @@ ORDER BY pg_total_relation_size(s.relid) DESC, s.schemaname, s.relname LIMIT 200
 // unusedIndexesSQL lists valid indexes never scanned since the statistics
 // were reset that back no constraint: dropping one would not change what the
 // table accepts.
-const unusedIndexesSQL = `SELECT s.schemaname AS schema, s.relname AS table, s.indexrelname AS name,
+const unusedIndexesSQL = `/* mcp-data-platform */ SELECT s.schemaname AS schema, s.relname AS table, s.indexrelname AS name,
  pg_relation_size(s.indexrelid)::int8 AS size_bytes, s.idx_scan::int8 AS scans
 FROM pg_stat_user_indexes s JOIN pg_index i ON i.indexrelid = s.indexrelid
 WHERE s.idx_scan = 0 AND i.indisvalid AND NOT i.indisunique AND NOT i.indisprimary
@@ -49,7 +49,7 @@ ORDER BY 4 DESC, 1, 2, 3 LIMIT 100`
 
 // duplicateIndexesSQL groups a table's indexes by what they index: the same
 // columns, operator classes, collations, expressions and predicate.
-const duplicateIndexesSQL = `SELECT n.nspname AS schema, t.relname AS table,
+const duplicateIndexesSQL = `/* mcp-data-platform */ SELECT n.nspname AS schema, t.relname AS table,
  array_agg(ic.relname::text ORDER BY ic.relname) AS names, min(pg_get_indexdef(i.indexrelid)) AS definition
 FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid JOIN pg_class t ON t.oid = i.indrelid
 JOIN pg_namespace n ON n.oid = t.relnamespace
@@ -58,7 +58,7 @@ GROUP BY n.nspname, t.relname, i.indrelid, i.indkey::text, i.indclass::text, i.i
  COALESCE(pg_get_expr(i.indexprs, i.indrelid), ''), COALESCE(pg_get_expr(i.indpred, i.indrelid), '')
 HAVING count(*) > 1 ORDER BY 1, 2 LIMIT 100`
 
-const invalidIndexesSQL = `SELECT n.nspname AS schema, t.relname AS table, ic.relname AS name,
+const invalidIndexesSQL = `/* mcp-data-platform */ SELECT n.nspname AS schema, t.relname AS table, ic.relname AS name,
  pg_relation_size(i.indexrelid)::int8 AS size_bytes, 0::int8 AS scans
 FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid JOIN pg_class t ON t.oid = i.indrelid
 JOIN pg_namespace n ON n.oid = t.relnamespace
@@ -69,7 +69,7 @@ WHERE NOT i.indisvalid ORDER BY 1, 2, 3 LIMIT 100`
 // reading it.
 func sessionsSQL(longRunning time.Duration) string {
 	secs := strconv.FormatInt(int64(longRunning.Seconds()), decimal)
-	return `SELECT pid::int8 AS pid, usename::text, COALESCE(application_name, '') AS application, state,
+	return `/* mcp-data-platform */ SELECT pid::int8 AS pid, usename::text, COALESCE(application_name, '') AS application, state,
  EXTRACT(EPOCH FROM now() - COALESCE(xact_start, query_start))::float8 AS seconds,
  EXTRACT(EPOCH FROM now() - state_change)::float8 AS state_seconds,
  COALESCE(wait_event_type || ':' || wait_event, '') AS wait, query
@@ -80,19 +80,43 @@ WHERE datname = current_database() AND backend_type = 'client backend' AND pid <
 ORDER BY seconds DESC LIMIT 100`
 }
 
-const blockingSQL = `SELECT pid::int8 AS pid, usename::text, pg_blocking_pids(pid)::int8[] AS blocked_by,
+const blockingSQL = `/* mcp-data-platform */ SELECT pid::int8 AS pid, usename::text, pg_blocking_pids(pid)::int8[] AS blocked_by,
  EXTRACT(EPOCH FROM now() - COALESCE(query_start, backend_start))::float8 AS seconds
 FROM pg_stat_activity
 WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0
 ORDER BY seconds DESC LIMIT 100`
 
-const replicationSQL = `SELECT COALESCE(application_name, '') AS name, COALESCE(state, '') AS state,
+const replicationSQL = `/* mcp-data-platform */ SELECT COALESCE(application_name, '') AS name, COALESCE(state, '') AS state,
  COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn), 0)::int8 AS lag_bytes,
  COALESCE(EXTRACT(EPOCH FROM replay_lag), 0)::float8 AS lag_seconds
 FROM pg_stat_replication ORDER BY 1`
 
-const statementsSQL = `SELECT queryid::text AS query_id, calls::int8 AS calls,
- total_exec_time::float8 AS total_ms, mean_exec_time::float8 AS mean_ms, rows::int8 AS rows, query
+// statementsSQL ranks the application's statements by total time: every
+// statement of this database but the platform's own, which carry
+// sqltag.Platform, the session plumbing every call through the
+// toolkit runs around a statement (its BEGIN with the SET LOCAL bounds, its
+// COMMIT or ROLLBACK, and the reset a released connection runs), and the
+// statements whose text this connection's role cannot read, which
+// hiddenStatementsSQL counts instead.
+const statementsSQL = `/* mcp-data-platform */ SELECT queryid::text AS query_id, calls::int8 AS calls,
+ total_exec_time::float8 AS total_ms, mean_exec_time::float8 AS mean_ms, max_exec_time::float8 AS max_ms,
+ rows::int8 AS rows, query
+FROM pg_stat_statements
+WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())` + applicationStatements + `
+ORDER BY total_exec_time DESC LIMIT 20`
+
+// hiddenStatementsSQL counts the statements of other roles whose text this
+// connection's role cannot read: PostgreSQL answers their text as
+// <insufficient privilege> unless the role holds pg_read_all_stats.
+const hiddenStatementsSQL = `/* mcp-data-platform */ SELECT count(*)::int8 AS n
 FROM pg_stat_statements
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-ORDER BY total_exec_time DESC LIMIT 20`
+ AND query = '<insufficient privilege>'`
+
+// applicationStatements is the condition that leaves the platform's own
+// statements and the unreadable ones out of the ranking.
+const applicationStatements = `
+ AND query <> '<insufficient privilege>'
+ AND strpos(query, '/* mcp-data-platform */') = 0
+ AND query !~* '^\s*(BEGIN|START TRANSACTION|COMMIT|END|ROLLBACK|SET LOCAL |SET SESSION AUTHORIZATION DEFAULT|RESET ALL|DISCARD |CLOSE ALL|UNLISTEN \*|SAVEPOINT |RELEASE )'
+ AND query !~* '^\s*SELECT pg_advisory_unlock_all\(\)'`

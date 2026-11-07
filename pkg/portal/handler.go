@@ -637,6 +637,10 @@ func (h *Handler) registerRoutes() {
 	feedback.Register(h.mux)
 	feedback.RegisterInsightCapture(h.mux)
 
+	// Who is behind an asset and whom it is shared with (#2531) live in
+	// internal/portal/peopleapi.
+	h.registerPeopleRoutes()
+
 	// An item's general link and a grant's permission, changed in place
 	// (#2291), live in internal/portal/sharelink.
 	sharelink.New(sharelink.Config{

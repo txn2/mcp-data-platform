@@ -345,7 +345,12 @@ A scheduled script keeps the database healthy: the built-in example
 outside any transaction. Set its schedule with `manage_script`
 `schedule_set`. Its author's persona must be the administrator or one the
 connection's `schema_apply_personas` names. The connection page's Health card
-shows what it is keeping in check.
+shows what it is keeping in check: a status (healthy, needs attention,
+critical) judged by the same thresholds the database alerts are posted by,
+each finding with its threshold, and the application's slowest statements
+when the database installs `pg_stat_statements` (the platform's own
+statements are left out, and those of other roles the connection's login
+cannot read are counted rather than listed).
 
 ## 6. The storefront
 
@@ -368,7 +373,10 @@ reads the same list from `/endpoints/shop/products`.
    confirmation, maintenance), the storefront asset (`kind: "asset"`), and the
    outbox webhook source (`kind: "source"`, its name). A part belongs to one
    application; adding one held by another is refused naming it. The owner
-   adds the parts they own; an administrator adds a webhook source.
+   adds the parts they own; an administrator adds a webhook source. On the
+   application's portal page the parts are listed by name, and Add parts
+   searches the owner's scripts and assets (and, for an administrator,
+   webhook sources) by name and adds several at once.
 3. `get` shows what a release would change (`pending`) and anything it would
    refuse (`problems`).
 4. `release` (an administrator) applies the pending migrations and pins each

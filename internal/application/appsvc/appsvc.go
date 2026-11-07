@@ -57,6 +57,11 @@ type Service struct {
 	// HasConnection reports whether an application database connection
 	// (kind appdb) is named so; nil checks nothing.
 	HasConnection func(name string) bool
+	// Schedules, Activity and Lister describe parts and list the ones that
+	// may be added (#2527); nil leaves out what each reads.
+	Schedules Schedules
+	Activity  SourceActivity
+	Lister    CandidateLister
 }
 
 // RefusedError is an operation refused for a reason the caller can act on.

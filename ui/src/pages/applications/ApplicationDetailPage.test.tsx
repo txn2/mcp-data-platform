@@ -21,13 +21,19 @@ async function loaded() {
   await screen.findByTestId("part-script-script-001");
 }
 
+function openMenu(trigger: HTMLElement) {
+  fireEvent.keyDown(trigger, { key: "Enter" });
+}
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
 function lastButton(name: string) {
   const buttons = screen.getAllByRole("button", { name });
   return buttons[buttons.length - 1]!;
 }
 
 describe("ApplicationDetailPage", () => {
-  it("shows the owner, the current release and each part with its pinned version", async () => {
+  it("shows the owner, the current release and each part by name, grouped by kind, with its pinned version", async () => {
     serveApplications();
     signIn("j.martinez@example.com", false);
     renderPage();
@@ -35,10 +41,34 @@ describe("ApplicationDetailPage", () => {
 
     expect(screen.getByTestId("application-facts")).toHaveTextContent("sarah.chen@example.com");
     expect(screen.getByText("Release 3")).toBeInTheDocument();
-    expect(screen.getByTestId("part-script-script-001")).toHaveTextContent("Automation");
-    expect(screen.getByTestId("part-script-script-001")).toHaveTextContent("v4");
-    expect(screen.getByTestId("part-asset-ast-001")).toHaveTextContent("v3");
-    expect(screen.getByTestId("part-source-billing-events")).toHaveTextContent("Webhook source");
+    expect(screen.getByTestId("parts-subtitle")).toHaveTextContent("4 parts. Release v3 pins the version of each.");
+    expect(screen.getByRole("group", { name: "Automations" })).toHaveTextContent("Automations · 2");
+    const sales = screen.getByTestId("part-script-script-001");
+    expect(sales).toHaveTextContent("Daily sales report");
+    expect(sales).toHaveTextContent("Summarizes yesterday's sales by region · every day at 7:00 AM");
+    expect(sales).toHaveTextContent("Pinned v4");
+    expect(sales).toHaveTextContent("v5 is the latest");
+    expect(screen.getByTestId("part-script-script-002")).toHaveTextContent("Pinned v2 · latest");
+    const asset = screen.getByTestId("part-asset-ast-001");
+    expect(asset).toHaveTextContent("Sales dashboard");
+    expect(asset).toHaveTextContent("HTML");
+    const source = screen.getByTestId("part-source-billing-events");
+    expect(source).toHaveTextContent("1,284 requests in the last day");
+    expect(source).toHaveTextContent("Not versioned");
+    expect(screen.getByTestId("parts-behind")).toHaveTextContent(
+      "1 part has a newer version than release v3 pins. Publish a release to pin it.",
+    );
+  });
+
+  it("never shows an id in place of a name, and names a part that is gone", async () => {
+    serveApplications();
+    signIn("j.martinez@example.com", false);
+    renderPage();
+    await loaded();
+
+    const card = screen.getByTestId("application-parts");
+    expect(card.textContent).not.toMatch(UUID);
+    for (const id of ["script-001", "script-002", "ast-001"]) expect(card).not.toHaveTextContent(id);
   });
 
   it("lists releases newest first and opens the changes each made", async () => {
@@ -69,9 +99,12 @@ describe("ApplicationDetailPage", () => {
     renderPage();
     await loaded();
 
-    for (const name of ["Add part", "Remove", "Release", "Roll back", "Export"]) {
+    for (const name of ["Add parts", "Release", "Roll back", "Export"]) {
       expect(screen.queryByRole("button", { name }), name).toBeNull();
     }
+    openMenu(screen.getByRole("button", { name: "Actions for Daily sales report" }));
+    expect(screen.getByRole("menuitem", { name: "Copy reference" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Remove from application" })).toBeNull();
   });
 
   it("lets the owner change parts but not release", async () => {
@@ -80,8 +113,8 @@ describe("ApplicationDetailPage", () => {
     renderPage();
     await loaded();
 
-    expect(screen.getByRole("button", { name: "Add part" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(4);
+    expect(screen.getByRole("button", { name: "Add parts" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Actions for / })).toHaveLength(4);
     for (const name of ["Release", "Roll back", "Export"]) {
       expect(screen.queryByRole("button", { name }), name).toBeNull();
     }
@@ -132,42 +165,59 @@ describe("ApplicationDetailPage", () => {
     expect(createObjectURL).toHaveBeenCalled();
   });
 
-  it("adds a part through the dialog", async () => {
+  it("adds two parts picked by name in one go", async () => {
     const sent = serveApplications();
     signIn("sarah.chen@example.com", false);
     renderPage();
     await loaded();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add part" }));
-    fireEvent.change(screen.getByLabelText("ID"), { target: { value: "script-005" } });
-    fireEvent.click(lastButton("Add part"));
+    fireEvent.click(screen.getByRole("button", { name: "Add parts" }));
+    expect(screen.getByRole("heading", { name: "Add parts to shop" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Search automations, assets and webhook sources"), {
+      target: { value: "revenue" },
+    });
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Monthly revenue close" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Revenue by region" }));
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 parts" }));
 
-    expect(await screen.findByTestId("part-script-script-005")).toBeInTheDocument();
-    const post = sent.find((r) => r.method === "POST" && r.path.endsWith("/parts"));
-    expect(post?.body).toEqual({ kind: "script", id: "script-005" });
+    expect(await screen.findByTestId("part-script-script-005")).toHaveTextContent("Monthly revenue close");
+    expect(await screen.findByTestId("part-asset-ast-002")).toHaveTextContent("Revenue by region");
+    const posts = sent.filter((r) => r.method === "POST" && r.path.endsWith("/parts")).map((r) => r.body);
+    expect(posts).toEqual([
+      { kind: "script", id: "script-005" },
+      { kind: "asset", id: "ast-002" },
+    ]);
   });
 
-  it("says which application already holds a part", async () => {
+  it("disables a part another application holds and names it", async () => {
     serveApplications();
     signIn("j.martinez@example.com", false);
     renderPage("app-intake");
     await screen.findByTestId("part-script-script-004");
 
-    fireEvent.click(screen.getByRole("button", { name: "Add part" }));
-    fireEvent.change(screen.getByLabelText("ID"), { target: { value: "script-001" } });
-    fireEvent.click(lastButton("Add part"));
-
-    expect(await screen.findByText(/already belongs to application "shop"/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add parts" }));
+    const taken = await screen.findByRole("checkbox", { name: "Daily sales report, already in shop" });
+    expect(taken).toBeDisabled();
+    expect(screen.getByTestId("candidate-script-script-001")).toHaveTextContent(
+      "Already part of shop. Remove it there to add it here.",
+    );
+    expect(screen.getByRole("button", { name: "Add 0 parts" })).toBeDisabled();
   });
 
-  it("removes a part", async () => {
+  it("removes a part after asking", async () => {
     const sent = serveApplications();
     signIn("sarah.chen@example.com", false);
     renderPage();
     await loaded();
 
-    const row = screen.getByTestId("part-script-script-005");
-    fireEvent.click(within(row).getByRole("button", { name: "Remove" }));
+    openMenu(screen.getByRole("button", { name: "Actions for Monthly revenue close" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from application" }));
+    expect(
+      screen.getByText("Remove Monthly revenue close from shop? It stays in the portal; the next release no longer pins it."),
+    ).toBeInTheDocument();
+    expect(sent.some((r) => r.method === "DELETE")).toBe(false);
+    fireEvent.click(lastButton("Remove"));
 
     await waitFor(() => expect(screen.queryByTestId("part-script-script-005")).toBeNull());
     expect(

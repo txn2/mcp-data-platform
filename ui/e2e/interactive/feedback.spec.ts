@@ -89,16 +89,35 @@ test.describe("Feedback panel", () => {
     ]);
     await expect(page.getByText("Fixed in section 2 as well.")).toBeVisible();
 
-    // Moderator status control (mock user is admin). It is a Radix listbox,
-    // not a native <select>: the option is chosen by opening the trigger and
-    // clicking it, so selectOption() has nothing to drive.
-    await page.getByRole("combobox", { name: "Set status" }).click();
+    // Moderator status control in the header (#2532): a menu where each
+    // status says what it means.
+    await page.getByRole("button", { name: /^Status: / }).click();
+    await expect(page.getByText("Done. Leaves every worklist.")).toBeVisible();
     await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes("/threads/") && r.request().method() === "PATCH",
       ),
-      page.getByRole("option", { name: "Resolved" }).click(),
+      page.getByRole("menuitem", { name: /Acknowledged/ }).click(),
     ]);
+    // The change is a line, not a message card, and carries its Undo.
+    const line = page.locator('[data-testid^="timeline-line-"]', { hasText: "marked Acknowledged" });
+    await expect(line).toBeVisible();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith("/undo") && r.request().method() === "POST"),
+      line.getByRole("button", { name: "Undo" }).click(),
+    ]);
+    await expect(line).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Status: / })).not.toHaveAccessibleName("Status: Acknowledged");
+  });
+
+  // #2532: the reply box opens at least 150px tall.
+  test("opens the reply box at least 150px tall with its formatting toolbar", async ({ page }) => {
+    await openAssetFeedback(page);
+    await page.getByText("We don't use that term").click();
+    const box = page.getByRole("textbox", { name: "Reply" });
+    expect((await box.boundingBox())!.height).toBeGreaterThanOrEqual(150);
+    await expect(page.getByRole("toolbar", { name: "Formatting" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reply and resolve" })).toBeVisible();
   });
 
 });

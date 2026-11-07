@@ -2862,6 +2862,34 @@ definitions:
           $ref: '#/definitions/appdbhealth.IndexRef'
         type: array
     type: object
+  appdbhealth.Problem:
+    properties:
+      detail:
+        type: string
+      index:
+        type: string
+      kind:
+        description: Kind is one of the Problem* kinds.
+        type: string
+      level:
+        description: |-
+          Level is critical or warning, from the alert thresholds, or info for
+          advice no alert is posted for.
+        type: string
+      pid:
+        type: integer
+      table:
+        type: string
+      threshold:
+        type: number
+      title:
+        type: string
+      value:
+        description: |-
+          Value is the number judged, and Threshold the level it crossed; 0 for
+          advice.
+        type: number
+    type: object
   appdbhealth.Replica:
     properties:
       lag_bytes:
@@ -2895,6 +2923,10 @@ definitions:
         items:
           $ref: '#/definitions/appdbhealth.Extension'
         type: array
+      findings:
+        items:
+          $ref: '#/definitions/appdbhealth.Problem'
+        type: array
       generated_at:
         type: string
       indexes:
@@ -2911,6 +2943,11 @@ definitions:
         type: array
       statements:
         $ref: '#/definitions/appdbhealth.StatementsSection'
+      status:
+        description: |-
+          Status and Findings are the report judged against the health settings,
+          by the rule the alerts are posted by (#2528); empty until judged.
+        type: string
       tables:
         items:
           $ref: '#/definitions/appdbhealth.TableStats'
@@ -2976,6 +3013,9 @@ definitions:
     properties:
       calls:
         type: integer
+      max_ms:
+        description: MaxMS is the slowest single call.
+        type: number
       mean_ms:
         type: number
       query:
@@ -2989,6 +3029,11 @@ definitions:
     type: object
   appdbhealth.StatementsSection:
     properties:
+      hidden_other_roles:
+        description: |-
+          HiddenOtherRoles counts the statements of other roles whose text this
+          connection's role cannot read; they are left out of Top (#2528).
+        type: integer
       installed:
         type: boolean
       note:
@@ -3277,6 +3322,13 @@ definitions:
         description: |-
           Migrations is where the schema's migrations stand; nil for an
           application with no schema.
+      parts:
+        description: |-
+          Parts is each part with its name and the facts its row describes,
+          in the order application.parts lists them (#2527).
+        items:
+          $ref: '#/definitions/appsvc.PartView'
+        type: array
       pending:
         description: |-
           Pending is the parts whose newest version differs from the current
@@ -3575,6 +3627,107 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  appsvc.AppRef:
+    properties:
+      id:
+        example: app_01J9...
+        type: string
+      name:
+        example: billing
+        type: string
+    type: object
+  appsvc.Candidate:
+    properties:
+      application:
+        allOf:
+        - $ref: '#/definitions/appsvc.AppRef'
+        description: |-
+          Application is the application the part already belongs to, which
+          refuses it here; nil for none.
+      content_type:
+        type: string
+      id:
+        example: 5b0c...
+        type: string
+      kind:
+        example: script
+        type: string
+      name:
+        example: Monthly revenue close
+        type: string
+      owner_email:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  appsvc.Candidates:
+    properties:
+      candidates:
+        items:
+          $ref: '#/definitions/appsvc.Candidate'
+        type: array
+      counts:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
+  appsvc.PartSchedule:
+    properties:
+      cron_spec:
+        example: 0 2 * * *
+        type: string
+      enabled:
+        example: true
+        type: boolean
+      timezone:
+        example: UTC
+        type: string
+    type: object
+  appsvc.PartView:
+    properties:
+      added_at:
+        type: string
+      added_by:
+        type: string
+      content_type:
+        description: ContentType is an asset's media type.
+        type: string
+      description:
+        description: Description is the script's or asset's own description.
+        type: string
+      event_source:
+        description: EventSource is the webhook source a script runs for, empty for
+          none.
+        type: string
+      id:
+        example: 5b0c...
+        type: string
+      kind:
+        example: script
+        type: string
+      latest_version:
+        description: |-
+          LatestVersion is the script's or asset's newest version; nil for a
+          webhook source and for a part not read.
+        type: integer
+      name:
+        example: Nightly order sync
+        type: string
+      owner_email:
+        type: string
+      requests_last_day:
+        description: |-
+          RequestsLastDay is how many requests a webhook source accepted in the
+          last 24 hours; told to administrators, who manage sources.
+        type: integer
+      schedule:
+        $ref: '#/definitions/appsvc.PartSchedule'
+      state:
+        example: ok
+        type: string
+      updated_at:
+        type: string
     type: object
   assetrefapi.audience:
     properties:
@@ -6737,6 +6890,13 @@ definitions:
       thread_id:
         type: string
     type: object
+  feedbackapi.undoStatusResponse:
+    properties:
+      status:
+        type: string
+      thread_id:
+        type: string
+    type: object
   feedbackapi.updateThreadRequest:
     properties:
       requires_resolution:
@@ -8277,6 +8437,98 @@ definitions:
       version:
         example: 3
         type: integer
+    type: object
+  peopleapi.Contributor:
+    properties:
+      email:
+        example: bob@example.com
+        type: string
+      last_change:
+        type: string
+      versions:
+        description: |-
+          Versions is how many versions they wrote, and LastChange when they
+          wrote the newest.
+        example: 3
+        type: integer
+    type: object
+  peopleapi.People:
+    properties:
+      contributors:
+        items:
+          $ref: '#/definitions/peopleapi.Contributor'
+        type: array
+      owner:
+        $ref: '#/definitions/peopleapi.person'
+    type: object
+  peopleapi.ShareSummary:
+    properties:
+      links:
+        items:
+          $ref: '#/definitions/peopleapi.linkShare'
+        type: array
+      people:
+        items:
+          $ref: '#/definitions/peopleapi.personShare'
+        type: array
+      personas:
+        items:
+          $ref: '#/definitions/peopleapi.personaShare'
+        type: array
+      total:
+        example: 23
+        type: integer
+    type: object
+  peopleapi.linkShare:
+    properties:
+      access_mode:
+        allOf:
+        - $ref: '#/definitions/portaldomain.ShareAccessMode'
+        description: 'AccessMode is who may open it: public, authenticated or restricted.'
+        example: authenticated
+      created_by:
+        example: alice@example.com
+        type: string
+      expires_at:
+        type: string
+      opened:
+        example: 14
+        type: integer
+      origin:
+        allOf:
+        - $ref: '#/definitions/portaldomain.ShareOrigin'
+        example: explicit
+      posted_to:
+        description: PostedTo names the channel a channel post's link went to.
+        type: string
+    type: object
+  peopleapi.person:
+    properties:
+      email:
+        example: alice@example.com
+        type: string
+    type: object
+  peopleapi.personShare:
+    properties:
+      email:
+        example: bob@example.com
+        type: string
+      expires_at:
+        type: string
+      permission:
+        allOf:
+        - $ref: '#/definitions/portaldomain.SharePermission'
+        example: viewer
+    type: object
+  peopleapi.personaShare:
+    properties:
+      permission:
+        allOf:
+        - $ref: '#/definitions/portaldomain.SharePermission'
+        example: viewer
+      persona:
+        example: finance
+        type: string
     type: object
   persona.APIRouteRule:
     properties:
@@ -20560,10 +20812,17 @@ paths:
         last vacuum and analyze of each table, unused, duplicate and invalid indexes,
         transaction id age, connections against max_connections, long-running and
         idle-in-transaction sessions, blocking lock chains, the cache hit ratio, replication
-        lag, and the statements pg_stat_statements ranks first when it is installed.
-        Session and statement text can repeat a literal and is served here alone:
-        it is never stored, logged or sent in an alert. A section the database refused
-        is listed under errors and the rest of the report stands.'
+        lag, and the application''s statements pg_stat_statements ranks first when
+        it is installed (the platform''s own statements left out, and those of other
+        roles whose text the connection cannot read counted in hidden_other_roles).
+        status (healthy, warning, critical) and findings judge the report against
+        the health settings by the rule the alerts are posted by: a finding past an
+        alert threshold carries its level and the threshold, and advice no alert is
+        posted for (an unused or duplicate index, a blocked session, a long-running
+        statement) is level info. Session and statement text can repeat a literal
+        and is served here alone: it is never stored, logged or sent in an alert.
+        A section the database refused is listed under errors and the rest of the
+        report stands.'
       parameters:
       - description: Application database connection name
         in: path
@@ -26463,10 +26722,12 @@ paths:
       tags:
       - Applications
     get:
-      description: 'An application by name or id: its parts, its current release,
-        what a release now would change (pending), where its schema''s migrations
-        stand, the parts a release would refuse (problems), and its releases newest
-        first with what each changed.'
+      description: 'An application by name or id: its parts (parts names each one,
+        the facts its row is described with, its newest version and its state: ok,
+        deleted, or not_visible for an asset the caller cannot open, whose name is
+        not told), its current release, what a release now would change (pending),
+        where its schema''s migrations stand, the parts a release would refuse (problems),
+        and its releases newest first with what each changed.'
       parameters:
       - description: Application name or id
         in: path
@@ -26562,6 +26823,61 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update an application
+      tags:
+      - Applications
+  /portal/applications/{app}/candidates:
+    get:
+      description: The scripts and assets the caller owns (every one for an administrator)
+        and, for an administrator, the webhook sources, whose name contains q, at
+        most 50 of each kind. A part already in this application is left out; one
+        in another application carries that application, and adding it is refused.
+        kind (script, asset, source) narrows the list; counts are for every kind.
+        For the application's owner and administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: Text the name contains
+        in: query
+        name: q
+        type: string
+      - description: script, asset or source
+        in: query
+        name: kind
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appsvc.Candidates'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Search parts to add to an application
       tags:
       - Applications
   /portal/applications/{app}/export:
@@ -27832,6 +28148,42 @@ paths:
       summary: Export an HTML document as PDF
       tags:
       - Portal
+  /portal/assets/{id}/people:
+    get:
+      description: The asset's owner and every other person who wrote a version of
+        it, each with how many versions and when they wrote the newest, newest first.
+        For everyone who can open the asset.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/peopleapi.People'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Who is behind an asset
+      tags:
+      - Assets
   /portal/assets/{id}/producers:
     get:
       description: Returns the scripts, sessions and people that created or modified
@@ -28072,6 +28424,45 @@ paths:
       summary: Remove one of an asset's references
       tags:
       - Portal
+  /portal/assets/{id}/share-summary:
+    get:
+      description: 'The asset''s active shares: the personas and people it is shared
+        with, with their permission and any expiry, and its links by kind, with who
+        made each and how often it was opened. Never a share''s token or a link''s
+        address. For the organization''s own people who can open the asset; a caller
+        whose persona is external is refused. Revoked and expired shares are left
+        out.'
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/peopleapi.ShareSummary'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Whom an asset is shared with
+      tags:
+      - Assets
   /portal/assets/{id}/shares:
     get:
       description: Returns all shares for an asset. The owner or an admin.
@@ -35631,6 +36022,52 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Edit a message
+      tags:
+      - Feedback
+  /portal/threads/{id}/events/{eventID}/undo:
+    post:
+      description: Restores the status a status change replaced and removes the line
+        it wrote, as if the change never happened. Only the person who made the change,
+        within 10 minutes of it, and only until someone else adds an event to the
+        thread. Nobody is notified; the audit log records the change and the undo.
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The status change event's ID
+        in: path
+        name: eventID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/feedbackapi.undoStatusResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Undo a status change
       tags:
       - Feedback
   /portal/threads/{id}/insight:

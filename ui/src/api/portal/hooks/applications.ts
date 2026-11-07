@@ -77,9 +77,56 @@ export interface ApplicationList {
   total: number;
 }
 
+/** How a part reads to the caller (#2527). */
+export type ApplicationPartState = "ok" | "deleted" | "not_visible";
+
+/**
+ * One part as the application's page shows it (#2527): its name and the facts
+ * its description line is built from. A part that is gone, or an asset the
+ * caller cannot open, carries its state and no name.
+ */
+export interface ApplicationPartView {
+  kind: ApplicationPartKind;
+  id: string;
+  state: ApplicationPartState;
+  name?: string;
+  description?: string;
+  /** The newest version; null for a webhook source and a part not read. */
+  latest_version: number | null;
+  owner_email?: string;
+  schedule?: { cron_spec: string; timezone: string; enabled: boolean };
+  /** The webhook source a script runs for. */
+  event_source?: string;
+  content_type?: string;
+  updated_at?: string;
+  /** Requests a webhook source accepted in the last day; administrators only. */
+  requests_last_day?: number;
+  added_by: string;
+  added_at: string;
+}
+
+/** A script, asset or webhook source the caller may add to an application. */
+export interface ApplicationCandidate {
+  kind: ApplicationPartKind;
+  id: string;
+  name: string;
+  owner_email?: string;
+  content_type?: string;
+  updated_at?: string;
+  /** The application the part already belongs to, which refuses it here. */
+  application?: { id: string; name: string };
+}
+
+export interface ApplicationCandidates {
+  candidates: ApplicationCandidate[];
+  counts: Partial<Record<ApplicationPartKind, number>>;
+}
+
 /** An application's page: where it stands and its releases, newest first. */
 export interface ApplicationDetail {
   application: Application;
+  /** Each part as the caller reads it, in application.parts order. */
+  parts: ApplicationPartView[];
   current_release: ApplicationRelease | null;
   pending: ApplicationPinChange[];
   migrations?: { applied: number; pending: number[] };
@@ -204,6 +251,43 @@ export function useDeleteApplication(app: string) {
       queryClient.removeQueries({ queryKey: applicationKey(app) });
       return queryClient.invalidateQueries({ queryKey: applicationsKey });
     },
+  });
+}
+
+/** The parts the caller may add to an application whose name contains q. */
+export function useApplicationCandidates(app: string, q: string, enabled = true) {
+  return useQuery({
+    queryKey: [...applicationKey(app), "candidates", q] as const,
+    queryFn: () =>
+      apiFetch<ApplicationCandidates>(
+        `${appPath(app)}/candidates${q ? `?q=${encodeURIComponent(q)}` : ""}`,
+      ),
+    enabled: enabled && app !== "",
+  });
+}
+
+/** The outcome of adding one part: null when added, else why not. */
+export type PartAddOutcome = { kind: ApplicationPartKind; id: string; error: string | null };
+
+/**
+ * useAddApplicationParts adds several parts, one request each, and reports
+ * each part's outcome: a part the server refuses does not stop the rest.
+ */
+export function useAddApplicationParts(app: string) {
+  return useApplicationWrite(async (parts: { kind: ApplicationPartKind; id: string }[]) => {
+    const out: PartAddOutcome[] = [];
+    for (const p of parts) {
+      try {
+        await apiFetch<Application>(`${appPath(app)}/parts`, {
+          method: "POST",
+          body: JSON.stringify(p),
+        });
+        out.push({ ...p, error: null });
+      } catch (e) {
+        out.push({ ...p, error: e instanceof Error && e.message ? e.message : "The part could not be added" });
+      }
+    }
+    return out;
   });
 }
 

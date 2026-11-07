@@ -4,15 +4,19 @@
 package applicationwire
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/apphttp"
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
+	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -55,7 +59,10 @@ func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) htt
 		schemas: readSchemas(func() *postgreskit.Toolkit { return appwire.Live(p.ToolkitRegistry()) }),
 		held:    appstore.New(p.DB()).List,
 	}
-	register(mux, wrap, d, routes{isAdmin: isAdmin, audit: p.Audit().Logger(), databases: src.choices})
+	register(mux, wrap, d, routes{
+		isAdmin: isAdmin, audit: p.Audit().Logger(), databases: src.choices,
+		viewAsset: assetViewer(p.PortalShareStore()),
+	})
 }
 
 // routes is what the routes are mounted with besides the stores.
@@ -63,6 +70,24 @@ type routes struct {
 	isAdmin   func([]string) bool
 	audit     middleware.AuditLogger
 	databases func(*http.Request, application.Actor) []apphttp.DatabaseChoice
+	viewAsset appsvc.AssetViewer
+}
+
+// assetViewer reports whether the portal caller on ctx opens an asset, by
+// the portal's own view rule (#2527): its owner, or a person a share or a
+// shared collection reaches. With no share store, only the owner.
+func assetViewer(shares portaldomain.ShareStore) appsvc.AssetViewer {
+	c := access.New(access.Config{Shares: shares})
+	return func(ctx context.Context, asset *portaldomain.Asset) bool {
+		user := portal.GetUser(ctx)
+		if user == nil || asset == nil {
+			return false
+		}
+		if shares == nil {
+			return access.OwnsAsset(asset, user)
+		}
+		return c.CanViewAsset(ctx, asset.ID, asset, user)
+	}
 }
 
 // personaOf is the persona a caller's roles resolve to, "" for none.
@@ -83,6 +108,7 @@ func register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, d appwir
 	}
 	apphttp.Register(mux, wrap, apphttp.Config{
 		Service: svc, Bundles: appwire.Bundler(svc, d), Actor: Actor(r.isAdmin), Audit: r.audit, Databases: r.databases,
+		ViewAsset: r.viewAsset,
 	})
 }
 

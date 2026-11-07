@@ -298,3 +298,33 @@ func TestDatabasesRoute(t *testing.T) {
 	bare.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", DatabasesPath, http.NoBody))
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+// TestPartViewsAndCandidates is #2527's route half: the page reads each part
+// by name, and the Add parts dialog searches what may be added, with kind
+// checked.
+func TestPartViewsAndCandidates(t *testing.T) {
+	sv := newServer()
+	sv.who = &application.Actor{Email: "jane@example.com"}
+	require.Equal(t, http.StatusOK, sv.do(t, "POST", Prefix, `{"name":"shop"}`).Code)
+	require.Equal(t, http.StatusOK, sv.do(t, "POST", Prefix+"/shop/parts", `{"kind":"script","id":"11111111-1111-1111-1111-111111111111"}`).Code)
+
+	w := sv.do(t, "GET", Prefix+"/shop", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var got struct {
+		Parts []appsvc.PartView `json:"parts"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got.Parts, 1)
+	assert.Equal(t, appsvc.PartOK, got.Parts[0].State)
+	require.NotNil(t, got.Parts[0].LatestVersion)
+	assert.Equal(t, 1, *got.Parts[0].LatestVersion)
+
+	w = sv.do(t, "GET", Prefix+"/shop/candidates?q=x", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.JSONEq(t, `{"candidates":[],"counts":{}}`, w.Body.String())
+	assert.Equal(t, http.StatusUnprocessableEntity, sv.do(t, "GET", Prefix+"/shop/candidates?kind=table", "").Code)
+	sv.who = &application.Actor{Email: "joe@example.com"}
+	assert.Equal(t, http.StatusForbidden, sv.do(t, "GET", Prefix+"/shop/candidates", "").Code)
+	sv.who = nil
+	assert.Equal(t, http.StatusUnauthorized, sv.do(t, "GET", Prefix+"/shop/candidates", "").Code)
+}

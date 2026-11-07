@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const mutate = {
@@ -112,28 +112,75 @@ beforeEach(() => {
 });
 
 describe("AppDBHealthCard", () => {
-  it("shows dead tuples, the unused index and the idle session, and terminates it", () => {
+  const expand = () => fireEvent.click(screen.getByRole("button", { name: "Expand health" }));
+
+  it("folded, states the status and the one-line summary", () => {
     wrap(<AppDBHealthCard connectionName="acme-shop" />);
-    open("Health");
-    expect(screen.getByTestId("appdb-health-tables")).toHaveTextContent(
-      "1,200 (23%)",
-    );
-    expect(screen.getByTestId("appdb-health-indexes")).toHaveTextContent(
-      "public.orders_note_idx",
-    );
-    expect(screen.getByTestId("appdb-health-sessions")).toHaveTextContent(
-      "idle in transaction",
-    );
-    expect(
-      screen.getByText(/pg_stat_statements is not installed/),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Terminate" }));
-    expect(mutate.signal).toHaveBeenCalledWith({
-      pid: 4242,
-      signal: "terminate",
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByTestId("health-status")).toHaveTextContent("Needs attention · 2");
+    expect(screen.getByText("9 MiB · 7 of 100 connections · cache 99.3%")).toBeInTheDocument();
+  });
+
+  it("lists the findings most severe first, with the session's actions, and ends a session only when confirmed", () => {
+    wrap(<AppDBHealthCard connectionName="acme-shop" />);
+    expand();
+    expect(screen.getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
+    const idle = screen.getByTestId("health-finding-idle_in_transaction");
+    expect(idle).toHaveTextContent("A session has been idle in a transaction for 10 minutes");
+    expect(idle).toHaveTextContent("The warning alert is set at 5 minutes.");
+    expect(idle).toHaveTextContent("orders_app");
+    expect(idle).toHaveTextContent("UPDATE orders SET total = total WHERE id = 7");
+    expect(screen.getByTestId("health-finding-unused_index")).toHaveTextContent("Drop it in a migration");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel query" }));
     expect(mutate.signal).toHaveBeenCalledWith({ pid: 4242, signal: "cancel" });
+    fireEvent.click(screen.getByRole("button", { name: "End session" }));
+    expect(mutate.signal).not.toHaveBeenCalledWith({ pid: 4242, signal: "terminate" });
+    const buttons = screen.getAllByRole("button", { name: "End session" });
+    fireEvent.click(buttons[buttons.length - 1]!);
+    expect(mutate.signal).toHaveBeenCalledWith({ pid: 4242, signal: "terminate" });
+  });
+
+  it("shows the tiles against the thresholds and the tables at the normal scale", () => {
+    wrap(<AppDBHealthCard connectionName="acme-shop" />);
+    expand();
+    expect(screen.getByTestId("health-tile-Connections")).toHaveTextContent("7of 100");
+    expect(screen.getByTestId("health-tile-Connections")).toHaveTextContent("Alert at 80%");
+    expect(screen.getByTestId("health-tile-Transaction ID age")).toHaveTextContent("Alert at 500,000,000");
+    expect(screen.getByTestId("appdb-health-tables")).toHaveTextContent("23%");
+    expect(screen.getByText("Alerts are not posted anywhere yet. Thresholds apply to every application database.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Alert settings" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/\/admin\/settings\/application-databases$/),
+    );
+  });
+
+  it("lists statements one line each, counted correctly, opening to the whole statement", () => {
+    wrap(<AppDBHealthCard connectionName="acme-shop" />);
+    expand();
+    const table = screen.getByTestId("health-statements");
+    expect(table).not.toHaveTextContent("insufficient privilege");
+    expect(screen.getByTestId("health-statements-note")).toHaveTextContent(
+      "4 statements from other roles are hidden because this connection's role cannot read their text. Grant it pg_read_all_stats to show them.",
+    );
+    fireEvent.click(within(screen.getByTestId("statement-102")).getByRole("button", { expanded: false }));
+    expect(screen.getByTestId("statement-full")).toHaveTextContent("DELETE FROM carts");
+    expect(screen.getByText(/4\.1 s total · Slowest call 4\.1 s · 3,870 rows per call · 1 call$/)).toBeInTheDocument();
+  });
+
+  it("reads Healthy with nothing past a threshold, and says all clear", () => {
+    m.useAppDBHealth.mockReturnValue({
+      data: { ...mockAppDBHealth, status: "healthy", findings: [], sessions: [], tables: [] },
+      isLoading: false,
+      error: null,
+    } as never);
+    wrap(<AppDBHealthCard connectionName="acme-shop" />);
+    expect(screen.getByTestId("health-status")).toHaveTextContent(/^Healthy$/);
+    expand();
+    expect(screen.getByTestId("health-all-clear")).toHaveTextContent(
+      "This database has no tables yet. Health reports on them once a migration creates some.",
+    );
+    expect(screen.getByTestId("health-passed")).toHaveTextContent("No blocked sessions");
+    expect(screen.getByText("No samples yet. The first arrives within 5 minutes.")).toBeInTheDocument();
   });
 
   it("names a section the database refused", () => {
@@ -146,9 +193,9 @@ describe("AppDBHealthCard", () => {
       error: null,
     } as never);
     wrap(<AppDBHealthCard connectionName="acme-shop" />);
-    open("Health");
+    expand();
     expect(
-      screen.getByText("replication: permission denied"),
+      screen.getByText("The replication section could not be read: permission denied"),
     ).toBeInTheDocument();
   });
 });

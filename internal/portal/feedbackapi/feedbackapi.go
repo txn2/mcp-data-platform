@@ -135,8 +135,8 @@ type Config struct {
 	// the people a message names (#2512). nil builds one over the stores
 	// above with no directory.
 	Reach *threadreach.Reach
-	// Audit records a message edited or deleted in the portal (#2514). nil
-	// records nothing.
+	// Audit records a message edited or deleted in the portal (#2514), and
+	// a status change and its undo (#2532). nil records nothing.
 	Audit middleware.AuditLogger
 }
 
@@ -177,6 +177,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/portal/threads/{id}/events", h.appendThreadEvent)
 	mux.HandleFunc("PATCH /api/v1/portal/threads/{id}/events/{eventID}", h.editThreadEvent)
 	mux.HandleFunc("DELETE /api/v1/portal/threads/{id}/events/{eventID}", h.deleteThreadEvent)
+	mux.HandleFunc("POST /api/v1/portal/threads/{id}/events/{eventID}/undo", h.undoStatusChange)
 	mux.HandleFunc("GET /api/v1/portal/feedback/activity", h.feedbackActivity)
 	mux.HandleFunc("GET /api/v1/portal/worklist/practitioner", h.practitionerWorklist)
 	mux.HandleFunc("GET /api/v1/portal/worklist/sme", h.smeWorklist)
