@@ -109,7 +109,7 @@ def handle(req):
 | `path` | The request path |
 | `params` | The path template's values |
 | `query` | Each query parameter's first value |
-| `headers` | The request headers, names lower-cased, joined with `, `. `Authorization`, `Cookie`, `X-API-Key` and `Proxy-Authorization` are left out: they are the caller's credentials, and `caller` is who the platform found them to be |
+| `headers` | The request headers, names lower-cased, joined with `, `. `Authorization`, `Cookie`, `X-API-Key`, `Proxy-Authorization` and a form's `X-Form-Viewer` are left out: they are the caller's credentials, and `caller` is who the platform found them to be |
 | `body` | The body, as bytes |
 | `json` | The body parsed when its content type is JSON, else None. A body that says it is JSON and is not is answered 400 before the script runs |
 | `form` | Each field's first value when the body is `application/x-www-form-urlencoded`, else None |

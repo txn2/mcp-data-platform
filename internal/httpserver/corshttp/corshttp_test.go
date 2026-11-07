@@ -185,7 +185,58 @@ func TestGated_PublicMapPaths(t *testing.T) {
 		t.Errorf("a read naming no origin Allow-Origin = %q, want *", w.Header().Get("Access-Control-Allow-Origin"))
 	}
 
-	if w := do(http.MethodGet, "/api/v1/portal/assets", "https://freeloader.test"); w.Header().Get("Access-Control-Allow-Credentials") != "true" {
+	if w := do(http.MethodGet, "/api/v1/portal/assets", "https://freeloader.test"); w.Header().Get("Access-Control-Allow-Origin") != "https://freeloader.test" {
 		t.Error("the check applies to the public map paths only")
 	}
+}
+
+// TestCredentialed_OnlyTheOwnOriginGetsCredentials: the session cookie is a
+// credential, so a page on another origin is answered without credentials
+// (#2526): a browser then withholds the answer to a cookie-bearing request.
+// Its origin is still answered, for a client that calls with a bearer token or
+// an API key.
+func TestCredentialed_OnlyTheOwnOriginGetsCredentials(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := Gated(nil, "https://portal.example.com/", "not a url")
+	cases := []struct {
+		name, host, origin string
+		credentials        bool
+	}{
+		{"the host the request arrived on", "platform.example.com", "https://platform.example.com", true},
+		{"the configured base URL", "10.0.0.5:8080", "https://portal.example.com", true},
+		{"the configured base URL in another case", "10.0.0.5:8080", "https://PORTAL.example.com", true},
+		{"a sibling host on the same site", "platform.example.com", "https://shop.apps.example.com", false},
+		{"another site", "platform.example.com", "https://evil.test", false},
+		{"a sandboxed frame", "platform.example.com", "null", false},
+		{"the base URL's host on another port", "platform.example.com", "https://portal.example.com:8443", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, method := range []string{http.MethodGet, http.MethodOptions} {
+				req := httptest.NewRequestWithContext(context.Background(), method, "/api/v1/portal/me", http.NoBody)
+				req.Host = tc.host
+				req.Header.Set("Origin", tc.origin)
+				w := httptest.NewRecorder()
+				handler(inner).ServeHTTP(w, req)
+				if got := w.Header().Get("Access-Control-Allow-Credentials") == "true"; got != tc.credentials {
+					t.Errorf("%s from %s: credentials = %v, want %v", method, tc.origin, got, tc.credentials)
+				}
+				if got := w.Header().Get("Access-Control-Allow-Origin"); got != tc.origin {
+					t.Errorf("%s from %s: Allow-Origin = %q, want the origin", method, tc.origin, got)
+				}
+				if !strings.Contains(w.Header().Get("Vary"), "Origin") {
+					t.Errorf("%s from %s: the answer does not vary by Origin", method, tc.origin)
+				}
+			}
+		})
+	}
+
+	t.Run("no origin", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/me", http.NoBody)
+		w := httptest.NewRecorder()
+		handler(inner).ServeHTTP(w, req)
+		if w.Header().Get("Access-Control-Allow-Origin") != "*" || w.Header().Get("Access-Control-Allow-Credentials") != "" {
+			t.Errorf("a request naming no origin: %v", w.Header())
+		}
+	})
 }

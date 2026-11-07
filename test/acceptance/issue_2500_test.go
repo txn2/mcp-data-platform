@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+// embedWait2500 bounds the wait for a just-saved asset to be embedded. A
+// nightly runner embeds on CPU, behind the 57 assets this fixture saves and
+// whatever the index queue already held (#2516).
+const embedWait2500 = 3 * time.Minute
+
 // Issue #2500: search, sort and every filter on the Assets and Collections
 // tabs run on the server in every scope, over exactly what the caller can
 // open: owned, shared to them by user or persona, or reached through a shared
@@ -194,10 +199,22 @@ func TestIssue2500_SearchInEveryScopeCoversWhatTheCallerCanOpen(t *testing.T) {
 	}
 	s.assertNothingHidden(t, "the Shared search", body)
 
-	// The same asset found by meaning, with no word of the query in it.
-	status, body = s.portalGet(t, "/api/v1/portal/assets/search", url.Values{"q": {"weather prediction for fruit farms by the sea"}, "scope": {"all"}, "limit": {"100"}})
-	if status != http.StatusOK || !contains2500(ids2500(t, body, true), s.descTarget) {
-		t.Errorf("a search by meaning in All did not find the forecast: %d %.400s", status, body)
+	// The same asset found by meaning, with no word of the query in it. Only
+	// its embedding can match, and the platform embeds in the background
+	// behind whatever the index queue already holds, so the search is asked
+	// again until the asset is embedded.
+	meaning := url.Values{"q": {"weather prediction for fruit farms by the sea"}, "scope": {"all"}, "limit": {"100"}}
+	deadline := time.Now().Add(embedWait2500)
+	for {
+		status, body = s.portalGet(t, "/api/v1/portal/assets/search", meaning)
+		if status == http.StatusOK && contains2500(ids2500(t, body, true), s.descTarget) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("a search by meaning in All did not find the forecast within %s: %d %.400s", embedWait2500, status, body)
+			break
+		}
+		time.Sleep(2 * time.Second)
 	}
 
 	// Mine holds none of it: the caller owns nothing.

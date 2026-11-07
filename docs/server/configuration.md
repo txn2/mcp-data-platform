@@ -394,6 +394,10 @@ Because portal, admin, and managed-resources mutations can be authenticated by t
 
 `SameSite=Lax` (the default) is retained as defense-in-depth. Setting `same_site: none` removes that browser-level defense and makes the `X-CSRF-Token` check the sole protection; the platform logs a startup warning in that case.
 
+#### Cross-origin reads
+
+The platform answers a cross-origin request from any origin, so a browser-based MCP client on another site can call it with a bearer token or an API key. It allows credentials (`Access-Control-Allow-Credentials: true`) only for its own origin: the host the request arrived on, or the origin of `portal.public_base_url`. A page on any other origin, a sibling host under the same domain included, can send a request that carries the session cookie, but the browser withholds the answer, so the page cannot read what the cookie unlocks. Behind a proxy that does not pass the original `Host` through, set `portal.public_base_url` to the address people open the portal at.
+
 ### OAuth 2.1 Server (Inbound)
 
 The built-in `oauth:` block turns the platform itself into an OAuth 2.1 authorization server, for clients like Claude Desktop that expect to sign in directly to the MCP server rather than through an existing OIDC provider. For most deployments, `auth.oidc` or `auth.api_keys` above are simpler and sufficient. See [OAuth 2.1 Server](../auth/oauth-server.md) for the full config reference, Dynamic Client Registration guidance, and setup walkthrough.

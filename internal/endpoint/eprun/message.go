@@ -12,6 +12,7 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 )
 
@@ -67,8 +68,9 @@ type Response struct {
 
 // credentialHeaders are the request headers a handler is not shown: they are
 // the caller's credentials for the platform, and req.caller is who the
-// platform found them to be.
-var credentialHeaders = []string{"authorization", "cookie", "x-api-key", "proxy-authorization"}
+// platform found them to be. The form viewer token is one: it lets its holder
+// call the form as the person it names until it expires (#2525).
+var credentialHeaders = []string{"authorization", "cookie", "x-api-key", "proxy-authorization", strings.ToLower(epform.ViewerHeader)}
 
 // reservedHeaders are the response headers a handler may not set: the
 // framing the server owns, the cookies of the platform's origin, and the

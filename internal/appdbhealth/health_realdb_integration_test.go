@@ -129,8 +129,13 @@ func TestHealth_RealDB_Statements(t *testing.T) {
 		target := db.TargetDB(t)
 		_, err := target.Exec(`CREATE EXTENSION pg_stat_statements; CREATE TABLE t (id int); INSERT INTO t SELECT generate_series(1, 100)`)
 		require.NoError(t, err)
+		// The report ranks by total time and keeps 20, and its own catalog
+		// reads land in pg_stat_statements before it reads the view. A
+		// statement of a few microseconds is outranked by them whenever they
+		// run slower (#2516, on pg18), so each call waits 20 ms: 100 ms in all,
+		// ahead of anything else in this database.
 		for range 5 {
-			_, err = target.Exec(`SELECT count(*) FROM t WHERE id > 10`)
+			_, err = target.Exec(`SELECT count(*), pg_sleep(0.02) FROM t WHERE id > 10`)
 			require.NoError(t, err)
 		}
 		r := Read(context.Background(), tk, "shop", Options{})
@@ -140,7 +145,7 @@ func TestHealth_RealDB_Statements(t *testing.T) {
 		require.NotEmpty(t, r.Statements.Top)
 		found := false
 		for _, s := range r.Statements.Top {
-			found = found || (s.Calls >= 5 && strings.Contains(s.Query, "count(*) FROM t WHERE id >"))
+			found = found || (s.Calls >= 5 && strings.Contains(s.Query, "FROM t WHERE id >"))
 		}
 		assert.True(t, found, "the repeated statement is ranked with its calls: %+v", r.Statements.Top)
 	})

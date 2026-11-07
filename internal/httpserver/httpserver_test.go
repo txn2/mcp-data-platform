@@ -1666,3 +1666,18 @@ func TestResourceClaimsExtractor_Session(t *testing.T) {
 		t.Errorf("a session with no roles: err = %v, want resource.ErrForbidden", err)
 	}
 }
+
+// TestPortalBaseURL: the CORS layer is handed the portal's public base URL as
+// the platform's own origin (#2526), and nothing when there is no platform.
+func TestPortalBaseURL(t *testing.T) {
+	if got := portalBaseURL(nil); got != "" {
+		t.Errorf("portalBaseURL(nil) = %q, want empty", got)
+	}
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{Name: "test"},
+		Portal: platform.PortalConfig{PublicBaseURL: "https://portal.example.com"},
+	})
+	if got := portalBaseURL(p); got != "https://portal.example.com" {
+		t.Errorf("portalBaseURL = %q, want the configured base URL", got)
+	}
+}
