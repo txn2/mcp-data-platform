@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbgdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/taskwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
@@ -131,32 +132,33 @@ type Config struct {
 	// EnrichmentDeprecated accepts the legacy "injection" key so configs written
 	// before the rename to "enrichment" still load. applyEnrichmentCompat folds it
 	// onto Enrichment and warns. Remove in a future apiVersion.
-	EnrichmentDeprecated *EnrichmentConfig   `yaml:"injection"`
-	Audit                AuditConfig         `yaml:"audit"`
-	MCPApps              MCPAppsConfig       `yaml:"mcpapps"`
-	Sessions             SessionsConfig      `yaml:"sessions"`
-	Knowledge            KnowledgeConfig     `yaml:"knowledge"`
-	Memory               MemoryConfig        `yaml:"memory"`
-	Portal               PortalConfig        `yaml:"portal"`
-	Admin                AdminConfig         `yaml:"admin"`
-	Resources            ResourcesConfig     `yaml:"resources"`
-	Progress             ProgressConfig      `yaml:"progress"`
-	Tasks                taskwiring.Config   `yaml:"tasks"`
-	Thumbnails           ThumbnailsConfig    `yaml:"thumbnails"`
-	Webhooks             whconfig.Config     `yaml:"webhooks"`
-	ClientLogging        ClientLoggingConfig `yaml:"client_logging"`
-	Icons                IconsConfig         `yaml:"icons"`
-	Elicitation          ElicitationConfig   `yaml:"elicitation"`
-	Workflow             WorkflowConfig      `yaml:"workflow"`
-	Notifications        NotificationsConfig `yaml:"notifications"`
-	Scripts              ScriptsConfig       `yaml:"scripts"`
-	Calls                CallsConfig         `yaml:"calls"`
-	Retention            RetentionConfig     `yaml:"retention"`
-	SessionGate          SessionGateConfig   `yaml:"session_gate"`
-	Purpose              PurposeConfig       `yaml:"purpose"`
-	RateLimit            RateLimitConfig     `yaml:"rate_limit"`
-	APIGateway           APIGatewayConfig    `yaml:"apigateway"`
-	Observability        ObservabilityConfig `yaml:"observability"`
+	EnrichmentDeprecated *EnrichmentConfig        `yaml:"injection"`
+	Audit                AuditConfig              `yaml:"audit"`
+	MCPApps              MCPAppsConfig            `yaml:"mcpapps"`
+	Sessions             SessionsConfig           `yaml:"sessions"`
+	Knowledge            KnowledgeConfig          `yaml:"knowledge"`
+	Memory               MemoryConfig             `yaml:"memory"`
+	Portal               PortalConfig             `yaml:"portal"`
+	Admin                AdminConfig              `yaml:"admin"`
+	Resources            ResourcesConfig          `yaml:"resources"`
+	Progress             ProgressConfig           `yaml:"progress"`
+	Tasks                taskwiring.Config        `yaml:"tasks"`
+	Thumbnails           ThumbnailsConfig         `yaml:"thumbnails"`
+	Webhooks             whconfig.Config          `yaml:"webhooks"`
+	Sites                scriptwiring.SitesConfig `yaml:"sites"`
+	ClientLogging        ClientLoggingConfig      `yaml:"client_logging"`
+	Icons                IconsConfig              `yaml:"icons"`
+	Elicitation          ElicitationConfig        `yaml:"elicitation"`
+	Workflow             WorkflowConfig           `yaml:"workflow"`
+	Notifications        NotificationsConfig      `yaml:"notifications"`
+	Scripts              ScriptsConfig            `yaml:"scripts"`
+	Calls                CallsConfig              `yaml:"calls"`
+	Retention            RetentionConfig          `yaml:"retention"`
+	SessionGate          SessionGateConfig        `yaml:"session_gate"`
+	Purpose              PurposeConfig            `yaml:"purpose"`
+	RateLimit            RateLimitConfig          `yaml:"rate_limit"`
+	APIGateway           APIGatewayConfig         `yaml:"apigateway"`
+	Observability        ObservabilityConfig      `yaml:"observability"`
 
 	// DataHubImport is the DataHub a configuration upgrading from it names in
 	// toolkits.datahub, which the catalog import reads once (#2124); nil when
@@ -2062,7 +2064,7 @@ func (c *Config) Validate() error {
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
 	_, thumbSources := c.Thumbnails.SourceLimits()
-	for _, err := range []error{admission, runBudget, thumbs, thumbSources, dbobs.CheckPoolSize(c.Database.MaxOpenConns), c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate(), c.Portal.Embeds.Validate()} {
+	for _, err := range []error{admission, runBudget, thumbs, thumbSources, dbobs.CheckPoolSize(c.Database.MaxOpenConns), c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate(), c.Portal.Embeds.Validate(), c.Sites.Check(c.Portal.PublicBaseURL, c.Auth.BrowserSession.Domain)} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}

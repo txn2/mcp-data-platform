@@ -17,6 +17,10 @@ TAG_DESCRIPTIONS = {
     "User": (
         "Current user identity, roles, persona, and available tools."
     ),
+    "Sites": (
+        "Static sites and browser pages the platform serves on hostnames of their own: the hostnames "
+        "the deployment's ingress needs and the certificate that covers them."
+    ),
     "Applications": (
         "Applications built on the platform: one record naming an application database schema "
         "with its migrations, managed scripts (an endpoint or a form is its script's binding), "
@@ -239,6 +243,7 @@ TAG_GROUPS = [
     {
         "name": "Admin API",
         "tags": [
+            "Sites",
             "API Catalogs",
             "Audit",
             "Auth Keys",

@@ -35,10 +35,14 @@ const (
 	// migrations are applied by releases; it is not pinned, since a release
 	// records the migration version instead.
 	KindSchema = "schema"
+	// KindSite is one environment of a static site (#2518), identified as
+	// "<site>/<environment>". A release pins the site's newest release number
+	// and points the environment at it.
+	KindSite = "site"
 )
 
 // Kinds is every kind of part, in the order a listing shows them.
-var Kinds = []string{KindScript, KindAsset, KindSource, KindSchema}
+var Kinds = []string{KindScript, KindAsset, KindSource, KindSchema, KindSite}
 
 // The actions a release row records.
 const (
@@ -207,7 +211,7 @@ func (a *Application) Validate() error {
 
 // ValidKind reports whether kind names a kind of part.
 func ValidKind(kind string) bool {
-	return kind == KindScript || kind == KindAsset || kind == KindSource || kind == KindSchema
+	return kind == KindScript || kind == KindAsset || kind == KindSource || kind == KindSchema || kind == KindSite
 }
 
 // SchemaPartID is the id the schema part goes by: "<connection>/<schema>".
@@ -221,6 +225,12 @@ func ParseSchemaPartID(id string) (connection, schema string) {
 		return strings.TrimSpace(c), strings.TrimSpace(s)
 	}
 	return "", id
+}
+
+// ParseSitePartID reads a site part's id: "<site>/<environment>".
+func ParseSitePartID(id string) (siteName, environment string, ok bool) {
+	siteName, environment, ok = strings.Cut(strings.TrimSpace(id), "/")
+	return siteName, environment, ok && siteName != "" && environment != ""
 }
 
 // HeldSchema is a schema an application takes on: where it is, the

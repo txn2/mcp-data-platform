@@ -57,6 +57,9 @@ type Request struct {
 	Body   []byte
 	// Caller is nil on a public or bot_check endpoint.
 	Caller *Caller
+	// CSPNonce is the nonce a page's inline scripts carry, read as
+	// req["csp_nonce"]; empty on anything but a page (#2517).
+	CSPNonce string
 }
 
 // Response is what the endpoint answers.
@@ -112,11 +115,15 @@ func requestValue(req Request) (starlark.Value, error) {
 			"auth_type": starlark.String(req.Caller.AuthType),
 		})
 	}
-	v := stringDict(map[string]starlark.Value{
+	fields := map[string]starlark.Value{
 		"method": starlark.String(req.Method), "path": starlark.String(req.Path), "params": params,
 		"query": firstValues(req.Query), "headers": headers, "body": starlark.Bytes(req.Body),
 		"json": jsonValue, "form": formValue, "caller": caller,
-	})
+	}
+	if req.CSPNonce != "" {
+		fields["csp_nonce"] = starlark.String(req.CSPNonce)
+	}
+	v := stringDict(fields)
 	v.Freeze()
 	return v, nil
 }

@@ -11,7 +11,10 @@ package scriptwiring
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 
 	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
 
@@ -21,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
@@ -37,6 +41,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
+	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
+	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -110,6 +117,13 @@ func Wire(deps Deps) *scriptexec.Handle {
 		NotificationsDisabled: !deps.NotificationsEnabled,
 		DigestHourUTC:         deps.DigestHourUTC,
 	})
+	sites, err := wireSites(deps, endpoints)
+	if err != nil {
+		slog.Error("sites are off: their configuration was refused", "error", logsan.SanitizeForLog(err.Error()))
+	}
+	if endpoints != nil {
+		endpoints.Sites = sites
+	}
 	layer := scriptlayer.New(scriptlayer.Config{
 		DB:           deps.DB,
 		Runs:         scripts.Runs(),
@@ -137,6 +151,9 @@ func Wire(deps Deps) *scriptexec.Handle {
 		// A save of an application's script reports what it newly gives the
 		// application's diagram to find (#2540).
 		layer.SetPartFindings(svc.FindingsIntroduced)
+		if sites != nil {
+			svc.Sites = sites.Service
+		}
 	}
 	// Approvals (#2437, #2494): a form's version approved before callers
 	// with no session are served it.
@@ -150,6 +167,40 @@ func Wire(deps Deps) *scriptexec.Handle {
 	deps.Bind(layer)
 	return scripts
 }
+
+// wireSites assembles static sites and pages (#2517, #2518) and registers
+// manage_site; a nil runtime is a deployment with no sites.
+func wireSites(deps Deps, endpoints *epwire.Endpoints) (*sitewire.Runtime, error) {
+	if endpoints == nil {
+		return nil, nil //nolint:nilnil // no database, no sites
+	}
+	rt, err := sitewire.Register(deps.Server, sitewire.Deps{
+		DB: deps.DB, Objects: objectsOf(deps), Bucket: deps.Bucket, Config: deps.Sites, PortalURL: deps.PortalURL,
+		CookieDomain: deps.CookieDomain, Approvals: endpoints.Approvals, Sources: deps.Sources,
+	})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the configuration's own sentence
+	}
+	if rt != nil && endpoints.Commands != nil {
+		endpoints.Commands.PageAllowed = rt.PageAllowed
+	}
+	return rt, nil
+}
+
+// objectsOf is the bucket client as sites read it, nil for none: a nil
+// portal.S3Client must not become a non-nil interface.
+func objectsOf(deps Deps) sitesvc.Objects {
+	if deps.S3 == nil {
+		return nil
+	}
+	return deps.S3
+}
+
+// ToolManageSite is the sites tool's name, for the platform's listing.
+const ToolManageSite = sitetool.ToolName
+
+// SitesConfig is the sites: configuration section.
+type SitesConfig = siteconfig.Config
 
 // applicationDeps is what applications are assembled from (#2411, #2412):
 // the portal's stores and bucket, the managed-resource library a bundle is
@@ -220,9 +271,13 @@ type Deps struct {
 	DSN    string
 	Server *mcp.Server
 
-	Assets       portal.AssetStore
-	Versions     portal.VersionStore
-	S3           portal.S3Client
+	Assets   portal.AssetStore
+	Versions portal.VersionStore
+	S3       portal.S3Client
+	// Sites is the sites: section, and CookieDomain the browser session
+	// cookie's Domain (#2517, #2518).
+	Sites        siteconfig.Config
+	CookieDomain string
 	Bucket       string
 	Prefix       string
 	FollowTables func(ctx context.Context, assetID string, version int) []string

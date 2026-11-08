@@ -17,9 +17,10 @@ export const PART_KIND_LABEL: Record<ApplicationPartKind, string> = {
   asset: "Asset",
   source: "Webhook source",
   schema: "Schema",
+  site: "Site",
 };
 
-export const PART_KINDS: ApplicationPartKind[] = ["script", "asset", "source", "schema"];
+export const PART_KINDS: ApplicationPartKind[] = ["script", "asset", "source", "schema", "site"];
 
 /** The heading of each kind's group on the Parts card and its filter pill. */
 export const PART_GROUP_LABEL: Record<ApplicationPartKind, string> = {
@@ -27,6 +28,7 @@ export const PART_GROUP_LABEL: Record<ApplicationPartKind, string> = {
   asset: "Assets",
   source: "Webhook sources",
   schema: "Schema",
+  site: "Sites",
 };
 
 /** partName is what a part is called on the page, never its id. */
@@ -61,6 +63,8 @@ function piecesOf(p: ApplicationPartView, ctx?: SchemaContext): string[] {
       return sourcePieces(p);
     case "schema":
       return ctx?.schema ? schemaPieces(ctx.schema, ctx.release) : [];
+    case "site":
+      return [];
   }
 }
 
@@ -103,7 +107,7 @@ function lowerFirst(s: string): string {
 
 /** partReference is the mcp: reference a part is cited by; a webhook source and a schema have none. */
 export function partReference(kind: ApplicationPartKind, id: string): string | null {
-  return kind === "source" || kind === "schema" ? null : `mcp:${kind}:${id}`;
+  return kind === "source" || kind === "schema" || kind === "site" ? null : `mcp:${kind}:${id}`;
 }
 
 export const ACTION_LABEL: Record<ApplicationReleaseAction, string> = {
@@ -141,6 +145,7 @@ export function partPath(kind: ApplicationPartKind, id: string, isAdmin: boolean
       // A webhook source's page is the administrator's.
       return isAdmin ? `/admin/webhooks/${encodeURIComponent(id)}` : null;
     case "schema":
+    case "site":
       return null;
   }
 }

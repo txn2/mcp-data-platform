@@ -30,6 +30,25 @@ services:
       - e2e-network
 
   # Trino for query execution
+  # The application database the endpoint latency job reads (#2544), the image
+  # the dev stack's target database runs.
+  postgres-target:
+    image: pgvector/pgvector:0.8.1-pg17@sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21
+    container_name: e2e-postgres-target
+    environment:
+      POSTGRES_USER: orders_app
+      POSTGRES_PASSWORD: orders_secret
+      POSTGRES_DB: orders
+    ports:
+      - "5442:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U orders_app -d orders"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks:
+      - e2e-network
+
   trino:
     image: trinodb/trino:453
     container_name: e2e-trino

@@ -58,10 +58,16 @@ func ViewerKey(formKey []byte) []byte {
 // SignViewer is the viewer token for v on endpoint, honored until now plus
 // ViewerTTL.
 func SignViewer(key []byte, endpoint string, v Viewer, now time.Time) (string, error) {
+	return SignViewerFor(key, endpoint, v, now, ViewerTTL)
+}
+
+// SignViewerFor is SignViewer with the token's lifetime named: a one-time
+// code that hands a person to a page origin lives a minute (#2517).
+func SignViewerFor(key []byte, endpoint string, v Viewer, now time.Time, ttl time.Duration) (string, error) {
 	if len(key) == 0 {
 		return "", errNoViewerKey
 	}
-	payload, err := json.Marshal(viewerBody{Endpoint: endpoint, Viewer: v, Expires: now.Add(ViewerTTL).Unix()})
+	payload, err := json.Marshal(viewerBody{Endpoint: endpoint, Viewer: v, Expires: now.Add(ttl).Unix()})
 	if err != nil {
 		return "", fmt.Errorf("encoding the viewer token: %w", err)
 	}

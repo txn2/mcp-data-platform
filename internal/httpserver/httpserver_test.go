@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/shutdown"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
@@ -418,8 +420,8 @@ func TestLogHTTPDrainResult(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	defer slog.SetDefault(old)
 
-	logHTTPDrainResult(nil)
-	logHTTPDrainResult(errors.New("drain boom"))
+	shutdown.LogHTTPDrain(nil)
+	shutdown.LogHTTPDrain(errors.New("drain boom"))
 
 	out := buf.String()
 	if !strings.Contains(out, "HTTP server stopped") {

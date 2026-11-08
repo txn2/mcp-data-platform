@@ -19,3 +19,5 @@ flowchart LR
 ```
 
 {{PAGE_INDEX}}
+
+- `mcp:knowledge_page:platform-pages-and-sites`: browser pages and static sites on hostnames of their own.

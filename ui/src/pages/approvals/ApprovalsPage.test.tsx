@@ -66,4 +66,24 @@ describe("ApprovalsPage", () => {
     expect(card).toHaveTextContent("approved by admin@example.com");
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
   });
+
+  // A site release's approval (#2518) has no form to preview or compare: it says
+  // which release would serve where.
+  it("shows a site release waiting to serve an environment", async () => {
+    const siteRequest = {
+      id: "apr_site1", subject_kind: "site_release", purpose: "site_promote", script_id: "", version: 3,
+      site_release_id: "srel_1", site_name: "marketing", target: "prod", source_sha256: "abc",
+      requester_email: "owner@example.com", changes: { approved_version: 0, added: 0, removed: 0 },
+      status: "pending", self_approved: false, created_at: "2026-11-08T00:00:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ requests: [siteRequest], count: 1 }), { status: 200 })));
+    signIn("admin@example.com", true);
+    renderWithQuery(<ApprovalsPage onNavigate={vi.fn()} />);
+    const card = await screen.findByTestId("approval-apr_site1");
+    expect(card).toHaveTextContent("marketing");
+    expect(card).toHaveTextContent("release 3");
+    expect(card).toHaveTextContent("Serve this release in prod.");
+    expect(card).not.toHaveTextContent("Preview version");
+    expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+  });
 });

@@ -30,6 +30,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -103,6 +104,9 @@ type Handler struct {
 	// ViewerKey signs and opens viewer tokens and, derived from it, embed
 	// markers (epform.ViewerKey); nil honors no marker and signs no viewer.
 	ViewerKey []byte
+	// SiteOrigins are the sites an application holds, which may frame its
+	// public forms (#2518); nil adds none.
+	SiteOrigins func(ctx context.Context, applicationID string) []string
 	// Session is the signed-in person the request's session or key names,
 	// nil for none (endpointwire.Authenticator).
 	Session func(r *http.Request) (*eprun.Caller, error)
@@ -202,7 +206,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", contentPolicy(assetrefs.BaseURL(r, h.BaseURL), h.ancestors(r, b)))
+	w.Header().Set("Content-Security-Policy", contentPolicy(assetrefs.BaseURL(r, h.BaseURL), h.ancestors(r, t)))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
@@ -284,14 +288,20 @@ func (h *Handler) sessionCaller(r *http.Request) (*eprun.Caller, error) {
 // ancestors are the origins that may frame the page for r: none for a page
 // opened with a valid embed marker (an asset's frame, from an opaque origin),
 // otherwise the binding's allowed_origins.
-func (h *Handler) ancestors(r *http.Request, b *epbinding.Binding) []string {
+func (h *Handler) ancestors(r *http.Request, t *eprun.Target) []string {
+	b := t.Binding
 	if epform.OpenEmbed(epform.EmbedKey(h.ViewerKey), b.Name, r.URL.Query().Get(epform.EmbedParam), time.Now()) {
 		return nil
 	}
-	if b.AllowedOrigins == nil {
-		return []string{}
+	out := slices.Clone(b.AllowedOrigins)
+	if out == nil {
+		out = []string{}
 	}
-	return b.AllowedOrigins
+	// A public form frames on the sites its application holds (#2518).
+	if h.SiteOrigins != nil && b.AuthMode != epbinding.AuthAuthenticated {
+		out = append(out, h.SiteOrigins(r.Context(), t.ApplicationID())...)
+	}
+	return out
 }
 
 // identify finds who an authenticated form's page submits as: the viewer

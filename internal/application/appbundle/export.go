@@ -218,6 +218,8 @@ func (b *Bundler) buildPins(ctx context.Context, pins []application.Pin, out *Bu
 				return err
 			}
 			out.Scripts = append(out.Scripts, *s)
+		case application.KindSite:
+			return refused("a bundle cannot carry a site's files: take site part %s out of the application to export it, and publish the site on the other deployment", p.PartID)
 		case application.KindAsset:
 			as, err := b.buildAsset(ctx, p)
 			if err != nil {
@@ -353,6 +355,7 @@ func (b *Bundler) endpointOf(ctx context.Context, scriptID string, names collect
 		BotCheck: bd.BotCheck, CheckedMethods: orEmpty(bd.CheckedMethods), TimeoutSeconds: bd.TimeoutSeconds,
 		MaxMemoryBytes: bd.MaxMemoryBytes, MaxBodyBytes: bd.MaxBodyBytes, AllowedOrigins: orEmpty(bd.AllowedOrigins),
 		RateLimit: bd.RateLimit, CallerRateLimit: bd.CallerRateLimit, Enabled: bd.Enabled,
+		ResponseMode: bd.ResponseMode, PageCDNs: bd.PageCDNs,
 	}
 	names.checks.add(bd.BotCheck)
 	if b.FormConnection != nil {

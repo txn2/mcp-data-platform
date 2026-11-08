@@ -420,7 +420,7 @@ func TestWriteLeavesTheBodyOffA204(t *testing.T) {
 	write(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody), eprun.Response{
 		Status: http.StatusNoContent, Body: []byte("x"),
 		Header: http.Header{"Cache-Control": {"max-age=60"}},
-	})
+	}, contentPolicy)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, rec.Body.String())
 	assert.Equal(t, "max-age=60", rec.Header().Get("Cache-Control"), "the handler's own cache policy is kept")

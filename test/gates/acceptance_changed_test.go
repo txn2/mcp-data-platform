@@ -79,7 +79,8 @@ func TestCIRunsTheChangedCriteriaAndTheStandaloneE2E(t *testing.T) {
 		"python3 scripts/acceptance-pr-paths.py --tickets",
 		"tickets: ${{ steps.paths.outputs.tickets }}",
 		"if: needs.stack-changes.outputs.tickets != ''",
-		"tickets: ${{ needs.stack-changes.outputs.tickets }}",
+		"tickets: ${{ matrix.tickets }}",
+		"tickets: ${{ fromJSON(needs.stack-changes.outputs.ticket_groups) }}",
 		"run: make e2e-standalone",
 	} {
 		if !strings.Contains(ci, want) {

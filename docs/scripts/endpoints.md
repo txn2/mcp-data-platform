@@ -125,6 +125,11 @@ handler may not set `Set-Cookie`, `Content-Length`, `Transfer-Encoding`,
 opaque document that runs no script against the platform's origin, and
 `Cache-Control: no-store` unless the handler sets its own.
 
+An endpoint of an application can opt in to serving a working browser page with
+`response_mode: "page"`. It answers on the application's own origin, never the
+portal's, under a content policy built for the binding; on the platform's origin
+it stays sandboxed like any other. See [Sites and pages](../server/sites.md).
+
 `platform.export` and `platform.publish_data` fail in a handler: a request
 answers with what `handle` returns.
 

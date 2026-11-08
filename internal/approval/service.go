@@ -277,6 +277,9 @@ func statusOf(decision string) (string, error) {
 // one requested. Versions are kept as written, so this holds unless the
 // history was rewritten under the request.
 func (s *Service) stillTheSource(ctx context.Context, r *Request) error {
+	if r.SubjectKind == SubjectSiteRelease {
+		return nil // a release is immutable, and promoting compares the digest
+	}
 	v, err := s.Scripts.GetVersion(ctx, r.ScriptID, r.Version)
 	if err != nil || v == nil {
 		return refused("version %d of the script no longer exists; it cannot be approved", r.Version)
@@ -352,4 +355,93 @@ func (s *Service) selfRequest(ctx context.Context, actor Actor, sc *script.Scrip
 		}
 	}
 	return "", ErrNotFound
+}
+
+// SubmitRelease names the site release a promotion waits on.
+type SubmitRelease struct {
+	ReleaseID string
+	Site      string
+	Number    int
+	Target    string
+	Digest    string
+	Reason    string
+}
+
+func releaseRequest(actor Actor, in SubmitRelease, reason string) *Request {
+	return &Request{
+		ID: NewID(), SubjectKind: SubjectSiteRelease, Purpose: PurposeSitePromote, Version: in.Number,
+		SourceSHA256: in.Digest, RequesterEmail: actor.Email, RequesterPersona: actor.Persona, Reason: reason,
+		SiteReleaseID: in.ReleaseID, Target: in.Target, SiteName: in.Site,
+	}
+}
+
+// SubmitRelease files a request to serve a site release in an environment
+// that requires approval (#2518), or returns the one already waiting.
+func (s *Service) SubmitRelease(ctx context.Context, actor Actor, in SubmitRelease) (*Request, error) {
+	if actor.Email == "" {
+		return nil, refused("a request belongs to a person: sign in with an account that has an email")
+	}
+	reason, err := limitReason(in.Reason)
+	if err != nil {
+		return nil, refused("reason: at most %d bytes", MaxReason)
+	}
+	r := releaseRequest(actor, in, reason)
+	if err := s.Store.Insert(ctx, r); err != nil {
+		if errors.Is(err, ErrPending) {
+			return s.pendingRelease(ctx, in)
+		}
+		return nil, fmt.Errorf("filing the request: %w", err)
+	}
+	if s.Notifier != nil && s.Approvers != nil {
+		s.Notifier.Requested(ctx, r, s.Approvers(ctx))
+	}
+	return r, nil
+}
+
+// pendingRelease is the request already waiting on a release and target.
+func (s *Service) pendingRelease(ctx context.Context, in SubmitRelease) (*Request, error) {
+	pending, err := s.Store.List(ctx, Filter{Status: StatusPending, SiteReleaseID: in.ReleaseID})
+	if err != nil {
+		return nil, fmt.Errorf("reading the waiting requests: %w", err)
+	}
+	for i := range pending {
+		if pending[i].SiteReleaseID == in.ReleaseID && pending[i].Target == in.Target {
+			return &pending[i], nil
+		}
+	}
+	return nil, ErrPending
+}
+
+// ReleaseApproved reports whether a release is approved for a target at the
+// digest. A failure to read is logged and reads as not approved, which
+// promotes nothing.
+func (s *Service) ReleaseApproved(ctx context.Context, releaseID, target, digest string) bool {
+	ok, err := s.Store.ReleaseApproved(ctx, releaseID, target, digest)
+	if err != nil {
+		slog.WarnContext(ctx, "approvals: reading a release's approval failed", "error", logsan.SanitizeForLog(err.Error()))
+		return false
+	}
+	return ok
+}
+
+// RecordReleaseSelfApproval records an administrator's approval of a release
+// they promote themselves, and the record says it was self-approved.
+func (s *Service) RecordReleaseSelfApproval(ctx context.Context, actor Actor, in SubmitRelease) error {
+	if !actor.Admin {
+		return ErrNotAllowed
+	}
+	r := releaseRequest(actor, in, "promoted by an administrator")
+	id := r.ID
+	switch err := s.Store.Insert(ctx, r); {
+	case errors.Is(err, ErrPending):
+		pending, perr := s.pendingRelease(ctx, in)
+		if perr != nil {
+			return perr
+		}
+		id = pending.ID
+	case err != nil:
+		return fmt.Errorf("recording the approval: %w", err)
+	}
+	_, err := s.Store.Decide(ctx, id, Decision{Status: StatusApproved, By: actor.Email, SelfApproved: true, At: s.now()})
+	return err //nolint:wrapcheck // read by identity
 }

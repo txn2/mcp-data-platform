@@ -75,16 +75,26 @@ export function ApprovalsPage({ onNavigate }: { onNavigate: (path: string) => vo
   );
 }
 
-function RequestCard({ request: r, isAdmin, onNavigate }: { request: ApprovalRequest; isAdmin: boolean; onNavigate: (path: string) => void }) {
+/** StatusBadges are the request's status and whether its asker approved it. */
+function StatusBadges({ request: r }: { request: ApprovalRequest }) {
   return (
-    <div className="space-y-2 rounded-md border p-3" data-testid={`approval-${r.id}`}>
+    <>
+      <Badge variant={STATUS_VARIANT[r.status]}>{r.status}</Badge>
+      {r.self_approved && <Badge variant="muted">self-approved</Badge>}
+    </>
+  );
+}
+
+/** ScriptRequest is what a form's approval shows: the form, its changes and a preview. */
+function ScriptRequest({ request: r, onNavigate }: { request: ApprovalRequest; onNavigate: (path: string) => void }) {
+  return (
+    <>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="font-medium underline" onClick={() => onNavigate(`/automations/${r.script_id}`)}>
           {r.script_name || r.script_id}
         </button>
         <span className="text-sm text-muted-foreground">version {r.version}</span>
-        <Badge variant={STATUS_VARIANT[r.status]}>{r.status}</Badge>
-        {r.self_approved && <Badge variant="muted">self-approved</Badge>}
+        <StatusBadges request={r} />
       </div>
       <p className="text-sm">
         Serve this form to people who are not signed in. Asked by {r.requester_email} {formatWhen(r.created_at)}.
@@ -94,6 +104,31 @@ function RequestCard({ request: r, isAdmin, onNavigate }: { request: ApprovalReq
       <div className="flex flex-wrap items-center gap-2">
         <PreviewButton scriptId={r.script_id} version={r.version} label={`Preview version ${r.version}`} />
       </div>
+    </>
+  );
+}
+
+/** SiteRequest is what a site release's approval shows. */
+function SiteRequest({ request: r }: { request: ApprovalRequest }) {
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{r.site_name}</span>
+        <span className="text-sm text-muted-foreground">release {r.version}</span>
+        <StatusBadges request={r} />
+      </div>
+      <p className="text-sm">
+        Serve this release in {r.target}. Asked by {r.requester_email} {formatWhen(r.created_at)}.
+      </p>
+      {r.reason && <p className="text-sm text-muted-foreground">“{r.reason}”</p>}
+    </>
+  );
+}
+
+function RequestCard({ request: r, isAdmin, onNavigate }: { request: ApprovalRequest; isAdmin: boolean; onNavigate: (path: string) => void }) {
+  return (
+    <div className="space-y-2 rounded-md border p-3" data-testid={`approval-${r.id}`}>
+      {r.subject_kind === "site_release" ? <SiteRequest request={r} /> : <ScriptRequest request={r} onNavigate={onNavigate} />}
       {r.decided_by && (
         <p className="text-xs text-muted-foreground">
           {r.status} by {r.decided_by} {r.decided_at ? formatWhen(r.decided_at) : ""}

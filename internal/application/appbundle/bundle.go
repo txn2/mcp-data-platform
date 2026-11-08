@@ -115,6 +115,9 @@ type Endpoint struct {
 	RateLimit       int      `json:"rate_limit,omitempty"`
 	CallerRateLimit int      `json:"caller_rate_limit,omitempty"`
 	Enabled         bool     `json:"enabled"`
+	// ResponseMode and PageCDNs make the endpoint a browser page (#2517).
+	ResponseMode string   `json:"response_mode,omitempty"`
+	PageCDNs     []string `json:"page_cdns,omitempty"`
 	// FormConnection is the connection a form's submissions table is on.
 	FormConnection string `json:"form_connection,omitempty"`
 }

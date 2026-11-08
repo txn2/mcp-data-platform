@@ -45,6 +45,7 @@ const (
 	KindGraphQL      Kind = "graphql"      // a GraphQL connection's endpoint
 	KindMCP          Kind = "mcp"          // an MCP gateway connection's upstream server
 	KindUtil         Kind = "util"         // the util connection's public fetch
+	KindSite         Kind = "site"         // a site's domain check, its migration crawl and its ACME server
 	KindOAuth        Kind = "oauth"        // a token endpoint: client credentials, code exchange, refresh
 	KindOIDC         Kind = "oidc"         // OIDC discovery and JWKS
 	KindEmbedding    Kind = "embedding"    // the embedding provider

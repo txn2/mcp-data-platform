@@ -97,3 +97,7 @@ The application data is in `applications`, `application_parts`, `application_rel
 ## Building one
 
 The built-in knowledge page `platform-applications` walks through an e-commerce application built with platform tools alone: migrations, a checkout form that writes an order and its lines and takes their stock in one transaction, a row-level security policy keyed on the caller, an outbox event that sends the confirmation, scheduled maintenance, a storefront asset, and the release. The built-in example `example-shop-checkout` is its checkout script with tests that run on a copy of the database.
+
+## Site parts
+
+One environment of a static site can be a part of an application: `add_part` with `kind: "site"` and `part_id: "<site>/<environment>"`. A release pins the site's newest release and points that environment at it; a rollback restores it. See [Sites and pages](sites.md).

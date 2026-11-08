@@ -25,6 +25,7 @@ const NODE_KIND: Record<ApplicationPartKind, ApplicationDiagramNode["kind"]> = {
   asset: "asset",
   source: "source",
   schema: "schema",
+  site: "asset",
 };
 
 // partDetail is what a part's card adds: a script's schedule and endpoint.

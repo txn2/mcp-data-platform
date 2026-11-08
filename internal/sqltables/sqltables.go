@@ -131,22 +131,22 @@ var notTables = map[string]bool{
 
 // extractTablesWithRegex extracts table references using regex.
 func extractTablesWithRegex(sql string) []Ref {
-	matches := tableRefPattern.FindAllStringSubmatch(sql, -1)
+	matches := tableRefPattern.FindAllStringSubmatchIndex(sql, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 
+	arguments := argumentFroms(sql)
 	seen := make(map[string]bool)
 	tables := make([]Ref, 0, len(matches))
 
 	for _, match := range matches {
-		if len(match) <= callGroup {
-			continue
-		}
-		tablePath := match[nameGroup]
+		tablePath := sql[match[2*nameGroup]:match[2*nameGroup+1]]
 
-		// A name followed by "(" is a function call, not a table.
-		if match[callGroup] != "" || notTables[strings.ToLower(tablePath)] {
+		// A name followed by "(" is a call, not a table, and what follows a
+		// FROM that is a function's argument keyword is a column.
+		called := match[2*callGroup] >= 0 && match[2*callGroup] != match[2*callGroup+1]
+		if called || arguments[match[0]] || notTables[strings.ToLower(tablePath)] {
 			continue
 		}
 		if seen[tablePath] {

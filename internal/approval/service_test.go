@@ -16,9 +16,12 @@ import (
 
 // memStore is a Store in memory.
 type memStore struct {
-	rows    map[string]*Request
-	failGet error
-	failIns error
+	rows         map[string]*Request
+	failGet      error
+	failIns      error
+	failList     error
+	failDecide   error
+	failApproved error
 }
 
 func newMem() *memStore { return &memStore{rows: map[string]*Request{}} }
@@ -28,7 +31,8 @@ func (m *memStore) Insert(_ context.Context, r *Request) error {
 		return m.failIns
 	}
 	for _, x := range m.rows {
-		if x.Status == StatusPending && x.ScriptID == r.ScriptID && x.Purpose == r.Purpose && x.Version == r.Version {
+		if x.Status == StatusPending && x.ScriptID == r.ScriptID && x.Purpose == r.Purpose && x.Version == r.Version &&
+			x.SiteReleaseID == r.SiteReleaseID && x.Target == r.Target {
 			return ErrPending
 		}
 	}
@@ -51,6 +55,9 @@ func (m *memStore) Get(_ context.Context, id string) (*Request, error) {
 }
 
 func (m *memStore) List(_ context.Context, f Filter) ([]Request, error) {
+	if m.failList != nil {
+		return nil, m.failList
+	}
 	out := []Request{}
 	for _, r := range m.rows {
 		if (f.Status == "" || r.Status == f.Status) && (f.Requester == "" || r.RequesterEmail == f.Requester) &&
@@ -63,6 +70,9 @@ func (m *memStore) List(_ context.Context, f Filter) ([]Request, error) {
 }
 
 func (m *memStore) Decide(_ context.Context, id string, d Decision) (*Request, error) {
+	if m.failDecide != nil {
+		return nil, m.failDecide
+	}
 	r, ok := m.rows[id]
 	if !ok {
 		return nil, ErrNotFound
@@ -74,6 +84,18 @@ func (m *memStore) Decide(_ context.Context, id string, d Decision) (*Request, e
 	r.Status, r.DecidedBy, r.DecisionComment, r.SelfApproved, r.DecidedAt = d.Status, d.By, d.Comment, d.SelfApproved, &at
 	c := *r
 	return &c, nil
+}
+
+func (m *memStore) ReleaseApproved(_ context.Context, releaseID, target, digest string) (bool, error) {
+	if m.failApproved != nil {
+		return false, m.failApproved
+	}
+	for _, r := range m.rows {
+		if r.SiteReleaseID == releaseID && r.Target == target && r.SourceSHA256 == digest && r.Status == StatusApproved {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (m *memStore) LatestApproved(_ context.Context, scriptID, purpose string) (*Request, error) {
@@ -330,4 +352,224 @@ func TestNewIDAndHash(t *testing.T) {
 	assert.NotEqual(t, NewID(), NewID())
 	assert.Len(t, SourceHash("x"), 64)
 	assert.Equal(t, "x", (&RefusedError{Msg: "x"}).Error())
+}
+
+var prodRelease = SubmitRelease{ReleaseID: "srel_1", Site: "marketing", Number: 3, Target: "prod", Digest: "digest-3", Reason: " launch "}
+
+// TestSubmitRelease is a promotion into an environment that requires approval:
+// the request names the release, its target and the digest it is fixed by, and
+// each administrator is told once.
+func TestSubmitRelease(t *testing.T) {
+	svc, st, n := service()
+	ctx := context.Background()
+
+	r, err := svc.SubmitRelease(ctx, jane, prodRelease)
+	require.NoError(t, err)
+	assert.Equal(t, SubjectSiteRelease, r.SubjectKind)
+	assert.Equal(t, PurposeSitePromote, r.Purpose)
+	assert.Equal(t, 3, r.Version, "the release's number")
+	assert.Equal(t, "digest-3", r.SourceSHA256, "fixed by the release's manifest digest")
+	assert.Equal(t, "srel_1", r.SiteReleaseID)
+	assert.Equal(t, "prod", r.Target)
+	assert.Equal(t, "marketing", r.SiteName)
+	assert.Empty(t, r.ScriptID, "a site release names no script")
+	assert.Equal(t, jane.Email, r.RequesterEmail)
+	assert.Equal(t, jane.Persona, r.RequesterPersona)
+	assert.Equal(t, "launch", r.Reason, "the reason is trimmed")
+	assert.Equal(t, StatusPending, r.Status)
+	assert.Equal(t, [][]string{{"admin@example.com"}}, n.requested)
+	assert.Len(t, st.rows, 1)
+}
+
+func TestSubmitRelease_OneAlreadyWaitingIsReturned(t *testing.T) {
+	svc, st, n := service()
+	ctx := context.Background()
+	first, err := svc.SubmitRelease(ctx, jane, prodRelease)
+	require.NoError(t, err)
+
+	again, err := svc.SubmitRelease(ctx, bob, prodRelease)
+	require.NoError(t, err, "a second promotion waits on the same request")
+	assert.Equal(t, first.ID, again.ID)
+	assert.Equal(t, jane.Email, again.RequesterEmail, "it stays the first requester's")
+	assert.Len(t, st.rows, 1)
+	assert.Len(t, n.requested, 1, "the administrators are told once")
+
+	other := prodRelease
+	other.Target = "stage"
+	second, err := svc.SubmitRelease(ctx, jane, other)
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, second.ID, "another target is another request")
+}
+
+func TestSubmitRelease_Refusals(t *testing.T) {
+	ctx := context.Background()
+	var refused *RefusedError
+
+	t.Run("no email", func(t *testing.T) {
+		svc, st, _ := service()
+		_, err := svc.SubmitRelease(ctx, Actor{}, prodRelease)
+		require.ErrorAs(t, err, &refused)
+		assert.Empty(t, st.rows)
+	})
+	t.Run("a long reason", func(t *testing.T) {
+		svc, _, _ := service()
+		in := prodRelease
+		in.Reason = strings.Repeat("x", MaxReason+1)
+		_, err := svc.SubmitRelease(ctx, jane, in)
+		require.ErrorAs(t, err, &refused)
+	})
+	t.Run("the store fails", func(t *testing.T) {
+		svc, st, n := service()
+		st.failIns = errors.New("down")
+		_, err := svc.SubmitRelease(ctx, jane, prodRelease)
+		require.ErrorContains(t, err, "filing the request")
+		assert.Empty(t, n.requested)
+	})
+	t.Run("the waiting request cannot be read", func(t *testing.T) {
+		svc, st, _ := service()
+		_, err := svc.SubmitRelease(ctx, jane, prodRelease)
+		require.NoError(t, err)
+		st.failList = errors.New("down")
+		_, err = svc.SubmitRelease(ctx, jane, prodRelease)
+		require.ErrorContains(t, err, "reading the waiting requests")
+	})
+	t.Run("the insert says one waits and none is found", func(t *testing.T) {
+		svc, st, _ := service()
+		st.failIns = ErrPending
+		_, err := svc.SubmitRelease(ctx, jane, prodRelease)
+		require.ErrorIs(t, err, ErrPending)
+	})
+}
+
+func TestSubmitRelease_NoNotifierConfigured(t *testing.T) {
+	svc, _, _ := service()
+	svc.Notifier = nil
+	r, err := svc.SubmitRelease(context.Background(), jane, prodRelease)
+	require.NoError(t, err)
+	assert.NotEmpty(t, r.ID)
+}
+
+func TestReleaseApproved(t *testing.T) {
+	svc, st, _ := service()
+	ctx := context.Background()
+	r, err := svc.SubmitRelease(ctx, jane, prodRelease)
+	require.NoError(t, err)
+	assert.False(t, svc.ReleaseApproved(ctx, "srel_1", "prod", "digest-3"), "waiting is not approved")
+
+	_, err = svc.Decide(ctx, admin, r.ID, DecisionApprove, "")
+	require.NoError(t, err)
+	assert.True(t, svc.ReleaseApproved(ctx, "srel_1", "prod", "digest-3"))
+	assert.False(t, svc.ReleaseApproved(ctx, "srel_1", "prod", "other-digest"), "an approval names the digest shown")
+	assert.False(t, svc.ReleaseApproved(ctx, "srel_1", "stage", "digest-3"), "an approval names the target")
+	assert.False(t, svc.ReleaseApproved(ctx, "srel_2", "prod", "digest-3"), "an approval names the release")
+
+	st.failApproved = errors.New("down")
+	assert.False(t, svc.ReleaseApproved(ctx, "srel_1", "prod", "digest-3"), "a failure to read promotes nothing")
+}
+
+func TestReleaseApproved_ADenialApprovesNothing(t *testing.T) {
+	svc, _, _ := service()
+	ctx := context.Background()
+	r, err := svc.SubmitRelease(ctx, jane, prodRelease)
+	require.NoError(t, err)
+	_, err = svc.Decide(ctx, admin, r.ID, DecisionDeny, "not yet")
+	require.NoError(t, err)
+	assert.False(t, svc.ReleaseApproved(ctx, "srel_1", "prod", "digest-3"))
+}
+
+func TestRecordReleaseSelfApproval(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("not an administrator", func(t *testing.T) {
+		svc, st, _ := service()
+		require.ErrorIs(t, svc.RecordReleaseSelfApproval(ctx, jane, prodRelease), ErrNotAllowed)
+		assert.Empty(t, st.rows)
+	})
+	t.Run("files and approves, and says it was self-approved", func(t *testing.T) {
+		svc, st, n := service()
+		require.NoError(t, svc.RecordReleaseSelfApproval(ctx, admin, prodRelease))
+		require.Len(t, st.rows, 1)
+		for _, r := range st.rows {
+			assert.Equal(t, StatusApproved, r.Status)
+			assert.True(t, r.SelfApproved)
+			assert.Equal(t, admin.Email, r.DecidedBy)
+			assert.Equal(t, admin.Email, r.RequesterEmail)
+			assert.Equal(t, "promoted by an administrator", r.Reason)
+			require.NotNil(t, r.DecidedAt)
+		}
+		assert.True(t, svc.ReleaseApproved(ctx, "srel_1", "prod", "digest-3"))
+		assert.Empty(t, n.requested, "no one is asked for a decision already made")
+	})
+	t.Run("a request already waiting is the one decided", func(t *testing.T) {
+		svc, st, _ := service()
+		waiting, err := svc.SubmitRelease(ctx, jane, prodRelease)
+		require.NoError(t, err)
+		require.NoError(t, svc.RecordReleaseSelfApproval(ctx, admin, prodRelease))
+		assert.Len(t, st.rows, 1, "no second request")
+		got, err := st.Get(ctx, waiting.ID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusApproved, got.Status)
+		assert.True(t, got.SelfApproved)
+		assert.Equal(t, jane.Email, got.RequesterEmail, "the person who asked is kept")
+	})
+	t.Run("the store fails", func(t *testing.T) {
+		svc, st, _ := service()
+		st.failIns = errors.New("down")
+		require.ErrorContains(t, svc.RecordReleaseSelfApproval(ctx, admin, prodRelease), "recording the approval")
+	})
+	t.Run("the waiting request cannot be read", func(t *testing.T) {
+		svc, st, _ := service()
+		_, err := svc.SubmitRelease(ctx, jane, prodRelease)
+		require.NoError(t, err)
+		st.failList = errors.New("down")
+		require.ErrorContains(t, svc.RecordReleaseSelfApproval(ctx, admin, prodRelease), "reading the waiting requests")
+	})
+	t.Run("the decision fails", func(t *testing.T) {
+		svc, st, _ := service()
+		boom := errors.New("down")
+		st.failDecide = boom
+		require.ErrorIs(t, svc.RecordReleaseSelfApproval(ctx, admin, prodRelease), boom)
+		assert.False(t, svc.ReleaseApproved(ctx, "srel_1", "prod", "digest-3"))
+	})
+}
+
+// countingScripts is a Scripts that counts every read, so a test can say none
+// happened.
+type countingScripts struct {
+	*fakeScripts
+	reads int
+}
+
+func (c *countingScripts) GetVersion(ctx context.Context, id string, v int) (*script.Version, error) {
+	c.reads++
+	return c.fakeScripts.GetVersion(ctx, id, v)
+}
+
+// TestDecide_ASiteReleaseReadsNoScript: a release is immutable and promoting
+// compares the digest, so approving one does not look a script version up.
+func TestDecide_ASiteReleaseReadsNoScript(t *testing.T) {
+	svc, _, n := service()
+	counting := &countingScripts{fakeScripts: scripts()}
+	svc.Scripts = counting
+	ctx := context.Background()
+
+	r, err := svc.SubmitRelease(ctx, jane, prodRelease)
+	require.NoError(t, err)
+	got, err := svc.Decide(ctx, admin, r.ID, DecisionApprove, "ship it")
+	require.NoError(t, err)
+	assert.Equal(t, StatusApproved, got.Status)
+	assert.Equal(t, "ship it", got.DecisionComment)
+	assert.False(t, got.SelfApproved)
+	assert.Zero(t, counting.reads, "a site release has no script to read")
+	assert.Equal(t, []string{StatusApproved}, n.decided, "the requester is told")
+
+	byAdmin, err := svc.SubmitRelease(ctx, admin, SubmitRelease{ReleaseID: "srel_2", Site: "marketing", Number: 4, Target: "prod", Digest: "d4"})
+	require.NoError(t, err)
+	mine, err := svc.Decide(ctx, admin, byAdmin.ID, DecisionApprove, "")
+	require.NoError(t, err)
+	assert.True(t, mine.SelfApproved, "an administrator deciding their own request is recorded as such")
+	assert.Zero(t, counting.reads)
+
+	_, err = svc.Decide(ctx, jane, r.ID, DecisionApprove, "")
+	require.ErrorIs(t, err, ErrNotAllowed)
 }

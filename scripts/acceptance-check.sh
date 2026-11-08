@@ -64,9 +64,15 @@ fi
 # line naming the forms sent. A tool the diff registers with no criterion
 # calling it fails the gate too: #1277 registered three tools and closed with
 # criteria for two.
+#
+# A file that did not change is held to the same rule when it calls a tool the
+# diff changes, by name or through a helper (#2543): its recorded run has to
+# pass and be newer than the change. On #2542 six unchanged files failed the
+# nightly after the merge.
+# shellcheck disable=SC2086 # the file list is newline-separated by construction
+printf '%s\n' "$changed" | python3 scripts/acceptance-evidence.py check --merge-base "$MERGE_BASE" --changed-stdin $acceptance
 if [ -n "$acceptance" ]; then
-    # shellcheck disable=SC2086 # the file list is newline-separated by construction
-    exec python3 scripts/acceptance-evidence.py check --merge-base "$MERGE_BASE" $acceptance
+    exit 0
 fi
 
 count="$(printf '%s\n' "$production_go" | grep -c . || true)"
@@ -74,8 +80,7 @@ cat <<EOF
 WARNING acceptance-check: ${count} production Go file(s) changed against ${BASE_BRANCH} and no test/acceptance/*_test.go changed.
   Every ticket's acceptance criteria are executed through the real tool surface against a running platform before the change is declared ready:
     1. write test/acceptance/issue_<n>_test.go from the ticket's Acceptance section,
-    2. run it with \`make dev\` up: \`make acceptance ISSUE=<n>\`, which records the run at build/<n>/acceptance.jsonl,
-    3. keep the transcript under build/<n>/acceptance.md, carrying a "Wire forms:" line.
+    2. run it with \`make dev\` up: \`make acceptance ISSUE=<n>\`, which records the run at build/<n>/acceptance.jsonl and writes build/<n>/acceptance.md from the file's \`// Wire forms:\` comment.
   A change that touches no user-facing behavior (a refactor, a log line) may leave this warning standing and say so in the PR.
 EOF
 exit 0

@@ -313,6 +313,12 @@ var actionTools = map[string]actionRule{
 	"manage_application": {arg: "command", reads: set(
 		"get", "list", "releases",
 	), writes: set("create", "update", "delete", "add_part", "remove_part", "release", "rollback", "export", "import")},
+	// manage_site (#2518): publish writes a release, promote and rollback
+	// move what an environment serves, crawl publishes a copied site.
+	"manage_site": {arg: "command", reads: set(
+		"get", "list", "releases", "deployments", "domains", "hosts",
+	), writes: set("create", "update", "delete", "set_environment", "publish", "promote", "rollback",
+		"add_domain", "verify_domain", "remove_domain", "crawl")},
 	// manage_approval (#2437, #2494): submit files a request and decide
 	// decides one; list and get read.
 	"manage_approval": {arg: "command", reads: set("list", "get"), writes: set("submit", "decide")},

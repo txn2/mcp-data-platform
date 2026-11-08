@@ -12095,6 +12095,40 @@
                 }
             }
         },
+        "/admin/sites/hosts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the verified hostnames sites and application pages answer on, those awaiting verification, the wildcard the pages domain needs, and a cert-manager Certificate covering them.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "The hostnames the ingress needs for sites",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.HostReport"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/storage": {
             "get": {
                 "security": [
@@ -34313,11 +34347,21 @@
                 "name": {
                     "type": "string"
                 },
+                "page_cdns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "path": {
                     "type": "string"
                 },
                 "rate_limit": {
                     "type": "integer"
+                },
+                "response_mode": {
+                    "description": "ResponseMode and PageCDNs make the endpoint a browser page (#2517).",
+                    "type": "string"
                 },
                 "timeout_seconds": {
                     "type": "integer"
@@ -36079,6 +36123,15 @@
                 "self_approved": {
                     "type": "boolean"
                 },
+                "site_name": {
+                    "description": "SiteName is the site the release belongs to.",
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "site_release_id": {
+                    "description": "SiteReleaseID and Target name a site release a promotion waits on and\nthe environment it would serve (#2518); SourceSHA256 is then the\nrelease's manifest digest and Version its number.",
+                    "type": "string"
+                },
                 "source_sha256": {
                     "type": "string"
                 },
@@ -36089,6 +36142,10 @@
                 "subject_kind": {
                     "type": "string",
                     "example": "script_version"
+                },
+                "target": {
+                    "type": "string",
+                    "example": "prod"
                 },
                 "version": {
                     "type": "integer",
@@ -37153,6 +37210,12 @@
                         "type": "string"
                     }
                 },
+                "page_cdns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "path": {
                     "type": "string"
                 },
@@ -37162,6 +37225,10 @@
                 },
                 "rate_limit": {
                     "type": "integer"
+                },
+                "response_mode": {
+                    "description": "ResponseMode and PageCDNs make the endpoint a browser page (#2517).",
+                    "type": "string"
                 },
                 "timeout_seconds": {
                     "type": "integer"
@@ -50064,6 +50131,31 @@
                 }
             }
         },
+        "sitesvc.HostReport": {
+            "type": "object",
+            "properties": {
+                "cert_manager": {
+                    "description": "CertManager is a Certificate manifest for the hostnames.",
+                    "type": "string"
+                },
+                "hostnames": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "pages_wildcard": {
+                    "description": "PagesDomain is the wildcard the pages and previews need, \"\" for none.",
+                    "type": "string"
+                },
+                "unverified": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "smtp.SettingsInput": {
             "type": "object",
             "properties": {
@@ -52739,6 +52831,10 @@
             "description": "Current user identity, roles, persona, and available tools."
         },
         {
+            "name": "Sites",
+            "description": "Static sites and browser pages the platform serves on hostnames of their own: the hostnames the deployment's ingress needs and the certificate that covers them."
+        },
+        {
             "name": "Applications",
             "description": "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."
         },
@@ -52924,6 +53020,7 @@
         {
             "name": "Admin API",
             "tags": [
+                "Sites",
                 "API Catalogs",
                 "Audit",
                 "Auth Keys",

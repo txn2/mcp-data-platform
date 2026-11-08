@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/ephttp"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eppreview"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
@@ -31,6 +33,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
+	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -54,6 +57,14 @@ type Endpoints struct {
 	Approvals *approval.Service
 	// Previews opens a form's preview for its owner (#2494).
 	Previews *eppreview.Previews
+	// Sites is the static sites and pages feature (#2517, #2518), nil where
+	// it cannot run.
+	Sites *sitewire.Runtime
+	// Handler is the HTTP surface, set when its routes are mounted; an
+	// application's page origin answers through it.
+	Handler *ephttp.Handler
+	// PortalCaller is who a portal request is signed in as, set with Handler.
+	PortalCaller func(r *http.Request) (*eprun.Caller, error)
 }
 
 // Deps is what the script wiring hands over.

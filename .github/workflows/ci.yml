@@ -470,6 +470,7 @@ jobs:
     outputs:
       changed: ${{ steps.paths.outputs.changed }}
       tickets: ${{ steps.paths.outputs.tickets }}
+      ticket_groups: ${{ steps.paths.outputs.ticket_groups }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -500,7 +501,9 @@ jobs:
           echo "The diff changes the dev stack or the suite's harness: $changed"
           tickets=$(git diff --name-only "$range" | python3 scripts/acceptance-pr-paths.py --tickets)
           echo "tickets=$tickets" >> "$GITHUB_OUTPUT"
-          echo "The diff changes the criteria of tickets: ${tickets:-none}"
+          echo "The diff changes the criteria of tickets, or a tool they call: ${tickets:-none}"
+          groups=$(git diff --name-only "$range" | python3 scripts/acceptance-pr-paths.py --ticket-groups)
+          echo "ticket_groups=$groups" >> "$GITHUB_OUTPUT"
 
   # The smallest group the nightly runs, one criterion on a stack started as
   # the nightly starts it, with make dev-smoke first: the stack's start and the
@@ -522,15 +525,23 @@ jobs:
   # starts it: a fresh Linux runner with no .env (#2341). They were otherwise
   # run only on the author's machine before merge, and #2179's passed there
   # with a field-encryption key the runners never had, then failed the first
-  # nightly after the merge.
+  # nightly after the merge. The criteria of a file the diff leaves alone run
+  # too when the file calls a tool whose registering package the diff changes
+  # (#2543): on #2542 six such files passed this job by not being in it and
+  # failed the nightly. A widely called tool reaches many tickets, so they run
+  # in up to eight jobs at once.
   acceptance-changed:
     name: Acceptance (changed criteria)
     needs: stack-changes
     if: needs.stack-changes.outputs.tickets != ''
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        tickets: ${{ fromJSON(needs.stack-changes.outputs.ticket_groups) }}
     uses: ./.github/workflows/acceptance-run.yml
     with:
       environment: dev
-      tickets: ${{ needs.stack-changes.outputs.tickets }}
-      id: pr-changed
+      tickets: ${{ matrix.tickets }}
+      id: pr-changed-${{ strategy.job-index }}

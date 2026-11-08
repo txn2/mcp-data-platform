@@ -9,6 +9,7 @@ package epbinding
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -40,6 +41,27 @@ const (
 	CallerAPIKey    = "api_key:"
 	maxCallers      = 50
 	maxCallerLength = 200
+)
+
+// Response modes (#2517). An api endpoint's answer is held to the sandbox
+// policy wherever it is served; a page endpoint's is served as a working
+// browser page on its application's own origin.
+const (
+	ResponseAPI  = "api"
+	ResponsePage = "page"
+)
+
+// ResponseModes is every response mode.
+var ResponseModes = []string{ResponseAPI, ResponsePage}
+
+// maxPageCDNs bounds the origins a page may load from.
+const maxPageCDNs = 20
+
+// The shapes of what a page's policy names: each is written into a response
+// header, so nothing but this shape reaches it.
+var (
+	pageCDN    = regexp.MustCompile(`^https://[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:\d{1,5})?$`)
+	pageOrigin = regexp.MustCompile(`^https?://[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:\d{1,5})?$`)
 )
 
 // PathPrefix is where every endpoint is served: /endpoints/{name}/...
@@ -126,6 +148,12 @@ type Binding struct {
 	// AllowedOrigins are the browser origins a cross-origin request may come
 	// from; empty answers no preflight.
 	AllowedOrigins []string `json:"allowed_origins"`
+	// ResponseMode is api, or page for an endpoint that serves a browser page
+	// on its application's own origin (#2517).
+	ResponseMode string `json:"response_mode" example:"api"`
+	// PageCDNs are the https origins a page may load scripts, styles, images
+	// and fonts from besides its own.
+	PageCDNs []string `json:"page_cdns"`
 	// RateLimit is the endpoint's requests per minute on each replica, and
 	// CallerRateLimit one signed-in caller's.
 	RateLimit       int       `json:"rate_limit"`
@@ -214,7 +242,11 @@ type Request struct {
 	RateLimit       int
 	CallerRateLimit int
 	Enabled         *bool
-	Actor           string
+	// ResponseMode is empty to keep what the binding had; PageCDNs nil to
+	// keep them.
+	ResponseMode string
+	PageCDNs     []string
+	Actor        string
 }
 
 // Build is the binding req sets on sc over prev, which is nil for a script
@@ -227,7 +259,7 @@ func Build(sc *script.Script, prev *Binding, req Request, now time.Time) (*Bindi
 	b := Binding{
 		ScriptID: sc.ID, Methods: []string{"GET"}, TimeoutSeconds: DefaultTimeoutSeconds,
 		MaxMemoryBytes: DefaultMaxMemoryBytes, MaxBodyBytes: DefaultMaxBodyBytes, AllowedOrigins: []string{},
-		Callers: []string{}, CheckedMethods: []string{},
+		Callers: []string{}, CheckedMethods: []string{}, ResponseMode: ResponseAPI, PageCDNs: []string{},
 		RateLimit: DefaultRateLimit, CallerRateLimit: DefaultCallerRateLimit, Enabled: true,
 		CreatedBy: req.Actor, CreatedAt: now,
 	}
@@ -263,6 +295,10 @@ func apply(b *Binding, req Request) {
 	}
 	if req.AllowedOrigins != nil {
 		b.AllowedOrigins = req.AllowedOrigins
+	}
+	setString(&b.ResponseMode, strings.TrimSpace(req.ResponseMode))
+	if req.PageCDNs != nil {
+		b.PageCDNs = req.PageCDNs
 	}
 	setBool(&b.Enabled, req.Enabled)
 	setInt(&b.TimeoutSeconds, req.TimeoutSeconds)
@@ -318,12 +354,64 @@ func normalizeMethods(in []string) []string {
 
 // Validate reports the first thing wrong with the binding.
 func (b Binding) Validate() error {
-	for _, check := range []func() error{b.validateName, b.validateMethods, b.validatePath, b.validateAuth, b.validateLimits, b.validateOrigins} {
+	for _, check := range []func() error{b.validateName, b.validateMethods, b.validatePath, b.validateAuth, b.validateLimits, b.validateOrigins, b.validatePage} {
 		if err := check(); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// validatePage checks what a page's content policy is built from.
+func (b Binding) validatePage() error {
+	if b.ResponseMode != "" && !slices.Contains(ResponseModes, b.ResponseMode) {
+		return fmt.Errorf("response_mode %q: one of %v", b.ResponseMode, ResponseModes)
+	}
+	if b.ResponseMode != ResponsePage {
+		if len(b.PageCDNs) > 0 {
+			return errors.New("page_cdns applies to an endpoint with response_mode page")
+		}
+		return nil
+	}
+	if !slices.Contains(b.Methods, http.MethodGet) {
+		return errors.New("a page endpoint answers GET")
+	}
+	return b.validatePageOrigins()
+}
+
+// validatePageOrigins checks the origins a page's policy names.
+func (b Binding) validatePageOrigins() error {
+	if len(b.PageCDNs) > maxPageCDNs {
+		return fmt.Errorf("page_cdns: at most %d origins", maxPageCDNs)
+	}
+	for _, cdn := range b.PageCDNs {
+		if !pageCDN.MatchString(cdn) {
+			return fmt.Errorf("page_cdns %q: an https origin, such as https://cdn.example.com, with no path or wildcard", cdn)
+		}
+	}
+	for _, origin := range b.AllowedOrigins {
+		if !pageOrigin.MatchString(origin) {
+			return fmt.Errorf("allowed_origins %q: an origin, such as https://www.example.com, with no path or wildcard", origin)
+		}
+	}
+	return nil
+}
+
+// PagePolicy is the content policy a page answer is sent under: its own
+// origin and listed CDNs, inline script only under this response's nonce, and
+// framing only by the binding's allowed origins. Every value in it passed
+// validatePage, and nonce is the base64 the serving layer generated.
+func (b Binding) PagePolicy(nonce string) string {
+	cdns := strings.Join(b.PageCDNs, " ")
+	src := func(extra string) string {
+		return strings.Join(strings.Fields("'self' "+extra+" "+cdns), " ")
+	}
+	ancestors := "'none'"
+	if len(b.AllowedOrigins) > 0 {
+		ancestors = strings.Join(b.AllowedOrigins, " ")
+	}
+	return "default-src 'none'; script-src " + src("'nonce-"+nonce+"'") + "; style-src " + src("'unsafe-inline'") +
+		"; img-src " + src("data:") + "; font-src " + src("") + "; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors " + ancestors
 }
 
 func (b Binding) validateName() error {

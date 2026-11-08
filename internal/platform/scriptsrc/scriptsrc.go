@@ -73,6 +73,63 @@ func (r *Reader) Resolve(ctx context.Context, ref string, claims resource.Claims
 	return res, nil
 }
 
+// Bytes reads a file's current content, at most limit bytes, for the caller
+// that resolved it.
+func (r *Reader) Bytes(ctx context.Context, res *resource.Resource, limit int64) ([]byte, error) {
+	if res.SizeBytes > limit {
+		return nil, fmt.Errorf("file %s is %d bytes, more than the %d this reads", res.URI, res.SizeBytes, limit)
+	}
+	body, _, err := r.blobs.GetObject(ctx, r.bucket, res.S3Key)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", res.URI, err)
+	}
+	return body, nil
+}
+
+// maxFolderFiles bounds a folder read.
+const maxFolderFiles = 20000
+
+// pathSep divides a resource path's segments.
+const pathSep = "/"
+
+// Folder lists the files under path in one library the caller may see, with
+// each file's path relative to it.
+func (r *Reader) Folder(ctx context.Context, scope resource.ScopeFilter, path string, claims resource.Claims) ([]FolderFile, error) {
+	if !resource.CanSeeLibrary(claims, scope) {
+		return nil, fmt.Errorf("library %s %s: %w", scope.Scope, scope.ScopeID, ErrNotFound)
+	}
+	path = strings.Trim(path, pathSep)
+	out := []FolderFile{}
+	for offset := 0; ; {
+		page, _, err := r.store.List(ctx, resource.Filter{Scopes: []resource.ScopeFilter{scope}, Path: path, Limit: folderPage, Offset: offset, Sort: resource.SortName})
+		if err != nil {
+			return nil, fmt.Errorf("listing %s: %w", path, err)
+		}
+		for i := range page {
+			rel := strings.Trim(strings.TrimPrefix(strings.Trim(page[i].Path, pathSep), path), pathSep)
+			if rel != "" {
+				rel += pathSep
+			}
+			out = append(out, FolderFile{Path: rel + page[i].Filename, Resource: &page[i]})
+		}
+		if len(page) < folderPage {
+			return out, nil
+		}
+		if offset += folderPage; offset >= maxFolderFiles {
+			return nil, fmt.Errorf("folder %s holds more than %d files", path, maxFolderFiles)
+		}
+	}
+}
+
+// folderPage is how many files one listing of a folder reads.
+const folderPage = 500
+
+// FolderFile is a file under a folder.
+type FolderFile struct {
+	Path     string
+	Resource *resource.Resource
+}
+
 // Head is the version number the file's current content was recorded as, or
 // 0 on a deployment that keeps no version history.
 func (r *Reader) Head(ctx context.Context, res *resource.Resource) (int, error) {
