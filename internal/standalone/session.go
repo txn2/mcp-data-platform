@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -205,13 +206,22 @@ func (s *session) dataRead(u *url.URL, contentType string) {
 }
 
 // dataURI is body as a data: URI of its media type.
+//
+// The media type comes from the answering host's Content-Type header, and the
+// URI is written inside a quoted CSS url(), a script's string literal and an
+// attribute. Only a well-formed type/subtype of token characters is carried;
+// anything else (a quote, a space, a parenthesis a host put there) is
+// application/octet-stream, so no header can end the string it is written in.
 func dataURI(contentType string, body []byte) string {
 	ct := baseType(contentType)
-	if ct == "" {
+	if !mediaType.MatchString(ct) {
 		ct = "application/octet-stream"
 	}
 	return "data:" + ct + ";base64," + base64.StdEncoding.EncodeToString(body)
 }
+
+// mediaType is a type/subtype of RFC 6838 restricted-name characters.
+var mediaType = regexp.MustCompile(`^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$`)
 
 // Media families.
 func isCSS(ct string) bool { return baseType(ct) == "text/css" }

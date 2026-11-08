@@ -439,3 +439,27 @@ func TestHelpers(t *testing.T) {
 	assert.True(t, strings.HasSuffix(long, "...") && len(long) < 200)
 	assert.Equal(t, "https://cdn.example.org/a.js", displayURL(&url.URL{Scheme: "https", Host: "cdn.example.org", Path: "/a.js"}, placeExternal))
 }
+
+// TestDataURI_CarriesOnlyAWellFormedMediaType: a Content-Type a host chose
+// cannot end the quoted string the data: URI is written in.
+func TestDataURI_CarriesOnlyAWellFormedMediaType(t *testing.T) {
+	assert.Equal(t, "data:image/svg+xml;base64,"+b64("x"), dataURI("image/svg+xml; charset=utf-8", []byte("x")))
+	for _, hostile := range []string{`image/png");}body{background:red`, `image/png"`, "image/png'", "text/css)", "a b/c", `image/png\`, "text/javascript\x60"} {
+		got := dataURI(hostile, []byte("x"))
+		assert.Equal(t, "data:application/octet-stream;base64,"+b64("x"), got, hostile)
+	}
+}
+
+// TestBuild_AHostileContentTypeCannotBreakOutOfTheFile: through the whole
+// export, a host answering with a quote in its Content-Type changes neither
+// the stylesheet nor the script the URI lands in.
+func TestBuild_AHostileContentTypeCannotBreakOutOfTheFile(t *testing.T) {
+	ext := map[string]file{"https://evil.example.org/x.png": {body: "P", ct: `image/png");}*{color:red}/*`}}
+	doc := `<html><head><style>.a{background:url("https://evil.example.org/x.png")}</style></head>
+<body><script>const i = "https://evil.example.org/x.png";</script></body></html>`
+	res, err := exportDoc(t, doc, "text/html", fixtures{ext: ext})
+	require.NoError(t, err)
+	out := string(res.HTML)
+	assert.NotContains(t, out, "color:red")
+	assert.Contains(t, out, `url("data:application/octet-stream;base64,`+b64("P")+`")`)
+}
