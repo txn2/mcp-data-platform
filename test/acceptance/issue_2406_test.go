@@ -82,9 +82,11 @@ func quietHealth(channel string) map[string]any {
 	}
 }
 
-// migrate adds one migration to schema on conn and applies it.
+// migrate adds one migration to schema on conn and applies it, the schema
+// held by an application of its own (#2539).
 func migrate(t *testing.T, c *client, conn, schema, up string) {
 	t.Helper()
+	holdSchema(t, c, conn, schema)
 	call := func(args map[string]any) map[string]any {
 		params := map[string]any{"connection": conn, "schema": schema}
 		for k, v := range args {

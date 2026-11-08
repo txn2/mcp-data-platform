@@ -17,6 +17,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
@@ -131,7 +133,11 @@ func Wire(deps Deps) *scriptexec.Handle {
 	layer.RegisterTool(deps.Server)
 	// Applications (#2411): scripts, assets, sources and a schema released
 	// together, over the same stores.
-	appwire.Register(deps.Server, applicationDeps(deps, endpoints, layer.SaveGate()))
+	if svc := appwire.Register(deps.Server, applicationDeps(deps, endpoints, layer.SaveGate())); svc != nil {
+		// A save of an application's script reports what it newly gives the
+		// application's diagram to find (#2540).
+		layer.SetPartFindings(svc.FindingsIntroduced)
+	}
 	// Approvals (#2437, #2494): a form's version approved before callers
 	// with no session are served it.
 	if endpoints != nil {
@@ -152,6 +158,10 @@ func applicationDeps(deps Deps, endpoints *epwire.Endpoints, gate *scriptsave.Ga
 	d := appwire.Deps{
 		DB: deps.DB, Toolkits: deps.Toolkits, Bucket: deps.Bucket, Prefix: deps.Prefix,
 		Lander: deps.Lander, Reader: deps.Sources, Claims: resourcewrite.CallerClaims,
+		Reach: deps.AppDBReach,
+	}
+	if sealer, ok := deps.Encryptor.(appsvc.Sealer); ok && sealer != nil {
+		d.Sealer = sealer
 	}
 	if gate != nil {
 		d.SaveGate, d.Recordings = gate, gate.Recordings
@@ -248,6 +258,9 @@ type Deps struct {
 	// provider's key is kept in (#2173).
 	BotCheckKey []byte
 	Encryptor   secretstore.Encryptor
+	// AppDBReach lists the application database connections an actor may
+	// hold an application's schema on (#2539); nil adds no schema.
+	AppDBReach func(ctx context.Context, actor application.Actor) ([]string, error)
 
 	// Bind hands the assembled tool layer back to the facade, which keeps it
 	// because the index queue binds its write-path producer (#1370).

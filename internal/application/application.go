@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -29,10 +30,15 @@ const (
 	KindScript = "script"
 	KindAsset  = "asset"
 	KindSource = "source"
+	// KindSchema is the application database schema the application holds
+	// (#2539), at most one, identified as "<connection>/<schema>". Its
+	// migrations are applied by releases; it is not pinned, since a release
+	// records the migration version instead.
+	KindSchema = "schema"
 )
 
 // Kinds is every kind of part, in the order a listing shows them.
-var Kinds = []string{KindScript, KindAsset, KindSource}
+var Kinds = []string{KindScript, KindAsset, KindSource, KindSchema}
 
 // The actions a release row records.
 const (
@@ -65,6 +71,10 @@ type Application struct {
 	// migrations a release applies. Empty for an application with none.
 	Connection string `json:"connection" example:"orders"`
 	Schema     string `json:"schema" example:"shop"`
+	// SchemaAdoptedVersion is the migration version the schema had applied
+	// when it was added to the application (#2539): migrations no release
+	// applied, which a rollback never reverts.
+	SchemaAdoptedVersion int `json:"schema_adopted_version" example:"0"`
 	// CurrentRelease is the number of the release in force, 0 before the
 	// first.
 	CurrentRelease int       `json:"current_release" example:"3"`
@@ -110,6 +120,9 @@ type Changes struct {
 	// MigrationsKept says why a rollback left migrations applied: a
 	// migration between the two releases has no down migration.
 	MigrationsKept string `json:"migrations_kept,omitempty"`
+	// Findings are what the application's diagram found at the release that
+	// did not refuse it (#2540).
+	Findings []string `json:"findings,omitempty"`
 }
 
 // Release is one release row and its pins.
@@ -194,8 +207,46 @@ func (a *Application) Validate() error {
 
 // ValidKind reports whether kind names a kind of part.
 func ValidKind(kind string) bool {
-	return kind == KindScript || kind == KindAsset || kind == KindSource
+	return kind == KindScript || kind == KindAsset || kind == KindSource || kind == KindSchema
 }
+
+// SchemaPartID is the id the schema part goes by: "<connection>/<schema>".
+func SchemaPartID(connection, schema string) string { return connection + "/" + schema }
+
+// ParseSchemaPartID reads a schema part's id: "<connection>/<schema>", or
+// the schema alone, which leaves connection empty for the caller to choose.
+func ParseSchemaPartID(id string) (connection, schema string) {
+	id = strings.TrimSpace(id)
+	if c, s, ok := strings.Cut(id, "/"); ok {
+		return strings.TrimSpace(c), strings.TrimSpace(s)
+	}
+	return "", id
+}
+
+// HeldSchema is a schema an application takes on: where it is, the
+// migration version it had applied, who added it, and the run role its
+// scripts' statements log in as, with the role's password sealed.
+type HeldSchema struct {
+	Connection     string
+	Schema         string
+	AdoptedVersion int
+	AddedBy        string
+	Role           string
+	SealedPassword string
+}
+
+// RunRole is an application's run role as stored: the role, and its
+// password sealed.
+type RunRole struct {
+	ApplicationID  string
+	Connection     string
+	Schema         string
+	Role           string
+	SealedPassword string
+}
+
+// ErrNoRunRole is an application holding no run role.
+var ErrNoRunRole = errors.New("the application has no run role")
 
 // Actor is who acts on an application. Subject and Roles are the session's
 // identity and authority, which a part an import writes runs under: they
@@ -239,6 +290,18 @@ type Store interface {
 	RemovePart(ctx context.Context, applicationID, kind, id string) error
 	// Owning is the application a part belongs to, ErrNotFound for none.
 	Owning(ctx context.Context, kind, id string) (*Application, error)
+	// SetSchema makes the application hold a schema and stores its run role,
+	// in one transaction: ErrSchemaHeld when another application holds it.
+	SetSchema(ctx context.Context, applicationID string, h HeldSchema) error
+	// SetRunRole stores the run role of the schema the application holds.
+	SetRunRole(ctx context.Context, applicationID string, h HeldSchema) error
+	// ClearSchema takes the schema and its run role off the application.
+	ClearSchema(ctx context.Context, applicationID string) error
+	// Holding is the application holding schema on connection, ErrNotFound
+	// for none.
+	Holding(ctx context.Context, connection, schema string) (*Application, error)
+	// RunRoleOf is the application's run role, ErrNoRunRole for none.
+	RunRoleOf(ctx context.Context, applicationID string) (*RunRole, error)
 	Releases(ctx context.Context, applicationID string) ([]Release, error)
 	Release(ctx context.Context, applicationID string, number int) (*Release, error)
 	// Record writes a release and its pins, makes it current, and holds each

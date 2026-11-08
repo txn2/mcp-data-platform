@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/pglint"
+
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
@@ -228,7 +230,9 @@ func (im *importer) locate(ctx context.Context, bundle *Bundle) error {
 		return nil
 	case err != nil:
 		return fmt.Errorf("reading application %q: %w", bundle.Application.Name, err)
-	case a.Connection != conn || a.Schema != schema:
+	case a.Schema != "" && (a.Connection != conn || a.Schema != schema):
+		// An application here with no schema takes the bundle's on (#2539);
+		// one holding another is refused.
 		return refused("nothing was imported: application %q here is on %s/%s, the bundle on %s/%s", a.Name,
 			a.Connection, a.Schema, conn, schema)
 	}
@@ -254,7 +258,8 @@ func (im *importer) schemaOf(bundle *Bundle) (conn, schema string) {
 func (im *importer) review(ctx context.Context, bundle *Bundle) error {
 	if bundle.Schema != nil {
 		for _, m := range bundle.Schema.Migrations {
-			if err := reviewed(m.Version, m.Up, m.Down); err != nil {
+			// An import is held to the roles rule as an add is (#2539).
+			if err := reviewed(pglint.Target{Schema: bundle.Schema.Schema}, m.Version, m.Up, m.Down); err != nil {
 				return err
 			}
 		}
@@ -373,7 +378,7 @@ func (im *importer) keepRecordings(ctx context.Context, sc *script.Script) error
 // none.
 func (im *importer) application(ctx context.Context, bundle *Bundle) error {
 	if im.app != nil {
-		return nil
+		return im.takeSchema(ctx, bundle)
 	}
 	conn, schema := im.schemaOf(bundle)
 	a, err := im.Service.Create(ctx, im.actor, application.Application{
@@ -384,6 +389,21 @@ func (im *importer) application(ctx context.Context, bundle *Bundle) error {
 	}
 	im.imported.Created = true
 	im.app, im.imported.Application = a, a.Name
+	return nil
+}
+
+// takeSchema adds the bundle's schema to an application here that holds
+// none (#2539), as add_part adds one.
+func (im *importer) takeSchema(ctx context.Context, bundle *Bundle) error {
+	conn, schema := im.schemaOf(bundle)
+	if schema == "" || im.app.Schema != "" {
+		return nil
+	}
+	a, err := im.Service.AddPart(ctx, im.actor, im.app.ID, application.KindSchema, application.SchemaPartID(conn, schema))
+	if err != nil {
+		return err //nolint:wrapcheck // the service's refusals are the caller's
+	}
+	im.app = a
 	return nil
 }
 

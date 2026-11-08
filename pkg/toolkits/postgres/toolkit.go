@@ -69,6 +69,9 @@ type Toolkit struct {
 	sweepMu   sync.Mutex
 	sweepStop chan struct{}
 
+	// apps answers which application holds a schema and its run role
+	// (#2539); nil governs no schema.
+	apps    atomic.Pointer[applications]
 	guard   atomic.Pointer[ConnectGuard]
 	metrics atomic.Pointer[observability.Metrics]
 	dbCfg   observability.DBConfig
@@ -96,6 +99,14 @@ type conn struct {
 	openSession func(context.Context) (session, error)
 	// begin opens a transaction: the pool's, or a test's stand-in.
 	begin func(context.Context, pgx.TxOptions) (pgx.Tx, error)
+	// outboxes are the outbox tables this process has drained, whose
+	// statements the health report leaves out (#2536).
+	outboxes sync.Map
+	// explain runs EXPLAIN for PlatformQueryIDs; nil runs it on the pool.
+	explain explainFunc
+	// runPool is the pool an application's run role logs in on (#2539);
+	// nil when no toolkit built the connection.
+	runPool func(ctx context.Context, c *conn, application string) (*pgxpool.Pool, bool, error)
 }
 
 // NewMulti builds the toolkit from every configured instance. Building a pool
@@ -135,7 +146,7 @@ func (t *Toolkit) newConn(name string, cfg Config) (*conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &conn{cfg: cfg, types: newTypeCache(), metrics: &t.metrics, tracer: tracer}
+	c := &conn{cfg: cfg, types: newTypeCache(), metrics: &t.metrics, tracer: tracer, runPool: t.runRolePool}
 	if cfg.StatementCache {
 		c.cache = newStmtCache(name, &t.metrics)
 		pc.BeforeClose = c.cache.forget
@@ -146,22 +157,22 @@ func (t *Toolkit) newConn(name string, cfg Config) (*conn, error) {
 	}
 	c.pool = pool
 	c.begin = c.poolBegin
-	if len(cfg.PersonaRoles) > 0 {
-		c.roles = &rolePools{pools: make(map[string]*pgxpool.Pool), build: func(rc Config) (*pgxpool.Pool, error) {
-			rpc, err := poolConfig(rc, t.afterConnect, tracer)
-			if err != nil {
-				return nil, err
-			}
-			if c.cache != nil {
-				rpc.BeforeClose = c.cache.forget
-			}
-			p, err := pgxpool.NewWithConfig(context.Background(), rpc)
-			if err != nil {
-				return nil, fmt.Errorf("postgres: building the pool: %w", err)
-			}
-			return p, nil
-		}}
-	}
+	// Every connection builds role pools: a persona's role (#2403) and an
+	// application's run role (#2539).
+	c.roles = &rolePools{pools: make(map[string]*pgxpool.Pool), build: func(rc Config) (*pgxpool.Pool, error) {
+		rpc, err := poolConfig(rc, t.afterConnect, tracer)
+		if err != nil {
+			return nil, err
+		}
+		if c.cache != nil {
+			rpc.BeforeClose = c.cache.forget
+		}
+		p, err := pgxpool.NewWithConfig(context.Background(), rpc)
+		if err != nil {
+			return nil, fmt.Errorf("postgres: building the pool: %w", err)
+		}
+		return p, nil
+	}}
 	return c, nil
 }
 
@@ -395,6 +406,9 @@ func (t *Toolkit) lookup(name string) (*conn, bool) {
 	return c, ok
 }
 
+// probeSQL is what a connection probe asks.
+const probeSQL = "/* mcp-data-platform */ SELECT current_setting('server_version'), current_database(), current_user"
+
 // ProbeConnection implements connprobe.Prober: it opens a connection, asks the
 // server its version and the database and user it reached, and reports them.
 func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Result {
@@ -403,7 +417,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 		return connprobe.Failure(fmt.Sprintf("connection %q is not served by this toolkit", name), nil)
 	}
 	var version, database, user string
-	err := c.pool.QueryRow(ctx, "/* mcp-data-platform */ SELECT current_setting('server_version'), current_database(), current_user").
+	err := c.pool.QueryRow(ctx, probeSQL).
 		Scan(&version, &database, &user)
 	observe(name, err)
 	if old, ok := tooOld(err); ok {

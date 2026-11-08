@@ -21,10 +21,12 @@ flowchart LR
 
 ## The order of work
 
-1. Schema first, through migrations: every table, constraint and policy is a
-   migration added with `manage_schema` `add`, planned and applied. The schema
-   is the contract the scripts are written against; `manage_schema describe`
-   reads it back.
+1. The application, then its schema as a part: `manage_application` `create`,
+   and `add_part` with `kind: "schema"`. A schema exists only inside the
+   application holding it, so this comes before its first migration.
+   Every table, constraint and policy is then a migration added with
+   `manage_schema` `add`, planned and applied. The schema is the contract the
+   scripts are written against; `manage_schema describe` reads it back.
 2. Scripts against the schema, each with tests that run on a throwaway copy
    of the database (`testing.database`).
 3. The front: an endpoint for the JSON API, a form for anything a person
@@ -34,12 +36,40 @@ flowchart LR
 5. Upkeep as a schedule: maintenance and reports run on a timer.
 6. A release, which pins all of it.
 
+A system usually grows into this order rather than starting from it: an
+application that began on scratch tables or files, with a few scripts and an
+asset, gains a database when it needs one. It takes the schema on the same
+way, `add_part` with `kind: "schema"`, at any time; nothing is deleted or
+created again, and its releases keep their history. A schema whose migrations
+were applied before it was added is adopted: the next release applies nothing
+already applied and records the schema's migration version, and a rollback
+never reverts a migration no release applied. Move the scripts to the schema,
+then release.
+
 The design pages for the database are
 mcp:knowledge_page:platform-application-databases and
 mcp:knowledge_page:platform-postgres-write-patterns onward; this page is how
 the parts fit.
 
 ## 1. The schema
+
+First the application and its schema:
+
+1. `manage_application` `create` with `name: "shop"`.
+2. `add_part` with `application: "shop"`, `kind: "schema"` and `part_id:
+   "orders/shop"`: the schema `shop` on the application database connection
+   `orders`. The connection must be an existing application database
+   connection (kind `appdb`) your persona reaches; with only one, the schema
+   alone (`part_id: "shop"`) names it, and with several the refusal lists them.
+   No application command creates or changes a connection; an administrator
+   configures it. An application holds one schema, and a schema belongs to one
+   application: a schema another application holds is refused naming it.
+
+Adding the schema creates the application's run role, `shop_run_` followed by
+eight characters derived from the database's name, which every
+statement of the application's scripts logs in as (below). `manage_schema`
+refuses to add, plan or apply a migration on a schema no application holds,
+naming this call.
 
 Each block below is one migration. Add each with `manage_schema` `add`
 (`connection: "orders"`, `schema: "shop"`, `version`, `name`, `up`, and a
@@ -115,25 +145,46 @@ writes that migration: an outbox table, a trigger that copies each inserted,
 updated or deleted order into it, and a notification on its channel. Add and
 apply it like the others.
 
-The statements run as the role of the persona the scripts' author holds: the
-connection's `persona_roles` maps that persona to a login role, and
-`persona_role_passwords` holds its password, encrypted. The database's
-administrator creates the role, with no `SUPERUSER` and no `BYPASSRLS`, and
-never in a migration: a migration carrying a password is refused. A last
-migration grants it what the application does and nothing more:
+The schema is owned by the connection's user, which runs its migrations; the
+application's statements never run as the owner. They log in as the shop's run role, the
+role the platform created when the schema was added, with no `SUPERUSER` and no
+`BYPASSRLS`, so the policies above hold it. What it may do is the application's
+to define, in a last migration, with roles that cannot log in and whose names
+start with the schema's (a migration naming any other role, or `PUBLIC`, is
+refused). The platform grants the run role `shop_write` once a migration
+defines it:
 
 ```sql no-run
-GRANT USAGE ON SCHEMA shop TO shop_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON products, inventory TO shop_app;
-GRANT SELECT, INSERT, UPDATE ON orders, order_lines TO shop_app;
-GRANT INSERT ON outbox TO shop_app;
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA shop TO shop_app;
-GRANT MAINTAIN ON orders, order_lines, inventory TO shop_app;
+DO $$BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'shop_read') THEN CREATE ROLE shop_read NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'shop_write') THEN CREATE ROLE shop_write NOLOGIN IN ROLE shop_read; END IF;
+END$$;
+REVOKE ALL ON SCHEMA shop FROM PUBLIC;
+GRANT USAGE ON SCHEMA shop TO shop_read;
+GRANT SELECT ON products, inventory, orders, order_lines TO shop_read;
+GRANT INSERT, UPDATE, DELETE ON products, inventory TO shop_write;
+GRANT INSERT, UPDATE ON orders, order_lines TO shop_write;
+GRANT INSERT ON outbox TO shop_write;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA shop TO shop_write;
+GRANT MAINTAIN ON orders, order_lines, inventory TO shop_write;
 ```
+
+The roles are created only when absent: the platform applies the migrations
+from zero on a throwaway database on the same server before saving each one,
+and a role belongs to the whole server. The down migration is `DROP OWNED BY
+shop_write, shop_read; DROP ROLE shop_write; DROP ROLE shop_read;`. A
+migration never gives a role a password; one that does is refused.
 
 The application keeps its own catalog, so it writes products and stock; it
 never deletes an order. `MAINTAIN` lets the maintenance script below vacuum
-and analyze the tables it does not own.
+and analyze the tables it does not own. Its scripts' statements cannot change
+a table (`DROP TABLE`, `ALTER TABLE`, `CREATE TABLE` are refused by the
+database); every change to the schema is a migration a release applies. Only
+the shop's own scripts reach `shop`: another application's script is refused
+by the database, with an error naming the shop and saying to use its
+endpoints and exports, and adding a script that uses `shop` to another
+application is refused. More on the roles, and narrower grants, is on
+mcp:knowledge_page:platform-application-databases.
 
 ## 2. The checkout, in one transaction
 
@@ -365,10 +416,12 @@ reads the same list from `/endpoints/shop/products`.
 
 `manage_application` names the parts and releases them:
 
-1. `create` with `name: "shop"`, `connection: "orders"`, `schema: "shop"`,
-   the schema the migrations are in. The connection must be an application
-   database connection (kind `appdb`); any other name is refused at create.
-   Leave both out for an application with no database.
+1. The application exists with its schema as a part (section 1). `create`
+   also takes `connection` and `schema` and adds the schema as `add_part`
+   does; an application with no database names neither, and adds a schema
+   later when it needs one. Removing the schema (`remove_part`, `kind:
+   "schema"`) drops the run role and leaves the schema and its data; on a
+   released application it is an administrator's.
 2. `add_part` for each script (`kind: "script"`, its id: checkout, API,
    confirmation, maintenance), the storefront asset (`kind: "asset"`), and the
    outbox webhook source (`kind: "source"`, its name). A part belongs to one
@@ -377,8 +430,10 @@ reads the same list from `/endpoints/shop/products`.
    application's portal page the parts are listed by name, and Add parts
    searches the owner's scripts and assets (and, for an administrator,
    webhook sources) by name and adds several at once.
-3. `get` shows what a release would change (`pending`) and anything it would
-   refuse (`problems`).
+3. `get` shows what a release would change (`pending`), the schema part
+   (`schema`: its migration version, the one the current release recorded,
+   the pending migrations and the role its scripts log in as), and anything
+   a release would refuse (`problems`).
 4. `release` (an administrator) applies the pending migrations and pins each
    script's and asset's newest version. A migration that fails refuses the
    release and changes nothing.

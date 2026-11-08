@@ -101,12 +101,22 @@ export const connectionInstanceHandlers = [
     },
   ),
 
-  // The plan of the fixture's one pending migration, which adds a column.
+  // The plan of the fixture's one pending migration, which adds a column. A
+  // schema no application holds is refused as the server refuses it (#2539).
   http.post(
     `${ADMIN_BASE}/connection-instances/appdb/:name/migrations/plan`,
-    ({ params }) => {
+    ({ params, request }) => {
       const report = mockAppDBMigrations[decodeURIComponent(String(params["name"]))];
       if (!report) return new HttpResponse(null, { status: 404 });
+      const schema = new URL(request.url).searchParams.get("schema") ?? report.schema;
+      if ((report.unheld_schemas ?? []).some((u) => u.schema === schema)) {
+        const detail =
+          `appdb: schema "${schema}" on connection "${report.connection}" belongs to no application, and a schema's ` +
+          "migrations are added, planned and applied only inside the application that holds it. Add it first: " +
+          `manage_application add_part with your application, kind "schema" and part_id "${report.connection}/${schema}". ` +
+          "Then add its migrations here and release the application.";
+        return HttpResponse.json({ status: 400, detail }, { status: 400 });
+      }
       const pending = report.migrations.filter((m) => m.state === "pending").map((m) => m.version);
       return HttpResponse.json({
         migrations: pending,

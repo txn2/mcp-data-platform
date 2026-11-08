@@ -45,6 +45,7 @@ const p99Bound2402 = 100 * time.Millisecond
 func shop2402(t *testing.T, admin *client, prefix string) string {
 	t.Helper()
 	schema := "acc2402_" + prefix + "_" + unique1579()
+	holdSchema(t, admin, conn2402, schema)
 	for _, m := range []map[string]any{
 		{"version": 1, "name": "orders", "up": "CREATE TABLE orders (id int PRIMARY KEY, total numeric(10,2) NOT NULL)"},
 		{"version": 2, "name": "items", "up": "CREATE TABLE items (order_id int NOT NULL REFERENCES orders (id), sku text NOT NULL, qty int NOT NULL CONSTRAINT items_qty_positive CHECK (qty > 0))"},
@@ -101,6 +102,9 @@ def main():
 	}
 }
 
+// The two runs start together and each holds its transaction five seconds
+// between its read and its write, so they overlap even when one session
+// opens a few seconds after the other.
 func TestIssue2402_TwoSerializableRunsBothFinishOneAfterARetry(t *testing.T) {
 	admin := connect(t)
 	schema := shop2402(t, admin, "retry")
@@ -111,7 +115,7 @@ def main():
         """Reads the counter and writes it back plus one."""
         print("attempt")
         n = tx.query("SELECT n FROM ` + schema + `.counter WHERE id = 1")["rows"][0]["n"]
-        platform.sleep(2)
+        platform.sleep(5)
         tx.execute("UPDATE ` + schema + `.counter SET n = :n WHERE id = 1", params = {"n": n + 1})
     platform.transaction("` + conn2402 + `", bump, isolation = "serializable", retry = True)
 `

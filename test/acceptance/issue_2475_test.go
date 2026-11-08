@@ -30,7 +30,7 @@ import (
 func TestIssue2475_ARefusedMigrationLeavesNoPasswordInAnySink(t *testing.T) {
 	admin := connectFor(t, 10*time.Minute)
 	k := newCanary2363(t)
-	schema := schema2404("pw")
+	schema := schema2404(t, "pw")
 
 	cases := []struct {
 		label    string
@@ -100,7 +100,7 @@ func TestIssue2475_ARefusedMigrationLeavesNoPasswordInAnySink(t *testing.T) {
 // holds the up and down SQL exactly as they were sent.
 func TestIssue2475_AMigrationWithNoCredentialIsAuditedAsSent(t *testing.T) {
 	admin := connect(t)
-	schema := schema2404("plain")
+	schema := schema2404(t, "plain")
 	up := "CREATE TABLE acc2475_plain (id bigint PRIMARY KEY, note text DEFAULT 'password reset pending');\nCOMMENT ON TABLE acc2475_plain IS 'kept as sent'"
 	down := "DROP TABLE acc2475_plain"
 	added := schemaCall(admin, schema, map[string]any{"command": "add", "version": 1, "name": "plain", "up": up, "down": down})

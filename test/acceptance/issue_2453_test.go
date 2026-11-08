@@ -24,6 +24,7 @@ const conn2453 = "orders"
 func items2453(t *testing.T, admin *client, prefix string) string {
 	t.Helper()
 	schema := "acc2453_" + prefix + "_" + unique1579()
+	holdSchema(t, admin, conn2453, schema)
 	admin.call("manage_schema", map[string]any{
 		"command": "add", "connection": conn2453, "schema": schema, "version": 1, "name": "items",
 		"up": "CREATE TABLE items (id int PRIMARY KEY, sku text NOT NULL, qty int NOT NULL)",

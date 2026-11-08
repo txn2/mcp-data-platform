@@ -194,3 +194,67 @@ func TestRealDB_RetentionKeepsPinnedAssetVersions(t *testing.T) {
 	_, err = versions.GetByVersion(ctx, assetID, 2)
 	require.Error(t, err, "an unpinned old version is pruned as before")
 }
+
+// TestRealDB_SchemaIsAPartWithItsRunRole is #2539's store against
+// PostgreSQL: an application created with no schema takes one on with its
+// run role in one transaction, lists it among its parts, is the one Holding
+// finds, refuses a second, keeps another application off it, and gives it up
+// with its run role.
+func TestRealDB_SchemaIsAPartWithItsRunRole(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	app := &application.Application{Name: "grown", OwnerEmail: owner, CreatedBy: owner}
+	require.NoError(t, s.Create(ctx, app))
+	rival := &application.Application{Name: "rival", OwnerEmail: owner, CreatedBy: owner}
+	require.NoError(t, s.Create(ctx, rival))
+
+	held := application.HeldSchema{Connection: "orders", Schema: "grown", AdoptedVersion: 4, AddedBy: owner, Role: "grown_run", SealedPassword: "encb:sealed"}
+	require.NoError(t, s.SetSchema(ctx, app.ID, held))
+	got, err := s.Get(ctx, app.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "orders", got.Connection)
+	assert.Equal(t, 4, got.SchemaAdoptedVersion)
+	require.Len(t, got.Parts, 1)
+	assert.Equal(t, application.KindSchema, got.Parts[0].Kind)
+	assert.Equal(t, "orders/grown", got.Parts[0].ID)
+	assert.Equal(t, owner, got.Parts[0].AddedBy)
+	assert.False(t, got.Parts[0].AddedAt.IsZero())
+
+	list, err := s.List(ctx)
+	require.NoError(t, err)
+	for _, a := range list {
+		if a.ID == app.ID {
+			assert.Len(t, a.Parts, 1, "a listing carries the schema part")
+		}
+	}
+	holding, err := s.Holding(ctx, "orders", "grown")
+	require.NoError(t, err)
+	assert.Equal(t, app.ID, holding.ID)
+	_, err = s.Holding(ctx, "orders", "none")
+	require.ErrorIs(t, err, application.ErrNotFound)
+
+	rr, err := s.RunRoleOf(ctx, app.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "grown_run", rr.Role)
+	assert.Equal(t, "encb:sealed", rr.SealedPassword)
+
+	require.ErrorIs(t, s.SetSchema(ctx, rival.ID, held), application.ErrSchemaHeld, "one application per schema")
+	require.ErrorIs(t, s.SetSchema(ctx, app.ID, application.HeldSchema{Connection: "orders", Schema: "second"}), application.ErrSchemaHeld,
+		"an application holds one schema")
+	held.SealedPassword = "encb:resealed"
+	require.NoError(t, s.SetRunRole(ctx, app.ID, held))
+	rr, err = s.RunRoleOf(ctx, app.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "encb:resealed", rr.SealedPassword)
+
+	require.NoError(t, s.ClearSchema(ctx, app.ID))
+	_, err = s.RunRoleOf(ctx, app.ID)
+	require.ErrorIs(t, err, application.ErrNoRunRole, "the stored password goes with the schema")
+	got, err = s.Get(ctx, app.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.Schema)
+	assert.Empty(t, got.Parts)
+	require.ErrorIs(t, s.ClearSchema(ctx, app.ID), application.ErrNoPart)
+	require.NoError(t, s.SetSchema(ctx, rival.ID, held), "a schema given up is free to take")
+}

@@ -256,6 +256,11 @@ func (h *Handle) persist(ctx context.Context, before, after *script.Script, extr
 	out := map[string]any{fieldName: after.Name, fieldVersion: after.Version}
 	maps.Copy(out, extra)
 	out[fieldStatus] = "updated"
+	if h.partFindings != nil && after.Source != before.Source {
+		if found := h.partFindings(ctx, after.ID, before.Version); len(found) > 0 {
+			out["application_findings"] = found
+		}
+	}
 	addDescriptionNotice(out, after)
 	out[fieldMessage] = script.SavedMessage(after)
 	return jsonResult(out)

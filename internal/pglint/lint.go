@@ -1,4 +1,11 @@
-package postgres
+// Package pglint reads an application database migration before it saves
+// (#2405, #2449, #2539): the statements that lock, rewrite or remove data a
+// live table holds, the statements that leave the database open to a role
+// that should not reach it or need a privilege an application's role must
+// not hold, the features the server's major lacks, and the roles a migration
+// names outside its schema. It reads SQL lexically and touches no database;
+// the postgres toolkit's review and an application import run it.
+package pglint
 
 import (
 	"fmt"
@@ -399,7 +406,7 @@ func (l *linter) setting(n int, ts toks) {
 		return
 	}
 	d, ok := pgDuration(ts[i+2].text)
-	if !ok || (d != 0 && d <= migrationLockTimeout) {
+	if !ok || (d != 0 && d <= MigrationLockTimeout) {
 		return
 	}
 	effect := fmt.Sprintf("waits up to %s for a lock a running query holds, while every later query on the table waits behind it", d)
@@ -408,7 +415,7 @@ func (l *linter) setting(n int, ts toks) {
 	}
 	l.add(Finding{
 		Rule: RuleLockTimeoutRaised, Severity: SeverityWarning, Statement: n, Object: "lock_timeout",
-		Effect: effect, Safe: fmt.Sprintf("leave lock_timeout at the %s the platform sets, and retry the apply if it times out", migrationLockTimeout),
+		Effect: effect, Safe: fmt.Sprintf("leave lock_timeout at the %s the platform sets, and retry the apply if it times out", MigrationLockTimeout),
 	})
 }
 
@@ -642,4 +649,22 @@ func skipIfNotExists(ts toks, i int) int {
 		return i + ifNotExistsWords
 	}
 	return i
+}
+
+// MigrationLockTimeout is how long one migration's statement waits for a
+// lock a running query holds, so a migration never queues behind a long read
+// while every later query queues behind it: what the postgres toolkit sets,
+// and the bound the lock_timeout rule holds a migration to.
+const MigrationLockTimeout = 10 * time.Second
+
+// splitStatements cuts SQL into its top-level statements (pglex.Split),
+// dropping one that holds no keyword (only a comment).
+func splitStatements(sql string) []string {
+	var out []string
+	for _, s := range pglex.Split(sql) {
+		if pglex.FirstWord(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

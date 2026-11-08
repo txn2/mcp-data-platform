@@ -358,7 +358,9 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		return nil, err
 	}
 	defer release()
-	caller, cleanup, err := r.connect(ctx, runID, req.Identity)
+	// A draft of a saved script runs as the script does on an application
+	// database: as its application's run role (#2539).
+	caller, cleanup, err := r.connect(scriptsession.WithScript(ctx, draftScriptID(req)), runID, req.Identity)
 	if err != nil {
 		return nil, err
 	}

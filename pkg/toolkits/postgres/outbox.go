@@ -129,6 +129,7 @@ func (t *Toolkit) DrainOutbox(ctx context.Context, connection, table string, lim
 		return 0, err
 	}
 	sel, del := outboxSQL(ident)
+	c.outboxes.Store(ident, struct{}{})
 	out, err := c.inTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadWrite}, c.cfg.StatementTimeout, true, func(tx pgx.Tx) (any, error) {
 		rows, err := readOutbox(ctx, tx, sel, limit)
 		if err != nil || len(rows) == 0 {
@@ -295,7 +296,7 @@ func (t *Toolkit) probeListen(ctx context.Context, c *conn) string {
 		return "; LISTEN failed, so a webhook source with input postgres cannot use this connection"
 	}
 	defer l.Close()
-	if _, err := c.pool.Exec(ctx, "/* mcp-data-platform */ SELECT pg_notify($1, 'probe')", channel); err != nil {
+	if _, err := c.pool.Exec(ctx, notifyProbeSQL, channel); err != nil {
 		return "; NOTIFY failed, so a webhook source with input postgres cannot use this connection"
 	}
 	wctx, cancel := context.WithTimeout(ctx, listenProbeWait)
@@ -306,6 +307,9 @@ func (t *Toolkit) probeListen(ctx context.Context, c *conn) string {
 	}
 	return "; LISTEN/NOTIFY delivers"
 }
+
+// notifyProbeSQL is the notification a connection probe sends itself.
+const notifyProbeSQL = "/* mcp-data-platform */ SELECT pg_notify($1, 'probe')"
 
 // errOutboxPrivileges refuses an outbox the connection's role cannot both
 // read and delete from.

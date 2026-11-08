@@ -26,5 +26,6 @@ func TestPlatformStatementsCarryTheTag(t *testing.T) {
 		"describeEnumsSQL": describeEnumsSQL, "describeDomainsSQL": describeDomainsSQL,
 	} {
 		assert.True(t, strings.HasPrefix(sql, sqltag.Platform), name)
+		assert.Contains(t, platformStatements, sql, "%s is among the statements whose query ids the health report leaves out", name)
 	}
 }

@@ -7,6 +7,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
 
+// QueryIDReader reads the pg_stat_statements query id of every statement the
+// platform runs on an application database, and of each of extra (#2536):
+// the postgres toolkit's PlatformQueryIDs. A Querier that is one has the
+// report leave the platform's statements out of the ranking by id.
+type QueryIDReader interface {
+	PlatformQueryIDs(ctx context.Context, connection string, extra []string) ([]string, error)
+}
+
 // Querier runs one read-only statement on an application database: the
 // postgres toolkit's Query, which runs it as the connection's own login in a
 // READ ONLY transaction when the context carries no persona.
@@ -106,3 +114,6 @@ func (r row) nums(name string) []int64 {
 	}
 	return out
 }
+
+// The postgres toolkit reads the query ids a report leaves out.
+var _ QueryIDReader = (*postgres.Toolkit)(nil)

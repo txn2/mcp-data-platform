@@ -116,6 +116,7 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 	mux.Handle("POST "+Prefix+"/{app}/release", wrap(http.HandlerFunc(h.release)))
 	mux.Handle("POST "+Prefix+"/{app}/rollback", wrap(http.HandlerFunc(h.rollback)))
 	mux.Handle("GET "+Prefix+"/{app}/export", wrap(http.HandlerFunc(h.export)))
+	mux.Handle("GET "+Prefix+"/{app}/diagram", wrap(http.HandlerFunc(h.diagram)))
 	if cfg.Databases != nil {
 		mux.Handle("GET "+DatabasesPath, wrap(http.HandlerFunc(h.databases)))
 	}
@@ -323,7 +324,7 @@ type detail struct {
 // get answers an application's page.
 //
 // @Summary      Read an application
-// @Description  An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), its current release, what a release now would change (pending), where its schema's migrations stand, the parts a release would refuse (problems), and its releases newest first with what each changed.
+// @Description  An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), its current release, what a release now would change (pending), its schema part (schema: its migration version, the version the current release recorded, the pending migrations, and the role its scripts log in as), the parts a release would refuse (problems), and its releases newest first with what each changed.
 // @Param        app  path  string  true  "Application name or id"
 // @Success      200  {object}  detail
 // @Tags         Applications
@@ -444,7 +445,7 @@ func (h *handler) remove(w http.ResponseWriter, r *http.Request) {
 // addPart adds a part.
 //
 // @Summary      Add a part to an application
-// @Description  Adds a script (by id), an asset (by id) or a webhook source (by name). A part belongs to at most one application; the caller must own the part (a webhook source is added by an administrator).
+// @Description  Adds a script (by id), an asset (by id), a webhook source (by name), or the application database schema (kind schema, by "<connection>/<schema>", or the schema alone when the caller reaches one application database connection). A part belongs to at most one application; the caller must own the part (a webhook source is added by an administrator). A schema is on an existing application database connection the caller's persona reaches; an application holds one schema, and adding it creates the database role the application's scripts log in as, which needs CREATEROLE on the connection's user. A script that reads or writes a schema another application holds is refused.
 // @Accept       json
 // @Param        app   path  string       true  "Application name or id"
 // @Param        body  body  partRequest  true  "The part"
@@ -474,10 +475,10 @@ func (h *handler) addPart(w http.ResponseWriter, r *http.Request) {
 // removePart removes a part.
 //
 // @Summary      Remove a part from an application
-// @Description  Removes the part; it runs or serves its newest version again.
+// @Description  Removes the part; it runs or serves its newest version again. Removing the schema drops the database role the application's scripts log in as and leaves the schema and its data; on a released application it is for administrators.
 // @Param        app   path  string  true  "Application name or id"
-// @Param        kind  path  string  true  "script, asset or source"
-// @Param        id    path  string  true  "The part's id, or a webhook source's name"
+// @Param        kind  path  string  true  "script, asset, source or schema"
+// @Param        id    path  string  true  "The part's id, a webhook source's name, or the schema (\"<connection>/<schema>\" escaped, or the schema alone)"
 // @Success      200  {object}  application.Application
 // @Tags         Applications
 // @Produce      json

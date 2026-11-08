@@ -182,9 +182,17 @@ func newSource2412(t *testing.T) *source2412 {
 	s.canaries["stored secret value"] = secretValue
 
 	s.schema = "shop2412_" + stamp
+	// The application first, holding its schema (#2539); its scripts read the
+	// products table as its run role, which the migration grants it.
+	admin.call("manage_application", map[string]any{"command": "create", "name": s.app, "connection": s.conn, "schema": s.schema})
+	t.Cleanup(func() {
+		_, _, _ = admin.callRaw("manage_application", map[string]any{"command": "delete", "application": s.app})
+	})
+	dropRolesLater(t, s.schema+"_write")
 	admin.call("manage_schema", map[string]any{
 		"command": "add", "connection": s.conn, "schema": s.schema, "version": 1,
-		"name": "products", "up": "CREATE TABLE products (sku text PRIMARY KEY)", "down": "DROP TABLE products",
+		"name": "products", "up": "CREATE TABLE products (sku text PRIMARY KEY);\n" + writeRole(s.schema, "SELECT", "products"),
+		"down": "DROP TABLE products; DROP OWNED BY " + s.schema + "_write; DROP ROLE " + s.schema + "_write",
 	})
 	t.Cleanup(func() { targetPSQL(t, "DROP SCHEMA IF EXISTS "+s.schema+" CASCADE") })
 
@@ -212,10 +220,6 @@ func newSource2412(t *testing.T) *source2412 {
 	}
 	keeperID, _ := admin.call("manage_script", map[string]any{"command": "get", "name": keeper})["id"].(string)
 
-	admin.call("manage_application", map[string]any{"command": "create", "name": s.app, "connection": s.conn, "schema": s.schema})
-	t.Cleanup(func() {
-		_, _, _ = admin.callRaw("manage_application", map[string]any{"command": "delete", "application": s.app})
-	})
 	for _, id := range []string{api, keeperID} {
 		admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "script", "part_id": id})
 	}

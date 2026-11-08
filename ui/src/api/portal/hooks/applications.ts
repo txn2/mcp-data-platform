@@ -10,8 +10,11 @@ import { apiFetch, apiFetchRaw, ApiError } from "../client";
 // import. The server enforces every one of those rules; the page only hides
 // the controls a caller would be refused.
 
-/** The kinds of thing an application is made of. */
-export type ApplicationPartKind = "script" | "asset" | "source";
+/**
+ * The kinds of thing an application is made of. A schema part (#2539) is the
+ * application database schema the application holds, by "<connection>/<schema>".
+ */
+export type ApplicationPartKind = "script" | "asset" | "source" | "schema";
 
 export interface ApplicationPart {
   kind: ApplicationPartKind;
@@ -27,6 +30,8 @@ export interface Application {
   owner_email: string;
   connection: string;
   schema: string;
+  /** The migration version the schema had applied when it was added; a rollback reverts nothing at or below it. */
+  schema_adopted_version: number;
   /** The release in force, 0 before the first one. */
   current_release: number;
   created_by: string;
@@ -122,6 +127,31 @@ export interface ApplicationCandidates {
   counts: Partial<Record<ApplicationPartKind, number>>;
 }
 
+/**
+ * The schema part as an application's page shows it (#2539): where its
+ * migrations stand, what the current release recorded, and the database role
+ * the application's scripts log in as.
+ */
+export interface ApplicationSchemaView {
+  connection: string;
+  schema: string;
+  /** The highest migration applied in the database. */
+  migration_version: number;
+  /** The migration version the current release recorded. */
+  released_version: number;
+  /** The migrations a release would apply. */
+  pending: number[];
+  adopted_version: number;
+  /** The role the application's scripts log in as; empty when it has none. */
+  run_role: string;
+  /** The role the run role is granted; empty while the schema's migrations define none. */
+  write_role: string;
+  /** What the run role still needs. */
+  note?: string;
+  /** Set when the migrations could not be read. */
+  problem?: string;
+}
+
 /** An application's page: where it stands and its releases, newest first. */
 export interface ApplicationDetail {
   application: Application;
@@ -130,8 +160,109 @@ export interface ApplicationDetail {
   current_release: ApplicationRelease | null;
   pending: ApplicationPinChange[];
   migrations?: { applied: number; pending: number[] };
+  /** The schema part; absent when the application holds no schema. */
+  schema?: ApplicationSchemaView;
   problems: string[];
+  /**
+   * What the diagram of the application's newest versions finds (#2540); each
+   * finding's message is also in problems. One that does not block is advice:
+   * a release is not refused for it.
+   */
+  findings: ApplicationFinding[];
   releases: ApplicationRelease[];
+}
+
+/** The kinds of thing an application diagram draws (#2540). */
+export type ApplicationNodeKind =
+  | "script"
+  | "library"
+  | "asset"
+  | "source"
+  | "schema"
+  | "table"
+  | "channel"
+  | "output"
+  | "endpoint";
+
+/** The kinds of link between two nodes of an application diagram. */
+export type ApplicationLinkKind =
+  | "event"
+  | "reads"
+  | "writes"
+  | "loads"
+  | "exports"
+  | "refreshes"
+  | "notifies"
+  | "posts"
+  | "calls"
+  | "embeds"
+  | "submits";
+
+/** How a compared diagram marks a node or link. */
+export type ApplicationDiagramChange = "added" | "removed" | "changed" | "unchanged";
+
+/** One part, or what a part reaches, in an application diagram. */
+export interface ApplicationDiagramNode {
+  id: string;
+  kind: ApplicationNodeKind;
+  label: string;
+  /** The group it is drawn in: application, schema or outside. */
+  group: string;
+  /** True for a part of the application; part_id is its id. */
+  part: boolean;
+  part_id?: string;
+  /** The part's version the diagram is drawn at; absent for none. */
+  version?: number;
+  /** True for a name the source computes when it runs. */
+  computed: boolean;
+  /** What the node's card adds: a schedule, an endpoint, a connection. */
+  detail: string[];
+  change?: ApplicationDiagramChange;
+  /** The version the compared diagram had, for a changed node. */
+  was_version?: number;
+}
+
+/**
+ * One link, from the part that acts to what it reaches: a script to the
+ * table it reads or writes, a source to the script it starts.
+ */
+export interface ApplicationDiagramLink {
+  from: string;
+  to: string;
+  kind: ApplicationLinkKind;
+  /** The version a load names, the endpoint an asset calls. */
+  detail?: string;
+  /** A compared link whose detail moved is changed; was_detail is what it said. */
+  change?: ApplicationDiagramChange;
+  was_detail?: string;
+}
+
+/** A box nodes are drawn in; parent nests it in another. */
+export interface ApplicationDiagramGroup {
+  id: string;
+  label: string;
+  parent?: string;
+}
+
+/** Something the diagram finds wrong (#2540). */
+export interface ApplicationFinding {
+  kind: "library_version" | "unwritten_table" | "foreign_schema";
+  /** The node it is about. */
+  node: string;
+  message: string;
+  /** True for a finding a release refuses. */
+  blocks: boolean;
+}
+
+/** An application drawn at one version (#2540). */
+export interface ApplicationDiagram {
+  /** What was drawn: current, latest or a release's number. */
+  version: string;
+  compared_with?: string;
+  nodes: ApplicationDiagramNode[];
+  links: ApplicationDiagramLink[];
+  groups: ApplicationDiagramGroup[];
+  findings: ApplicationFinding[];
 }
 
 export interface ApplicationCreateInput {
@@ -186,6 +317,21 @@ export function useApplication(app: string) {
     queryKey: applicationKey(app),
     queryFn: () => apiFetch<ApplicationDetail>(appPath(app)),
     enabled: app !== "",
+  });
+}
+
+/**
+ * useApplicationDiagram draws an application at one version: current (the
+ * current release's pins), latest (each part's newest version) or a release's
+ * number, marked against compare when one is given.
+ */
+export function useApplicationDiagram(app: string, version: string, compare: string | null, enabled = true) {
+  const query = new URLSearchParams({ version });
+  if (compare) query.set("compare", compare);
+  return useQuery({
+    queryKey: [...applicationKey(app), "diagram", version, compare ?? ""] as const,
+    queryFn: () => apiFetch<ApplicationDiagram>(`${appPath(app)}/diagram?${query.toString()}`),
+    enabled: enabled && app !== "",
   });
 }
 

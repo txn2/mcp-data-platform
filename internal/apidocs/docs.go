@@ -14351,7 +14351,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), its current release, what a release now would change (pending), where its schema's migrations stand, the parts a release would refuse (problems), and its releases newest first with what each changed.",
+                "description": "An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), its current release, what a release now would change (pending), its schema part (schema: its migration version, the version the current release recorded, the pending migrations, and the role its scripts log in as), the parts a release would refuse (problems), and its releases newest first with what each changed.",
                 "produces": [
                     "application/json"
                 ],
@@ -14650,6 +14650,79 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/applications/{app}/diagram": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "How the application's parts fit together at one version (#2540): its parts and what they reach outside it as nodes (a part, a table in its schema or on another store, a channel, a library, an output), and the links between them (a webhook source starting a script, a script reading or writing a table, loading a library at a version, exporting or refreshing an asset, notifying a channel or submitting a form to its source, an asset calling an endpoint or embedding a form), each read from the parts' sources and stored settings, never from a run: drawing one starts no run and makes no outbound request. A name a source computes when it runs is a node marked computed and is never matched to a part. findings names a script loading one of the application's libraries at a version other than the one the version drawn pins (which a release refuses), a table of the application's schema its scripts read and no part writes, and a script using a schema the application does not hold. version is current (the current release's pins), latest (each part's newest version) or a release's number; compare marks each node and link added, removed or unchanged against that version. An asset the caller cannot open is drawn unnamed and its content is not read.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Draw an application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "current (default), latest, or a release's number",
+                        "name": "version",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "current, latest, or a release's number to compare with",
+                        "name": "compare",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/appdiagram.Diagram"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/applications/{app}/export": {
             "get": {
                 "security": [
@@ -14739,7 +14812,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Adds a script (by id), an asset (by id) or a webhook source (by name). A part belongs to at most one application; the caller must own the part (a webhook source is added by an administrator).",
+                "description": "Adds a script (by id), an asset (by id), a webhook source (by name), or the application database schema (kind schema, by \"\u003cconnection\u003e/\u003cschema\u003e\", or the schema alone when the caller reaches one application database connection). A part belongs to at most one application; the caller must own the part (a webhook source is added by an administrator). A schema is on an existing application database connection the caller's persona reaches; an application holds one schema, and adding it creates the database role the application's scripts log in as, which needs CREATEROLE on the connection's user. A script that reads or writes a schema another application holds is refused.",
                 "consumes": [
                     "application/json"
                 ],
@@ -14824,7 +14897,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Removes the part; it runs or serves its newest version again.",
+                "description": "Removes the part; it runs or serves its newest version again. Removing the schema drops the database role the application's scripts log in as and leaves the schema and its data; on a released application it is for administrators.",
                 "produces": [
                     "application/json"
                 ],
@@ -14842,14 +14915,14 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "script, asset or source",
+                        "description": "script, asset, source or schema",
                         "name": "kind",
                         "in": "path",
                         "required": true
                     },
                     {
                         "type": "string",
-                        "description": "The part's id, or a webhook source's name",
+                        "description": "The part's id, a webhook source's name, or the schema (\\",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -35366,6 +35439,152 @@ const docTemplate = `{
                 }
             }
         },
+        "appdiagram.Diagram": {
+            "type": "object",
+            "properties": {
+                "compared_with": {
+                    "type": "string"
+                },
+                "findings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appdiagram.Finding"
+                    }
+                },
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appdiagram.Group"
+                    }
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appdiagram.Link"
+                    }
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appdiagram.Node"
+                    }
+                },
+                "version": {
+                    "description": "Version is what was drawn: \"current\", \"latest\" or a release number.",
+                    "type": "string"
+                }
+            }
+        },
+        "appdiagram.Finding": {
+            "type": "object",
+            "properties": {
+                "blocks": {
+                    "description": "Blocks is true for a finding a release refuses.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "library_version"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "node": {
+                    "description": "Node is the node it is about.",
+                    "type": "string"
+                }
+            }
+        },
+        "appdiagram.Group": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "parent": {
+                    "type": "string"
+                }
+            }
+        },
+        "appdiagram.Link": {
+            "type": "object",
+            "properties": {
+                "change": {
+                    "description": "Change and WasDetail mark a compared diagram's link: a link whose\ndetail moved (a load's version) is changed, with what it said.",
+                    "type": "string"
+                },
+                "detail": {
+                    "description": "Detail is the version a load names, the endpoint an asset calls.",
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "reads"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "was_detail": {
+                    "type": "string"
+                }
+            }
+        },
+        "appdiagram.Node": {
+            "type": "object",
+            "properties": {
+                "change": {
+                    "description": "Change and WasVersion mark a compared diagram's node.",
+                    "type": "string"
+                },
+                "computed": {
+                    "description": "Computed is true for a name the source computes when it runs.",
+                    "type": "boolean"
+                },
+                "detail": {
+                    "description": "Detail is what the node's card adds: a script's schedule and its\nendpoint, a table's connection.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "group": {
+                    "type": "string",
+                    "example": "application"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "script:5b0c..."
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "script"
+                },
+                "label": {
+                    "type": "string",
+                    "example": "Nightly order sync"
+                },
+                "part": {
+                    "description": "Part is true for a part of the application, PartID its id.",
+                    "type": "boolean"
+                },
+                "part_id": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "Version is the part's version this diagram is drawn at, 0 for none.",
+                    "type": "integer"
+                },
+                "was_version": {
+                    "type": "integer"
+                }
+            }
+        },
         "apphttp.DatabaseChoice": {
             "type": "object",
             "properties": {
@@ -35442,6 +35661,13 @@ const docTemplate = `{
                 "current_release": {
                     "$ref": "#/definitions/application.Release"
                 },
+                "findings": {
+                    "description": "Findings are the diagram's findings, each saying whether a release\nrefuses it.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appdiagram.Finding"
+                    }
+                },
                 "migrations": {
                     "description": "Migrations is where the schema's migrations stand; nil for an\napplication with no schema.",
                     "allOf": [
@@ -35465,7 +35691,7 @@ const docTemplate = `{
                     }
                 },
                 "problems": {
-                    "description": "Problems are parts a release would refuse: deleted, or unreadable.",
+                    "description": "Problems are parts a release would refuse (deleted, or unreadable),\nand what the application's diagram finds (#2540).",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -35476,6 +35702,14 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/application.Release"
                     }
+                },
+                "schema": {
+                    "description": "Schema is the schema part (#2539): its migration version, the one the\ncurrent release recorded, and its run role; nil for none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/appsvc.SchemaView"
+                        }
+                    ]
                 }
             }
         },
@@ -35594,6 +35828,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "shop"
                 },
+                "schema_adopted_version": {
+                    "description": "SchemaAdoptedVersion is the migration version the schema had applied\nwhen it was added to the application (#2539): migrations no release\napplied, which a rollback never reverts.",
+                    "type": "integer",
+                    "example": 0
+                },
                 "updated_at": {
                     "type": "string"
                 }
@@ -35607,6 +35846,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "integer"
+                    }
+                },
+                "findings": {
+                    "description": "Findings are what the application's diagram found at the release that\ndid not refuse it (#2540).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 },
                 "migrations_kept": {
@@ -36006,6 +36252,56 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "appsvc.SchemaView": {
+            "type": "object",
+            "properties": {
+                "adopted_version": {
+                    "description": "AdoptedVersion is the version applied when the schema was added; a\nrollback reverts nothing at or below it.",
+                    "type": "integer",
+                    "example": 0
+                },
+                "connection": {
+                    "type": "string",
+                    "example": "orders"
+                },
+                "migration_version": {
+                    "description": "MigrationVersion is the highest migration applied in the database;\nReleasedVersion the one the current release recorded; Pending the\nversions a release would apply.",
+                    "type": "integer",
+                    "example": 7
+                },
+                "note": {
+                    "description": "Note says what the run role still needs, empty when nothing.",
+                    "type": "string"
+                },
+                "pending": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "problem": {
+                    "description": "Problem says the migrations could not be read, empty when they were.",
+                    "type": "string"
+                },
+                "released_version": {
+                    "type": "integer",
+                    "example": 6
+                },
+                "run_role": {
+                    "description": "RunRole is the role the application's scripts log in as, empty when\nit has none; WriteRole the role it is granted, empty while the\nschema's migrations define none.",
+                    "type": "string",
+                    "example": "shop_run"
+                },
+                "schema": {
+                    "type": "string",
+                    "example": "shop"
+                },
+                "write_role": {
+                    "type": "string",
+                    "example": "shop_write"
                 }
             }
         },
@@ -45138,6 +45434,10 @@ const docTemplate = `{
         "postgres.SchemaReport": {
             "type": "object",
             "properties": {
+                "application": {
+                    "description": "Application is the application holding the schema, empty for none\n(#2539). UnheldSchemas is every schema of the connection with\nmigrations that no application holds, whose migrations are refused\nuntil one does. UnheldSchemas is absent when the platform governs no\nschema, and [] when it does and every schema is held.",
+                    "type": "string"
+                },
                 "connection": {
                     "type": "string"
                 },
@@ -45167,6 +45467,26 @@ const docTemplate = `{
                 },
                 "schema": {
                     "type": "string"
+                },
+                "unheld_schemas": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/postgres.unheldSchema"
+                    }
+                }
+            }
+        },
+        "postgres.unheldSchema": {
+            "type": "object",
+            "properties": {
+                "add_part": {
+                    "description": "AddPart is the one call that adds it to an application.",
+                    "type": "string",
+                    "example": "manage_application add_part application=\u003cname\u003e kind=schema part_id=orders/shop"
+                },
+                "schema": {
+                    "type": "string",
+                    "example": "shop"
                 }
             }
         },

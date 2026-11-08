@@ -84,7 +84,7 @@ func (c *conn) acquire(ctx context.Context, pool *pgxpool.Pool) (*pgxpool.Conn, 
 // transaction's first statement sets that identity's claims.
 func (c *conn) poolBegin(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
 	id := IdentityOf(ctx)
-	pool, err := c.poolFor(id.Persona)
+	pool, err := c.identityPool(ctx, id)
 	if err != nil {
 		return nil, err
 	}

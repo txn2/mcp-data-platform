@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/txn2/mcp-data-platform/internal/pglint"
 )
 
 // Migration is one versioned change to an application database's schema
@@ -67,9 +68,8 @@ const (
 	// database to finish.
 	applyLockWait = 30 * time.Second
 	// migrationLockTimeout is how long one migration's statement waits for a
-	// lock a running query holds, so a migration never queues behind a long
-	// read while every later query queues behind it.
-	migrationLockTimeout = 10 * time.Second
+	// lock a running query holds (the lint's rule reads the same value).
+	migrationLockTimeout = pglint.MigrationLockTimeout
 )
 
 // ledger is the target's ledger table.
@@ -81,18 +81,26 @@ type ledgerReader interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+// ledgerExistsSQL asks whether the ledger table exists.
+const ledgerExistsSQL = "/* mcp-data-platform */ SELECT to_regclass($1) IS NOT NULL"
+
+// ledgerReadSQL reads one schema's rows of the ledger.
+func (c *conn) ledgerReadSQL() string {
+	return "/* mcp-data-platform */ SELECT version, name, checksum, applied_at, applied_by, duration_ms FROM " +
+		c.ledger() + " WHERE schema_name = $1 ORDER BY version"
+}
+
 // readLedger is what the ledger says was applied in schema, oldest first. A
 // database with no ledger yet has applied nothing.
 func (c *conn) readLedger(ctx context.Context, q ledgerReader, schema string) ([]Applied, error) {
 	var exists bool
-	if err := q.QueryRow(ctx, "/* mcp-data-platform */ SELECT to_regclass($1) IS NOT NULL", c.ledger()).Scan(&exists); err != nil {
+	if err := q.QueryRow(ctx, ledgerExistsSQL, c.ledger()).Scan(&exists); err != nil {
 		return nil, err //nolint:wrapcheck // read by its type
 	}
 	if !exists {
 		return []Applied{}, nil
 	}
-	rows, err := q.Query(ctx, "/* mcp-data-platform */ SELECT version, name, checksum, applied_at, applied_by, duration_ms FROM "+
-		c.ledger()+" WHERE schema_name = $1 ORDER BY version", schema)
+	rows, err := q.Query(ctx, c.ledgerReadSQL(), schema)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by its type
 	}

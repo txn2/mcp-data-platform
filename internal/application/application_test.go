@@ -47,3 +47,15 @@ func TestMayEditAndKinds(t *testing.T) {
 	}
 	assert.False(t, ValidKind("table"))
 }
+
+// TestSchemaPartID reads a schema part's id, "<connection>/<schema>" or the
+// schema alone (#2539), and schema is a kind of part.
+func TestSchemaPartID(t *testing.T) {
+	assert.Equal(t, "orders/shop", SchemaPartID("orders", "shop"))
+	conn, schema := ParseSchemaPartID(" orders / shop ")
+	assert.Equal(t, [2]string{"orders", "shop"}, [2]string{conn, schema})
+	conn, schema = ParseSchemaPartID("shop")
+	assert.Equal(t, [2]string{"", "shop"}, [2]string{conn, schema})
+	assert.True(t, ValidKind(KindSchema))
+	assert.Contains(t, Kinds, KindSchema)
+}

@@ -26,12 +26,13 @@ func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 
 var appCols = []string{
 	"id", "name", "description", "owner_email", "connection", "schema_name", "current_release",
-	"created_by", "created_at", "updated_at",
+	"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at",
 }
 
 // appRow is application app_1, shop, at release current.
 func appRow(current int) *sqlmock.Rows {
-	return sqlmock.NewRows(appCols).AddRow("app_1", "shop", "", "jane@example.com", "orders", "shop", current, "jane@example.com", now, now)
+	return sqlmock.NewRows(appCols).AddRow("app_1", "shop", "", "jane@example.com", "orders", "shop", current, "jane@example.com", now, now,
+		2, "jane@example.com", now)
 }
 
 func partRows(parts ...[2]string) *sqlmock.Rows {
@@ -70,7 +71,10 @@ func TestGetAndList(t *testing.T) {
 	a, err := s.Get(ctx, "app_1")
 	require.NoError(t, err)
 	assert.Equal(t, 2, a.CurrentRelease)
-	assert.Len(t, a.Parts, 1)
+	assert.Equal(t, 2, a.SchemaAdoptedVersion)
+	require.Len(t, a.Parts, 2)
+	assert.Equal(t, application.Part{Kind: application.KindSchema, ID: "orders/shop", AddedBy: "jane@example.com", AddedAt: now}, a.Parts[1],
+		"the schema is a part, listed last (#2539)")
 
 	mock.ExpectQuery("FROM applications WHERE name").WillReturnRows(sqlmock.NewRows(appCols))
 	_, err = s.GetByName(ctx, "nope")
@@ -89,7 +93,7 @@ func TestGetAndList(t *testing.T) {
 	list, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
-	assert.Len(t, list[0].Parts, 2, "a listing carries each application's parts")
+	assert.Len(t, list[0].Parts, 3, "a listing carries each application's parts, its schema among them")
 	mock.ExpectQuery("FROM applications ORDER BY name").WillReturnRows(appRow(0))
 	mock.ExpectQuery("WHERE application_id = ANY").WillReturnError(errors.New("down"))
 	_, err = s.List(ctx)
@@ -245,5 +249,73 @@ func TestRecord(t *testing.T) {
 	mock.ExpectRollback()
 	_, err = s.Record(ctx, "app_1", application.Recorded{Release: rel})
 	require.ErrorIs(t, err, application.ErrStale)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSchemaAndRunRole covers the schema part's writes (#2539): taking a
+// schema on with its run role in one transaction, refusing one held, the
+// run role read back, and taking the schema off.
+func TestSchemaAndRunRole(t *testing.T) {
+	s, mock := newMock(t)
+	ctx := context.Background()
+	held := application.HeldSchema{Connection: "orders", Schema: "shop", AdoptedVersion: 3, AddedBy: "jane@example.com", Role: "shop_run", SealedPassword: "encb:x"}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE applications SET connection").WithArgs("app_1", "orders", "shop", 3, "jane@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO application_run_roles").WithArgs("app_1", "orders", "shop", "shop_run", "encb:x").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, s.SetSchema(ctx, "app_1", held))
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE applications SET connection").WillReturnError(unique(schemaConstraint))
+	mock.ExpectRollback()
+	require.ErrorIs(t, s.SetSchema(ctx, "app_2", held), application.ErrSchemaHeld)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE applications SET connection").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	require.ErrorIs(t, s.SetSchema(ctx, "app_1", held), application.ErrSchemaHeld, "an application holding a schema takes no second")
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE applications SET connection").WillReturnError(errors.New("down"))
+	mock.ExpectRollback()
+	require.ErrorContains(t, s.SetSchema(ctx, "app_1", held), "set application schema")
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO application_run_roles").WillReturnError(errors.New("down"))
+	mock.ExpectRollback()
+	require.ErrorContains(t, s.SetRunRole(ctx, "app_1", held), "store application run role")
+	require.NoError(t, s.SetRunRole(ctx, "app_1", application.HeldSchema{}), "no role, nothing stored")
+
+	mock.ExpectQuery("FROM application_run_roles").WithArgs("app_1").
+		WillReturnRows(sqlmock.NewRows([]string{"connection", "schema_name", "role_name", "password_sealed"}).AddRow("orders", "shop", "shop_run", "encb:x"))
+	rr, err := s.RunRoleOf(ctx, "app_1")
+	require.NoError(t, err)
+	assert.Equal(t, application.RunRole{ApplicationID: "app_1", Connection: "orders", Schema: "shop", Role: "shop_run", SealedPassword: "encb:x"}, *rr)
+	mock.ExpectQuery("FROM application_run_roles").WillReturnRows(sqlmock.NewRows([]string{"connection"}))
+	_, err = s.RunRoleOf(ctx, "app_2")
+	require.ErrorIs(t, err, application.ErrNoRunRole)
+	mock.ExpectQuery("FROM application_run_roles").WillReturnError(errors.New("down"))
+	_, err = s.RunRoleOf(ctx, "app_2")
+	require.ErrorContains(t, err, "read application run role")
+
+	mock.ExpectQuery("WHERE connection = \\$1 AND schema_name").WithArgs("orders", "shop").WillReturnRows(appRow(1))
+	mock.ExpectQuery("FROM application_parts").WillReturnRows(partRows())
+	a, err := s.Holding(ctx, "orders", "shop")
+	require.NoError(t, err)
+	assert.Equal(t, "shop", a.Name)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM application_run_roles").WithArgs("app_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE applications SET connection = ''").WithArgs("app_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, s.ClearSchema(ctx, "app_1"))
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM application_run_roles").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("UPDATE applications SET connection = ''").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	require.ErrorIs(t, s.ClearSchema(ctx, "app_1"), application.ErrNoPart)
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM application_run_roles").WillReturnError(errors.New("down"))
+	mock.ExpectRollback()
+	require.ErrorContains(t, s.ClearSchema(ctx, "app_1"), "remove application run role")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

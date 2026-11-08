@@ -1221,3 +1221,26 @@ func TestCallerAuthor_RecordsTheSavingSessionsSubject(t *testing.T) {
 	assert.Empty(t, none.Subject)
 	assert.Equal(t, []string{}, none.Roles)
 }
+
+// TestUpdate_ReportsTheFindingsTheSaveIntroduced is #2540: a save of an
+// application's script returns what it newly gives the application's diagram
+// to find, and a save introducing nothing carries no field.
+func TestUpdate_ReportsTheFindingsTheSaveIntroduced(t *testing.T) {
+	h, _ := newHandle()
+	createDaily(t, h)
+	var asked int
+	h.SetPartFindings(func(_ context.Context, _ string, before int) []string {
+		asked = before
+		return []string{"application shop: script daily loads library helpers at version 1"}
+	})
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Source: tested(inMain("print(\"changed\")\n"))})
+	require.False(t, res.IsError, resultText(res))
+	assert.Equal(t, 1, asked, "the findings are read against the version saved over")
+	assert.Contains(t, resultText(res), "application_findings")
+	assert.Contains(t, resultText(res), "loads library helpers")
+
+	h.SetPartFindings(func(context.Context, string, int) []string { return nil })
+	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Source: tested(inMain("print(\"again\")\n"))})
+	require.False(t, res.IsError, resultText(res))
+	assert.NotContains(t, resultText(res), "application_findings")
+}

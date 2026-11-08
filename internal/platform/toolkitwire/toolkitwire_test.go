@@ -51,7 +51,7 @@ func TestPostgresGuardNeedsAPlatformDatabase(t *testing.T) {
 	t.Cleanup(func() { _ = pg.Close() })
 	// No database: nothing to protect, nothing installed, and a save is not
 	// asked to reach its database.
-	PostgresGuard([]registry.Toolkit{pg}, nil)
+	PostgresGuard([]registry.Toolkit{pg}, nil, nil)
 	if err := pg.ValidateConnection("c", map[string]any{"host": "127.0.0.1", "port": 9, "database": "d", "user": "u", "sslmode": "disable"}); err != nil {
 		t.Fatalf("validate without a guard: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestPostgresGuardNeedsAPlatformDatabase(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	assert.Empty(t, pg.Tools(), "no store, no manage_schema")
-	PostgresGuard([]registry.Toolkit{&recording{}, pg}, db)
+	PostgresGuard([]registry.Toolkit{&recording{}, pg}, db, nil)
 	assert.Equal(t, []string{postgreskit.SchemaToolName}, pg.Tools(), "the store is installed with the guard (#2404)")
 }
 
@@ -114,7 +114,7 @@ func TestAppDB_InstallsTheLiveToolkitAndThePersonaCheck(t *testing.T) {
 	toolkits = append(toolkits, &recording{})
 	all := func() []registry.Toolkit { return toolkits }
 	checker := &connChecker{}
-	AppDB(all, fixedAuthn{err: errors.New("no token")}, checker, "admin")
+	AppDB(all, fixedAuthn{err: errors.New("no token")}, checker, "admin", nil)
 	t.Cleanup(func() { scriptsession.InstallAppDB(scriptsession.AppDB{}) })
 
 	assert.False(t, scriptsession.IsAppDB("shop"), "no postgres toolkit registered yet")
@@ -160,7 +160,7 @@ func TestAppDB_ATestDatabaseNeedsTheTestServerToo(t *testing.T) {
 		"host": "localhost", "database": "shop", "user": "u",
 		"sslmode": "disable", "test_connection": "scratch",
 	}))
-	AppDB(func() []registry.Toolkit { return []registry.Toolkit{pg} }, fixedAuthn{err: errors.New("no token")}, &connChecker{}, "admin")
+	AppDB(func() []registry.Toolkit { return []registry.Toolkit{pg} }, fixedAuthn{err: errors.New("no token")}, &connChecker{}, "admin", nil)
 	t.Cleanup(func() { scriptsession.InstallAppDB(scriptsession.AppDB{}) })
 
 	assert.Equal(t, "scratch", pg.TestServerOf("shop"))

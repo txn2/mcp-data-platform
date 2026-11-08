@@ -67,6 +67,15 @@ func newShop2411(t *testing.T) *shop2411 {
 	admin := connectFor(t, 5*time.Minute)
 	s := &shop2411{admin: admin, name: "acc2411-" + unique1579(), schema: "acc2411_" + unique1579()}
 	s.conn = appdbConn(t, admin, "acc-2411", "orders_app", "orders_secret")
+	// The application first, holding its schema: a schema's migrations are
+	// added only inside the application that holds it (#2539).
+	admin.application(map[string]any{
+		"command": "create", "name": s.name, "description": "Acceptance #2411",
+		"connection": s.conn, "schema": s.schema,
+	})
+	t.Cleanup(func() {
+		_, _, _ = admin.callRaw("manage_application", map[string]any{"command": "delete", "application": s.name})
+	})
 	admin.call("manage_schema", map[string]any{
 		"command": "add", "connection": s.conn, "schema": s.schema, "version": 1,
 		"name": "products", "up": "CREATE TABLE products (sku text PRIMARY KEY)", "down": "DROP TABLE products",
@@ -90,13 +99,6 @@ func newShop2411(t *testing.T) *shop2411 {
 		_, _, _ = admin.callRaw("manage_asset", map[string]any{"action": "delete", "asset_id": s.asset})
 	})
 
-	admin.application(map[string]any{
-		"command": "create", "name": s.name, "description": "Acceptance #2411",
-		"connection": s.conn, "schema": s.schema,
-	})
-	t.Cleanup(func() {
-		_, _, _ = admin.callRaw("manage_application", map[string]any{"command": "delete", "application": s.name})
-	})
 	for _, p := range [][2]string{{"script", s.api}, {"script", s.other}, {"asset", s.asset}} {
 		admin.application(map[string]any{"command": "add_part", "application": s.name, "kind": p[0], "part_id": p[1]})
 	}
@@ -296,8 +298,10 @@ func TestIssue2411_AMigrationWithALiteralPasswordIsRefusedAtAdd(t *testing.T) {
 	admin := connect(t)
 	conn := appdbConn(t, admin, "acc-2411-pw", "orders_app", "orders_secret")
 	const secret = "canary-2411-role-password"
+	schema := "acc2411pw_" + unique1579()
+	holdSchema(t, admin, conn, schema)
 	res, text, err := admin.callRaw("manage_schema", map[string]any{
-		"command": "add", "connection": conn, "schema": "acc2411pw_" + unique1579(),
+		"command": "add", "connection": conn, "schema": schema,
 		"version": 1, "name": "role", "up": "CREATE ROLE acc2411 LOGIN PASSWORD '" + secret + "'",
 	})
 	if err != nil {

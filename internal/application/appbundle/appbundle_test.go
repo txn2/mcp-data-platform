@@ -116,6 +116,37 @@ func (*world) Owning(context.Context, string, string) (*application.Application,
 	return nil, application.ErrNotFound
 }
 
+func (w *world) SetSchema(_ context.Context, id string, h application.HeldSchema) error {
+	for aid, a := range w.apps {
+		if aid != id && a.Connection == h.Connection && a.Schema == h.Schema {
+			return application.ErrSchemaHeld
+		}
+	}
+	a := w.apps[id]
+	a.Connection, a.Schema, a.SchemaAdoptedVersion = h.Connection, h.Schema, h.AdoptedVersion
+	return nil
+}
+
+func (*world) SetRunRole(context.Context, string, application.HeldSchema) error { return nil }
+
+func (w *world) ClearSchema(_ context.Context, id string) error {
+	w.apps[id].Connection, w.apps[id].Schema = "", ""
+	return nil
+}
+
+func (w *world) Holding(ctx context.Context, connection, schema string) (*application.Application, error) {
+	for id, a := range w.apps {
+		if a.Connection == connection && a.Schema == schema {
+			return w.Get(ctx, id)
+		}
+	}
+	return nil, application.ErrNotFound
+}
+
+func (*world) RunRoleOf(context.Context, string) (*application.RunRole, error) {
+	return nil, application.ErrNoRunRole
+}
+
 func (w *world) Release(_ context.Context, id string, n int) (*application.Release, error) {
 	for _, r := range w.releases[id] {
 		if r.Number == n {
@@ -292,9 +323,30 @@ func (r reader) Source(_ context.Context, ref string, _ resource.Claims, _ int64
 	return r.data, nil
 }
 
+// roles makes and drops run roles without a database.
+type roles struct{}
+
+func (roles) CreateRunRole(_ context.Context, _, schema string) (role, password string, err error) {
+	return schema + "_run", "pw", nil
+}
+func (roles) GrantRunRole(context.Context, string, string) (string, error) { return "", nil }
+func (roles) DropRunRole(context.Context, string, string) error            { return nil }
+
+// sealer seals by wrapping.
+type sealer struct{}
+
+func (sealer) Enabled() bool                         { return true }
+func (sealer) SealBound(_, p string) (string, error) { return "sealed:" + p, nil }
+func (sealer) OpenBound(_, s string) (string, error) { return strings.TrimPrefix(s, "sealed:"), nil }
+
 func bundler(w *world) *Bundler {
 	sc, as := scripts{w}, assets{w}
-	svc := &appsvc.Service{Store: w, Scripts: sc, Assets: as, AssetVersions: as, Schema: schema{}, Sources: sources{}}
+	svc := &appsvc.Service{
+		Store: w, Scripts: sc, Assets: as, AssetVersions: as, Schema: schema{}, Sources: sources{},
+		Roles: roles{}, Sealer: sealer{}, Reach: func(context.Context, application.Actor) ([]string, error) {
+			return []string{"orders-prod"}, nil
+		},
+	}
 	return New(Deps{
 		Service: svc, Migrations: migs{w}, Bindings: bindings{w}, Schedules: sc,
 		FormConnection: func(context.Context, string) (string, error) { return "warehouse", nil },
@@ -724,4 +776,23 @@ func TestExport_RefusesATestRecordingItDoesNotHold(t *testing.T) {
 	b.Recordings = nil
 	_, err = b.Export(context.Background(), admin, "shop", 1)
 	require.ErrorContains(t, err, "keeps no recordings to export")
+}
+
+// TestImport_AnApplicationWithNoSchemaTakesTheBundles: an application here
+// that grew without a database takes the bundle's schema on as add_part adds
+// one (#2539), and the import's migrations land in it.
+func TestImport_AnApplicationWithNoSchemaTakesTheBundles(t *testing.T) {
+	data := exported(t)
+	w := newWorld()
+	w.apps["app_shop"] = &application.Application{ID: "app_shop", Name: "shop", OwnerEmail: admin.Email, Parts: []application.Part{}}
+	b := bundler(w)
+	b.Reader = reader{data}
+	out, err := b.Import(adminCtx(), admin, "mcp:resource:r1", fullMap)
+	require.NoError(t, err)
+	im, ok := out.(*Imported)
+	require.True(t, ok)
+	assert.False(t, im.Created)
+	assert.Equal(t, "orders-prod", w.apps["app_shop"].Connection)
+	assert.Equal(t, "shop", w.apps["app_shop"].Schema)
+	require.Len(t, w.migrations, 1)
 }

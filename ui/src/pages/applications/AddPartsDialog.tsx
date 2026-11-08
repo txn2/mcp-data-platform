@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useDebounced } from "@/lib/useDebounced";
+import { AddSchemaPart } from "./AddSchemaPart";
 import { PartTile } from "./PartTile";
 import { PART_GROUP_LABEL, PART_KINDS, PART_KIND_LABEL } from "./applicationFormat";
 
@@ -28,7 +29,9 @@ import { PART_GROUP_LABEL, PART_KINDS, PART_KIND_LABEL } from "./applicationForm
 // may add, filtered by kind, each picked with a checkbox. A part already in
 // another application is shown and cannot be picked; one already in this
 // application is not listed. A part the server refuses keeps the dialog open
-// with the refusal beside it; the rest are added.
+// with the refusal beside it; the rest are added. The Schema choice (#2539)
+// is the application database schema the application holds, picked from the
+// connections the caller reaches rather than searched for.
 
 type KindFilter = ApplicationPartKind | "all";
 
@@ -37,11 +40,14 @@ const keyOf = (c: { kind: string; id: string }) => `${c.kind}/${c.id}`;
 export function AddPartsDialog({
   app,
   appName,
+  heldSchema = null,
   onNavigate,
   onClose,
 }: {
   app: string;
   appName: string;
+  /** The schema the application holds, "<connection>/<schema>", or null. */
+  heldSchema?: string | null;
   onNavigate: (path: string) => void;
   onClose: () => void;
 }) {
@@ -50,12 +56,12 @@ export function AddPartsDialog({
   const [kind, setKind] = useState<KindFilter>("all");
   const [picked, setPicked] = useState<Map<string, ApplicationCandidate>>(new Map());
   const [refused, setRefused] = useState<Map<string, string>>(new Map());
-  const { data, isLoading } = useApplicationCandidates(app, q);
+  const schemaView = kind === "schema";
+  const { data, isLoading } = useApplicationCandidates(app, q, !schemaView);
   const add = useAddApplicationParts(app);
 
   const all = data?.candidates ?? [];
   const shown = kind === "all" ? all : all.filter((c) => c.kind === kind);
-  const total = PART_KINDS.reduce((n, k) => n + (data?.counts[k] ?? 0), 0);
 
   const toggle = (c: ApplicationCandidate) =>
     setPicked((prev) => {
@@ -91,67 +97,125 @@ export function AddPartsDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3.5 px-6 pt-5">
-          <label className="relative block">
-            <span className="sr-only">Search parts</span>
-            <Search aria-hidden="true" className="absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              autoFocus
-              type="search"
-              className="h-11 pl-10"
-              placeholder="Search automations, assets and webhook sources"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-          <div role="tablist" aria-label="Kind" className="flex flex-wrap gap-1.5">
-            <KindPill selected={kind === "all"} onClick={() => setKind("all")} label={`All · ${total}`} />
-            {PART_KINDS.map((k) => (
-              <KindPill
-                key={k}
-                selected={kind === k}
-                onClick={() => setKind(k)}
-                label={`${PART_GROUP_LABEL[k]} · ${data?.counts[k] ?? 0}`}
-              />
-            ))}
-          </div>
+          {!schemaView && <SearchBox value={query} onChange={setQuery} />}
+          <KindPills kind={kind} counts={data?.counts} onChange={setKind} />
         </div>
-        <ul aria-label="Matching parts" className="mt-4 flex max-h-[470px] flex-col gap-0.5 overflow-auto px-3">
-          {isLoading && <li className="px-3 py-6 text-sm text-muted-foreground">Searching…</li>}
-          {!isLoading && shown.length === 0 && (
-            <li className="px-3 py-6 text-sm text-muted-foreground">
-              {q
-                ? `No automations, assets or webhook sources match '${q}'`
-                : "No automations, assets or webhook sources you can add"}
-            </li>
-          )}
-          {shown.map((c) => (
-            <CandidateRow
-              key={keyOf(c)}
-              candidate={c}
+        {schemaView ? (
+          <AddSchemaPart app={app} heldSchema={heldSchema} onClose={onClose} />
+        ) : (
+          <>
+            <CandidateList
+              shown={shown}
+              loading={isLoading}
               query={q}
-              checked={picked.has(keyOf(c))}
-              refusal={refused.get(keyOf(c))}
-              onToggle={() => toggle(c)}
+              picked={picked}
+              refused={refused}
+              onToggle={toggle}
               onOpenApp={(name) => {
                 onClose();
                 onNavigate(`/applications/${encodeURIComponent(name)}`);
               }}
             />
-          ))}
-        </ul>
-        <DialogFooter className="mt-4 flex-row items-center justify-between border-t px-6 py-4 sm:justify-between">
-          <span className="text-sm text-muted-foreground">{count} selected</span>
-          <div className="flex gap-2.5">
-            <Button variant="outline" onClick={onClose} disabled={add.isPending}>
-              Cancel
-            </Button>
-            <Button onClick={submit} disabled={count === 0 || add.isPending}>
-              {count === 1 ? "Add 1 part" : `Add ${count} parts`}
-            </Button>
-          </div>
-        </DialogFooter>
+            <DialogFooter className="mt-4 flex-row items-center justify-between border-t px-6 py-4 sm:justify-between">
+              <span className="text-sm text-muted-foreground">{count} selected</span>
+              <div className="flex gap-2.5">
+                <Button variant="outline" onClick={onClose} disabled={add.isPending}>
+                  Cancel
+                </Button>
+                <Button onClick={submit} disabled={count === 0 || add.isPending}>
+                  {count === 1 ? "Add 1 part" : `Add ${count} parts`}
+                </Button>
+              </div>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="relative block">
+      <span className="sr-only">Search parts</span>
+      <Search aria-hidden="true" className="absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        autoFocus
+        type="search"
+        className="h-11 pl-10"
+        placeholder="Search automations, assets and webhook sources"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  );
+}
+
+/** KindPills filters by kind; Schema is picked from the databases, so it carries no count. */
+function KindPills({
+  kind,
+  counts,
+  onChange,
+}: {
+  kind: KindFilter;
+  counts?: Partial<Record<ApplicationPartKind, number>>;
+  onChange: (k: KindFilter) => void;
+}) {
+  const total = PART_KINDS.reduce((n, k) => n + (counts?.[k] ?? 0), 0);
+  return (
+    <div role="tablist" aria-label="Kind" className="flex flex-wrap gap-1.5">
+      <KindPill selected={kind === "all"} onClick={() => onChange("all")} label={`All · ${total}`} />
+      {PART_KINDS.map((k) => (
+        <KindPill
+          key={k}
+          selected={kind === k}
+          onClick={() => onChange(k)}
+          label={k === "schema" ? PART_GROUP_LABEL[k] : `${PART_GROUP_LABEL[k]} · ${counts?.[k] ?? 0}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CandidateList({
+  shown,
+  loading,
+  query,
+  picked,
+  refused,
+  onToggle,
+  onOpenApp,
+}: {
+  shown: ApplicationCandidate[];
+  loading: boolean;
+  query: string;
+  picked: Map<string, ApplicationCandidate>;
+  refused: Map<string, string>;
+  onToggle: (c: ApplicationCandidate) => void;
+  onOpenApp: (name: string) => void;
+}) {
+  return (
+    <ul aria-label="Matching parts" className="mt-4 flex max-h-[470px] flex-col gap-0.5 overflow-auto px-3">
+      {loading && <li className="px-3 py-6 text-sm text-muted-foreground">Searching…</li>}
+      {!loading && shown.length === 0 && (
+        <li className="px-3 py-6 text-sm text-muted-foreground">
+          {query
+            ? `No automations, assets or webhook sources match '${query}'`
+            : "No automations, assets or webhook sources you can add"}
+        </li>
+      )}
+      {shown.map((c) => (
+        <CandidateRow
+          key={keyOf(c)}
+          candidate={c}
+          query={query}
+          checked={picked.has(keyOf(c))}
+          refusal={refused.get(keyOf(c))}
+          onToggle={() => onToggle(c)}
+          onOpenApp={onOpenApp}
+        />
+      ))}
+    </ul>
   );
 }
 

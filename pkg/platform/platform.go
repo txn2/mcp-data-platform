@@ -2788,8 +2788,8 @@ func (p *Platform) Start(ctx context.Context) error {
 	// installs its mcp-s3 metrics middleware in SetMetrics, which must be in
 	// place when RegisterAllTools registers the handlers.
 	p.WireToolkitMetrics()
-	toolkitwire.PostgresGuard(p.toolkitRegistry.All(), p.db)
-	toolkitwire.AppDB(p.toolkitRegistry.All, p.authenticator, p.authorizer, p.config.Admin.Persona)
+	toolkitwire.PostgresGuard(p.toolkitRegistry.All(), p.db, p.restEncryptor)
+	toolkitwire.AppDB(p.toolkitRegistry.All, p.authenticator, p.authorizer, p.config.Admin.Persona, p.db)
 
 	// Register tools from all toolkits
 	p.toolkitRegistry.RegisterAllTools(p.mcpServer)
@@ -2823,10 +2823,10 @@ func (p *Platform) Start(ctx context.Context) error {
 		NotificationsEnabled: p.config.Notifications.IsEnabled(),
 		DigestHourUTC:        p.config.Notifications.DigestHour(),
 		PortalURL:            p.config.Portal.PublicBaseURL,
-		Toolkits:             p.toolkitRegistry,
-		BotCheckKey:          botcheck.Key(p.config.Auth.BrowserSession.Enabled, p.config.Auth.BrowserSession.SigningKey),
-		Encryptor:            p.restEncryptor,
-		Bind:                 func(h *scriptlayer.Handle) { p.scripts = h },
+		Toolkits:             p.toolkitRegistry, AppDBReach: toolkitwire.AppDBReach(p.toolkitRegistry, p.personaRegistry, StoredConnections(p)),
+		BotCheckKey: botcheck.Key(p.config.Auth.BrowserSession.Enabled, p.config.Auth.BrowserSession.SigningKey),
+		Encryptor:   p.restEncryptor,
+		Bind:        func(h *scriptlayer.Handle) { p.scripts = h },
 	})
 	p.lifecycle.OnComponent(scriptRuns.Start, scriptRuns.Stop)
 	p.lifecycle.OnDrain(scriptRuns.Drain)

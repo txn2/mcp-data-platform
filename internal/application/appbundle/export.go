@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/pglint"
+
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
@@ -247,7 +249,7 @@ func (b *Bundler) buildSchema(ctx context.Context, a *application.Application, r
 		if m.Version > rel.MigrationVersion {
 			continue
 		}
-		if err := reviewed(m.Version, m.Up, m.Down); err != nil {
+		if err := reviewed(pglint.Target{}, m.Version, m.Up, m.Down); err != nil {
 			return err
 		}
 		s.Migrations = append(s.Migrations, Migration{
@@ -264,11 +266,11 @@ func (b *Bundler) buildSchema(ctx context.Context, a *application.Application, r
 // role must not hold. A bundle is held to it both ways: an export never
 // carries one, and an import, whose migrations come from another deployment,
 // never stores one past the review manage_schema add would give it.
-func reviewed(version int, sqls ...string) error {
+func reviewed(target pglint.Target, version int, sqls ...string) error {
 	for _, sql := range sqls {
-		findings, _ := postgreskit.Lint(sql, postgreskit.Target{})
+		findings, _ := pglint.Lint(sql, target)
 		for _, f := range findings {
-			if f.Severity == postgreskit.SeverityRefused {
+			if f.Severity == pglint.SeverityRefused {
 				return refused("migration %d is refused by the migration review (%s, %s): %s; nothing was written", version, f.Rule, f.Object, f.Effect)
 			}
 		}

@@ -51,13 +51,13 @@ func TestReviewSecurityRules_RealDB(t *testing.T) {
 			Command: schemaAdd, Version: 1, Name: "notes",
 			Up: "CREATE TABLE notes (id int PRIMARY KEY, owner text NOT NULL);\nALTER TABLE notes ENABLE ROW LEVEL SECURITY",
 		}, false)
-		if rules := findingRules(added); len(rules) != 1 || rules[0] != ruleRLSNotForced {
+		if rules := findingRules(added); len(rules) != 1 || rules[0] != "row_security_not_forced" {
 			t.Errorf("enabling row security without forcing it: %v", rules)
 		}
 		schema(t, ctx, tk, schemaInput{Command: schemaApply}, false)
 
 		view := schema(t, ctx, tk, schemaInput{Command: schemaAdd, Version: 2, Name: "mine", Up: "CREATE VIEW mine AS SELECT id FROM notes"}, false)
-		if rules := findingRules(view); len(rules) != 1 || rules[0] != ruleViewOverRLS {
+		if rules := findingRules(view); len(rules) != 1 || rules[0] != "view_bypasses_row_security" {
 			t.Errorf("a view over the applied table with row security: %v", rules)
 		}
 		safe := schema(t, ctx, tk, schemaInput{

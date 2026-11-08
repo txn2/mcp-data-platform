@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/application/appdiagram"
 	"github.com/txn2/mcp-data-platform/internal/application/appschema"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -62,6 +63,18 @@ type Service struct {
 	Schedules Schedules
 	Activity  SourceActivity
 	Lister    CandidateLister
+	// Roles and Sealer create an application's run role when its schema is
+	// added and keep its password sealed (#2539); without both no schema is
+	// added. Reach lists the application database connections an actor may
+	// hold a schema on; Members reports whether a role is a member of
+	// another on a connection. Nil leaves out what each answers.
+	Roles   Roles
+	Sealer  Sealer
+	Reach   func(ctx context.Context, actor application.Actor) ([]string, error)
+	Members func(ctx context.Context, connection, member, role string) bool
+	// Diagrams is what an application's diagram reads besides the stores
+	// above (#2540).
+	Diagrams DiagramDeps
 }
 
 // RefusedError is an operation refused for a reason the caller can act on.
@@ -102,10 +115,25 @@ func (s *Service) Create(ctx context.Context, actor application.Actor, a applica
 		return nil, refused("connection %q is not an application database connection (kind appdb) on this deployment; "+
 			"name one, or leave connection and schema empty for an application with no database", a.Connection)
 	}
+	// A schema named at create is added as add_part adds one (#2539): the
+	// application is created, then takes the schema on, and is not kept
+	// when the schema is refused.
+	connection, schema := a.Connection, a.Schema
+	a.Connection, a.Schema = "", ""
 	if err := s.Store.Create(ctx, &a); err != nil {
 		return nil, err //nolint:wrapcheck // the store's errors are read by identity
 	}
-	return &a, nil
+	if schema == "" {
+		return &a, nil
+	}
+	held, err := s.addSchema(ctx, actor, &a, application.SchemaPartID(connection, schema))
+	if err != nil {
+		if delErr := s.Store.Delete(context.WithoutCancel(ctx), a.ID); delErr != nil {
+			return nil, fmt.Errorf("the application the schema was refused for was not removed (%w): %w", delErr, err)
+		}
+		return nil, err
+	}
+	return held, nil
 }
 
 // Update writes the description and, for an administrator, the owner.
@@ -142,6 +170,12 @@ func (s *Service) Delete(ctx context.Context, actor application.Actor, ref strin
 	if a.CurrentRelease > 0 && !actor.Admin {
 		return fmt.Errorf("deleting a released application changes what it serves, which is for administrators: %w", application.ErrNotAllowed)
 	}
+	// Its run role goes with it; the schema and its data stay (#2539).
+	if a.Schema != "" && s.Roles != nil {
+		if err := s.Roles.DropRunRole(ctx, a.Connection, a.Schema); err != nil {
+			return fmt.Errorf("dropping the application's run role: %w", err)
+		}
+	}
 	return s.Store.Delete(ctx, a.ID) //nolint:wrapcheck // the store's errors are read by identity
 }
 
@@ -163,10 +197,18 @@ func (s *Service) AddPart(ctx context.Context, actor application.Actor, ref, kin
 		return nil, err
 	}
 	if !application.ValidKind(kind) {
-		return nil, refused("kind %q: one of script, asset, source", kind)
+		return nil, refused("kind %q: one of script, asset, source, schema", kind)
+	}
+	if kind == application.KindSchema {
+		return s.addSchema(ctx, actor, a, id)
 	}
 	if err := s.mayAdd(ctx, actor, kind, id); err != nil {
 		return nil, err
+	}
+	if kind == application.KindScript {
+		if err := s.staysInside(ctx, a, id); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.Store.AddPart(ctx, a.ID, application.Part{Kind: kind, ID: id, AddedBy: actor.Email}); err != nil {
 		if errors.Is(err, application.ErrPartTaken) {
@@ -275,10 +317,13 @@ func (s *Service) RemovePart(ctx context.Context, actor application.Actor, ref, 
 		if err != nil {
 			return nil, err //nolint:wrapcheck // the store's errors are read by identity
 		}
-		if cur.PinOf(kind, id) > 0 {
+		if cur.PinOf(kind, id) > 0 || kind == application.KindSchema {
 			return nil, fmt.Errorf("removing a part the current release pins changes what the application serves, "+
 				"which is for administrators: %w", application.ErrNotAllowed)
 		}
+	}
+	if kind == application.KindSchema {
+		return s.removeSchema(ctx, a, id)
 	}
 	if err := s.Store.RemovePart(ctx, a.ID, kind, id); err != nil {
 		return nil, err //nolint:wrapcheck // the store's errors are read by identity
@@ -297,8 +342,15 @@ type Status struct {
 	// Migrations is where the schema's migrations stand; nil for an
 	// application with no schema.
 	Migrations *appschema.State `json:"migrations,omitempty"`
-	// Problems are parts a release would refuse: deleted, or unreadable.
+	// Schema is the schema part (#2539): its migration version, the one the
+	// current release recorded, and its run role; nil for none.
+	Schema *SchemaView `json:"schema,omitempty"`
+	// Problems are parts a release would refuse (deleted, or unreadable),
+	// and what the application's diagram finds (#2540).
 	Problems []string `json:"problems"`
+	// Findings are the diagram's findings, each saying whether a release
+	// refuses it.
+	Findings []appdiagram.Finding `json:"findings"`
 }
 
 // StatusOf reads where an application stands.
@@ -327,6 +379,12 @@ func (s *Service) StatusOf(ctx context.Context, ref string) (*Status, error) {
 			st.Problems = append(st.Problems, "schema "+a.Connection+"/"+a.Schema+": "+err.Error())
 		}
 	}
+	st.Schema = s.SchemaOf(ctx, a, st.Current)
+	st.Findings = s.findings(ctx, a)
+	if st.Findings == nil {
+		st.Findings = []appdiagram.Finding{}
+	}
+	st.Problems = append(st.Problems, appdiagram.Problems(&appdiagram.Diagram{Findings: st.Findings})...)
 	return st, nil
 }
 
@@ -394,6 +452,13 @@ func (s *Service) ReleaseAs(ctx context.Context, actor application.Actor, ref, n
 	if len(problems) > 0 {
 		return nil, refused("nothing was released: %s", strings.Join(problems, "; "))
 	}
+	// A part loading one of the application's libraries at a version other
+	// than the one this release pins is refused; the other findings are
+	// recorded on the release (#2540).
+	found := s.findings(ctx, a)
+	if err := blocking(found); err != nil {
+		return nil, err
+	}
 	prev, err := s.current(ctx, a)
 	if err != nil {
 		return nil, err
@@ -407,8 +472,10 @@ func (s *Service) ReleaseAs(ctx context.Context, actor application.Actor, ref, n
 			return nil, fmt.Errorf("nothing was released: %w", err)
 		}
 		rel.Changes.Applied, rel.MigrationVersion = applied.Versions, applied.Head
+		s.grantRunRole(ctx, a)
 	}
 	rel.Changes.Parts = application.Diff(prev.Pins, pins)
+	rel.Changes.Findings = appdiagram.Problems(&appdiagram.Diagram{Findings: found})
 	return s.Store.Record(ctx, a.ID, application.Recorded{Release: rel, After: a.CurrentRelease}) //nolint:wrapcheck // read by identity
 }
 
@@ -455,7 +522,10 @@ func (s *Service) Rollback(ctx context.Context, actor application.Actor, ref str
 	}
 	rel.Changes.Reverted = []int{}
 	if a.Schema != "" {
-		reverted, err := s.Schema.Rollback(ctx, a.Connection, a.Schema, actorName(actor, a), target.MigrationVersion)
+		// Migrations applied before the schema was added were applied by no
+		// release, and no rollback reverts them (#2539).
+		to := max(target.MigrationVersion, a.SchemaAdoptedVersion)
+		reverted, err := s.Schema.Rollback(ctx, a.Connection, a.Schema, actorName(actor, a), to)
 		if err != nil {
 			return nil, fmt.Errorf("nothing was rolled back: %w", err)
 		}

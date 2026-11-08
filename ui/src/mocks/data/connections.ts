@@ -301,6 +301,16 @@ export const mockAppDBMigrations: Record<string, AppDBMigrationReport> = {
       { connection: "acme-shop", schema: "public", version: 2, event: "applied", actor: "admin@acme.example.com", duration_ms: 41, at: "2025-01-22T10:05:01Z" },
       { connection: "acme-shop", schema: "public", version: 1, event: "applied", actor: "admin@acme.example.com", duration_ms: 18, at: "2025-01-22T10:05:00Z" },
     ],
+    // The application holding the schema, and the connection's schemas with
+    // migrations no application holds (#2539): public is one; the shop
+    // application holds acme-shop/shop.
+    application: "",
+    unheld_schemas: [
+      {
+        schema: "public",
+        add_part: "manage_application add_part application=<name> kind=schema part_id=acme-shop/public",
+      },
+    ],
   },
 };
 

@@ -110,7 +110,7 @@ func (a *analyzer) nodes(s *step) []Node {
 // draws the table it registers.
 var memberCards = map[string]func(*card, *Node){
 	"query":        (*card).query,
-	"execute":      (*card).execute,
+	memberExecute:  (*card).execute,
 	"publish_data": (*card).publishData,
 	"notify":       (*card).notify,
 	"publish":      (*card).publish,
@@ -142,6 +142,12 @@ func (c *card) token(n *Node, title string) {
 // argConnection is the argument a member names its connection in.
 const argConnection = "connection"
 
+// memberExecute is platform.execute's member name, and a transaction's.
+const memberExecute = "execute"
+
+// argSQL is the argument a statement member names its SQL in.
+const argSQL = "sql"
+
 // maxStandIn is the longest source text a {…} stand-in on a card carries.
 const maxStandIn = 26
 
@@ -156,7 +162,8 @@ func (c *card) query(n *Node) {
 		conn = defaultConnection
 	}
 	n.Title = "Query " + conn
-	sql, sqlFull := c.value(c.arg("sql", 0))
+	n.Data = c.dataRef(c.kw[argConnection], c.arg(argSQL, 0))
+	sql, sqlFull := c.value(c.arg(argSQL, 0))
 	tables := tablesIn(sql)
 	n.Detail = shortList(tables, maxDetail)
 	n.Computed = !full || hasHole(tables) || (!sqlFull && len(tables) == 0)
@@ -172,8 +179,9 @@ func (c *card) execute(n *Node) {
 	if c.kw[argConnection] == nil {
 		conn = defaultConnection
 	}
-	c.writeStatement(n, c.arg("sql", 0), conn)
+	c.writeStatement(n, c.arg(argSQL, 0), conn)
 	n.Computed = n.Computed || !full
+	n.Data = c.dataRef(c.kw[argConnection], c.arg(argSQL, 0))
 }
 
 func (c *card) export(n Node) []Node {
@@ -190,6 +198,8 @@ func (c *card) export(n Node) []Node {
 	n.Title = "Export " + strings.ToUpper(format) + " to " + dest
 	n.Subtitle = name
 	n.Computed = !full
+	nameValue, nameFull := c.value(c.arg("name", 0))
+	n.Output = &OutputRef{Kind: KindExport, Name: nameValue, Computed: !nameFull || hasHole([]string{nameValue}), Portal: dest == "portal"}
 	if k, ok := c.kw["key"]; ok {
 		kt, _ := c.value(k)
 		n.Detail = append(n.Detail, kt)
@@ -238,6 +248,7 @@ func (c *card) publishData(n *Node) {
 	n.Role, n.Kind = RoleOutput, KindPublishData
 	name, full := c.value(c.arg("name", 0))
 	n.Title, n.Subtitle, n.Computed = "Refresh data on portal", name, !full
+	n.Output = &OutputRef{Kind: KindPublishData, Name: name, Computed: !full, Portal: true}
 }
 
 func (c *card) notify(n *Node) {
@@ -245,6 +256,7 @@ func (c *card) notify(n *Node) {
 	ch, full := c.value(c.arg("channel", 0))
 	title, _ := c.value(c.arg("title", 1))
 	n.Title, n.Subtitle, n.Computed = "Notify "+ch, title, !full
+	n.Output = &OutputRef{Kind: KindNotify, Name: ch, Computed: !full}
 }
 
 func (c *card) publish(n *Node) {
@@ -252,6 +264,7 @@ func (c *card) publish(n *Node) {
 	ch, full := c.value(c.arg("channel", 0))
 	name, _ := c.value(c.arg("name", 1))
 	n.Title, n.Subtitle, n.Computed = "Post to "+ch, name, !full
+	n.Output = &OutputRef{Kind: KindPublish, Name: ch, Computed: !full}
 }
 
 // maxDetail is how many tables or paths a card lists before "+ n more".
@@ -351,6 +364,7 @@ func (c *card) transaction(n *Node) {
 	}
 	tx, _ := def.Params[0].(*syntax.Ident)
 	n.Detail = c.txStatements(def.Body, nameOf(tx, tx != nil))
+	n.Data = c.dataRef(c.arg(argConnection, 0), txStatementExprs(def.Body, nameOf(tx, tx != nil))...)
 	if len(n.Detail) == 0 {
 		n.Detail = []string{"no statement through tx"}
 	}
@@ -366,9 +380,10 @@ func (c *card) batch(n *Node) {
 		return
 	}
 	for _, e := range list.List {
-		n.Detail = append(n.Detail, c.statementLine("execute", e))
+		n.Detail = append(n.Detail, c.statementLine(memberExecute, e))
 	}
 	n.Detail = shortList(n.Detail, maxDetail)
+	n.Data = c.dataRef(c.arg(argConnection, 0), list.List...)
 }
 
 // txStatements are the statements a transaction's function runs through its
@@ -389,7 +404,7 @@ func (c *card) txStatements(body []syntax.Stmt, tx string) []string {
 				return true
 			}
 			switch dot.Name.Name {
-			case "query", "execute":
+			case "query", memberExecute:
 				out = append(out, c.statementLine(dot.Name.Name, call.Args[0]))
 			case "batch":
 				out = append(out, "batch of statements")
@@ -404,7 +419,7 @@ func (c *card) txStatements(body []syntax.Stmt, tx string) []string {
 // write, the tables of a read.
 func (c *card) statementLine(member string, e syntax.Expr) string {
 	if d, ok := e.(*syntax.DictExpr); ok {
-		e = dictFields(d)["sql"]
+		e = dictFields(d)[argSQL]
 	}
 	sql, full := c.value(e)
 	if m := dmlRe.FindStringSubmatch(sql); m != nil {
