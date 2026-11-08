@@ -39,6 +39,22 @@ func TestRunAs(t *testing.T) {
 	assert.Empty(t, none.runAs("orders"), "no script, or nothing installed, runs as no application")
 }
 
+// TestRunAs_RecordedByTheCaller: an endpoint request records its script's
+// application from the stamp it read, and no statement asks again.
+func TestRunAs_RecordedByTheCaller(t *testing.T) {
+	asked := 0
+	apps := Applications{RunAs: func(context.Context, string, string) string { asked++; return "app_asked" }}
+	ctx := producedby.With(context.Background(), producedby.Producer{Kind: producedby.KindScript, ID: "s1"})
+
+	held := &appdbCaller{ctx: WithRunAs(ctx, "app_1", "orders"), db: &AppDB{Applications: apps}}
+	assert.Equal(t, "app_1", held.runAs("orders"))
+	assert.Empty(t, held.runAs("ledger"), "the application's schema is on another connection")
+
+	inNone := &appdbCaller{ctx: WithRunAs(ctx, "", ""), db: &AppDB{Applications: apps}}
+	assert.Empty(t, inNone.runAs("orders"), "a script in no application runs as no application")
+	assert.Zero(t, asked, "a recorded application is never asked for")
+}
+
 // TestReword names the application holding a schema a statement was refused
 // on, when it is not the script's own (#2539), and leaves every other
 // refusal as the database wrote it.

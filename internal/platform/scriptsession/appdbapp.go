@@ -49,8 +49,23 @@ func scriptOf(ctx context.Context) string {
 	return ""
 }
 
+type runAsKey struct{}
+
+// knownRunAs is the application a caller already read for the session's
+// script, and the connection its schema is on.
+type knownRunAs struct{ app, connection string }
+
+// WithRunAs records on ctx the application the session's script is a part of
+// and the connection its schema is on ("" for none), for a caller that read
+// them already: an endpoint request reads them with its stamp, so none of its
+// statements queries for them.
+func WithRunAs(ctx context.Context, app, connection string) context.Context {
+	return context.WithValue(ctx, runAsKey{}, knownRunAs{app: app, connection: connection})
+}
+
 // runAs is the application whose run role the session's statements on
-// connection log in as, asked once per connection.
+// connection log in as: the one WithRunAs recorded, else asked once per
+// connection.
 func (c *appdbCaller) runAs(connection string) string {
 	c.mu.Lock()
 	if app, ok := c.apps[connection]; ok {
@@ -59,7 +74,11 @@ func (c *appdbCaller) runAs(connection string) string {
 	}
 	c.mu.Unlock()
 	app := ""
-	if c.db.Applications.RunAs != nil {
+	if known, ok := c.ctx.Value(runAsKey{}).(knownRunAs); ok {
+		if known.app != "" && known.connection == connection {
+			app = known.app
+		}
+	} else if c.db.Applications.RunAs != nil {
 		if id := scriptOf(c.ctx); id != "" {
 			app = c.db.Applications.RunAs(c.ctx, id, connection)
 		}

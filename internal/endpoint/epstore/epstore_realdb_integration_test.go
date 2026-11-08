@@ -50,6 +50,8 @@ func TestRealDB_OneBindingPerScriptAndOneScriptPerName(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, st.Binding.IsZero())
 	assert.False(t, st.Script.IsZero())
+	assert.Empty(t, st.Application, "a script in no application")
+	assert.Empty(t, st.AppConnection)
 
 	clash := sample()
 	clash.ScriptID = b.ID
