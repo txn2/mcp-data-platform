@@ -100,9 +100,11 @@ func TestIssue2540_TheDiagramDrawsEveryLinkOfTheApplication(t *testing.T) {
 
 	// A script whose export name the source computes.
 	daily := "acc2540-daily-" + stamp
-	admin.saveScript(map[string]any{"command": "create", "name": daily, "description": "Acceptance #2540: exports a day.",
+	admin.saveScript(map[string]any{
+		"command": "create", "name": daily, "description": "Acceptance #2540: exports a day.",
 		"source": "def main():\n    \"\"\"Exports the day it is given.\"\"\"\n    platform.export(\"daily-\" + run.params[\"d\"], [{\"n\": 1}], \"csv\")\n",
-		"params": []any{map[string]any{"name": "d", "type": "string", "required": true, "description": "The day."}}},
+		"params": []any{map[string]any{"name": "d", "type": "string", "required": true, "description": "The day."}},
+	},
 		map[string]any{"d": "x"})
 	t.Cleanup(func() { _, _, _ = admin.callRaw("manage_script", map[string]any{"command": "delete", "name": daily}) })
 

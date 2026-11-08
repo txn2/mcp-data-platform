@@ -21,6 +21,7 @@ import (
 func TestIssue2490_ANonTransactionalMigrationIsRevertedAlone(t *testing.T) {
 	admin := connect(t)
 	schema := "acc2490_" + unique1579()
+	holdSchema(t, admin, conn2404, schema)
 	schemaCall(admin, schema, map[string]any{
 		"command": "add", "version": 1, "name": "orders",
 		"up": "CREATE TABLE orders (id bigint PRIMARY KEY, status text NOT NULL)", "down": "DROP TABLE orders",
@@ -56,6 +57,7 @@ func TestIssue2490_ANonTransactionalMigrationIsRevertedAlone(t *testing.T) {
 func TestIssue2490_ATransactionalDownThatRunsConcurrentlyIsRefusedAtAdd(t *testing.T) {
 	admin := connect(t)
 	schema := "acc2490_" + unique1579()
+	holdSchema(t, admin, conn2404, schema)
 	text := schemaRefused(t, admin, schema, map[string]any{
 		"command": "add", "version": 1, "name": "bad down",
 		"up": "CREATE TABLE things (id int)", "down": "DROP INDEX CONCURRENTLY IF EXISTS things_idx",

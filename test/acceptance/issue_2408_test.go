@@ -38,6 +38,7 @@ const echo2408 = `def main():
 func outbox2408(t *testing.T, admin *client) string {
 	t.Helper()
 	schema := "acc2408_" + unique1579()
+	holdSchema(t, admin, conn2404, schema)
 	schemaCall(admin, schema, map[string]any{
 		"command": "add", "version": 1, "name": "orders",
 		"up": "CREATE TABLE orders (id int PRIMARY KEY, total numeric(10,2) NOT NULL)",
