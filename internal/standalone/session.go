@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/url"
 	"path"
-	"regexp"
 	"strings"
 	"sync"
 )
@@ -209,22 +208,46 @@ func (s *session) dataRead(u *url.URL, contentType string) {
 //
 // The media type comes from the answering host's Content-Type header, and the
 // URI is written inside a quoted CSS url(), a script's string literal and an
-// attribute. Only a well-formed type/subtype of token characters is carried;
-// anything else (a quote, a space, a parenthesis a host put there) is
-// application/octet-stream, so no header can end the string it is written in.
+// attribute. So the type written is never the header's text: it is looked up
+// in dataTypes, a table of the types a document embeds, and any type not in it
+// is application/octet-stream. No header can end the string it is written in.
 func dataURI(contentType string, body []byte) string {
-	ct := baseType(contentType)
-	if !mediaType.MatchString(ct) {
-		ct = "application/octet-stream"
+	ct, ok := dataTypes[baseType(contentType)]
+	if !ok {
+		ct = octetStream
 	}
 	return "data:" + ct + ";base64," + base64.StdEncoding.EncodeToString(body)
 }
 
-// mediaType is a type/subtype of RFC 6838 restricted-name characters.
-var mediaType = regexp.MustCompile(`^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$`)
+const (
+	octetStream = "application/octet-stream"
+	typeCSS     = "text/css"
+)
+
+// dataTypes are the media types a data: URI is written with, each mapped to
+// itself: the value written is this table's constant, not the header's text.
+var dataTypes = func() map[string]string {
+	types := []string{
+		"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml",
+		"image/bmp", "image/x-icon", "image/vnd.microsoft.icon", "image/apng",
+		"font/woff", "font/woff2", "font/ttf", "font/otf", "font/collection",
+		"application/font-woff", "application/font-woff2", "application/x-font-ttf",
+		"application/x-font-otf", "application/vnd.ms-fontobject",
+		typeCSS, "text/csv", "text/plain", "text/javascript", "application/javascript",
+		"application/json", "application/pdf",
+		"audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/aac", "audio/flac",
+		"video/mp4", "video/webm", "video/ogg",
+		"text/vtt",
+	}
+	m := make(map[string]string, len(types))
+	for _, t := range types {
+		m[t] = t
+	}
+	return m
+}()
 
 // Media families.
-func isCSS(ct string) bool { return baseType(ct) == "text/css" }
+func isCSS(ct string) bool { return baseType(ct) == typeCSS }
 
 // embeddable is a media type a document shows rather than reads: what a data:
 // URI in an element or a stylesheet carries.
@@ -234,7 +257,7 @@ func embeddable(ct string) bool {
 	case strings.HasPrefix(t, "image/"), strings.HasPrefix(t, "font/"),
 		strings.HasPrefix(t, "audio/"), strings.HasPrefix(t, "video/"),
 		strings.HasPrefix(t, "application/font-"), strings.HasPrefix(t, "application/x-font-"),
-		t == "application/vnd.ms-fontobject", t == "text/css":
+		t == "application/vnd.ms-fontobject", t == typeCSS:
 		return true
 	}
 	return false
@@ -249,7 +272,7 @@ func (s *session) inlineAsset(ctx context.Context, base *url.URL, ref string) st
 		return ""
 	}
 	if isCSS(f.contentType) {
-		return dataURI("text/css", []byte(s.css(ctx, f.u, string(f.body), 0)))
+		return dataURI(typeCSS, []byte(s.css(ctx, f.u, string(f.body), 0)))
 	}
 	return dataURI(f.contentType, f.body)
 }

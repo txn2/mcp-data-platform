@@ -42,7 +42,10 @@ func (s *session) css(ctx context.Context, base *url.URL, text string, depth int
 			return tok
 		}
 		if data := s.inlineAsset(ctx, base, m[2]); data != "" {
-			return `url("` + data + `")`
+			// A data: URI carries no quote (dataURI writes a type from its
+			// own table and base64), and any that reached here would be
+			// escaped rather than end the string.
+			return `url("` + strings.ReplaceAll(data, `"`, "%22") + `")`
 		}
 		return tok
 	})
